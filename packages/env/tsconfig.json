@@ -1,0 +1,3 @@
+{
+  "extends": "@eragear-code-copilot/config/tsconfig.base.json"
+}
