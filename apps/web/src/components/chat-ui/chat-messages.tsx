@@ -26,32 +26,43 @@ import {
 } from "@/components/ai-elements/tool";
 import type { ToolUIPart } from "ai";
 
+export type TextPart = {
+	type: "text";
+	content: string;
+};
+
+export type ToolPart = {
+	type: "tool";
+	toolCallId: string;
+	requestId?: string;
+	name: string;
+	description: string;
+	status: ToolUIPart["state"];
+	parameters: Record<string, unknown>;
+	result: string | undefined;
+	error: string | undefined;
+	options?: any[];
+};
+
+export type PlanPart = {
+	type: "plan";
+	entries: { content: string; status: string }[];
+};
+
+export type MessagePart = TextPart | ToolPart | PlanPart;
+
 export type MessageType = {
 	key: string;
 	from: "user" | "assistant";
 	sources?: { href: string; title: string }[];
 	versions: {
 		id: string;
-		content: string;
+		parts: MessagePart[];
 	}[];
 	reasoning?: {
 		content: string;
 		duration: number;
 	};
-	plan?: {
-		entries: { content: string; status: string }[];
-	};
-	tools?: {
-		toolCallId: string;
-		requestId?: string;
-		name: string;
-		description: string;
-		status: ToolUIPart["state"];
-		parameters: Record<string, unknown>;
-		result: string | undefined;
-		error: string | undefined;
-		options?: any[];
-	}[];
 };
 
 export type ChatMessagesProps = {
@@ -96,146 +107,158 @@ export function ChatMessages({
 											</Reasoning>
 										)}
 										<MessageContent>
-											<MessageResponse>{version.content}</MessageResponse>
+											{version.parts.map((part, index) => {
+												if (part.type === "text") {
+													return (
+														<MessageResponse key={index}>
+															{part.content}
+														</MessageResponse>
+													);
+												}
 
-											{/* Agent Plan */}
-											{message.plan && message.plan.entries.length > 0 && (
-												<div className="mt-4 rounded-md border bg-muted/40 p-3">
-													<div className="mb-2 font-medium text-sm">Plan</div>
-													<div className="space-y-2">
-														{message.plan.entries.map((entry, i) => (
-															<div
-																key={i}
-																className="flex items-start gap-2 text-sm"
-															>
-																<div className="mt-0.5">
-																	{entry.status === "completed" ? (
-																		<CheckIcon className="size-3.5 text-green-500" />
-																	) : entry.status === "in_progress" ? (
-																		<Loader2Icon className="size-3.5 animate-spin text-blue-500" />
-																	) : (
-																		<CircleIcon className="size-3.5 text-muted-foreground" />
-																	)}
-																</div>
-																<span
-																	className={cn(
-																		entry.status === "completed" &&
-																			"text-muted-foreground line-through",
-																	)}
-																>
-																	{entry.content}
-																</span>
+												if (part.type === "plan") {
+													return (
+														<div
+															key={index}
+															className="mb-4 rounded-md border bg-muted/40 p-3"
+														>
+															<div className="mb-2 font-medium text-sm">
+																Plan
 															</div>
-														))}
-													</div>
-												</div>
-											)}
-
-											{message.tools && message.tools.length > 0 && (
-												<div className="mt-4 space-y-2">
-													{message.tools.map((tool, index) => (
-														<Tool key={`${tool.toolCallId}-${index}`}>
-															<ToolHeader
-																type="tool-call"
-																title={tool.name}
-																state={tool.status}
-															/>
-															<ToolContent>
-																<ToolInput input={tool.parameters} />
-																<Confirmation
-																	state={tool.status}
-																	approval={{ id: tool.toolCallId }}
-																>
-																	<ConfirmationRequest>
-																		<ConfirmationTitle>
-																			Requesting permission to execute
-																		</ConfirmationTitle>
-																		<ConfirmationActions>
-																			{/* Check if we have specific options */}
-																			{tool.options &&
-																			tool.options.length > 0 ? (
-																				tool.options.map((opt: any) => (
-																					<ConfirmationAction
-																						key={opt.optionId || opt.id}
-																						onClick={() => {
-																							// We need to pass the decision back
-																							// Our current callback onApprove/onReject only takes requestId
-																							// We might need to update the callback signature or infer 'allow'/'reject'
-
-																							// Heuristic mapping for frontend:
-																							const id = String(
-																								opt.optionId || opt.id || "",
-																							).toLowerCase();
-																							const isAllow =
-																								id === "allow" ||
-																								id === "yes" ||
-																								id === "allow_once";
-
-																							if (isAllow) {
-																								tool.requestId &&
-																									onApprove?.(
-																										tool.requestId,
-																										opt.optionId || opt.id,
-																									);
-																							} else {
-																								tool.requestId &&
-																									onReject?.(
-																										tool.requestId,
-																										opt.optionId || opt.id,
-																									);
-																							}
-																						}}
-																						variant={
-																							String(
-																								opt.optionId || opt.id,
-																							).includes("allow") ||
-																							String(
-																								opt.optionId || opt.id,
-																							).includes("yes")
-																								? "default"
-																								: "outline"
-																						}
-																					>
-																						{opt.name ||
-																							opt.label ||
-																							opt.title ||
-																							"Option"}
-																					</ConfirmationAction>
-																				))
+															<div className="space-y-2">
+																{part.entries.map((entry, i) => (
+																	<div
+																		key={i}
+																		className="flex items-start gap-2 text-sm"
+																	>
+																		<div className="mt-0.5">
+																			{entry.status === "completed" ? (
+																				<CheckIcon className="size-3.5 text-green-500" />
+																			) : entry.status === "in_progress" ? (
+																				<Loader2Icon className="size-3.5 animate-spin text-blue-500" />
 																			) : (
-																				// Default fallback
-																				<>
-																					<ConfirmationAction
-																						onClick={() =>
-																							tool.requestId &&
-																							onReject?.(tool.requestId)
-																						}
-																						variant="outline"
-																					>
-																						Reject
-																					</ConfirmationAction>
-																					<ConfirmationAction
-																						onClick={() =>
-																							tool.requestId &&
-																							onApprove?.(tool.requestId)
-																						}
-																					>
-																						Allow
-																					</ConfirmationAction>
-																				</>
+																				<CircleIcon className="size-3.5 text-muted-foreground" />
 																			)}
-																		</ConfirmationActions>
-																	</ConfirmationRequest>
-																</Confirmation>
-																<ToolOutput
-																	output={tool.result}
-																	errorText={tool.error}
+																		</div>
+																		<span
+																			className={cn(
+																				entry.status === "completed" &&
+																					"text-muted-foreground line-through",
+																			)}
+																		>
+																			{entry.content}
+																		</span>
+																	</div>
+																))}
+															</div>
+														</div>
+													);
+												}
+
+												if (part.type === "tool") {
+													const tool = part;
+													return (
+														<div key={index} className="mb-4 space-y-2">
+															<Tool key={tool.toolCallId}>
+																<ToolHeader
+																	type="tool-call"
+																	title={tool.name}
+																	state={tool.status}
 																/>
-															</ToolContent>
-														</Tool>
-													))}
-												</div>
-											)}
+																<ToolContent>
+																	<ToolInput input={tool.parameters} />
+																	<Confirmation
+																		state={tool.status}
+																		approval={{ id: tool.toolCallId }}
+																	>
+																		<ConfirmationRequest>
+																			<ConfirmationTitle>
+																				Requesting permission to execute
+																			</ConfirmationTitle>
+																			<ConfirmationActions>
+																				{/* Check if we have specific options */}
+																				{tool.options &&
+																				tool.options.length > 0 ? (
+																					tool.options.map((opt: any) => (
+																						<ConfirmationAction
+																							key={opt.optionId || opt.id}
+																							onClick={() => {
+																								// Heuristic mapping for frontend:
+																								const id = String(
+																									opt.optionId || opt.id || "",
+																								).toLowerCase();
+																								const isAllow =
+																									id === "allow" ||
+																									id === "yes" ||
+																									id === "allow_once";
+
+																								if (isAllow) {
+																									tool.requestId &&
+																										onApprove?.(
+																											tool.requestId,
+																											opt.optionId || opt.id,
+																										);
+																								} else {
+																									tool.requestId &&
+																										onReject?.(
+																											tool.requestId,
+																											opt.optionId || opt.id,
+																										);
+																								}
+																							}}
+																							variant={
+																								String(
+																									opt.optionId || opt.id,
+																								).includes("allow") ||
+																								String(
+																									opt.optionId || opt.id,
+																								).includes("yes")
+																									? "default"
+																									: "outline"
+																							}
+																						>
+																							{opt.name ||
+																								opt.label ||
+																								opt.title ||
+																								"Option"}
+																						</ConfirmationAction>
+																					))
+																				) : (
+																					// Default fallback
+																					<>
+																						<ConfirmationAction
+																							onClick={() =>
+																								tool.requestId &&
+																								onReject?.(tool.requestId)
+																							}
+																							variant="outline"
+																						>
+																							Reject
+																						</ConfirmationAction>
+																						<ConfirmationAction
+																							onClick={() =>
+																								tool.requestId &&
+																								onApprove?.(tool.requestId)
+																							}
+																						>
+																							Allow
+																						</ConfirmationAction>
+																					</>
+																				)}
+																			</ConfirmationActions>
+																		</ConfirmationRequest>
+																	</Confirmation>
+																	<ToolOutput
+																		output={tool.result}
+																		errorText={tool.error}
+																	/>
+																</ToolContent>
+															</Tool>
+														</div>
+													);
+												}
+												return null;
+											})}
 										</MessageContent>
 									</div>
 								</Message>

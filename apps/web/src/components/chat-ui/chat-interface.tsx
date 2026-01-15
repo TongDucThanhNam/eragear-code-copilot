@@ -6,6 +6,7 @@ import { ChatInput } from "@/components/chat-ui/chat-input";
 import {
 	ChatMessages,
 	type MessageType,
+	type ToolPart,
 } from "@/components/chat-ui/chat-messages";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { trpc } from "@/lib/trpc";
@@ -237,7 +238,12 @@ export function ChatInterface({
 						{
 							key: nanoid(),
 							from: "assistant" as const,
-							versions: [{ id: nanoid(), content: `❌ Error: ${event.error}` }],
+							versions: [
+								{
+									id: nanoid(),
+									parts: [{ type: "text", content: `❌ Error: ${event.error}` }],
+								},
+							],
 						},
 					]);
 				} else if (event.type === "heartbeat") {
@@ -257,7 +263,8 @@ export function ChatInterface({
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
 				if (lastMsg && lastMsg.from === "assistant") {
-					const newTool = {
+					const newTool: ToolPart = {
+						type: "tool",
 						toolCallId: tool.toolCallId,
 						name: tool.title || tool.kind || "Tool",
 						description: tool.kind,
@@ -271,11 +278,13 @@ export function ChatInterface({
 						result: undefined,
 						error: undefined,
 					};
-					const newLastMsg = {
-						...lastMsg,
-						tools: [...(lastMsg.tools || []), newTool],
-					};
-					return [...prev.slice(0, -1), newLastMsg];
+
+					const versions = [...lastMsg.versions];
+					const lastVersion = { ...versions[versions.length - 1] };
+					lastVersion.parts = [...lastVersion.parts, newTool];
+					versions[versions.length - 1] = lastVersion;
+
+					return [...prev.slice(0, -1), { ...lastMsg, versions }];
 				}
 				return prev;
 			});
@@ -287,13 +296,18 @@ export function ChatInterface({
 		(update: any) => {
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
-				if (lastMsg && lastMsg.tools) {
-					const toolIndex = lastMsg.tools.findIndex(
-						(t) => t.toolCallId === update.toolCallId,
+				if (lastMsg && lastMsg.from === "assistant") {
+					const versions = [...lastMsg.versions];
+					const lastVersion = { ...versions[versions.length - 1] };
+					const parts = [...lastVersion.parts];
+
+					// Find the tool in parts
+					const partIndex = parts.findIndex(
+						(p) => p.type === "tool" && p.toolCallId === update.toolCallId,
 					);
-					if (toolIndex !== -1) {
-						const tools = [...lastMsg.tools];
-						const tool = tools[toolIndex];
+
+					if (partIndex !== -1) {
+						const tool = { ...(parts[partIndex] as ToolPart) };
 
 						// Update status
 						if (update.status) {
@@ -313,8 +327,10 @@ export function ChatInterface({
 							tool.result = textContent;
 						}
 
-						tools[toolIndex] = tool;
-						return [...prev.slice(0, -1), { ...lastMsg, tools }];
+						parts[partIndex] = tool;
+						lastVersion.parts = parts;
+						versions[versions.length - 1] = lastVersion;
+						return [...prev.slice(0, -1), { ...lastMsg, versions }];
 					}
 				}
 				return prev;
@@ -328,17 +344,35 @@ export function ChatInterface({
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
 				if (lastMsg && lastMsg.from === "assistant") {
-					const newLastMsg = {
-						...lastMsg,
-						plan: { entries },
-					};
-					return [...prev.slice(0, -1), newLastMsg];
+					const versions = [...lastMsg.versions];
+					const lastVersion = { ...versions[versions.length - 1] };
+					const parts = [...lastVersion.parts];
+
+					// Check if last part is already a plan, if so update it, otherwise push new
+					const lastPart = parts[parts.length - 1];
+					if (lastPart && lastPart.type === "plan") {
+						parts[parts.length - 1] = { ...lastPart, entries };
+					} else {
+						parts.push({ type: "plan", entries });
+					}
+
+					lastVersion.parts = parts;
+					versions[versions.length - 1] = lastVersion;
+
+					return [...prev.slice(0, -1), { ...lastMsg, versions }];
 				} else {
+					// Should probably start a new message if last wasn't assistant,
+					// but usually plan comes after some text or as first thing.
+					// If no message, create one.
 					const newMsg: MessageType = {
 						key: nanoid(),
 						from: "assistant",
-						versions: [{ id: nanoid(), content: "" }],
-						plan: { entries },
+						versions: [
+							{
+								id: nanoid(),
+								parts: [{ type: "plan", entries }],
+							},
+						],
 					};
 					return [...prev, newMsg];
 				}
@@ -351,20 +385,27 @@ export function ChatInterface({
 		(requestId: string, toolCall: any, options?: unknown[]) => {
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
-				if (lastMsg && lastMsg.tools) {
+				if (lastMsg && lastMsg.from === "assistant") {
+					const versions = [...lastMsg.versions];
+					const lastVersion = { ...versions[versions.length - 1] };
+					const parts = [...lastVersion.parts];
+
 					const targetId = (toolCall as any).toolCallId;
-					const toolIndex = lastMsg.tools.findIndex(
-						(t) => t.toolCallId === targetId,
+					const partIndex = parts.findIndex(
+						(p) => p.type === "tool" && p.toolCallId === targetId,
 					);
-					if (toolIndex !== -1) {
-						const tools = [...lastMsg.tools];
-						tools[toolIndex] = {
-							...tools[toolIndex],
+
+					if (partIndex !== -1) {
+						parts[partIndex] = {
+							...parts[partIndex],
 							status: "approval-requested" as const,
 							requestId: requestId,
 							options: options,
-						};
-						return [...prev.slice(0, -1), { ...lastMsg, tools }];
+						} as ToolPart;
+
+						lastVersion.parts = parts;
+						versions[versions.length - 1] = lastVersion;
+						return [...prev.slice(0, -1), { ...lastMsg, versions }];
 					}
 				}
 				return prev;
@@ -402,28 +443,34 @@ export function ChatInterface({
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
 				if (lastMsg && lastMsg.from === "assistant") {
-					const currentContent = lastMsg.versions[0].content;
-					let newContent = "";
-					if (
-						currentContent &&
-						chunk.startsWith(currentContent) &&
-						chunk.length > currentContent.length
-					) {
-						newContent = chunk;
+					const versions = [...lastMsg.versions];
+					const lastVersion = { ...versions[versions.length - 1] };
+					const parts = [...lastVersion.parts];
+
+					const lastPart = parts[parts.length - 1];
+					if (lastPart && lastPart.type === "text") {
+						// Append to last text part
+						const newContent = lastPart.content + chunk; // Simple append for now
+						parts[parts.length - 1] = { ...lastPart, content: newContent };
 					} else {
-						newContent = currentContent + chunk;
+						// New text part
+						parts.push({ type: "text", content: chunk });
 					}
 
-					const newLastMsg = {
-						...lastMsg,
-						versions: [{ ...lastMsg.versions[0], content: newContent }],
-					};
-					return [...prev.slice(0, -1), newLastMsg];
+					lastVersion.parts = parts;
+					versions[versions.length - 1] = lastVersion;
+
+					return [...prev.slice(0, -1), { ...lastMsg, versions }];
 				} else {
 					const newMsg: MessageType = {
 						key: nanoid(),
 						from: "assistant",
-						versions: [{ id: nanoid(), content: chunk }],
+						versions: [
+							{
+								id: nanoid(),
+								parts: [{ type: "text", content: chunk }],
+							},
+						],
 					};
 					return [...prev, newMsg];
 				}
@@ -453,7 +500,12 @@ export function ChatInterface({
 					const newMsg: MessageType = {
 						key: nanoid(),
 						from: "assistant",
-						versions: [{ id: nanoid(), content: "" }],
+						versions: [
+							{
+								id: nanoid(),
+								parts: [], // Empty parts, reasoning is separate property
+							},
+						],
 						reasoning: {
 							content: chunk,
 							duration: 0,
@@ -626,9 +678,16 @@ export function ChatInterface({
 				versions: [
 					{
 						id: `user-${Date.now()}`,
-						content:
-							content +
-							(images?.length ? `\n\n[Attached ${images.length} image(s)]` : ""),
+						parts: [
+							{
+								type: "text",
+								content:
+									content +
+									(images?.length
+										? `\n\n[Attached ${images.length} image(s)]`
+										: ""),
+							},
+						],
 					},
 				],
 			};
@@ -648,7 +707,12 @@ export function ChatInterface({
 						{
 							key: nanoid(),
 							from: "assistant",
-							versions: [{ id: nanoid(), content: "🚫 Generation cancelled." }],
+							versions: [
+								{
+									id: nanoid(),
+									parts: [{ type: "text", content: "🚫 Generation cancelled." }],
+								},
+							],
 						},
 					]);
 				} else if (res.stopReason === "max_tokens") {
@@ -657,7 +721,12 @@ export function ChatInterface({
 						{
 							key: nanoid(),
 							from: "assistant",
-							versions: [{ id: nanoid(), content: "⚠️ Max tokens reached." }],
+							versions: [
+								{
+									id: nanoid(),
+									parts: [{ type: "text", content: "⚠️ Max tokens reached." }],
+								},
+							],
 						},
 					]);
 				}
