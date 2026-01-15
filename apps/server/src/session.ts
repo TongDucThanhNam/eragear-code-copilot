@@ -7,7 +7,6 @@ import {
 	chats,
 	broadcastToSession,
 	type ChatSession,
-	type ConnWithUnstableModel,
 } from "./state";
 
 function fileUriToPath(uri: string) {

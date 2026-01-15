@@ -1,12 +1,12 @@
 import { initTRPC } from "@trpc/server";
 import { observable } from "@trpc/server/observable";
 import { z } from "zod";
+import { createChatSession } from "./session";
 import {
 	chats,
-	type ConnWithUnstableModel,
 	type BroadcastEvent,
+	type ConnWithUnstableModel,
 } from "./state";
-import { createChatSession } from "./session";
 
 const t = initTRPC.create();
 
@@ -47,7 +47,7 @@ export const appRouter = t.router({
 			if (!session) throw new Error("Chat not found");
 
 			const projectRoot = session.projectRoot;
-			const { readdir, stat } = await import("node:fs/promises");
+			const { readdir } = await import("node:fs/promises");
 			const { join, relative } = await import("node:path");
 
 			const projectRules: { path: string; location: string }[] = [];
@@ -78,29 +78,26 @@ export const appRouter = t.router({
 
 			await scanDir(projectRoot);
 
-			// Check for common files for "Active Tabs" simulation
-			const commonFiles = [
-				"README.md",
-				"package.json",
-				"tsconfig.json",
-				"src/index.ts",
-				"src/App.tsx",
-				"src/main.tsx",
-			];
-
-			for (const file of commonFiles) {
-				try {
-					const fullPath = join(projectRoot, file);
-					await stat(fullPath);
-					activeTabs.push({ path: file });
-				} catch {
-					// ignore
-				}
-			}
+			// Active Tabs: currently empty until fully implemented
+			// const commonFiles = [...];
+			// activeTabs logic removed per user request
 
 			return {
 				projectRules,
 				activeTabs,
+			};
+		}),
+
+	getSessionState: t.procedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ input }) => {
+			const session = chats.get(input.chatId);
+			if (!session) throw new Error("Chat not found");
+
+			return {
+				modes: session.modes,
+				models: session.models,
+				commands: session.commands,
 			};
 		}),
 

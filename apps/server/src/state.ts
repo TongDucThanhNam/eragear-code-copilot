@@ -1,6 +1,6 @@
-import { type ChildProcess } from "node:child_process";
-import { ClientSideConnection } from "@agentclientprotocol/sdk";
-import { EventEmitter } from "node:events";
+import type { ClientSideConnection } from "@agentclientprotocol/sdk";
+import type { ChildProcess } from "node:child_process";
+import type { EventEmitter } from "node:events";
 
 export type RunState = {
 	id: string;

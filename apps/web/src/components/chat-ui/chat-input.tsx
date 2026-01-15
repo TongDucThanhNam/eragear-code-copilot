@@ -124,7 +124,7 @@ export function ChatInput({
 	);
 
 	return (
-		<div className="w-full px-4 pb-4">
+		<div className="w-full px-4 py-4">
 			<PromptInputProvider>
 				<PromptInput globalDrop multiple onSubmit={onSubmit}>
 					<PromptInputHeader>
