@@ -3,11 +3,12 @@ import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import { ClientSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
 import { EventEmitter } from "node:events";
+import { chats, broadcastToSession, type ChatSession } from "./state";
 import {
-	chats,
-	broadcastToSession,
-	type ChatSession,
-} from "./state";
+	saveSession,
+	updateSessionMetadata,
+	updateSessionStatus,
+} from "./store";
 
 function fileUriToPath(uri: string) {
 	if (uri.startsWith("file://"))
@@ -21,6 +22,7 @@ export type CreateSessionParams = {
 	args?: string[];
 	env?: Record<string, string>;
 	cwd?: string;
+	chatId?: string;
 };
 
 export async function createChatSession(params: CreateSessionParams) {
@@ -29,7 +31,9 @@ export async function createChatSession(params: CreateSessionParams) {
 	const agentArgs = params.args ?? ["acp"];
 	const agentEnv = params.env ?? {};
 
-	const chatId = `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+	const chatId =
+		params.chatId ??
+		`chat-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 	// Spawn agent process
 	const proc = spawn(agentCmd, agentArgs, {
@@ -49,6 +53,7 @@ export async function createChatSession(params: CreateSessionParams) {
 				if (session && session.modes) {
 					session.modes.currentModeId = u.modeId;
 				}
+				updateSessionMetadata(chatId, { modeId: u.modeId });
 				console.log(`[Server] Received mode update: ${u.modeId}`);
 				broadcastToSession(chatId, {
 					type: "current_mode_update",
@@ -144,6 +149,7 @@ export async function createChatSession(params: CreateSessionParams) {
 			type: "error",
 			error: `Agent process error: ${err.message}`,
 		});
+		updateSessionStatus(chatId, "stopped");
 	});
 
 	proc.on("exit", (code) => {
@@ -155,6 +161,8 @@ export async function createChatSession(params: CreateSessionParams) {
 			error: `Agent process exited with code ${code}`,
 		});
 
+		updateSessionStatus(chatId, "stopped");
+
 		const s = chats.get(chatId);
 		if (s) {
 			// clean up legacy clients
@@ -165,6 +173,22 @@ export async function createChatSession(params: CreateSessionParams) {
 			}
 			chats.delete(chatId);
 		}
+	});
+
+	// Save to store
+	saveSession({
+		id: chatId,
+		sessionId,
+		projectRoot,
+		command: agentCmd,
+		args: agentArgs,
+		env: agentEnv,
+		cwd: sessionCwd,
+		status: "running",
+		createdAt: Date.now(),
+		lastActiveAt: Date.now(),
+		modeId: modes?.currentModeId,
+		modelId: models?.currentModelId,
 	});
 
 	return { chatId, sessionId, modes, models };

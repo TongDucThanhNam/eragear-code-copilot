@@ -34,10 +34,16 @@ function ChatPage() {
 		>
 			<AppSidebar variant="inset" />
 			<SidebarInset>
-				<ChatInterface
-					initialChatId={urlChatId}
-					onChatIdChange={handleChatIdChange}
-				/>
+				<div className="flex flex-1 flex-col min-w-0">
+					<div className="@container/main flex flex-1 flex-col gap-2 min-w-0">
+						<div className="flex flex-col gap-4 md:gap-6 min-w-0 h-full">
+							<ChatInterface
+								initialChatId={urlChatId}
+								onChatIdChange={handleChatIdChange}
+							/>
+						</div>
+					</div>
+				</div>
 			</SidebarInset>
 		</SidebarProvider>
 	);

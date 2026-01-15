@@ -7,6 +7,12 @@ import {
 	type BroadcastEvent,
 	type ConnWithUnstableModel,
 } from "./state";
+import {
+	deleteSession,
+	getSession,
+	loadSessions,
+	updateSessionStatus,
+} from "./store";
 
 const t = initTRPC.create();
 
@@ -33,10 +39,52 @@ export const appRouter = t.router({
 		.input(z.object({ chatId: z.string() }))
 		.mutation(async ({ input }) => {
 			const session = chats.get(input.chatId);
-			if (!session) return { ok: false, error: "Chat not found" };
+			if (session) {
+				console.log(`[tRPC] Stopping session ${input.chatId}`);
+				session.proc.kill();
+			}
+			updateSessionStatus(input.chatId, "stopped");
+			return { ok: true };
+		}),
 
-			console.log(`[tRPC] Stopping session ${input.chatId}`);
-			session.proc.kill();
+	resumeSession: t.procedure
+		.input(z.object({ chatId: z.string() }))
+		.mutation(async ({ input }) => {
+			const stored = getSession(input.chatId);
+			if (!stored) {
+				throw new Error("Session not found in store");
+			}
+
+			// Check if already running
+			if (chats.has(input.chatId)) {
+				return { ok: true, alreadyRunning: true };
+			}
+
+			console.log(`[tRPC] Resuming session ${input.chatId}`);
+			// Start new process with same config, reusing ID
+			await createChatSession({
+				projectRoot: stored.projectRoot,
+				command: stored.command,
+				args: stored.args,
+				env: stored.env,
+				cwd: stored.cwd,
+				chatId: stored.id,
+			});
+
+			return { ok: true };
+		}),
+
+	deleteSession: t.procedure
+		.input(z.object({ chatId: z.string() }))
+		.mutation(async ({ input }) => {
+			const session = chats.get(input.chatId);
+			if (session) {
+				session.proc.kill();
+			}
+			deleteSession(input.chatId);
+			if (chats.has(input.chatId)) {
+				chats.delete(input.chatId);
+			}
 			return { ok: true };
 		}),
 
@@ -100,6 +148,23 @@ export const appRouter = t.router({
 				commands: session.commands,
 			};
 		}),
+
+	getSessions: t.procedure.query(() => {
+		const storedSessions = loadSessions();
+		// We prioritize active sessions from memory (though they should be synced to store)
+		// Actually store is the source of truth for list.
+		// Active sessions just add "active state" details if needed?
+		// For list, store is enough.
+		// But let's merge status from memory if disparate?
+		// store.ts updates status on exit, so store should be accurate.
+
+		return storedSessions.map((s) => ({
+			id: s.id,
+			projectRoot: s.projectRoot,
+			modeId: s.modeId,
+			status: s.status,
+		}));
+	}),
 
 	// --- Interaction ---
 

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "chat-1768464337917-6cca50e1a278a",
+    "sessionId": "ses_43f4fb0c3ffevX3zi1tb5Arr8F",
+    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "command": "opencode",
+    "args": [
+      "acp"
+    ],
+    "env": {},
+    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "status": "stopped",
+    "createdAt": 1768464338763,
+    "lastActiveAt": 1768464396864,
+    "modeId": "build",
+    "modelId": "opencode/big-pickle"
+  },
+  {
+    "id": "chat-1768465494406-baf0ba939e4e88",
+    "sessionId": "86fd7346-0476-4564-9b95-1cbd73a1cf68",
+    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "command": "claude-code-acp",
+    "args": [],
+    "env": {},
+    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "status": "running",
+    "createdAt": 1768465512589,
+    "lastActiveAt": 1768465512589,
+    "modeId": "default",
+    "modelId": "default"
+  }
+]

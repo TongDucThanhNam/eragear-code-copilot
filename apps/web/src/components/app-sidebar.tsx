@@ -1,22 +1,14 @@
 "use client";
 
+import { trpc } from "@/lib/trpc";
 import * as React from "react";
 import {
-	IconCamera,
-	IconChartBar,
 	IconDashboard,
-	IconDatabase,
 	IconFileAi,
-	IconFileDescription,
-	IconFileWord,
-	IconFolder,
 	IconHelp,
 	IconInnerShadowTop,
-	IconListDetails,
-	IconReport,
 	IconSearch,
 	IconSettings,
-	IconUsers,
 } from "@tabler/icons-react";
 
 import { NavDocuments } from "@/components/nav-documents";
@@ -80,6 +72,16 @@ const data = {
 };
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+	const { data: sessions } = trpc.getSessions.useQuery(undefined, {
+		refetchInterval: 5000,
+	});
+
+	const sessionDocuments = (sessions || []).map((s) => ({
+		name: s.modeId ? `Session (${s.modeId})` : `Session ${s.id.slice(0, 8)}`,
+		url: `/?chatId=${s.id}`,
+		icon: IconFileAi,
+	}));
+
 	return (
 		<Sidebar collapsible="icon" {...props}>
 			<SidebarHeader>
@@ -89,7 +91,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 							asChild
 							className="data-[slot=sidebar-menu-button]:!p-1.5"
 						>
-							<a href="#">
+							<a href="/#">
 								<IconInnerShadowTop className="!size-5" />
 								<span className="text-base font-semibold">Eragear Copilot</span>
 							</a>
@@ -99,7 +101,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 			</SidebarHeader>
 			<SidebarContent>
 				<NavMain items={data.navMain} />
-				<NavDocuments items={data.documents} />
+				<NavDocuments items={sessionDocuments} />
 				<NavSecondary items={data.navSecondary} className="mt-auto" />
 			</SidebarContent>
 			<SidebarFooter>

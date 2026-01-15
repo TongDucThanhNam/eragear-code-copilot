@@ -8,6 +8,7 @@ import {
 	Globe as GlobeIcon,
 	Ruler as RulerIcon,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { type RefObject, useState } from "react";
 import {
 	ModelSelector,
@@ -18,6 +19,7 @@ import {
 	ModelSelectorItem,
 	ModelSelectorList,
 	ModelSelectorLogo,
+	ModelSelectorLogoGroup,
 	ModelSelectorName,
 	ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
@@ -110,17 +112,20 @@ export function ChatInput({
 		return "opencode"; // default
 	};
 
-	const groupedModels = availableModels.reduce(
-		(acc, model) => {
-			const provider = getProviderFromModelId(model.modelId);
-			if (!acc[provider]) acc[provider] = [];
-			acc[provider].push(model);
-			return acc;
-		},
-		{} as Record<
-			string,
-			{ modelId: string; name: string; description?: string }[]
-		>,
+	const modelsWithDetails = availableModels.map((m) => {
+		const providerSlug = getProviderFromModelId(m.modelId);
+		return {
+			...m,
+			id: m.modelId,
+			chef: providerSlug.toUpperCase(),
+			chefSlug: providerSlug,
+			providers: [providerSlug],
+		};
+	});
+
+	const chefs = Array.from(new Set(modelsWithDetails.map((m) => m.chef)));
+	const selectedModelData = modelsWithDetails.find(
+		(m) => m.id === currentModelId,
 	);
 
 	return (
@@ -286,60 +291,65 @@ export function ChatInput({
 
 							{connStatus === "connected" && availableModels.length > 0 && (
 								<ModelSelector
-									open={modelSelectorOpen}
 									onOpenChange={setModelSelectorOpen}
+									open={modelSelectorOpen}
 								>
-									<ModelSelectorTrigger
-										render={
-											<PromptInputButton className="gap-1.5 px-2 min-w-[100px]">
+									<ModelSelectorTrigger asChild>
+										<Button
+											className="w-[200px] justify-between h-8"
+											variant="outline"
+										>
+											{selectedModelData?.chefSlug && (
 												<ModelSelectorLogo
-													provider={getProviderFromModelId(
-														currentModelId || "",
-													)}
+													provider={selectedModelData.chefSlug}
 												/>
+											)}
+											{selectedModelData?.name && (
 												<ModelSelectorName>
-													{availableModels.find(
-														(m) => m.modelId === currentModelId,
-													)?.name || "Select Model"}
+													{selectedModelData.name}
 												</ModelSelectorName>
-												<ChevronDown className="h-3.5 w-3.5 opacity-50" />
-											</PromptInputButton>
-										}
-									/>
-									<ModelSelectorContent title="Select Assistant Model">
+											)}
+											<ChevronDown className="h-4 w-4 opacity-50 ml-auto" />
+										</Button>
+									</ModelSelectorTrigger>
+									<ModelSelectorContent>
 										<ModelSelectorInput placeholder="Search models..." />
 										<ModelSelectorList>
 											<ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-											{Object.entries(groupedModels).map(
-												([provider, models]) => (
-													<ModelSelectorGroup
-														key={provider}
-														heading={provider.toUpperCase()}
-													>
-														{models.map((m) => (
+											{chefs.map((chef) => (
+												<ModelSelectorGroup heading={chef} key={chef}>
+													{modelsWithDetails
+														.filter((model) => model.chef === chef)
+														.map((model) => (
 															<ModelSelectorItem
-																key={m.modelId}
+																key={model.id}
 																onSelect={() => {
-																	onModelChange(m.modelId);
+																	onModelChange(model.id);
 																	setModelSelectorOpen(false);
 																}}
-																value={m.modelId}
-																className="gap-2"
+																value={model.id}
 															>
-																<ModelSelectorLogo
-																	provider={getProviderFromModelId(m.modelId)}
-																/>
-																<ModelSelectorName>{m.name}</ModelSelectorName>
-																{currentModelId === m.modelId ? (
+																<ModelSelectorLogo provider={model.chefSlug} />
+																<ModelSelectorName>
+																	{model.name}
+																</ModelSelectorName>
+																<ModelSelectorLogoGroup>
+																	{model.providers.map((provider) => (
+																		<ModelSelectorLogo
+																			key={provider}
+																			provider={provider}
+																		/>
+																	))}
+																</ModelSelectorLogoGroup>
+																{currentModelId === model.id ? (
 																	<CheckIcon className="ml-auto size-4" />
 																) : (
 																	<div className="ml-auto size-4" />
 																)}
 															</ModelSelectorItem>
 														))}
-													</ModelSelectorGroup>
-												),
-											)}
+												</ModelSelectorGroup>
+											))}
 										</ModelSelectorList>
 									</ModelSelectorContent>
 								</ModelSelector>

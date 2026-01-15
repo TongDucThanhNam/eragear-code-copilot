@@ -47,38 +47,38 @@ export type ChatMessagesProps = {
 
 export function ChatMessages({ messages }: ChatMessagesProps) {
 	return (
-		// <div className="flex-1">
-		<Conversation>
-			<ConversationContent>
-				{messages.map(({ versions, ...message }) => (
-					<MessageBranch defaultBranch={0} key={message.key}>
-						<MessageBranchContent>
-							{versions.map((version) => (
-								<Message
-									from={message.from}
-									key={`${message.key}-${version.id}`}
-								>
-									<div>
-										{message.reasoning && (
-											<Reasoning duration={message.reasoning.duration}>
-												<ReasoningTrigger />
-												<ReasoningContent>
-													{message.reasoning.content}
-												</ReasoningContent>
-											</Reasoning>
-										)}
-										<MessageContent>
-											<MessageResponse>{version.content}</MessageResponse>
-										</MessageContent>
-									</div>
-								</Message>
-							))}
-						</MessageBranchContent>
-					</MessageBranch>
-				))}
-			</ConversationContent>
-			<ConversationScrollButton />
-		</Conversation>
-		// </div>
+		<div className="flex-1 overflow-scroll">
+			<Conversation>
+				<ConversationContent>
+					{messages.map(({ versions, ...message }) => (
+						<MessageBranch defaultBranch={0} key={message.key}>
+							<MessageBranchContent>
+								{versions.map((version) => (
+									<Message
+										from={message.from}
+										key={`${message.key}-${version.id}`}
+									>
+										<div>
+											{message.reasoning && (
+												<Reasoning duration={message.reasoning.duration}>
+													<ReasoningTrigger />
+													<ReasoningContent>
+														{message.reasoning.content}
+													</ReasoningContent>
+												</Reasoning>
+											)}
+											<MessageContent>
+												<MessageResponse>{version.content}</MessageResponse>
+											</MessageContent>
+										</div>
+									</Message>
+								))}
+							</MessageBranchContent>
+						</MessageBranch>
+					))}
+				</ConversationContent>
+				<ConversationScrollButton />
+			</Conversation>
+		</div>
 	);
 }

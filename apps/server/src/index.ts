@@ -2,7 +2,6 @@ import { Hono, type Context } from "hono";
 import { logger } from "hono/logger";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { Readable, Writable } from "node:stream";
 import { WebSocketServer } from "ws";
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { appRouter } from "./trpc";
@@ -10,11 +9,9 @@ import {
 	chats,
 	runs,
 	type RunState,
-	type ChatSession,
 	type ConnWithUnstableModel,
 } from "./state";
 import { createChatSession } from "./session";
-import { ClientSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
 
 function sseHeaders() {
 	return {

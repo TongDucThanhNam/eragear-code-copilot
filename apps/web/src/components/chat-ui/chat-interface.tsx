@@ -33,7 +33,7 @@ export function ChatInterface({
 	const [chatId, setChatId] = useState<string | null>(initialChatId || null);
 	const [connStatus, setConnStatus] = useState<
 		"idle" | "connecting" | "connected" | "error"
-	>("idle");
+	>(initialChatId ? "connecting" : "idle");
 	const [availableModes, setAvailableModes] = useState<
 		{ id: string; name: string; description?: string }[]
 	>([]);
@@ -47,7 +47,7 @@ export function ChatInterface({
 	>([]);
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const chatIdRef = useRef<string | null>(null);
+	const chatIdRef = useRef<string | null>(initialChatId || null);
 
 	// Sync prop changes (e.g. from URL navigation) to internal state
 	useEffect(() => {
@@ -72,6 +72,7 @@ export function ChatInterface({
 	const stopSessionMutation = trpc.stopSession.useMutation();
 	const setModeMutation = trpc.setMode.useMutation();
 	const setModelMutation = trpc.setModel.useMutation();
+	const resumeSessionMutation = trpc.resumeSession.useMutation();
 
 	// Fetch Session State (for reconnection)
 	const { data: sessionState } = trpc.getSessionState.useQuery(
@@ -357,6 +358,22 @@ export function ChatInterface({
 		}
 	};
 
+	const handleResume = async () => {
+		if (!chatId) return;
+		try {
+			setConnStatus("connecting");
+			await resumeSessionMutation.mutateAsync({ chatId });
+			// Wait for connection to re-establish via events or polling
+			// For now, let's assume if it succeeds, we are good to go,
+			// or we might need to re-trigger getSessionState?
+			// The existing useEffect for getSessionState depends on connStatus === 'connecting'.
+			// So setting it to connecting should trigger it.
+		} catch (e) {
+			console.error("Failed to resume chat", e);
+			setConnStatus("error");
+		}
+	};
+
 	const handleSetMode = async (modeId: string) => {
 		if (!chatId) return;
 		try {
@@ -421,6 +438,7 @@ export function ChatInterface({
 				connStatus={connStatus}
 				agentModels={agentModels}
 				onStopChat={handleStopChat}
+				onResumeChat={handleResume}
 				onSettingsClick={() => setIsOpen(true)}
 				onNewChat={handleNewChat}
 			/>
