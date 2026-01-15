@@ -2,14 +2,6 @@ import type { ClientSideConnection } from "@agentclientprotocol/sdk";
 import type { ChildProcess } from "node:child_process";
 import type { EventEmitter } from "node:events";
 
-export type RunState = {
-	id: string;
-	proc: ChildProcess;
-	// We might deprecate pure SSE clients for Runs if we move everything to tRPC,
-	// but keeping generic 'clients' or just using an emitter is better.
-	clients: Set<ReadableStreamDefaultController<string>>;
-};
-
 // Chat session state
 export type SessionModeState = {
 	currentModeId: string;
@@ -32,6 +24,12 @@ export type SessionModelState = {
 export type BroadcastEvent =
 	| { type: "current_mode_update"; modeId: string }
 	| { type: "session_update"; update: unknown }
+	| {
+			type: "request_permission";
+			requestId: string;
+			toolCall: unknown;
+			options?: unknown;
+	  }
 	| { type: "message"; message: unknown }
 	| { type: "heartbeat"; ts: number }
 	| { type: "error"; error: string };
@@ -52,14 +50,16 @@ export type ChatSession = {
 	models?: SessionModelState;
 	commands?: AvailableCommand[];
 
-	// Legacy SSE clients (if we keep supporting REST/SSE parallel to tRPC)
-	clients: Set<ReadableStreamDefaultController<string>>;
-
 	// New: Event Emitter for tRPC subscriptions
 	emitter: EventEmitter;
 
-	cleanupTimer?: Timer;
+	cleanupTimer?: ReturnType<typeof setTimeout>;
 	messageBuffer: BroadcastEvent[];
+
+	pendingPermissions: Map<
+		string,
+		{ resolve: (decision: any) => void; options?: any[] }
+	>;
 };
 
 export type ConnWithUnstableModel = ClientSideConnection & {
@@ -69,7 +69,6 @@ export type ConnWithUnstableModel = ClientSideConnection & {
 	}) => Promise<void>;
 };
 
-export const runs = new Map<string, RunState>();
 export const chats = new Map<string, ChatSession>();
 
 // Helper to broadcast to both SSE (legacy) and tRPC Emitter
@@ -83,18 +82,4 @@ export function broadcastToSession(chatId: string, event: BroadcastEvent) {
 	// 2. Emit to tRPC subscribers
 	// console.log(`[Server] Emitting event ${event.type} to tRPC listeners`);
 	session.emitter.emit("data", event);
-
-	// 3. Emit to SSE clients (Legacy support / Hybrid)
-	const msg = JSON.stringify(event);
-	for (const ctl of session.clients) {
-		try {
-			ctl.enqueue(`data: ${msg}\n\n`);
-		} catch (e) {
-			console.error(
-				`[Server/State] Error broadcasting to SSE client for ${chatId}:`,
-				e,
-			);
-			session.clients.delete(ctl);
-		}
-	}
 }

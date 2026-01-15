@@ -1,8 +1,11 @@
-import { AppSidebar } from "@/components/app-sidebar";
-import { ChatInterface } from "@/components/chat-ui/chat-interface";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
+import { AppSidebar } from "@/components/app-sidebar";
+import { ChatInterface } from "@/components/chat-ui/chat-interface";
+import { CodeViewer } from "@/components/code-viewer";
+import { ThreePaneLayout } from "@/components/layout/three-pane-layout";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { useFileStore } from "@/store/file-store";
 
 export const Route = createFileRoute("/")({
 	validateSearch: z.object({
@@ -32,19 +35,45 @@ function ChatPage() {
 				} as React.CSSProperties
 			}
 		>
-			<AppSidebar variant="inset" />
+			<AppSidebar variant="sidebar" />
 			<SidebarInset>
-				<div className="flex flex-1 flex-col min-w-0">
-					<div className="@container/main flex flex-1 flex-col gap-2 min-w-0">
-						<div className="flex flex-col gap-4 md:gap-6 min-w-0 h-full">
-							<ChatInterface
-								initialChatId={urlChatId}
-								onChatIdChange={handleChatIdChange}
-							/>
-						</div>
-					</div>
-				</div>
+				<ThreePaneLayout>
+					<ChatWrapper
+						initialChatId={urlChatId}
+						onChatIdChange={handleChatIdChange}
+					/>
+				</ThreePaneLayout>
 			</SidebarInset>
 		</SidebarProvider>
+	);
+}
+
+function ChatWrapper({
+	initialChatId,
+	onChatIdChange,
+}: {
+	initialChatId?: string;
+	onChatIdChange: (id: string | null) => void;
+}) {
+	const selectedFile = useFileStore((state) => state.selectedFile);
+
+	return (
+		<>
+			<div
+				className={
+					selectedFile ? "hidden" : "flex flex-col h-dvh overflow-hidden"
+				}
+			>
+				<ChatInterface
+					initialChatId={initialChatId}
+					onChatIdChange={onChatIdChange}
+				/>
+			</div>
+			{selectedFile && (
+				<div className="flex flex-col h-full absolute inset-0 z-10 bg-background">
+					<CodeViewer />
+				</div>
+			)}
+		</>
 	);
 }

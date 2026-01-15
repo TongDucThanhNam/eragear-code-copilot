@@ -1,79 +1,128 @@
-# eragear-code-copilot
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Stargazers][stars-shield]][stars-url]
+[![Issues][issues-shield]][issues-url]
+[![MIT License][license-shield]][license-url]
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines React, TanStack Router, Hono, and more.
+<div align="center">
+  <h1>Eragear Code Copilot</h1>
+  <p>
+    A web-based AI coding assistant built on the Agent Client Protocol (ACP), bridging
+    a browser-based UI with local AI agents capable of filesystem manipulation and
+    terminal command execution.
+  </p>
+  <p>
+    <a href="#about-the-project">About</a> ·
+    <a href="#features">Features</a> ·
+    <a href="#architecture">Architecture</a> ·
+    <a href="#getting-started">Getting Started</a> ·
+    <a href="#contributing">Contributing</a> ·
+    <a href="#license">License</a>
+  </p>
+</div>
+
+## About The Project
+
+Eragear Code Copilot is a web-based AI coding assistant built on the **Agent Client Protocol (ACP)**.
+It provides a bridge between a browser-based UI and local AI agents capable of manipulating the
+filesystem and running terminal commands.
+
+The system consists of three main components:
+- **Frontend**: React-based UI with Tailwind CSS and Shadcn UI components
+- **Backend**: Hono server handling ACP communication and SSE streaming
+- **Shared Workspace**: Shared types, event schemas, and protocol helpers
 
 ## Features
 
-- **TypeScript** - For type safety and improved developer experience
-- **TanStack Router** - File-based routing with full type safety
-- **React Native** - Build mobile apps using React
-- **Expo** - Tools for React Native development
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **shadcn/ui** - Reusable UI components
-- **Hono** - Lightweight, performant server framework
-- **Bun** - Runtime environment
-- **Drizzle** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Authentication** - Better-Auth
-- **PWA** - Progressive Web App support
-- **Tauri** - Build native desktop applications
-- **Turborepo** - Optimized monorepo build system
-promp
+- **Real-time Communication**: Server-Sent Events (SSE) for streaming agent responses
+- **Session Management**: Create, manage, and switch between multiple chat sessions
+- **Agent Configuration**: Add and configure local AI agents through the Settings dialog
+- **Responsive UI**: Modern interface with chat messages, input, and session controls
+- **Persistence**: Zustand stores with LocalStorage for agent configurations
+- **Authentication**: Better-Auth integration (currently mocked for local development)
+
+## Architecture
+
+### Backend (`apps/server`)
+- **Runtime**: Bun / Node.js
+- **Framework**: Hono
+- **Core Library**: `@agentclientprotocol/sdk`
+- **Communication**:
+  - Frontend → Backend: REST APIs (JSON) for initialization and prompt submission
+  - Backend → Agent: Standard Input/Output (ndjson) via `node:child_process`
+  - Backend → Frontend: Server-Sent Events (SSE) for real-time streaming
+- **SSE Features**: Heartbeats every 15s, automatic cleanup on agent exit
+
+### Frontend (`apps/web`)
+- **Framework**: React 18+ (Vite)
+- **Styling**: Tailwind CSS + Shadcn UI
+- **Icons**: Lucide React
+- **Routing**: TanStack Router
+- **State Management**: Zustand with `persist` middleware
+- **Authentication**: Better-Auth (mocked for development)
+
+### Shared Workspace
+- `packages/shared`: Shared types, event schemas, and protocol helpers
+- `packages/runner`: CLI wrapper for running ACP agents in batch mode
+
 ## Getting Started
 
-First, install the dependencies:
+### Prerequisites
 
-```bash
-bun install
-```
+- Bun 1.0+ or Node.js 20+
+- Local AI agent configured for ACP communication
 
-## Database Setup
+### Installation
 
-This project uses PostgreSQL with Drizzle ORM.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/eragear/eragear-code-copilot
+   cd eragear-code-copilot
+   ```
 
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` file with your PostgreSQL connection details.
+2. Install dependencies:
+   ```bash
+   bun install
+   ```
 
-3. Apply the schema to your database:
+3. Start the development server:
+   ```bash
+   bun run dev
+   ```
 
-```bash
-bun run db:push
-```
+This starts the backend on `:3000` and frontend on `:3001`.
 
-Then, run the development server:
+### Adding a New Agent
 
-```bash
-bun run dev
-```
+1. Open the **Settings** dialog in the Web UI
+2. Provide a Name, Command (e.g., `opencode`), Args (e.g., `acp`), and Environment variables
+3. Configuration is saved to `LocalStorage` and passed to the server when starting a chat
 
-Open [http://localhost:3001](http://localhost:3001) in your browser to see the web application.
-Use the Expo Go app to run the mobile application.
-The API is running at [http://localhost:3000](http://localhost:3000).
+## Contributing
 
-## Project Structure
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-```
-eragear-code-copilot/
-├── apps/
-│   ├── web/         # Frontend application (React + TanStack Router)
-│   ├── native/      # Mobile application (React Native, Expo)
-│   └── server/      # Backend API (Hono)
-├── packages/
-│   ├── api/         # API layer / business logic
-│   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
-```
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## Available Scripts
+## License
 
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run dev:server`: Start only the server
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run dev:native`: Start the React Native/Expo development server
-- `bun run db:push`: Push schema changes to database
-- `bun run db:studio`: Open database studio UI
-- `cd apps/web && bun run generate-pwa-assets`: Generate PWA assets
-- `cd apps/web && bun run desktop:dev`: Start Tauri desktop app in development
-- `cd apps/web && bun run desktop:build`: Build Tauri desktop app
+MIT © Eragear Code Copilot
+
+## Contact
+
+- Repository: [eragear/eragear-code-copilot](https://github.com/eragear/eragear-code-copilot)
+
+[contributors-shield]: https://img.shields.io/github/contributors/eragear/eragear-code-copilot?style=for-the-badge
+[contributors-url]: https://github.com/eragear/eragear-code-copilot/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/eragear/eragear-code-copilot?style=for-the-badge
+[forks-url]: https://github.com/eragear/eragear-code-copilot/network/members
+[stars-shield]: https://img.shields.io/github/stars/eragear/eragear-code-copilot?style=for-the-badge
+[stars-url]: https://github.com/eragear/eragear-code-copilot/stargazers
+[issues-shield]: https://img.shields.io/github/issues/eragear/eragear-code-copilot?style=for-the-badge
+[issues-url]: https://github.com/eragear/eragear-code-copilot/issues
+[license-shield]: https://img.shields.io/github/license/eragear/eragear-code-copilot?style=for-the-badge
+[license-url]: https://github.com/eragear/eragear-code-copilot/blob/main/LICENSE

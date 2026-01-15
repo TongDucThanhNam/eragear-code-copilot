@@ -48,3 +48,4 @@ coverage
 .cache
 tmp
 temp
+apps/server/.eragear/sessions.json

@@ -35,6 +35,7 @@ export type ChatHeaderProps = {
 	onSettingsClick: () => void;
 	onNewChat: (agentId: string) => void;
 	onResumeChat?: () => void;
+	isResuming?: boolean;
 };
 
 export function ChatHeader({
@@ -45,6 +46,7 @@ export function ChatHeader({
 	onSettingsClick,
 	onNewChat,
 	onResumeChat,
+	isResuming,
 }: ChatHeaderProps) {
 	return (
 		<div className="flex items-center justify-between px-4 py-2 bg-background/50 backdrop-blur-sm shrink-0">
@@ -91,9 +93,14 @@ export function ChatHeader({
 						size="sm"
 						className="h-8 gap-1.5 text-green-600 hover:text-green-700 border-green-200 bg-green-50 hover:bg-green-100 dark:bg-green-950/20 dark:border-green-800 dark:text-green-400 dark:hover:text-green-300"
 						onClick={onResumeChat}
+						disabled={isResuming}
 					>
-						<Play className="h-3.5 w-3.5 fill-current" />
-						Resume Agent
+						{isResuming ? (
+							<RefreshCw className="h-3.5 w-3.5 animate-spin" />
+						) : (
+							<Play className="h-3.5 w-3.5 fill-current" />
+						)}
+						{isResuming ? "Resuming..." : "Resume Agent"}
 					</Button>
 				)}
 				<Button

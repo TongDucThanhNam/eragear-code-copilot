@@ -80,6 +80,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 		name: s.modeId ? `Session (${s.modeId})` : `Session ${s.id.slice(0, 8)}`,
 		url: `/?chatId=${s.id}`,
 		icon: IconFileAi,
+		status: s.status as "running" | "stopped" | "error",
 	}));
 
 	return (
@@ -89,10 +90,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild
-							className="data-[slot=sidebar-menu-button]:!p-1.5"
+							className="data-[slot=sidebar-menu-button]:p-1.5!"
 						>
 							<a href="/#">
-								<IconInnerShadowTop className="!size-5" />
+								<IconInnerShadowTop className="size-5!" />
 								<span className="text-base font-semibold">Eragear Copilot</span>
 							</a>
 						</SidebarMenuButton>

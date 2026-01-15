@@ -3,9 +3,9 @@ import { observable } from "@trpc/server/observable";
 import { z } from "zod";
 import { createChatSession } from "./session";
 import {
-	chats,
 	type BroadcastEvent,
 	type ConnWithUnstableModel,
+	chats,
 } from "./state";
 import {
 	deleteSession,
@@ -96,35 +96,71 @@ export const appRouter = t.router({
 
 			const projectRoot = session.projectRoot;
 			const { readdir } = await import("node:fs/promises");
-			const { join, relative } = await import("node:path");
+			const { join, relative, basename, dirname } = await import("node:path");
+			const { exec } = await import("node:child_process");
+			const { promisify } = await import("node:util");
+			const execAsync = promisify(exec);
 
 			const projectRules: { path: string; location: string }[] = [];
 			const activeTabs: { path: string }[] = [];
+			let files: string[] = [];
 
-			// Helper to scan for .mdc files
-			async function scanDir(dir: string, depth = 0) {
-				if (depth > 3) return;
-				try {
-					const entries = await readdir(dir, { withFileTypes: true });
-					for (const entry of entries) {
-						if (entry.name.startsWith(".") || entry.name === "node_modules")
-							continue;
-						const fullPath = join(dir, entry.name);
-						if (entry.isDirectory()) {
-							await scanDir(fullPath, depth + 1);
-						} else if (entry.isFile() && entry.name.endsWith(".mdc")) {
-							projectRules.push({
-								path: entry.name,
-								location: relative(projectRoot, dir) || ".",
-							});
-						}
+			// Try git ls-files first
+			try {
+				const { stdout } = await execAsync("git ls-files", {
+					cwd: projectRoot,
+					maxBuffer: 10 * 1024 * 1024, // 10MB limit
+				});
+				files = stdout.split("\n").filter((f) => f.trim().length > 0);
+
+				// Populate projectRules from git files
+				files.forEach((f) => {
+					if (f.endsWith(".mdc")) {
+						projectRules.push({
+							path: basename(f),
+							location: dirname(f) === "." ? "." : dirname(f),
+						});
 					}
-				} catch {
-					// ignore errors
-				}
-			}
+				});
+			} catch (e) {
+				console.warn(
+					"[Server] git ls-files failed, falling back to fs scan",
+					e,
+				);
 
-			await scanDir(projectRoot);
+				// Fallback to fs scan
+				async function scanDir(dir: string, base: string, depth = 0) {
+					// Hard limit depth to avoid infinite loops or massive trees
+					if (depth > 10) return;
+
+					try {
+						const entries = await readdir(dir, { withFileTypes: true });
+						for (const entry of entries) {
+							if (entry.name.startsWith(".") || entry.name === "node_modules")
+								continue;
+
+							const fullPath = join(dir, entry.name);
+							const relPath = relative(base, fullPath);
+
+							if (entry.isDirectory()) {
+								await scanDir(fullPath, base, depth + 1);
+							} else {
+								files.push(relPath);
+								if (entry.name.endsWith(".mdc")) {
+									projectRules.push({
+										path: entry.name,
+										location: relative(projectRoot, dir) || ".",
+									});
+								}
+							}
+						}
+					} catch (err) {
+						console.error(`Failed to scan ${dir}:`, err);
+					}
+				}
+
+				await scanDir(projectRoot, projectRoot);
+			}
 
 			// Active Tabs: currently empty until fully implemented
 			// const commonFiles = [...];
@@ -133,20 +169,125 @@ export const appRouter = t.router({
 			return {
 				projectRules,
 				activeTabs,
+				files,
 			};
+		}),
+
+	getGitDiff: t.procedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ input }) => {
+			const session = chats.get(input.chatId);
+			if (!session) throw new Error("Chat not found");
+
+			const projectRoot = session.projectRoot;
+			const { exec } = await import("node:child_process");
+			const { promisify } = await import("node:util");
+			const execAsync = promisify(exec);
+
+			try {
+				let combinedPatch = "";
+
+				// 1. Get diff for tracked files (staged + unstaged)
+				// git diff HEAD gives us everything changed since the last commit
+				try {
+					const { stdout } = await execAsync("git diff HEAD", {
+						cwd: projectRoot,
+					});
+					combinedPatch += stdout;
+				} catch {
+					// Fallback if no HEAD (empty repo), usually won't error but just return empty
+				}
+
+				// 2. Get untracked files
+				const { stdout: untrackedFilesOutput } = await execAsync(
+					"git ls-files --others --exclude-standard",
+					{ cwd: projectRoot },
+				);
+				const untrackedFiles = untrackedFilesOutput
+					.split("\n")
+					.filter((f) => f.trim().length > 0);
+
+				// 3. Generate patch for each untracked file
+				for (const file of untrackedFiles) {
+					// Use git diff --no-index /dev/null <file> to generate create patch
+					// We need absolute path for the file, but git diff expects relative or handling
+					// simpler: cd projectRoot && git diff --no-index /dev/null relative_path
+					try {
+						// The exit code is 1 if there are differences, so we strictly capture stdout
+						// and ignore the error if it's just exit code 1
+						await execAsync(
+							`git --no-pager diff --no-index /dev/null "${file}"`,
+							{
+								cwd: projectRoot,
+							},
+						);
+					} catch (e: any) {
+						// git diff --no-index returns exit code 1 when there is a diff
+						if (e.stdout) {
+							combinedPatch += "\n" + e.stdout;
+						}
+					}
+				}
+
+				return combinedPatch;
+			} catch (e) {
+				console.error("Failed to get git diff", e);
+				throw new Error("Failed to get changes. Is this a git repository?");
+			}
+		}),
+
+	getFileContent: t.procedure
+		.input(z.object({ chatId: z.string(), path: z.string() }))
+		.query(async ({ input }) => {
+			const session = chats.get(input.chatId);
+			if (!session) throw new Error("Chat not found");
+
+			const projectRoot = session.projectRoot;
+			const { join, normalize } = await import("node:path");
+			const { readFile } = await import("node:fs/promises");
+
+			// Security check: ensure path is within project root
+			const safePath = normalize(input.path).replace(/^(\.\.(\/|\\|$))+/, "");
+			const fullPath = join(projectRoot, safePath);
+
+			if (!fullPath.startsWith(projectRoot)) {
+				throw new Error("Access denied: Path outside project root");
+			}
+
+			try {
+				const content = await readFile(fullPath, "utf8");
+				return { content };
+			} catch (e) {
+				console.error(`Failed to read file ${fullPath}`, e);
+				throw new Error(`Failed to read file: ${e}`);
+			}
 		}),
 
 	getSessionState: t.procedure
 		.input(z.object({ chatId: z.string() }))
 		.query(async ({ input }) => {
 			const session = chats.get(input.chatId);
-			if (!session) throw new Error("Chat not found");
+			if (session) {
+				return {
+					status: "running" as const,
+					modes: session.modes,
+					models: session.models,
+					commands: session.commands,
+				};
+			}
 
-			return {
-				modes: session.modes,
-				models: session.models,
-				commands: session.commands,
-			};
+			const stored = getSession(input.chatId);
+			if (stored) {
+				// Return limited info for stopped session
+				return {
+					status: "stopped" as const,
+					modes: null,
+					models: null,
+					commands: null,
+				};
+			}
+
+			throw new Error("Chat not found");
 		}),
 
 	getSessions: t.procedure.query(() => {
@@ -169,7 +310,20 @@ export const appRouter = t.router({
 	// --- Interaction ---
 
 	sendMessage: t.procedure
-		.input(z.object({ chatId: z.string(), text: z.string() }))
+		.input(
+			z.object({
+				chatId: z.string(),
+				text: z.string(),
+				images: z
+					.array(
+						z.object({
+							base64: z.string(),
+							mimeType: z.string(),
+						}),
+					)
+					.optional(),
+			}),
+		)
 		.mutation(async ({ input }) => {
 			const session = chats.get(input.chatId);
 			if (!session || !session.sessionId) {
@@ -180,9 +334,21 @@ export const appRouter = t.router({
 			console.log(`[tRPC] Sending message to ${input.chatId}`);
 			// Note: This promise resolves when the agent *accepts* the prompt,
 			// response chunks come via subscription.
+
+			const prompt: any[] = [{ type: "text", text: input.text }];
+			if (input.images) {
+				prompt.push(
+					...input.images.map((img) => ({
+						type: "image",
+						image: img.base64,
+						mimeType: img.mimeType,
+					})),
+				);
+			}
+
 			const res = await session.conn.prompt({
 				sessionId: session.sessionId,
-				prompt: [{ type: "text", text: input.text }],
+				prompt,
 			});
 
 			return { stopReason: res.stopReason };
@@ -229,6 +395,126 @@ export const appRouter = t.router({
 			if (session.modes) {
 				session.modes.currentModeId = input.modeId;
 			}
+			if (session.modes) {
+				session.modes.currentModeId = input.modeId;
+			}
+			return { ok: true };
+		}),
+
+	cancelPrompt: t.procedure
+		.input(z.object({ chatId: z.string() }))
+		.mutation(async ({ input }) => {
+			const session = chats.get(input.chatId);
+			if (!session || !session.sessionId) {
+				throw new Error("Chat not found");
+			}
+
+			console.log(`[tRPC] Cancelling prompt for ${input.chatId}`);
+			// Call ACP cancel method
+			await session.conn.cancel({ sessionId: session.sessionId });
+
+			// Reject all pending permissions with outcome: cancelled
+			for (const [reqId, pending] of session.pendingPermissions) {
+				pending.resolve({ outcome: { outcome: "cancelled" } });
+			}
+			session.pendingPermissions.clear();
+
+			return { ok: true };
+		}),
+
+	respondToPermissionRequest: t.procedure
+		.input(
+			z.object({
+				chatId: z.string(),
+				requestId: z.string(),
+				decision: z.string(),
+			}),
+		)
+		.mutation(async ({ input }) => {
+			const session = chats.get(input.chatId);
+			if (!session) {
+				throw new Error("Chat not found");
+			}
+
+			const pending = session.pendingPermissions.get(input.requestId);
+			if (!pending) {
+				throw new Error("Permission request not found or already handled");
+			}
+
+			console.log(
+				`[tRPC] Responding to permission request ${input.requestId}: ${input.decision}`,
+			);
+			console.log(
+				`[tRPC] Available options:`,
+				JSON.stringify(pending.options, null, 2),
+			);
+
+			let optionId = input.decision === "allow" ? "allow-once" : "reject-once";
+
+			// If specific options were provided by the agent, try to map our generic decision to them
+			if (
+				pending.options &&
+				Array.isArray(pending.options) &&
+				pending.options.length > 0
+			) {
+				// First, check if input.decision matches an optionId exactly
+				const exactMatch = pending.options.find(
+					(opt: any) =>
+						(opt.optionId || opt.id) === input.decision ||
+						opt.id === input.decision,
+				);
+
+				if (exactMatch) {
+					optionId = exactMatch.optionId || exactMatch.id;
+					console.log(
+						`[tRPC] Exact match mapped ${input.decision} to option ${optionId}`,
+					);
+				} else {
+					// Fallback to heuristics for "allow"/"reject"
+					const isAllow = input.decision === "allow";
+					// Keywords to look for in option ID or title
+					const keywords = isAllow
+						? ["allow", "yes", "confirm", "approve"]
+						: ["reject", "no", "deny", "cancel", "block"];
+
+					const heuristicMatch = pending.options.find((opt: any) => {
+						// Check various common field names for ID and Label
+						const id = String(
+							opt.optionId || opt.id || opt.kind || "",
+						).toLowerCase();
+						const label = String(
+							opt.name || opt.title || opt.label || "",
+						).toLowerCase();
+
+						// If we are allowing, we want "allow" or "yes" or "confirm"
+						if (isAllow) {
+							// Prioritize exact "allow" if it's an ID
+							if (id === "allow" || id === "allow_once") return true;
+							return keywords.some((k) => id.includes(k) || label.includes(k));
+						}
+
+						// If we are rejecting
+						return keywords.some((k) => id.includes(k) || label.includes(k));
+					});
+
+					if (heuristicMatch) {
+						optionId = heuristicMatch.optionId || heuristicMatch.id;
+						console.log(
+							`[tRPC] Heuristic mapped ${input.decision} to option ${optionId}`,
+						);
+					} else {
+						console.warn(
+							`[tRPC] Could not safely map ${input.decision} to available options:`,
+							pending.options,
+						);
+					}
+				}
+			}
+
+			pending.resolve({ outcome: { outcome: "selected", optionId } });
+			console.log(`[tRPC] Resolved permission with optionId: ${optionId}`);
+
+			session.pendingPermissions.delete(input.requestId);
 			return { ok: true };
 		}),
 

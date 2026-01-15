@@ -96,7 +96,8 @@ export function ChatInput({
 	activeTabs = [],
 	projectRules = [],
 	availableCommands = [],
-}: ChatInputProps) {
+	onCancel,
+}: ChatInputProps & { onCancel?: () => void }) {
 	const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
 
 	const getProviderFromModelId = (modelId: string) => {
@@ -129,7 +130,7 @@ export function ChatInput({
 	);
 
 	return (
-		<div className="w-full px-4 py-4">
+		<div className="w-full px-2 py-2">
 			<PromptInputProvider>
 				<PromptInput globalDrop multiple onSubmit={onSubmit}>
 					<PromptInputHeader>
@@ -355,7 +356,7 @@ export function ChatInput({
 								</ModelSelector>
 							)}
 						</PromptInputTools>
-						<PromptInputSubmit status={status} />
+						<PromptInputSubmit status={status} onStop={onCancel} />
 					</PromptInputFooter>
 				</PromptInput>
 			</PromptInputProvider>

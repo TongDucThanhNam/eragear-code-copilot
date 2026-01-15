@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import { ClientSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
-import { EventEmitter } from "node:events";
-import { chats, broadcastToSession, type ChatSession } from "./state";
+import { broadcastToSession, type ChatSession, chats } from "./state";
 import {
 	saveSession,
 	updateSessionMetadata,
@@ -50,7 +50,7 @@ export async function createChatSession(params: CreateSessionParams) {
 			}
 			if (u?.sessionUpdate === "current_mode_update") {
 				const session = chats.get(chatId);
-				if (session && session.modes) {
+				if (session?.modes) {
 					session.modes.currentModeId = u.modeId;
 				}
 				updateSessionMetadata(chatId, { modeId: u.modeId });
@@ -88,8 +88,37 @@ export async function createChatSession(params: CreateSessionParams) {
 			// Broadcast everything to client
 			broadcastToSession(chatId, { type: "session_update", update: u });
 		},
-		async requestPermission() {
-			return { outcome: "allow" };
+		async requestPermission(p: any) {
+			const { toolCall } = p;
+			const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			console.log(`[Server] Requesting permission: ${requestId}`, toolCall);
+			console.log(
+				`[Server] Permission options:`,
+				JSON.stringify(p.options, null, 2),
+			);
+
+			return new Promise((resolve) => {
+				const session = chats.get(chatId);
+				if (!session) {
+					console.log(`[Server] Session not found, rejecting permission`);
+					resolve({ outcome: { outcome: "cancelled" } });
+					return;
+				}
+
+				// Store resolve function
+				session.pendingPermissions.set(requestId, {
+					resolve,
+					options: p.options,
+				});
+
+				// Broadcast request
+				broadcastToSession(chatId, {
+					type: "request_permission",
+					requestId,
+					toolCall,
+					options: p.options,
+				});
+			});
 		},
 		async readTextFile(p: any) {
 			const { readFile } = await import("node:fs/promises");
@@ -111,7 +140,7 @@ export async function createChatSession(params: CreateSessionParams) {
 
 	const conn = new ClientSideConnection(
 		() => handlers as any,
-		ndJsonStream(Writable.toWeb(proc.stdin), Readable.toWeb(proc.stdout)),
+		ndJsonStream(Writable.toWeb(proc.stdin!), Readable.toWeb(proc.stdout!)),
 	);
 
 	await conn.initialize({
@@ -136,9 +165,10 @@ export async function createChatSession(params: CreateSessionParams) {
 		sessionId,
 		modes: modes ?? undefined,
 		models: models ?? undefined,
-		clients: new Set(),
+
 		emitter: new EventEmitter(),
 		messageBuffer: [],
+		pendingPermissions: new Map(),
 	};
 	chats.set(chatId, session);
 
@@ -165,12 +195,6 @@ export async function createChatSession(params: CreateSessionParams) {
 
 		const s = chats.get(chatId);
 		if (s) {
-			// clean up legacy clients
-			for (const ctl of s.clients) {
-				try {
-					ctl.close();
-				} catch {}
-			}
 			chats.delete(chatId);
 		}
 	});
