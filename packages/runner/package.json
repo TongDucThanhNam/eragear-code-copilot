@@ -1,0 +1,12 @@
+{
+	"name": "@repo/runner",
+	"version": "0.0.1",
+	"type": "module",
+	"bin": {
+		"acp-todo-runner": "src/cli.ts"
+	},
+	"dependencies": {
+		"@agentclientprotocol/sdk": "^0.7.0",
+		"@repo/shared": "workspace:*"
+	}
+}
