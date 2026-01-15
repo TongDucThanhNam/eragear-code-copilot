@@ -40,6 +40,70 @@ export const appRouter = t.router({
 			return { ok: true };
 		}),
 
+	getProjectContext: t.procedure
+		.input(z.object({ chatId: z.string() }))
+		.query(async ({ input }) => {
+			const session = chats.get(input.chatId);
+			if (!session) throw new Error("Chat not found");
+
+			const projectRoot = session.projectRoot;
+			const { readdir, stat } = await import("node:fs/promises");
+			const { join, relative } = await import("node:path");
+
+			const projectRules: { path: string; location: string }[] = [];
+			const activeTabs: { path: string }[] = [];
+
+			// Helper to scan for .mdc files
+			async function scanDir(dir: string, depth = 0) {
+				if (depth > 3) return;
+				try {
+					const entries = await readdir(dir, { withFileTypes: true });
+					for (const entry of entries) {
+						if (entry.name.startsWith(".") || entry.name === "node_modules")
+							continue;
+						const fullPath = join(dir, entry.name);
+						if (entry.isDirectory()) {
+							await scanDir(fullPath, depth + 1);
+						} else if (entry.isFile() && entry.name.endsWith(".mdc")) {
+							projectRules.push({
+								path: entry.name,
+								location: relative(projectRoot, dir) || ".",
+							});
+						}
+					}
+				} catch {
+					// ignore errors
+				}
+			}
+
+			await scanDir(projectRoot);
+
+			// Check for common files for "Active Tabs" simulation
+			const commonFiles = [
+				"README.md",
+				"package.json",
+				"tsconfig.json",
+				"src/index.ts",
+				"src/App.tsx",
+				"src/main.tsx",
+			];
+
+			for (const file of commonFiles) {
+				try {
+					const fullPath = join(projectRoot, file);
+					await stat(fullPath);
+					activeTabs.push({ path: file });
+				} catch {
+					// ignore
+				}
+			}
+
+			return {
+				projectRules,
+				activeTabs,
+			};
+		}),
+
 	// --- Interaction ---
 
 	sendMessage: t.procedure

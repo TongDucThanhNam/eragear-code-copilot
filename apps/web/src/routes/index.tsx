@@ -1,111 +1,28 @@
 "use client";
 
+import { ChatHeader } from "@/components/chat-ui/chat-header";
+import { ChatInput } from "@/components/chat-ui/chat-input";
 import {
-	Conversation,
-	ConversationContent,
-	ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
-import {
-	Message,
-	MessageBranch,
-	MessageBranchContent,
-	MessageContent,
-	MessageResponse,
-} from "@/components/ai-elements/message";
-import {
-	PromptInput,
-	PromptInputActionAddAttachments,
-	PromptInputActionMenu,
-	PromptInputActionMenuContent,
-	PromptInputActionMenuTrigger,
-	PromptInputAttachment,
-	PromptInputAttachments,
-	PromptInputBody,
-	PromptInputButton,
-	PromptInputFooter,
-	type PromptInputMessage,
-	PromptInputProvider,
-	PromptInputSelect,
-	PromptInputSelectContent,
-	PromptInputSelectItem,
-	PromptInputSelectTrigger,
-	PromptInputSelectValue,
-	PromptInputSubmit,
-	PromptInputTextarea,
-	PromptInputTools,
-} from "@/components/ai-elements/prompt-input";
-import {
-	Reasoning,
-	ReasoningContent,
-	ReasoningTrigger,
-} from "@/components/ai-elements/reasoning";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+	ChatMessages,
+	type MessageType,
+} from "@/components/chat-ui/chat-messages";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { useSettingsStore } from "@/store/settings-store";
 import { createFileRoute } from "@tanstack/react-router";
-import type { ToolUIPart } from "ai";
-import {
-	ChevronDown,
-	LogOut,
-	Radio,
-	RefreshCw,
-	Settings2Icon,
-	CheckIcon,
-} from "lucide-react";
-import {
-	ModelSelector,
-	ModelSelectorContent,
-	ModelSelectorEmpty,
-	ModelSelectorGroup,
-	ModelSelectorInput,
-	ModelSelectorItem,
-	ModelSelectorList,
-	ModelSelectorLogo,
-	ModelSelectorName,
-	ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector";
-import { Button } from "@/components/ui/button";
 import { nanoid } from "nanoid";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { trpc } from "../lib/trpc";
+import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 export const Route = createFileRoute("/")({
 	component: Example,
 });
-
-type MessageType = {
-	key: string;
-	from: "user" | "assistant";
-	sources?: { href: string; title: string }[];
-	versions: {
-		id: string;
-		content: string;
-	}[];
-	reasoning?: {
-		content: string;
-		duration: number;
-	};
-	tools?: {
-		name: string;
-		description: string;
-		status: ToolUIPart["state"];
-		parameters: Record<string, unknown>;
-		result: string | undefined;
-		error: string | undefined;
-	}[];
-};
 
 function Example() {
 	const { setIsOpen, getAgents, activeAgentId, setActiveAgentId } =
 		useSettingsStore();
 
 	const agentModels = getAgents();
-	// const [text, setText] = useState<string>(""); // Unused
 	const [status, setStatus] = useState<
 		"submitted" | "streaming" | "ready" | "error"
 	>("ready");
@@ -122,8 +39,10 @@ function Example() {
 		{ modelId: string; name: string; description?: string }[]
 	>([]);
 	const [currentModelId, setCurrentModelId] = useState<string | null>(null);
-	const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
-	// const [retryCount, setRetryCount] = useState(0); // Unused in tRPC version for now
+	const [availableCommands, setAvailableCommands] = useState<
+		{ name: string; description: string; input?: { hint: string } }[]
+	>([]);
+
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const chatIdRef = useRef<string | null>(null);
 
@@ -186,6 +105,12 @@ function Example() {
 						} else {
 							console.warn("[Client] Could not extract thought from chunk:", u);
 						}
+					} else if (u.sessionUpdate === "available_commands_update") {
+						console.log(
+							"[Client] Commands update:",
+							JSON.stringify(u.availableCommands, null, 2),
+						);
+						setAvailableCommands(u.availableCommands || []);
 					}
 				} else if (event.type === "current_mode_update") {
 					setCurrentModeId(event.modeId);
@@ -322,7 +247,12 @@ function Example() {
 				setChatId(data.chatId);
 				chatIdRef.current = data.chatId;
 				if (data.modes) {
-					setAvailableModes(data.modes.availableModes || []);
+					setAvailableModes(
+						(data.modes.availableModes || []).map((m) => ({
+							...m,
+							description: m.description || undefined,
+						})),
+					);
 					setCurrentModeId(data.modes.currentModeId || null);
 				}
 				if (data.models) {
@@ -421,257 +351,43 @@ function Example() {
 
 		setStatus("submitted");
 		addUserMessage(message.text);
-		setText("");
+		// setText(""); // Unused
 	};
 
-	const getProviderFromModelId = (modelId: string) => {
-		if (modelId.startsWith("anthropic")) return "anthropic";
-		if (modelId.startsWith("google") || modelId.startsWith("gemini"))
-			return "google";
-		if (modelId.startsWith("openai") || modelId.startsWith("gpt"))
-			return "openai";
-		if (modelId.startsWith("deepseek")) return "deepseek";
-		if (modelId.startsWith("mistral")) return "mistral";
-		if (modelId.startsWith("meta") || modelId.startsWith("llama"))
-			return "meta";
-		return "opencode"; // default
-	};
-
-	const groupedModels = availableModels.reduce(
-		(acc, model) => {
-			const provider = getProviderFromModelId(model.modelId);
-			if (!acc[provider]) acc[provider] = [];
-			acc[provider].push(model);
-			return acc;
-		},
-		{} as Record<
-			string,
-			{ modelId: string; name: string; description?: string }[]
-		>,
+	// Fetch Project Context
+	const { data: projectContext } = trpc.getProjectContext.useQuery(
+		{ chatId: chatId || "" },
+		{ enabled: !!chatId },
 	);
 
 	return (
 		<div className="relative flex size-full flex-col divide-y overflow-hidden">
-			{/* Chat Header */}
-			<div className="flex items-center justify-between px-4 py-2 bg-background/50 backdrop-blur-sm z-10 shrink-0">
-				<div className="flex items-center gap-3">
-					<div className="flex flex-col">
-						<span className="text-sm font-semibold leading-none">
-							{activeAgentId || "No Agent"}
-						</span>
-						<div className="flex items-center gap-1.5 mt-1">
-							<Radio
-								className={`h-3 w-3 ${
-									connStatus === "connected"
-										? "text-green-500 animate-pulse"
-										: connStatus === "connecting"
-											? "text-amber-500 animate-pulse"
-											: connStatus === "error"
-												? "text-red-500"
-												: "text-muted-foreground"
-								}`}
-							/>
-							<span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-								{connStatus}
-							</span>
-						</div>
-					</div>
-				</div>
+			<ChatHeader
+				activeAgentId={activeAgentId}
+				connStatus={connStatus}
+				agentModels={agentModels}
+				onStopChat={handleStopChat}
+				onSettingsClick={() => setIsOpen(true)}
+				onNewChat={handleNewChat}
+			/>
 
-				<div className="flex items-center gap-2">
-					{connStatus === "connected" && (
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-8 gap-1.5 text-muted-foreground hover:text-destructive transition-colors"
-							onClick={handleStopChat}
-						>
-							<LogOut className="h-3.5 w-3.5" />
-							Disconnect
-						</Button>
-					)}
-					<Button
-						variant="ghost"
-						size="sm"
-						className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
-						onClick={() => setIsOpen(true)}
-					>
-						<Settings2Icon className="h-3.5 w-3.5" />
-						Settings
-					</Button>
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button variant="outline" size="sm" className="h-8 gap-1.5">
-									<RefreshCw className="h-3.5 w-3.5" />
-									New Chat
-									<ChevronDown className="h-3.5 w-3.5 opacity-50" />
-								</Button>
-							}
-						/>
-						<DropdownMenuContent align="end" className="w-[200px]">
-							{agentModels.map((agent) => (
-								<DropdownMenuItem
-									key={agent.id}
-									onClick={() => handleNewChat(agent.id)}
-									className="flex flex-col items-start gap-0.5"
-								>
-									<span className="font-medium text-sm">{agent.name}</span>
-									<span className="text-[10px] text-muted-foreground uppercase tracking-widest">
-										{agent.type} • {agent.command}
-									</span>
-								</DropdownMenuItem>
-							))}
-							{agentModels.length === 0 && (
-								<DropdownMenuItem disabled>
-									No agents configured
-								</DropdownMenuItem>
-							)}
-						</DropdownMenuContent>
-					</DropdownMenu>
-				</div>
-			</div>
+			<ChatMessages messages={messages} />
 
-			<div className="flex-1">
-				<Conversation>
-					<ConversationContent>
-						{messages.map(({ versions, ...message }) => (
-							<MessageBranch defaultBranch={0} key={message.key}>
-								<MessageBranchContent>
-									{versions.map((version) => (
-										<Message
-											from={message.from}
-											key={`${message.key}-${version.id}`}
-										>
-											<div>
-												{message.reasoning && (
-													<Reasoning duration={message.reasoning.duration}>
-														<ReasoningTrigger />
-														<ReasoningContent>
-															{message.reasoning.content}
-														</ReasoningContent>
-													</Reasoning>
-												)}
-												<MessageContent>
-													<MessageResponse>{version.content}</MessageResponse>
-												</MessageContent>
-											</div>
-										</Message>
-									))}
-								</MessageBranchContent>
-							</MessageBranch>
-						))}
-					</ConversationContent>
-					<ConversationScrollButton />
-				</Conversation>
-			</div>
-
-			<div className="w-full px-4 pb-4">
-				<PromptInputProvider>
-					<PromptInput globalDrop multiple onSubmit={handleSubmit}>
-						<PromptInputAttachments>
-							{(attachment) => <PromptInputAttachment data={attachment} />}
-						</PromptInputAttachments>
-						<PromptInputBody>
-							<PromptInputTextarea ref={textareaRef} />
-						</PromptInputBody>
-						<PromptInputFooter>
-							<PromptInputTools>
-								<PromptInputActionMenu>
-									<PromptInputActionMenuTrigger />
-									<PromptInputActionMenuContent>
-										<PromptInputActionAddAttachments />
-									</PromptInputActionMenuContent>
-								</PromptInputActionMenu>
-
-								{connStatus === "connected" && availableModes.length > 0 && (
-									<PromptInputSelect
-										value={currentModeId || ""}
-										onValueChange={(val) => handleSetMode(val as string)}
-									>
-										<PromptInputSelectTrigger className="h-8 py-0 px-2 min-w-[70px]">
-											<PromptInputSelectValue />
-										</PromptInputSelectTrigger>
-										<PromptInputSelectContent>
-											{availableModes.map((mode) => (
-												<PromptInputSelectItem key={mode.id} value={mode.id}>
-													{mode.name}
-												</PromptInputSelectItem>
-											))}
-										</PromptInputSelectContent>
-									</PromptInputSelect>
-								)}
-
-								{connStatus === "connected" && availableModels.length > 0 && (
-									<ModelSelector
-										open={modelSelectorOpen}
-										onOpenChange={setModelSelectorOpen}
-									>
-										<ModelSelectorTrigger
-											render={
-												<PromptInputButton className="gap-1.5 px-2 min-w-[100px]">
-													<ModelSelectorLogo
-														provider={getProviderFromModelId(
-															currentModelId || "",
-														)}
-													/>
-													<ModelSelectorName>
-														{availableModels.find(
-															(m) => m.modelId === currentModelId,
-														)?.name || "Select Model"}
-													</ModelSelectorName>
-													<ChevronDown className="h-3.5 w-3.5 opacity-50" />
-												</PromptInputButton>
-											}
-										/>
-										<ModelSelectorContent title="Select Assistant Model">
-											<ModelSelectorInput placeholder="Search models..." />
-											<ModelSelectorList>
-												<ModelSelectorEmpty>
-													No models found.
-												</ModelSelectorEmpty>
-												{Object.entries(groupedModels).map(
-													([provider, models]) => (
-														<ModelSelectorGroup
-															key={provider}
-															heading={provider.toUpperCase()}
-														>
-															{models.map((m) => (
-																<ModelSelectorItem
-																	key={m.modelId}
-																	onSelect={() => {
-																		handleSetModel(m.modelId);
-																		setModelSelectorOpen(false);
-																	}}
-																	value={m.modelId}
-																	className="gap-2"
-																>
-																	<ModelSelectorLogo
-																		provider={getProviderFromModelId(m.modelId)}
-																	/>
-																	<ModelSelectorName>
-																		{m.name}
-																	</ModelSelectorName>
-																	{currentModelId === m.modelId ? (
-																		<CheckIcon className="ml-auto size-4" />
-																	) : (
-																		<div className="ml-auto size-4" />
-																	)}
-																</ModelSelectorItem>
-															))}
-														</ModelSelectorGroup>
-													),
-												)}
-											</ModelSelectorList>
-										</ModelSelectorContent>
-									</ModelSelector>
-								)}
-							</PromptInputTools>
-							<PromptInputSubmit status={status} />
-						</PromptInputFooter>
-					</PromptInput>
-				</PromptInputProvider>
-			</div>
+			<ChatInput
+				textareaRef={textareaRef}
+				status={status}
+				connStatus={connStatus}
+				availableModes={availableModes}
+				currentModeId={currentModeId}
+				onModeChange={handleSetMode}
+				availableModels={availableModels}
+				currentModelId={currentModelId}
+				onModelChange={handleSetModel}
+				onSubmit={handleSubmit}
+				activeTabs={projectContext?.activeTabs}
+				projectRules={projectContext?.projectRules}
+				availableCommands={availableCommands}
+			/>
 
 			<SettingsDialog />
 		</div>

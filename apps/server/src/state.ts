@@ -36,13 +36,21 @@ export type BroadcastEvent =
 	| { type: "heartbeat"; ts: number }
 	| { type: "error"; error: string };
 
+export type AvailableCommand = {
+	name: string;
+	description: string;
+	input?: { hint: string };
+};
+
 export type ChatSession = {
 	id: string;
 	proc: ChildProcess;
 	conn: ClientSideConnection;
+	projectRoot: string;
 	sessionId?: string; // ACP session ID
 	modes?: SessionModeState;
 	models?: SessionModelState;
+	commands?: AvailableCommand[];
 
 	// Legacy SSE clients (if we keep supporting REST/SSE parallel to tRPC)
 	clients: Set<ReadableStreamDefaultController<string>>;

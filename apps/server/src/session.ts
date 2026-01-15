@@ -58,6 +58,19 @@ export async function createChatSession(params: CreateSessionParams) {
 				return;
 			}
 
+			if (u?.sessionUpdate === "available_commands_update") {
+				const session = chats.get(chatId);
+				if (session) {
+					session.commands = u.availableCommands;
+				}
+				console.log(`[Server] Received commands update`, u.availableCommands);
+				broadcastToSession(chatId, {
+					type: "session_update",
+					update: u,
+				});
+				return;
+			}
+
 			if (u?.sessionUpdate === "agent_message_chunk") {
 				// reduce noise, maybe only log length
 				// console.log(`[Server] Received chunk of length ${u.content?.length || u.text?.length}`);
@@ -115,6 +128,7 @@ export async function createChatSession(params: CreateSessionParams) {
 		id: chatId,
 		proc,
 		conn,
+		projectRoot,
 		sessionId,
 		modes: modes ?? undefined,
 		models: models ?? undefined,

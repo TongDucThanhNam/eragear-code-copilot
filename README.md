@@ -18,7 +18,7 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 - **PWA** - Progressive Web App support
 - **Tauri** - Build native desktop applications
 - **Turborepo** - Optimized monorepo build system
-
+promp
 ## Getting Started
 
 First, install the dependencies:
