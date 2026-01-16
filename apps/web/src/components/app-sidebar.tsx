@@ -1,7 +1,5 @@
 "use client";
 
-import { trpc } from "@/lib/trpc";
-import * as React from "react";
 import {
 	IconDashboard,
 	IconFileAi,
@@ -10,7 +8,7 @@ import {
 	IconSearch,
 	IconSettings,
 } from "@tabler/icons-react";
-
+import type * as React from "react";
 import { NavDocuments } from "@/components/nav-documents";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
@@ -24,6 +22,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { trpc } from "@/lib/trpc";
 
 const data = {
 	user: {
@@ -76,12 +75,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 		refetchInterval: 5000,
 	});
 
-	const sessionDocuments = (sessions || []).map((s) => ({
-		name: s.modeId ? `Session (${s.modeId})` : `Session ${s.id.slice(0, 8)}`,
-		url: `/?chatId=${s.id}`,
-		icon: IconFileAi,
-		status: s.status as "running" | "stopped" | "error",
-	}));
+	const sessionDocuments = (sessions || [])
+		.slice()
+		.sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0))
+		.map((s) => ({
+			sessionId: s.sessionId,
+			name: s.modeId ? `Session (${s.modeId})` : `Session ${s.id.slice(0, 8)}`,
+			url: `/?chatId=${s.id}`,
+			icon: IconFileAi,
+			status: s.isActive ? "running" : ("stopped" as "running" | "stopped"),
+		}));
 
 	return (
 		<Sidebar collapsible="icon" {...props}>

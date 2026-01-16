@@ -29,41 +29,44 @@ filesystem and running terminal commands.
 
 The system consists of three main components:
 - **Frontend**: React-based UI with Tailwind CSS and Shadcn UI components
-- **Backend**: Hono server handling ACP communication and SSE streaming
+- **Backend**: Hono server handling ACP communication and tRPC Subscriptions
 - **Shared Workspace**: Shared types, event schemas, and protocol helpers
 
 ## Features
 
-- **Real-time Communication**: Server-Sent Events (SSE) for streaming agent responses
+- **Real-time Communication**: tRPC Subscriptions (WebSocket) for streaming agent responses
 - **Session Management**: Create, manage, and switch between multiple chat sessions
+- **Active/Inactive Sessions**: 
+  - **Active**: Live ACP connection, full interaction capability
+  - **Inactive**: History viewing; can be resumed if the agent supports ACP session resume
+- **Message Persistence**: Chat history is saved server-side for later viewing
 - **Agent Configuration**: Add and configure local AI agents through the Settings dialog
 - **Responsive UI**: Modern interface with chat messages, input, and session controls
-- **Persistence**: Zustand stores with LocalStorage for agent configurations
+- **Multi-platform**: Web (`apps/web`) and Mobile (`apps/native`) clients
+- **Persistence**: Zustand stores with LocalStorage/AsyncStorage for agent configurations
 - **Authentication**: Better-Auth integration (currently mocked for local development)
 
 ## Architecture
 
-### Backend (`apps/server`)
-- **Runtime**: Bun / Node.js
-- **Framework**: Hono
-- **Core Library**: `@agentclientprotocol/sdk`
-- **Communication**:
-  - Frontend → Backend: REST APIs (JSON) for initialization and prompt submission
-  - Backend → Agent: Standard Input/Output (ndjson) via `node:child_process`
-  - Backend → Frontend: Server-Sent Events (SSE) for real-time streaming
-- **SSE Features**: Heartbeats every 15s, automatic cleanup on agent exit
+The system follows a 3-tier architecture that clearly distinguishes roles according to the **Agent Client Protocol (ACP)** definitions:
 
-### Frontend (`apps/web`)
-- **Framework**: React 18+ (Vite)
-- **Styling**: Tailwind CSS + Shadcn UI
-- **Icons**: Lucide React
-- **Routing**: TanStack Router
-- **State Management**: Zustand with `persist` middleware
-- **Authentication**: Better-Auth (mocked for development)
+### 1. Client (User Interface)
+*   **Role**: The user-facing interface.
+*   **Implementations**: Web App (`apps/web`), and future Desktop/Mobile apps.
+*   **Responsibilities**: Rendering UI, capturing user input, displaying agent stream.
 
-### Shared Workspace
-- `packages/shared`: Shared types, event schemas, and protocol helpers
-- `packages/runner`: CLI wrapper for running ACP agents in batch mode
+### 2. Server (ACP Client)
+*   **Role**: Acts as the **Client** in the ACP context. It manages the connection to the Agent.
+*   **Implementation**: Hono Server (`apps/server`).
+*   **Responsibilities**:
+    *   Spawning and managing the Agent process.
+    *   Bridging communication between the UI and the Agent.
+    *   Providing system capabilities (File System access, Terminal execution) to the Agent.
+
+### 3. Agents (ACP Agents)
+*   **Role**: The intelligent backend process that performs tasks.
+*   **Implementations**: Claude Code, Codex, OpenCode, Gemini CLI.
+*   **Responsibilities**: Reasoning, executing tool calls using Server capabilities, and generating code.
 
 ## Getting Started
 
@@ -97,6 +100,26 @@ This starts the backend on `:3000` and frontend on `:3001`.
 1. Open the **Settings** dialog in the Web UI
 2. Provide a Name, Command (e.g., `opencode`), Args (e.g., `acp`), and Environment variables
 3. Configuration is saved to `LocalStorage` and passed to the server when starting a chat
+
+## Important Notes
+
+### Session Lifecycle
+
+This project uses the **Agent Client Protocol (ACP)** with support for session resume when the agent advertises it.
+
+1. **Two Types of Sessions**:
+   - **Client Session** (`chatId`): Connection between UI and Server via tRPC/WebSocket
+   - **ACP Session** (`sessionId`): Connection between Server and ACP Agent via stdio
+
+2. **Session States**:
+   | State | Description | User Action |
+   |-------|-------------|-------------|
+   | Active | ACP session alive | Full chat interaction |
+   | Inactive | ACP session ended | Resume if supported, otherwise read-only |
+
+3. **Session Resume**: If the agent supports `loadSession`, the server can resume an inactive session using its stored `sessionId`.
+
+4. **Message Persistence**: Messages are saved to `.eragear/sessions.json` on the server for history viewing and resume.
 
 ## Contributing
 

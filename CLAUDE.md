@@ -4,30 +4,49 @@ This project is a web-based AI coding assistant built on the **Agent Client Prot
 
 ## 🏗 Architecture & Tech Stack
 
-### 1. Backend (`apps/server`)
+The system follows a 3-tier architecture that clearly distinguishes roles according to the **Agent Client Protocol (ACP)** definitions:
+
+### 1. Client (User Interface)
+*   **Role**: The user-facing interface where users interact with the system.
+*   **Implementations**: Web App (`apps/web`), and potential future Desktop/Mobile apps.
+*   **Tech Stack**: React 18+ (Vite), Tailwind CSS, Shadcn UI.
+*   **Responsibilities**: Rendering UI, capturing user input, displaying agent stream.
+
+### 2. Server (ACP Client)
+*   **Role**: Acts as the **Client** in the ACP context. It manages the connection to the Agent.
+*   **Implementation**: Hono Server (`apps/server`).
+*   **Tech Stack**: Bun / Node.js, `@agentclientprotocol/sdk`.
+*   **Responsibilities**:
+    *   Spawning and managing the Agent process (`child_process`).
+    *   Bridging communication between the UI (WebSocket/SSE) and the Agent (Stdio).
+    *   Providing system capabilities (File System access, Terminal execution) to the Agent.
+
+### 3. Agents (ACP Agents)
+*   **Role**: The intelligent backend process that performs tasks.
+*   **Implementations**: Claude Code, Codex, OpenCode, Gemini CLI, etc.
+*   **Responsibilities**: Receiving prompts, thinking, executing tool calls (provided by the Server), and generating responses.
+
+---
+
+### Internal Structure
+
+#### Backend (`apps/server`)
 - **Runtime**: Bun / Node.js
 - **Framework**: [Hono](https://hono.dev/)
 - **Core Library**: `@agentclientprotocol/sdk`
 - **Communication**:
     - **Frontend → Backend**: REST APIs (JSON) for initialization and prompt submission.
     - **Backend → Agent**: Standard Input/Output (ndjson) via `node:child_process`.
-    - **Backend → Frontend**: Server-Sent Events (SSE) for real-time streaming and status updates.
-- **SSE Features**: 
-    - Heartbeats every 15s to keep connections alive.
-    - Automatic cleanup and error reporting if the agent process exits.
+    - **Backend → Frontend**: tRPC Subscriptions (WebSocket) for real-time streaming and status updates.
 
-### 2. Frontend (`apps/web`)
+#### Frontend (`apps/web`)
 - **Framework**: React 18+ (Vite)
 - **Styling**: Tailwind CSS + [Shadcn UI](https://ui.shadcn.com/)
-- **Icons**: Lucide React
-- **Routing**: [TanStack Router](https://tanstack.com/router)
 - **State Management**: [Zustand](https://github.com/pmndrs/zustand)
-    - **Persistence**: `persist` middleware stores all agent configurations in `LocalStorage`.
-- **Authentication**: [Better-Auth](https://www.better-auth.com/) (Currently mocked for local development).
+- **Authentication**: [Better-Auth](https://www.better-auth.com/)
 
-### 3. Shared Workspace
+#### Shared Workspace
 - `packages/shared`: Shared types, event schemas, and protocol helpers.
-- `packages/runner`: A thin wrapper/CLI for running ACP agents in batch mode.
 
 ## 📂 Key File Map
 

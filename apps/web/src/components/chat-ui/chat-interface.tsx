@@ -12,6 +12,7 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { trpc } from "@/lib/trpc";
 import { useFileStore } from "@/store/file-store";
 import { useSettingsStore } from "@/store/settings-store";
+import { useDiffStore } from "@/store/diff-store";
 
 const convertFileToBase64 = (file: File): Promise<string> => {
 	return new Promise((resolve, reject) => {
@@ -63,9 +64,21 @@ export function ChatInterface({
 	const [availableCommands, setAvailableCommands] = useState<
 		{ name: string; description: string; input?: { hint: string } }[]
 	>([]);
+	// Agent's prompt capabilities - what content types it accepts
+	const [promptCapabilities, setPromptCapabilities] = useState<{
+		image?: boolean;
+		audio?: boolean;
+		embeddedContext?: boolean;
+	}>({});
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const chatIdRef = useRef<string | null>(initialChatId || null);
+	const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
+
+	// Terminal outputs
+	const [terminalOutputs, setTerminalOutputs] = useState<
+		Record<string, string>
+	>({});
 
 	// Messages from Query Cache
 	// Note: We use local state for messages instead of query cache because
@@ -151,6 +164,9 @@ export function ChatInterface({
 			if (sessionState.commands) {
 				setAvailableCommands(sessionState.commands);
 			}
+			if (sessionState.promptCapabilities) {
+				setPromptCapabilities(sessionState.promptCapabilities);
+			}
 			setConnStatus("connected");
 		}
 	}, [sessionState, connStatus]);
@@ -162,6 +178,37 @@ export function ChatInterface({
 			enabled: !!chatId && connStatus === "connected",
 			onData(event) {
 				console.log("[Client] tRPC Event:", event);
+				// Handle explicit connected event from server
+				if (event.type === "connected") {
+					console.log("[Client] Connection confirmed by server");
+					return;
+				}
+
+				// Handle user messages from server (for replay on reconnect)
+				if (event.type === "user_message") {
+					const userEvent = event as {
+						type: "user_message";
+						id: string;
+						text: string;
+						timestamp: number;
+					};
+					// Only add if not already in messages
+					updateMessagesState((prev) => {
+						const exists = prev.some((m) => m.key === userEvent.id);
+						if (exists) return prev;
+						return [
+							...prev,
+							{
+								key: userEvent.id,
+								from: "user" as const,
+								parts: [{ type: "text", content: userEvent.text }],
+							},
+						];
+					});
+					lastStreamKindRef.current = "other";
+					return;
+				}
+
 				if (event.type === "session_update") {
 					const u = event.update as any;
 					console.log(
@@ -169,7 +216,53 @@ export function ChatInterface({
 						JSON.stringify(u, null, 2),
 					);
 
-					if (u.sessionUpdate === "agent_message_chunk") {
+					if (u.sessionUpdate === "user_message_chunk") {
+						let text = "";
+						if (typeof u.content === "string") {
+							text = u.content;
+						} else if (typeof u.content === "object" && u.content) {
+							text =
+								u.content.text ||
+								u.content.delta?.text ||
+								u.content.value ||
+								"";
+						} else {
+							text = u.text || "";
+						}
+
+						if (text) {
+							updateMessagesState((prev) => {
+								const lastMsg = prev[prev.length - 1];
+								if (
+									lastStreamKindRef.current === "user" &&
+									lastMsg &&
+									lastMsg.from === "user"
+								) {
+									const parts = [...lastMsg.parts];
+									const lastPart = parts[parts.length - 1];
+									if (lastPart && lastPart.type === "text") {
+										const newContent = lastPart.content + text;
+										parts[parts.length - 1] = {
+											...lastPart,
+											content: newContent,
+										};
+									} else {
+										parts.push({ type: "text", content: text });
+									}
+
+									return [...prev.slice(0, -1), { ...lastMsg, parts }];
+								}
+
+								const newMsg: MessageType = {
+									key: nanoid(),
+									from: "user",
+									parts: [{ type: "text", content: text }],
+								};
+								return [...prev, newMsg];
+							});
+							lastStreamKindRef.current = "user";
+						}
+					} else if (u.sessionUpdate === "agent_message_chunk") {
 						let text = "";
 						if (typeof u.content === "string") {
 							text = u.content;
@@ -185,6 +278,7 @@ export function ChatInterface({
 
 						if (text) {
 							handleAgentChunk(text);
+							lastStreamKindRef.current = "agent";
 						} else {
 							console.warn("[Client] Could not extract text from chunk:", u);
 						}
@@ -204,10 +298,12 @@ export function ChatInterface({
 
 						if (text) {
 							handleAgentThought(text);
+							lastStreamKindRef.current = "agent";
 						} else {
 							console.warn("[Client] Could not extract thought from chunk:", u);
 						}
 					} else if (u.sessionUpdate === "tool_call") {
+						lastStreamKindRef.current = "other";
 						handleAgentToolCall(u);
 					} else if (u.sessionUpdate === "tool_call_update") {
 						handleAgentToolCallUpdate(u);
@@ -238,16 +334,19 @@ export function ChatInterface({
 						{
 							key: nanoid(),
 							from: "assistant" as const,
-							versions: [
-								{
-									id: nanoid(),
-									parts: [{ type: "text", content: `❌ Error: ${event.error}` }],
-								},
-							],
+							parts: [{ type: "text", content: `❌ Error: ${event.error}` }],
 						},
 					]);
 				} else if (event.type === "heartbeat") {
 					console.log("[Client] Heartbeat", event.ts);
+				} else if (event.type === "terminal_output") {
+					const { terminalId, data } = event as any;
+					if (terminalId && data) {
+						setTerminalOutputs((prev) => ({
+							...prev,
+							[terminalId]: (prev[terminalId] || "") + data,
+						}));
+					}
 				}
 			},
 			onError(err) {
@@ -263,6 +362,36 @@ export function ChatInterface({
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
 				if (lastMsg && lastMsg.from === "assistant") {
+					// Check for terminal ID in content
+					let terminalId;
+					let diffs:
+						| { path: string; oldText?: string; newText: string }[]
+						| undefined;
+
+					if (tool.content && Array.isArray(tool.content)) {
+						const termPart = tool.content.find(
+							(c: any) => c.type === "terminal",
+						);
+						if (termPart) {
+							terminalId = termPart.terminalId;
+						}
+
+						const diffParts = tool.content.filter(
+							(c: any) => c.type === "diff",
+						);
+						if (diffParts.length > 0) {
+							diffs = diffParts.map((d: any) => ({
+								path: d.path,
+								oldText: d.oldText,
+								newText: d.newText,
+							}));
+
+							// Add to diff store
+							const addDiff = useDiffStore.getState().addDiff;
+							diffs.forEach(addDiff);
+						}
+					}
+
 					const newTool: ToolPart = {
 						type: "tool",
 						toolCallId: tool.toolCallId,
@@ -277,14 +406,12 @@ export function ChatInterface({
 						parameters: tool.rawInput || {},
 						result: undefined,
 						error: undefined,
+						terminalId,
+						diffs: diffs,
 					};
 
-					const versions = [...lastMsg.versions];
-					const lastVersion = { ...versions[versions.length - 1] };
-					lastVersion.parts = [...lastVersion.parts, newTool];
-					versions[versions.length - 1] = lastVersion;
-
-					return [...prev.slice(0, -1), { ...lastMsg, versions }];
+					const parts = [...lastMsg.parts, newTool];
+					return [...prev.slice(0, -1), { ...lastMsg, parts }];
 				}
 				return prev;
 			});
@@ -297,9 +424,7 @@ export function ChatInterface({
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
 				if (lastMsg && lastMsg.from === "assistant") {
-					const versions = [...lastMsg.versions];
-					const lastVersion = { ...versions[versions.length - 1] };
-					const parts = [...lastVersion.parts];
+					const parts = [...lastMsg.parts];
 
 					// Find the tool in parts
 					const partIndex = parts.findIndex(
@@ -319,18 +444,38 @@ export function ChatInterface({
 								| "error";
 						}
 
-						// Update content/result
+						// Update content/result and check for terminal
 						if (update.content && Array.isArray(update.content)) {
 							const textContent = update.content
 								.map((c: any) => c.content?.text || "")
 								.join("\n");
 							tool.result = textContent;
+
+							const termPart = update.content.find(
+								(c: any) => c.type === "terminal",
+							);
+							if (termPart) {
+								tool.terminalId = termPart.terminalId;
+							}
+
+							const diffParts = update.content.filter(
+								(c: any) => c.type === "diff",
+							);
+							if (diffParts.length > 0) {
+								tool.diffs = diffParts.map((d: any) => ({
+									path: d.path,
+									oldText: d.oldText,
+									newText: d.newText,
+								}));
+
+								// Add to diff store
+								const addDiff = useDiffStore.getState().addDiff;
+								tool.diffs.forEach(addDiff);
+							}
 						}
 
 						parts[partIndex] = tool;
-						lastVersion.parts = parts;
-						versions[versions.length - 1] = lastVersion;
-						return [...prev.slice(0, -1), { ...lastMsg, versions }];
+						return [...prev.slice(0, -1), { ...lastMsg, parts }];
 					}
 				}
 				return prev;
@@ -344,9 +489,7 @@ export function ChatInterface({
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
 				if (lastMsg && lastMsg.from === "assistant") {
-					const versions = [...lastMsg.versions];
-					const lastVersion = { ...versions[versions.length - 1] };
-					const parts = [...lastVersion.parts];
+					const parts = [...lastMsg.parts];
 
 					// Check if last part is already a plan, if so update it, otherwise push new
 					const lastPart = parts[parts.length - 1];
@@ -356,10 +499,7 @@ export function ChatInterface({
 						parts.push({ type: "plan", entries });
 					}
 
-					lastVersion.parts = parts;
-					versions[versions.length - 1] = lastVersion;
-
-					return [...prev.slice(0, -1), { ...lastMsg, versions }];
+					return [...prev.slice(0, -1), { ...lastMsg, parts }];
 				} else {
 					// Should probably start a new message if last wasn't assistant,
 					// but usually plan comes after some text or as first thing.
@@ -367,12 +507,7 @@ export function ChatInterface({
 					const newMsg: MessageType = {
 						key: nanoid(),
 						from: "assistant",
-						versions: [
-							{
-								id: nanoid(),
-								parts: [{ type: "plan", entries }],
-							},
-						],
+						parts: [{ type: "plan", entries }],
 					};
 					return [...prev, newMsg];
 				}
@@ -386,9 +521,7 @@ export function ChatInterface({
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
 				if (lastMsg && lastMsg.from === "assistant") {
-					const versions = [...lastMsg.versions];
-					const lastVersion = { ...versions[versions.length - 1] };
-					const parts = [...lastVersion.parts];
+					const parts = [...lastMsg.parts];
 
 					const targetId = (toolCall as any).toolCallId;
 					const partIndex = parts.findIndex(
@@ -403,9 +536,7 @@ export function ChatInterface({
 							options: options,
 						} as ToolPart;
 
-						lastVersion.parts = parts;
-						versions[versions.length - 1] = lastVersion;
-						return [...prev.slice(0, -1), { ...lastMsg, versions }];
+						return [...prev.slice(0, -1), { ...lastMsg, parts }];
 					}
 				}
 				return prev;
@@ -443,9 +574,7 @@ export function ChatInterface({
 			updateMessagesState((prev) => {
 				const lastMsg = prev[prev.length - 1];
 				if (lastMsg && lastMsg.from === "assistant") {
-					const versions = [...lastMsg.versions];
-					const lastVersion = { ...versions[versions.length - 1] };
-					const parts = [...lastVersion.parts];
+					const parts = [...lastMsg.parts];
 
 					const lastPart = parts[parts.length - 1];
 					if (lastPart && lastPart.type === "text") {
@@ -457,20 +586,12 @@ export function ChatInterface({
 						parts.push({ type: "text", content: chunk });
 					}
 
-					lastVersion.parts = parts;
-					versions[versions.length - 1] = lastVersion;
-
-					return [...prev.slice(0, -1), { ...lastMsg, versions }];
+					return [...prev.slice(0, -1), { ...lastMsg, parts }];
 				} else {
 					const newMsg: MessageType = {
 						key: nanoid(),
 						from: "assistant",
-						versions: [
-							{
-								id: nanoid(),
-								parts: [{ type: "text", content: chunk }],
-							},
-						],
+						parts: [{ type: "text", content: chunk }],
 					};
 					return [...prev, newMsg];
 				}
@@ -500,12 +621,7 @@ export function ChatInterface({
 					const newMsg: MessageType = {
 						key: nanoid(),
 						from: "assistant",
-						versions: [
-							{
-								id: nanoid(),
-								parts: [], // Empty parts, reasoning is separate property
-							},
-						],
+						parts: [], // Empty parts, reasoning is separate property
 						reasoning: {
 							content: chunk,
 							duration: 0,
@@ -571,6 +687,9 @@ export function ChatInterface({
 					);
 					setCurrentModelId(data.models.currentModelId || null);
 				}
+				if (data.promptCapabilities) {
+					setPromptCapabilities(data.promptCapabilities);
+				}
 				setConnStatus("connected");
 			} catch (e) {
 				console.error("Failed to init chat", e);
@@ -585,6 +704,10 @@ export function ChatInterface({
 		setMessages([]);
 		setChatId(null);
 		chatIdRef.current = null;
+		setChatId(null);
+		chatIdRef.current = null;
+		setTerminalOutputs({});
+		useDiffStore.getState().clearDiffs();
 
 		// Notify parent to clear
 		if (onChatIdChange) {
@@ -615,6 +738,10 @@ export function ChatInterface({
 			setCurrentModelId(null);
 		} catch (e) {
 			console.error("Failed to stop chat", e);
+		} finally {
+			// Clear diffs on stop? Or keep them until new chat?
+			// Usually "Stop" ends the session, but user might want to review what happened.
+			// Let's NOT clear on stop, only on new chat.
 		}
 	};
 
@@ -672,26 +799,8 @@ export function ChatInterface({
 		) => {
 			if (!chatId) return;
 
-			const userMessage: MessageType = {
-				key: `user-${Date.now()}`,
-				from: "user",
-				versions: [
-					{
-						id: `user-${Date.now()}`,
-						parts: [
-							{
-								type: "text",
-								content:
-									content +
-									(images?.length
-										? `\n\n[Attached ${images.length} image(s)]`
-										: ""),
-							},
-						],
-					},
-				],
-			};
-			updateMessagesState((prev) => [...prev, userMessage]);
+			// Note: User message will be added via subscription when server broadcasts user_message event.
+			// This ensures consistency between live messages and replayed messages on reconnect.
 			setStatus("streaming");
 
 			try {
@@ -707,12 +816,7 @@ export function ChatInterface({
 						{
 							key: nanoid(),
 							from: "assistant",
-							versions: [
-								{
-									id: nanoid(),
-									parts: [{ type: "text", content: "🚫 Generation cancelled." }],
-								},
-							],
+							parts: [{ type: "text", content: "🚫 Generation cancelled." }],
 						},
 					]);
 				} else if (res.stopReason === "max_tokens") {
@@ -721,12 +825,7 @@ export function ChatInterface({
 						{
 							key: nanoid(),
 							from: "assistant",
-							versions: [
-								{
-									id: nanoid(),
-									parts: [{ type: "text", content: "⚠️ Max tokens reached." }],
-								},
-							],
+							parts: [{ type: "text", content: "⚠️ Max tokens reached." }],
 						},
 					]);
 				}
@@ -749,7 +848,7 @@ export function ChatInterface({
 
 		const images: { base64: string; mimeType: string }[] = [];
 		for (const filePart of message.files) {
-			if (filePart.file && filePart.file.type.startsWith("image/")) {
+			if (filePart.file?.type.startsWith("image/")) {
 				try {
 					const base64 = await convertFileToBase64(filePart.file);
 					images.push({
@@ -771,7 +870,8 @@ export function ChatInterface({
 		{ enabled: !!chatId },
 	);
 
-	const setFiles = useFileStore((state) => state.setFiles);
+	const { setFiles } = useFileStore();
+
 	useEffect(() => {
 		if (projectContext?.files) {
 			setFiles(projectContext.files);
@@ -793,6 +893,7 @@ export function ChatInterface({
 
 			<ChatMessages
 				messages={messages}
+				terminalOutputs={terminalOutputs}
 				onApprove={handleApproveTool}
 				onReject={handleRejectTool}
 			/>

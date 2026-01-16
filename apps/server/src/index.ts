@@ -1,34 +1,23 @@
-import { applyWSSHandler } from "@trpc/server/adapters/ws";
+import { createServer } from "node:http";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
-import { WebSocketServer } from "ws";
-import { appRouter } from "./trpc";
+import { ENV } from "./config/environment";
+import { appRouter } from "./trpc/router";
+import { createTrpcWebsocketServer } from "./websocket/adapter";
+import { attachWebsocketHandlers } from "./websocket/handler";
 
 const app = new Hono();
 app.use(logger());
 
-// --- WebSocket Server ---
-import { createServer } from "node:http";
-
 const server = createServer();
-const wss = new WebSocketServer({ noServer: true });
+const { wss, handler } = createTrpcWebsocketServer(appRouter);
 
-const handler = applyWSSHandler({
-	wss,
-	router: appRouter,
-	createContext: () => ({}),
-});
+attachWebsocketHandlers(server, wss);
 
-server.on("upgrade", (req, socket, head) => {
-
-
-	wss.handleUpgrade(req, socket, head, (ws) => {
-		wss.emit("connection", ws, req);
-	});
-});
-
-server.listen(3003, () => {
-	console.log("[Server] WebSocket Server running on ws://localhost:3003");
+server.listen(ENV.wsPort, ENV.wsHost, () => {
+	console.log(
+		`[Server] WebSocket Server running on ws://${ENV.wsHost}:${ENV.wsPort}`,
+	);
 });
 
 process.on("SIGTERM", () => {

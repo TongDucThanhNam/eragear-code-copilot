@@ -8,7 +8,6 @@ import {
 	Globe as GlobeIcon,
 	Ruler as RulerIcon,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { type RefObject, useState } from "react";
 import {
 	ModelSelector,
@@ -60,6 +59,7 @@ import {
 	PromptInputTextarea,
 	PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
+import { Button } from "@/components/ui/button";
 
 export type ChatInputProps = {
 	textareaRef: RefObject<HTMLTextAreaElement | null>;

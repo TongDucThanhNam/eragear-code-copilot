@@ -3,7 +3,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useFileStore, type FileNode } from "@/store/file-store";
 
 export function FileTree() {
-	const getFileTree = useFileStore((state) => state.getFileTree);
+	const { getFileTree } = useFileStore();
 	const files = getFileTree();
 
 	return (

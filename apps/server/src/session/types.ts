@@ -1,6 +1,6 @@
-import type { ClientSideConnection } from "@agentclientprotocol/sdk";
 import type { ChildProcess } from "node:child_process";
 import type { EventEmitter } from "node:events";
+import type { ClientSideConnection } from "@agentclientprotocol/sdk";
 
 // Chat session state
 export type SessionModeState = {
@@ -22,6 +22,7 @@ export type SessionModelState = {
 };
 
 export type BroadcastEvent =
+	| { type: "connected" } // Sent immediately when client subscribes
 	| { type: "current_mode_update"; modeId: string }
 	| { type: "session_update"; update: unknown }
 	| {
@@ -30,14 +31,42 @@ export type BroadcastEvent =
 			toolCall: unknown;
 			options?: unknown;
 	  }
+	| { type: "user_message"; id: string; text: string; timestamp: number } // User message for replay
 	| { type: "message"; message: unknown }
 	| { type: "heartbeat"; ts: number }
-	| { type: "error"; error: string };
+	| { type: "error"; error: string }
+	| { type: "terminal_output"; terminalId: string; data: string };
 
 export type AvailableCommand = {
 	name: string;
 	description: string;
 	input?: { hint: string };
+};
+
+export type AgentInfo = {
+	name?: string;
+	title?: string;
+	version?: string;
+};
+
+// Agent's prompt capabilities from initialize response
+export type PromptCapabilities = {
+	image?: boolean;
+	audio?: boolean;
+	embeddedContext?: boolean;
+};
+
+export type TerminalState = {
+	id: string;
+	process: ChildProcess;
+	outputBuffer: string;
+	outputByteLimit?: number;
+	truncated?: boolean;
+	exitStatus?: { exitCode: number | null; signal: string | null };
+	resolveExit: ((status: {
+		exitCode: number | null;
+		signal: string | null;
+	}) => void)[]; // Support multiple waiters
 };
 
 export type ChatSession = {
@@ -46,13 +75,19 @@ export type ChatSession = {
 	conn: ClientSideConnection;
 	projectRoot: string;
 	sessionId?: string; // ACP session ID
+	loadSessionSupported?: boolean;
 	modes?: SessionModeState;
 	models?: SessionModelState;
 	commands?: AvailableCommand[];
+	agentInfo?: AgentInfo;
+	promptCapabilities?: PromptCapabilities; // What content types agent accepts
 
 	// New: Event Emitter for tRPC subscriptions
 	emitter: EventEmitter;
 
+	cwd: string; // The current working directory for this session
+
+	subscriberCount: number; // Track number of active subscribers
 	cleanupTimer?: ReturnType<typeof setTimeout>;
 	messageBuffer: BroadcastEvent[];
 
@@ -60,6 +95,8 @@ export type ChatSession = {
 		string,
 		{ resolve: (decision: any) => void; options?: any[] }
 	>;
+
+	terminals: Map<string, TerminalState>;
 };
 
 export type ConnWithUnstableModel = ClientSideConnection & {
@@ -68,18 +105,3 @@ export type ConnWithUnstableModel = ClientSideConnection & {
 		modelId: string;
 	}) => Promise<void>;
 };
-
-export const chats = new Map<string, ChatSession>();
-
-// Helper to broadcast to both SSE (legacy) and tRPC Emitter
-export function broadcastToSession(chatId: string, event: BroadcastEvent) {
-	const session = chats.get(chatId);
-	if (!session) return;
-
-	// 1. Buffer
-	session.messageBuffer.push(event);
-
-	// 2. Emit to tRPC subscribers
-	// console.log(`[Server] Emitting event ${event.type} to tRPC listeners`);
-	session.emitter.emit("data", event);
-}

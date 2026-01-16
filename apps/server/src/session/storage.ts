@@ -1,5 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import type { AgentInfo } from "./types";
+
+// Stored message format (simplified for persistence)
+export interface StoredMessage {
+	id: string;
+	role: "user" | "assistant";
+	content: string; // Flattened text content
+	timestamp: number;
+	// Optional metadata
+	toolCalls?: Array<{ name: string; args: unknown }>;
+	reasoning?: string;
+}
 
 export interface StoredSession {
 	id: string;
@@ -9,11 +21,14 @@ export interface StoredSession {
 	args?: string[];
 	env?: Record<string, string>;
 	cwd?: string;
+	loadSessionSupported?: boolean;
+	agentInfo?: AgentInfo;
 	status: "running" | "stopped";
 	createdAt: number;
 	lastActiveAt: number;
 	modeId?: string;
 	modelId?: string;
+	messages: StoredMessage[]; // Chat history for read-only viewing
 }
 
 const STORAGE_DIR = path.join(process.cwd(), ".eragear");
@@ -88,4 +103,35 @@ export function deleteSession(id: string) {
 	const sessions = loadSessions();
 	const newSessions = sessions.filter((s) => s.id !== id);
 	writeFileSync(STORAGE_FILE, JSON.stringify(newSessions, null, 2));
+}
+
+export function appendMessage(id: string, message: StoredMessage) {
+	const sessions = loadSessions();
+	const session = sessions.find((s) => s.id === id);
+	if (session) {
+		if (!session.messages) {
+			session.messages = [];
+		}
+		session.messages.push(message);
+		session.lastActiveAt = Date.now();
+		writeFileSync(STORAGE_FILE, JSON.stringify(sessions, null, 2));
+	}
+}
+
+export function updateLastMessage(id: string, update: Partial<StoredMessage>) {
+	const sessions = loadSessions();
+	const session = sessions.find((s) => s.id === id);
+	if (session?.messages && session.messages.length > 0) {
+		const lastMsg = session.messages[session.messages.length - 1];
+		if (lastMsg) {
+			Object.assign(lastMsg, update);
+			session.lastActiveAt = Date.now();
+			writeFileSync(STORAGE_FILE, JSON.stringify(sessions, null, 2));
+		}
+	}
+}
+
+export function getSessionMessages(id: string): StoredMessage[] {
+	const session = getSession(id);
+	return session?.messages ?? [];
 }

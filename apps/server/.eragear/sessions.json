@@ -1,7 +1,7 @@
 [
   {
-    "id": "chat-1768464337917-6cca50e1a278a",
-    "sessionId": "ses_43f4fb0c3ffevX3zi1tb5Arr8F",
+    "id": "chat-1768561842790-c081b11fe60198",
+    "sessionId": "ses_4397fe26effeK43iRwrLjYxaIj",
     "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "command": "opencode",
     "args": [
@@ -9,45 +9,83 @@
     ],
     "env": {},
     "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": true,
     "status": "stopped",
-    "createdAt": 1768464338763,
-    "lastActiveAt": 1768464396864,
+    "createdAt": 1768561843615,
+    "lastActiveAt": 1768578055108,
     "modeId": "build",
-    "modelId": "opencode/big-pickle"
+    "modelId": "opencode/big-pickle",
+    "messages": [
+      {
+        "id": "msg-1768562604044-evw4qtj02vv",
+        "role": "user",
+        "content": "hi",
+        "timestamp": 1768562604044
+      },
+      {
+        "id": "msg-1768562617172-ja581utbql",
+        "role": "user",
+        "content": "I want to become rich :?",
+        "timestamp": 1768562617172
+      },
+      {
+        "id": "msg-1768564546569-85fryd7vdl4",
+        "role": "user",
+        "content": "cấu trúc hiện tại của project là gì ?",
+        "timestamp": 1768564546569
+      },
+      {
+        "id": "msg-1768565417560-di6p9azw66v",
+        "role": "user",
+        "content": "wow",
+        "timestamp": 1768565417560
+      }
+    ]
   },
   {
-    "id": "chat-1768465494406-baf0ba939e4e88",
-    "sessionId": "86fd7346-0476-4564-9b95-1cbd73a1cf68",
+    "id": "chat-1768565485441-0777bc6eadf968",
+    "sessionId": "b3cd2eac-d9ae-495d-bd7e-a0b4f97c8d9a",
     "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "command": "claude-code-acp",
     "args": [],
     "env": {},
     "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": false,
+    "status": "running",
+    "createdAt": 1768565512719,
+    "lastActiveAt": 1768565532399,
+    "modeId": "default",
+    "modelId": "default",
+    "messages": [
+      {
+        "id": "msg-1768565532399-prp390juz7",
+        "role": "user",
+        "content": "cấu trúc thư mục hiện tại ?",
+        "timestamp": 1768565532399
+      }
+    ]
+  },
+  {
+    "id": "chat-1768567869100-64ec8bfb003f28",
+    "sessionId": "ses_43923ee1cffeaFqzmeG48KM9c3",
+    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "command": "opencode",
+    "args": [
+      "acp"
+    ],
+    "env": {},
+    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": true,
     "status": "stopped",
-    "createdAt": 1768465512589,
-    "lastActiveAt": 1768466281588,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768468893166-3cad6ab5ead3a",
-    "sessionId": "ses_43f0a2eecffe9bJxBwXAvPOfje",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "opencode",
-    "args": [
-      "acp"
-    ],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "status": "running",
-    "createdAt": 1768468893984,
-    "lastActiveAt": 1768468893984,
+    "createdAt": 1768567869936,
+    "lastActiveAt": 1768568916898,
     "modeId": "build",
-    "modelId": "opencode/big-pickle"
+    "modelId": "opencode/big-pickle",
+    "messages": []
   },
   {
-    "id": "chat-1768468911483-971f5b814075d",
-    "sessionId": "ses_43f09e78affeY9sjy4X8Vy6GQ7",
+    "id": "chat-1768572977747-2ec018b864f1f",
+    "sessionId": "ses_438d5fa4fffeGvOwYDhB1KCaT9",
     "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "command": "opencode",
     "args": [
@@ -55,47 +93,17 @@
     ],
     "env": {},
     "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "status": "running",
-    "createdAt": 1768468912258,
-    "lastActiveAt": 1768468912258,
-    "modeId": "build",
-    "modelId": "opencode/big-pickle"
-  },
-  {
-    "id": "chat-1768470241359-914f69c4087a5",
-    "sessionId": "ses_43ef59cbcffeEue2Zt76WKXJFw",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "opencode",
-    "args": [
-      "acp"
-    ],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "status": "running",
-    "createdAt": 1768470242128,
-    "lastActiveAt": 1768470242128,
-    "modeId": "build",
-    "modelId": "opencode/big-pickle"
-  },
-  {
-    "id": "chat-1768470587212-998cb510b7bea8",
-    "sessionId": "ses_43e822bb3ffeMFEnTnNQVfJUXG",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "opencode",
-    "args": [
-      "acp"
-    ],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": true,
     "status": "stopped",
-    "createdAt": 1768477807705,
-    "lastActiveAt": 1768477808896,
+    "createdAt": 1768572978622,
+    "lastActiveAt": 1768574021617,
     "modeId": "build",
-    "modelId": "opencode/big-pickle"
+    "modelId": "opencode/big-pickle",
+    "messages": []
   },
   {
-    "id": "chat-1768471706608-e8c9b464a8b968",
-    "sessionId": "ses_43e81e7d7ffeQI2X9qsqvwp56T",
+    "id": "chat-1768573304190-95718a93884d28",
+    "sessionId": "ses_438d0fecfffehdJv0w0HNVjT18",
     "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "command": "opencode",
     "args": [
@@ -103,15 +111,17 @@
     ],
     "env": {},
     "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": true,
     "status": "stopped",
-    "createdAt": 1768477825077,
-    "lastActiveAt": 1768478119437,
+    "createdAt": 1768573305152,
+    "lastActiveAt": 1768574009368,
     "modeId": "build",
-    "modelId": "opencode/big-pickle"
+    "modelId": "opencode/big-pickle",
+    "messages": []
   },
   {
-    "id": "chat-1768474963685-f23f204d71e938",
-    "sessionId": "ses_43ead8deaffecJw0M3h68hOGjI",
+    "id": "chat-1768573423544-c21ad0ee4ddbf8",
+    "sessionId": "ses_438cf2cebffeAFKIJTpdxlNOlW",
     "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "command": "opencode",
     "args": [
@@ -119,206 +129,186 @@
     ],
     "env": {},
     "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": true,
     "status": "running",
-    "createdAt": 1768474964515,
-    "lastActiveAt": 1768474964515,
+    "createdAt": 1768573424418,
+    "lastActiveAt": 1768573424418,
     "modeId": "build",
-    "modelId": "opencode/big-pickle"
+    "modelId": "opencode/big-pickle",
+    "messages": []
   },
   {
-    "id": "chat-1768478134844-409cdb411a7e6",
-    "sessionId": "33fcaec0-23ee-40c3-9267-a015af511fb6",
+    "id": "chat-1768573503052-66c536a7d524c8",
+    "sessionId": "ses_438cdf674ffeJPHl01NeICfFLj",
     "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
+    "command": "opencode",
+    "args": [
+      "acp"
+    ],
     "env": {},
     "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": true,
+    "status": "running",
+    "createdAt": 1768573503897,
+    "lastActiveAt": 1768573503897,
+    "modeId": "build",
+    "modelId": "opencode/big-pickle",
+    "messages": []
+  },
+  {
+    "id": "chat-1768573654198-fa9f36de069158",
+    "sessionId": "ses_438cba7ddffeenV8BrxH1G9u1Y",
+    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "command": "opencode",
+    "args": [
+      "acp"
+    ],
+    "env": {},
+    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": true,
+    "status": "running",
+    "createdAt": 1768573655088,
+    "lastActiveAt": 1768573655088,
+    "modeId": "build",
+    "modelId": "opencode/big-pickle",
+    "messages": []
+  },
+  {
+    "id": "chat-1768573730796-f7f13ebd2f2c3",
+    "sessionId": "ses_438ca7cb7ffeMY2HEJ91gNOwxP",
+    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "command": "opencode",
+    "args": [
+      "acp"
+    ],
+    "env": {},
+    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": true,
+    "status": "running",
+    "createdAt": 1768573731670,
+    "lastActiveAt": 1768573731670,
+    "modeId": "build",
+    "modelId": "opencode/big-pickle",
+    "messages": []
+  },
+  {
+    "id": "chat-1768573784411-c2dbdb0623a338",
+    "sessionId": "ses_438c9ab47ffeHXfCnIy867SQQp",
+    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "command": "opencode",
+    "args": [
+      "acp"
+    ],
+    "env": {},
+    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "loadSessionSupported": true,
+    "status": "running",
+    "createdAt": 1768573785286,
+    "lastActiveAt": 1768573785286,
+    "modeId": "build",
+    "modelId": "opencode/big-pickle",
+    "messages": []
+  },
+  {
+    "id": "chat-1768577871523-bb31a2f54f7d88",
+    "sessionId": "ses_4388b4dd2ffe5LvpTuiWNWFmSm",
+    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
+    "command": "opencode",
+    "args": [
+      "acp"
+    ],
+    "env": {},
+    "cwd": "/home/terasumi/Documents/source_code/Web/study-with-terasumi/StudyWithTerasumi",
+    "loadSessionSupported": true,
     "status": "stopped",
-    "createdAt": 1768478153335,
-    "lastActiveAt": 1768478226231,
-    "modeId": "default",
-    "modelId": "default"
+    "createdAt": 1768577872445,
+    "lastActiveAt": 1768579895700,
+    "modeId": "build",
+    "modelId": "opencode/big-pickle",
+    "messages": []
   },
   {
-    "id": "chat-1768478240732-eeef1db9ac3b58",
-    "sessionId": "c3e53cb0-8b3a-4215-a36c-f9f7d6b7dae8",
+    "id": "chat-1768579276627-5506fd9996d278",
+    "sessionId": "e1a82fa7-660b-4b38-8933-a47ca15055f5",
     "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "command": "claude-code-acp",
     "args": [],
     "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768479398803,
-    "lastActiveAt": 1768479398803,
+    "cwd": "/home/terasumi/Documents/source_code/Web/study-with-terasumi/StudyWithTerasumi",
+    "loadSessionSupported": false,
+    "status": "stopped",
+    "createdAt": 1768579295658,
+    "lastActiveAt": 1768580208168,
     "modeId": "default",
-    "modelId": "default"
+    "modelId": "default",
+    "messages": [
+      {
+        "id": "msg-1768579300745-6imhejod2xk",
+        "role": "user",
+        "content": "Tạo 1 files mới tên là a.md",
+        "timestamp": 1768579300745
+      }
+    ]
   },
   {
-    "id": "chat-1768479408734-4e10eed0a3fe88",
-    "sessionId": "b54d9b6b-9696-4c69-9863-4590dfd8ff3a",
+    "id": "chat-1768579808522-46f07eb6517418",
+    "sessionId": "bfaa2312-22ef-44f0-9862-66f855f1c4a6",
     "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "command": "claude-code-acp",
     "args": [],
     "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768479426525,
-    "lastActiveAt": 1768479426525,
+    "cwd": "/home/terasumi/Documents/source_code/Web/study-with-terasumi/StudyWithTerasumi",
+    "agentInfo": {
+      "name": "@zed-industries/claude-code-acp",
+      "title": "Claude Code",
+      "version": "0.12.6"
+    },
+    "loadSessionSupported": false,
+    "status": "stopped",
+    "createdAt": 1768579831973,
+    "lastActiveAt": 1768580452680,
     "modeId": "default",
-    "modelId": "default"
+    "modelId": "default",
+    "messages": []
   },
   {
-    "id": "chat-1768482236524-eef3bc642ec0a",
-    "sessionId": "4b2406f2-9059-48a3-a245-60e2c6b5fd0e",
+    "id": "chat-1768579779844-678b7160b73268",
+    "sessionId": "43f10f5b-deab-4b93-81dd-2c90f7abf3e1",
     "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "command": "claude-code-acp",
     "args": [],
     "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
+    "cwd": "/home/terasumi/Documents/source_code/Web/study-with-terasumi/StudyWithTerasumi",
+    "agentInfo": {
+      "name": "@zed-industries/claude-code-acp",
+      "title": "Claude Code",
+      "version": "0.12.6"
+    },
+    "loadSessionSupported": false,
     "status": "running",
-    "createdAt": 1768482259795,
-    "lastActiveAt": 1768482259795,
+    "createdAt": 1768579852654,
+    "lastActiveAt": 1768582056289,
     "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768483826971-f74ed160e623c",
-    "sessionId": "54f8e5df-eff3-45a2-90ba-8acfa8db33f2",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768483846534,
-    "lastActiveAt": 1768483846534,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768484141276-692714beddf82",
-    "sessionId": "20fef44e-6833-43bb-b9b5-37cc615505fe",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768484160889,
-    "lastActiveAt": 1768484160889,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768484629846-e1eba4a0e365a",
-    "sessionId": "933f7985-6121-46b3-8844-040f4110183f",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768484647178,
-    "lastActiveAt": 1768484647178,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768486318374-dbcd17364f1438",
-    "sessionId": "345d95c1-f3c6-4e0a-a3da-4c5afb0bdeaf",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768487896426,
-    "lastActiveAt": 1768487896426,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768487903901-def73fc2268b1",
-    "sessionId": "46a003f4-81fb-4e36-b593-3ca61deb6d92",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768487928912,
-    "lastActiveAt": 1768487928912,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768487960650-996649a5ede898",
-    "sessionId": "4d2745f4-b1a3-4a1b-a67d-d02dd4499fa5",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768487978697,
-    "lastActiveAt": 1768487978697,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768489152643-e91be4897d6c98",
-    "sessionId": "a01ea0d0-b539-4e31-8966-2ad399effabf",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768489175253,
-    "lastActiveAt": 1768489175253,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768491216219-2d07fdccc133e8",
-    "sessionId": "a5f8cee1-16b9-419d-839c-dafb58ac9767",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768491248266,
-    "lastActiveAt": 1768491248266,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768491523909-5142614dcd6f18",
-    "sessionId": "26393c9e-10ea-4286-9858-9f5025208884",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768491551826,
-    "lastActiveAt": 1768491551826,
-    "modeId": "default",
-    "modelId": "default"
-  },
-  {
-    "id": "chat-1768493366493-08c982c4236af8",
-    "sessionId": "c4235d4d-d45a-42e1-8e79-cb601f383683",
-    "projectRoot": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
-    "command": "claude-code-acp",
-    "args": [],
-    "env": {},
-    "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot",
-    "status": "running",
-    "createdAt": 1768493414782,
-    "lastActiveAt": 1768493414782,
-    "modeId": "default",
-    "modelId": "default"
+    "modelId": "default",
+    "messages": [
+      {
+        "id": "msg-1768580204041-2ccugbdukci",
+        "role": "user",
+        "content": "Thêm 1 file b.md",
+        "timestamp": 1768580204041
+      },
+      {
+        "id": "msg-1768580233124-vcpkc861vwp",
+        "role": "user",
+        "content": "tạo đe, content là \"b\"",
+        "timestamp": 1768580233124
+      },
+      {
+        "id": "msg-1768582056289-h8b0pihg5ro",
+        "role": "user",
+        "content": "Tạo thêm file là c.md",
+        "timestamp": 1768582056289
+      }
+    ]
   }
 ]
