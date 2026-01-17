@@ -92,6 +92,94 @@ function extractTextFromContent(
   return fallbackText || "";
 }
 
+// Helper to convert content to tool_result content format (matching ACP protocol)
+type ToolResultContentItem = {
+  type: string;
+  text?: string;
+  source?: {
+    type: string;
+    text?: string;
+    oldText?: string;
+    path?: string;
+  };
+};
+
+function parseContentToToolResultContent(
+  content: unknown
+): ToolResultContentItem[] {
+  if (!content) {
+    return [];
+  }
+
+  // If content is already an array
+  if (Array.isArray(content)) {
+    return content.map((item) => {
+      if (typeof item === "object" && item !== null) {
+        const typedItem = item as {
+          type?: string;
+          text?: string;
+          output?: string;
+          source?: {
+            type?: string;
+            text?: string;
+            oldText?: string;
+            path?: string;
+          };
+        };
+        // Check for 'output' field (used by tool calls)
+        if (typedItem.output) {
+          return {
+            type: "text" as const,
+            text: typedItem.output,
+          };
+        }
+        return {
+          type: typedItem.type || "text",
+          text: typedItem.text,
+          source: typedItem.source
+            ? {
+                type: typedItem.source.type || "diff",
+                text: typedItem.source.text,
+                oldText: typedItem.source.oldText,
+                path: typedItem.source.path,
+              }
+            : undefined,
+        };
+      }
+      return { type: "text", text: String(item) };
+    });
+  }
+
+  // If content is a single object with type/content
+  if (typeof content === "object" && content !== null) {
+    const typedContent = content as {
+      type?: string;
+      content?: unknown;
+      text?: string;
+      output?: string;
+      source?: unknown;
+    };
+
+    // Handle rawOutput structure with output field
+    if (typedContent.output) {
+      return [{ type: "text", text: typedContent.output }];
+    }
+
+    if (typedContent.type === "content" && typedContent.content) {
+      return parseContentToToolResultContent(typedContent.content);
+    }
+    return [
+      {
+        type: typedContent.type || "text",
+        text: typedContent.text,
+      },
+    ];
+  }
+
+  // Fallback to string
+  return [{ type: "text", text: String(content) }];
+}
+
 export function useChat() {
   // Select only what we need for the hook's internal logic (subscription key)
   const activeChatId = useChatStore((s) => s.activeChatId);
@@ -285,17 +373,35 @@ export function useChat() {
       const parts = [...lastMsg.parts];
       const lastPart = parts.at(-1);
 
+      // Debug: log what we received
+      console.log("[handleToolCallUpdate]", {
+        toolCallId: toolUpdate.toolCallId,
+        status: toolUpdate.status,
+        hasContent: "content" in toolUpdate,
+        contentType: typeof toolUpdate.content,
+        contentValue: toolUpdate.content,
+        hasRawOutput: "rawOutput" in toolUpdate,
+        rawOutputType: typeof toolUpdate.rawOutput,
+        rawOutputValue: toolUpdate.rawOutput,
+      });
+
       if (
         lastPart?.type === "tool_call" &&
         lastPart.toolCallId === toolUpdate.toolCallId &&
-        toolUpdate.content &&
         toolUpdate.status === "completed"
       ) {
+        // Try content first, then rawOutput as fallback
+        const inputContent = toolUpdate.content ?? toolUpdate.rawOutput;
+        // Convert content to tool_result content array format
+        const contentArray = parseContentToToolResultContent(inputContent);
+
+        console.log("[handleToolCallUpdate] parsed content:", contentArray);
+
         parts.push({
           type: "tool_result" as const,
           toolCallId: toolUpdate.toolCallId,
           status: toolUpdate.status,
-          output: toolUpdate.rawOutput || toolUpdate.content,
+          content: contentArray,
         });
         store.updateLastAssistantMessage(parts);
       }

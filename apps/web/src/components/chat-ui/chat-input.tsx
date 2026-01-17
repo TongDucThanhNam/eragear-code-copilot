@@ -8,7 +8,13 @@ import {
   Globe as GlobeIcon,
   Ruler as RulerIcon,
 } from "lucide-react";
-import { type RefObject, useState } from "react";
+import {
+  type KeyboardEvent,
+  type RefObject,
+  useCallback,
+  useRef,
+  useState,
+} from "react";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -58,8 +64,14 @@ import {
   PromptInputTabLabel,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
+import {
+  type SlashCommand,
+  SlashCommandPopup,
+  type SlashCommandPopupRef,
+} from "./slash-command-popup";
 
 export type ChatInputStatus = "submitted" | "streaming" | "ready" | "error";
 export type ConnStatus = "idle" | "connecting" | "connected" | "error";
@@ -78,11 +90,95 @@ export interface ChatInputProps {
   // Context Props
   activeTabs?: { path: string }[];
   projectRules?: { path: string; location: string }[];
-  availableCommands?: {
-    name: string;
-    description: string;
-    input?: { hint: string };
-  }[];
+  availableCommands?: SlashCommand[];
+  onCancel?: () => void;
+}
+
+// Inner component to access PromptInputController context
+function ChatInputTextareaWithCommands({
+  textareaRef,
+  availableCommands,
+}: {
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  availableCommands: SlashCommand[];
+}) {
+  const controller = usePromptInputController();
+  const slashCommandRef = useRef<SlashCommandPopupRef>(null);
+
+  const handleSelectCommand = useCallback(
+    (command: SlashCommand) => {
+      // Replace the current input with the command
+      const commandText = `/${command.name} `;
+      controller.textInput.setInput(commandText);
+      // Focus the textarea and move cursor to end
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        // Use setTimeout to ensure the value is set before moving cursor
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.selectionStart = commandText.length;
+            textareaRef.current.selectionEnd = commandText.length;
+          }
+        }, 0);
+      }
+    },
+    [controller.textInput, textareaRef]
+  );
+
+  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Let slash command popup handle navigation keys if open
+    if (slashCommandRef.current?.handleKeyDown(e)) {
+      return;
+    }
+  }, []);
+
+  return (
+    <div className="relative">
+      <PromptInputTextarea onKeyDown={handleKeyDown} ref={textareaRef} />
+      {availableCommands.length > 0 && (
+        <SlashCommandPopup
+          commands={availableCommands}
+          inputValue={controller.textInput.value}
+          onSelectCommand={handleSelectCommand}
+          ref={slashCommandRef}
+        />
+      )}
+    </div>
+  );
+}
+
+// Inner component for @ menu command items with controller access
+function SlashCommandMenuItem({
+  command,
+  textareaRef,
+}: {
+  command: SlashCommand;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+}) {
+  const controller = usePromptInputController();
+
+  const handleSelect = useCallback(() => {
+    const commandText = `/${command.name} `;
+    controller.textInput.setInput(commandText);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = commandText.length;
+          textareaRef.current.selectionEnd = commandText.length;
+        }
+      }, 0);
+    }
+  }, [command.name, controller.textInput, textareaRef]);
+
+  return (
+    <PromptInputCommandItem onSelect={handleSelect}>
+      <span>/{command.name}</span>
+      <span className="ml-2 text-muted-foreground text-xs">
+        - {command.description}
+      </span>
+    </PromptInputCommandItem>
+  );
 }
 
 export function ChatInput({
@@ -100,7 +196,7 @@ export function ChatInput({
   projectRules = [],
   availableCommands = [],
   onCancel,
-}: ChatInputProps & { onCancel?: () => void }) {
+}: ChatInputProps) {
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
 
   const getProviderFromModelId = (modelId: string) => {
@@ -178,12 +274,11 @@ export function ChatInput({
                       <>
                         <PromptInputCommandGroup heading="Slash Commands">
                           {availableCommands.map((cmd) => (
-                            <PromptInputCommandItem key={cmd.name}>
-                              <span>/{cmd.name}</span>
-                              <span className="ml-2 text-muted-foreground text-xs">
-                                - {cmd.description}
-                              </span>
-                            </PromptInputCommandItem>
+                            <SlashCommandMenuItem
+                              command={cmd}
+                              key={cmd.name}
+                              textareaRef={textareaRef}
+                            />
                           ))}
                         </PromptInputCommandGroup>
                         <PromptInputCommandSeparator />
@@ -273,7 +368,10 @@ export function ChatInput({
             </PromptInputAttachments>
           </PromptInputHeader>
           <PromptInputBody>
-            <PromptInputTextarea ref={textareaRef} />
+            <ChatInputTextareaWithCommands
+              availableCommands={availableCommands}
+              textareaRef={textareaRef}
+            />
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>

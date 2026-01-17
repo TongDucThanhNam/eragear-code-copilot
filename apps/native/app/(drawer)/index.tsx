@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 
-import { Container } from "@/components/container";
+import { Container } from "@/components/common/container";
 import { trpc } from "@/lib/trpc";
 import { useChatStore } from "@/store/chat-store";
 import { useSettingsStore } from "@/store/settings-store";

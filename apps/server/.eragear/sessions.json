@@ -10,9 +10,9 @@
     "env": {},
     "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "loadSessionSupported": true,
-    "status": "running",
+    "status": "stopped",
     "createdAt": 1768561843615,
-    "lastActiveAt": 1768629876835,
+    "lastActiveAt": 1768634095719,
     "modeId": "build",
     "modelId": "opencode/big-pickle",
     "messages": [

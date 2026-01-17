@@ -54,7 +54,16 @@ export type MessagePart =
       type: "tool_result";
       toolCallId: string;
       status: string;
-      output?: unknown;
+      content?: Array<{
+        type: string;
+        text?: string;
+        source?: {
+          type: string;
+          text?: string;
+          oldText?: string;
+          path?: string;
+        };
+      }>;
     }
   | { type: "plan"; items: Array<{ content: string; status: string }> }
   | {

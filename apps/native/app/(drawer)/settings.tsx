@@ -3,7 +3,7 @@ import { Button, Card, ErrorView, Surface, TextField } from "heroui-native";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { Container } from "@/components/container";
+import { Container } from "@/components/common/container";
 import { type AgentConfig, useSettingsStore } from "@/store/settings-store";
 
 interface AgentFormState {

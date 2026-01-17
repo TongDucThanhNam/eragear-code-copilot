@@ -1,7 +1,7 @@
 import { Card } from "heroui-native";
 import { View } from "react-native";
 
-import { Container } from "@/components/container";
+import { Container } from "@/components/common/container";
 
 export default function Home() {
   return (

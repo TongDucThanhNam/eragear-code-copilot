@@ -4,7 +4,7 @@ import { useThemeColor } from "heroui-native";
 import { useCallback } from "react";
 import { Text } from "react-native";
 
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemeToggle } from "@/components/common/theme-toggle";
 
 function DrawerLayout() {
   const themeColorForeground = useThemeColor("foreground");

@@ -2,7 +2,7 @@ import { Link, Stack } from "expo-router";
 import { Button, Surface } from "heroui-native";
 import { Text, View } from "react-native";
 
-import { Container } from "@/components/container";
+import { Container } from "@/components/common/container";
 
 export default function NotFoundScreen() {
   return (

@@ -5,7 +5,7 @@ import { FileTree } from "./file-tree";
 
 export function ContextPanel() {
   return (
-    <div className="h-full border-l bg-muted/10">
+    <div className="h-full max-h-dvh border-l bg-muted/10">
       <Tabs className="flex h-full flex-col" defaultValue="files">
         <div className="border-b px-4 py-2">
           <TabsList className="h-auto w-full justify-start gap-4 bg-transparent p-0">
