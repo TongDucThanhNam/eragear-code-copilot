@@ -8,8 +8,8 @@ The system follows a 3-tier architecture that clearly distinguishes roles accord
 
 ### 1. Client (User Interface)
 - Role: The user-facing interface where users interact with the system.
-- Implementations: Web App (`apps/web`), and potential future Desktop/Mobile apps.
-- Tech Stack: React 18+ (Vite), Tailwind CSS, Shadcn UI.
+- Implementations: Web App (`apps/web`), Desktop App (`apps/web` via Tauri), Mobile App (`apps/native` via Expo).
+- Tech Stack: React 18+ (Vite), Tailwind CSS, Shadcn UI, Expo Native (HeroUI Native).
 - Responsibilities: Rendering UI, capturing user input, displaying agent stream.
 
 ### 2. Server (ACP Client)
@@ -84,7 +84,15 @@ src/
 - Framework: React 18+ (Vite)
 - Styling: Tailwind CSS + Shadcn UI
 - State Management: Zustand
-- Authentication: Better-Auth
+- Authentication: Better-Auth (currently mocked)
+- Desktop: Tauri 2.0
+
+### Mobile App (`apps/native`)
+- Framework: Expo (React Native)
+- UI Components: HeroUI Native
+- Styling: Tailwind CSS v4 + NativeWind
+- State Management: Zustand
+- Authentication: Better-Auth (via @better-auth/expo)
 
 ### Shared Workspace
 - `packages/shared`: Shared types, event schemas, and protocol helpers.
@@ -255,6 +263,7 @@ WS_PORT=3003
 | `apps/server/src/websocket/adapter.ts` | tRPC WS adapter creation. |
 | `apps/server/src/websocket/handler.ts` | WS upgrade and connection handling. |
 | `apps/web/src/routes/index.tsx` | Web: main chat interface. |
+| `apps/web/src/lib/auth-client.ts` | Web: authentication client (currently mocked). |
 | `apps/native/app/(drawer)/index.tsx` | Mobile: session list. |
 | `apps/native/app/chats/[chatId].tsx` | Mobile: chat screen (read-only support). |
 | `apps/native/store/chat-store.ts` | Mobile: Zustand store for chat state. |
@@ -267,6 +276,35 @@ WS_PORT=3003
 ### Setup
 1. `bun install`
 2. `bun run dev` (Starts backend on `:3000` and frontend on `:3001`)
+
+### Development Commands
+```bash
+# Run all apps
+bun run dev
+
+# Run specific apps
+bun run dev:web      # Web UI only
+bun run dev:server   # Server only
+bun run dev:native   # Native app only
+
+# Build
+bun run build        # Build all apps
+bun run build -F server   # Build server only
+bun run build -F web      # Build web only
+
+# Type checking
+bun run check-types  # Check types for all apps
+
+# Linting (Biome)
+bun run lint         # Lint all apps
+bun run lint -F web  # Lint web app only
+
+# Database (if using Drizzle)
+bun run db:push      # Push schema changes
+bun run db:studio    # Open database studio
+bun run db:generate  # Generate migrations
+bun run db:migrate   # Run migrations
+```
 
 ### Server-Only Dev
 - `cd apps/server && bun run dev`
@@ -281,6 +319,22 @@ Authentication is currently mocked in `apps/web/src/lib/auth-client.ts`. To rest
 1. Open the Settings dialog in the Web UI.
 2. Provide a Name, Command (e.g., `opencode`), Args (e.g., `acp`), and Environment variables.
 3. These are saved to LocalStorage and passed to the server when starting a chat.
+
+### Native App (Expo)
+```bash
+cd apps/native
+bun run start          # Start Expo dev server
+bun run android        # Run on Android device/emulator
+bun run ios            # Run on iOS simulator
+bun run web            # Run in browser
+```
+
+### Desktop App (Tauri)
+```bash
+cd apps/web
+bun run desktop:dev    # Start Tauri development
+bun run desktop:build  # Build desktop installer
+```
 
 ---
 

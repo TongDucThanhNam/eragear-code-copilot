@@ -2,26 +2,26 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export type AgentConfig = {
+export interface AgentConfig {
   type: "claude" | "codex" | "opencode" | "gemini" | "other";
   command: string;
   args?: string[];
   env?: Record<string, string>;
   cwd?: string;
-};
+}
 
-export type Settings = {
+export interface Settings {
   agent_servers: Record<string, AgentConfig>;
   // Mobile specific settings can be added here
   serverUrl?: string;
-};
+}
 
 export type AgentView = {
   id: string;
   name: string;
 } & AgentConfig;
 
-type SettingsState = {
+interface SettingsState {
   settings: Settings;
   activeAgentId: string | null;
 
@@ -32,7 +32,7 @@ type SettingsState = {
   // Computed
   getAgents: () => AgentView[];
   getActiveAgent: () => AgentView | null;
-};
+}
 
 const DEFAULT_SETTINGS: Settings = {
   agent_servers: {
@@ -71,7 +71,9 @@ export const useSettingsStore = create<SettingsState>()(
       getActiveAgent: () => {
         const id = get().activeAgentId;
         const s = get().settings;
-        if (!(id && s.agent_servers[id])) return null;
+        if (!(id && s.agent_servers[id])) {
+          return null;
+        }
         return { id, name: id, ...s.agent_servers[id] };
       },
     }),
