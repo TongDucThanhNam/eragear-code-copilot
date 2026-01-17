@@ -1,39 +1,39 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileIcon, GitBranchIcon } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DiffViewer } from "./diff-viewer";
 import { FileTree } from "./file-tree";
 
 export function ContextPanel() {
-	return (
-		<div className="h-full border-l bg-muted/10">
-			<Tabs defaultValue="files" className="h-full flex flex-col">
-				<div className="border-b px-4 py-2">
-					<TabsList className="w-full justify-start h-auto p-0 bg-transparent gap-4">
-						<TabsTrigger
-							value="files"
-							className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-9 px-1"
-						>
-							<FileIcon className="mr-2 size-4" />
-							Files
-						</TabsTrigger>
-						<TabsTrigger
-							value="changes"
-							className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-9 px-1"
-						>
-							<GitBranchIcon className="mr-2 size-4" />
-							Changes
-						</TabsTrigger>
-					</TabsList>
-				</div>
-				<div className="flex-1 overflow-hidden min-h-0 flex flex-col relative">
-					<TabsContent value="files" className="m-0 h-full relative">
-						<FileTree />
-					</TabsContent>
-					<TabsContent value="changes" className="m-0 h-full relative">
-						<DiffViewer />
-					</TabsContent>
-				</div>
-			</Tabs>
-		</div>
-	);
+  return (
+    <div className="h-full border-l bg-muted/10">
+      <Tabs className="flex h-full flex-col" defaultValue="files">
+        <div className="border-b px-4 py-2">
+          <TabsList className="h-auto w-full justify-start gap-4 bg-transparent p-0">
+            <TabsTrigger
+              className="h-9 rounded-none px-1 data-[state=active]:border-primary data-[state=active]:border-b-2 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              value="files"
+            >
+              <FileIcon className="mr-2 size-4" />
+              Files
+            </TabsTrigger>
+            <TabsTrigger
+              className="h-9 rounded-none px-1 data-[state=active]:border-primary data-[state=active]:border-b-2 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              value="changes"
+            >
+              <GitBranchIcon className="mr-2 size-4" />
+              Changes
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <TabsContent className="relative m-0 h-full" value="files">
+            <FileTree />
+          </TabsContent>
+          <TabsContent className="relative m-0 h-full" value="changes">
+            <DiffViewer />
+          </TabsContent>
+        </div>
+      </Tabs>
+    </div>
+  );
 }

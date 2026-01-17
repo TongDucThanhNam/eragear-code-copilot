@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Drawer } from "expo-router/drawer";
 import { useThemeColor } from "heroui-native";
-import React, { useCallback } from "react";
+import { useCallback } from "react";
 import { Text } from "react-native";
 
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -30,13 +30,15 @@ function DrawerLayout() {
         options={{
           headerTitle: "Sessions",
           drawerLabel: ({ color, focused }) => (
-            <Text style={{ color: focused ? color : themeColorForeground }}>Sessions</Text>
+            <Text style={{ color: focused ? color : themeColorForeground }}>
+              Sessions
+            </Text>
           ),
           drawerIcon: ({ size, color, focused }) => (
             <Ionicons
+              color={focused ? color : themeColorForeground}
               name="chatbubbles-outline"
               size={size}
-              color={focused ? color : themeColorForeground}
             />
           ),
         }}
@@ -46,13 +48,15 @@ function DrawerLayout() {
         options={{
           headerTitle: "Settings",
           drawerLabel: ({ color, focused }) => (
-            <Text style={{ color: focused ? color : themeColorForeground }}>Settings</Text>
+            <Text style={{ color: focused ? color : themeColorForeground }}>
+              Settings
+            </Text>
           ),
           drawerIcon: ({ size, color, focused }) => (
             <Ionicons
+              color={focused ? color : themeColorForeground}
               name="settings-outline"
               size={size}
-              color={focused ? color : themeColorForeground}
             />
           ),
         }}

@@ -1,401 +1,668 @@
 import { useCallback, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
-import { useChatStore } from "@/store/chat-store";
+import {
+  type PermissionRequest,
+  type ToolCall,
+  useChatStore,
+} from "@/store/chat-store";
 import { useSettingsStore } from "@/store/settings-store";
 
 // Helper for random IDs
 const nanoid = () => Math.random().toString(36).substring(2, 10);
 
+// Session event types (matching server's BroadcastEvent)
+type SessionEvent =
+  | { type: "connected" }
+  | { type: "current_mode_update"; modeId: string }
+  | { type: "session_update"; update?: SessionUpdate }
+  | {
+      type: "request_permission";
+      requestId: string;
+      toolCall: unknown;
+      options?: unknown;
+    }
+  | { type: "user_message"; id: string; text: string; timestamp: number }
+  | { type: "message"; message: unknown }
+  | { type: "heartbeat"; ts: number }
+  | { type: "error"; error: string }
+  | { type: "terminal_output"; terminalId: string; data: string };
+
+// Session update types (matching ACP protocol)
+type SessionUpdate =
+  | {
+      sessionUpdate: "user_message_chunk";
+      content: unknown;
+      text?: string;
+    }
+  | {
+      sessionUpdate: "agent_message_chunk";
+      content: unknown;
+      text?: string;
+    }
+  | {
+      sessionUpdate: "agent_thought_chunk";
+      content: unknown;
+      text?: string;
+    }
+  | {
+      sessionUpdate: "tool_call";
+      toolCallId: string;
+      title?: string;
+      kind?: string;
+      rawInput?: unknown;
+    }
+  | {
+      sessionUpdate: "tool_call_update";
+      toolCallId: string;
+      content?: unknown;
+      status?: string;
+      rawOutput?: unknown;
+    }
+  | {
+      sessionUpdate: "plan";
+      entries: Array<{ title?: string; text?: string; status: string }>;
+    }
+  | {
+      sessionUpdate: "available_commands_update";
+      availableCommands: unknown[];
+    }
+  | {
+      sessionUpdate: "current_mode_update";
+      currentModeId: string;
+    }
+  | { sessionUpdate: "turn_end" }
+  | { sessionUpdate: "prompt_end" }
+  | { sessionUpdate: string; [key: string]: unknown };
+
+// Helper to extract text from content
+function extractTextFromContent(
+  content: unknown,
+  fallbackText?: string
+): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (typeof content === "object" && content !== null) {
+    return (
+      (content as { text?: string }).text ||
+      (content as { delta?: { text?: string } }).delta?.text ||
+      ""
+    );
+  }
+  return fallbackText || "";
+}
+
 export function useChat() {
-	// Select only what we need for the hook's internal logic (subscription key)
-	// We do NOT select messages or other volatile state here to prevent re-rendering the hook
-	// which tears down and recreates the subscription.
-	const activeChatId = useChatStore((s) => s.activeChatId);
-	const activeChatIsReadOnly = useChatStore((s) => s.activeChatIsReadOnly);
-	const connStatus = useChatStore((s) => s.connStatus);
-	const activeAgentId = useSettingsStore((s) => s.activeAgentId);
-	const getAgents = useSettingsStore((s) => s.getAgents);
+  // Select only what we need for the hook's internal logic (subscription key)
+  const activeChatId = useChatStore((s) => s.activeChatId);
+  const activeChatIsReadOnly = useChatStore((s) => s.activeChatIsReadOnly);
+  const connStatus = useChatStore((s) => s.connStatus);
+  const activeAgentId = useSettingsStore((s) => s.activeAgentId);
+  const getAgents = useSettingsStore((s) => s.getAgents);
 
-	const utils = trpc.useUtils();
-	const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _utils = trpc.useUtils();
+  const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
 
-	// Mutations
-	const createSessionMutation = trpc.createSession.useMutation();
-	const stopSessionMutation = trpc.stopSession.useMutation();
-	const resumeSessionMutation = trpc.resumeSession.useMutation();
-	const sendMessageMutation = trpc.sendMessage.useMutation();
-	const setModeMutation = trpc.setMode.useMutation();
-	const setModelMutation = trpc.setModel.useMutation();
-	const cancelPromptMutation = trpc.cancelPrompt.useMutation();
-	const respondToPermissionMutation =
-		trpc.respondToPermissionRequest.useMutation();
+  // Mutations
+  const createSessionMutation = trpc.createSession.useMutation();
+  const stopSessionMutation = trpc.stopSession.useMutation();
+  const resumeSessionMutation = trpc.resumeSession.useMutation();
+  const sendMessageMutation = trpc.sendMessage.useMutation();
+  const setModeMutation = trpc.setMode.useMutation();
+  const setModelMutation = trpc.setModel.useMutation();
+  const cancelPromptMutation = trpc.cancelPrompt.useMutation();
+  const respondToPermissionMutation =
+    trpc.respondToPermissionRequest.useMutation();
 
-	// Snapshot state (modes/models/commands) on connect or reconnect
-	const sessionStateQuery = trpc.getSessionState.useQuery(
-		{ chatId: activeChatId || "" },
-		{
-			enabled:
-				!!activeChatId && !activeChatIsReadOnly && connStatus === "connecting",
-			retry: false,
-		},
-	);
+  // Snapshot state (modes/models/commands) on connect or reconnect
+  const sessionStateQuery = trpc.getSessionState.useQuery(
+    { chatId: activeChatId || "" },
+    {
+      enabled:
+        !!activeChatId && !activeChatIsReadOnly && connStatus === "connecting",
+      retry: false,
+    }
+  );
 
-	useEffect(() => {
-		const data = sessionStateQuery.data;
-		if (!data || connStatus !== "connecting") return;
+  useEffect(() => {
+    const data = sessionStateQuery.data;
+    if (!data || connStatus !== "connecting") {
+      return;
+    }
 
-		const store = useChatStore.getState();
-		if (data.status === "stopped") {
-			store.setConnStatus("idle");
-			return;
-		}
+    const store = useChatStore.getState();
+    if (data.status === "stopped") {
+      store.setConnStatus("idle");
+      return;
+    }
 
-		if (data.modes) store.setModes(data.modes);
-		if (data.models) store.setModels(data.models);
-		if (data.commands) store.setCommands(data.commands);
-		store.setConnStatus("connected");
-	}, [sessionStateQuery.data, connStatus]);
+    if (data.modes) {
+      store.setModes(data.modes);
+    }
+    if (data.models) {
+      store.setModels(data.models);
+    }
+    if (data.commands) {
+      const commands = (data.commands || []).map((cmd) => ({
+        name: cmd.name,
+        description: cmd.description,
+        input: cmd.input === null ? undefined : cmd.input,
+      }));
+      store.setCommands(commands);
+    }
+    store.setConnStatus("connected");
+  }, [sessionStateQuery.data, connStatus]);
 
-	// Subscription Handler
-	// We use useChatStore.getState() inside to avoid dependencies
-	const handleSessionEvent = useCallback((event: any) => {
-		const store = useChatStore.getState();
+  // Individual session update handlers
+  const handleUserMessageChunk = useCallback(
+    (
+      update: SessionUpdate,
+      store: ReturnType<typeof useChatStore.getState>
+    ) => {
+      const userUpdate = update as {
+        sessionUpdate: "user_message_chunk";
+        content: unknown;
+        text?: string;
+      };
+      const text = extractTextFromContent(userUpdate.content, userUpdate.text);
+      if (!text) {
+        return;
+      }
 
-		// Handle explicit connected event from server
-		if (event.type === "connected") {
-			store.setConnStatus("connected");
-			return;
-		}
+      if (lastStreamKindRef.current === "user") {
+        store.appendToUserText(text);
+      } else {
+        store.addMessage({
+          id: nanoid(),
+          role: "user",
+          parts: [{ type: "text", text }],
+          timestamp: Date.now(),
+        });
+      }
+      lastStreamKindRef.current = "user";
+    },
+    []
+  );
 
-		// Handle replayed user messages from server buffer
-		if (event.type === "user_message") {
-			store.addMessage({
-				id: event.id || nanoid(),
-				role: "user",
-				parts: [{ type: "text", text: event.text }],
-				timestamp: event.timestamp || Date.now(),
-			});
-			lastStreamKindRef.current = "other";
-			return;
-		}
+  const handleAgentMessageChunk = useCallback(
+    (
+      update: SessionUpdate,
+      store: ReturnType<typeof useChatStore.getState>
+    ) => {
+      const agentUpdate = update as {
+        sessionUpdate: "agent_message_chunk";
+        content: unknown;
+        text?: string;
+      };
+      const text = extractTextFromContent(
+        agentUpdate.content,
+        agentUpdate.text
+      );
+      if (!text) {
+        return;
+      }
 
-		if (event.type === "session_update") {
-			const u = event.update;
+      store.appendToText(text);
+      lastStreamKindRef.current = "agent";
+    },
+    []
+  );
 
-			if (u.sessionUpdate === "user_message_chunk") {
-				let text = "";
-				if (typeof u.content === "string") text = u.content;
-				else if (typeof u.content === "object")
-					text = u.content.text || u.content.delta?.text || "";
-				else text = u.text || "";
+  const handleAgentThoughtChunk = useCallback(
+    (
+      update: SessionUpdate,
+      store: ReturnType<typeof useChatStore.getState>
+    ) => {
+      const thoughtUpdate = update as {
+        sessionUpdate: "agent_thought_chunk";
+        content: unknown;
+        text?: string;
+      };
+      const text = extractTextFromContent(
+        thoughtUpdate.content,
+        thoughtUpdate.text
+      );
+      if (!text) {
+        return;
+      }
 
-				if (text) {
-					if (lastStreamKindRef.current === "user") {
-						store.appendToUserText(text);
-					} else {
-						store.addMessage({
-							id: nanoid(),
-							role: "user",
-							parts: [{ type: "text", text }],
-							timestamp: Date.now(),
-						});
-					}
-					lastStreamKindRef.current = "user";
-				}
-				return;
-			}
+      store.appendToReasoning(text);
+      lastStreamKindRef.current = "agent";
+    },
+    []
+  );
 
-			if (u.sessionUpdate === "agent_message_chunk") {
-				let text = "";
-				if (typeof u.content === "string") text = u.content;
-				else if (typeof u.content === "object")
-					text = u.content.text || u.content.delta?.text || "";
-				else text = u.text || "";
+  const handleToolCall = useCallback(
+    (
+      update: SessionUpdate,
+      store: ReturnType<typeof useChatStore.getState>
+    ) => {
+      const toolUpdate = update as {
+        sessionUpdate: "tool_call";
+        toolCallId: string;
+        title?: string;
+        kind?: string;
+        rawInput?: unknown;
+      };
+      store.flushPending();
+      lastStreamKindRef.current = "other";
 
-				if (text) {
-					store.appendToText(text);
-					lastStreamKindRef.current = "agent";
-				}
-			} else if (u.sessionUpdate === "agent_thought_chunk") {
-				let text = "";
-				if (typeof u.content === "string") text = u.content;
-				else if (typeof u.content === "object")
-					text = u.content.text || u.content.delta?.text || "";
-				else text = u.text || "";
+      const lastMsg = store.messages.at(-1);
+      if (lastMsg?.role === "assistant") {
+        const newParts = [
+          ...lastMsg.parts,
+          {
+            type: "tool_call" as const,
+            toolCallId: toolUpdate.toolCallId,
+            name: toolUpdate.title || toolUpdate.kind || "Tool",
+            args: toolUpdate.rawInput,
+          },
+        ];
+        store.updateLastAssistantMessage(newParts);
+      }
+    },
+    []
+  );
 
-				console.log("[agent_thought_chunk] extracted text:", JSON.stringify(text));
-				console.log("[agent_thought_chunk] messages count before:", store.messages.length);
+  const handleToolCallUpdate = useCallback(
+    (
+      update: SessionUpdate,
+      store: ReturnType<typeof useChatStore.getState>
+    ) => {
+      const toolUpdate = update as {
+        sessionUpdate: "tool_call_update";
+        toolCallId: string;
+        content?: unknown;
+        status?: string;
+        rawOutput?: unknown;
+      };
+      const lastMsg = store.messages.at(-1);
+      if (lastMsg?.role !== "assistant") {
+        return;
+      }
 
-				if (text) {
-					store.appendToReasoning(text);
-					lastStreamKindRef.current = "agent";
-					console.log("[agent_thought_chunk] messages count after:", store.messages.length);
-				} else {
-					console.log("[agent_thought_chunk] empty text, u:", JSON.stringify(u));
-				}
-			} else if (u.sessionUpdate === "tool_call") {
-				store.flushPending();
-				lastStreamKindRef.current = "other";
-				// Add tool call to message
-				const lastMsg = store.messages.slice(-1)[0];
-				if (lastMsg?.role === "assistant") {
-					const newParts = [
-						...lastMsg.parts,
-						{
-							type: "tool_call" as const,
-							toolCallId: u.toolCallId,
-							name: u.title || u.kind || "Tool",
-							args: u.rawInput,
-						},
-					];
-					store.updateLastAssistantMessage(newParts);
-				}
-			} else if (u.sessionUpdate === "tool_call_update") {
-				// Handle status updates or result
-				const lastMsg = store.messages.slice(-1)[0];
-				if (lastMsg?.role === "assistant") {
-					const parts = [...lastMsg.parts];
-					const lastPart = parts[parts.length - 1];
+      const parts = [...lastMsg.parts];
+      const lastPart = parts.at(-1);
 
-					// If last part is a tool_call with matching toolCallId, update it
-					if (
-						lastPart?.type === "tool_call" &&
-						lastPart.toolCallId === u.toolCallId
-					) {
-						// If there's content/output, append as tool_result
-						if (u.content && u.status === "completed") {
-							parts.push({
-								type: "tool_result" as const,
-								toolCallId: u.toolCallId,
-								status: u.status,
-								output: u.rawOutput || u.content,
-							});
-							store.updateLastAssistantMessage(parts);
-						}
-					}
-				}
-			} else if (u.sessionUpdate === "plan") {
-				store.flushPending();
-				// Add or update plan
-				const entries = u.entries;
-				const lastMsg = store.messages.slice(-1)[0];
-				if (lastMsg?.role === "assistant") {
-					// Check if last part is plan
-					const lastPart = lastMsg.parts[lastMsg.parts.length - 1];
-					if (lastPart?.type === "plan") {
-						const newParts = [...lastMsg.parts];
-						newParts[newParts.length - 1] = {
-							type: "plan",
-							items: entries.map((e: any) => ({
-								content: e.title || e.text,
-								status: e.status,
-							})),
-						};
-						store.updateLastAssistantMessage(newParts);
-					} else {
-						store.updateLastAssistantMessage([
-							...lastMsg.parts,
-							{
-								type: "plan",
-								items: entries.map((e: any) => ({
-									content: e.title || e.text,
-									status: e.status,
-								})),
-							},
-						]);
-					}
-				} else {
-					store.addMessage({
-						id: nanoid(),
-						role: "assistant",
-						parts: [
-							{
-								type: "plan",
-								items: entries.map((e: any) => ({
-									content: e.title || e.text,
-									status: e.status,
-								})),
-							},
-						],
-						timestamp: Date.now(),
-					});
-				}
-			} else if (u.sessionUpdate === "available_commands_update") {
-				store.setCommands(u.availableCommands || []);
-			}
-		} else if (event.type === "current_mode_update") {
-			const modes = store.modes;
-			if (modes) {
-				store.setModes({ ...modes, currentModeId: event.modeId });
-			}
-		} else if (event.type === "request_permission") {
-			store.setPendingPermission({
-				requestId: event.requestId,
-				toolCall: event.toolCall,
-				options: event.options,
-			});
-		} else if (event.type === "terminal_output") {
-			const { terminalId, data } = event;
-			if (terminalId && data) {
-				store.appendTerminalOutput(terminalId, data);
-			}
-		} else if (event.type === "error") {
-			store.setError(event.error);
-		}
-	}, []);
+      if (
+        lastPart?.type === "tool_call" &&
+        lastPart.toolCallId === toolUpdate.toolCallId &&
+        toolUpdate.content &&
+        toolUpdate.status === "completed"
+      ) {
+        parts.push({
+          type: "tool_result" as const,
+          toolCallId: toolUpdate.toolCallId,
+          status: toolUpdate.status,
+          output: toolUpdate.rawOutput || toolUpdate.content,
+        });
+        store.updateLastAssistantMessage(parts);
+      }
+    },
+    []
+  );
 
-	// Check if this chat has already failed (prevents infinite loop)
-	const isChatFailed = useChatStore((s) => s.isChatFailed);
-	const shouldSubscribe =
-		!!activeChatId &&
-		!activeChatIsReadOnly &&
-		!isChatFailed(activeChatId) &&
-		connStatus === "connected";
+  const handlePlanUpdate = useCallback(
+    (
+      update: SessionUpdate,
+      store: ReturnType<typeof useChatStore.getState>
+    ) => {
+      const planUpdate = update as {
+        sessionUpdate: "plan";
+        entries: Array<{ title?: string; text?: string; status: string }>;
+      };
+      store.flushPending();
+      const entries = planUpdate.entries;
+      const lastMsg = store.messages.at(-1);
 
-	// Subscription
-	trpc.onSessionEvents.useSubscription(
-		{ chatId: activeChatId || "" },
-		{
-			enabled: shouldSubscribe,
-			onData: handleSessionEvent,
-			onError(err) {
-				console.error("Subscription error:", err);
-				const store = useChatStore.getState();
-				const message =
-					typeof err?.message === "string" ? err.message : "Subscription error";
+      const planPart = {
+        type: "plan" as const,
+        items: entries.map((e) => ({
+          content: e.title || e.text || "",
+          status: e.status,
+        })),
+      };
 
-				if (message.includes("Chat not found") && activeChatId) {
-					// Mark this chat as failed to prevent infinite re-subscription
-					store.markChatFailed(activeChatId);
-					store.setActiveChatId(null);
-					store.setConnStatus("idle");
-					store.setError(
-						"Chat not found. The session may have expired. Please start a new session.",
-					);
-					return;
-				}
+      if (lastMsg?.role === "assistant") {
+        const lastPart = lastMsg.parts.at(-1);
+        if (lastPart?.type === "plan") {
+          const newParts = [...lastMsg.parts];
+          newParts[newParts.length - 1] = planPart;
+          store.updateLastAssistantMessage(newParts);
+        } else {
+          store.updateLastAssistantMessage([...lastMsg.parts, planPart]);
+        }
+      } else {
+        store.addMessage({
+          id: nanoid(),
+          role: "assistant",
+          parts: [planPart],
+          timestamp: Date.now(),
+        });
+      }
+    },
+    []
+  );
 
-				store.setConnStatus("error");
-				store.setError(message);
-			},
-		},
-	);
+  const handleAvailableCommandsUpdate = useCallback(
+    (
+      update: SessionUpdate,
+      store: ReturnType<typeof useChatStore.getState>
+    ) => {
+      const cmdUpdate = update as {
+        sessionUpdate: "available_commands_update";
+        availableCommands: Array<{
+          name: string;
+          description: string;
+          input?: { hint: string } | null;
+        }>;
+      };
+      const commands = (cmdUpdate.availableCommands || []).map((cmd) => {
+        const input = cmd.input;
+        return {
+          name: cmd.name,
+          description: cmd.description,
+          input: input === null ? undefined : input,
+        } as { name: string; description: string; input?: { hint: string } };
+      });
+      store.setCommands(commands);
+    },
+    []
+  );
 
-	const createSession = async () => {
-		try {
-			const agentId = activeAgentId;
-			const agent = getAgents().find((a) => a.id === agentId);
-			const store = useChatStore.getState();
+  // Main session update handler
+  const handleSessionUpdate = useCallback(
+    (
+      update: SessionUpdate,
+      store: ReturnType<typeof useChatStore.getState>
+    ) => {
+      switch (update.sessionUpdate) {
+        case "user_message_chunk":
+          handleUserMessageChunk(update, store);
+          break;
+        case "agent_message_chunk":
+          handleAgentMessageChunk(update, store);
+          break;
+        case "agent_thought_chunk":
+          handleAgentThoughtChunk(update, store);
+          break;
+        case "tool_call":
+          handleToolCall(update, store);
+          break;
+        case "tool_call_update":
+          handleToolCallUpdate(update, store);
+          break;
+        case "plan":
+          handlePlanUpdate(update, store);
+          break;
+        case "available_commands_update":
+          handleAvailableCommandsUpdate(update, store);
+          break;
+        default:
+          break;
+      }
+    },
+    [
+      handleUserMessageChunk,
+      handleAgentMessageChunk,
+      handleAgentThoughtChunk,
+      handleToolCall,
+      handleToolCallUpdate,
+      handlePlanUpdate,
+      handleAvailableCommandsUpdate,
+    ]
+  );
 
-			if (!agent) {
-				store.setError("Please configure an ACP agent first.");
-				store.setConnStatus("idle");
-				return;
-			}
+  // Subscription Handler
+  const handleSessionEvent = useCallback(
+    (event: SessionEvent) => {
+      const store = useChatStore.getState();
 
-			store.setConnStatus("connecting");
-			const res = await createSessionMutation.mutateAsync({
-				projectRoot: ".",
-				command: agent.command,
-				args: agent.args,
-				env: agent.env,
-				cwd: agent.cwd,
-			});
+      switch (event.type) {
+        case "connected":
+          store.setConnStatus("connected");
+          break;
 
-			store.setActiveChatId(res.chatId);
-			if (res.modes) store.setModes(res.modes);
-			if (res.models) store.setModels(res.models);
-			store.setConnStatus("connected");
-		} catch (e: any) {
-			useChatStore.getState().setError(e.message);
-			useChatStore.getState().setConnStatus("error");
-		}
-	};
+        case "user_message":
+          store.addMessage({
+            id: event.id || nanoid(),
+            role: "user",
+            parts: [{ type: "text", text: event.text }],
+            timestamp: event.timestamp || Date.now(),
+          });
+          lastStreamKindRef.current = "other";
+          break;
 
-	const sendMessage = async (text: string) => {
-		if (!activeChatId) return;
-		const store = useChatStore.getState();
+        case "session_update":
+          if (event.update) {
+            handleSessionUpdate(event.update, store);
+          }
+          break;
 
-		// Note: We don't add message here. Server will broadcast user_message event
-		// which will be received via subscription and added to store.
-		// This ensures consistency between live and replayed messages.
+        case "current_mode_update": {
+          const modes = store.modes;
+          if (modes) {
+            store.setModes({ ...modes, currentModeId: event.modeId });
+          }
+          break;
+        }
 
-		try {
-			await sendMessageMutation.mutateAsync({ chatId: activeChatId, text });
-		} catch (e: any) {
-			store.setError(e.message);
-		}
-	};
+        case "request_permission": {
+          store.setPendingPermission({
+            requestId: event.requestId,
+            toolCall: event.toolCall as ToolCall,
+            options: event.options as PermissionRequest["options"],
+          });
+          break;
+        }
 
-	const setMode = async (modeId: string) => {
-		if (!activeChatId) return;
-		const store = useChatStore.getState();
-		try {
-			await setModeMutation.mutateAsync({ chatId: activeChatId, modeId });
-			if (store.modes) {
-				store.setModes({ ...store.modes, currentModeId: modeId });
-			}
-		} catch (e: any) {
-			store.setError(e.message);
-		}
-	};
+        case "terminal_output": {
+          const { terminalId, data } = event;
+          if (terminalId && data) {
+            store.appendTerminalOutput(terminalId, data);
+          }
+          break;
+        }
 
-	const setModel = async (modelId: string) => {
-		if (!activeChatId) return;
-		const store = useChatStore.getState();
-		try {
-			await setModelMutation.mutateAsync({ chatId: activeChatId, modelId });
-			if (store.models) {
-				store.setModels({ ...store.models, currentModelId: modelId });
-			}
-		} catch (e: any) {
-			store.setError(e.message);
-		}
-	};
+        case "error":
+          store.setError(event.error);
+          break;
 
-	const respondToPermission = async (requestId: string, decision: string) => {
-		if (!activeChatId) return;
-		const store = useChatStore.getState();
-		try {
-			await respondToPermissionMutation.mutateAsync({
-				chatId: activeChatId,
-				requestId,
-				decision,
-			});
-			store.setPendingPermission(null);
-		} catch (e: any) {
-			store.setError(e.message);
-		}
-	};
+        default:
+          break;
+      }
+    },
+    [handleSessionUpdate]
+  );
 
-	const stopSession = async () => {
-		if (!activeChatId) return;
-		await stopSessionMutation.mutateAsync({ chatId: activeChatId });
-		useChatStore.getState().setConnStatus("idle");
-	};
+  // Check if this chat has already failed (prevents infinite loop)
+  const isChatFailed = useChatStore((s) => s.isChatFailed);
+  const shouldSubscribe =
+    !!activeChatId &&
+    !activeChatIsReadOnly &&
+    !isChatFailed(activeChatId) &&
+    connStatus === "connected";
 
-	const resumeSession = async (chatId: string) => {
-		const store = useChatStore.getState();
-		try {
-			const res = await resumeSessionMutation.mutateAsync({ chatId });
-			return res;
-		} catch (e: any) {
-			store.setError(e.message);
-			store.setConnStatus("error");
-			throw e;
-		}
-	};
+  // Subscription
+  trpc.onSessionEvents.useSubscription(
+    { chatId: activeChatId || "" },
+    {
+      enabled: shouldSubscribe,
+      onData: (data) => handleSessionEvent(data as SessionEvent),
+      onError(err) {
+        console.error("Subscription error:", err);
+        const store = useChatStore.getState();
+        const message =
+          typeof err?.message === "string" ? err.message : "Subscription error";
 
-	return {
-		createSession,
-		sendMessage,
-		setMode,
-		setModel,
-		respondToPermission,
-		stopSession,
-		resumeSession,
-		isCreating: createSessionMutation.isPending,
-		isResuming: resumeSessionMutation.isPending,
-		isSending: sendMessageMutation.isPending,
-	};
+        if (message.includes("Chat not found") && activeChatId) {
+          // Mark this chat as failed to prevent infinite re-subscription
+          store.markChatFailed(activeChatId);
+          store.setActiveChatId(null);
+          store.setConnStatus("idle");
+          store.setError(
+            "Chat not found. The session may have expired. Please start a new session."
+          );
+          return;
+        }
+
+        store.setConnStatus("error");
+        store.setError(message);
+      },
+    }
+  );
+
+  const createSession = async () => {
+    try {
+      const agentId = activeAgentId;
+      const agent = getAgents().find((a) => a.id === agentId);
+      const store = useChatStore.getState();
+
+      if (!agent) {
+        store.setError("Please configure an ACP agent first.");
+        store.setConnStatus("idle");
+        return;
+      }
+
+      store.setConnStatus("connecting");
+      const res = await createSessionMutation.mutateAsync({
+        projectRoot: ".",
+        command: agent.command,
+        args: agent.args,
+        env: agent.env,
+        cwd: agent.cwd,
+      });
+
+      store.setActiveChatId(res.chatId);
+      if (res.modes) {
+        store.setModes(res.modes);
+      }
+      if (res.models) {
+        store.setModels(res.models);
+      }
+      store.setConnStatus("connected");
+    } catch (e) {
+      const error = e as Error;
+      useChatStore.getState().setError(error.message);
+      useChatStore.getState().setConnStatus("error");
+    }
+  };
+
+  const sendMessage = async (text: string) => {
+    if (!activeChatId) {
+      return;
+    }
+    const store = useChatStore.getState();
+
+    // Note: We don't add message here. Server will broadcast user_message event
+    // which will be received via subscription and added to store.
+    // This ensures consistency between live and replayed messages.
+
+    try {
+      await sendMessageMutation.mutateAsync({ chatId: activeChatId, text });
+    } catch (e) {
+      const error = e as Error;
+      store.setError(error.message);
+    }
+  };
+
+  const setMode = async (modeId: string) => {
+    if (!activeChatId) {
+      return;
+    }
+    const store = useChatStore.getState();
+    try {
+      await setModeMutation.mutateAsync({ chatId: activeChatId, modeId });
+      if (store.modes) {
+        store.setModes({ ...store.modes, currentModeId: modeId });
+      }
+    } catch (e) {
+      const error = e as Error;
+      store.setError(error.message);
+    }
+  };
+
+  const setModel = async (modelId: string) => {
+    if (!activeChatId) {
+      return;
+    }
+    const store = useChatStore.getState();
+    try {
+      await setModelMutation.mutateAsync({ chatId: activeChatId, modelId });
+      if (store.models) {
+        store.setModels({ ...store.models, currentModelId: modelId });
+      }
+    } catch (e) {
+      const error = e as Error;
+      store.setError(error.message);
+    }
+  };
+
+  const cancelPrompt = async () => {
+    if (!activeChatId) {
+      return;
+    }
+    const store = useChatStore.getState();
+    try {
+      await cancelPromptMutation.mutateAsync({ chatId: activeChatId });
+    } catch (e) {
+      const error = e as Error;
+      store.setError(error.message);
+    }
+  };
+
+  const respondToPermission = async (requestId: string, decision: string) => {
+    if (!activeChatId) {
+      return;
+    }
+    const store = useChatStore.getState();
+    try {
+      await respondToPermissionMutation.mutateAsync({
+        chatId: activeChatId,
+        requestId,
+        decision,
+      });
+      store.setPendingPermission(null);
+    } catch (e) {
+      const error = e as Error;
+      store.setError(error.message);
+    }
+  };
+
+  const stopSession = async () => {
+    if (!activeChatId) {
+      return;
+    }
+    await stopSessionMutation.mutateAsync({ chatId: activeChatId });
+    useChatStore.getState().setConnStatus("idle");
+  };
+
+  const resumeSession = async (chatId: string) => {
+    const store = useChatStore.getState();
+    try {
+      const res = await resumeSessionMutation.mutateAsync({ chatId });
+      return res;
+    } catch (e) {
+      const error = e as Error;
+      store.setError(error.message);
+      store.setConnStatus("error");
+      throw e;
+    }
+  };
+
+  return {
+    createSession,
+    sendMessage,
+    setMode,
+    setModel,
+    cancelPrompt,
+    respondToPermission,
+    stopSession,
+    resumeSession,
+    isCreating: createSessionMutation.isPending,
+    isResuming: resumeSessionMutation.isPending,
+    isSending: sendMessageMutation.isPending,
+    isCancelling: cancelPromptMutation.isPending,
+  };
 }

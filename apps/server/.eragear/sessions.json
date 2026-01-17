@@ -10,9 +10,9 @@
     "env": {},
     "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "loadSessionSupported": true,
-    "status": "stopped",
+    "status": "running",
     "createdAt": 1768561843615,
-    "lastActiveAt": 1768578055108,
+    "lastActiveAt": 1768629876835,
     "modeId": "build",
     "modelId": "opencode/big-pickle",
     "messages": [
@@ -39,8 +39,18 @@
         "role": "user",
         "content": "wow",
         "timestamp": 1768565417560
+      },
+      {
+        "id": "msg-1768629876834-v3opzrjwswk",
+        "role": "user",
+        "content": "eza --tree --git-ignore",
+        "timestamp": 1768629876834
       }
-    ]
+    ],
+    "agentInfo": {
+      "name": "OpenCode",
+      "version": "1.1.21"
+    }
   },
   {
     "id": "chat-1768565485441-0777bc6eadf968",
@@ -76,12 +86,29 @@
     "env": {},
     "cwd": "/home/terasumi/Documents/source_code/Web/eragear-code-copilot/apps/server",
     "loadSessionSupported": true,
-    "status": "stopped",
+    "status": "running",
     "createdAt": 1768567869936,
-    "lastActiveAt": 1768568916898,
+    "lastActiveAt": 1768630136300,
     "modeId": "build",
     "modelId": "opencode/big-pickle",
-    "messages": []
+    "messages": [
+      {
+        "id": "msg-1768630064994-81mo30miun6",
+        "role": "user",
+        "content": "I want to become rich ?",
+        "timestamp": 1768630064994
+      },
+      {
+        "id": "msg-1768630136300-psz73xn0eka",
+        "role": "user",
+        "content": "run eza --tree --git-ignore",
+        "timestamp": 1768630136300
+      }
+    ],
+    "agentInfo": {
+      "name": "OpenCode",
+      "version": "1.1.21"
+    }
   },
   {
     "id": "chat-1768572977747-2ec018b864f1f",

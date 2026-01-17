@@ -8,6 +8,6 @@ import { useErrorToast } from "@/hooks/use-error-toast";
  * it only manages the toast notifications for errors.
  */
 export function ErrorToastHandler() {
-	useErrorToast();
-	return null;
+  useErrorToast();
+  return null;
 }

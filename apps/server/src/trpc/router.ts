@@ -5,10 +5,10 @@ import { sessionRouter } from "./procedures/session";
 import { toolRouter } from "./procedures/tool";
 
 export const appRouter = t.mergeRouters(
-	sessionRouter,
-	codeRouter,
-	aiRouter,
-	toolRouter,
+  sessionRouter,
+  codeRouter,
+  aiRouter,
+  toolRouter
 );
 
 export type AppRouter = typeof appRouter;

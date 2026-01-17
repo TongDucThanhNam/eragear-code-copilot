@@ -1,13 +1,6 @@
 "use client";
 
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
-import { Badge } from "@/components/ui/badge";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
 import {
   BrainIcon,
   ChevronDownIcon,
@@ -16,6 +9,13 @@ import {
 } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { createContext, memo, useContext, useMemo } from "react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 
 type ChainOfThoughtContextValue = {
   isOpen: boolean;
@@ -143,7 +143,7 @@ export const ChainOfThoughtStep = memo(
       >
         <div className="relative mt-0.5">
           <Icon className="size-4" />
-          <div className="-mx-px absolute top-7 bottom-0 left-1/2 w-px bg-border" />
+          <div className="absolute top-7 bottom-0 left-1/2 -mx-px w-px bg-border" />
         </div>
         <div className="flex-1 space-y-2 overflow-hidden">
           <div>{label}</div>

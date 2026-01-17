@@ -1,40 +1,40 @@
 "use client";
 
-import {
-	SidebarGroup,
-	SidebarGroupLabel,
-	SidebarMenu,
-	SidebarMenuButton,
-	SidebarMenuItem,
-} from "@/components/ui/sidebar";
-import { type Icon } from "@tabler/icons-react";
+import type { Icon } from "@tabler/icons-react";
 import type { LucideIcon } from "lucide-react";
+import {
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
 
 export function NavMain({
-	items,
+  items,
 }: {
-	items: {
-		title: string;
-		url: string;
-		icon: LucideIcon | Icon;
-		isActive?: boolean;
-	}[];
+  items: {
+    title: string;
+    url: string;
+    icon: LucideIcon | Icon;
+    isActive?: boolean;
+  }[];
 }) {
-	return (
-		<SidebarGroup>
-			<SidebarGroupLabel>Platform</SidebarGroupLabel>
-			<SidebarMenu>
-				{items.map((item) => (
-					<SidebarMenuItem key={item.title}>
-						<SidebarMenuButton asChild isActive={item.isActive}>
-							<a href={item.url}>
-								<item.icon />
-								<span>{item.title}</span>
-							</a>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-				))}
-			</SidebarMenu>
-		</SidebarGroup>
-	);
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>Platform</SidebarGroupLabel>
+      <SidebarMenu>
+        {items.map((item) => (
+          <SidebarMenuItem key={item.title}>
+            <SidebarMenuButton asChild isActive={item.isActive}>
+              <a href={item.url}>
+                <item.icon />
+                <span>{item.title}</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))}
+      </SidebarMenu>
+    </SidebarGroup>
+  );
 }

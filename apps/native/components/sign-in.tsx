@@ -31,15 +31,15 @@ function SignIn() {
         onFinished() {
           setIsLoading(false);
         },
-      },
+      }
     );
   }
 
   return (
-    <Surface variant="secondary" className="p-4 rounded-lg">
-      <Text className="text-foreground font-medium mb-4">Sign In</Text>
+    <Surface className="rounded-lg p-4" variant="secondary">
+      <Text className="mb-4 font-medium text-foreground">Sign In</Text>
 
-      <ErrorView isInvalid={!!error} className="mb-3">
+      <ErrorView className="mb-3" isInvalid={!!error}>
         {error}
       </ErrorView>
 
@@ -47,26 +47,30 @@ function SignIn() {
         <TextField>
           <TextField.Label>Email</TextField.Label>
           <TextField.Input
-            value={email}
+            autoCapitalize="none"
+            keyboardType="email-address"
             onChangeText={setEmail}
             placeholder="email@example.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
+            value={email}
           />
         </TextField>
 
         <TextField>
           <TextField.Label>Password</TextField.Label>
           <TextField.Input
-            value={password}
             onChangeText={setPassword}
             placeholder="••••••••"
             secureTextEntry
+            value={password}
           />
         </TextField>
 
-        <Button onPress={handleLogin} isDisabled={isLoading} className="mt-1">
-          {isLoading ? <Spinner size="sm" color="default" /> : <Button.Label>Sign In</Button.Label>}
+        <Button className="mt-1" isDisabled={isLoading} onPress={handleLogin}>
+          {isLoading ? (
+            <Spinner color="default" size="sm" />
+          ) : (
+            <Button.Label>Sign In</Button.Label>
+          )}
         </Button>
       </View>
     </Surface>

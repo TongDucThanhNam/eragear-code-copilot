@@ -9,64 +9,64 @@ import { trpc } from "@/lib/trpc";
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 
 export function TRPCProvider({ children }: { children: ReactNode }) {
-	const [, setConnStatus] = useState<ConnectionStatus>("idle");
+  const [, setConnStatus] = useState<ConnectionStatus>("idle");
 
-	const [queryClient] = useState(
-		() =>
-			new QueryClient({
-				defaultOptions: {
-					queries: {
-						staleTime: 5 * 60 * 1000, // 5 minutes
-						retry: 2,
-					},
-					mutations: {
-						retry: 1,
-					},
-				},
-			}),
-	);
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 5 * 60 * 1000, // 5 minutes
+            retry: 2,
+          },
+          mutations: {
+            retry: 1,
+          },
+        },
+      })
+  );
 
-	const [wsClient] = useState(() => {
-		const wsUrl = getWsUrl();
-		console.log("[TRPCProvider] Connecting to:", wsUrl);
+  const [wsClient] = useState(() => {
+    const wsUrl = getWsUrl();
+    console.log("[TRPCProvider] Connecting to:", wsUrl);
 
-		return createWSClient({
-			url: wsUrl,
-			onOpen: () => {
-				console.log("[TRPCProvider] WebSocket connected");
-				setConnStatus("connected");
-			},
-			onClose: (cause) => {
-				console.log("[TRPCProvider] WebSocket closed", cause);
-				setConnStatus("idle");
-			},
-			onError: (event) => {
-				console.error("[TRPCProvider] WebSocket error", event);
-				setConnStatus("error");
-			},
-		});
-	});
+    return createWSClient({
+      url: wsUrl,
+      onOpen: () => {
+        console.log("[TRPCProvider] WebSocket connected");
+        setConnStatus("connected");
+      },
+      onClose: (cause) => {
+        console.log("[TRPCProvider] WebSocket closed", cause);
+        setConnStatus("idle");
+      },
+      onError: (event) => {
+        console.error("[TRPCProvider] WebSocket error", event);
+        setConnStatus("error");
+      },
+    });
+  });
 
-	const [trpcClient] = useState(() =>
-		trpc.createClient({
-			links: [
-				wsLink({
-					client: wsClient,
-				}),
-			],
-		}),
-	);
+  const [trpcClient] = useState(() =>
+    trpc.createClient({
+      links: [
+        wsLink({
+          client: wsClient,
+        }),
+      ],
+    })
+  );
 
-	// Initialize and clean up WebSocket client
-	useEffect(() => {
-		return () => {
-			wsClient.close();
-		};
-	}, [wsClient]);
+  // Initialize and clean up WebSocket client
+  useEffect(() => {
+    return () => {
+      wsClient.close();
+    };
+  }, [wsClient]);
 
-	return (
-		<trpc.Provider client={trpcClient} queryClient={queryClient}>
-			<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-		</trpc.Provider>
-	);
+  return (
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </trpc.Provider>
+  );
 }

@@ -1,18 +1,18 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import { Toggle as TogglePrimitive } from "radix-ui"
+import { cva, type VariantProps } from "class-variance-authority";
+import { Toggle as TogglePrimitive } from "radix-ui";
+import type * as React from "react";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 const toggleVariants = cva(
-  "hover:text-foreground aria-pressed:bg-muted focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive data-[state=on]:bg-muted gap-1 rounded-none text-xs font-medium transition-all [&_svg:not([class*='size-'])]:size-4 group/toggle hover:bg-muted inline-flex items-center justify-center whitespace-nowrap outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "group/toggle inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-none font-medium text-xs outline-none transition-all hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-pressed:bg-muted aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[state=on]:bg-muted dark:aria-invalid:ring-destructive/40 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default: "bg-transparent",
-        outline: "border-input hover:bg-muted border bg-transparent",
+        outline: "border border-input bg-transparent hover:bg-muted",
       },
       size: {
         default: "h-8 min-w-8 px-2",
@@ -25,7 +25,7 @@ const toggleVariants = cva(
       size: "default",
     },
   }
-)
+);
 
 function Toggle({
   className,
@@ -36,11 +36,11 @@ function Toggle({
   VariantProps<typeof toggleVariants>) {
   return (
     <TogglePrimitive.Root
-      data-slot="toggle"
       className={cn(toggleVariants({ variant, size, className }))}
+      data-slot="toggle"
       {...props}
     />
-  )
+  );
 }
 
-export { Toggle, toggleVariants }
+export { Toggle, toggleVariants };

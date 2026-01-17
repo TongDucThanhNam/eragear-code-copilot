@@ -15,15 +15,15 @@ const { wss, handler } = createTrpcWebsocketServer(appRouter);
 attachWebsocketHandlers(server, wss);
 
 server.listen(ENV.wsPort, ENV.wsHost, () => {
-	console.log(
-		`[Server] WebSocket Server running on ws://${ENV.wsHost}:${ENV.wsPort}`,
-	);
+  console.log(
+    `[Server] WebSocket Server running on ws://${ENV.wsHost}:${ENV.wsPort}`
+  );
 });
 
 process.on("SIGTERM", () => {
-	handler.broadcastReconnectNotification();
-	wss.close();
-	server.close();
+  handler.broadcastReconnectNotification();
+  wss.close();
+  server.close();
 });
 
 export default app;

@@ -21,6 +21,7 @@
       "name": "native",
       "version": "1.0.0",
       "dependencies": {
+        "@agentclientprotocol/sdk": "^0.13.0",
         "@better-auth/expo": "catalog:",
         "@eragear-code-copilot/env": "workspace:*",
         "@expo/metro-runtime": "~6.1.2",
@@ -100,6 +101,7 @@
       "name": "web",
       "version": "0.0.0",
       "dependencies": {
+        "@agentclientprotocol/sdk": "^0.13.0",
         "@base-ui/react": "^1.0.0",
         "@eragear-code-copilot/auth": "workspace:*",
         "@eragear-code-copilot/env": "workspace:*",

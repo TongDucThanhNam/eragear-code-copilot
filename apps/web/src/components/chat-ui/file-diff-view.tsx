@@ -1,39 +1,39 @@
 "use client";
 
-import { useTheme } from "next-themes";
 import { parseDiffFromFile } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
+import { useTheme } from "next-themes";
 import { useMemo } from "react";
 
 interface FileDiffViewProps {
-	original?: string;
-	modified: string;
-	filename: string;
+  original?: string;
+  modified: string;
+  filename: string;
 }
 
 export function FileDiffView({
-	original = "",
-	modified,
-	filename,
+  original = "",
+  modified,
+  filename,
 }: FileDiffViewProps) {
-	const { resolvedTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
 
-	const fileDiff = useMemo(() => {
-		return parseDiffFromFile(
-			{ name: filename, contents: original || "" },
-			{ name: filename, contents: modified || "" },
-		);
-	}, [filename, original, modified]);
+  const fileDiff = useMemo(() => {
+    return parseDiffFromFile(
+      { name: filename, contents: original || "" },
+      { name: filename, contents: modified || "" }
+    );
+  }, [filename, original, modified]);
 
-	return (
-		<FileDiff
-			fileDiff={fileDiff}
-			options={{
-				theme: resolvedTheme === "dark" ? "github-dark" : "github-light",
-				diffStyle: "split",
-				disableBackground: false,
-				hunkSeparators: "simple",
-			}}
-		/>
-	);
+  return (
+    <FileDiff
+      fileDiff={fileDiff}
+      options={{
+        theme: resolvedTheme === "dark" ? "github-dark" : "github-light",
+        diffStyle: "split",
+        disableBackground: false,
+        hunkSeparators: "simple",
+      }}
+    />
+  );
 }

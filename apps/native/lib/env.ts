@@ -17,21 +17,21 @@ export function getWsUrl(): string {
 
   // For development, auto-detect platform-specific URL
   if (__DEV__) {
-		const port = extractPort(envWsUrl) || 3003;
+    const port = extractPort(envWsUrl) || 3003;
 
-		if (Platform.OS === "android") {
-			// Android Emulator uses 10.0.2.2 to reach host
-			return `ws://10.0.2.2:${port}`;
-		}
+    if (Platform.OS === "android") {
+      // Android Emulator uses 10.0.2.2 to reach host
+      return `ws://10.0.2.2:${port}`;
+    }
 
-		if (Platform.OS === "ios") {
-			// iOS Simulator can use localhost
-			return `ws://localhost:${port}`;
-		}
-	}
+    if (Platform.OS === "ios") {
+      // iOS Simulator can use localhost
+      return `ws://localhost:${port}`;
+    }
+  }
 
-	// For physical devices or production, use the configured URL
-	return envWsUrl || "ws://localhost:3003";
+  // For physical devices or production, use the configured URL
+  return envWsUrl || "ws://localhost:3003";
 }
 
 /**
@@ -46,25 +46,25 @@ export function getHttpUrl(): string {
     return envHttpUrl;
   }
 
-	if (__DEV__) {
-		const port = extractPort(envHttpUrl) || 3000;
+  if (__DEV__) {
+    const port = extractPort(envHttpUrl) || 3000;
 
-		if (Platform.OS === "android") {
-			return `http://10.0.2.2:${port}`;
-		}
+    if (Platform.OS === "android") {
+      return `http://10.0.2.2:${port}`;
+    }
 
-		if (Platform.OS === "ios") {
-			return `http://localhost:${port}`;
-		}
-	}
+    if (Platform.OS === "ios") {
+      return `http://localhost:${port}`;
+    }
+  }
 
-	return envHttpUrl || "http://localhost:3000";
+  return envHttpUrl || "http://localhost:3000";
 }
 
 function extractPort(url: string | undefined): number | null {
   if (!url) return null;
   const match = url.match(/:(\d+)/);
-  return match ? parseInt(match[1], 10) : null;
+  return match ? Number.parseInt(match[1], 10) : null;
 }
 
 function isLocalDevUrl(url: string): boolean {

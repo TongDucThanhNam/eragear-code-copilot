@@ -1,14 +1,13 @@
-import React from "react";
-import { View, Text, ScrollView } from "react-native";
+import { ScrollView, Text } from "react-native";
 
 interface TerminalViewProps {
-	output: string;
+  output: string;
 }
 
 export function TerminalView({ output }: TerminalViewProps) {
-	return (
-		<ScrollView className="bg-black p-2 rounded h-40">
-			<Text className="text-green-500 font-mono text-xs">{output}</Text>
-		</ScrollView>
-	);
+  return (
+    <ScrollView className="h-40 rounded bg-black p-2">
+      <Text className="font-mono text-green-500 text-xs">{output}</Text>
+    </ScrollView>
+  );
 }

@@ -45,7 +45,7 @@ function signUpHandler({
       onFinished() {
         setIsLoading(false);
       },
-    },
+    }
   );
 }
 
@@ -70,43 +70,47 @@ export function SignUp() {
   }
 
   return (
-    <Surface variant="secondary" className="p-4 rounded-lg">
-      <Text className="text-foreground font-medium mb-4">Create Account</Text>
+    <Surface className="rounded-lg p-4" variant="secondary">
+      <Text className="mb-4 font-medium text-foreground">Create Account</Text>
 
-      <ErrorView isInvalid={!!error} className="mb-3">
+      <ErrorView className="mb-3" isInvalid={!!error}>
         {error}
       </ErrorView>
 
       <View className="gap-3">
         <TextField>
           <TextField.Label>Name</TextField.Label>
-          <TextField.Input value={name} onChangeText={setName} placeholder="John Doe" />
+          <TextField.Input
+            onChangeText={setName}
+            placeholder="John Doe"
+            value={name}
+          />
         </TextField>
 
         <TextField>
           <TextField.Label>Email</TextField.Label>
           <TextField.Input
-            value={email}
+            autoCapitalize="none"
+            keyboardType="email-address"
             onChangeText={setEmail}
             placeholder="email@example.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
+            value={email}
           />
         </TextField>
 
         <TextField>
           <TextField.Label>Password</TextField.Label>
           <TextField.Input
-            value={password}
             onChangeText={setPassword}
             placeholder="••••••••"
             secureTextEntry
+            value={password}
           />
         </TextField>
 
-        <Button onPress={handlePress} isDisabled={isLoading} className="mt-1">
+        <Button className="mt-1" isDisabled={isLoading} onPress={handlePress}>
           {isLoading ? (
-            <Spinner size="sm" color="default" />
+            <Spinner color="default" size="sm" />
           ) : (
             <Button.Label>Create Account</Button.Label>
           )}

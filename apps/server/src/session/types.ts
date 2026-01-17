@@ -1,107 +1,111 @@
 import type { ChildProcess } from "node:child_process";
 import type { EventEmitter } from "node:events";
+import type * as acp from "@agentclientprotocol/sdk";
 import type { ClientSideConnection } from "@agentclientprotocol/sdk";
 
 // Chat session state
-export type SessionModeState = {
-	currentModeId: string;
-	availableModes: Array<{
-		id: string;
-		name: string;
-		description?: string | null;
-	}>;
-};
+export interface SessionModeState {
+  currentModeId: string;
+  availableModes: Array<{
+    id: string;
+    name: string;
+    description?: string | null;
+  }>;
+}
 
-export type SessionModelState = {
-	currentModelId: string;
-	availableModels: Array<{
-		modelId: string;
-		name: string;
-		description?: string | null;
-	}>;
-};
+export interface SessionModelState {
+  currentModelId: string;
+  availableModels: Array<{
+    modelId: string;
+    name: string;
+    description?: string | null;
+  }>;
+}
 
 export type BroadcastEvent =
-	| { type: "connected" } // Sent immediately when client subscribes
-	| { type: "current_mode_update"; modeId: string }
-	| { type: "session_update"; update: unknown }
-	| {
-			type: "request_permission";
-			requestId: string;
-			toolCall: unknown;
-			options?: unknown;
-	  }
-	| { type: "user_message"; id: string; text: string; timestamp: number } // User message for replay
-	| { type: "message"; message: unknown }
-	| { type: "heartbeat"; ts: number }
-	| { type: "error"; error: string }
-	| { type: "terminal_output"; terminalId: string; data: string };
+  | { type: "connected" } // Sent immediately when client subscribes
+  | { type: "current_mode_update"; modeId: string }
+  | { type: "session_update"; update: unknown }
+  | {
+      type: "request_permission";
+      requestId: string;
+      toolCall: unknown;
+      options?: unknown;
+    }
+  | { type: "user_message"; id: string; text: string; timestamp: number } // User message for replay
+  | { type: "message"; message: unknown }
+  | { type: "heartbeat"; ts: number }
+  | { type: "error"; error: string }
+  | { type: "terminal_output"; terminalId: string; data: string };
 
-export type AvailableCommand = {
-	name: string;
-	description: string;
-	input?: { hint: string };
-};
+export interface AvailableCommand {
+  name: string;
+  description: string;
+  input?: { hint: string } | null;
+}
 
-export type AgentInfo = {
-	name?: string;
-	title?: string;
-	version?: string;
-};
+export interface AgentInfo {
+  name?: string;
+  title?: string;
+  version?: string;
+}
 
 // Agent's prompt capabilities from initialize response
-export type PromptCapabilities = {
-	image?: boolean;
-	audio?: boolean;
-	embeddedContext?: boolean;
-};
+export interface PromptCapabilities {
+  image?: boolean;
+  audio?: boolean;
+  embeddedContext?: boolean;
+}
 
-export type TerminalState = {
-	id: string;
-	process: ChildProcess;
-	outputBuffer: string;
-	outputByteLimit?: number;
-	truncated?: boolean;
-	exitStatus?: { exitCode: number | null; signal: string | null };
-	resolveExit: ((status: {
-		exitCode: number | null;
-		signal: string | null;
-	}) => void)[]; // Support multiple waiters
-};
+export interface TerminalState {
+  id: string;
+  process: ChildProcess;
+  outputBuffer: string;
+  outputByteLimit?: number;
+  truncated?: boolean;
+  exitStatus?: { exitCode: number | null; signal: string | null };
+  resolveExit: ((status: {
+    exitCode: number | null;
+    signal: string | null;
+  }) => void)[]; // Support multiple waiters
+}
 
-export type ChatSession = {
-	id: string;
-	proc: ChildProcess;
-	conn: ClientSideConnection;
-	projectRoot: string;
-	sessionId?: string; // ACP session ID
-	loadSessionSupported?: boolean;
-	modes?: SessionModeState;
-	models?: SessionModelState;
-	commands?: AvailableCommand[];
-	agentInfo?: AgentInfo;
-	promptCapabilities?: PromptCapabilities; // What content types agent accepts
+export interface ChatSession {
+  id: string;
+  proc: ChildProcess;
+  conn: ClientSideConnection;
+  projectRoot: string;
+  sessionId?: string; // ACP session ID
+  loadSessionSupported?: boolean;
+  modes?: SessionModeState;
+  models?: SessionModelState;
+  commands?: AvailableCommand[];
+  agentInfo?: AgentInfo;
+  promptCapabilities?: PromptCapabilities; // What content types agent accepts
 
-	// New: Event Emitter for tRPC subscriptions
-	emitter: EventEmitter;
+  // New: Event Emitter for tRPC subscriptions
+  emitter: EventEmitter;
 
-	cwd: string; // The current working directory for this session
+  cwd: string; // The current working directory for this session
 
-	subscriberCount: number; // Track number of active subscribers
-	cleanupTimer?: ReturnType<typeof setTimeout>;
-	messageBuffer: BroadcastEvent[];
+  subscriberCount: number; // Track number of active subscribers
+  cleanupTimer?: ReturnType<typeof setTimeout>;
+  messageBuffer: BroadcastEvent[];
 
-	pendingPermissions: Map<
-		string,
-		{ resolve: (decision: any) => void; options?: any[] }
-	>;
+  pendingPermissions: Map<
+    string,
+    {
+      resolve: (decision: acp.RequestPermissionResponse) => void;
+      options: acp.PermissionOption[];
+    }
+  >;
 
-	terminals: Map<string, TerminalState>;
-};
+  terminals: Map<string, TerminalState>;
+}
 
 export type ConnWithUnstableModel = ClientSideConnection & {
-	unstable_setSessionModel: (params: {
-		sessionId: string;
-		modelId: string;
-	}) => Promise<void>;
+  unstable_setSessionModel: (params: {
+    sessionId: string;
+    modelId: string;
+  }) => Promise<void>;
 };

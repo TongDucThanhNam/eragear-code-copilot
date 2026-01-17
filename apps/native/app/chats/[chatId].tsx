@@ -9,284 +9,327 @@ import { ChatMessages } from "@/components/chat/chat-messages";
 import { PermissionModal } from "@/components/chat/permission-modal";
 import { useChat } from "@/hooks/use-chat";
 import { trpc } from "@/lib/trpc";
+import type { SessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
 
+type ResumeValidationResult =
+  | { valid: true; session: SessionInfo }
+  | { valid: false; message: string };
+
+function validateResumeSession(
+  chatId: string | undefined,
+  isResuming: boolean,
+  session: SessionInfo | undefined
+): ResumeValidationResult {
+  if (!chatId || isResuming) {
+    return { valid: false, message: "" };
+  }
+  if (!session) {
+    return {
+      valid: false,
+      message:
+        "Session metadata not loaded. Please reopen from the session list.",
+    };
+  }
+  if (session.loadSessionSupported === false) {
+    return {
+      valid: false,
+      message: "Agent does not support session resume for this chat.",
+    };
+  }
+  return { valid: true, session };
+}
+
+function computeChatTitle(
+  session: SessionInfo | undefined,
+  isReadOnly: boolean,
+  canResume: boolean
+): string {
+  if (session) {
+    let suffix = "";
+    if (isReadOnly) {
+      suffix = canResume ? " (Inactive)" : " (Read-only)";
+    }
+    return `Chat ${(session.sessionId ?? session.id).slice(0, 8)}${suffix}`;
+  }
+  if (isReadOnly) {
+    return canResume ? "Chat (Inactive)" : "Chat (Read-only)";
+  }
+  return "Chat";
+}
+
 export default function ChatScreen() {
-	const params = useLocalSearchParams<{
-		chatId?: string | string[];
-		readonly?: string | string[];
-	}>();
-	const chatId = Array.isArray(params.chatId)
-		? params.chatId[0]
-		: params.chatId;
-	const isReadOnlyParam = params.readonly === "true";
+  const params = useLocalSearchParams<{
+    chatId?: string | string[];
+    readonly?: string | string[];
+  }>();
+  const chatId = Array.isArray(params.chatId)
+    ? params.chatId[0]
+    : params.chatId;
+  const isReadOnlyParam = params.readonly === "true";
 
-	const {
-		messages,
-		terminalOutput,
-		connStatus,
-		pendingPermission,
-		setActiveChatId,
-		activeChatIsReadOnly,
-		sessions,
-		activeChatId,
-		isChatFailed,
-		addMessage,
-		clearMessages,
-		setConnStatus,
-		setError,
-		setModes,
-		setModels,
-		modes,
-		models,
-		commands,
-		updateSessionStatus,
-		clearChatFailed,
-	} = useChatStore();
+  const {
+    messages,
+    terminalOutput,
+    connStatus,
+    pendingPermission,
+    setActiveChatId,
+    activeChatIsReadOnly,
+    sessions,
+    activeChatId,
+    isChatFailed,
+    addMessage,
+    clearMessages,
+    setConnStatus,
+    setError,
+    setModes,
+    setModels,
+    modes,
+    models,
+    commands,
+    updateSessionStatus,
+    clearChatFailed,
+  } = useChatStore();
 
-	const router = useRouter();
-	const {
-		sendMessage,
-		setMode,
-		setModel,
-		respondToPermission,
-		stopSession,
-		resumeSession,
-		isSending,
-		isResuming,
-	} = useChat();
-	const insets = useSafeAreaInsets();
-	const [inputHeight, setInputHeight] = useState(0);
-	const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-	const [forceActive, setForceActive] = useState(false);
-	const isReadOnly = isReadOnlyParam && !forceActive;
+  const router = useRouter();
+  const {
+    sendMessage,
+    setMode,
+    setModel,
+    respondToPermission,
+    stopSession,
+    resumeSession,
+    isSending,
+    isResuming,
+  } = useChat();
+  const insets = useSafeAreaInsets();
+  const [inputHeight, setInputHeight] = useState(0);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [forceActive, setForceActive] = useState(false);
+  const isReadOnly = isReadOnlyParam && !forceActive;
 
-	useEffect(() => {
-		setForceActive(false);
-	}, [chatId]);
+  useEffect(() => {
+    setForceActive(false);
+  }, []);
 
-	// Query for historical messages (read-only mode)
-	const messagesQuery = trpc.getSessionMessages.useQuery(
-		{ chatId: chatId || "" },
-		{
-			enabled: isReadOnly && !!chatId,
-		},
-	);
+  // Query for historical messages (read-only mode)
+  const messagesQuery = trpc.getSessionMessages.useQuery(
+    { chatId: chatId || "" },
+    {
+      enabled: isReadOnly && !!chatId,
+    }
+  );
 
-	const handleInputHeightChange = useCallback((height: number) => {
-		setInputHeight((current) => (current === height ? current : height));
-	}, []);
+  const handleInputHeightChange = useCallback((height: number) => {
+    setInputHeight((current) => (current === height ? current : height));
+  }, []);
 
-	const handleModeChange = useCallback(
-		(modeId: string) => {
-			setMode(modeId);
-		},
-		[setMode],
-	);
+  const handleModeChange = useCallback(
+    (modeId: string) => {
+      setMode(modeId);
+    },
+    [setMode]
+  );
 
-	const handleModelChange = useCallback(
-		(modelId: string) => {
-			setModel(modelId);
-		},
-		[setModel],
-	);
-	const listContentPadding = Math.max(100, inputHeight + insets.bottom + 16);
-	const keyboardBottomOffset = inputHeight > 0 ? inputHeight + 16 : 0;
+  const handleModelChange = useCallback(
+    (modelId: string) => {
+      setModel(modelId);
+    },
+    [setModel]
+  );
+  const listContentPadding = Math.max(100, inputHeight + insets.bottom + 16);
+  const keyboardBottomOffset = inputHeight > 0 ? inputHeight + 16 : 0;
 
-	// Load historical messages for read-only mode
-	useEffect(() => {
-		if (isReadOnly && messagesQuery.data && chatId) {
-			setIsLoadingHistory(true);
-			// Convert stored messages to chat messages format
-			clearMessages();
-			for (const msg of messagesQuery.data) {
-				addMessage({
-					id: msg.id,
-					role: msg.role,
-					parts: [
-						...(msg.reasoning
-							? [{ type: "reasoning" as const, text: msg.reasoning }]
-							: []),
-						{ type: "text" as const, text: msg.content },
-					],
-					timestamp: msg.timestamp,
-				});
-			}
-			setConnStatus("idle"); // Read-only, not connected
-			setIsLoadingHistory(false);
-		}
-	}, [
-		isReadOnly,
-		messagesQuery.data,
-		chatId,
-		addMessage,
-		clearMessages,
-		setConnStatus,
-	]);
+  // Load historical messages for read-only mode
+  useEffect(() => {
+    const canLoad = isReadOnly && messagesQuery.data && chatId;
+    if (!canLoad) {
+      return;
+    }
 
-	// Initialize or Switch Chat (only for active sessions)
-	useEffect(() => {
-		if (!chatId) return;
+    setIsLoadingHistory(true);
+    clearMessages();
+    for (const msg of messagesQuery.data) {
+      addMessage({
+        id: msg.id,
+        role: msg.role,
+        parts: [
+          ...(msg.reasoning
+            ? [{ type: "reasoning" as const, text: msg.reasoning }]
+            : []),
+          { type: "text" as const, text: msg.content },
+        ],
+        timestamp: msg.timestamp,
+      });
+    }
+    setConnStatus("idle");
+    setIsLoadingHistory(false);
+  }, [
+    isReadOnly,
+    messagesQuery.data,
+    chatId,
+    addMessage,
+    clearMessages,
+    setConnStatus,
+  ]);
 
-		if (isReadOnly) {
-			if (chatId !== activeChatId || !activeChatIsReadOnly) {
-				setActiveChatId(chatId, true);
-			}
-			return;
-		}
+  // Initialize or Switch Chat (only for active sessions)
+  useEffect(() => {
+    if (!chatId) {
+      return;
+    }
 
-		// Don't try to activate a chat that has already failed
-		if (chatId && isChatFailed(chatId)) {
-			console.log("Chat has failed, navigating back", chatId);
-			router.back();
-			return;
-		}
+    if (isReadOnly) {
+      if (chatId !== activeChatId || !activeChatIsReadOnly) {
+        setActiveChatId(chatId, true);
+      }
+      return;
+    }
 
-		if (chatId && chatId !== activeChatId) {
-			console.log("Switching to chat", chatId);
-			setActiveChatId(chatId, false);
-			// The hook subscription will trigger based on activeChatId
-		}
-	}, [
-		chatId,
-		activeChatId,
-		activeChatIsReadOnly,
-		setActiveChatId,
-		isChatFailed,
-		router,
-		isReadOnly,
-	]);
+    if (isChatFailed(chatId)) {
+      console.log("Chat has failed, navigating back", chatId);
+      router.back();
+      return;
+    }
 
-	const currentSession = sessions.find((s) => s.id === chatId);
+    if (chatId !== activeChatId) {
+      console.log("Switching to chat", chatId);
+      setActiveChatId(chatId, false);
+    }
+  }, [
+    chatId,
+    activeChatId,
+    activeChatIsReadOnly,
+    setActiveChatId,
+    isChatFailed,
+    router,
+    isReadOnly,
+  ]);
 
-	const handleStop = async () => {
-		await stopSession();
-		router.replace("/" as any);
-	};
+  const currentSession = sessions.find((s) => s.id === chatId);
 
-	const handleResume = async () => {
-		if (!chatId || isResuming) return;
-		if (!currentSession) {
-			setError(
-				"Session metadata not loaded. Please reopen from the session list.",
-			);
-			return;
-		}
-		if (currentSession.loadSessionSupported === false) {
-			setError("Agent does not support session resume for this chat.");
-			return;
-		}
+  const canResumeChat = currentSession?.loadSessionSupported === true;
+  const isSessionStopped =
+    isReadOnly ||
+    connStatus === "idle" ||
+    connStatus === "error" ||
+    currentSession?.status === "stopped";
 
-		try {
-			setForceActive(true);
-			clearChatFailed(chatId);
-			const res = await resumeSession(chatId);
-			setActiveChatId(chatId, false);
-			if (res?.modes) setModes(res.modes);
-			if (res?.models) setModels(res.models);
-			updateSessionStatus(chatId, "running");
-			router.replace(`/chats/${chatId}` as any);
-		} catch (err) {
-			console.error("Failed to resume chat", err);
-			setForceActive(false);
-			setConnStatus("idle");
-		}
-	};
+  const handleStop = async () => {
+    await stopSession();
+    router.replace("/");
+  };
 
-	if (!chatId) {
-		return (
-			<View className="flex-1 justify-center items-center bg-background">
-				<Text className="text-foreground">No Chat ID</Text>
-			</View>
-		);
-	}
+  const handleResume = async () => {
+    const validation = validateResumeSession(
+      chatId,
+      isResuming,
+      currentSession
+    );
+    if (!validation.valid) {
+      if (validation.message) {
+        setError(validation.message);
+      }
+      return;
+    }
 
-	const showLoading = isReadOnly
-		? messagesQuery.isLoading || isLoadingHistory
-		: connStatus === "connecting" && messages.length === 0;
-	const canResume = Boolean(currentSession?.loadSessionSupported);
-	const readOnlySuffix = isReadOnly
-		? canResume
-			? " (Inactive)"
-			: " (Read-only)"
-		: "";
+    const validChatId = chatId as string;
+    try {
+      setForceActive(true);
+      clearChatFailed(validChatId);
+      const res = await resumeSession(validChatId);
+      setActiveChatId(validChatId, false);
+      if (res?.modes) {
+        setModes(res.modes);
+      }
+      if (res?.models) {
+        setModels(res.models);
+      }
+      updateSessionStatus(validChatId, "running");
+      router.replace(`/chats/${validChatId}`);
+    } catch (err) {
+      console.error("Failed to resume chat", err);
+      setForceActive(false);
+      setConnStatus("idle");
+    }
+  };
 
-	return (
-		<View className="flex-1 bg-background">
-			<ChatHeader
-				title={
-					currentSession
-						? `Chat ${(currentSession.sessionId ?? currentSession.id).slice(0, 8)}${readOnlySuffix}`
-						: isReadOnly
-							? canResume
-								? "Chat (Inactive)"
-								: "Chat (Read-only)"
-							: "Chat"
-				}
-				status={isReadOnly ? "idle" : connStatus}
-				onStop={handleStop}
-				onResume={handleResume}
-				isSessionStopped={
-					isReadOnly ||
-					connStatus === "idle" ||
-					connStatus === "error" ||
-					currentSession?.status === "stopped"
-				}
-				canResume={canResume}
-			/>
+  if (!chatId) {
+    return (
+      <View className="flex-1 items-center justify-center bg-background">
+        <Text className="text-foreground">No Chat ID</Text>
+      </View>
+    );
+  }
 
-			{/* Read-only banner */}
-			{isReadOnly && (
-				<View className="bg-default px-4 py-2 border-b border-divider">
-					<Text className="text-muted text-sm text-center">
-						{canResume
-							? "This session is inactive. Tap Resume to continue."
-							: "This session has ended. You can view the history but cannot send new messages."}
-					</Text>
-				</View>
-			)}
+  const showLoading = isReadOnly
+    ? messagesQuery.isLoading || isLoadingHistory
+    : connStatus === "connecting" && messages.length === 0;
+  const chatTitle = computeChatTitle(currentSession, isReadOnly, canResumeChat);
 
-			<View className="flex-1">
-				{showLoading ? (
-					<View className="flex-1 justify-center items-center">
-						<ActivityIndicator size="large" color="#2563eb" />
-						<Text className="text-muted mt-2">
-							{isReadOnly ? "Loading history..." : "Connecting..."}
-						</Text>
-					</View>
-				) : (
-					<ChatMessages
-						messages={messages}
-						terminalOutputs={terminalOutput}
-						contentPaddingBottom={listContentPadding}
-						keyboardBottomOffset={keyboardBottomOffset}
-					/>
-				)}
-			</View>
+  return (
+    <View className="flex-1 bg-background">
+      <ChatHeader
+        canResume={canResumeChat}
+        isSessionStopped={isSessionStopped}
+        onResume={handleResume}
+        onStop={handleStop}
+        status={isReadOnly ? "idle" : connStatus}
+        title={chatTitle}
+      />
 
-			{/* Only show input for active sessions */}
-			{!isReadOnly && (
-				<KeyboardStickyView>
-					<ChatInput
-						onSend={sendMessage}
-						disabled={connStatus !== "connected" || isSending}
-						onHeightChange={handleInputHeightChange}
-						availableModes={modes?.availableModes ?? []}
-						currentModeId={modes?.currentModeId ?? null}
-						onModeChange={handleModeChange}
-						availableModels={models?.availableModels ?? []}
-						currentModelId={models?.currentModelId ?? null}
-						onModelChange={handleModelChange}
-						availableCommands={commands}
-					/>
-				</KeyboardStickyView>
-			)}
+      {/* Read-only banner */}
+      {isReadOnly && (
+        <View className="border-divider border-b bg-default px-4 py-2">
+          <Text className="text-center text-muted text-sm">
+            {canResumeChat
+              ? "This session is inactive. Tap Resume to continue."
+              : "This session has ended. You can view the history but cannot send new messages."}
+          </Text>
+        </View>
+      )}
 
-			<PermissionModal
-				request={pendingPermission}
-				onApprove={respondToPermission}
-				onReject={respondToPermission}
-			/>
-		</View>
-	);
+      <View className="flex-1">
+        {showLoading ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator color="#2563eb" size="large" />
+            <Text className="mt-2 text-muted">
+              {isReadOnly ? "Loading history..." : "Connecting..."}
+            </Text>
+          </View>
+        ) : (
+          <ChatMessages
+            contentPaddingBottom={listContentPadding}
+            keyboardBottomOffset={keyboardBottomOffset}
+            messages={messages}
+            terminalOutputs={terminalOutput}
+          />
+        )}
+      </View>
+
+      {/* Only show input for active sessions */}
+      {!isReadOnly && (
+        <KeyboardStickyView>
+          <ChatInput
+            availableCommands={commands}
+            availableModels={models?.availableModels ?? []}
+            availableModes={modes?.availableModes ?? []}
+            currentModeId={modes?.currentModeId ?? null}
+            currentModelId={models?.currentModelId ?? null}
+            disabled={connStatus !== "connected" || isSending}
+            onHeightChange={handleInputHeightChange}
+            onModeChange={handleModeChange}
+            onModelChange={handleModelChange}
+            onSend={sendMessage}
+          />
+        </KeyboardStickyView>
+      )}
+
+      <PermissionModal
+        onApprove={respondToPermission}
+        onReject={respondToPermission}
+        request={pendingPermission}
+      />
+    </View>
+  );
 }

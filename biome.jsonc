@@ -4,5 +4,23 @@
     "ultracite/biome/core",
     "ultracite/biome/react",
     "ultracite/biome/remix"
-  ]
+  ],
+  "files": {
+    "includes": [
+      "!/node_modules",
+      "!/apps/web/src/components/ai-elements",
+      "!/apps/web/src/components/ui"
+    ]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "complexity": {
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": { "maxAllowedComplexity": 25 }
+        }
+      }
+    }
+  }
 }
