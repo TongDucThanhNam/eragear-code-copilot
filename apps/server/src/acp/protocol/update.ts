@@ -86,7 +86,8 @@ export function handleSessionUpdate(params: {
 
   if (!isReplayingHistory) {
     if (update.sessionUpdate === "agent_message_chunk") {
-      buffer.appendContent(contentToText(update.content));
+      const text = contentToText(update.content);
+      buffer.appendContent(text);
     }
 
     if (update.sessionUpdate === "agent_thought_chunk") {

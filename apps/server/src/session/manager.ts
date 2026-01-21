@@ -8,6 +8,7 @@ import {
   SessionBuffering,
 } from "../acp/protocol/handler";
 import { CLIENT_INFO } from "../config/constants";
+import { getSettings } from "../config/settings";
 import { broadcastToSession, chats } from "./events";
 import {
   getSessionMessages,
@@ -30,6 +31,23 @@ export interface CreateSessionParams {
 
 function resolveSessionCwd(projectRoot: string, cwd?: string) {
   return cwd ? path.resolve(cwd) : projectRoot;
+}
+
+function isProjectRootAllowed(projectRoot: string, allowedRoots: string[]) {
+  if (allowedRoots.length === 0) {
+    return true;
+  }
+  const resolvedProject = path.resolve(projectRoot);
+  return allowedRoots.some((root) => {
+    const resolvedRoot = path.resolve(root);
+    if (resolvedProject === resolvedRoot) {
+      return true;
+    }
+    const normalizedRoot = resolvedRoot.endsWith(path.sep)
+      ? resolvedRoot
+      : `${resolvedRoot}${path.sep}`;
+    return resolvedProject.startsWith(normalizedRoot);
+  });
 }
 
 function buildAgentInfo(
@@ -141,6 +159,12 @@ function attachAgentProcessHandlers(
 
 export async function createChatSession(params: CreateSessionParams) {
   const projectRoot = path.resolve(params.projectRoot);
+  const { projectRoots } = getSettings();
+  if (!isProjectRootAllowed(projectRoot, projectRoots)) {
+    throw new Error(
+      `Project root ${projectRoot} is not allowed. Add it in /config settings.`
+    );
+  }
   const agentCmd = params.command ?? "opencode";
   const agentArgs = params.args ?? ["acp"];
   const agentEnv = params.env ?? {};
@@ -200,6 +224,7 @@ export async function createChatSession(params: CreateSessionParams) {
     messageBuffer: [],
     pendingPermissions: new Map(),
     terminals: new Map(),
+    buffer, // Store buffer in session for access from other modules
   };
 
   if (session.sessionId) {
@@ -221,10 +246,18 @@ export async function createChatSession(params: CreateSessionParams) {
 
       if (buffer.replayEventCount === 0) {
         replayStoredMessages(chatId);
+        broadcastToSession(chatId, {
+          type: "session_update",
+          update: { sessionUpdate: "prompt_end" },
+        });
       } else {
         console.log(
           `[Server] Replayed ${buffer.replayEventCount} history chunks for ${chatId}`
         );
+        broadcastToSession(chatId, {
+          type: "session_update",
+          update: { sessionUpdate: "prompt_end" },
+        });
       }
     } catch (err) {
       isReplayingHistory = false;

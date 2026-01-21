@@ -2,6 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { ClientSideConnection } from "@agentclientprotocol/sdk";
+import type { SessionBuffering } from "../acp/protocol/update";
 
 // Chat session state
 export interface SessionModeState {
@@ -101,6 +102,9 @@ export interface ChatSession {
   >;
 
   terminals: Map<string, TerminalState>;
+
+  // Session buffering for accumulating agent messages
+  buffer?: SessionBuffering;
 }
 
 export type ConnWithUnstableModel = ClientSideConnection & {

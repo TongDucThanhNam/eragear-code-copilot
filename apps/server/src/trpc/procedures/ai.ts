@@ -67,6 +67,27 @@ export const aiRouter = router({
         prompt,
       });
 
+      // Flush buffer and save assistant message after prompt completes
+      // (Some agents don't send turn_end/prompt_end events)
+      if (session.buffer) {
+        const message = session.buffer.flush();
+        if (message) {
+          appendMessage(input.chatId, {
+            id: message.id,
+            role: "assistant",
+            content: message.content,
+            reasoning: message.reasoning,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      // Broadcast prompt_end to client
+      broadcastToSession(input.chatId, {
+        type: "session_update",
+        update: { sessionUpdate: "prompt_end" },
+      });
+
       return { stopReason: res.stopReason };
     }),
 

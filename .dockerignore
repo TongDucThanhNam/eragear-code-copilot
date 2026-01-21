@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/dev-dist
+**/.turbo
+**/.next
+**/.expo
+**/.cache
+**/coverage
+.git
+.gitignore
+apps/web
+apps/native

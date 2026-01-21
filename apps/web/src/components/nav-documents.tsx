@@ -1,5 +1,7 @@
 import type { Icon } from "@tabler/icons-react";
+import { Link } from "@tanstack/react-router";
 import { GitBranch, type LucideIcon } from "lucide-react";
+import type { ComponentType, SVGProps } from "react";
 import {
   SidebarGroup,
   SidebarGroupLabel,
@@ -8,14 +10,17 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
+type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
+
 export function NavDocuments({
   items,
 }: {
   items: {
     name: string;
     url: string;
-    icon: LucideIcon | Icon;
-    status?: "running" | "stopped";
+    icon: LucideIcon | Icon | IconComponent;
+    status?: "active" | "inactive" | "streaming";
+    chatId?: string;
     sessionId?: string;
     branch?: string;
   }[];
@@ -27,17 +32,25 @@ export function NavDocuments({
         {items.map((item) => (
           <SidebarMenuItem key={item.url}>
             <SidebarMenuButton asChild className="h-auto py-2">
-              <a className="flex flex-col items-start gap-1" href={item.url}>
+              <Link
+                className="flex flex-col items-start gap-1"
+                // href={item.url}
+                search={{ chatId: item.chatId }}
+                to={"/"}
+              >
                 <div className="flex w-full items-center gap-2">
                   <item.icon className="size-4 shrink-0" />
                   <span className="truncate font-medium">
                     {item.sessionId || item.name}
                   </span>
-                  {item.status === "running" && (
+                  {item.status === "active" && (
                     <span className="ml-auto size-2 rounded-full bg-green-500" />
                   )}
-                  {item.status === "stopped" && (
+                  {item.status === "inactive" && (
                     <span className="ml-auto size-2 rounded-full bg-zinc-700" />
+                  )}
+                  {item.status === "streaming" && (
+                    <span className="ml-auto size-2 rounded-full bg-amber-500" />
                   )}
                 </div>
                 {item.branch && (
@@ -46,7 +59,7 @@ export function NavDocuments({
                     <span>{item.branch}</span>
                   </div>
                 )}
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         ))}

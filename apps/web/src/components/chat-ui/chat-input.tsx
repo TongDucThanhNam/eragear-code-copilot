@@ -1,20 +1,7 @@
 "use client";
 
-import {
-  AtSign as AtSignIcon,
-  CheckIcon,
-  ChevronDown,
-  Files as FilesIcon,
-  Globe as GlobeIcon,
-  Ruler as RulerIcon,
-} from "lucide-react";
-import {
-  type KeyboardEvent,
-  type RefObject,
-  useCallback,
-  useRef,
-  useState,
-} from "react";
+import { CheckIcon, ChevronDown, Command } from "lucide-react";
+import { type RefObject, useCallback, useState } from "react";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -40,11 +27,9 @@ import {
   PromptInputButton,
   PromptInputCommand,
   PromptInputCommandEmpty,
-  PromptInputCommandGroup,
   PromptInputCommandInput,
   PromptInputCommandItem,
   PromptInputCommandList,
-  PromptInputCommandSeparator,
   PromptInputFooter,
   PromptInputHeader,
   PromptInputHoverCard,
@@ -58,20 +43,12 @@ import {
   PromptInputSelectTrigger,
   PromptInputSelectValue,
   PromptInputSubmit,
-  PromptInputTab,
-  PromptInputTabBody,
-  PromptInputTabItem,
-  PromptInputTabLabel,
   PromptInputTextarea,
   PromptInputTools,
   usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
-import {
-  type SlashCommand,
-  SlashCommandPopup,
-  type SlashCommandPopupRef,
-} from "./slash-command-popup";
+import type { SlashCommand } from "./slash-command-popup";
 
 export type ChatInputStatus = "submitted" | "streaming" | "ready" | "error";
 export type ConnStatus = "idle" | "connecting" | "connected" | "error";
@@ -92,59 +69,6 @@ export interface ChatInputProps {
   projectRules?: { path: string; location: string }[];
   availableCommands?: SlashCommand[];
   onCancel?: () => void;
-}
-
-// Inner component to access PromptInputController context
-function ChatInputTextareaWithCommands({
-  textareaRef,
-  availableCommands,
-}: {
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  availableCommands: SlashCommand[];
-}) {
-  const controller = usePromptInputController();
-  const slashCommandRef = useRef<SlashCommandPopupRef>(null);
-
-  const handleSelectCommand = useCallback(
-    (command: SlashCommand) => {
-      // Replace the current input with the command
-      const commandText = `/${command.name} `;
-      controller.textInput.setInput(commandText);
-      // Focus the textarea and move cursor to end
-      if (textareaRef.current) {
-        textareaRef.current.focus();
-        // Use setTimeout to ensure the value is set before moving cursor
-        setTimeout(() => {
-          if (textareaRef.current) {
-            textareaRef.current.selectionStart = commandText.length;
-            textareaRef.current.selectionEnd = commandText.length;
-          }
-        }, 0);
-      }
-    },
-    [controller.textInput, textareaRef]
-  );
-
-  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Let slash command popup handle navigation keys if open
-    if (slashCommandRef.current?.handleKeyDown(e)) {
-      return;
-    }
-  }, []);
-
-  return (
-    <div className="relative">
-      <PromptInputTextarea onKeyDown={handleKeyDown} ref={textareaRef} />
-      {availableCommands.length > 0 && (
-        <SlashCommandPopup
-          commands={availableCommands}
-          inputValue={controller.textInput.value}
-          onSelectCommand={handleSelectCommand}
-          ref={slashCommandRef}
-        />
-      )}
-    </div>
-  );
 }
 
 // Inner component for @ menu command items with controller access
@@ -249,7 +173,7 @@ export function ChatInput({
                   size="icon-sm"
                   variant="outline"
                 >
-                  <AtSignIcon className="text-muted-foreground" size={12} />
+                  <Command className="text-muted-foreground" size={12} />
                 </PromptInputButton>
               </PromptInputHoverCardTrigger>
               <PromptInputHoverCardContent className="w-100 p-0">
@@ -262,116 +186,24 @@ export function ChatInput({
                     <PromptInputCommandEmpty className="p-3 text-muted-foreground text-sm">
                       No results found.
                     </PromptInputCommandEmpty>
-                    <PromptInputCommandGroup heading="Added">
-                      <PromptInputCommandItem>
-                        <GlobeIcon />
-                        <span>Active Tabs</span>
-                        <span className="ml-auto text-muted-foreground">✓</span>
-                      </PromptInputCommandItem>
-                    </PromptInputCommandGroup>
-                    <PromptInputCommandSeparator />
-                    {availableCommands.length > 0 && (
-                      <>
-                        <PromptInputCommandGroup heading="Slash Commands">
-                          {availableCommands.map((cmd) => (
-                            <SlashCommandMenuItem
-                              command={cmd}
-                              key={cmd.name}
-                              textareaRef={textareaRef}
-                            />
-                          ))}
-                        </PromptInputCommandGroup>
-                        <PromptInputCommandSeparator />
-                      </>
-                    )}
-                    <PromptInputCommandGroup heading="Other Files">
-                      {activeTabs.map((file, index) => (
-                        <PromptInputCommandItem key={`${file.path}-${index}`}>
-                          <GlobeIcon className="text-primary" />
-                          <div className="flex flex-col">
-                            <span className="font-medium text-sm">
-                              {file.path}
-                            </span>
-                          </div>
-                        </PromptInputCommandItem>
-                      ))}
-                    </PromptInputCommandGroup>
+                    {availableCommands.map((cmd) => (
+                      <SlashCommandMenuItem
+                        command={cmd}
+                        key={cmd.name}
+                        textareaRef={textareaRef}
+                      />
+                    ))}
                   </PromptInputCommandList>
                 </PromptInputCommand>
               </PromptInputHoverCardContent>
             </PromptInputHoverCard>
-            <PromptInputHoverCard>
-              <PromptInputHoverCardTrigger>
-                <PromptInputButton size="sm" variant="outline">
-                  <RulerIcon className="text-muted-foreground" size={12} />
-                  <span>
-                    {projectRules.length > 0 ? projectRules.length : ""}
-                  </span>
-                </PromptInputButton>
-              </PromptInputHoverCardTrigger>
-              <PromptInputHoverCardContent className="divide-y overflow-hidden p-0">
-                <div className="space-y-2 p-3">
-                  <p className="font-medium text-muted-foreground text-sm">
-                    Attached Project Rules
-                  </p>
-                  {projectRules.length > 0 ? (
-                    <>
-                      <p className="ml-4 text-muted-foreground text-sm">
-                        Always Apply:
-                      </p>
-                      {projectRules.map((rule) => (
-                        <p className="ml-8 text-sm" key={rule.path}>
-                          {rule.path}
-                        </p>
-                      ))}
-                    </>
-                  ) : (
-                    <p className="ml-4 text-muted-foreground text-sm">
-                      No project rules found.
-                    </p>
-                  )}
-                </div>
-                <p className="bg-sidebar px-4 py-3 text-muted-foreground text-sm">
-                  Click to manage
-                </p>
-              </PromptInputHoverCardContent>
-            </PromptInputHoverCard>
-            <PromptInputHoverCard>
-              <PromptInputHoverCardTrigger>
-                <PromptInputButton size="sm" variant="outline">
-                  <FilesIcon className="text-muted-foreground" size={12} />
-                  <span>{activeTabs.length} Tabs</span>
-                </PromptInputButton>
-              </PromptInputHoverCardTrigger>
-              <PromptInputHoverCardContent className="w-75 space-y-4 px-0 py-3">
-                <PromptInputTab>
-                  <PromptInputTabLabel>Active Tabs</PromptInputTabLabel>
-                  <PromptInputTabBody>
-                    {activeTabs.map((tab) => (
-                      <PromptInputTabItem key={tab.path}>
-                        <GlobeIcon className="text-primary" size={16} />
-                        <span className="truncate" dir="rtl">
-                          {tab.path}
-                        </span>
-                      </PromptInputTabItem>
-                    ))}
-                  </PromptInputTabBody>
-                </PromptInputTab>
 
-                <div className="border-t px-3 pt-2 text-muted-foreground text-xs">
-                  Only file paths are included
-                </div>
-              </PromptInputHoverCardContent>
-            </PromptInputHoverCard>
             <PromptInputAttachments>
               {(attachment) => <PromptInputAttachment data={attachment} />}
             </PromptInputAttachments>
           </PromptInputHeader>
           <PromptInputBody>
-            <ChatInputTextareaWithCommands
-              availableCommands={availableCommands}
-              textareaRef={textareaRef}
-            />
+            <PromptInputTextarea ref={textareaRef} />
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>

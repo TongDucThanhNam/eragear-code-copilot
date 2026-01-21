@@ -11,6 +11,7 @@ import {
 } from "@/components/chat-ui/chat-messages";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { trpc } from "@/lib/trpc";
+import { useChatStatusStore } from "@/store/chat-status-store";
 import { useDiffStore } from "@/store/diff-store";
 import { useFileStore } from "@/store/file-store";
 import { useSettingsStore } from "@/store/settings-store";
@@ -71,6 +72,23 @@ export function ChatInterface({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatIdRef = useRef<string | null>(initialChatId || null);
   const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
+  const isReplayingHistoryRef = useRef(false);
+  const isResumingRef = useRef(false); // Track when resuming to skip chatHistory restore
+  const replayResetTimerRef = useRef<number | null>(null);
+
+  const scheduleReplayReset = useCallback(() => {
+    if (!isReplayingHistoryRef.current) {
+      return;
+    }
+    if (replayResetTimerRef.current) {
+      window.clearTimeout(replayResetTimerRef.current);
+    }
+    replayResetTimerRef.current = window.setTimeout(() => {
+      setStatus("ready");
+      isReplayingHistoryRef.current = false;
+      replayResetTimerRef.current = null;
+    }, 120);
+  }, []);
 
   const [terminalOutputs, setTerminalOutputs] = useState<
     Record<string, string>
@@ -91,13 +109,36 @@ export function ChatInterface({
         "[ChatInterface] Reconnecting to chat from prop:",
         initialChatId
       );
+      // Invalidate the old session state to force refetch
+      utils.getSessionState.invalidate({ chatId: chatId || "" });
+      utils.getSessionMessages.invalidate({ chatId: chatId || "" });
+
+      // Clear old messages before loading new ones
+      setMessages([]);
+
       setChatId(initialChatId);
       chatIdRef.current = initialChatId;
       setConnStatus("connecting");
+      isReplayingHistoryRef.current = true;
+      console.log(
+        "[ChatInterface] State updated - chatId:",
+        initialChatId,
+        "connStatus: connecting"
+      );
     } else if (!initialChatId && chatId) {
-      // If prop cleared but we have local state
+      // If prop cleared but we have local state, reset everything
+      console.log("[ChatInterface] Clearing chat");
+      utils.getSessionState.invalidate({ chatId });
+      utils.getSessionMessages.invalidate({ chatId });
+
+      setChatId(null);
+      chatIdRef.current = null;
+      setConnStatus("idle");
+      setMessages([]);
+      setStatus("ready");
     }
-  }, [initialChatId, chatId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialChatId]);
 
   const createSessionMutation = trpc.createSession.useMutation();
   const sendMessageMutation = trpc.sendMessage.useMutation();
@@ -109,13 +150,56 @@ export function ChatInterface({
   const permissionResponseMutation =
     trpc.respondToPermissionRequest.useMutation();
 
-  const { data: sessionState } = trpc.getSessionState.useQuery(
+  const {
+    data: sessionState,
+    isLoading: isLoadingState,
+    error: stateError,
+  } = trpc.getSessionState.useQuery(
     { chatId: chatId || "" },
     {
       enabled: !!chatId && connStatus === "connecting",
       retry: false,
+      staleTime: 0,
     }
   );
+
+  const {
+    data: chatHistory,
+    isLoading: isLoadingHistory,
+    error: historyError,
+  } = trpc.getSessionMessages.useQuery(
+    { chatId: chatId || "" },
+    {
+      enabled: !!chatId && connStatus === "connecting",
+      retry: false,
+      staleTime: 0,
+    }
+  );
+
+  // Debug log
+  useEffect(() => {
+    if (connStatus === "connecting") {
+      console.log("[ChatInterface] Query status:", {
+        chatId,
+        connStatus,
+        isLoadingState,
+        isLoadingHistory,
+        hasSessionState: !!sessionState,
+        hasChatHistory: !!chatHistory,
+        stateError: stateError?.message,
+        historyError: historyError?.message,
+      });
+    }
+  }, [
+    chatId,
+    connStatus,
+    isLoadingState,
+    isLoadingHistory,
+    sessionState,
+    chatHistory,
+    stateError,
+    historyError,
+  ]);
 
   const restoreSessionState = useCallback(
     (state: NonNullable<typeof sessionState>) => {
@@ -158,16 +242,36 @@ export function ChatInterface({
     if (sessionState && connStatus === "connecting") {
       console.log("[Client] Session state restored:", sessionState);
 
+      // Only restore messages from history if NOT resuming
+      // When resuming, server will replay messages via events
+      if (!isResumingRef.current && chatHistory && Array.isArray(chatHistory)) {
+        console.log(
+          "[Client] Restoring chat history:",
+          chatHistory.length,
+          "messages"
+        );
+        const convertedMessages = chatHistory.map((msg) => ({
+          key: msg.id,
+          from: msg.role as "user" | "assistant",
+          parts: [{ type: "text" as const, content: msg.content }],
+        }));
+        setMessages(convertedMessages);
+      }
+
       if (sessionState.status === "stopped") {
-        console.log("[Client] Session is stopped");
+        console.log("[Client] Session is stopped, but history restored");
         setConnStatus("idle");
+        setStatus("ready");
+        isResumingRef.current = false;
         return;
       }
 
       restoreSessionState(sessionState);
       setConnStatus("connected");
+      setStatus("ready");
+      isResumingRef.current = false;
     }
-  }, [sessionState, connStatus, restoreSessionState]);
+  }, [sessionState, chatHistory, connStatus, restoreSessionState]);
 
   const extractToolContentInfo = useCallback(
     (
@@ -439,7 +543,9 @@ export function ChatInterface({
         };
         return [...prev, newMsg];
       });
-      setStatus("streaming");
+      if (!isReplayingHistoryRef.current) {
+        setStatus("streaming");
+      }
     },
     [updateMessagesState]
   );
@@ -471,7 +577,9 @@ export function ChatInterface({
         };
         return [...prev, newMsg];
       });
-      setStatus("streaming");
+      if (!isReplayingHistoryRef.current) {
+        setStatus("streaming");
+      }
     },
     [updateMessagesState]
   );
@@ -517,7 +625,9 @@ export function ChatInterface({
       | "tool_call"
       | "tool_call_update"
       | "available_commands_update"
-      | "plan";
+      | "plan"
+      | "turn_end"
+      | "prompt_end";
     content?: unknown;
     text?: string;
     toolCallId?: string;
@@ -592,6 +702,9 @@ export function ChatInterface({
           if (text) {
             handleAgentChunk(text);
             lastStreamKindRef.current = "agent";
+            if (isReplayingHistoryRef.current) {
+              setStatus("ready");
+            }
           } else {
             console.warn("[Client] Could not extract text from chunk:", u);
           }
@@ -603,6 +716,9 @@ export function ChatInterface({
           if (text) {
             handleAgentThought(text);
             lastStreamKindRef.current = "agent";
+            if (isReplayingHistoryRef.current) {
+              setStatus("ready");
+            }
           } else {
             console.warn("[Client] Could not extract thought from chunk:", u);
           }
@@ -643,6 +759,13 @@ export function ChatInterface({
           }
           return;
 
+        case "turn_end":
+        case "prompt_end":
+          setStatus("ready");
+          lastStreamKindRef.current = "other";
+          isReplayingHistoryRef.current = false;
+          return;
+
         default:
           return;
       }
@@ -662,6 +785,8 @@ export function ChatInterface({
       switch (event.type) {
         case "connected":
           console.log("[Client] Connection confirmed by server");
+          isReplayingHistoryRef.current = true;
+          setStatus("ready");
           return;
 
         case "user_message": {
@@ -687,6 +812,7 @@ export function ChatInterface({
             JSON.stringify(u, null, 2)
           );
           processSessionUpdate(u);
+          scheduleReplayReset();
           return;
         }
 
@@ -733,7 +859,12 @@ export function ChatInterface({
           return;
       }
     },
-    [messages, handlePermissionRequest, processSessionUpdate]
+    [
+      messages,
+      handlePermissionRequest,
+      processSessionUpdate,
+      scheduleReplayReset,
+    ]
   );
 
   trpc.onSessionEvents.useSubscription(
@@ -868,9 +999,21 @@ export function ChatInterface({
       return;
     }
     try {
-      await resumeSessionMutation.mutateAsync({ chatId });
-      await utils.getSessionState.invalidate({ chatId });
+      isReplayingHistoryRef.current = true;
+      isResumingRef.current = true; // Mark as resuming to skip chatHistory restore
       setConnStatus("connecting");
+
+      // Clear messages before resuming to avoid duplicates from replay events
+      setMessages([]);
+
+      await resumeSessionMutation.mutateAsync({ chatId });
+      const nextState = await utils.getSessionState.fetch({ chatId });
+      if (nextState.status === "stopped") {
+        setConnStatus("idle");
+        return;
+      }
+      restoreSessionState(nextState);
+      setConnStatus("connected");
     } catch (e) {
       console.error("Failed to resume chat", e);
       setConnStatus("error");
@@ -956,6 +1099,7 @@ export function ChatInterface({
     }
 
     setStatus("submitted");
+    isReplayingHistoryRef.current = false;
 
     const images: { base64: string; mimeType: string }[] = [];
     for (const filePart of message.files) {
@@ -981,6 +1125,17 @@ export function ChatInterface({
   );
 
   const { setFiles } = useFileStore();
+  const setActiveChatId = useChatStatusStore((state) => state.setActiveChatId);
+  const setIsStreaming = useChatStatusStore((state) => state.setIsStreaming);
+
+  useEffect(() => {
+    setActiveChatId(chatId);
+  }, [chatId, setActiveChatId]);
+
+  useEffect(() => {
+    const streaming = status === "streaming" || status === "submitted";
+    setIsStreaming(connStatus === "connected" && streaming);
+  }, [connStatus, status, setIsStreaming]);
 
   useEffect(() => {
     if (projectContext?.files) {

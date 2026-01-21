@@ -1,4 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useNavigate,
+  useSearch,
+} from "@tanstack/react-router";
 import { z } from "zod";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ChatInterface } from "@/components/chat-ui/chat-interface";
@@ -16,7 +20,7 @@ export const Route = createFileRoute("/")({
 
 function ChatPage() {
   const navigate = useNavigate({ from: Route.fullPath });
-  const { chatId: urlChatId } = Route.useSearch();
+  const { chatId: urlChatId } = useSearch({ from: Route.fullPath });
 
   const handleChatIdChange = (newChatId: string | null) => {
     if (newChatId) {

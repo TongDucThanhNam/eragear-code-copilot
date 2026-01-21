@@ -3,11 +3,11 @@ import { handlePermissionRequest } from "./permission";
 import {
   createTerminal,
   killTerminal,
-  readTextFile,
+  readTextFileForChat,
   releaseTerminal,
   terminalOutput,
   waitForTerminalExit,
-  writeTextFile,
+  writeTextFileForChat,
 } from "./tool-calls";
 import { handleSessionUpdate, type SessionBuffering } from "./update";
 
@@ -38,8 +38,13 @@ export function createSessionHandlers(
       });
     },
 
-    readTextFile,
-    writeTextFile,
+    async readTextFile(params: acp.ReadTextFileRequest) {
+      return await readTextFileForChat(chatId, params);
+    },
+
+    async writeTextFile(params: acp.WriteTextFileRequest) {
+      return await writeTextFileForChat(chatId, params);
+    },
 
     async createTerminal(params: acp.CreateTerminalRequest) {
       return await createTerminal(chatId, params);

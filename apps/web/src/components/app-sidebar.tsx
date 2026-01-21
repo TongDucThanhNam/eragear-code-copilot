@@ -1,17 +1,8 @@
 "use client";
 
-import {
-  IconDashboard,
-  IconFileAi,
-  IconHelp,
-  IconInnerShadowTop,
-  IconSearch,
-  IconSettings,
-} from "@tabler/icons-react";
+import { IconFileAi, IconInnerShadowTop } from "@tabler/icons-react";
 import type * as React from "react";
 import { NavDocuments } from "@/components/nav-documents";
-import { NavMain } from "@/components/nav-main";
-import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
 import {
   Sidebar,
@@ -23,68 +14,63 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { trpc } from "@/lib/trpc";
+import { useChatStatusStore } from "@/store/chat-status-store";
+import { ClaudeAI, OpenAI, OpenCode } from "./ui/icons";
+
+const getAgentIcon = (agentTitle: string | undefined) => {
+  // console.log("agentTitle:", agentTitle);
+  switch (agentTitle) {
+    case "Claude Code":
+      return ClaudeAI;
+    case "OpenCode":
+      return OpenCode;
+    case "Codex":
+      return OpenAI;
+    default:
+      return IconFileAi;
+  }
+};
 
 const data = {
   user: {
-    name: "User",
-    email: "user@example.com",
+    name: "Vide Coder",
+    email: "admin@openai.com",
     avatar: "",
   },
-  navMain: [
-    {
-      title: "Dashboard",
-      url: "#",
-      icon: IconDashboard,
-      isActive: true,
-    },
-    {
-      title: "Settings",
-      url: "#",
-      icon: IconSettings,
-    },
-  ],
-  navSecondary: [
-    {
-      title: "Get Help",
-      url: "#",
-      icon: IconHelp,
-    },
-    {
-      title: "Search",
-      url: "#",
-      icon: IconSearch,
-    },
-  ],
-  // Placeholder for sessions, will be populated dynamically if needed or left as example
-  documents: [
-    {
-      name: "Planning Authentication",
-      url: "/?chatId=auth-plan",
-      icon: IconFileAi,
-    },
-    {
-      name: "Refactoring UI",
-      url: "/?chatId=ui-refactor",
-      icon: IconFileAi,
-    },
-  ],
 };
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { data: sessions } = trpc.getSessions.useQuery(undefined, {
     refetchInterval: 5000,
   });
+  const activeChatId = useChatStatusStore((state) => state.activeChatId);
+  const isStreaming = useChatStatusStore((state) => state.isStreaming);
 
   const sessionDocuments = (sessions || [])
     .slice()
     .sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0))
-    .map((s) => ({
-      sessionId: s.sessionId,
-      name: s.modeId ? `Session (${s.modeId})` : `Session ${s.id.slice(0, 8)}`,
-      url: `/?chatId=${s.id}`,
-      icon: IconFileAi,
-      status: s.isActive ? "running" : ("stopped" as "running" | "stopped"),
-    }));
+    .map((s) => {
+      const getStatus = () => {
+        if (s.id === activeChatId && isStreaming) {
+          return "streaming" as const;
+        }
+        if (s.isActive) {
+          return "active" as const;
+        }
+        return "inactive" as const;
+      };
+
+      return {
+        chatId: s.id,
+        sessionId: s.sessionId,
+        name: s.modeId
+          ? `Session (${s.modeId})`
+          : `Session ${s.id.slice(0, 8)}`,
+        url: `/?chatId=${s.id}`,
+        icon: getAgentIcon(s.agentName),
+        status: getStatus(),
+      };
+    });
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -95,7 +81,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               asChild
               className="data-[slot=sidebar-menu-button]:p-1.5!"
             >
-              <a href="/#">
+              <a href="/">
                 <IconInnerShadowTop className="size-5!" />
                 <span className="font-semibold text-base">Eragear Copilot</span>
               </a>
@@ -104,9 +90,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
         <NavDocuments items={sessionDocuments} />
-        <NavSecondary className="mt-auto" items={data.navSecondary} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={data.user} />

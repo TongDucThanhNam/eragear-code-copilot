@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
@@ -54,10 +54,42 @@ function getTerminalOrThrow(session: ChatSession, terminalId: string) {
   return terminal;
 }
 
-export async function readTextFile(
+async function resolvePathInSession(
+  session: ChatSession,
+  inputPath: string
+): Promise<string> {
+  const rawPath = fileUriToPath(inputPath);
+  const baseRoot = path.resolve(session.projectRoot);
+  const resolvedPath = path.isAbsolute(rawPath)
+    ? path.resolve(rawPath)
+    : path.resolve(baseRoot, rawPath);
+
+  let canonicalPath = resolvedPath;
+  try {
+    canonicalPath = await realpath(resolvedPath);
+  } catch {
+    // File may not exist yet; fall back to resolved path
+  }
+
+  const normalizedRoot = baseRoot.endsWith(path.sep)
+    ? baseRoot
+    : `${baseRoot}${path.sep}`;
+
+  if (canonicalPath !== baseRoot && !canonicalPath.startsWith(normalizedRoot)) {
+    throw new Error(
+      `Access denied (outside project root): ${canonicalPath} (root: ${baseRoot})`
+    );
+  }
+
+  return canonicalPath;
+}
+
+export async function readTextFileForChat(
+  chatId: string,
   params: acp.ReadTextFileRequest
 ): Promise<acp.ReadTextFileResponse> {
-  const filePath = fileUriToPath(params.path);
+  const session = getSessionOrThrow(chatId);
+  const filePath = await resolvePathInSession(session, params.path);
   try {
     const text = await readFile(filePath, "utf8");
     const line = params.line ?? undefined;
@@ -85,15 +117,17 @@ export async function readTextFile(
   }
 }
 
-export async function writeTextFile(
+export async function writeTextFileForChat(
+  chatId: string,
   params: acp.WriteTextFileRequest
 ): Promise<acp.WriteTextFileResponse> {
-  const filePath = fileUriToPath(params.path);
+  const session = getSessionOrThrow(chatId);
+  const filePath = await resolvePathInSession(session, params.path);
   await writeFile(filePath, params.content, "utf8");
   return {};
 }
 
-export function createTerminal(
+export async function createTerminal(
   chatId: string,
   params: acp.CreateTerminalRequest
 ): Promise<acp.CreateTerminalResponse> {
@@ -107,10 +141,11 @@ export function createTerminal(
   const targetCwd = params.cwd
     ? path.resolve(sessionCwd, params.cwd)
     : sessionCwd;
+  const allowedCwd = await resolvePathInSession(session, targetCwd);
   const outputByteLimit = normalizeOutputLimit(params.outputByteLimit ?? null);
 
   const termProc = spawn(params.command, params.args ?? [], {
-    cwd: targetCwd,
+    cwd: allowedCwd,
     env: {
       ...process.env,
       ...envArrayToRecord(params.env ?? null),
@@ -164,7 +199,7 @@ export function createTerminal(
     console.error(`[Server] Terminal ${termId} error:`, err);
   });
 
-  return Promise.resolve({ terminalId: termId });
+  return { terminalId: termId };
 }
 
 export async function waitForTerminalExit(

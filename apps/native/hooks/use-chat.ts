@@ -188,8 +188,7 @@ export function useChat() {
   const activeAgentId = useSettingsStore((s) => s.activeAgentId);
   const getAgents = useSettingsStore((s) => s.getAgents);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _utils = trpc.useUtils();
+  const utils = trpc.useUtils();
   const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
 
   // Mutations
@@ -213,34 +212,41 @@ export function useChat() {
     }
   );
 
+  const applySessionState = useCallback(
+    (data: NonNullable<typeof sessionStateQuery.data>) => {
+      const store = useChatStore.getState();
+      if (data.status === "stopped") {
+        store.setConnStatus("idle");
+        return;
+      }
+
+      if (data.modes) {
+        store.setModes(data.modes);
+      }
+      if (data.models) {
+        store.setModels(data.models);
+      }
+      if (data.commands) {
+        const commands = (data.commands || []).map((cmd) => ({
+          name: cmd.name,
+          description: cmd.description,
+          input: cmd.input === null ? undefined : cmd.input,
+        }));
+        store.setCommands(commands);
+      }
+      store.setConnStatus("connected");
+    },
+    []
+  );
+
   useEffect(() => {
     const data = sessionStateQuery.data;
     if (!data || connStatus !== "connecting") {
       return;
     }
 
-    const store = useChatStore.getState();
-    if (data.status === "stopped") {
-      store.setConnStatus("idle");
-      return;
-    }
-
-    if (data.modes) {
-      store.setModes(data.modes);
-    }
-    if (data.models) {
-      store.setModels(data.models);
-    }
-    if (data.commands) {
-      const commands = (data.commands || []).map((cmd) => ({
-        name: cmd.name,
-        description: cmd.description,
-        input: cmd.input === null ? undefined : cmd.input,
-      }));
-      store.setCommands(commands);
-    }
-    store.setConnStatus("connected");
-  }, [sessionStateQuery.data, connStatus]);
+    applySessionState(data);
+  }, [sessionStateQuery.data, connStatus, applySessionState]);
 
   // Individual session update handlers
   const handleUserMessageChunk = useCallback(
@@ -747,7 +753,10 @@ export function useChat() {
   const resumeSession = async (chatId: string) => {
     const store = useChatStore.getState();
     try {
+      store.setConnStatus("connecting");
       const res = await resumeSessionMutation.mutateAsync({ chatId });
+      const state = await utils.getSessionState.fetch({ chatId });
+      applySessionState(state);
       return res;
     } catch (e) {
       const error = e as Error;
