@@ -4,6 +4,7 @@ import { useThemeColor } from "heroui-native";
 import { useCallback } from "react";
 import { Text } from "react-native";
 
+import { ProjectDrawerContent } from "@/components/drawer/project-drawer-content";
 import { ThemeToggle } from "@/components/common/theme-toggle";
 
 function DrawerLayout() {
@@ -11,6 +12,11 @@ function DrawerLayout() {
   const themeColorBackground = useThemeColor("background");
 
   const renderThemeToggle = useCallback(() => <ThemeToggle />, []);
+
+  const renderDrawerContent = useCallback(
+    () => <ProjectDrawerContent />,
+    []
+  );
 
   return (
     <Drawer
@@ -24,6 +30,7 @@ function DrawerLayout() {
         headerRight: renderThemeToggle,
         drawerStyle: { backgroundColor: themeColorBackground },
       }}
+      drawerContent={renderDrawerContent}
     >
       <Drawer.Screen
         name="index"

@@ -40,7 +40,7 @@ function App() {
       links: [
         wsLink({
           client: createWSClient({
-            url: "ws://localhost:3003",
+            url: "ws://localhost:3000",
           }),
         }),
       ],

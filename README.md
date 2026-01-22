@@ -36,6 +36,7 @@ The system consists of three main components:
 
 - **Real-time Communication**: tRPC Subscriptions (WebSocket) for streaming agent responses
 - **Session Management**: Create, manage, and switch between multiple chat sessions
+- **Project-scoped Sessions**: Each ACP session belongs to a project
 - **Active/Inactive Sessions**: 
   - **Active**: Live ACP connection, full interaction capability
   - **Inactive**: History viewing; can be resumed if the agent supports ACP session resume
@@ -44,6 +45,7 @@ The system consists of three main components:
 - **Responsive UI**: Modern interface with chat messages, input, and session controls
 - **Multi-platform**: Web (`apps/web`) and Mobile (`apps/native`) clients
 - **Persistence**: Zustand stores with LocalStorage/AsyncStorage for agent configurations
+- **Project Management**: Create/select projects (stored server-side) for both Web & Mobile
 - **Authentication**: Better-Auth integration (currently mocked for local development)
 
 ## Architecture
@@ -120,6 +122,10 @@ This project uses the **Agent Client Protocol (ACP)** with support for session r
 3. **Session Resume**: If the agent supports `loadSession`, the server can resume an inactive session using its stored `sessionId`.
 
 4. **Message Persistence**: Messages are saved to `.eragear/sessions.json` on the server for history viewing and resume.
+
+### Project Roots
+
+Project paths are validated against `projectRoots` in server settings. Ensure at least one allowed root is configured before creating projects or sessions.
 
 ## Contributing
 

@@ -5,7 +5,6 @@ import {
   Code2,
   Cpu,
   Edit2,
-  Folder,
   MessageSquare,
   Plus,
   Sparkles,
@@ -34,70 +33,109 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { type AgentConfig, useSettingsStore } from "@/store/settings-store";
+import { trpc } from "@/lib/trpc";
 
-export function SettingsDialog() {
-  const {
-    isOpen,
-    setIsOpen,
-    settings,
-    setSettings,
-    activeAgentId,
-    setActiveAgentId,
-  } = useSettingsStore();
+type AgentType = "claude" | "codex" | "opencode" | "gemini" | "other";
 
+type SettingsDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
+
+export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   // Sub-Dialog State (Add/Edit)
   const [isEditOpen, setIsEditOpen] = React.useState(false);
-  const [editingName, setEditingName] = React.useState<string | null>(null);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
   const [formData, setFormData] = React.useState<{
     name: string;
-    type: "claude" | "codex" | "opencode" | "gemini" | "other";
+    type: AgentType;
     command: string;
     args: string;
     env: string;
-    cwd: string;
   }>({
     name: "",
     type: "opencode",
     command: "",
     args: "",
     env: "{}",
-    cwd: "",
   });
 
-  const handleDelete = (name: string) => {
-    const newAgents = { ...settings.agent_servers };
-    delete newAgents[name];
-    setSettings({ ...settings, agent_servers: newAgents });
+  const utils = trpc.useUtils();
+  const { data: agentsData, isLoading } = trpc.agents.list.useQuery();
+  const activeAgentId = agentsData?.activeAgentId ?? null;
+  const agents = agentsData?.agents ?? [];
 
-    if (activeAgentId === name) {
-      setActiveAgentId(Object.keys(newAgents)[0] || null);
-    }
+  const createAgentMutation = trpc.agents.create.useMutation({
+    onSuccess: async () => {
+      await utils.agents.list.invalidate();
+      setIsEditOpen(false);
+      toast.success("Agent created");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to create agent");
+    },
+  });
+
+  const updateAgentMutation = trpc.agents.update.useMutation({
+    onSuccess: async () => {
+      await utils.agents.list.invalidate();
+      setIsEditOpen(false);
+      toast.success("Agent updated");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to update agent");
+    },
+  });
+
+  const deleteAgentMutation = trpc.agents.delete.useMutation({
+    onSuccess: async () => {
+      await utils.agents.list.invalidate();
+      toast.success("Agent deleted");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to delete agent");
+    },
+  });
+
+  const setActiveAgentMutation = trpc.agents.setActive.useMutation({
+    onSuccess: async () => {
+      await utils.agents.list.invalidate();
+      toast.success("Active agent updated");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to update active agent");
+    },
+  });
+
+  const handleDelete = (id: string) => {
+    deleteAgentMutation.mutate({ id });
   };
 
-  const handleEdit = (name: string) => {
-    const agent = settings.agent_servers[name];
-    setEditingName(name);
+  const handleEdit = (id: string) => {
+    const agent = agents.find((item) => item.id === id);
+    if (!agent) {
+      toast.error("Agent not found");
+      return;
+    }
+    setEditingId(id);
     setFormData({
-      name,
+      name: agent.name,
       type: agent.type,
       command: agent.command,
       args: (agent.args || []).join(" "),
       env: JSON.stringify(agent.env || {}, null, 2),
-      cwd: agent.cwd || "",
     });
     setIsEditOpen(true);
   };
 
   const handleAddNew = () => {
-    setEditingName(null);
+    setEditingId(null);
     setFormData({
       name: "",
       type: "opencode",
       command: "",
       args: "",
       env: "{}",
-      cwd: "",
     });
     setIsEditOpen(true);
   };
@@ -106,43 +144,40 @@ export function SettingsDialog() {
     e.preventDefault();
 
     try {
-      const envParsed = JSON.parse(formData.env);
-      const newAgent = {
+      const envRaw = JSON.parse(formData.env);
+      const envParsed =
+        envRaw && typeof envRaw === "object" && !Array.isArray(envRaw)
+          ? Object.fromEntries(
+              Object.entries(envRaw).map(([key, value]) => [
+                key,
+                String(value),
+              ])
+            )
+          : null;
+
+      if (!envParsed) {
+        toast.error("ENV must be a JSON object");
+        return;
+      }
+
+      const payload = {
+        name: formData.name.trim(),
         type: formData.type,
-        command: formData.command,
+        command: formData.command.trim(),
         args: formData.args.split(" ").filter(Boolean),
         env: envParsed,
-        cwd: formData.cwd || undefined,
       };
 
-      const newAgents = { ...settings.agent_servers };
-
-      if (editingName && editingName !== formData.name) {
-        delete newAgents[editingName];
-        // If we renamed the active agent, update the ID
-        if (activeAgentId === editingName) {
-          setActiveAgentId(formData.name);
-        }
+      if (editingId) {
+        updateAgentMutation.mutate({ id: editingId, ...payload });
+      } else {
+        createAgentMutation.mutate(payload);
       }
-
-      newAgents[formData.name] = newAgent;
-
-      setSettings({ ...settings, agent_servers: newAgents });
-
-      // If no active agent, set this one
-      if (!activeAgentId) {
-        setActiveAgentId(formData.name);
-      }
-
-      setIsEditOpen(false);
-      toast.success("Settings saved locally");
     } catch (err) {
       console.error("Save error:", err);
       toast.error("Invalid ENV JSON");
     }
   };
-
-  const agents = settings.agent_servers || {};
 
   const getAgentIcon = (type: string) => {
     switch (type) {
@@ -161,13 +196,13 @@ export function SettingsDialog() {
 
   return (
     <>
-      <Dialog onOpenChange={setIsOpen} open={isOpen}>
+      <Dialog onOpenChange={onOpenChange} open={open}>
         <DialogContent className="max-h-[80vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Settings</DialogTitle>
             <DialogDescription>
-              Manage your ACP agent configurations. These are saved in your
-              browser.
+              Manage your ACP agent configurations. These are saved on the
+              server.
             </DialogDescription>
           </DialogHeader>
 
@@ -179,107 +214,109 @@ export function SettingsDialog() {
             </div>
 
             <div className="grid gap-4">
-              {Object.entries(agents).map(([name, config]) => {
-                const isActive = activeAgentId === name;
-                return (
-                  <Card
-                    className={`flex flex-col transition-all ${
-                      isActive ? "border-primary ring-1 ring-primary" : ""
-                    }`}
-                    key={name}
-                  >
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="shrink-0 rounded-md bg-muted p-2">
-                          {getAgentIcon(config.type)}
-                        </div>
-                        <CardTitle className="font-medium text-base">
-                          {name}
-                        </CardTitle>
-                        {isActive && (
-                          <Badge
-                            className="h-5 px-1.5 text-[10px]"
-                            variant="default"
-                          >
-                            Active
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          className="h-8 w-8"
-                          onClick={() => handleEdit(name)}
-                          size="icon"
-                          variant="ghost"
-                        >
-                          <Edit2 className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          disabled={isActive}
-                          onClick={() => handleDelete(name)}
-                          size="icon"
-                          title={
-                            isActive
-                              ? "Cannot delete active agent"
-                              : "Delete agent"
-                          }
-                          variant="ghost"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="flex flex-1 flex-col justify-between gap-4 pt-2">
-                      <div className="flex flex-col gap-2">
-                        <code className="flex items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-muted p-1 text-xs">
-                          <Terminal className="inline h-3 w-3 shrink-0" />
-                          {config.command} {(config.args || []).join(" ")}
-                        </code>
-                        <div className="flex gap-2">
-                          <Badge
-                            className="h-5 text-[10px]"
-                            variant="secondary"
-                          >
-                            {config.type}
-                          </Badge>
-                          {config.cwd && (
+              {isLoading && (
+                <div className="col-span-full rounded-lg border border-dashed p-8 text-center text-muted-foreground">
+                  Loading agents...
+                </div>
+              )}
+
+              {!isLoading &&
+                agents.map((agent) => {
+                  const isActive = activeAgentId === agent.id;
+                  const args = agent.args || [];
+                  return (
+                    <Card
+                      className={`flex flex-col transition-all ${
+                        isActive ? "border-primary ring-1 ring-primary" : ""
+                      }`}
+                      key={agent.id}
+                    >
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="shrink-0 rounded-md bg-muted p-2">
+                            {getAgentIcon(agent.type)}
+                          </div>
+                          <CardTitle className="font-medium text-base">
+                            {agent.name}
+                          </CardTitle>
+                          {isActive && (
                             <Badge
-                              className="flex h-5 items-center gap-1 text-[10px]"
-                              variant="outline"
+                              className="h-5 px-1.5 text-[10px]"
+                              variant="default"
                             >
-                              <Folder className="h-2 w-2" />
-                              {config.cwd}
+                              Active
                             </Badge>
                           )}
-                          {config.env && Object.keys(config.env).length > 0 && (
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            className="h-8 w-8"
+                            onClick={() => handleEdit(agent.id)}
+                            size="icon"
+                            variant="ghost"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            disabled={isActive}
+                            onClick={() => handleDelete(agent.id)}
+                            size="icon"
+                            title={
+                              isActive
+                                ? "Cannot delete active agent"
+                                : "Delete agent"
+                            }
+                            variant="ghost"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="flex flex-1 flex-col justify-between gap-4 pt-2">
+                        <div className="flex flex-col gap-2">
+                          <code className="flex items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-muted p-1 text-xs">
+                            <Terminal className="inline h-3 w-3 shrink-0" />
+                            {agent.command} {args.join(" ")}
+                          </code>
+                          <div className="flex gap-2">
                             <Badge
                               className="h-5 text-[10px]"
-                              variant="outline"
+                              variant="secondary"
                             >
-                              {Object.keys(config.env).length} ENV
+                              {agent.type}
                             </Badge>
-                          )}
+                            {agent.env &&
+                              Object.keys(agent.env).length > 0 && (
+                                <Badge
+                                  className="h-5 text-[10px]"
+                                  variant="outline"
+                                >
+                                  {Object.keys(agent.env).length} ENV
+                                </Badge>
+                              )}
+                          </div>
                         </div>
-                      </div>
 
-                      {!isActive && (
-                        <Button
-                          className="w-full"
-                          onClick={() => setActiveAgentId(name)}
-                          size="sm"
-                          variant="outline"
-                        >
-                          <Check className="mr-2 h-3.5 w-3.5" />
-                          Use This Agent
-                        </Button>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                        {!isActive && (
+                          <Button
+                            className="w-full"
+                            onClick={() =>
+                              setActiveAgentMutation.mutate({ id: agent.id })
+                            }
+                            size="sm"
+                            variant="outline"
+                          >
+                            <Check className="mr-2 h-3.5 w-3.5" />
+                            Use This Agent
+                          </Button>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
 
-              {Object.keys(agents).length === 0 && (
+              {!isLoading && agents.length === 0 && (
                 <div className="col-span-full rounded-lg border border-dashed p-8 text-center text-muted-foreground">
                   No agents configured.
                 </div>
@@ -295,7 +332,7 @@ export function SettingsDialog() {
           <form onSubmit={handleFormSubmit}>
             <DialogHeader>
               <DialogTitle>
-                {editingName ? "Edit Agent" : "Add Agent"}
+                {editingId ? "Edit Agent" : "Add Agent"}
               </DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 py-4">
@@ -316,17 +353,17 @@ export function SettingsDialog() {
                   <Label htmlFor="type">Type</Label>
                   <Select
                     onValueChange={(v: string) => {
-                      const validTypes: AgentConfig["type"][] = [
+                      const validTypes: AgentType[] = [
                         "claude",
                         "codex",
                         "opencode",
                         "gemini",
                         "other",
                       ];
-                      if (validTypes.includes(v as AgentConfig["type"])) {
+                      if (validTypes.includes(v as AgentType)) {
                         setFormData({
                           ...formData,
-                          type: v as AgentConfig["type"],
+                          type: v as AgentType,
                         });
                       }
                     }}
@@ -366,17 +403,6 @@ export function SettingsDialog() {
                   }
                   placeholder="acp"
                   value={formData.args}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="cwd">Working Directory (CWD)</Label>
-                <Input
-                  id="cwd"
-                  onChange={(e) =>
-                    setFormData({ ...formData, cwd: e.target.value })
-                  }
-                  placeholder="/path/to/project"
-                  value={formData.cwd}
                 />
               </div>
               <div className="grid gap-2">

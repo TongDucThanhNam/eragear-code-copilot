@@ -17,7 +17,7 @@ export function getWsUrl(): string {
 
   // For development, auto-detect platform-specific URL
   if (__DEV__) {
-    const port = extractPort(envWsUrl) || 3003;
+    const port = extractPort(envWsUrl) || 3000;
 
     if (Platform.OS === "android") {
       // Android Emulator uses 10.0.2.2 to reach host
@@ -31,7 +31,7 @@ export function getWsUrl(): string {
   }
 
   // For physical devices or production, use the configured URL
-  return envWsUrl || "ws://localhost:3003";
+  return envWsUrl || "ws://localhost:3000";
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   type ToolCall,
   useChatStore,
 } from "@/store/chat-store";
+import { useProjectStore } from "@/store/project-store";
 import { useSettingsStore } from "@/store/settings-store";
 
 // Helper for random IDs
@@ -187,6 +188,7 @@ export function useChat() {
   const connStatus = useChatStore((s) => s.connStatus);
   const activeAgentId = useSettingsStore((s) => s.activeAgentId);
   const getAgents = useSettingsStore((s) => s.getAgents);
+  const getActiveProject = useProjectStore((s) => s.getActiveProject);
 
   const utils = trpc.useUtils();
   const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
@@ -630,16 +632,22 @@ export function useChat() {
       const agentId = activeAgentId;
       const agent = getAgents().find((a) => a.id === agentId);
       const store = useChatStore.getState();
+      const activeProject = getActiveProject();
 
       if (!agent) {
         store.setError("Please configure an ACP agent first.");
         store.setConnStatus("idle");
         return;
       }
+      if (!activeProject) {
+        store.setError("Please select a project before starting a session.");
+        store.setConnStatus("idle");
+        return;
+      }
 
       store.setConnStatus("connecting");
       const res = await createSessionMutation.mutateAsync({
-        projectRoot: ".",
+        projectId: activeProject.id,
         command: agent.command,
         args: agent.args,
         env: agent.env,

@@ -12,7 +12,7 @@ behavior in `apps/server/src/trpc/router.ts` and `apps/server/src/session/manage
 
 ## Connection
 
-- WebSocket server: `ws://<host>:3003`
+- WebSocket server: `ws://<host>:3000`
 - There is no path segment; clients connect to the host and port only.
 
 Examples:
@@ -26,7 +26,7 @@ const trpc = createTRPCReact<AppRouter>();
 const client = trpc.createClient({
   links: [
     wsLink({
-      client: createWSClient({ url: "ws://localhost:3003" }),
+      client: createWSClient({ url: "ws://localhost:3000" }),
     }),
   ],
 });
@@ -34,7 +34,7 @@ const client = trpc.createClient({
 
 Native app helper:
 - `EXPO_PUBLIC_WS_URL` controls the WS base URL.
-- Android emulator uses `ws://10.0.2.2:3003` by default.
+- Android emulator uses `ws://10.0.2.2:3000` by default.
 
 ## IDs and Session States
 

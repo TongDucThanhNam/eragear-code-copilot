@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createWSClient, wsLink } from "@trpc/client";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { getWsUrl } from "@/lib/env";
 import { trpc } from "@/lib/trpc";
@@ -9,7 +9,7 @@ import { trpc } from "@/lib/trpc";
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 
 export function TRPCProvider({ children }: { children: ReactNode }) {
-  const [, setConnStatus] = useState<ConnectionStatus>("idle");
+  const connStatusRef = useRef<ConnectionStatus>("idle");
 
   const [queryClient] = useState(
     () =>
@@ -34,15 +34,15 @@ export function TRPCProvider({ children }: { children: ReactNode }) {
       url: wsUrl,
       onOpen: () => {
         console.log("[TRPCProvider] WebSocket connected");
-        setConnStatus("connected");
+        connStatusRef.current = "connected";
       },
       onClose: (cause) => {
         console.log("[TRPCProvider] WebSocket closed", cause);
-        setConnStatus("idle");
+        connStatusRef.current = "idle";
       },
       onError: (event) => {
         console.error("[TRPCProvider] WebSocket error", event);
-        setConnStatus("error");
+        connStatusRef.current = "error";
       },
     });
   });

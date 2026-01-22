@@ -18,9 +18,9 @@
   - [ ] EXPO_PUBLIC_SERVER_URL (REST)
   - [ ] EXPO_PUBLIC_WS_URL (WS tRPC)
 - [x] Viết helper `getWsUrl()` xử lý:
-  - [x] Android emulator: `ws://10.0.2.2:3003`
-  - [x] iOS simulator: `ws://localhost:3003`
-  - [x] Device thật: `ws://<LAN_IP>:3003`
+  - [x] Android emulator: `ws://10.0.2.2:3000`
+  - [x] iOS simulator: `ws://localhost:3000`
+  - [x] Device thật: `ws://<LAN_IP>:3000`
 - [x] Kiểm tra import type `AppRouter`:
   - [x] Nếu RN không import được từ `apps/server`, move types sang `packages/shared`.
 

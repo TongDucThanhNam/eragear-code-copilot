@@ -1,0 +1,1 @@
+- [x] chuyển nút Agents settings về NavUser

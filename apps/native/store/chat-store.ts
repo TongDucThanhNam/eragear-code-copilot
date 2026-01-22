@@ -30,6 +30,7 @@ export interface AvailableCommand {
 export interface SessionInfo {
   id: string;
   sessionId?: string;
+  projectId?: string | null;
   projectRoot: string;
   modeId?: string;
   agentInfo?: {

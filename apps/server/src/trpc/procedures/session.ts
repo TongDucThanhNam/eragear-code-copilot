@@ -1,6 +1,7 @@
 import { observable } from "@trpc/server/observable";
 import { z } from "zod";
 import { ENV } from "../../config/environment";
+import { getProjectById, listProjects } from "../../projects/storage";
 import { chats } from "../../session/events";
 import { createChatSession } from "../../session/manager";
 import {
@@ -8,6 +9,7 @@ import {
   getSession,
   getSessionMessages,
   loadSessions,
+  updateSessionMetadata,
   updateSessionStatus,
 } from "../../session/storage";
 import type { BroadcastEvent } from "../../session/types";
@@ -17,16 +19,25 @@ export const sessionRouter = router({
   createSession: publicProcedure
     .input(
       z.object({
-        projectRoot: z.string().default("."),
+        projectId: z.string().min(1),
         command: z.string().optional(),
         args: z.array(z.string()).optional(),
         env: z.record(z.string(), z.string()).optional(),
-        cwd: z.string().optional(),
       })
     )
     .mutation(async ({ input }) => {
       console.log("[tRPC] Creating new session", input);
-      const res = await createChatSession(input);
+      const project = getProjectById(input.projectId);
+      if (!project) {
+        throw new Error("Project not found");
+      }
+      const res = await createChatSession({
+        projectId: input.projectId,
+        projectRoot: project.path,
+        command: input.command,
+        args: input.args,
+        env: input.env,
+      });
       return res;
     }),
 
@@ -69,11 +80,11 @@ export const sessionRouter = router({
         `[tRPC] Resuming session ${stored.sessionId} for chatID ${input.chatId} `
       );
       const res = await createChatSession({
+        projectId: stored.projectId,
         projectRoot: stored.projectRoot,
         command: stored.command,
         args: stored.args,
         env: stored.env,
-        cwd: stored.cwd,
         chatId: stored.id,
         sessionIdToLoad: stored.sessionId,
       });
@@ -133,6 +144,7 @@ export const sessionRouter = router({
     }),
 
   getSessions: publicProcedure.query(() => {
+    const { projects } = listProjects();
     const storedSessions = loadSessions();
 
     return storedSessions.map((session) => {
@@ -142,9 +154,17 @@ export const sessionRouter = router({
         activeSession?.loadSessionSupported ?? session.loadSessionSupported;
       const agentInfo = activeSession?.agentInfo ?? session.agentInfo;
       const agentName = agentInfo?.title ?? agentInfo?.name;
+      const derivedProjectId =
+        session.projectId ??
+        projects.find((project) => project.path === session.projectRoot)?.id;
+      if (!session.projectId && derivedProjectId) {
+        updateSessionMetadata(session.id, { projectId: derivedProjectId });
+      }
       return {
         id: session.id,
+        name: session.name,
         sessionId: activeSession?.sessionId ?? session.sessionId,
+        projectId: derivedProjectId ?? session.projectId ?? null,
         projectRoot: session.projectRoot,
         modeId: session.modeId,
         status: session.status,
@@ -154,9 +174,29 @@ export const sessionRouter = router({
         loadSessionSupported,
         agentInfo,
         agentName,
+        pinned: session.pinned ?? false,
+        archived: session.archived ?? false,
       };
     });
   }),
+
+  updateSessionMeta: publicProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+        name: z.string().nullable().optional(),
+        pinned: z.boolean().optional(),
+        archived: z.boolean().optional(),
+      })
+    )
+    .mutation(({ input }) => {
+      updateSessionMetadata(input.chatId, {
+        name: input.name ?? undefined,
+        pinned: input.pinned,
+        archived: input.archived,
+      });
+      return { ok: true };
+    }),
 
   getSessionMessages: publicProcedure
     .input(z.object({ chatId: z.string() }))

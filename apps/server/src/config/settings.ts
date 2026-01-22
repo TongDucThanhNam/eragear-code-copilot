@@ -14,12 +14,12 @@ const UiSettingsSchema = z.object({
 
 const SettingsSchema = z.object({
   ui: UiSettingsSchema,
-  projectRoots: z.array(z.string()).default([]),
+  projectRoots: z.array(z.string()).min(1).default([process.cwd()]),
 });
 
 const SettingsPatchSchema = z.object({
   ui: UiSettingsSchema.partial().optional(),
-  projectRoots: z.array(z.string()).optional(),
+  projectRoots: z.array(z.string()).min(1).optional(),
 });
 
 export type UiSettings = z.infer<typeof UiSettingsSchema>;
@@ -32,7 +32,7 @@ const DEFAULT_SETTINGS: Settings = {
     density: "comfortable",
     fontScale: 1,
   },
-  projectRoots: [],
+  projectRoots: [process.cwd()],
 };
 
 function ensureSettingsFile() {
@@ -50,8 +50,25 @@ export function getSettings(): Settings {
   try {
     return SettingsSchema.parse(JSON.parse(raw));
   } catch {
-    writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2));
-    return DEFAULT_SETTINGS;
+    try {
+      const parsed = JSON.parse(raw) as Partial<Settings>;
+      const uiResult = UiSettingsSchema.safeParse(parsed.ui);
+      const projectRoots = Array.isArray(parsed.projectRoots)
+        ? parsed.projectRoots
+        : DEFAULT_SETTINGS.projectRoots;
+      const next: Settings = {
+        ui: uiResult.success ? uiResult.data : DEFAULT_SETTINGS.ui,
+        projectRoots:
+          projectRoots.length > 0
+            ? projectRoots
+            : DEFAULT_SETTINGS.projectRoots,
+      };
+      writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));
+      return next;
+    } catch {
+      writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2));
+      return DEFAULT_SETTINGS;
+    }
   }
 }
 

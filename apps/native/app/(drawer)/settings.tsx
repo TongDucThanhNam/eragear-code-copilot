@@ -1,73 +1,93 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Button, Card, ErrorView, Surface, TextField } from "heroui-native";
-import { useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import {
+  Button,
+  Card,
+  ErrorView,
+  Surface,
+  TextField,
+  useToast,
+} from "heroui-native";
+import { useState } from "react";
+import { Alert, Pressable, Text, View } from "react-native";
 
 import { Container } from "@/components/common/container";
-import { type AgentConfig, useSettingsStore } from "@/store/settings-store";
+import { trpc } from "@/lib/trpc";
 
-interface AgentFormState {
-  name: string;
-  type: AgentConfig["type"];
-  command: string;
-  args: string;
-  env: string;
-  cwd: string;
-}
-
-const AGENT_TYPES: AgentConfig["type"][] = [
-  "opencode",
-  "codex",
-  "claude",
-  "gemini",
-  "other",
-];
-
-const emptyForm: AgentFormState = {
-  name: "",
-  type: "opencode",
-  command: "",
-  args: "acp",
-  env: "{}",
-  cwd: "",
-};
+const AGENT_TYPES = ["opencode", "codex", "claude", "gemini", "other"] as const;
 
 export default function SettingsScreen() {
-  const { settings, setSettings, activeAgentId, setActiveAgentId } =
-    useSettingsStore();
-  const [editingName, setEditingName] = useState<string | null>(null);
-  const [formData, setFormData] = useState<AgentFormState>(emptyForm);
+  const { toast } = useToast();
+  const utils = trpc.useUtils();
+  const { data: agentsData, isLoading } = trpc.agents.list.useQuery();
+
+  const createAgent = trpc.agents.create.useMutation({
+    onSuccess: () => {
+      utils.agents.list.invalidate();
+      toast.show("Agent created");
+      setEditingId(null);
+      setFormData(emptyForm);
+    },
+    onError: (err) => setError(err.message),
+  });
+
+  const updateAgent = trpc.agents.update.useMutation({
+    onSuccess: () => {
+      utils.agents.list.invalidate();
+      toast.show("Agent updated");
+      setEditingId(null);
+      setFormData(emptyForm);
+    },
+    onError: (err) => setError(err.message),
+  });
+
+  const deleteAgent = trpc.agents.delete.useMutation({
+    onSuccess: () => {
+      utils.agents.list.invalidate();
+      toast.show("Agent deleted");
+    },
+    onError: (err) => toast.show(err.message),
+  });
+
+  const setActiveAgent = trpc.agents.setActive.useMutation({
+    onSuccess: () => {
+      utils.agents.list.invalidate();
+      toast.show("Active agent updated");
+    },
+  });
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const emptyForm = {
+    name: "",
+    type: "opencode" as const,
+    command: "",
+    args: "acp",
+    env: "{}",
+  };
+
+  const [formData, setFormData] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
 
-  const agents = useMemo(
-    () => settings.agent_servers || {},
-    [settings.agent_servers]
-  );
-
-  const handleEdit = (name: string) => {
-    const agent = agents[name];
-    setEditingName(name);
+  const handleEdit = (agent: any) => {
+    setEditingId(agent.id);
     setFormData({
-      name,
+      name: agent.name,
       type: agent.type,
       command: agent.command,
       args: (agent.args || []).join(" "),
       env: JSON.stringify(agent.env || {}, null, 2),
-      cwd: agent.cwd || "",
     });
   };
 
-  const handleDelete = (name: string) => {
-    if (activeAgentId === name) {
-      return;
-    }
-    const newAgents = { ...agents };
-    delete newAgents[name];
-    setSettings({ ...settings, agent_servers: newAgents });
-
-    if (activeAgentId === name) {
-      setActiveAgentId(Object.keys(newAgents)[0] || null);
-    }
+  const handleDelete = (id: string, name: string) => {
+    Alert.alert("Delete Agent", `Delete agent "${name}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => deleteAgent.mutate({ id }),
+      },
+    ]);
   };
 
   const handleSave = () => {
@@ -75,33 +95,26 @@ export default function SettingsScreen() {
     try {
       const envParsed =
         formData.env.trim().length === 0 ? {} : JSON.parse(formData.env);
+      const argsParsed = formData.args.split(" ").filter(Boolean);
 
-      const newAgent: AgentConfig = {
-        type: formData.type,
-        command: formData.command.trim(),
-        args: formData.args.split(" ").filter(Boolean),
-        env: envParsed,
-        cwd: formData.cwd.trim() || undefined,
-      };
-
-      const newAgents = { ...agents };
-
-      if (editingName && editingName !== formData.name) {
-        delete newAgents[editingName];
-        if (activeAgentId === editingName) {
-          setActiveAgentId(formData.name);
-        }
+      if (editingId) {
+        updateAgent.mutate({
+          id: editingId,
+          name: formData.name,
+          type: formData.type,
+          command: formData.command.trim(),
+          args: argsParsed,
+          env: envParsed,
+        });
+      } else {
+        createAgent.mutate({
+          name: formData.name,
+          type: formData.type,
+          command: formData.command.trim(),
+          args: argsParsed,
+          env: envParsed,
+        });
       }
-
-      newAgents[formData.name] = newAgent;
-      setSettings({ ...settings, agent_servers: newAgents });
-
-      if (!activeAgentId) {
-        setActiveAgentId(formData.name);
-      }
-
-      setEditingName(null);
-      setFormData(emptyForm);
     } catch (err) {
       console.warn("Invalid env JSON", err);
       setError("Invalid ENV JSON. Please fix and save again.");
@@ -109,10 +122,13 @@ export default function SettingsScreen() {
   };
 
   const handleAddNew = () => {
-    setEditingName(null);
+    setEditingId(null);
     setFormData(emptyForm);
     setError(null);
   };
+
+  const agents = agentsData?.agents || [];
+  const activeAgentId = agentsData?.activeAgentId;
 
   return (
     <Container className="flex-1">
@@ -126,17 +142,17 @@ export default function SettingsScreen() {
           </Button>
         </View>
 
-        {Object.keys(agents).length === 0 ? (
+        {agents.length === 0 && !isLoading ? (
           <Surface className="rounded-lg p-4" variant="secondary">
             <Text className="text-muted-foreground text-sm">
               No agents configured. Add one to start a session.
             </Text>
           </Surface>
         ) : (
-          Object.entries(agents).map(([name, agent]) => {
-            const isActive = activeAgentId === name;
+          agents.map((agent: any) => {
+            const isActive = activeAgentId === agent.id;
             return (
-              <Card className="gap-3 p-4" key={name}>
+              <Card className="gap-3 p-4" key={agent.id}>
                 <View className="flex-row items-center justify-between">
                   <View className="flex-row items-center gap-2">
                     <Ionicons
@@ -145,18 +161,20 @@ export default function SettingsScreen() {
                       size={16}
                     />
                     <Text className="font-semibold text-base text-foreground">
-                      {name}
+                      {agent.name}
                     </Text>
                   </View>
                   <View className="flex-row items-center gap-2">
-                    <Pressable onPress={() => handleEdit(name)}>
+                    <Pressable onPress={() => handleEdit(agent)}>
                       <Ionicons
                         color="#64748b"
                         name="create-outline"
                         size={18}
                       />
                     </Pressable>
-                    <Pressable onPress={() => handleDelete(name)}>
+                    <Pressable
+                      onPress={() => handleDelete(agent.id, agent.name)}
+                    >
                       <Ionicons
                         color="#ef4444"
                         name="trash-outline"
@@ -176,13 +194,6 @@ export default function SettingsScreen() {
                       {agent.type}
                     </Text>
                   </View>
-                  {agent.cwd ? (
-                    <View className="rounded-full border border-muted-foreground/40 px-2 py-1">
-                      <Text className="text-[10px] text-muted-foreground">
-                        {agent.cwd}
-                      </Text>
-                    </View>
-                  ) : null}
                   {agent.env && Object.keys(agent.env).length > 0 ? (
                     <View className="rounded-full border border-muted-foreground/40 px-2 py-1">
                       <Text className="text-[10px] text-muted-foreground">
@@ -194,7 +205,7 @@ export default function SettingsScreen() {
 
                 {isActive ? null : (
                   <Button
-                    onPress={() => setActiveAgentId(name)}
+                    onPress={() => setActiveAgent.mutate({ id: agent.id })}
                     variant="ghost"
                   >
                     <Button.Label>Use This Agent</Button.Label>
@@ -207,7 +218,7 @@ export default function SettingsScreen() {
 
         <Surface className="rounded-lg p-4" variant="secondary">
           <Text className="mb-3 font-semibold text-base text-foreground">
-            {editingName ? "Edit Agent" : "Add Agent"}
+            {editingId ? "Edit Agent" : "Add Agent"}
           </Text>
 
           <ErrorView className="mb-3" isInvalid={!!error}>
@@ -276,18 +287,6 @@ export default function SettingsScreen() {
                 }
                 placeholder="acp"
                 value={formData.args}
-              />
-            </TextField>
-
-            <TextField>
-              <TextField.Label>Working Directory (CWD)</TextField.Label>
-              <TextField.Input
-                autoCapitalize="none"
-                onChangeText={(value) =>
-                  setFormData((prev) => ({ ...prev, cwd: value }))
-                }
-                placeholder="/path/to/project"
-                value={formData.cwd}
               />
             </TextField>
 

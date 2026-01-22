@@ -15,7 +15,9 @@ export interface StoredMessage {
 
 export interface StoredSession {
   id: string;
+  name?: string;
   sessionId?: string; // ACP sessionId
+  projectId?: string;
   projectRoot: string;
   command?: string;
   args?: string[];
@@ -24,6 +26,8 @@ export interface StoredSession {
   loadSessionSupported?: boolean;
   agentInfo?: AgentInfo;
   status: "running" | "stopped";
+  pinned?: boolean;
+  archived?: boolean;
   createdAt: number;
   lastActiveAt: number;
   modeId?: string;

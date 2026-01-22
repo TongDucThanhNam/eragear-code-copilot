@@ -96,23 +96,29 @@ const TextMessagePart = memo(({ content }: { content: string }) => (
 ));
 TextMessagePart.displayName = "TextMessagePart";
 
-const PlanMessagePart = memo(({ entries }: { entries: Array<{ content: string; status: PlanStatus }> }) => (
-  <Plan className="mb-4" defaultOpen={true} key={entries[0]?.content}>
-    <PlanHeader>
-      <PlanTitle>Plan</PlanTitle>
-      <PlanTrigger />
-    </PlanHeader>
-    <PlanContent>
-      <div className="space-y-2 pt-2">
-        {entries.map((entry) => (
-          <PlanItem key={entry.content} status={entry.status}>
-            {entry.content}
-          </PlanItem>
-        ))}
-      </div>
-    </PlanContent>
-  </Plan>
-));
+const PlanMessagePart = memo(
+  ({
+    entries,
+  }: {
+    entries: Array<{ content: string; status: PlanStatus }>;
+  }) => (
+    <Plan className="mb-4" defaultOpen={true} key={entries[0]?.content}>
+      <PlanHeader>
+        <PlanTitle>Plan</PlanTitle>
+        <PlanTrigger />
+      </PlanHeader>
+      <PlanContent>
+        <div className="space-y-2 pt-2">
+          {entries.map((entry) => (
+            <PlanItem key={entry.content} status={entry.status}>
+              {entry.content}
+            </PlanItem>
+          ))}
+        </div>
+      </PlanContent>
+    </Plan>
+  )
+);
 PlanMessagePart.displayName = "PlanMessagePart";
 
 interface ToolMessagePartProps {
@@ -122,59 +128,40 @@ interface ToolMessagePartProps {
   onReject?: (requestId: string, decision?: string) => void;
 }
 
-const ToolMessagePart = memo(({ tool, terminalOutputs, onApprove, onReject }: ToolMessagePartProps) => (
-  <div className="mb-4 space-y-2" key={tool.toolCallId}>
-    <Tool key={tool.toolCallId}>
-      <ToolHeader
-        state={tool.status}
-        title={tool.name}
-        type="tool-call"
-      />
-      <ToolContent>
-        <ToolInput input={tool.parameters} />
-        <Confirmation
-          approval={{ id: tool.toolCallId }}
-          state={tool.status}
-        >
-          <ConfirmationRequest>
-            <ConfirmationTitle>
-              Requesting permission to execute
-            </ConfirmationTitle>
-            <ConfirmationActions>
-              {/* Check if we have specific options */}
-              {tool.options && tool.options.length > 0 ? (
-                (tool.options as PermissionOption[]).map(
-                  (opt) => (
+const ToolMessagePart = memo(
+  ({ tool, terminalOutputs, onApprove, onReject }: ToolMessagePartProps) => (
+    <div className="mb-4 space-y-2" key={tool.toolCallId}>
+      <Tool key={tool.toolCallId}>
+        <ToolHeader state={tool.status} title={tool.name} type="tool-call" />
+        <ToolContent>
+          <ToolInput input={tool.parameters} />
+          <Confirmation approval={{ id: tool.toolCallId }} state={tool.status}>
+            <ConfirmationRequest>
+              <ConfirmationTitle>
+                Requesting permission to execute
+              </ConfirmationTitle>
+              <ConfirmationActions>
+                {/* Check if we have specific options */}
+                {tool.options && tool.options.length > 0 ? (
+                  (tool.options as PermissionOption[]).map((opt) => (
                     <ConfirmationAction
                       key={opt.optionId}
                       onClick={() => {
                         // Heuristic mapping for frontend:
-                        const id = String(
-                          opt.optionId || ""
-                        ).toLowerCase();
+                        const id = String(opt.optionId || "").toLowerCase();
                         const isAllow =
-                          id === "allow" ||
-                          id === "yes" ||
-                          id === "allow_once";
+                          id === "allow" || id === "yes" || id === "allow_once";
 
                         if (isAllow) {
                           tool.requestId &&
-                            onApprove?.(
-                              tool.requestId,
-                              opt.optionId
-                            );
+                            onApprove?.(tool.requestId, opt.optionId);
                         } else {
                           tool.requestId &&
-                            onReject?.(
-                              tool.requestId,
-                              opt.optionId
-                            );
+                            onReject?.(tool.requestId, opt.optionId);
                         }
                       }}
                       variant={
-                        String(opt.optionId).includes(
-                          "allow"
-                        ) ||
+                        String(opt.optionId).includes("allow") ||
                         String(opt.optionId).includes("yes")
                           ? "default"
                           : "outline"
@@ -182,63 +169,54 @@ const ToolMessagePart = memo(({ tool, terminalOutputs, onApprove, onReject }: To
                     >
                       {opt.name || "Option"}
                     </ConfirmationAction>
-                  )
-                )
-              ) : (
-                // Default fallback
-                <>
-                  <ConfirmationAction
-                    onClick={() =>
-                      tool.requestId &&
-                      onReject?.(tool.requestId)
-                    }
-                    variant="outline"
-                  >
-                    Reject
-                  </ConfirmationAction>
-                  <ConfirmationAction
-                    onClick={() =>
-                      tool.requestId &&
-                      onApprove?.(tool.requestId)
-                    }
-                  >
-                    Allow
-                  </ConfirmationAction>
-                </>
-              )}
-            </ConfirmationActions>
-          </ConfirmationRequest>
-        </Confirmation>
-        {tool.terminalId && terminalOutputs && (
-          <div className="mt-2">
-            <TerminalView
-              output={
-                terminalOutputs[tool.terminalId] || ""
-              }
-            />
-          </div>
-        )}
-        {tool.diffs && tool.diffs.length > 0 && (
-          <div className="mt-2 space-y-4">
-            {tool.diffs.map((diff, _i) => (
-              <div className="space-y-1" key={diff.path}>
-                <FileDiffView
-                  filename={diff.path}
-                  modified={diff.newText}
-                  original={diff.oldText}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-        <ToolOutput
-          errorText={tool.error}
-          output={tool.result}
-        />
-      </ToolContent>
-    </Tool>
-  </div>
-));
+                  ))
+                ) : (
+                  // Default fallback
+                  <>
+                    <ConfirmationAction
+                      onClick={() =>
+                        tool.requestId && onReject?.(tool.requestId)
+                      }
+                      variant="outline"
+                    >
+                      Reject
+                    </ConfirmationAction>
+                    <ConfirmationAction
+                      onClick={() =>
+                        tool.requestId && onApprove?.(tool.requestId)
+                      }
+                    >
+                      Allow
+                    </ConfirmationAction>
+                  </>
+                )}
+              </ConfirmationActions>
+            </ConfirmationRequest>
+          </Confirmation>
+          {tool.terminalId && terminalOutputs && (
+            <div className="mt-2">
+              <TerminalView output={terminalOutputs[tool.terminalId] || ""} />
+            </div>
+          )}
+          {tool.diffs && tool.diffs.length > 0 && (
+            <div className="mt-2 space-y-4">
+              {tool.diffs.map((diff, _i) => (
+                <div className="space-y-1" key={diff.path}>
+                  <FileDiffView
+                    filename={diff.path}
+                    modified={diff.newText}
+                    original={diff.oldText}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <ToolOutput errorText={tool.error} output={tool.result} />
+        </ToolContent>
+      </Tool>
+    </div>
+  )
+);
 ToolMessagePart.displayName = "ToolMessagePart";
 
 export function ChatMessages({
@@ -268,9 +246,9 @@ export function ChatMessages({
                 {message.parts.map((part, _index) => {
                   if (part.type === "text") {
                     return (
-                      <TextMessagePart 
-                        key={`text-${part.content.slice(0, 10)}-${_index}`}
+                      <TextMessagePart
                         content={part.content}
+                        key={`text-${part.content.slice(0, 10)}-${_index}`}
                       />
                     );
                   }
@@ -278,8 +256,8 @@ export function ChatMessages({
                   if (part.type === "plan") {
                     return (
                       <PlanMessagePart
-                        key={`plan-${part.entries[0]?.content.slice(0, 10)}-${_index}`}
                         entries={part.entries}
+                        key={`plan-${part.entries[0]?.content.slice(0, 10)}-${_index}`}
                       />
                     );
                   }
@@ -288,10 +266,10 @@ export function ChatMessages({
                     return (
                       <ToolMessagePart
                         key={`tool-${part.toolCallId}-${_index}`}
-                        tool={part}
-                        terminalOutputs={terminalOutputs}
                         onApprove={onApprove}
                         onReject={onReject}
+                        terminalOutputs={terminalOutputs}
+                        tool={part}
                       />
                     );
                   }

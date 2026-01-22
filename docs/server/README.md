@@ -123,7 +123,7 @@ src/
 ### Environment Variables
 ```bash
 WS_HOST=0.0.0.0
-WS_PORT=3003
+WS_PORT=3000
 SESSION_IDLE_TIMEOUT_MS=600000
 ```
 

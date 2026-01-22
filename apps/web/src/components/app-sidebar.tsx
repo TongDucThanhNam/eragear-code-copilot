@@ -2,7 +2,7 @@
 
 import { IconFileAi, IconInnerShadowTop } from "@tabler/icons-react";
 import type * as React from "react";
-import { NavDocuments } from "@/components/nav-documents";
+import { NavProjectTree } from "@/components/nav-project-tree";
 import { NavUser } from "@/components/nav-user";
 import {
   Sidebar,
@@ -46,9 +46,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const activeChatId = useChatStatusStore((state) => state.activeChatId);
   const isStreaming = useChatStatusStore((state) => state.isStreaming);
 
+  /* const activeProjectName =
+    projects.find((project) => project.id === activeProjectId)?.name ??
+    "Select a project"; */
+
   const sessionDocuments = (sessions || [])
     .slice()
-    .sort((a, b) => (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0))
+    .filter((s) => !s.archived)
+    .sort((a, b) => {
+      const pinnedA = a.pinned ?? false;
+      const pinnedB = b.pinned ?? false;
+      if (pinnedA !== pinnedB) {
+        return pinnedA ? -1 : 1;
+      }
+      return (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0);
+    })
     .map((s) => {
       const getStatus = () => {
         if (s.id === activeChatId && isStreaming) {
@@ -62,13 +74,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
       return {
         chatId: s.id,
+        projectId: s.projectId,
         sessionId: s.sessionId,
-        name: s.modeId
+        name: s.name
+          ? s.name
+          : s.modeId
           ? `Session (${s.modeId})`
           : `Session ${s.id.slice(0, 8)}`,
-        url: `/?chatId=${s.id}`,
         icon: getAgentIcon(s.agentName),
         status: getStatus(),
+        pinned: s.pinned ?? false,
+        lastActiveAt: s.lastActiveAt ?? 0,
       };
     });
 
@@ -90,7 +106,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavDocuments items={sessionDocuments} />
+        <NavProjectTree
+          sessions={sessionDocuments.map((s) => ({
+            id: s.chatId,
+            projectId: s.projectId || null,
+            name: s.name,
+            isActive: s.status === "active",
+            status: s.status,
+            // icon: s.icon // if needed later
+          }))}
+        />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={data.user} />

@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
-import path from "node:path";
 import { createAcpConnection } from "../acp/client";
 import {
   createSessionHandlers,
@@ -9,6 +8,7 @@ import {
 } from "../acp/protocol/handler";
 import { CLIENT_INFO } from "../config/constants";
 import { getSettings } from "../config/settings";
+import { resolveProjectPath } from "../utils/project-roots";
 import { broadcastToSession, chats } from "./events";
 import {
   getSessionMessages,
@@ -20,35 +20,18 @@ import {
 import type { ChatSession } from "./types";
 
 export interface CreateSessionParams {
+  projectId?: string;
   projectRoot: string;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
-  cwd?: string;
   chatId?: string;
   sessionIdToLoad?: string;
 }
 
-function resolveSessionCwd(projectRoot: string, cwd?: string) {
-  return cwd ? path.resolve(cwd) : projectRoot;
-}
-
-function isProjectRootAllowed(projectRoot: string, allowedRoots: string[]) {
-  if (allowedRoots.length === 0) {
-    return true;
-  }
-  const resolvedProject = path.resolve(projectRoot);
-  return allowedRoots.some((root) => {
-    const resolvedRoot = path.resolve(root);
-    if (resolvedProject === resolvedRoot) {
-      return true;
-    }
-    const normalizedRoot = resolvedRoot.endsWith(path.sep)
-      ? resolvedRoot
-      : `${resolvedRoot}${path.sep}`;
-    return resolvedProject.startsWith(normalizedRoot);
-  });
-}
+// function resolveSessionCwd(projectRoot: string, cwd?: string) {
+//   return cwd ? path.resolve(cwd) : projectRoot;
+// }
 
 function buildAgentInfo(
   info?: {
@@ -158,13 +141,8 @@ function attachAgentProcessHandlers(
 }
 
 export async function createChatSession(params: CreateSessionParams) {
-  const projectRoot = path.resolve(params.projectRoot);
   const { projectRoots } = getSettings();
-  if (!isProjectRootAllowed(projectRoot, projectRoots)) {
-    throw new Error(
-      `Project root ${projectRoot} is not allowed. Add it in /config settings.`
-    );
-  }
+  const projectRoot = resolveProjectPath(params.projectRoot, projectRoots);
   const agentCmd = params.command ?? "opencode";
   const agentArgs = params.args ?? ["acp"];
   const agentEnv = params.env ?? {};
@@ -208,11 +186,12 @@ export async function createChatSession(params: CreateSessionParams) {
     throw new Error("Agent does not support session/load");
   }
 
-  const sessionCwd = resolveSessionCwd(projectRoot, params.cwd);
+  const sessionCwd = projectRoot;
   const session: ChatSession = {
     id: chatId,
     proc,
     conn,
+    projectId: params.projectId,
     projectRoot,
     cwd: sessionCwd,
     sessionId: params.sessionIdToLoad,
@@ -281,6 +260,7 @@ export async function createChatSession(params: CreateSessionParams) {
   attachAgentProcessHandlers(proc, chatId);
 
   const commonSessionData = {
+    projectId: params.projectId,
     projectRoot,
     command: agentCmd,
     args: agentArgs,
@@ -303,6 +283,8 @@ export async function createChatSession(params: CreateSessionParams) {
       id: chatId,
       sessionId: session.sessionId,
       ...commonSessionData,
+      pinned: false,
+      archived: false,
       createdAt: Date.now(),
       lastActiveAt: Date.now(),
       messages: [],

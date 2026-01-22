@@ -75,6 +75,7 @@ export interface ChatSession {
   id: string;
   proc: ChildProcess;
   conn: ClientSideConnection;
+  projectId?: string;
   projectRoot: string;
   sessionId?: string; // ACP session ID
   loadSessionSupported?: boolean;

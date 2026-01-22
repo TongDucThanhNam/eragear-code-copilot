@@ -1,23 +1,7 @@
 "use client";
 
-import {
-  ChevronDown,
-  LogOut,
-  Play,
-  Radio,
-  RefreshCw,
-  Settings2Icon,
-} from "lucide-react";
+import { LogOut, Play, Radio, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "../ui/sidebar";
 
 export interface AgentModel {
@@ -29,10 +13,10 @@ export interface AgentModel {
 
 export interface ChatHeaderProps {
   activeAgentId: string | null;
+  projectName?: string | null;
   connStatus: "idle" | "connecting" | "connected" | "error";
   agentModels: AgentModel[];
   onStopChat: () => void;
-  onSettingsClick: () => void;
   onNewChat: (agentId: string) => void;
   onResumeChat?: () => void;
   isResuming?: boolean;
@@ -40,22 +24,35 @@ export interface ChatHeaderProps {
 
 export function ChatHeader({
   activeAgentId,
+  projectName,
   connStatus,
   agentModels,
   onStopChat,
-  onSettingsClick,
   onNewChat,
   onResumeChat,
   isResuming,
 }: ChatHeaderProps) {
+  const activeAgent = agentModels.find((a) => a.id === activeAgentId);
+  const agentName = activeAgent?.name || activeAgentId || "No Agent";
+
   return (
     <div className="flex shrink-0 items-center justify-between bg-background/50 px-4 py-2 backdrop-blur-sm">
       <SidebarTrigger className="-ml-1" />
       <div className="flex items-center gap-3">
         <div className="flex flex-col">
-          <span className="font-semibold text-sm leading-none">
-            {activeAgentId || "No Agent"}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-sm leading-none">
+              {agentName}
+            </span>
+            {projectName && (
+              <>
+                <span className="text-muted-foreground text-xs">in</span>
+                <span className="font-medium text-muted-foreground text-sm">
+                  {projectName}
+                </span>
+              </>
+            )}
+          </div>
           <div className="mt-1 flex items-center gap-1.5">
             <Radio
               className={`h-3 w-3 ${(() => {
@@ -106,49 +103,6 @@ export function ChatHeader({
             {isResuming ? "Resuming..." : "Resume Agent"}
           </Button>
         )}
-        <Button
-          className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
-          onClick={onSettingsClick}
-          size="sm"
-          variant="ghost"
-        >
-          <Settings2Icon className="h-3.5 w-3.5" />
-          Settings
-        </Button>
-
-        {/* New chat Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button className="h-8 gap-1.5" size="sm" variant="outline">
-              <RefreshCw className="h-3.5 w-3.5" />
-              New Chat
-              <ChevronDown className="h-3.5 w-3.5 opacity-50" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-60">
-            <DropdownMenuLabel>Available Agents</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              {agentModels.map((agent) => (
-                <DropdownMenuItem
-                  className="flex flex-col items-start gap-1 py-2"
-                  key={agent.id}
-                  onClick={() => onNewChat(agent.id)}
-                >
-                  <span className="font-semibold text-sm">{agent.name}</span>
-                  <span className="text-[10px] text-muted-foreground uppercase leading-none tracking-widest">
-                    {agent.type} • {agent.command}
-                  </span>
-                </DropdownMenuItem>
-              ))}
-              {agentModels.length === 0 && (
-                <DropdownMenuItem className="text-muted-foreground" disabled>
-                  No agents configured
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </div>
   );
