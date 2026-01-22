@@ -1,6 +1,7 @@
 "use client";
 
 import type { PermissionOption } from "@agentclientprotocol/sdk";
+import { memo, useMemo } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -89,16 +90,170 @@ import {
 import { FileDiffView } from "./file-diff-view";
 import { TerminalView } from "./terminal-view";
 
+// Memoize individual message parts to prevent unnecessary re-renders
+const TextMessagePart = memo(({ content }: { content: string }) => (
+  <MessageResponse>{content}</MessageResponse>
+));
+TextMessagePart.displayName = "TextMessagePart";
+
+const PlanMessagePart = memo(({ entries }: { entries: Array<{ content: string; status: PlanStatus }> }) => (
+  <Plan className="mb-4" defaultOpen={true} key={entries[0]?.content}>
+    <PlanHeader>
+      <PlanTitle>Plan</PlanTitle>
+      <PlanTrigger />
+    </PlanHeader>
+    <PlanContent>
+      <div className="space-y-2 pt-2">
+        {entries.map((entry) => (
+          <PlanItem key={entry.content} status={entry.status}>
+            {entry.content}
+          </PlanItem>
+        ))}
+      </div>
+    </PlanContent>
+  </Plan>
+));
+PlanMessagePart.displayName = "PlanMessagePart";
+
+interface ToolMessagePartProps {
+  tool: ToolPart;
+  terminalOutputs?: Record<string, string>;
+  onApprove?: (requestId: string, decision?: string) => void;
+  onReject?: (requestId: string, decision?: string) => void;
+}
+
+const ToolMessagePart = memo(({ tool, terminalOutputs, onApprove, onReject }: ToolMessagePartProps) => (
+  <div className="mb-4 space-y-2" key={tool.toolCallId}>
+    <Tool key={tool.toolCallId}>
+      <ToolHeader
+        state={tool.status}
+        title={tool.name}
+        type="tool-call"
+      />
+      <ToolContent>
+        <ToolInput input={tool.parameters} />
+        <Confirmation
+          approval={{ id: tool.toolCallId }}
+          state={tool.status}
+        >
+          <ConfirmationRequest>
+            <ConfirmationTitle>
+              Requesting permission to execute
+            </ConfirmationTitle>
+            <ConfirmationActions>
+              {/* Check if we have specific options */}
+              {tool.options && tool.options.length > 0 ? (
+                (tool.options as PermissionOption[]).map(
+                  (opt) => (
+                    <ConfirmationAction
+                      key={opt.optionId}
+                      onClick={() => {
+                        // Heuristic mapping for frontend:
+                        const id = String(
+                          opt.optionId || ""
+                        ).toLowerCase();
+                        const isAllow =
+                          id === "allow" ||
+                          id === "yes" ||
+                          id === "allow_once";
+
+                        if (isAllow) {
+                          tool.requestId &&
+                            onApprove?.(
+                              tool.requestId,
+                              opt.optionId
+                            );
+                        } else {
+                          tool.requestId &&
+                            onReject?.(
+                              tool.requestId,
+                              opt.optionId
+                            );
+                        }
+                      }}
+                      variant={
+                        String(opt.optionId).includes(
+                          "allow"
+                        ) ||
+                        String(opt.optionId).includes("yes")
+                          ? "default"
+                          : "outline"
+                      }
+                    >
+                      {opt.name || "Option"}
+                    </ConfirmationAction>
+                  )
+                )
+              ) : (
+                // Default fallback
+                <>
+                  <ConfirmationAction
+                    onClick={() =>
+                      tool.requestId &&
+                      onReject?.(tool.requestId)
+                    }
+                    variant="outline"
+                  >
+                    Reject
+                  </ConfirmationAction>
+                  <ConfirmationAction
+                    onClick={() =>
+                      tool.requestId &&
+                      onApprove?.(tool.requestId)
+                    }
+                  >
+                    Allow
+                  </ConfirmationAction>
+                </>
+              )}
+            </ConfirmationActions>
+          </ConfirmationRequest>
+        </Confirmation>
+        {tool.terminalId && terminalOutputs && (
+          <div className="mt-2">
+            <TerminalView
+              output={
+                terminalOutputs[tool.terminalId] || ""
+              }
+            />
+          </div>
+        )}
+        {tool.diffs && tool.diffs.length > 0 && (
+          <div className="mt-2 space-y-4">
+            {tool.diffs.map((diff, _i) => (
+              <div className="space-y-1" key={diff.path}>
+                <FileDiffView
+                  filename={diff.path}
+                  modified={diff.newText}
+                  original={diff.oldText}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        <ToolOutput
+          errorText={tool.error}
+          output={tool.result}
+        />
+      </ToolContent>
+    </Tool>
+  </div>
+));
+ToolMessagePart.displayName = "ToolMessagePart";
+
 export function ChatMessages({
   messages,
   terminalOutputs,
   onApprove,
   onReject,
 }: ChatMessagesProps) {
+  // Memoize messages to prevent unnecessary re-renders
+  const memoizedMessages = useMemo(() => messages, [messages]);
+
   return (
     <Conversation className="min-h-0 flex-1 overflow-y-auto">
       <ConversationContent>
-        {messages.map((message) => (
+        {memoizedMessages.map((message) => (
           <Message from={message.from} key={message.key}>
             <div>
               {message.reasoning && (
@@ -113,156 +268,31 @@ export function ChatMessages({
                 {message.parts.map((part, _index) => {
                   if (part.type === "text") {
                     return (
-                      <MessageResponse key={part.content}>
-                        {part.content}
-                      </MessageResponse>
+                      <TextMessagePart 
+                        key={`text-${part.content.slice(0, 10)}-${_index}`}
+                        content={part.content}
+                      />
                     );
                   }
 
                   if (part.type === "plan") {
                     return (
-                      <Plan
-                        className="mb-4"
-                        defaultOpen={true}
-                        key={part.entries[0].content}
-                      >
-                        <PlanHeader>
-                          <PlanTitle>Plan</PlanTitle>
-                          <PlanTrigger />
-                        </PlanHeader>
-                        <PlanContent>
-                          <div className="space-y-2 pt-2">
-                            {part.entries.map((entry) => (
-                              <PlanItem
-                                key={entry.content}
-                                status={entry.status}
-                              >
-                                {entry.content}
-                              </PlanItem>
-                            ))}
-                          </div>
-                        </PlanContent>
-                      </Plan>
+                      <PlanMessagePart
+                        key={`plan-${part.entries[0]?.content.slice(0, 10)}-${_index}`}
+                        entries={part.entries}
+                      />
                     );
                   }
 
                   if (part.type === "tool") {
                     return (
-                      <div className="mb-4 space-y-2" key={part.toolCallId}>
-                        <Tool key={part.toolCallId}>
-                          <ToolHeader
-                            state={part.status}
-                            title={part.name}
-                            type="tool-call"
-                          />
-                          <ToolContent>
-                            <ToolInput input={part.parameters} />
-                            <Confirmation
-                              approval={{ id: part.toolCallId }}
-                              state={part.status}
-                            >
-                              <ConfirmationRequest>
-                                <ConfirmationTitle>
-                                  Requesting permission to execute
-                                </ConfirmationTitle>
-                                <ConfirmationActions>
-                                  {/* Check if we have specific options */}
-                                  {part.options && part.options.length > 0 ? (
-                                    (part.options as PermissionOption[]).map(
-                                      (opt) => (
-                                        <ConfirmationAction
-                                          key={opt.optionId}
-                                          onClick={() => {
-                                            // Heuristic mapping for frontend:
-                                            const id = String(
-                                              opt.optionId || ""
-                                            ).toLowerCase();
-                                            const isAllow =
-                                              id === "allow" ||
-                                              id === "yes" ||
-                                              id === "allow_once";
-
-                                            if (isAllow) {
-                                              part.requestId &&
-                                                onApprove?.(
-                                                  part.requestId,
-                                                  opt.optionId
-                                                );
-                                            } else {
-                                              part.requestId &&
-                                                onReject?.(
-                                                  part.requestId,
-                                                  opt.optionId
-                                                );
-                                            }
-                                          }}
-                                          variant={
-                                            String(opt.optionId).includes(
-                                              "allow"
-                                            ) ||
-                                            String(opt.optionId).includes("yes")
-                                              ? "default"
-                                              : "outline"
-                                          }
-                                        >
-                                          {opt.name || "Option"}
-                                        </ConfirmationAction>
-                                      )
-                                    )
-                                  ) : (
-                                    // Default fallback
-                                    <>
-                                      <ConfirmationAction
-                                        onClick={() =>
-                                          part.requestId &&
-                                          onReject?.(part.requestId)
-                                        }
-                                        variant="outline"
-                                      >
-                                        Reject
-                                      </ConfirmationAction>
-                                      <ConfirmationAction
-                                        onClick={() =>
-                                          part.requestId &&
-                                          onApprove?.(part.requestId)
-                                        }
-                                      >
-                                        Allow
-                                      </ConfirmationAction>
-                                    </>
-                                  )}
-                                </ConfirmationActions>
-                              </ConfirmationRequest>
-                            </Confirmation>
-                            {part.terminalId && terminalOutputs && (
-                              <div className="mt-2">
-                                <TerminalView
-                                  output={
-                                    terminalOutputs[part.terminalId] || ""
-                                  }
-                                />
-                              </div>
-                            )}
-                            {part.diffs && part.diffs.length > 0 && (
-                              <div className="mt-2 space-y-4">
-                                {part.diffs.map((diff, _i) => (
-                                  <div className="space-y-1" key={diff.path}>
-                                    <FileDiffView
-                                      filename={diff.path}
-                                      modified={diff.newText}
-                                      original={diff.oldText}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            <ToolOutput
-                              errorText={part.error}
-                              output={part.result}
-                            />
-                          </ToolContent>
-                        </Tool>
-                      </div>
+                      <ToolMessagePart
+                        key={`tool-${part.toolCallId}-${_index}`}
+                        tool={part}
+                        terminalOutputs={terminalOutputs}
+                        onApprove={onApprove}
+                        onReject={onReject}
+                      />
                     );
                   }
                   return null;

@@ -1,20 +1,21 @@
 import { nanoid } from "nanoid";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { PlanStatus } from "@/components/ai-elements/plan";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatInput } from "@/components/chat-ui/chat-input";
+import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import {
   ChatMessages,
   type MessageType,
   type ToolPart,
 } from "@/components/chat-ui/chat-messages";
-import { SettingsDialog } from "@/components/settings-dialog";
 import { trpc } from "@/lib/trpc";
 import { useChatStatusStore } from "@/store/chat-status-store";
 import { useDiffStore } from "@/store/diff-store";
 import { useFileStore } from "@/store/file-store";
-import { useSettingsStore } from "@/store/settings-store";
+import { useProjectStore } from "@/store/project-store";
 
 const convertFileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -38,11 +39,23 @@ export function ChatInterface({
   initialChatId,
   onChatIdChange,
 }: ChatInterfaceProps) {
-  const { setIsOpen, getAgents, activeAgentId, setActiveAgentId } =
-    useSettingsStore();
-
-  const agentModels = getAgents();
   const utils = trpc.useUtils();
+  const { data: agentsData } = trpc.agents.list.useQuery();
+  const { data: sessionsData } = trpc.getSessions.useQuery();
+
+  const activeAgentId = agentsData?.activeAgentId;
+  const projects = useProjectStore((state) => state.projects);
+  const activeProjectId = useProjectStore((state) => state.activeProjectId);
+  const activeProject = useMemo(
+    () => projects.find((p) => p.id === activeProjectId),
+    [activeProjectId, projects]
+  );
+  const projectLookup = useMemo(() => {
+    return projects.reduce<Record<string, string>>((acc, project) => {
+      acc[project.id] = project.name;
+      return acc;
+    }, {});
+  }, [projects]);
 
   const [status, setStatus] = useState<
     "submitted" | "streaming" | "ready" | "error"
@@ -53,6 +66,7 @@ export function ChatInterface({
   >(initialChatId ? "connecting" : "idle");
   const [currentModeId, setCurrentModeId] = useState<string | null>(null);
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
+  const [isQuickSwitchOpen, setIsQuickSwitchOpen] = useState(false);
 
   const [availableModes, setAvailableModes] = useState<
     { id: string; name: string; description?: string }[]
@@ -95,12 +109,131 @@ export function ChatInterface({
   >({});
 
   const [messages, setMessages] = useState<MessageType[]>([]);
+  const batchUpdateQueueRef = useRef<Array<(prev: MessageType[]) => MessageType[]>>([]);
+  const batchUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const quickSwitchSessions = useMemo(() => {
+    return (sessionsData || [])
+      .filter((session) => !session.archived)
+      .sort((a, b) => {
+        const pinnedA = a.pinned ?? false;
+        const pinnedB = b.pinned ?? false;
+        if (pinnedA !== pinnedB) {
+          return pinnedA ? -1 : 1;
+        }
+        return (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0);
+      })
+      .map((session) => ({
+        id: session.id,
+        name: session.name
+          ? session.name
+          : session.modeId
+            ? `Session (${session.modeId})`
+            : `Session ${session.id.slice(0, 8)}`,
+        projectName: session.projectId ? projectLookup[session.projectId] : null,
+      }));
+  }, [projectLookup, sessionsData]);
+
+  const selectSession = useCallback(
+    (id: string) => {
+      setIsQuickSwitchOpen(false);
+      onChatIdChange?.(id);
+    },
+    [onChatIdChange]
+  );
+
+  useEffect(() => {
+    return () => {
+      // Clean up timers on unmount
+      if (batchUpdateTimerRef.current) {
+        clearTimeout(batchUpdateTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const isEditableElement = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+      const tag = target.tagName;
+      return (
+        target.isContentEditable ||
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT"
+      );
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isEditableElement(event.target)) {
+        return;
+      }
+
+      const isCtrlOrMeta = event.ctrlKey || event.metaKey;
+      if (isCtrlOrMeta && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setIsQuickSwitchOpen(true);
+        return;
+      }
+
+      if (event.ctrlKey && event.key === "Tab" && !event.metaKey) {
+        event.preventDefault();
+        if (quickSwitchSessions.length === 0) {
+          return;
+        }
+        const currentIndex = quickSwitchSessions.findIndex(
+          (session) => session.id === chatIdRef.current
+        );
+        const direction = event.shiftKey ? -1 : 1;
+        const nextIndex =
+          currentIndex === -1
+            ? 0
+            : (currentIndex + direction + quickSwitchSessions.length) %
+              quickSwitchSessions.length;
+        const nextSession = quickSwitchSessions[nextIndex];
+        if (nextSession) {
+          onChatIdChange?.(nextSession.id);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onChatIdChange, quickSwitchSessions]);
+
+  // Batch updates to reduce re-renders during streaming
+  const flushBatchQueue = useCallback(() => {
+    if (batchUpdateQueueRef.current.length === 0) return;
+    
+    const updates = batchUpdateQueueRef.current;
+    batchUpdateQueueRef.current = [];
+    
+    setMessages((prev) => {
+      let result = prev;
+      for (const updater of updates) {
+        result = updater(result);
+      }
+      return result;
+    });
+  }, []);
 
   const updateMessagesState = useCallback(
     (updater: (old: MessageType[]) => MessageType[]) => {
-      setMessages((prev) => updater(prev));
+      // Queue the update instead of immediate setMessages
+      batchUpdateQueueRef.current.push(updater);
+      
+      // Clear existing timer
+      if (batchUpdateTimerRef.current) {
+        clearTimeout(batchUpdateTimerRef.current);
+      }
+      
+      // Batch updates with a 16ms debounce (roughly one frame)
+      batchUpdateTimerRef.current = setTimeout(() => {
+        flushBatchQueue();
+      }, 16);
     },
-    []
+    [flushBatchQueue]
   );
 
   useEffect(() => {
@@ -125,17 +258,19 @@ export function ChatInterface({
         initialChatId,
         "connStatus: connecting"
       );
-    } else if (!initialChatId && chatId) {
-      // If prop cleared but we have local state, reset everything
-      console.log("[ChatInterface] Clearing chat");
-      utils.getSessionState.invalidate({ chatId });
-      utils.getSessionMessages.invalidate({ chatId });
+    } else {
+      if (!initialChatId && chatId) {
+        // If prop cleared but we have local state, reset everything
+        console.log("[ChatInterface] Clearing chat");
+        utils.getSessionState.invalidate({ chatId });
+        utils.getSessionMessages.invalidate({ chatId });
 
-      setChatId(null);
-      chatIdRef.current = null;
-      setConnStatus("idle");
-      setMessages([]);
-      setStatus("ready");
+        setChatId(null);
+        chatIdRef.current = null;
+        setConnStatus("idle");
+        setMessages([]);
+        setStatus("ready");
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialChatId]);
@@ -149,6 +284,15 @@ export function ChatInterface({
   const cancelPromptMutation = trpc.cancelPrompt.useMutation();
   const permissionResponseMutation =
     trpc.respondToPermissionRequest.useMutation();
+  const setActiveAgentMutation = trpc.agents.setActive.useMutation();
+
+  /* const {
+    data: sessionState,
+    isLoading: isLoadingState,
+    error: stateError,
+  } = trpc.getSessionState.useQuery(
+     ...
+  ); */
 
   const {
     data: sessionState,
@@ -884,14 +1028,17 @@ export function ChatInterface({
 
   const initChat = useCallback(
     async (agentId?: string) => {
-      const targetId = agentId || useSettingsStore.getState().activeAgentId;
-      const agent = useSettingsStore
-        .getState()
-        .getAgents()
-        .find((a) => a.id === targetId);
+      const targetId = agentId || activeAgentId;
+      const agent = agentsData?.agents.find((a) => a.id === targetId);
+      const activeProject = useProjectStore.getState().getActiveProject();
 
       if (!agent) {
         console.warn("No active agent selected");
+        setConnStatus("idle");
+        return;
+      }
+      if (!activeProject) {
+        toast.error("Please select a project before starting a chat.");
         setConnStatus("idle");
         return;
       }
@@ -899,11 +1046,10 @@ export function ChatInterface({
       setConnStatus("connecting");
       try {
         const data = await createSessionMutation.mutateAsync({
-          projectRoot: ".",
+          projectId: activeProject.id,
           command: agent?.command,
           args: agent?.args,
           env: agent?.env,
-          cwd: agent?.cwd,
         });
 
         setChatId(data.chatId);
@@ -955,7 +1101,7 @@ export function ChatInterface({
       onChatIdChange(null);
     }
 
-    setActiveAgentId(agentId);
+    setActiveAgentMutation.mutate({ id: agentId });
     initChat(agentId);
   };
 
@@ -1143,17 +1289,57 @@ export function ChatInterface({
     }
   }, [projectContext, setFiles]);
 
+  if (!chatId) {
+    return (
+      <>
+        <div className="flex size-full flex-col items-center justify-center space-y-4 p-8 text-center">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-muted">
+            <svg
+              className="size-8 text-muted-foreground"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <rect height="18" rx="2" ry="2" width="18" x="3" y="3" />
+              <path d="M9 3v18" />
+              <path d="m14 9 3 3-3 3" />
+            </svg>
+          </div>
+          <div className="max-w-[420px] space-y-2">
+            <h2 className="font-semibold text-2xl tracking-tight">
+              Welcome to EraGear Code Copilot
+            </h2>
+            <p className="text-muted-foreground text-sm">
+              To get started, please select a project from the sidebar or click
+              the "+" button next to a project to create a new session.
+            </p>
+          </div>
+        </div>
+        <QuickSwitchDialog
+          onOpenChange={setIsQuickSwitchOpen}
+          onSelect={selectSession}
+          open={isQuickSwitchOpen}
+          sessions={quickSwitchSessions}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="relative flex size-full flex-col divide-y overflow-hidden">
       <ChatHeader
-        activeAgentId={activeAgentId}
-        agentModels={agentModels}
+        activeAgentId={activeAgentId || null}
+        agentModels={agentsData?.agents || []}
         connStatus={connStatus}
         isResuming={resumeSessionMutation.isPending}
         onNewChat={handleNewChat}
         onResumeChat={handleResume}
-        onSettingsClick={() => setIsOpen(true)}
         onStopChat={handleStopChat}
+        projectName={activeProject?.name}
       />
 
       <ChatMessages
@@ -1179,8 +1365,12 @@ export function ChatInterface({
         status={status}
         textareaRef={textareaRef}
       />
-
-      <SettingsDialog />
+      <QuickSwitchDialog
+        onOpenChange={setIsQuickSwitchOpen}
+        onSelect={selectSession}
+        open={isQuickSwitchOpen}
+        sessions={quickSwitchSessions}
+      />
     </div>
   );
 }
