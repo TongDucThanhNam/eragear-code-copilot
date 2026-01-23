@@ -1,4 +1,4 @@
-import type { Settings } from "../config/settings";
+import type { Settings } from "../shared/types/settings.types";
 
 interface DashboardData {
   stats: {

@@ -1,12 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Surface, useThemeColor } from "heroui-native";
+import { Surface } from "heroui-native";
 import { useCallback } from "react";
-import {
-  FlatList,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
+import { FlatList, Pressable, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { trpc } from "@/lib/trpc";
 import { useProjectStore } from "@/store/project-store";
@@ -18,12 +14,14 @@ interface ProjectDrawerContentProps {
 export function ProjectDrawerContent({
   onProjectSelect,
 }: ProjectDrawerContentProps) {
-  const muted = useThemeColor("muted-foreground");
-  const accentColor = useThemeColor("primary");
+  const insets = useSafeAreaInsets();
 
   const projects = useProjectStore((s) => s.projects);
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const setActiveProjectId = useProjectStore((s) => s.setActiveProjectId);
+  const setIsProjectCreateOpen = useProjectStore(
+    (s) => s.setIsProjectCreateOpen
+  );
 
   const setActiveProjectMutation = trpc.setActiveProject.useMutation();
 
@@ -37,13 +35,11 @@ export function ProjectDrawerContent({
   );
 
   const renderProjectItem = useCallback(
-    ({ item }) => {
+    ({ item }: { item: typeof projects[0] }) => {
       const isActive = item.id === activeProjectId;
 
       return (
-        <Pressable
-          onPress={() => handleSelectProject(item.id)}
-        >
+        <Pressable onPress={() => handleSelectProject(item.id)}>
           <Surface
             className={`mx-3 mb-2 flex-row items-center gap-3 rounded-xl border p-3 ${
               isActive ? "border-primary" : ""
@@ -55,7 +51,7 @@ export function ProjectDrawerContent({
               }`}
             >
               <Ionicons
-                color={isActive ? accentColor : muted}
+                color={isActive ? "#3b82f6" : "#6b7280"}
                 name="folder"
                 size={20}
               />
@@ -74,11 +70,12 @@ export function ProjectDrawerContent({
               </Text>
               {item.tags && item.tags.length > 0 && (
                 <View className="mt-1 flex-row flex-wrap gap-1">
-                  {item.tags.slice(0, 2).map((tag) => (
-                    <View key={tag} className="rounded bg-primary/10 px-1.5 py-0.5">
-                      <Text className="text-[10px] text-primary">
-                        {tag}
-                      </Text>
+                  {item.tags.slice(0, 2).map((tag: string) => (
+                    <View
+                      className="rounded bg-primary/10 px-1.5 py-0.5"
+                      key={tag}
+                    >
+                      <Text className="text-[10px] text-primary">{tag}</Text>
                     </View>
                   ))}
                   {item.tags.length > 2 && (
@@ -90,21 +87,25 @@ export function ProjectDrawerContent({
               )}
             </View>
             {isActive && (
-              <Ionicons
-                color={accentColor}
-                name="checkmark-circle"
-                size={20}
-              />
+              <Ionicons color="#3b82f6" name="checkmark-circle" size={20} />
             )}
           </Surface>
         </Pressable>
       );
     },
-    [activeProjectId, accentColor, muted, handleSelectProject]
+    [activeProjectId, handleSelectProject]
   );
 
   return (
-    <View className="flex-1">
+    <View
+      className="flex-1"
+      style={{
+        paddingTop: insets.top,
+        paddingLeft: insets.left,
+        paddingRight: insets.right,
+        paddingBottom: insets.bottom,
+      }}
+    >
       <View className="px-4 py-3">
         <Text className="font-semibold text-[11px] text-muted-foreground uppercase">
           Projects
@@ -113,20 +114,29 @@ export function ProjectDrawerContent({
 
       {projects.length === 0 ? (
         <View className="flex-1 items-center justify-center px-4 py-8">
-          <Ionicons color={muted} name="folder-open-outline" size={40} />
+          <Ionicons color="#6b7280" name="folder-open-outline" size={40} />
           <Text className="mt-3 text-center text-muted-foreground text-sm">
-            No projects yet.{"\n"}Create one in the home screen.
+            No projects yet.{"\n"}Create one using the button below.
           </Text>
         </View>
       ) : (
         <FlatList
           data={projects}
           keyExtractor={(item) => item.id}
+          nestedScrollEnabled={true}
           renderItem={renderProjectItem}
           scrollEnabled={true}
-          nestedScrollEnabled={true}
         />
       )}
+
+      <View className="border-border/30 border-t p-3">
+        <Pressable onPress={() => setIsProjectCreateOpen(true)}>
+          <View className="flex-row items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5">
+            <Ionicons color="white" name="add" size={18} />
+            <Text className="font-semibold text-white">New Project</Text>
+          </View>
+        </Pressable>
+      </View>
     </View>
   );
 }

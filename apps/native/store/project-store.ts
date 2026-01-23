@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export type Project = {
+export interface Project {
   id: string;
   name: string;
   path: string;
@@ -12,11 +12,12 @@ export type Project = {
   createdAt: number;
   updatedAt: number;
   lastOpenedAt?: number | null;
-};
+}
 
 interface ProjectState {
   projects: Project[];
   activeProjectId: string | null;
+  isProjectCreateOpen: boolean;
 
   setProjects: (projects: Project[]) => void;
   setActiveProjectId: (id: string | null) => void;
@@ -24,6 +25,7 @@ interface ProjectState {
   updateProject: (project: Project) => void;
   removeProject: (id: string) => void;
   getActiveProject: () => Project | null;
+  setIsProjectCreateOpen: (isOpen: boolean) => void;
 }
 
 export const useProjectStore = create<ProjectState>()(
@@ -31,6 +33,7 @@ export const useProjectStore = create<ProjectState>()(
     (set, get) => ({
       projects: [],
       activeProjectId: null,
+      isProjectCreateOpen: false,
 
       setProjects: (projects) =>
         set((state) => {
@@ -74,6 +77,8 @@ export const useProjectStore = create<ProjectState>()(
         }
         return state.projects.find((p) => p.id === state.activeProjectId) ?? null;
       },
+
+      setIsProjectCreateOpen: (isOpen) => set({ isProjectCreateOpen: isOpen }),
     }),
     {
       name: "eragear-projects",

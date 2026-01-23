@@ -39,12 +39,15 @@ export default function SessionsScreen() {
   const setProjects = useProjectStore((s) => s.setProjects);
   const setActiveProjectId = useProjectStore((s) => s.setActiveProjectId);
   const addProject = useProjectStore((s) => s.addProject);
+  const isProjectCreateOpen = useProjectStore((s) => s.isProjectCreateOpen);
+  const setIsProjectCreateOpen = useProjectStore(
+    (s) => s.setIsProjectCreateOpen
+  );
   const activeAgentId = useSettingsStore((s) => s.activeAgentId);
   const setActiveAgentId = useSettingsStore((s) => s.setActiveAgentId);
   const getAgents = useSettingsStore((s) => s.getAgents);
   const [error, setError] = useState<string | null>(null);
   const [isAgentPickerOpen, setIsAgentPickerOpen] = useState(false);
-  const [isProjectCreateOpen, setIsProjectCreateOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<FilterTab>("active");
   const [projectForm, setProjectForm] = useState({
     name: "",
@@ -237,6 +240,13 @@ export default function SessionsScreen() {
     }
   }, [activeProjectId, projectsQuery.data, setActiveProjectId, setProjects]);
 
+  // Reset form when modal closes
+  useEffect(() => {
+    if (!isProjectCreateOpen) {
+      setProjectForm({ name: "", path: "", description: "", tags: "" });
+    }
+  }, [isProjectCreateOpen]);
+
   const activeCount = visibleSessions.filter((s) => s.isActive).length;
   const inactiveCount = visibleSessions.filter((s) => !s.isActive).length;
 
@@ -354,7 +364,10 @@ export default function SessionsScreen() {
             <Text className="text-[11px] text-muted-foreground">
               Active Project
             </Text>
-            <Text className="font-semibold text-[11px] text-foreground" numberOfLines={1}>
+            <Text
+              className="font-semibold text-[11px] text-foreground"
+              numberOfLines={1}
+            >
               {activeProject?.name || "No project selected"}
             </Text>
             <Text className="text-muted-foreground text-xs" numberOfLines={1}>

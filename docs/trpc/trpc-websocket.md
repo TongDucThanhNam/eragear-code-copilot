@@ -2,7 +2,8 @@
 
 This document describes how clients should connect to the tRPC WebSocket server
 and interact with the ACP client bridge. It is a snapshot of the current server
-behavior in `apps/server/src/trpc/router.ts` and `apps/server/src/session/manager.ts`.
+behavior in `apps/server/src/transport/trpc/router.ts` and
+`apps/server/src/modules/session/application/create-session.service.ts`.
 
 ## Overview
 
@@ -62,16 +63,15 @@ Notes:
 ## Procedures
 
 ### createSession (mutation)
-Creates a new ACP session.
+Creates a new ACP session for a project.
 
 Input:
 ```json
 {
-  "projectRoot": ".",
+  "projectId": "proj-...",
   "command": "opencode",
   "args": ["acp"],
-  "env": { "KEY": "value" },
-  "cwd": "/abs/path"
+  "env": { "KEY": "value" }
 }
 ```
 
@@ -302,6 +302,6 @@ Notes:
 
 ## File Reference
 
-- Server implementation: `apps/server/src/trpc/router.ts`
-- Session handling: `apps/server/src/session/manager.ts`
-- In-memory state: `apps/server/src/session/events.ts`
+- Server implementation: `apps/server/src/transport/trpc/router.ts`
+- Session handling: `apps/server/src/modules/session/application/create-session.service.ts`
+- In-memory state: `apps/server/src/modules/session/infra/runtime-store.ts`

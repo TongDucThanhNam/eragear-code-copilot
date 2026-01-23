@@ -30,12 +30,12 @@ Status: deferred. This document captures the agreed auth direction so we can imp
 - Keep refresh logic shared across platforms.
 
 ## Server Touchpoints (Future Work)
-- `apps/server/src/trpc/context.ts`
+- `apps/server/src/transport/trpc/context.ts`
   - Read token from WS connection (header/query) and HTTP request.
   - Verify via Better‑Auth.
   - Attach `user` to context.
-- `apps/server/src/websocket/adapter.ts`
-  - Pass request metadata to `createContext`.
+- `apps/server/src/bootstrap/server.ts`
+  - Pass request metadata to `createContext` for WS connections.
 
 ## Client Touchpoints (Future Work)
 - `apps/web/src/lib/trpc.ts` (WS client + token injection).

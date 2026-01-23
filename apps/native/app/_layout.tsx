@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import { HeroUINativeProvider } from "heroui-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorToastHandler } from "@/components/error-toast-handler";
 import { AppThemeProvider } from "@/contexts/app-theme-context";
@@ -27,23 +28,25 @@ function StackLayout() {
 
 export default function Layout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <KeyboardProvider>
-        <AppThemeProvider>
-          <HeroUINativeProvider
-            config={{
-              devInfo: {
-                stylingPrinciples: false,
-              },
-            }}
-          >
-            <TRPCProvider>
-              <ErrorToastHandler />
-              <StackLayout />
-            </TRPCProvider>
-          </HeroUINativeProvider>
-        </AppThemeProvider>
-      </KeyboardProvider>
-    </GestureHandlerRootView>
+    <SafeAreaProvider>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <KeyboardProvider>
+          <AppThemeProvider>
+            <HeroUINativeProvider
+              config={{
+                devInfo: {
+                  stylingPrinciples: false,
+                },
+              }}
+            >
+              <TRPCProvider>
+                <ErrorToastHandler />
+                <StackLayout />
+              </TRPCProvider>
+            </HeroUINativeProvider>
+          </AppThemeProvider>
+        </KeyboardProvider>
+      </GestureHandlerRootView>
+    </SafeAreaProvider>
   );
 }

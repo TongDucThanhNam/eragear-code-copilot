@@ -268,7 +268,14 @@ export default function ChatScreen() {
   const chatTitle = computeChatTitle(currentSession, isReadOnly, canResumeChat);
 
   return (
-    <View className="flex-1 bg-background">
+    <View
+      className="flex-1 bg-background"
+      style={{
+        paddingTop: insets.top,
+        paddingLeft: insets.left,
+        paddingRight: insets.right,
+      }}
+    >
       <ChatHeader
         canResume={canResumeChat}
         isSessionStopped={isSessionStopped}

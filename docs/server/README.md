@@ -10,45 +10,43 @@ Backend server implementing ACP Client that bridges the UI and AI agents.
 
 ---
 
-## Source Layout
+## Source Layout (Current)
 
 ```
 src/
-├── index.ts                    # Server entry and WebSocket bootstrapping
+├── index.ts                    # Entrypoint (bootstraps server)
+├── bootstrap/
+│   ├── server.ts               # HTTP + WS bootstrap
+│   └── container.ts            # DI container wiring
 ├── config/
 │   ├── constants.ts            # App constants (client info, defaults)
 │   └── environment.ts          # ENV parsing and validation
-├── acp/
-│   ├── client.ts               # ACP ClientSideConnection wrapper
-│   ├── types.ts                # ACP-specific types
-│   └── protocol/
-│       ├── handler.ts          # ACP client handler wiring
-│       ├── update.ts           # Session update parsing and buffering
-│       ├── permission.ts       # Permission request handling
-│       └── tool-calls.ts       # File system and terminal tool calls
-├── session/
-│   ├── manager.ts              # ACP session creation and lifecycle
-│   ├── storage.ts              # Persistent storage for sessions/messages
-│   ├── types.ts                # Session domain types
-│   └── events.ts               # In-memory session map and event broadcast
-├── trpc/
-│   ├── base.ts                 # tRPC base configuration
-│   ├── context.ts              # tRPC context
-│   ├── router.ts               # tRPC router composition
-│   └── procedures/
-│       ├── session.ts          # Session endpoints
-│       ├── code.ts             # Code context endpoints
-│       ├── ai.ts               # AI prompt endpoints
-│       └── tool.ts             # Tool and permission endpoints
-├── services/
-│   ├── code-processor.ts       # Project context and git diff scanning
-│   └── ai-bridge.ts            # Prompt content construction
-├── websocket/
-│   ├── adapter.ts              # tRPC WS adapter creation
-│   └── handler.ts              # WS upgrade and connection handling
-└── utils/
-    ├── id.ts                   # ID generation utilities
-    └── path.ts                 # File URI handling
+├── transport/
+│   ├── http/
+│   │   └── routes.ts           # HTTP routes (dashboard/settings)
+│   └── trpc/
+│       ├── base.ts             # tRPC base configuration
+│       ├── context.ts          # tRPC context (DI)
+│       ├── router.ts           # tRPC router composition
+│       └── procedures/         # tRPC procedures
+├── modules/
+│   ├── session/                # Session domain + services
+│   ├── ai/                     # Prompt handling services
+│   ├── project/                # Project CRUD services
+│   ├── agent/                  # Agent CRUD services
+│   └── tooling/                # Permissions + code context
+├── infra/
+│   ├── acp/                    # ACP handlers, buffering, tool-calls
+│   ├── storage/                # JSON store adapters
+│   ├── filesystem/             # Safe file IO
+│   ├── git/                    # Git context/diff adapter
+│   └── process/                # Agent process runtime
+├── shared/
+│   ├── types/                  # Shared types + ports
+│   ├── errors/                 # Shared error types
+│   └── utils/                  # Utilities + event bus
+└── ui/
+    └── config.tsx              # Dashboard UI
 ```
 
 ---
@@ -93,12 +91,12 @@ src/
 
 ### Session Storage
 - **Storage file**: `apps/server/.eragear/sessions.json`
-- **Storage module**: `src/session/storage.ts`
-- **Types**: `src/session/types.ts` (`StoredMessage`, `StoredSession`)
+- **Storage adapter**: `src/infra/storage/session.adapter.ts`
+- **Types**: `src/shared/types/session.types.ts` (`StoredMessage`, `StoredSession`)
 
 ### In-Memory State
-- Session map and event buffer: `src/session/events.ts`
-- `ChatSession` type: `src/session/types.ts`
+- Runtime store: `src/modules/session/infra/runtime-store.ts`
+- `ChatSession` type: `src/shared/types/session.types.ts`
 
 ### Session States
 | State | Description |
@@ -109,15 +107,14 @@ src/
 ### Idle Timeout
 - Config: `src/config/environment.ts`
 - Default: `src/config/constants.ts`
-- Timer: `src/trpc/procedures/session.ts`
+- Timer: `src/transport/trpc/procedures/session.ts`
 
 ---
 
 ## WebSocket Server
 
 - **Entry point**: `src/index.ts`
-- **tRPC adapter**: `src/websocket/adapter.ts`
-- **WS handlers**: `src/websocket/handler.ts`
+- **Bootstrap**: `src/bootstrap/server.ts`
 - **Config**: `src/config/environment.ts`
 
 ### Environment Variables
@@ -132,45 +129,45 @@ SESSION_IDLE_TIMEOUT_MS=600000
 ## ACP Flow
 
 ### 1) Initialization
-- Agent spawn: `src/session/manager.ts`
-- ACP connection: `src/acp/client.ts`
+- Agent spawn: `src/infra/process/index.ts`
+- ACP connection: `src/infra/acp/connection.ts`
 - Client metadata: `src/config/constants.ts`
 - See: [docs/acp/acp-overview.md](../acp/acp-overview.md)
 
 ### 2) Session Setup
-- New sessions: `conn.newSession` in `src/session/manager.ts`
-- Resume sessions: `conn.loadSession` when supported
-- Persistence: `src/session/storage.ts`
+- New sessions: `CreateSessionService` in `src/modules/session/application/create-session.service.ts`
+- Resume sessions: `ResumeSessionService`
+- Persistence: `src/infra/storage/session.adapter.ts`
 - See: [docs/trpc/trpc-websocket.md](../trpc/trpc-websocket.md)
 
 ### 3) Prompt Turn
-- Entry: `src/trpc/procedures/ai.ts`
+- Entry: `src/transport/trpc/procedures/ai.ts`
 - Prompt assembly: `src/services/ai-bridge.ts`
-- Message storage: `src/session/storage.ts`
-- Broadcast: `src/session/events.ts`
+- Message storage: `src/infra/storage/session.adapter.ts`
+- Broadcast: `src/modules/session/infra/runtime-store.ts`
 - See: [docs/acp/acp-prompt-turn.md](../acp/acp-prompt-turn.md)
 
 ### 4) Streaming Updates
-- Parsing/buffering: `src/acp/protocol/update.ts`
-- Broadcast: `src/session/events.ts`
-- Subscription: `src/trpc/procedures/session.ts`
+- Parsing/buffering: `src/infra/acp/update.ts`
+- Broadcast: `src/modules/session/infra/runtime-store.ts`
+- Subscription: `src/transport/trpc/procedures/session.ts`
 
 ### 5) Reconnection
-- Event buffer: `src/session/events.ts`
-- Replay: `src/trpc/procedures/session.ts`
+- Event buffer: `src/modules/session/infra/runtime-store.ts`
+- Replay: `src/transport/trpc/procedures/session.ts`
 
 ### 6) Tool Permissions
-- Handler: `src/acp/protocol/permission.ts`
-- Response mapping: `src/trpc/procedures/tool.ts`
+- Handler: `src/infra/acp/permission.ts`
+- Response mapping: `src/transport/trpc/procedures/tool.ts`
 - See: [docs/acp/acp-permission-response-fix.md](../acp/acp-permission-response-fix.md)
 
 ### 7) File System & Terminal
-- Implementation: `src/acp/protocol/tool-calls.ts`
-- File URI handling: `src/utils/path.ts`
+- Implementation: `src/infra/acp/tool-calls.ts`
+- File URI handling: `src/shared/utils/path.util.ts`
 - See: [docs/acp/acp-terminal.md](../acp/acp-terminal.md)
 
 ### 8) Cancellation
-- Entry: `src/trpc/procedures/ai.ts` (`cancelPrompt`)
+- Entry: `src/transport/trpc/procedures/ai.ts` (`cancelPrompt`)
 - See: [docs/acp/acp-prompt-turn.md](../acp/acp-prompt-turn.md)
 
 ---
@@ -189,10 +186,10 @@ bun run build -F server
 ```
 
 ### Backend Implementation Guidelines
-- Use Hono's `logger()` middleware in `src/index.ts`
-- ACP handler wiring via `src/acp/client.ts` and `src/acp/protocol/*`
-- Session state in `src/session/events.ts`, types in `src/session/types.ts`
-- Always handle `proc.on('exit')` and `proc.on('error')` in `src/session/manager.ts`
+- Use Hono's `logger()` middleware in `src/bootstrap/server.ts`
+- ACP handler wiring via `src/infra/acp/*`
+- Session state in `src/modules/session/infra/runtime-store.ts`, types in `src/shared/types/session.types.ts`
+- Always handle `proc.on('exit')` and `proc.on('error')` in `CreateSessionService`
 
 ### ACP Rules
 - All file paths must be absolute (file URIs allowed)

@@ -59,7 +59,7 @@ Nên response phải là:
 
 ## Cách sửa
 
-### 1. `apps/server/src/acp/protocol/permission.ts`
+### 1. `apps/server/src/infra/acp/permission.ts`
 
 ```typescript
 async requestPermission(p: any) {
@@ -76,7 +76,7 @@ async requestPermission(p: any) {
 }
 ```
 
-### 2. `apps/server/src/trpc/procedures/tool.ts`
+### 2. `apps/server/src/transport/trpc/procedures/tool.ts`
 
 ```typescript
 // Wrap outcome trong object
