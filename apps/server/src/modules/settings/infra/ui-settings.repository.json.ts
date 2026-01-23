@@ -1,13 +1,13 @@
-// Settings storage adapter
-import { z } from 'zod';
-import { readJsonFile, writeJsonFile } from './json-store';
-import type { SettingsRepositoryPort } from '../../shared/types/ports';
-import type { Settings } from '../../shared/types/settings.types';
+// Settings repository (JSON-backed)
+import { z } from "zod";
+import { readJsonFile, writeJsonFile } from "../../../infra/storage/json-store";
+import type { SettingsRepositoryPort } from "../../../shared/types/ports";
+import type { Settings } from "../../../shared/types/settings.types";
 
 const UiSettingsSchema = z.object({
-  theme: z.enum(['light', 'dark', 'system']),
+  theme: z.enum(["light", "dark", "system"]),
   accentColor: z.string().min(4),
-  density: z.enum(['comfortable', 'compact']),
+  density: z.enum(["comfortable", "compact"]),
   fontScale: z.number().min(0.8).max(1.3),
 });
 
@@ -16,19 +16,19 @@ const SettingsSchema = z.object({
   projectRoots: z.array(z.string()).min(1).default([process.cwd()]),
 });
 
-const SETTINGS_FILE = 'ui-settings.json';
+const SETTINGS_FILE = "ui-settings.json";
 
 const DEFAULT_SETTINGS: Settings = {
   ui: {
-    theme: 'system',
-    accentColor: '#2563eb',
-    density: 'comfortable',
+    theme: "system",
+    accentColor: "#2563eb",
+    density: "comfortable",
     fontScale: 1,
   },
   projectRoots: [process.cwd()],
 };
 
-export class SettingsStorageAdapter implements SettingsRepositoryPort {
+export class SettingsJsonRepository implements SettingsRepositoryPort {
   get(): Settings {
     const raw = readJsonFile(SETTINGS_FILE, DEFAULT_SETTINGS);
     try {
@@ -42,7 +42,10 @@ export class SettingsStorageAdapter implements SettingsRepositoryPort {
           : DEFAULT_SETTINGS.projectRoots;
         const next: Settings = {
           ui: uiResult.success ? uiResult.data : DEFAULT_SETTINGS.ui,
-          projectRoots: projectRoots.length > 0 ? projectRoots : DEFAULT_SETTINGS.projectRoots,
+          projectRoots:
+            projectRoots.length > 0
+              ? projectRoots
+              : DEFAULT_SETTINGS.projectRoots,
         };
         writeJsonFile(SETTINGS_FILE, next);
         return next;

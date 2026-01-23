@@ -1,16 +1,14 @@
 import { observable } from "@trpc/server/observable";
 import { z } from "zod";
+import { CreateSessionService } from "@/modules/session/application/create-session.service";
+import { DeleteSessionService } from "@/modules/session/application/delete-session.service";
+import { GetSessionMessagesService } from "@/modules/session/application/get-session-messages.service";
+import { GetSessionStateService } from "@/modules/session/application/get-session-state.service";
+import { ListSessionsService } from "@/modules/session/application/list-sessions.service";
+import { ResumeSessionService } from "@/modules/session/application/resume-session.service";
+import { StopSessionService } from "@/modules/session/application/stop-session.service";
+import { UpdateSessionMetaService } from "@/modules/session/application/update-session-meta.service";
 import { ENV } from "../../../config/environment";
-import {
-  CreateSessionService,
-  DeleteSessionService,
-  GetSessionMessagesService,
-  GetSessionStateService,
-  ListSessionsService,
-  ResumeSessionService,
-  StopSessionService,
-  UpdateSessionMetaService,
-} from "../../../modules/session/application";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
 import { publicProcedure, router } from "../base";
 

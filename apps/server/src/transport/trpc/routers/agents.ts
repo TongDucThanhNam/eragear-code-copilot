@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AgentService } from "../../../modules/agent/application";
+import { AgentService } from "@/modules/agent/application/agent.service";
 import { publicProcedure, router } from "../base";
 
 export const agentsRouter = router({

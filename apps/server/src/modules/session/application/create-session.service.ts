@@ -1,8 +1,9 @@
 // CreateSessionService - orchestrates session initialization
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
+import { createSessionHandlers } from "@/infra/acp/handlers";
+import { SessionBuffering } from "@/infra/acp/update";
 import { CLIENT_INFO } from "../../../config/constants";
-import { createSessionHandlers, SessionBuffering } from "../../../infra/acp";
 import type {
   AgentRuntimePort,
   SessionRepositoryPort,

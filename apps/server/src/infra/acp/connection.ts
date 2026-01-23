@@ -17,5 +17,3 @@ export function createAcpConnectionAdapter(
     ndJsonStream(Writable.toWeb(proc.stdin), Readable.toWeb(proc.stdout))
   );
 }
-
-// SessionBuffering lives in update.ts to avoid type mismatch

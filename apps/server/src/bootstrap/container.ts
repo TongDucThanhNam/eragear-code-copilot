@@ -3,13 +3,11 @@
 import { FileSystemAdapter } from "../infra/filesystem";
 import { GitAdapter } from "../infra/git";
 import { AgentRuntimeAdapter } from "../infra/process";
-import {
-  AgentStorageAdapter,
-  ProjectStorageAdapter,
-  SessionStorageAdapter,
-  SettingsStorageAdapter,
-} from "../infra/storage";
+import { AgentJsonRepository } from "../modules/agent/infra/agent.repository.json";
+import { ProjectJsonRepository } from "../modules/project/infra/project.repository.json";
 import { SessionRuntimeStore } from "../modules/session/infra/runtime-store";
+import { SessionJsonRepository } from "../modules/session/infra/session.repository.json";
+import { SettingsJsonRepository } from "../modules/settings/infra/ui-settings.repository.json";
 import type {
   AgentRepositoryPort,
   AgentRuntimePort,
@@ -23,8 +21,8 @@ import type {
 import { EventBus } from "../shared/utils/event-bus";
 
 export class Container {
-  private eventBus: EventBusPort;
-  private sessionRuntime: SessionRuntimePort;
+  private readonly eventBus: EventBusPort;
+  private readonly sessionRuntime: SessionRuntimePort;
 
   // Repositories
   sessionRepo: SessionRepositoryPort;
@@ -42,11 +40,11 @@ export class Container {
     this.eventBus = new EventBus();
     this.sessionRuntime = new SessionRuntimeStore(this.eventBus);
 
-    // Repositories
-    this.sessionRepo = new SessionStorageAdapter();
-    this.projectRepo = new ProjectStorageAdapter(allowedRoots);
-    this.agentRepo = new AgentStorageAdapter();
-    this.settingsRepo = new SettingsStorageAdapter();
+    this.sessionRepo = new SessionJsonRepository();
+    this.projectRepo = new ProjectJsonRepository(allowedRoots);
+    this.agentRepo = new AgentJsonRepository();
+
+    this.settingsRepo = new SettingsJsonRepository();
 
     // Adapters
     this.fileSystemAdapter = new FileSystemAdapter(this.sessionRuntime);

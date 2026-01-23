@@ -1,8 +1,8 @@
 // Shared JSON storage adapter
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
-const STORAGE_DIR = path.join(process.cwd(), '.eragear');
+const STORAGE_DIR = path.join(process.cwd(), ".eragear");
 
 export function ensureStorageDir(): void {
   if (!existsSync(STORAGE_DIR)) {
@@ -23,7 +23,7 @@ export function readJsonFile<T>(filename: string, fallback: T): T {
       writeFileSync(filePath, JSON.stringify(fallback, null, 2));
       return fallback;
     }
-    const raw = readFileSync(filePath, 'utf-8');
+    const raw = readFileSync(filePath, "utf-8");
     return JSON.parse(raw);
   } catch (error) {
     console.error(`[Storage] Failed to read ${filename}:`, error);

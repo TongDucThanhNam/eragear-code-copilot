@@ -31,6 +31,7 @@ export interface SessionRepositoryPort {
 export interface ProjectRepositoryPort {
   findById(id: string): Project | undefined;
   findAll(): Project[];
+  getActiveId(): string | null;
   create(input: ProjectInput): Project;
   update(input: ProjectUpdateInput): Project;
   delete(id: string): void;
@@ -104,17 +105,4 @@ export interface GitPort {
     projectRoot: string,
     relativePath: string
   ): Promise<string>;
-}
-
-export interface PromptPort {
-  buildPrompt(params: {
-    text: string;
-    images?: Array<{ base64: string; mimeType: string }>;
-    resources?: Array<{
-      uri: string;
-      text?: string;
-      blob?: string;
-      mimeType?: string;
-    }>;
-  }): any;
 }

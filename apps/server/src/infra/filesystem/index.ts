@@ -1,21 +1,24 @@
 // FileSystem adapter for ACP
-import { readFile, writeFile, realpath } from 'node:fs/promises';
-import path from 'node:path';
-import type { FileSystemPort, SessionRuntimePort } from "../../shared/types/ports";
+import { readFile, realpath, writeFile } from "node:fs/promises";
+import path from "node:path";
+import type {
+  FileSystemPort,
+  SessionRuntimePort,
+} from "../../shared/types/ports";
 import type { ChatSession } from "../../shared/types/session.types";
 
 const LINE_SPLITTER_REGEX = /\r?\n/;
 
 function fileUriToPath(uri: string): string {
-  if (uri.startsWith('file://')) {
-    return decodeURIComponent(uri.replace('file://', ''));
+  if (uri.startsWith("file://")) {
+    return decodeURIComponent(uri.replace("file://", ""));
   }
   return uri;
 }
 
 async function resolvePathInSessionImpl(
   session: ChatSession,
-  inputPath: string,
+  inputPath: string
 ): Promise<string> {
   const rawPath = fileUriToPath(inputPath);
   const baseRoot = path.resolve(session.projectRoot);
@@ -36,7 +39,7 @@ async function resolvePathInSessionImpl(
 
   if (canonicalPath !== baseRoot && !canonicalPath.startsWith(normalizedRoot)) {
     throw new Error(
-      `Access denied (outside project root): ${canonicalPath} (root: ${baseRoot})`,
+      `Access denied (outside project root): ${canonicalPath} (root: ${baseRoot})`
     );
   }
 
@@ -49,7 +52,7 @@ export class FileSystemAdapter implements FileSystemPort {
   private getSession(chatId: string): ChatSession {
     const session = this.sessionRuntime.get(chatId);
     if (!session) {
-      throw new Error('Session not found');
+      throw new Error("Session not found");
     }
     return session;
   }
@@ -58,11 +61,11 @@ export class FileSystemAdapter implements FileSystemPort {
     const session = this.getSession(chatId);
     const filePath = await resolvePathInSessionImpl(session, path);
     try {
-      return await readFile(filePath, 'utf8');
+      return await readFile(filePath, "utf8");
     } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error) {
+      if (error && typeof error === "object" && "code" in error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (code === 'ENOENT') {
+        if (code === "ENOENT") {
           throw new Error(`File not found: ${filePath}`);
         }
       }
@@ -74,29 +77,36 @@ export class FileSystemAdapter implements FileSystemPort {
     chatId: string,
     filePath: string,
     line?: number,
-    limit?: number,
+    limit?: number
   ): Promise<string> {
     const content = await this.readTextFile(chatId, filePath);
     if (line !== undefined || limit !== undefined) {
       const startLine = Math.max((line ?? 1) - 1, 0);
       if (limit !== undefined && limit <= 0) {
-        return '';
+        return "";
       }
       const lines = content.split(LINE_SPLITTER_REGEX);
       const endLine = limit ? startLine + limit : undefined;
-      return lines.slice(startLine, endLine).join('\n');
+      return lines.slice(startLine, endLine).join("\n");
     }
     return content;
   }
 
-  async writeTextFile(chatId: string, filePath: string, content: string): Promise<void> {
+  async writeTextFile(
+    chatId: string,
+    filePath: string,
+    content: string
+  ): Promise<void> {
     const session = this.getSession(chatId);
     const resolvedPath = await resolvePathInSessionImpl(session, filePath);
-    await writeFile(resolvedPath, content, 'utf8');
+    await writeFile(resolvedPath, content, "utf8");
   }
 
-  async resolvePathInSession(chatId: string, inputPath: string): Promise<string> {
+  async resolvePathInSession(
+    chatId: string,
+    inputPath: string
+  ): Promise<string> {
     const session = this.getSession(chatId);
-    return resolvePathInSessionImpl(session, inputPath);
+    return await resolvePathInSessionImpl(session, inputPath);
   }
 }

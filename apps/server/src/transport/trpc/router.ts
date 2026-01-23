@@ -1,10 +1,10 @@
 import t, { router } from "./base";
-import { agentsRouter } from "./procedures/agents";
-import { aiRouter } from "./procedures/ai";
-import { codeRouter } from "./procedures/code";
-import { projectRouter } from "./procedures/project";
-import { sessionRouter } from "./procedures/session";
-import { toolRouter } from "./procedures/tool";
+import { agentsRouter } from "./routers/agents";
+import { aiRouter } from "./routers/ai";
+import { codeRouter } from "./routers/code";
+import { projectRouter } from "./routers/project";
+import { sessionRouter } from "./routers/session";
+import { toolRouter } from "./routers/tool";
 
 export const appRouter = t.mergeRouters(
   sessionRouter,

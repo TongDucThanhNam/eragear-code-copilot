@@ -1,4 +1,4 @@
-import type { Settings } from "../shared/types/settings.types";
+import type { Settings } from "../types";
 
 interface DashboardData {
   stats: {
@@ -50,9 +50,16 @@ interface ConfigPageProps {
   dashboardData?: DashboardData;
 }
 
-export function ConfigPage({ settings, errors, success, dashboardData }: ConfigPageProps) {
+export function ConfigPage({
+  settings,
+  errors,
+  success,
+  dashboardData,
+}: ConfigPageProps) {
   const settingsJson = JSON.stringify(settings).replace(/</g, "\\u003c");
-  const dashboardJson = dashboardData ? JSON.stringify(dashboardData).replace(/</g, "\\u003c") : "null";
+  const dashboardJson = dashboardData
+    ? JSON.stringify(dashboardData).replace(/</g, "\\u003c")
+    : "null";
 
   return (
     <html lang="en">
@@ -64,9 +71,17 @@ export function ConfigPage({ settings, errors, success, dashboardData }: ConfigP
         />
         <title>Eragear Server Dashboard</title>
         <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400&family=Lora:ital,wght@0,400;0,400i;1,400&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet" crossorigin="anonymous" />
+        <link href="https://fonts.googleapis.com" rel="preconnect" />
+        <link
+          crossorigin="anonymous"
+          href="https://fonts.gstatic.com"
+          rel="preconnect"
+        />
+        <link
+          crossorigin="anonymous"
+          href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400&family=Lora:ital,wght@0,400;0,400i;1,400&family=Playfair+Display:wght@700;900&display=swap"
+          rel="stylesheet"
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `window.__SETTINGS__ = ${settingsJson}; window.__DASHBOARD__ = ${dashboardJson};`,
@@ -517,67 +532,123 @@ export function ConfigPage({ settings, errors, success, dashboardData }: ConfigP
             <div class="main-column">
               {/* Tab Navigation */}
               <div class="tabs">
-                <button class="tab-btn active" data-tab="sessions" type="button" onclick="switchTab('sessions')">Sessions</button>
-                <button class="tab-btn" data-tab="projects" type="button" onclick="switchTab('projects')">Projects</button>
-                <button class="tab-btn" data-tab="agents" type="button" onclick="switchTab('agents')">Agents</button>
-                <button class="tab-btn" data-tab="settings" type="button" onclick="switchTab('settings')">Settings</button>
+                <button
+                  class="tab-btn active"
+                  data-tab="sessions"
+                  onclick="switchTab('sessions')"
+                  type="button"
+                >
+                  Sessions
+                </button>
+                <button
+                  class="tab-btn"
+                  data-tab="projects"
+                  onclick="switchTab('projects')"
+                  type="button"
+                >
+                  Projects
+                </button>
+                <button
+                  class="tab-btn"
+                  data-tab="agents"
+                  onclick="switchTab('agents')"
+                  type="button"
+                >
+                  Agents
+                </button>
+                <button
+                  class="tab-btn"
+                  data-tab="settings"
+                  onclick="switchTab('settings')"
+                  type="button"
+                >
+                  Settings
+                </button>
               </div>
 
               {/* Sessions Tab */}
-              <div id="tab-sessions" class="tab-content">
+              <div class="tab-content" id="tab-sessions">
                 <div class="section">
                   <div class="section-header">
                     <div>
                       <h2>Sessions</h2>
-                      <p>Active and recent chat sessions across all projects.</p>
+                      <p>
+                        Active and recent chat sessions across all projects.
+                      </p>
                     </div>
                     <div class="flex items-center gap-2">
-                      <button class="btn btn-sm btn-secondary" type="button" onclick="loadDashboardData()">Refresh</button>
-                      <span class="badge" id="session-count">0 sessions</span>
+                      <button
+                        class="btn btn-sm btn-secondary"
+                        onclick="loadDashboardData()"
+                        type="button"
+                      >
+                        Refresh
+                      </button>
+                      <span class="badge" id="session-count">
+                        0 sessions
+                      </span>
                     </div>
                   </div>
-                  <div id="sessions-list" style="max-height: calc(100dvh - 340px); overflow-y: auto;">
+                  <div
+                    id="sessions-list"
+                    style="max-height: calc(100dvh - 340px); overflow-y: auto;"
+                  >
                     <div class="loading">Loading sessions</div>
                   </div>
                 </div>
               </div>
 
               {/* Projects Tab */}
-              <div id="tab-projects" class="tab-content" style="display: none;">
+              <div class="tab-content" id="tab-projects" style="display: none;">
                 <div class="section">
                   <div class="section-header">
                     <div>
                       <h2>Projects</h2>
                       <p>Registered projects with session statistics.</p>
                     </div>
-                    <span class="badge" id="project-count">0 projects</span>
+                    <span class="badge" id="project-count">
+                      0 projects
+                    </span>
                   </div>
-                  <div id="projects-grid" class="grid-2" style="max-height: calc(100dvh - 340px); overflow-y: auto;">
+                  <div
+                    class="grid-2"
+                    id="projects-grid"
+                    style="max-height: calc(100dvh - 340px); overflow-y: auto;"
+                  >
                     <div class="loading">Loading projects</div>
                   </div>
                 </div>
               </div>
 
               {/* Agents Tab */}
-              <div id="tab-agents" class="tab-content" style="display: none;">
+              <div class="tab-content" id="tab-agents" style="display: none;">
                 <div class="section">
                   <h2>Agent Usage</h2>
-                  <p style="margin-bottom: 1rem; color: #555;">Session distribution by agent type.</p>
-                  <div id="agent-stats" style="max-height: calc(100dvh - 340px); overflow-y: auto;">
+                  <p style="margin-bottom: 1rem; color: #555;">
+                    Session distribution by agent type.
+                  </p>
+                  <div
+                    id="agent-stats"
+                    style="max-height: calc(100dvh - 340px); overflow-y: auto;"
+                  >
                     <div class="loading">Loading agent stats</div>
                   </div>
                 </div>
               </div>
 
               {/* Settings Tab */}
-              <div id="tab-settings" class="tab-content" style="display: none;">
+              <div class="tab-content" id="tab-settings" style="display: none;">
                 <form action="/api/ui-settings" method="post">
                   <section class="section">
                     <h2>UI Settings</h2>
                     <div class="grid-2">
                       <div>
                         <label htmlFor="ui-theme">Theme</label>
-                        <select defaultValue={settings.ui.theme} id="ui-theme" name="ui.theme">
+                        <select
+                          defaultValue={settings.ui.theme}
+                          id="ui-theme"
+                          name="ui.theme"
+                        >
                           <option value="system">System</option>
                           <option value="light">Light</option>
                           <option value="dark">Dark</option>
@@ -594,7 +665,11 @@ export function ConfigPage({ settings, errors, success, dashboardData }: ConfigP
                       </div>
                       <div>
                         <label htmlFor="ui-density">Density</label>
-                        <select defaultValue={settings.ui.density} id="ui-density" name="ui.density">
+                        <select
+                          defaultValue={settings.ui.density}
+                          id="ui-density"
+                          name="ui.density"
+                        >
                           <option value="comfortable">Comfortable</option>
                           <option value="compact">Compact</option>
                         </select>
@@ -623,7 +698,9 @@ export function ConfigPage({ settings, errors, success, dashboardData }: ConfigP
                         <h2>Project Roots</h2>
                         <p>Session chỉ được mở trong các đường dẫn này.</p>
                       </div>
-                      <span class="badge">{settings.projectRoots.length} roots</span>
+                      <span class="badge">
+                        {settings.projectRoots.length} roots
+                      </span>
                     </div>
 
                     <div class="mt-4 space-y-4">
@@ -690,23 +767,33 @@ export function ConfigPage({ settings, errors, success, dashboardData }: ConfigP
                 <h2>Overview</h2>
                 <div class="stats-column" id="stats-container">
                   <div class="stat-card">
-                    <div class="stat-value" id="stat-projects">-</div>
+                    <div class="stat-value" id="stat-projects">
+                      -
+                    </div>
                     <div class="stat-label">Projects</div>
                   </div>
                   <div class="stat-card">
-                    <div class="stat-value" id="stat-sessions">-</div>
+                    <div class="stat-value" id="stat-sessions">
+                      -
+                    </div>
                     <div class="stat-label">Total Sessions</div>
                   </div>
                   <div class="stat-card">
-                    <div class="stat-value" id="stat-active">-</div>
+                    <div class="stat-value" id="stat-active">
+                      -
+                    </div>
                     <div class="stat-label">Active Now</div>
                   </div>
                   <div class="stat-card">
-                    <div class="stat-value" id="stat-recent">-</div>
+                    <div class="stat-value" id="stat-recent">
+                      -
+                    </div>
                     <div class="stat-label">Last 24h</div>
                   </div>
                   <div class="stat-card">
-                    <div class="stat-value" id="stat-uptime">-</div>
+                    <div class="stat-value" id="stat-uptime">
+                      -
+                    </div>
                     <div class="stat-label">Server Uptime</div>
                   </div>
                 </div>

@@ -7,8 +7,6 @@ import { createPermissionHandler } from "./permission";
 import { createToolCallHandlers } from "./tool-calls";
 import { createSessionUpdateHandler, type SessionBuffering } from "./update";
 
-export { SessionBuffering } from "./update";
-
 export function createSessionHandlers(params: {
   chatId: string;
   buffer: SessionBuffering;

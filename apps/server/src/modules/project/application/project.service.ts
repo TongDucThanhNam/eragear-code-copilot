@@ -5,10 +5,17 @@ import type {
 } from "../../../shared/types/project.types";
 
 export class ProjectService {
-  constructor(private projectRepo: ProjectRepositoryPort) {}
+  private readonly projectRepo: ProjectRepositoryPort;
+
+  constructor(projectRepo: ProjectRepositoryPort) {
+    this.projectRepo = projectRepo;
+  }
 
   listProjects() {
-    return this.projectRepo.findAll();
+    return {
+      projects: this.projectRepo.findAll(),
+      activeProjectId: this.projectRepo.getActiveId(),
+    };
   }
 
   createProject(input: ProjectInput) {

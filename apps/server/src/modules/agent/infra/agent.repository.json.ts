@@ -1,31 +1,41 @@
-// Agent storage adapter
-import { readJsonFile, writeJsonFile } from './json-store';
-import type { AgentRepositoryPort } from '../../shared/types/ports';
-import type { AgentConfig, AgentInput, AgentUpdateInput } from '../../shared/types/agent.types';
+// Agent repository (JSON-backed)
+import { readJsonFile, writeJsonFile } from "../../../infra/storage/json-store";
+import type {
+  AgentConfig,
+  AgentInput,
+  AgentUpdateInput,
+} from "../../../shared/types/agent.types";
+import type { AgentRepositoryPort } from "../../../shared/types/ports";
 
-const AGENTS_FILE = 'agents.json';
+const AGENTS_FILE = "agents.json";
 
-export class AgentStorageAdapter implements AgentRepositoryPort {
-  private getAgentsData(): { agents: AgentConfig[]; activeAgentId: string | null } {
+export class AgentJsonRepository implements AgentRepositoryPort {
+  private getAgentsData(): {
+    agents: AgentConfig[];
+    activeAgentId: string | null;
+  } {
     const fallback = {
       agents: [
         {
-          id: 'default-opencode',
-          name: 'Default (Opencode)',
-          type: 'opencode' as const,
-          command: 'opencode',
-          args: ['acp'],
+          id: "default-opencode",
+          name: "Default (Opencode)",
+          type: "opencode" as const,
+          command: "opencode",
+          args: ["acp"],
           env: {},
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
       ],
-      activeAgentId: 'default-opencode',
+      activeAgentId: "default-opencode",
     };
     return readJsonFile(AGENTS_FILE, fallback);
   }
 
-  private saveAgentsData(data: { agents: AgentConfig[]; activeAgentId: string | null }): void {
+  private saveAgentsData(data: {
+    agents: AgentConfig[];
+    activeAgentId: string | null;
+  }): void {
     writeJsonFile(AGENTS_FILE, data);
   }
 
@@ -52,7 +62,7 @@ export class AgentStorageAdapter implements AgentRepositoryPort {
     const name = input.name.trim();
 
     if (!name) {
-      throw new Error('Agent name is required');
+      throw new Error("Agent name is required");
     }
 
     const now = Date.now();
@@ -83,10 +93,13 @@ export class AgentStorageAdapter implements AgentRepositoryPort {
     const index = data.agents.findIndex((a) => a.id === input.id);
 
     if (index === -1) {
-      throw new Error('Agent not found');
+      throw new Error("Agent not found");
     }
 
-    const current = data.agents[index]!;
+    const current = data.agents[index];
+    if (!current) {
+      throw new Error("Agent not found");
+    }
 
     const updated: AgentConfig = {
       ...current,
@@ -109,7 +122,7 @@ export class AgentStorageAdapter implements AgentRepositoryPort {
 
     let newActiveId = data.activeAgentId;
     if (data.activeAgentId === id) {
-      newActiveId = newAgents.length > 0 ? newAgents[0]!.id : null;
+      newActiveId = newAgents[0]?.id ?? null;
     }
 
     this.saveAgentsData({
@@ -123,7 +136,7 @@ export class AgentStorageAdapter implements AgentRepositoryPort {
     if (id) {
       const exists = data.agents.some((a) => a.id === id);
       if (!exists) {
-        throw new Error('Agent not found');
+        throw new Error("Agent not found");
       }
     }
 

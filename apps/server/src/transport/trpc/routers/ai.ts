@@ -1,10 +1,8 @@
 import { z } from "zod";
-import {
-  CancelPromptService,
-  SendMessageService,
-  SetModelService,
-  SetModeService,
-} from "../../../modules/ai/application";
+import { CancelPromptService } from "@/modules/ai/application/cancel-prompt.service";
+import { SendMessageService } from "@/modules/ai/application/send-message.service";
+import { SetModeService } from "@/modules/ai/application/set-mode.service";
+import { SetModelService } from "@/modules/ai/application/set-model.service";
 import { publicProcedure, router } from "../base";
 
 export const aiRouter = router({

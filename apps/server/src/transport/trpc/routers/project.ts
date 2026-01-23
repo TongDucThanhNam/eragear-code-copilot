@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ProjectService } from "../../../modules/project/application";
+import { ProjectService } from "@/modules/project/application/project.service";
 import { publicProcedure, router } from "../base";
 
 const ProjectInputSchema = z.object({

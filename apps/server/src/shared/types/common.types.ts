@@ -15,19 +15,21 @@ export interface Repository<T> {
   delete(id: string): void;
 }
 
-export enum EventType {
-  SessionCreated = "session:created",
-  SessionStarted = "session:started",
-  SessionStopped = "session:stopped",
-  SessionDeleted = "session:deleted",
-  MessageSent = "message:sent",
-  MessageReceived = "message:received",
-  ModeChanged = "mode:changed",
-  ModelChanged = "model:changed",
-  PermissionRequested = "permission:requested",
-  TerminalCreated = "terminal:created",
-  TerminalOutput = "terminal:output",
-}
+export const EventType = {
+  SessionCreated: "session:created",
+  SessionStarted: "session:started",
+  SessionStopped: "session:stopped",
+  SessionDeleted: "session:deleted",
+  MessageSent: "message:sent",
+  MessageReceived: "message:received",
+  ModeChanged: "mode:changed",
+  ModelChanged: "model:changed",
+  PermissionRequested: "permission:requested",
+  TerminalCreated: "terminal:created",
+  TerminalOutput: "terminal:output",
+} as const;
+
+export type EventType = (typeof EventType)[keyof typeof EventType];
 
 export interface DomainEvent {
   type: EventType;

@@ -1,11 +1,11 @@
 import type { SessionRuntimePort } from "../../../shared/types/ports";
 
-type ConnWithUnstableModel = {
+interface ConnWithUnstableModel {
   unstable_setSessionModel: (params: {
     sessionId: string;
     modelId: string;
   }) => Promise<void>;
-};
+}
 
 export class SetModelService {
   constructor(private sessionRuntime: SessionRuntimePort) {}

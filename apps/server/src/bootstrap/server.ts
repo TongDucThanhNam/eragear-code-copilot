@@ -6,10 +6,10 @@ import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { WebSocketServer } from "ws";
 import { ENV } from "../config/environment";
+import { ConfigPage } from "../shared/config/ui";
 import { registerHttpRoutes } from "../transport/http/routes";
 import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
-import { ConfigPage } from "../ui/config";
 import { getContainer, initializeContainer } from "./container";
 
 export function createApp() {

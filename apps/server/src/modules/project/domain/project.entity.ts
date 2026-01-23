@@ -42,7 +42,9 @@ export class Project {
   }
 
   private static normalizeTags(tags?: string[]): string[] {
-    if (!tags) return [];
+    if (!tags) {
+      return [];
+    }
     const trimmed = tags.map((tag) => tag.trim()).filter(Boolean);
     return Array.from(new Set(trimmed));
   }

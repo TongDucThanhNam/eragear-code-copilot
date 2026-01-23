@@ -1,14 +1,20 @@
-import { buildPrompt } from "../../../services/ai-bridge";
 import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "../../../shared/types/ports";
+import { buildPrompt } from "./prompt.builder";
 
 export class SendMessageService {
+  private readonly sessionRepo: SessionRepositoryPort;
+  private readonly sessionRuntime: SessionRuntimePort;
+
   constructor(
-    private sessionRepo: SessionRepositoryPort,
-    private sessionRuntime: SessionRuntimePort
-  ) {}
+    sessionRepo: SessionRepositoryPort,
+    sessionRuntime: SessionRuntimePort
+  ) {
+    this.sessionRepo = sessionRepo;
+    this.sessionRuntime = sessionRuntime;
+  }
 
   async execute(input: {
     chatId: string;

@@ -1,11 +1,14 @@
-// Session storage adapter
-import { readJsonFile, writeJsonFile } from './json-store';
-import type { SessionRepositoryPort } from '../../shared/types/ports';
-import type { StoredSession, StoredMessage } from '../../shared/types/session.types';
+// Session repository (JSON-backed)
+import { readJsonFile, writeJsonFile } from "../../../infra/storage/json-store";
+import type { SessionRepositoryPort } from "../../../shared/types/ports";
+import type {
+  StoredMessage,
+  StoredSession,
+} from "../../../shared/types/session.types";
 
-const SESSIONS_FILE = 'sessions.json';
+const SESSIONS_FILE = "sessions.json";
 
-export class SessionStorageAdapter implements SessionRepositoryPort {
+export class SessionJsonRepository implements SessionRepositoryPort {
   private getSessions(): StoredSession[] {
     return readJsonFile(SESSIONS_FILE, []);
   }
@@ -36,7 +39,7 @@ export class SessionStorageAdapter implements SessionRepositoryPort {
     this.saveSessions(sessions);
   }
 
-  updateStatus(id: string, status: 'running' | 'stopped'): void {
+  updateStatus(id: string, status: "running" | "stopped"): void {
     const sessions = this.getSessions();
     const session = sessions.find((s) => s.id === id);
     if (session) {
