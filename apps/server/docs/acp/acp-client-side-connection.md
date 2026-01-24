@@ -1,13 +1,3 @@
----
-title: "ClientSideConnection | Agent Client Protocol - v0.12.0"
-source: "https://agentclientprotocol.github.io/typescript-sdk/classes/ClientSideConnection.html"
-author:
-published:
-created: 2025-12-30
-description: "Documentation for Agent Client Protocol"
-tags:
-  - "clippings"
----
 A client-side connection to an agent.
 
 This class provides the client's view of an ACP connection, allowing clients (such as code editors) to communicate with agents. It implements the [Agent](https://agentclientprotocol.github.io/typescript-sdk/interfaces/Agent.html) interface to provide methods for initializing sessions, sending prompts, and managing the agent lifecycle.

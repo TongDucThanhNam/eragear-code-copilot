@@ -2,17 +2,17 @@
 
 > How Agents report tool call execution
 
-Tool calls represent actions that language models request Agents to perform during a [prompt turn](./prompt-turn). When an LLM determines it needs to interact with external systems—like reading files, running code, or fetching data—it generates tool calls that the Agent executes on its behalf.
+Tool calls represent actions that language models request Agents to perform during a [prompt turn](./acp-prompt-turn). When an LLM determines it needs to interact with external systems—like reading files, running code, or fetching data—it generates tool calls that the Agent executes on its behalf.
 
-Agents report tool calls through [`session/update`](./prompt-turn#3-agent-reports-output) notifications, allowing Clients to display real-time progress and results to users.
+Agents report tool calls through [`session/update`](./acp-prompt-turn#3-agent-reports-output) notifications, allowing Clients to display real-time progress and results to users.
 
-While Agents handle the actual execution, they may leverage Client capabilities like [permission requests](#requesting-permission) or [file system access](./file-system) to provide a richer, more integrated experience.
+While Agents handle the actual execution, they may leverage Client capabilities like [permission requests](#requesting-permission) or [file system access](./acp-file-system) to provide a richer, more integrated experience.
 
 ## Creating
 
 When the language model requests a tool invocation, the Agent **SHOULD** report it to the Client:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -77,7 +77,7 @@ As tools execute, Agents send updates to report progress and results.
 
 Updates use the `session/update` notification with `tool_call_update`:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -107,7 +107,7 @@ All fields except `toolCallId` are optional in updates. Only the fields being ch
 
 The Agent **MAY** request permission from the user before executing a tool call by calling the `session/request_permission` method:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 5,
@@ -148,7 +148,7 @@ The Agent **MAY** request permission from the user before executing a tool call 
 
 The Client responds with the user's decision:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 5,
@@ -163,9 +163,9 @@ The Client responds with the user's decision:
 
 Clients **MAY** automatically allow or reject permission requests according to the user settings.
 
-If the current prompt turn gets [cancelled](./prompt-turn#cancellation), the Client **MUST** respond with the `"cancelled"` outcome:
+If the current prompt turn gets [cancelled](./acp-prompt-turn#cancellation), the Client **MUST** respond with the `"cancelled"` outcome:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 5,
@@ -229,9 +229,9 @@ Tool calls can produce different types of content:
 
 ### Regular Content
 
-Standard [content blocks](./content) like text, images, or resources:
+Standard [content blocks](./acp-content) like text, images, or resources:
 
-```json  theme={null}
+```json
 {
   "type": "content",
   "content": {
@@ -245,7 +245,7 @@ Standard [content blocks](./content) like text, images, or resources:
 
 File modifications shown as diffs:
 
-```json  theme={null}
+```json
 {
   "type": "diff",
   "path": "/home/user/project/src/config.json",

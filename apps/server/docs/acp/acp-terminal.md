@@ -6,9 +6,9 @@ The terminal methods allow Agents to execute shell commands within the Client's 
 
 ## Checking Support
 
-Before attempting to use terminal methods, Agents **MUST** verify that the Client supports this capability by checking the [Client Capabilities](./initialization#client-capabilities) field in the `initialize` response:
+Before attempting to use terminal methods, Agents **MUST** verify that the Client supports this capability by checking the [Client Capabilities](./acp-initialization#client-capabilities) field in the `initialize` response:
 
-```json highlight={7} theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 0,
@@ -27,7 +27,7 @@ If `terminal` is `false` or not present, the Agent **MUST NOT** attempt to call 
 
 The `terminal/create` method starts a command in a new terminal:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 5,
@@ -87,7 +87,7 @@ The `terminal/create` method starts a command in a new terminal:
 
 The Client returns a Terminal ID immediately without waiting for completion:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 5,
@@ -108,9 +108,9 @@ After creating the terminal, the Agent can use the `terminal/wait_for_exit` meth
 
 ## Embedding in Tool Calls
 
-Terminals can be embedded directly in [tool calls](./tool-calls) to provide real-time output to users:
+Terminals can be embedded directly in [tool calls](./acp-tool-calls) to provide real-time output to users:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -139,7 +139,7 @@ When a terminal is embedded in a tool call, the Client displays live output as i
 
 The `terminal/output` method retrieves the current terminal output without waiting for the command to complete:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 6,
@@ -153,7 +153,7 @@ The `terminal/output` method retrieves the current terminal output without waiti
 
 The Client responds with the current output and exit status (if the command has finished):
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 6,
@@ -187,7 +187,7 @@ The Client responds with the current output and exit status (if the command has 
 
 The `terminal/wait_for_exit` method returns once the command completes:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 7,
@@ -224,7 +224,7 @@ The Client responds once the command exits:
 
 The `terminal/kill` method terminates a command without releasing the terminal:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 8,
@@ -260,7 +260,7 @@ Agents can implement command timeouts by combining terminal methods:
 
 The `terminal/release` kills the command if still running and releases all resources:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 9,

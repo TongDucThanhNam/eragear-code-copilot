@@ -4,13 +4,13 @@
 
 Plans are execution strategies for complex tasks that require multiple steps.
 
-Agents may share plans with Clients through [`session/update`](./prompt-turn#3-agent-reports-output) notifications, providing real-time visibility into their thinking and progress.
+Agents may share plans with Clients through [`session/update`](./acp-prompt-turn#3-agent-reports-output) notifications, providing real-time visibility into their thinking and progress.
 
 ## Creating Plans
 
 When the language model creates an execution plan, the Agent **SHOULD** report it to the Client:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -79,7 +79,5 @@ The Agent **MUST** send a complete list of all plan entries in each update and t
 
 Plans can evolve during execution. The Agent **MAY** add, remove, or modify plan entries as it discovers new requirements or completes tasks, allowing it to adapt based on what it learns.
 
-
 ---
-
 > To find navigation and other pages in this documentation, fetch the llms.txt file at: https://agentclientprotocol.com/llms.txt

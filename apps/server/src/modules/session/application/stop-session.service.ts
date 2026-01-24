@@ -4,10 +4,16 @@ import type {
 } from "../../../shared/types/ports";
 
 export class StopSessionService {
+  private readonly sessionRepo: SessionRepositoryPort;
+  private readonly sessionRuntime: SessionRuntimePort;
+
   constructor(
-    private sessionRepo: SessionRepositoryPort,
-    private sessionRuntime: SessionRuntimePort
-  ) {}
+    sessionRepo: SessionRepositoryPort,
+    sessionRuntime: SessionRuntimePort
+  ) {
+    this.sessionRepo = sessionRepo;
+    this.sessionRuntime = sessionRuntime;
+  }
 
   execute(chatId: string): { ok: true } {
     const session = this.sessionRuntime.get(chatId);

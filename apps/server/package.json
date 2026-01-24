@@ -3,11 +3,12 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && bun run ui:build",
     "check-types": "tsc -b",
     "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile dist/server",
     "dev": "bun run --hot src/index.ts",
-    "start": "bun run dist/index.js"
+    "start": "bun run dist/index.js",
+    "ui:build": "bun build --target browser --minify ./src/shared/config/public/ui/dashboard.ts --outfile ./public/dashboard.js && cp ./src/shared/config/public/ui/styles.css ./public/styles.css"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.13.0",

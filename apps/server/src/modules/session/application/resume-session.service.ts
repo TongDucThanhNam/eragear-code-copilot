@@ -1,3 +1,12 @@
+/**
+ * Resume Session Service
+ *
+ * Reactivates a previously stored session by spawning a new agent process
+ * and loading the existing session state from the agent.
+ *
+ * @module modules/session/application/resume-session.service
+ */
+
 import type {
   AgentRuntimePort,
   SessionRepositoryPort,
@@ -6,14 +15,53 @@ import type {
 } from "../../../shared/types/ports";
 import { CreateSessionService } from "./create-session.service";
 
+/**
+ * ResumeSessionService
+ *
+ * Handles the resumption of a previously saved session.
+ * If the session is already active in the runtime, returns immediately.
+ * Otherwise, creates a new session using the stored session ID.
+ */
 export class ResumeSessionService {
-  constructor(
-    private sessionRepo: SessionRepositoryPort,
-    private sessionRuntime: SessionRuntimePort,
-    private agentRuntime: AgentRuntimePort,
-    private settingsRepo: SettingsRepositoryPort
-  ) {}
+  /** Repository for session persistence */
+  private readonly sessionRepo: SessionRepositoryPort;
+  /** Runtime store for active sessions */
+  private readonly sessionRuntime: SessionRuntimePort;
+  /** Agent process runtime for spawning new processes */
+  private readonly agentRuntime: AgentRuntimePort;
+  /** Repository for application settings */
+  private readonly settingsRepo: SettingsRepositoryPort;
 
+  /**
+   * Creates a ResumeSessionService with required dependencies
+   */
+  constructor(
+    sessionRepo: SessionRepositoryPort,
+    sessionRuntime: SessionRuntimePort,
+    agentRuntime: AgentRuntimePort,
+    settingsRepo: SettingsRepositoryPort
+  ) {
+    this.sessionRepo = sessionRepo;
+    this.sessionRuntime = sessionRuntime;
+    this.agentRuntime = agentRuntime;
+    this.settingsRepo = settingsRepo;
+  }
+
+  /**
+   * Resumes a previously stored session
+   *
+   * @param chatId - The chat session identifier to resume
+   * @returns Object containing session state and status information
+   * @throws Error if session not found in store or missing session ID
+   *
+   * @example
+   * ```typescript
+   * const result = await service.execute("chat-123");
+   * if (result.ok && !result.alreadyRunning) {
+   *   console.log("Session resumed:", result.chatId);
+   * }
+   * ```
+   */
   async execute(chatId: string) {
     const stored = this.sessionRepo.findById(chatId);
     if (!stored) {
@@ -32,6 +80,7 @@ export class ResumeSessionService {
         models: existing.models,
         promptCapabilities: existing.promptCapabilities,
         loadSessionSupported: existing.loadSessionSupported ?? false,
+        plan: existing.plan ?? stored.plan ?? null,
       };
     }
 
@@ -57,6 +106,7 @@ export class ResumeSessionService {
       models: res.models,
       promptCapabilities: res.promptCapabilities,
       loadSessionSupported: res.loadSessionSupported ?? false,
+      plan: res.plan ?? stored.plan ?? null,
     };
   }
 }

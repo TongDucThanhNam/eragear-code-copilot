@@ -1,4 +1,4 @@
-import type { Settings } from "../types";
+import type { Settings } from "../types/settings.types";
 
 interface DashboardData {
   stats: {
@@ -56,7 +56,6 @@ export function ConfigPage({
   success,
   dashboardData,
 }: ConfigPageProps) {
-  const settingsJson = JSON.stringify(settings).replace(/</g, "\\u003c");
   const dashboardJson = dashboardData
     ? JSON.stringify(dashboardData).replace(/</g, "\\u003c")
     : "null";
@@ -70,1008 +69,960 @@ export function ConfigPage({
           name="viewport"
         />
         <title>Eragear Server Dashboard</title>
+
+        {/* Tailwind CSS v4 */}
         <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" />
+
+        {/* Fonts - Inter, JetBrains Mono, Lora, Playfair Display */}
         <link href="https://fonts.googleapis.com" rel="preconnect" />
         <link
-          crossorigin="anonymous"
+          crossOrigin="anonymous"
           href="https://fonts.gstatic.com"
           rel="preconnect"
         />
         <link
-          crossorigin="anonymous"
-          href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400&family=Lora:ital,wght@0,400;0,400i;1,400&family=Playfair+Display:wght@700;900&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,600;1,400&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&display=swap"
           rel="stylesheet"
         />
+
+        {/* Newsprint Styles */}
+        <link href="/ui/styles.css" rel="stylesheet" />
+
+        {/* Dashboard Data */}
         <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: Data is server-rendered
           dangerouslySetInnerHTML={{
-            __html: `window.__SETTINGS__ = ${settingsJson}; window.__DASHBOARD__ = ${dashboardJson};`,
+            __html: `window.__DASHBOARD__ = ${dashboardJson};`,
           }}
         />
-        <style
-          dangerouslySetInnerHTML={{
-            __html: `
-              :root {
-                --color-paper: #F9F9F7;
-                --color-paper-dark: #EFEFEA;
-                --color-ink: #111111;
-                --shadow-news: 4px 4px 0 #111111;
-              }
 
-              *, ::before, ::after { box-sizing: border-box; }
-              html { font-family: Lora, Georgia, serif; line-height: 1.6; }
-              body { margin: 0; height: 100dvh; overflow: hidden; background-color: var(--color-paper); color: var(--color-ink); }
-              .container { max-width: 1200px; height: 100dvh; margin: 0 auto; padding: 1rem 1.5rem; overflow-y: auto; display: flex; flex-direction: column; }
-
-              /* Typography */
-              h1, h2, h3 { font-family: "Playfair Display", Georgia, serif; font-weight: 700; letter-spacing: -0.02em; }
-              h1 { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 900; line-height: 1.1; margin: 0 0 0.5rem; }
-              h2 { font-size: 1.5rem; margin: 0 0 0.25rem; }
-              h3 { font-size: 1.125rem; }
-              label { font-family: "Courier Prime", monospace; font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; }
-              .metadata { font-family: "Courier Prime", monospace; font-size: 0.75rem; letter-spacing: 0.05em; }
-              .mono { font-family: "Courier Prime", monospace; }
-
-              /* Layout */
-              .masthead {
-                padding: 1rem 1.5rem;
-                border-bottom: 3px double var(--color-ink);
-                margin-bottom: 1rem;
-                flex-shrink: 0;
-              }
-              .masthead p { margin: 0.25rem 0 0; font-family: "Courier Prime", monospace; font-size: 0.75rem; color: #555; }
-              .section {
-                background: var(--color-paper);
-                border: 2px solid var(--color-ink);
-                padding: 1rem 1.25rem;
-                margin-bottom: 0.75rem;
-                box-shadow: var(--shadow-news);
-                flex-shrink: 0;
-              }
-              .section:hover { transform: translate(-1px, -1px); }
-
-              /* Stats Grid */
-              .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; margin-bottom: 0.75rem; }
-              .stat-card {
-                background: var(--color-paper-dark);
-                border: 2px solid var(--color-ink);
-                padding: 0.75rem 0.5rem;
-                text-align: center;
-              }
-              .stat-value { font-family: "Playfair Display", serif; font-size: 1.5rem; font-weight: 700; }
-              .stat-label { font-family: "Courier Prime", monospace; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em; color: #555; margin-top: 0.25rem; }
-
-              /* 2 Column Layout */
-              .main-layout { display: grid; grid-template-columns: 1fr 280px; gap: 1rem; flex: 1; min-height: 0; }
-              .main-column { min-width: 0; overflow-y: auto; height: 100%; }
-              .sidebar-column { position: sticky; top: 0; height: fit-content; max-height: calc(100dvh - 180px); overflow-y: auto; }
-              .stats-column { display: flex; flex-direction: column; gap: 0.5rem; }
-
-              /* Form elements */
-              input[type="text"], select {
-                width: 100%;
-                padding: 0.75rem;
-                border: 2px solid var(--color-ink);
-                border-radius: 0;
-                background-color: #fff;
-                color: var(--color-ink);
-                font-family: "Courier Prime", monospace;
-                font-size: 0.875rem;
-                transition: all 0.15s ease;
-              }
-              input[type="text"]:focus, select:focus {
-                outline: none;
-                background-color: var(--color-paper-dark);
-                box-shadow: 2px 2px 0 var(--color-ink);
-              }
-              input[type="color"] {
-                width: 100%;
-                height: 3rem;
-                padding: 0.25rem;
-                border: 2px solid var(--color-ink);
-                border-radius: 0;
-                background-color: #fff;
-                cursor: pointer;
-              }
-              input[type="range"] {
-                width: 100%;
-                margin-top: 0.5rem;
-                accent-color: var(--color-ink);
-              }
-
-              /* Buttons */
-              .btn {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                padding: 0.75rem 1.5rem;
-                font-family: "Courier Prime", monospace;
-                font-size: 0.8rem;
-                font-weight: 400;
-                cursor: pointer;
-                border: 2px solid var(--color-ink);
-                transition: all 0.15s ease;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-              }
-              .btn-primary {
-                background-color: var(--color-ink);
-                color: var(--color-paper);
-              }
-              .btn-primary:hover {
-                background-color: #333;
-                box-shadow: 2px 2px 0 var(--color-ink);
-                transform: translate(-1px, -1px);
-              }
-              .btn-secondary {
-                background-color: transparent;
-                color: var(--color-ink);
-              }
-              .btn-secondary:hover {
-                background-color: var(--color-ink);
-                color: var(--color-paper);
-              }
-              .btn-sm { padding: 0.5rem 1rem; font-size: 0.7rem; }
-              .btn-danger {
-                background-color: transparent;
-                color: #8B0000;
-                border-color: #8B0000;
-              }
-              .btn-danger:hover {
-                background-color: #8B0000;
-                color: #fff;
-              }
-              .btn-tab {
-                background: transparent;
-                border: 2px solid transparent;
-                color: #666;
-              }
-              .btn-tab.active {
-                border-color: var(--color-ink);
-                color: var(--color-ink);
-              }
-              .btn-tab:hover:not(.active) {
-                color: var(--color-ink);
-              }
-
-              /* Grid layouts */
-              .grid-2 { display: grid; gap: 1.5rem; }
-              @media (min-width: 768px) { .grid-2 { grid-template-columns: repeat(2, 1fr); } }
-              @media (min-width: 1024px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } }
-
-              /* Utilities */
-              .flex { display: flex; }
-              .flex-wrap { flex-wrap: wrap; }
-              .items-center { align-items: center; }
-              .justify-between { justify-content: space-between; }
-              .justify-center { justify-content: center; }
-              .gap-2 { gap: 0.5rem; }
-              .gap-3 { gap: 0.75rem; }
-              .gap-4 { gap: 1rem; }
-              .mt-1 { margin-top: 0.25rem; }
-              .mt-2 { margin-top: 0.5rem; }
-              .mt-3 { margin-top: 0.75rem; }
-              .mt-4 { margin-top: 1rem; }
-              .mb-2 { margin-bottom: 0.5rem; }
-              .mb-4 { margin-bottom: 1rem; }
-              .text-xs { font-size: 0.75rem; }
-              .text-sm { font-size: 0.875rem; }
-              .text-slate-500 { color: #666; }
-              .text-slate-600 { color: #555; }
-              .text-red-600 { color: #8B0000; }
-              .text-green-700 { color: #006400; }
-              .text-center { text-align: center; }
-              .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-              /* Project cards */
-              .project-card {
-                background: #fff;
-                border: 2px solid var(--color-ink);
-                padding: 1rem;
-                transition: all 0.15s ease;
-              }
-              .project-card:hover {
-                box-shadow: var(--shadow-news);
-                transform: translate(-2px, -2px);
-              }
-              .project-name { font-family: "Playfair Display", serif; font-size: 1.1rem; font-weight: 700; }
-              .project-path { font-family: "Courier Prime", monospace; font-size: 0.75rem; color: #666; word-break: break-all; }
-
-              /* Session list */
-              .session-item {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 0.75rem 1rem;
-                border: 2px solid var(--color-ink);
-                background: #fff;
-                margin-bottom: 0.5rem;
-                transition: all 0.15s ease;
-              }
-              .session-item:hover {
-                background: var(--color-paper-dark);
-              }
-              .session-item.active {
-                border-color: #006400;
-                background: #f0fff4;
-              }
-              .session-info { flex: 1; min-width: 0; }
-              .session-project { font-weight: 600; }
-              .session-agent { font-family: "Courier Prime", monospace; font-size: 0.75rem; }
-              .session-time { font-family: "Courier Prime", monospace; font-size: 0.7rem; color: #666; }
-              .session-item.active .session-time { color: #006400; }
-
-              /* Session actions */
-              .session-actions {
-                display: flex;
-                gap: 0.5rem;
-                margin-left: 0.75rem;
-                opacity: 0.6;
-                transition: opacity 0.15s;
-              }
-              .session-item:hover .session-actions,
-              .session-item.active .session-actions {
-                opacity: 1;
-              }
-              .session-action-btn {
-                padding: 0.35rem 0.6rem;
-                font-family: "Courier Prime", monospace;
-                font-size: 0.65rem;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                border: 1px solid currentColor;
-                background: transparent;
-                cursor: pointer;
-                transition: all 0.15s;
-                opacity: 0.7;
-              }
-              .session-action-btn:hover {
-                opacity: 1;
-                box-shadow: 1px 1px 0 currentColor;
-              }
-              .session-action-btn.stop {
-                color: #8B0000;
-                border-color: #8B0000;
-              }
-              .session-action-btn.stop:hover {
-                background: #8B0000;
-                color: #fff;
-              }
-              .session-action-btn.delete {
-                color: #666;
-                border-color: #999;
-              }
-              .session-action-btn.delete:hover {
-                background: #333;
-                border-color: #333;
-                color: #fff;
-              }
-              .session-action-btn:disabled {
-                opacity: 0.3;
-                cursor: not-allowed;
-              }
-
-              /* Status indicators */
-              .status-dot {
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                margin-right: 0.75rem;
-              }
-              .status-dot.running { background-color: #006400; }
-              .status-dot.stopped { background-color: #8B0000; }
-              .session-item.active .status-dot.running { background-color: #4ade80; }
-              .session-item.active .status-dot.stopped { background-color: #f87171; }
-
-              /* Agent stats */
-              .agent-stat {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 0.75rem 0;
-                border-bottom: 1px solid #ddd;
-              }
-              .agent-stat:last-child { border-bottom: none; }
-              .agent-name { font-weight: 600; }
-              .agent-counts { font-family: "Courier Prime", monospace; font-size: 0.8rem; }
-              .agent-counts span { margin-left: 1rem; }
-
-              /* Badge */
-              .badge {
-                display: inline-flex;
-                align-items: center;
-                padding: 0.25rem 0.75rem;
-                border: 2px solid var(--color-ink);
-                font-family: "Courier Prime", monospace;
-                font-size: 0.7rem;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                background-color: var(--color-paper-dark);
-              }
-              .badge-success { background-color: #dcfce7; border-color: #166534; color: #166534; }
-              .badge-danger { background-color: #fee2e2; border-color: #991b1b; color: #991b1b; }
-
-              /* Form groups */
-              .root-input-group { display: flex; flex-direction: column; gap: 0.75rem; }
-              @media (min-width: 640px) { .root-input-group { flex-direction: row; } }
-              .root-input-group input { flex: 1; }
-              .root-input-group button { white-space: nowrap; }
-
-              /* Section header */
-              .section-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-              .section-header p { margin: 0.25rem 0 0; font-size: 0.85rem; color: #555; }
-
-              /* Fade animation */
-              .fade-in { animation: fadeIn 0.3s ease-out; }
-              @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-
-              /* Success/Error banners */
-              .success-banner {
-                background-color: var(--color-paper-dark);
-                border: 2px solid var(--color-ink);
-                color: #006400;
-                padding: 1rem 1.5rem;
-                margin-bottom: 1rem;
-                font-family: "Courier Prime", monospace;
-              }
-              .error-banner {
-                background-color: #fff;
-                border: 2px solid #8B0000;
-                color: #8B0000;
-                padding: 1rem 1.5rem;
-                margin-bottom: 1rem;
-                font-family: "Courier Prime", monospace;
-              }
-
-              /* Blockquote style */
-              .help-text {
-                border-left: 4px solid var(--color-ink);
-                padding-left: 1.5rem;
-                margin: 1rem 0;
-                font-style: italic;
-                color: #555;
-              }
-
-              /* Space between sections */
-              .space-y-3 > * + * { margin-top: 0.75rem; }
-              .space-y-4 > * + * { margin-top: 1rem; }
-
-              /* Tab navigation */
-              .tabs { display: flex; gap: 0.25rem; margin-bottom: 0.75rem; border-bottom: 2px solid var(--color-ink); padding-bottom: 0.25rem; }
-              .tab-btn {
-                padding: 0.35rem 0.75rem;
-                font-family: "Courier Prime", monospace;
-                font-size: 0.7rem;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                background: transparent;
-                border: 2px solid transparent;
-                cursor: pointer;
-                transition: all 0.15s ease;
-              }
-              .tab-btn.active {
-                border-color: var(--color-ink);
-                background: var(--color-ink);
-                color: var(--color-paper);
-              }
-              .tab-btn:hover:not(.active) {
-                border-color: #999;
-              }
-
-              /* Loading state */
-              .loading { text-align: center; padding: 3rem; font-family: "Courier Prime", monospace; color: #666; }
-              .loading::after {
-                content: "...";
-                animation: dots 1.5s infinite;
-              }
-              @keyframes dots {
-                0%, 20% { content: "."; }
-                40% { content: ".."; }
-                60%, 100% { content: "..."; }
-              }
-
-              /* Empty state */
-              .empty-state { text-align: center; padding: 2rem; color: #666; font-style: italic; }
-
-              /* Toggle switch */
-              .toggle {
-                position: relative;
-                width: 48px;
-                height: 24px;
-                background: #ccc;
-                border: 2px solid var(--color-ink);
-                cursor: pointer;
-                transition: background 0.2s;
-              }
-              .toggle.on { background: var(--color-ink); }
-              .toggle::after {
-                content: "";
-                position: absolute;
-                top: 2px;
-                left: 2px;
-                width: 16px;
-                height: 16px;
-                background: #fff;
-                border: 1px solid var(--color-ink);
-                transition: transform 0.2s;
-              }
-              .toggle.on::after { transform: translateX(22px); }
-
-              /* Two column layout */
-              .dashboard-grid { display: grid; gap: 1.5rem; }
-              @media (min-width: 1024px) {
-                .dashboard-grid { grid-template-columns: 1fr 1fr; }
-              }
-
-              /* Full width section */
-              .full-width { grid-column: 1 / -1; }
-            `,
-          }}
-        />
+        {/* Dashboard Script */}
+        <script defer src="/ui/dashboard.js" />
       </head>
-      <body>
-        <div class="container">
-          <header class="masthead">
-            <p class="metadata">Eragear Server</p>
-            <h1>Dashboard</h1>
-            <p>Monitor projects, sessions, and agent usage metrics.</p>
+      <body class="bg-paper font-body text-ink antialiased">
+        {/* Skip Link for Accessibility */}
+        <a
+          class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:bg-ink focus:px-4 focus:py-2 focus:font-mono focus:text-paper focus:text-sm focus:uppercase focus:tracking-widest"
+          href="#main-content"
+        >
+          Skip to main content
+        </a>
+
+        {/* Dot Grid Texture */}
+        <div class="newsprint-dots pointer-events-none fixed inset-0 z-0" />
+
+        <div
+          class="relative z-10 mx-auto flex h-dvh max-w-screen-xl flex-col px-4"
+          id="main-content"
+        >
+          {/* Masthead */}
+          <header class="mb-4 flex-shrink-0 border-ink border-b-4 py-4">
+            {/* Top Line - Edition Info */}
+            <div class="mb-2 flex items-center justify-between border-ink border-b pb-2">
+              <p class="font-mono text-[10px] text-muted uppercase tracking-[0.2em]">
+                Vol. 1 No. 1 • Agent Control Protocol
+              </p>
+              <p class="hidden font-mono text-[10px] text-muted uppercase tracking-[0.2em] sm:block">
+                {new Date().toLocaleDateString("en-US", {
+                  weekday: "long",
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </p>
+            </div>
+
+            {/* Main Title */}
+            <div class="flex items-end justify-between gap-4">
+              <div>
+                <h1 class="font-black font-display text-5xl leading-[0.85] tracking-tighter md:text-6xl lg:text-7xl">
+                  Eragear
+                </h1>
+                <p class="mt-1 font-mono text-xs uppercase tracking-[0.3em]">
+                  Server Dashboard
+                </p>
+              </div>
+
+              {/* Server Status */}
+              <div class="hidden items-center gap-2 sm:flex">
+                <span
+                  class="inline-block h-2 w-2 animate-pulse bg-green-500"
+                  id="server-status-dot"
+                />
+                <span class="font-mono text-[10px] uppercase tracking-widest">
+                  Server Online
+                </span>
+              </div>
+            </div>
           </header>
 
+          {/* Success/Error Banners */}
           {success && (
-            <div class="success-banner fade-in">
-              Settings saved successfully!
+            <div class="fade-in mb-4 border-2 border-ink bg-accent/10 px-4 py-3 font-mono text-sm">
+              ✓ Settings saved successfully!
             </div>
           )}
 
           {errors?.general && (
-            <div class="error-banner fade-in">{errors.general}</div>
+            <div class="fade-in mb-4 border-2 border-red-700 bg-red-50 px-4 py-3 font-mono text-red-800 text-sm">
+              ⚠ {errors.general}
+            </div>
           )}
 
-          {/* Main Content - 2 Column Layout */}
-          <div class="main-layout">
+          {/* Main Grid Layout */}
+          <div class="grid min-h-0 flex-1 gap-6 lg:grid-cols-12">
             {/* Left Column - Tabs & Content */}
-            <div class="main-column">
-              {/* Tab Navigation */}
-              <div class="tabs">
-                <button
-                  class="tab-btn active"
-                  data-tab="sessions"
-                  onclick="switchTab('sessions')"
-                  type="button"
-                >
-                  Sessions
-                </button>
-                <button
-                  class="tab-btn"
-                  data-tab="projects"
-                  onclick="switchTab('projects')"
-                  type="button"
-                >
-                  Projects
-                </button>
-                <button
-                  class="tab-btn"
-                  data-tab="agents"
-                  onclick="switchTab('agents')"
-                  type="button"
-                >
-                  Agents
-                </button>
-                <button
-                  class="tab-btn"
-                  data-tab="settings"
-                  onclick="switchTab('settings')"
-                  type="button"
-                >
-                  Settings
-                </button>
-              </div>
+            <div class="flex min-w-0 flex-col lg:col-span-8">
+              {/* Tab Navigation - Newspaper Section Headers */}
+              <nav
+                aria-label="Dashboard sections"
+                class="mb-6 border-ink border-b-4"
+              >
+                <div class="flex">
+                  <button
+                    aria-controls="tab-sessions"
+                    aria-selected="true"
+                    class="tab-btn group active relative px-4 py-3 font-mono text-xs uppercase tracking-[0.15em] transition-colors hover:bg-ink hover:text-paper"
+                    data-tab="sessions"
+                    id="tab-btn-sessions"
+                    role="tab"
+                    type="button"
+                  >
+                    <span class="relative z-10">Sessions</span>
+                  </button>
+                  <button
+                    aria-controls="tab-projects"
+                    aria-selected="false"
+                    class="tab-btn group relative border-ink border-l px-4 py-3 font-mono text-xs uppercase tracking-[0.15em] transition-colors hover:bg-ink hover:text-paper"
+                    data-tab="projects"
+                    id="tab-btn-projects"
+                    role="tab"
+                    type="button"
+                  >
+                    <span class="relative z-10">Projects</span>
+                  </button>
+                  <button
+                    aria-controls="tab-agents"
+                    aria-selected="false"
+                    class="tab-btn group relative border-ink border-l px-4 py-3 font-mono text-xs uppercase tracking-[0.15em] transition-colors hover:bg-ink hover:text-paper"
+                    data-tab="agents"
+                    id="tab-btn-agents"
+                    role="tab"
+                    type="button"
+                  >
+                    <span class="relative z-10">Agents</span>
+                  </button>
+                  <button
+                    aria-controls="tab-settings"
+                    aria-selected="false"
+                    class="tab-btn group relative border-ink border-l px-4 py-3 font-mono text-xs uppercase tracking-[0.15em] transition-colors hover:bg-ink hover:text-paper"
+                    data-tab="settings"
+                    id="tab-btn-settings"
+                    role="tab"
+                    type="button"
+                  >
+                    <span class="relative z-10">Settings</span>
+                  </button>
+                </div>
+              </nav>
 
               {/* Sessions Tab */}
-              <div class="tab-content" id="tab-sessions">
-                <div class="section">
-                  <div class="section-header">
-                    <div>
-                      <h2>Sessions</h2>
-                      <p>
-                        Active and recent chat sessions across all projects.
-                      </p>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <button
-                        class="btn btn-sm btn-secondary"
-                        onclick="loadDashboardData()"
-                        type="button"
-                      >
-                        Refresh
-                      </button>
-                      <span class="badge" id="session-count">
-                        0 sessions
-                      </span>
+              <div
+                aria-labelledby="tab-btn-sessions"
+                class="tab-content flex-1"
+                id="tab-sessions"
+                role="tabpanel"
+              >
+                <section class="border-2 border-ink bg-paper shadow-news">
+                  {/* Section Header */}
+                  <div class="border-ink border-b-2 p-6">
+                    <div class="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h2 class="font-black font-display text-4xl tracking-tight">
+                          Sessions
+                        </h2>
+                        <p class="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
+                          Active and recent chat sessions across all registered
+                          projects
+                        </p>
+                      </div>
+                      <div class="flex flex-col items-end gap-2">
+                        <span
+                          class="border border-ink px-3 py-1 font-mono text-xs"
+                          id="session-count"
+                        >
+                          0 sessions
+                        </span>
+                        <div class="flex gap-2">
+                          <button
+                            class="btn btn-primary min-h-[44px]"
+                            type="button"
+                          >
+                            + New Session
+                          </button>
+                          <button
+                            class="btn btn-secondary min-h-[44px]"
+                            id="refresh-sessions"
+                            type="button"
+                          >
+                            ↻
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Sessions List */}
                   <div
+                    class="max-h-[calc(100dvh-480px)] min-h-[200px] overflow-y-auto p-4"
                     id="sessions-list"
-                    style="max-height: calc(100dvh - 340px); overflow-y: auto;"
                   >
                     <div class="loading">Loading sessions</div>
                   </div>
-                </div>
+                </section>
               </div>
 
               {/* Projects Tab */}
-              <div class="tab-content" id="tab-projects" style="display: none;">
-                <div class="section">
-                  <div class="section-header">
-                    <div>
-                      <h2>Projects</h2>
-                      <p>Registered projects with session statistics.</p>
+              <div
+                aria-labelledby="tab-btn-projects"
+                class="tab-content hidden"
+                id="tab-projects"
+                role="tabpanel"
+              >
+                <section class="border-2 border-ink bg-paper shadow-news">
+                  {/* Section Header */}
+                  <div class="border-ink border-b-2 p-6">
+                    <div class="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h2 class="font-black font-display text-4xl tracking-tight">
+                          Projects
+                        </h2>
+                        <p class="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
+                          Registered workspaces with session statistics and
+                          quick access
+                        </p>
+                      </div>
+                      <div class="flex flex-col items-end gap-2">
+                        <span
+                          class="border border-ink px-3 py-1 font-mono text-xs"
+                          id="project-count"
+                        >
+                          0 projects
+                        </span>
+                        <button
+                          class="btn btn-primary min-h-[44px]"
+                          id="add-project-btn"
+                          type="button"
+                        >
+                          + Add Project
+                        </button>
+                      </div>
                     </div>
-                    <span class="badge" id="project-count">
-                      0 projects
-                    </span>
                   </div>
+
+                  {/* Projects Grid */}
                   <div
-                    class="grid-2"
+                    class="grid max-h-[calc(100dvh-480px)] min-h-[200px] gap-0 overflow-y-auto md:grid-cols-2"
                     id="projects-grid"
-                    style="max-height: calc(100dvh - 340px); overflow-y: auto;"
                   >
-                    <div class="loading">Loading projects</div>
+                    <div class="loading p-4">Loading projects</div>
                   </div>
-                </div>
+                </section>
               </div>
 
               {/* Agents Tab */}
-              <div class="tab-content" id="tab-agents" style="display: none;">
-                <div class="section">
-                  <h2>Agent Usage</h2>
-                  <p style="margin-bottom: 1rem; color: #555;">
-                    Session distribution by agent type.
-                  </p>
-                  <div
-                    id="agent-stats"
-                    style="max-height: calc(100dvh - 340px); overflow-y: auto;"
-                  >
+              <div
+                aria-labelledby="tab-btn-agents"
+                class="tab-content hidden max-h-[calc(100dvh-280px)] overflow-y-auto"
+                id="tab-agents"
+                role="tabpanel"
+              >
+                {/* Registered Agents */}
+                <section class="border-2 border-ink bg-paper shadow-news">
+                  <div class="border-ink border-b-2 p-6">
+                    <div class="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h2 class="font-black font-display text-4xl tracking-tight">
+                          Agent Configs
+                        </h2>
+                        <p class="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
+                          Registered agent presets for spawning sessions
+                        </p>
+                      </div>
+                      <div class="flex flex-col items-end gap-2">
+                        <span
+                          class="border border-ink px-3 py-1 font-mono text-xs"
+                          id="agent-count"
+                        >
+                          0 agents
+                        </span>
+                        <button
+                          class="btn btn-primary min-h-[44px]"
+                          id="add-agent-btn"
+                          type="button"
+                        >
+                          + Add Agent
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Agent List */}
+                  <div class="min-h-[120px] p-4" id="agents-list">
+                    <div class="loading">Loading agents</div>
+                  </div>
+                </section>
+
+                {/* Agent Usage Stats */}
+                <section class="mt-4 border-2 border-ink bg-paper shadow-news">
+                  <div class="border-ink border-b-2 p-6">
+                    <div>
+                      <h2 class="font-black font-display text-3xl tracking-tight">
+                        Usage Statistics
+                      </h2>
+                      <p class="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
+                        Session distribution by agent type
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="min-h-[100px] p-4" id="agent-stats">
                     <div class="loading">Loading agent stats</div>
                   </div>
-                </div>
+                </section>
               </div>
 
               {/* Settings Tab */}
-              <div class="tab-content" id="tab-settings" style="display: none;">
-                <form action="/api/ui-settings" method="post">
-                  <section class="section">
-                    <h2>UI Settings</h2>
-                    <div class="grid-2">
+              <div
+                aria-labelledby="tab-btn-settings"
+                class="tab-content hidden max-h-[calc(100dvh-280px)] overflow-y-auto"
+                id="tab-settings"
+                role="tabpanel"
+              >
+                <form
+                  action="/api/ui-settings"
+                  id="settings-form"
+                  method="post"
+                >
+                  {/* Project Roots */}
+                  <section class="border-2 border-ink bg-paper shadow-news">
+                    <div class="flex items-start justify-between border-ink border-b-2 p-6">
                       <div>
-                        <label htmlFor="ui-theme">Theme</label>
-                        <select
-                          defaultValue={settings.ui.theme}
-                          id="ui-theme"
-                          name="ui.theme"
-                        >
-                          <option value="system">System</option>
-                          <option value="light">Light</option>
-                          <option value="dark">Dark</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="ui-accentColor">Accent Color</label>
-                        <input
-                          defaultValue={settings.ui.accentColor}
-                          id="ui-accentColor"
-                          name="ui.accentColor"
-                          type="color"
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="ui-density">Density</label>
-                        <select
-                          defaultValue={settings.ui.density}
-                          id="ui-density"
-                          name="ui.density"
-                        >
-                          <option value="comfortable">Comfortable</option>
-                          <option value="compact">Compact</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="ui-fontScale">Font Scale</label>
-                        <input
-                          defaultValue={settings.ui.fontScale}
-                          id="ui-fontScale"
-                          max="1.3"
-                          min="0.8"
-                          name="ui.fontScale"
-                          step="0.01"
-                          type="range"
-                        />
-                        <p class="metadata mt-2 text-slate-500 text-xs">
-                          {(settings.ui.fontScale * 1).toFixed(2)}x
+                        <h2 class="font-black font-display text-3xl tracking-tight">
+                          Project Roots
+                        </h2>
+                        <p class="mt-2 font-body text-muted text-sm">
+                          Sessions can only be opened within these directories
                         </p>
                       </div>
-                    </div>
-                  </section>
-
-                  <section class="section">
-                    <div class="section-header">
-                      <div>
-                        <h2>Project Roots</h2>
-                        <p>Session chỉ được mở trong các đường dẫn này.</p>
-                      </div>
-                      <span class="badge">
+                      <span class="border border-ink px-3 py-1 font-mono text-xs">
                         {settings.projectRoots.length} roots
                       </span>
                     </div>
 
-                    <div class="mt-4 space-y-4">
-                      <label htmlFor="newRoot">Add root</label>
-                      <div class="root-input-group">
-                        <input
-                          id="newRoot"
-                          name="newRoot"
-                          placeholder="/path/to/project"
-                          type="text"
-                        />
-                        <button
-                          class="btn btn-secondary"
-                          onclick="addRoot()"
-                          type="button"
+                    <div class="p-6">
+                      <div class="mb-4">
+                        <label
+                          class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                          htmlFor="newRoot"
                         >
-                          Add root
-                        </button>
-                      </div>
-                      <p class="help-text">
-                        Project roots là bắt buộc (ít nhất 1 path).
-                      </p>
-                    </div>
-
-                    <div class="mt-4 space-y-3" id="roots-container">
-                      {settings.projectRoots.map((root, index) => (
-                        <div class="root-item" key={root}>
-                          <span>{root}</span>
+                          Add New Root
+                        </label>
+                        <div class="flex gap-2">
                           <input
-                            name={`projectRoots[${index}]`}
-                            type="hidden"
-                            value={root}
+                            class="input-underline flex-1"
+                            id="newRoot"
+                            name="newRoot"
+                            placeholder="/path/to/project"
+                            type="text"
                           />
                           <button
-                            class="btn btn-sm btn-danger"
-                            onclick={`removeRoot(${index})`}
+                            class="btn btn-secondary min-h-[44px]"
                             type="button"
                           >
-                            Remove
+                            Add
                           </button>
                         </div>
-                      ))}
-                    </div>
+                        <p class="mt-2 font-mono text-[10px] text-muted italic">
+                          At least one root path is required.
+                        </p>
+                      </div>
 
-                    {errors?.projectRoots && (
-                      <p class="metadata mt-2 text-red-600 text-xs">
-                        {errors.projectRoots}
-                      </p>
-                    )}
+                      <div class="space-y-2" id="roots-container">
+                        {settings.projectRoots.map((root, index) => (
+                          <div
+                            class="root-item flex items-center gap-3 border border-ink p-3 transition-colors hover:bg-muted/20"
+                            key={root}
+                          >
+                            <code class="flex-1 truncate font-mono text-sm">
+                              {root}
+                            </code>
+                            <input
+                              name={`projectRoots[${index}]`}
+                              type="hidden"
+                              value={root}
+                            />
+                            <button
+                              class="btn btn-sm btn-danger min-h-[36px]"
+                              type="button"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {errors?.projectRoots && (
+                        <p class="mt-2 font-mono text-red-700 text-xs">
+                          {errors.projectRoots}
+                        </p>
+                      )}
+                    </div>
                   </section>
 
-                  <section class="section text-center">
-                    <button class="btn btn-primary" type="submit">
+                  {/* Save Button */}
+                  <div class="mt-6 border-ink border-t-2 pt-6 text-center">
+                    <button
+                      class="btn btn-primary min-h-[52px] px-10 text-base"
+                      type="submit"
+                    >
                       Save Settings
                     </button>
-                  </section>
+                    <p class="mt-2 font-mono text-[10px] text-muted">
+                      Changes will take effect immediately
+                    </p>
+                  </div>
                 </form>
               </div>
             </div>
 
-            {/* Right Column - Overview Stats */}
-            <div class="sidebar-column">
-              <div class="section">
-                <h2>Overview</h2>
-                <div class="stats-column" id="stats-container">
-                  <div class="stat-card">
-                    <div class="stat-value" id="stat-projects">
-                      -
+            {/* Right Column - Overview Stats (Inverted Section) */}
+            <div class="flex flex-col lg:col-span-4">
+              <section class="sticky top-0 border-2 border-ink bg-ink p-6 text-paper shadow-news">
+                {/* Section Label */}
+                <div class="mb-4 flex items-center gap-2">
+                  <span class="h-px flex-1 bg-paper/30" />
+                  <span class="font-mono text-[10px] text-paper/70 uppercase tracking-[0.3em]">
+                    At a Glance
+                  </span>
+                  <span class="h-px flex-1 bg-paper/30" />
+                </div>
+
+                <h2 class="mb-6 text-center font-black font-display text-3xl uppercase tracking-wide">
+                  Overview
+                </h2>
+
+                {/* Stats Grid - Newspaper Column Style */}
+                <div
+                  class="grid grid-cols-2 border border-paper/30"
+                  id="stats-container"
+                >
+                  {/* Projects */}
+                  <div class="border-paper/30 border-r border-b p-4 text-center">
+                    <div
+                      class="font-black font-display text-4xl leading-none"
+                      id="stat-projects"
+                    >
+                      —
                     </div>
-                    <div class="stat-label">Projects</div>
+                    <div class="mt-1 font-mono text-[10px] text-paper/70 uppercase tracking-widest">
+                      Projects
+                    </div>
                   </div>
-                  <div class="stat-card">
-                    <div class="stat-value" id="stat-sessions">
-                      -
+
+                  {/* Total Sessions */}
+                  <div class="border-paper/30 border-b p-4 text-center">
+                    <div
+                      class="font-black font-display text-4xl leading-none"
+                      id="stat-sessions"
+                    >
+                      —
                     </div>
-                    <div class="stat-label">Total Sessions</div>
+                    <div class="mt-1 font-mono text-[10px] text-paper/70 uppercase tracking-widest">
+                      Sessions
+                    </div>
                   </div>
-                  <div class="stat-card">
-                    <div class="stat-value" id="stat-active">
-                      -
+
+                  {/* Active Now - Accent */}
+                  <div
+                    class="border-paper/30 border-r border-b p-4 text-center"
+                    style={{ backgroundColor: "#CC0000" }}
+                  >
+                    <div
+                      class="font-black font-display text-4xl leading-none"
+                      id="stat-active"
+                    >
+                      —
                     </div>
-                    <div class="stat-label">Active Now</div>
+                    <div class="mt-1 font-mono text-[10px] uppercase tracking-widest opacity-90">
+                      Active Now
+                    </div>
                   </div>
-                  <div class="stat-card">
-                    <div class="stat-value" id="stat-recent">
-                      -
+
+                  {/* Last 24h */}
+                  <div class="border-paper/30 border-b p-4 text-center">
+                    <div
+                      class="font-black font-display text-4xl leading-none"
+                      id="stat-recent"
+                    >
+                      —
                     </div>
-                    <div class="stat-label">Last 24h</div>
+                    <div class="mt-1 font-mono text-[10px] text-paper/70 uppercase tracking-widest">
+                      Last 24h
+                    </div>
                   </div>
-                  <div class="stat-card">
-                    <div class="stat-value" id="stat-uptime">
-                      -
+
+                  {/* Server Uptime - Full Width */}
+                  <div class="col-span-2 p-4 text-center">
+                    <div
+                      class="font-medium font-mono text-2xl tracking-tight"
+                      id="stat-uptime"
+                    >
+                      —
                     </div>
-                    <div class="stat-label">Server Uptime</div>
+                    <div class="mt-1 font-mono text-[10px] text-paper/70 uppercase tracking-widest">
+                      Server Uptime
+                    </div>
                   </div>
                 </div>
-              </div>
+
+                {/* Ornamental Divider */}
+                <div class="py-4 text-center font-serif text-paper/30 text-xl tracking-[1em]">
+                  ✦ ✧ ✦
+                </div>
+
+                {/* Weekly Summary */}
+                <div class="border-paper/30 border-t pt-4 text-center">
+                  <p class="font-mono text-[10px] text-paper/50 uppercase tracking-widest">
+                    This Week
+                  </p>
+                  <p
+                    class="mt-2 font-bold font-display text-2xl"
+                    id="stat-weekly"
+                  >
+                    0
+                  </p>
+                  <p class="mt-1 font-mono text-[10px] text-paper/50 uppercase tracking-widest">
+                    Sessions Completed
+                  </p>
+                </div>
+              </section>
             </div>
           </div>
 
-          <footer
-            style={{
-              marginTop: "auto",
-              paddingTop: "0.75rem",
-              borderTop: "3px double var(--color-ink)",
-              textAlign: "center",
-              flexShrink: 0,
-            }}
-          >
-            <p class="metadata" style={{ fontSize: "0.65rem", color: "#666" }}>
-              Eragear Code Copilot — ACP Protocol
-            </p>
+          {/* Footer - Edition Info */}
+          <footer class="mt-auto flex-shrink-0 border-ink border-t-2 py-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-muted uppercase tracking-widest">
+              <p>© Eragear • ACP Client v1.0</p>
+              <p class="hidden sm:block">
+                Printed in the Cloud • All Sessions Reserved
+              </p>
+              <p>
+                Fig. 1.0 —{" "}
+                {new Date().toLocaleTimeString("en-US", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+            </div>
           </footer>
         </div>
 
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              // Dashboard state
-              let dashboardData = window.__DASHBOARD__ || { stats: null, projects: [], sessions: [] };
-              let roots = ${JSON.stringify(settings.projectRoots)};
+        {/* Add Project Modal */}
+        <div
+          class="fixed inset-0 z-50 hidden items-center justify-center bg-ink/80"
+          id="add-project-modal"
+        >
+          <div class="mx-4 w-full max-w-md border-2 border-ink bg-paper p-6 shadow-news">
+            <div class="mb-6 flex items-center justify-between">
+              <h3 class="font-black font-display text-2xl">Add Project</h3>
+              <button
+                class="text-2xl leading-none hover:text-accent"
+                id="close-modal-btn"
+                type="button"
+              >
+                ×
+              </button>
+            </div>
 
-              // Initialize
-              document.addEventListener('DOMContentLoaded', function() {
-                if (dashboardData.stats) {
-                  renderStats(dashboardData.stats);
-                } else {
-                  loadDashboardData();
-                }
-              });
+            <form id="add-project-form">
+              <div class="mb-4">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="project-name"
+                >
+                  Project Name *
+                </label>
+                <input
+                  class="input-underline w-full"
+                  id="project-name"
+                  name="name"
+                  placeholder="My Project"
+                  required
+                  type="text"
+                />
+              </div>
 
-              // Load dashboard data from API
-              async function loadDashboardData() {
-                try {
-                  const [statsRes, projectsRes, sessionsRes] = await Promise.all([
-                    fetch('/api/dashboard/stats'),
-                    fetch('/api/dashboard/projects'),
-                    fetch('/api/dashboard/sessions')
-                  ]);
+              <div class="mb-4">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="project-path"
+                >
+                  Project Path *
+                </label>
+                <input
+                  class="input-underline w-full"
+                  id="project-path"
+                  name="path"
+                  placeholder="/home/user/projects/my-project"
+                  required
+                  type="text"
+                />
+                <p class="mt-1 font-mono text-[10px] text-muted">
+                  Must be within allowed project roots
+                </p>
+              </div>
 
-                  const stats = await statsRes.json();
-                  const projectsData = await projectsRes.json();
-                  const sessionsData = await sessionsRes.json();
+              <div class="mb-6">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="project-description"
+                >
+                  Description
+                </label>
+                <input
+                  class="input-underline w-full"
+                  id="project-description"
+                  name="description"
+                  placeholder="Optional description"
+                  type="text"
+                />
+              </div>
 
-                  dashboardData = { stats, projects: projectsData.projects, sessions: sessionsData.sessions };
-                  renderStats(stats);
-                  renderProjects(projectsData.projects);
-                  renderSessions(sessionsData.sessions);
-                  renderAgentStats(stats.agentStats);
-                } catch (err) {
-                  console.error('Failed to load dashboard data:', err);
-                  document.getElementById('stats-container').innerHTML = '<div class="empty-state">Failed to load dashboard data</div>';
-                }
-              }
+              <div class="flex gap-3">
+                <button class="btn btn-primary flex-1" type="submit">
+                  Add Project
+                </button>
+                <button
+                  class="btn btn-secondary"
+                  id="cancel-modal-btn"
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
 
-              // Render stats
-              function renderStats(stats) {
-                document.getElementById('stat-projects').textContent = stats.totalProjects || 0;
-                document.getElementById('stat-sessions').textContent = stats.totalSessions || 0;
-                document.getElementById('stat-active').textContent = stats.activeSessions || 0;
-                document.getElementById('stat-recent').textContent = stats.recentSessions24h || 0;
-                document.getElementById('stat-uptime').textContent = formatUptime(stats.serverUptime);
-              }
+              <p
+                class="mt-4 hidden font-mono text-red-700 text-xs"
+                id="add-project-error"
+              />
+            </form>
+          </div>
+        </div>
 
-              // Render projects
-              function renderProjects(projects) {
-                const container = document.getElementById('projects-grid');
-                document.getElementById('project-count').textContent = projects.length + ' projects';
+        {/* Add Agent Modal */}
+        <div
+          class="fixed inset-0 z-50 hidden items-center justify-center bg-ink/80"
+          id="add-agent-modal"
+        >
+          <div class="mx-4 w-full max-w-md border-2 border-ink bg-paper p-6 shadow-news">
+            <div class="mb-6 flex items-center justify-between">
+              <h3 class="font-black font-display text-2xl">Add Agent</h3>
+              <button
+                class="text-2xl leading-none hover:text-accent"
+                id="close-agent-modal-btn"
+                type="button"
+              >
+                ×
+              </button>
+            </div>
 
-                if (projects.length === 0) {
-                  container.innerHTML = '<div class="empty-state">No projects registered yet.</div>';
-                  return;
-                }
+            <form id="add-agent-form">
+              <div class="mb-4">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="agent-name"
+                >
+                  Agent Name *
+                </label>
+                <input
+                  class="input-underline w-full"
+                  id="agent-name"
+                  name="name"
+                  placeholder="Claude Code"
+                  required
+                  type="text"
+                />
+              </div>
 
-                container.innerHTML = projects.map(function(p) {
-                  return '<div class="project-card">' +
-                    '<div class="flex justify-between items-center mb-2">' +
-                      '<span class="project-name">' + p.name + '</span>' +
-                      '<span class="badge ' + (p.runningCount > 0 ? 'badge-success' : '') + '">' + p.runningCount + ' running</span>' +
-                    '</div>' +
-                    '<p class="project-path">' + p.path + '</p>' +
-                    '<div class="flex justify-between items-center mt-3">' +
-                      '<span class="metadata">' + p.sessionCount + ' sessions</span>' +
-                      '<span class="metadata">' + (p.lastOpenedAt ? formatTimeAgo(p.lastOpenedAt) : 'Never') + '</span>' +
-                    '</div>' +
-                  '</div>';
-                }).join('');
-              }
+              <div class="mb-4">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="agent-type"
+                >
+                  Agent Type *
+                </label>
+                <select
+                  class="input-underline w-full"
+                  id="agent-type"
+                  name="type"
+                  required
+                >
+                  <option value="claude">Claude</option>
+                  <option value="codex">Codex</option>
+                  <option value="opencode">OpenCode</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
 
-              // Render sessions
-              function renderSessions(sessions) {
-                const container = document.getElementById('sessions-list');
-                document.getElementById('session-count').textContent = sessions.length + ' sessions';
+              <div class="mb-4">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="agent-command"
+                >
+                  Command *
+                </label>
+                <input
+                  class="input-underline w-full"
+                  id="agent-command"
+                  name="command"
+                  placeholder="claude"
+                  required
+                  type="text"
+                />
+                <p class="mt-1 font-mono text-[10px] text-muted">
+                  The command to spawn the agent process
+                </p>
+              </div>
 
-                if (sessions.length === 0) {
-                  container.innerHTML = '<div class="empty-state">No sessions yet. Start a chat from the UI.</div>';
-                  return;
-                }
+              <div class="mb-6">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="agent-args"
+                >
+                  Arguments
+                </label>
+                <input
+                  class="input-underline w-full"
+                  id="agent-args"
+                  name="args"
+                  placeholder="--mcp, --print"
+                  type="text"
+                />
+                <p class="mt-1 font-mono text-[10px] text-muted">
+                  Comma-separated arguments
+                </p>
+              </div>
 
-                // Sort: running first, then by lastActiveAt descending
-                sessions.sort(function(a, b) {
-                  if (a.status === 'running' && b.status !== 'running') return -1;
-                  if (a.status !== 'running' && b.status === 'running') return 1;
-                  return b.lastActiveAt - a.lastActiveAt;
-                });
+              <div class="flex gap-3">
+                <button class="btn btn-primary flex-1" type="submit">
+                  Add Agent
+                </button>
+                <button
+                  class="btn btn-secondary"
+                  id="cancel-agent-modal-btn"
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
 
-                container.innerHTML = sessions.map(function(s) {
-                  var canStop = s.isActive || s.status === 'running';
-                  var isRunning = s.status === 'running';
-                  return '<div class="session-item ' + (s.isActive ? 'active' : '') + '" data-id="' + s.id + '">' +
-                    '<div class="flex items-center session-info">' +
-                      '<span class="status-dot ' + s.status + '"></span>' +
-                      '<div>' +
-                        '<div class="session-project truncate">' + (s.projectName || 'Unknown') + '</div>' +
-                        '<div class="session-agent">' + s.agentName + (s.modeId ? ' / ' + s.modeId : '') + '</div>' +
-                      '</div>' +
-                    '</div>' +
-                    '<div class="flex items-center gap-3">' +
-                      '<span class="session-time">' + formatTimeAgo(s.lastActiveAt) + '</span>' +
-                      '<span class="badge ' + (isRunning ? 'badge-success' : 'badge-danger') + '">' + s.status + '</span>' +
-                      '<div class="session-actions">' +
-                        '<button class="session-action-btn stop" ' + (canStop ? '' : 'disabled') + ' data-chat-id="' + s.id + '" onclick="handleStopClick(this)">Stop</button>' +
-                        '<button class="session-action-btn delete" data-chat-id="' + s.id + '" onclick="handleDeleteClick(this)">Delete</button>' +
-                      '</div>' +
-                    '</div>' +
-                  '</div>';
-                }).join('');
-              }
+              <p
+                class="mt-4 hidden font-mono text-red-700 text-xs"
+                id="add-agent-error"
+              />
+            </form>
+          </div>
+        </div>
 
-              // Stop session handler
-              function handleStopClick(btn) {
-                var chatId = btn.getAttribute('data-chat-id');
-                stopSession(chatId);
-              }
+        {/* View/Edit Agent Modal */}
+        <div
+          class="fixed inset-0 z-50 hidden items-center justify-center bg-ink/80"
+          id="edit-agent-modal"
+        >
+          <div class="mx-4 w-full max-w-lg border-2 border-ink bg-paper shadow-news">
+            {/* Modal Header */}
+            <div class="flex items-center justify-between border-ink border-b-2 p-6">
+              <h3
+                class="font-black font-display text-2xl"
+                id="edit-agent-title"
+              >
+                Agent Details
+              </h3>
+              <button
+                class="text-2xl leading-none hover:text-accent"
+                id="close-edit-agent-btn"
+                type="button"
+              >
+                ×
+              </button>
+            </div>
 
-              // Delete session handler
-              function handleDeleteClick(btn) {
-                var chatId = btn.getAttribute('data-chat-id');
-                deleteSession(chatId);
-              }
+            {/* Agent Details (View Mode) */}
+            <div class="p-6" id="agent-view-mode">
+              <dl class="space-y-4">
+                <div class="flex justify-between border-ink border-b pb-2">
+                  <dt class="font-mono text-[10px] text-muted uppercase tracking-widest">
+                    Name
+                  </dt>
+                  <dd class="font-semibold" id="view-agent-name">
+                    —
+                  </dd>
+                </div>
+                <div class="flex justify-between border-ink border-b pb-2">
+                  <dt class="font-mono text-[10px] text-muted uppercase tracking-widest">
+                    Type
+                  </dt>
+                  <dd id="view-agent-type">—</dd>
+                </div>
+                <div class="flex justify-between border-ink border-b pb-2">
+                  <dt class="font-mono text-[10px] text-muted uppercase tracking-widest">
+                    Command
+                  </dt>
+                  <dd class="font-mono text-sm" id="view-agent-command">
+                    —
+                  </dd>
+                </div>
+                <div class="flex justify-between border-ink border-b pb-2">
+                  <dt class="font-mono text-[10px] text-muted uppercase tracking-widest">
+                    Arguments
+                  </dt>
+                  <dd class="font-mono text-sm" id="view-agent-args">
+                    —
+                  </dd>
+                </div>
+                <div class="flex justify-between border-ink border-b pb-2">
+                  <dt class="font-mono text-[10px] text-muted uppercase tracking-widest">
+                    Created
+                  </dt>
+                  <dd class="text-muted text-sm" id="view-agent-created">
+                    —
+                  </dd>
+                </div>
+              </dl>
 
-              // Stop session
-              async function stopSession(chatId) {
-                try {
-                  var btn = document.querySelector('.session-item[data-id="' + chatId + '"] .stop');
-                  if (btn) btn.disabled = true;
-                  var res = await fetch('/api/sessions/stop', {
-                    method: 'POST',
-                    body: 'chatId=' + encodeURIComponent(chatId),
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-                  });
-                  if (res.ok) {
-                    loadDashboardData();
-                  }
-                } catch (err) {
-                  console.error('Failed to stop session:', err);
-                }
-              }
+              <div class="mt-6 flex gap-3">
+                <button
+                  class="btn btn-primary flex-1"
+                  id="switch-to-edit-btn"
+                  type="button"
+                >
+                  Edit
+                </button>
+                <button
+                  class="btn btn-danger"
+                  id="delete-from-view-btn"
+                  type="button"
+                >
+                  Delete
+                </button>
+                <button
+                  class="btn btn-secondary"
+                  id="close-view-btn"
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
 
-              // Delete session
-              async function deleteSession(chatId) {
-                if (!confirm('Delete this session? This cannot be undone.')) return;
-                try {
-                  var res = await fetch('/api/sessions', {
-                    method: 'DELETE',
-                    body: 'chatId=' + encodeURIComponent(chatId),
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-                  });
-                  if (res.ok) {
-                    loadDashboardData();
-                  }
-                } catch (err) {
-                  console.error('Failed to delete session:', err);
-                }
-              }
+            {/* Edit Form (Edit Mode) */}
+            <form class="hidden p-6" id="agent-edit-mode">
+              <input id="edit-agent-id" name="id" type="hidden" />
 
-              // Render agent stats
-              function renderAgentStats(agentStats) {
-                const container = document.getElementById('agent-stats');
-                const agents = Object.entries(agentStats);
+              <div class="mb-4">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="edit-agent-name"
+                >
+                  Agent Name *
+                </label>
+                <input
+                  class="input-underline w-full"
+                  id="edit-agent-name"
+                  name="name"
+                  required
+                  type="text"
+                />
+              </div>
 
-                if (agents.length === 0) {
-                  container.innerHTML = '<div class="empty-state">No agent usage data yet.</div>';
-                  return;
-                }
+              <div class="mb-4">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="edit-agent-type"
+                >
+                  Agent Type *
+                </label>
+                <select
+                  class="input-underline w-full"
+                  id="edit-agent-type"
+                  name="type"
+                  required
+                >
+                  <option value="claude">Claude</option>
+                  <option value="codex">Codex</option>
+                  <option value="opencode">OpenCode</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
 
-                container.innerHTML = agents.map(function(a) {
-                  var name = a[0];
-                  var stats = a[1];
-                  return '<div class="agent-stat">' +
-                    '<span class="agent-name">' + name + '</span>' +
-                    '<span class="agent-counts">' +
-                      '<span class="text-green-700">' + stats.running + ' running</span>' +
-                      '<span class="text-slate-600">' + stats.count + ' total</span>' +
-                    '</span>' +
-                  '</div>';
-                }).join('');
-              }
+              <div class="mb-4">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="edit-agent-command"
+                >
+                  Command *
+                </label>
+                <input
+                  class="input-underline w-full"
+                  id="edit-agent-command"
+                  name="command"
+                  required
+                  type="text"
+                />
+              </div>
 
-              // Tab switching
-              function switchTab(tabName) {
-                document.querySelectorAll('.tab-btn').forEach(btn => {
-                  btn.classList.toggle('active', btn.dataset.tab === tabName);
-                });
-                document.querySelectorAll('.tab-content').forEach(content => {
-                  content.style.display = 'none';
-                });
-                document.getElementById('tab-' + tabName).style.display = 'block';
-              }
+              <div class="mb-6">
+                <label
+                  class="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor="edit-agent-args"
+                >
+                  Arguments
+                </label>
+                <input
+                  class="input-underline w-full"
+                  id="edit-agent-args"
+                  name="args"
+                  placeholder="--mcp, --print"
+                  type="text"
+                />
+                <p class="mt-1 font-mono text-[10px] text-muted">
+                  Comma-separated arguments
+                </p>
+              </div>
 
-              // Project roots management
-              function renderRoots() {
-                const container = document.getElementById('roots-container');
-                if (!container) return;
+              <div class="flex gap-3">
+                <button class="btn btn-primary flex-1" type="submit">
+                  Save Changes
+                </button>
+                <button
+                  class="btn btn-secondary"
+                  id="cancel-edit-btn"
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
 
-                container.innerHTML = '';
-                roots.forEach((root, index) => {
-                  const div = document.createElement('div');
-                  div.className = 'root-item fade-in';
-                  div.innerHTML = '<span>' + root + '</span><input type="hidden" name="projectRoots[' + index + ']" value="' + root.replace(/"/g, '&quot;') + '" /><button type="button" class="btn btn-sm btn-danger" onclick="removeRoot(' + index + ')">Remove</button>';
-                  container.appendChild(div);
-                });
-              }
-
-              function addRoot() {
-                const input = document.querySelector('input[name="newRoot"]');
-                const value = input.value.trim();
-                if (!value) return;
-                if (roots.includes(value)) {
-                  input.value = '';
-                  return;
-                }
-                roots.push(value);
-                input.value = '';
-                renderRoots();
-              }
-
-              function removeRoot(index) {
-                if (roots.length <= 1) {
-                  alert('Must keep at least 1 root.');
-                  return;
-                }
-                roots.splice(index, 1);
-                renderRoots();
-              }
-
-              // Handle Enter key in root input
-              document.querySelector('input[name="newRoot"]')?.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addRoot();
-                }
-              });
-
-              // Utility functions
-              function formatUptime(seconds) {
-                const hours = Math.floor(seconds / 3600);
-                const minutes = Math.floor((seconds % 3600) / 60);
-                return hours + 'h ' + minutes + 'm';
-              }
-
-              function formatTimeAgo(timestamp) {
-                const seconds = Math.floor((Date.now() - timestamp) / 1000);
-                if (seconds < 60) return 'Just now';
-                if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
-                if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
-                return Math.floor(seconds / 86400) + 'd ago';
-              }
-            `,
-          }}
-        />
+              <p
+                class="mt-4 hidden font-mono text-red-700 text-xs"
+                id="edit-agent-error"
+              />
+            </form>
+          </div>
+        </div>
       </body>
     </html>
   );

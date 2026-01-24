@@ -1,7 +1,33 @@
-import type * as acp from "@agentclientprotocol/sdk";
-import type { SessionRuntimePort } from "../../shared/types/ports";
-import { createId } from "../../shared/utils";
+/**
+ * ACP Permission Handler
+ *
+ * Implements permission request handling for agent tool calls.
+ * Manages the flow of permission requests from agents to users and
+ * returns user decisions back to the agent.
+ *
+ * @module infra/acp/permission
+ */
 
+import type * as acp from "@agentclientprotocol/sdk";
+import { createId } from "@/shared/utils/id.util";
+import type { SessionRuntimePort } from "../../shared/types/ports";
+
+/**
+ * Creates a permission request handler for a session runtime
+ *
+ * @param sessionRuntime - The session runtime port for broadcasting and session access
+ * @returns Handler function for processing permission requests
+ *
+ * @example
+ * ```typescript
+ * const handlePermission = createPermissionHandler(sessionRuntime);
+ * const response = await handlePermission({
+ *   chatId: "session-123",
+ *   isReplayingHistory: false,
+ *   request: { toolCall: {...}, options: [...] },
+ * });
+ * ```
+ */
 export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
   return function handlePermissionRequest(params: {
     chatId: string;
@@ -11,6 +37,7 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
     const { chatId, isReplayingHistory, request } = params;
     const { toolCall, options } = request;
 
+    // Skip permission requests during history replay
     if (isReplayingHistory) {
       console.log(
         `[Server] Ignoring permission request during history replay for ${chatId}`
@@ -33,13 +60,14 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         return;
       }
 
+      // Store the resolve function to be called when user responds
       session.pendingPermissions.set(requestId, {
-        resolve: (decision: acp.RequestPermissionResponse) => {
-          resolve(decision);
-        },
+        resolve: (decision: unknown) =>
+          resolve(decision as acp.RequestPermissionResponse),
         options,
       });
 
+      // Broadcast permission request to the client
       sessionRuntime.broadcast(chatId, {
         type: "request_permission",
         requestId,

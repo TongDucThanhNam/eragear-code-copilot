@@ -15,11 +15,11 @@
       "version": "1.1.31"
     },
     "loadSessionSupported": true,
-    "status": "running",
+    "status": "stopped",
     "modeId": "build",
     "modelId": "opencode/big-pickle",
     "createdAt": 1769055204271,
-    "lastActiveAt": 1769099204573,
+    "lastActiveAt": 1769180072606,
     "messages": [
       {
         "id": "msg-1769055216963-ip2a7wlirdr",

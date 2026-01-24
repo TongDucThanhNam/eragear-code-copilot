@@ -1,3 +1,13 @@
+/**
+ * Session tRPC Router
+ *
+ * RPC endpoints for session management: create, stop, resume, delete, get state,
+ * list sessions, update metadata, get messages, and subscribe to real-time events.
+ * Sessions represent active connections to AI agents.
+ *
+ * @module transport/trpc/routers/session
+ */
+
 import { observable } from "@trpc/server/observable";
 import { z } from "zod";
 import { CreateSessionService } from "@/modules/session/application/create-session.service";
@@ -13,6 +23,7 @@ import type { BroadcastEvent } from "../../../shared/types/session.types";
 import { publicProcedure, router } from "../base";
 
 export const sessionRouter = router({
+  /** Create a new session for a project */
   createSession: publicProcedure
     .input(
       z.object({
@@ -50,6 +61,7 @@ export const sessionRouter = router({
       };
     }),
 
+  /** Stop a running session */
   stopSession: publicProcedure
     .input(z.object({ chatId: z.string() }))
     .mutation(({ input, ctx }) => {
@@ -60,6 +72,7 @@ export const sessionRouter = router({
       return service.execute(input.chatId);
     }),
 
+  /** Resume a stopped session */
   resumeSession: publicProcedure
     .input(z.object({ chatId: z.string() }))
     .mutation(async ({ input, ctx }) => {
@@ -72,6 +85,7 @@ export const sessionRouter = router({
       return await service.execute(input.chatId);
     }),
 
+  /** Delete a session */
   deleteSession: publicProcedure
     .input(z.object({ chatId: z.string() }))
     .mutation(({ input, ctx }) => {
@@ -82,6 +96,7 @@ export const sessionRouter = router({
       return service.execute(input.chatId);
     }),
 
+  /** Get current session state */
   getSessionState: publicProcedure
     .input(z.object({ chatId: z.string() }))
     .query(({ input, ctx }) => {
@@ -92,6 +107,7 @@ export const sessionRouter = router({
       return service.execute(input.chatId);
     }),
 
+  /** List all sessions */
   getSessions: publicProcedure.query(({ ctx }) => {
     const service = new ListSessionsService(
       ctx.container.getSessions(),
@@ -101,6 +117,7 @@ export const sessionRouter = router({
     return service.execute();
   }),
 
+  /** Update session metadata (name, pinned, archived) */
   updateSessionMeta: publicProcedure
     .input(
       z.object({
@@ -115,6 +132,7 @@ export const sessionRouter = router({
       return service.execute(input);
     }),
 
+  /** Get session message history */
   getSessionMessages: publicProcedure
     .input(z.object({ chatId: z.string() }))
     .query(({ input, ctx }) => {
@@ -124,6 +142,7 @@ export const sessionRouter = router({
       return service.execute(input.chatId);
     }),
 
+  /** Subscribe to real-time session events */
   onSessionEvents: publicProcedure
     .input(z.object({ chatId: z.string() }))
     .subscription(({ input, ctx }) => {

@@ -2,9 +2,9 @@
 
 > Creating and loading sessions
 
-Sessions represent a specific conversation or thread between the [Client](./overview#client) and [Agent](./overview#agent). Each session maintains its own context, conversation history, and state, allowing multiple independent interactions with the same Agent.
+Sessions represent a specific conversation or thread between the [Client](./acp-overview#client) and [Agent](./acp-overview#agent). Each session maintains its own context, conversation history, and state, allowing multiple independent interactions with the same Agent.
 
-Before creating a session, Clients **MUST** first complete the [initialization](./initialization) phase to establish protocol compatibility and capabilities.
+Before creating a session, Clients **MUST** first complete the [initialization](./acp-initialization) phase to establish protocol compatibility and capabilities.
 
 <br />
 

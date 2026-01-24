@@ -1,8 +1,18 @@
+/**
+ * Agents tRPC Router
+ *
+ * RPC endpoints for agent configuration management: list, create, update, delete,
+ * and set active agent. Agents represent AI assistant configurations.
+ *
+ * @module transport/trpc/routers/agents
+ */
+
 import { z } from "zod";
 import { AgentService } from "@/modules/agent/application/agent.service";
 import { publicProcedure, router } from "../base";
 
 export const agentsRouter = router({
+  /** List all agents, optionally filtered by project ID */
   list: publicProcedure
     .input(z.object({ projectId: z.string().nullish() }).optional())
     .query(({ input, ctx }) => {
@@ -10,6 +20,7 @@ export const agentsRouter = router({
       return service.listAgents(input?.projectId ?? undefined);
     }),
 
+  /** Create a new agent configuration */
   create: publicProcedure
     .input(
       z.object({
@@ -26,6 +37,7 @@ export const agentsRouter = router({
       return service.createAgent(input);
     }),
 
+  /** Update an existing agent configuration */
   update: publicProcedure
     .input(
       z.object({
@@ -44,6 +56,7 @@ export const agentsRouter = router({
       return service.updateAgent(input);
     }),
 
+  /** Delete an agent configuration */
   delete: publicProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ input, ctx }) => {
@@ -51,6 +64,7 @@ export const agentsRouter = router({
       return service.deleteAgent(input.id);
     }),
 
+  /** Set the active agent (for UI state) */
   setActive: publicProcedure
     .input(z.object({ id: z.string().nullable() }))
     .mutation(({ input, ctx }) => {

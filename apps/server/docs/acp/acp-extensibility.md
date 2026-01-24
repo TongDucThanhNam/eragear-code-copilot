@@ -8,7 +8,7 @@ The Agent Client Protocol provides built-in extension mechanisms that allow impl
 
 All types in the protocol include a `_meta` field with type `{ [key: string]: unknown }` that implementations can use to attach custom information. This includes requests, responses, notifications, and even nested types like content blocks, tool calls, plan entries, and capability objects.
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -50,7 +50,7 @@ Extension methods follow standard [JSON-RPC 2.0](https://www.jsonrpc.org/specifi
 
 In addition to the requests specified by the protocol, implementations **MAY** expose and call custom JSON-RPC requests as long as their name starts with an underscore (`_`).
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -63,7 +63,7 @@ In addition to the requests specified by the protocol, implementations **MAY** e
 
 Upon receiving a custom request, implementations **MUST** respond accordingly with the provided `id`:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -78,7 +78,7 @@ Upon receiving a custom request, implementations **MUST** respond accordingly wi
 
 If the receiving end doesn't recognize the custom method name, it should respond with the standard "Method not found" error:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -95,7 +95,7 @@ To avoid such cases, extensions **SHOULD** advertise their [custom capabilities]
 
 Custom notifications are regular JSON-RPC notifications that start with an underscore (`_`). Like all notifications, they omit the `id` field:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "_zed.dev/file_opened",
@@ -111,7 +111,7 @@ Unlike with custom requests, implementations **SHOULD** ignore unrecognized noti
 
 Implementations **SHOULD** use the `_meta` field in capability objects to advertise support for extensions and their methods:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 0,

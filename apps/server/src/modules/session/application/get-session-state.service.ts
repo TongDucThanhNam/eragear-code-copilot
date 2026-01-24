@@ -1,14 +1,54 @@
+/**
+ * Get Session State Service
+ *
+ * Retrieves the current state of a session from either the runtime store
+ * (for active sessions) or persistent storage (for stopped sessions).
+ *
+ * @module modules/session/application/get-session-state.service
+ */
+
 import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "../../../shared/types/ports";
 
+/**
+ * GetSessionStateService
+ *
+ * Provides access to session state information, preferring runtime data
+ * for active sessions falling back to stored data for stopped sessions.
+ */
 export class GetSessionStateService {
-  constructor(
-    private sessionRepo: SessionRepositoryPort,
-    private sessionRuntime: SessionRuntimePort
-  ) {}
+  /** Repository for session persistence */
+  private readonly sessionRepo: SessionRepositoryPort;
+  /** Runtime store for active sessions */
+  private readonly sessionRuntime: SessionRuntimePort;
 
+  /**
+   * Creates a GetSessionStateService with required dependencies
+   */
+  constructor(
+    sessionRepo: SessionRepositoryPort,
+    sessionRuntime: SessionRuntimePort
+  ) {
+    this.sessionRepo = sessionRepo;
+    this.sessionRuntime = sessionRuntime;
+  }
+
+  /**
+   * Retrieves the current state of a session
+   *
+   * @param chatId - The chat session identifier
+   * @returns Session state object containing status, modes, models, and capabilities
+   * @throws Error if the session is not found
+   *
+   * @example
+   * ```typescript
+   * const state = service.execute("chat-123");
+   * console.log(state.status); // "running" or "stopped"
+   * console.log(state.modes); // Available modes if running
+   * ```
+   */
   execute(chatId: string) {
     const session = this.sessionRuntime.get(chatId);
     if (session) {
@@ -19,6 +59,7 @@ export class GetSessionStateService {
         commands: session.commands,
         promptCapabilities: session.promptCapabilities,
         loadSessionSupported: session.loadSessionSupported,
+        plan: session.plan ?? null,
       };
     }
 
@@ -28,9 +69,10 @@ export class GetSessionStateService {
         status: "stopped" as const,
         modes: null,
         models: null,
-        commands: null,
+        commands: stored.commands ?? null,
         promptCapabilities: null,
         loadSessionSupported: stored.loadSessionSupported,
+        plan: stored.plan ?? null,
       };
     }
 

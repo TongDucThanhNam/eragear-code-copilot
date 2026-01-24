@@ -1,4 +1,12 @@
-// tRPC base setup
+/**
+ * tRPC Base Setup
+ *
+ * Initializes tRPC with the custom context type and exports router/ procedure factories.
+ * All tRPC routers and procedures are built upon this base configuration.
+ *
+ * @module transport/trpc/base
+ */
+
 import { initTRPC } from "@trpc/server";
 import type { TRPCContext } from "./context";
 

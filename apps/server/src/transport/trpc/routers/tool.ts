@@ -1,8 +1,18 @@
+/**
+ * Tool tRPC Router
+ *
+ * RPC endpoints for tool-related operations: responding to permission requests.
+ * Handles user decisions for agent tool call authorizations.
+ *
+ * @module transport/trpc/routers/tool
+ */
+
 import { z } from "zod";
-import { RespondPermissionService } from "../../../modules/tooling/application";
+import { RespondPermissionService } from "@/modules/tooling/application/respond-permission.service";
 import { publicProcedure, router } from "../base";
 
 export const toolRouter = router({
+  /** Respond to a permission request from an agent */
   respondToPermissionRequest: publicProcedure
     .input(
       z.object({

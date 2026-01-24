@@ -6,7 +6,7 @@ Agents can provide a set of modes they can operate in. Modes often affect the sy
 
 ## Initial state
 
-During [Session Setup](./session-setup) the Agent **MAY** return a list of modes it can operate in and the currently active mode:
+During [Session Setup](./acp-session-setup) the Agent **MAY** return a list of modes it can operate in and the currently active mode:
 
 ```json  theme={null}
 {
@@ -72,7 +72,7 @@ The current mode can be changed at any point during a session, whether the Agent
 
 ### From the Client
 
-Typically, Clients display the available modes to the user and allow them to change the current one, which they can do by calling the [`session/set_mode`](./schema#session%2Fset-mode) method.
+Typically, Clients display the available modes to the user and allow them to change the current one, which they can do by calling the [`session/set_mode`](./acp-schema#session%2Fset-mode) method.
 
 ```json  theme={null}
 {

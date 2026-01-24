@@ -1,8 +1,18 @@
+/**
+ * Code tRPC Router
+ *
+ * RPC endpoints for code context operations: retrieving project context,
+ * git diff, and file content. Provides read-only access to codebase information.
+ *
+ * @module transport/trpc/routers/code
+ */
+
 import { z } from "zod";
-import { CodeContextService } from "../../../modules/tooling/application";
+import { CodeContextService } from "@/modules/tooling/application/code-context.service";
 import { publicProcedure, router } from "../base";
 
 export const codeRouter = router({
+  /** Get project context (rules, tabs, files) */
   getProjectContext: publicProcedure
     .input(z.object({ chatId: z.string() }))
     .query(({ input, ctx }) => {
@@ -13,6 +23,7 @@ export const codeRouter = router({
       return service.getProjectContext(input.chatId);
     }),
 
+  /** Get git diff for the project's working directory */
   getGitDiff: publicProcedure
     .input(z.object({ chatId: z.string() }))
     .query(({ input, ctx }) => {
@@ -23,6 +34,7 @@ export const codeRouter = router({
       return service.getGitDiff(input.chatId);
     }),
 
+  /** Get file content from the project */
   getFileContent: publicProcedure
     .input(z.object({ chatId: z.string(), path: z.string() }))
     .query(async ({ input, ctx }) => {

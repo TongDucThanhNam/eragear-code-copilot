@@ -1,7 +1,11 @@
 import type { SessionRepositoryPort } from "../../../shared/types/ports";
 
 export class UpdateSessionMetaService {
-  constructor(private sessionRepo: SessionRepositoryPort) {}
+  private readonly sessionRepo: SessionRepositoryPort;
+
+  constructor(sessionRepo: SessionRepositoryPort) {
+    this.sessionRepo = sessionRepo;
+  }
 
   execute(input: {
     chatId: string;

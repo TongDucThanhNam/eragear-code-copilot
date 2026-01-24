@@ -6,9 +6,9 @@ The filesystem methods allow Agents to read and write text files within the Clie
 
 ## Checking Support
 
-Before attempting to use filesystem methods, Agents **MUST** verify that the Client supports these capabilities by checking the [Client Capabilities](./initialization#client-capabilities) field in the `initialize` response:
+Before attempting to use filesystem methods, Agents **MUST** verify that the Client supports these capabilities by checking the [Client Capabilities](./acp-initialization#client-capabilities) field in the `initialize` response:
 
-```json highlight={8,9} theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 0,
@@ -30,7 +30,7 @@ If `readTextFile` or `writeTextFile` is `false` or not present, the Agent **MUST
 
 The `fs/read_text_file` method allows Agents to read text file contents from the Client's filesystem, including unsaved changes in the editor.
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 3,
@@ -62,7 +62,7 @@ The `fs/read_text_file` method allows Agents to read text file contents from the
 
 The Client responds with the file contents:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 3,
@@ -76,7 +76,7 @@ The Client responds with the file contents:
 
 The `fs/write_text_file` method allows Agents to write or update text files in the Client's filesystem.
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 4,
@@ -105,7 +105,7 @@ The `fs/write_text_file` method allows Agents to write or update text files in t
 
 The Client responds with an empty result on success:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 4,

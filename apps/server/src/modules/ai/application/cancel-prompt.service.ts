@@ -1,8 +1,46 @@
+/**
+ * Cancel Prompt Service
+ *
+ * Cancels an ongoing prompt execution in a session and resolves any pending
+ * permission requests with a cancelled outcome.
+ *
+ * @module modules/ai/application/cancel-prompt.service
+ */
+
 import type { SessionRuntimePort } from "../../../shared/types/ports";
 
+/**
+ * CancelPromptService
+ *
+ * Provides functionality to cancel an ongoing agent prompt.
+ * Cancels the ACP prompt request and resolves all pending permission
+ * requests with a "cancelled" outcome.
+ *
+ * @example
+ * ```typescript
+ * const service = new CancelPromptService(sessionRuntime);
+ * const result = await service.execute("chat-123");
+ * console.log(result.ok); // true
+ * ```
+ */
 export class CancelPromptService {
-  constructor(private sessionRuntime: SessionRuntimePort) {}
+  /** Runtime store for accessing active sessions */
+  private readonly sessionRuntime: SessionRuntimePort;
 
+  /**
+   * Creates a CancelPromptService with required dependencies
+   */
+  constructor(sessionRuntime: SessionRuntimePort) {
+    this.sessionRuntime = sessionRuntime;
+  }
+
+  /**
+   * Cancels the ongoing prompt in a session
+   *
+   * @param chatId - The chat session identifier
+   * @returns Success status object
+   * @throws Error if session is not found or not running
+   */
   async execute(chatId: string) {
     const session = this.sessionRuntime.get(chatId);
     if (!session?.sessionId) {

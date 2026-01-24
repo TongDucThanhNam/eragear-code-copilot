@@ -2,13 +2,13 @@
 
 > Advertise available slash commands to clients
 
-Agents can advertise a set of slash commands that users can invoke. These commands provide quick access to specific agent capabilities and workflows. Commands are run as part of regular [prompt](./prompt-turn) requests where the Client includes the command text in the prompt.
+Agents can advertise a set of slash commands that users can invoke. These commands provide quick access to specific agent capabilities and workflows. Commands are run as part of regular [prompt](./acp-prompt-turn) requests where the Client includes the command text in the prompt.
 
 ## Advertising commands
 
 After creating a session, the Agent **MAY** send a list of available commands via the `available_commands_update` session notification:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -75,7 +75,7 @@ The Agent can update the list of available commands at any time during a session
 
 Commands are included as regular user messages in prompt requests:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 3,

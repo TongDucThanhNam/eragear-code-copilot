@@ -1,4 +1,12 @@
-// Agent repository (JSON-backed)
+/**
+ * Agent JSON Repository
+ *
+ * JSON-backed implementation of the AgentRepositoryPort.
+ * Persists agent configurations to a local JSON file in `.eragear` directory.
+ *
+ * @module modules/agent/infra/agent.repository.json
+ */
+
 import { readJsonFile, writeJsonFile } from "../../../infra/storage/json-store";
 import type {
   AgentConfig,
@@ -7,9 +15,18 @@ import type {
 } from "../../../shared/types/agent.types";
 import type { AgentRepositoryPort } from "../../../shared/types/ports";
 
+/** Storage file name for agents data */
 const AGENTS_FILE = "agents.json";
 
+/**
+ * JSON repository for agent persistence
+ * Implements AgentRepositoryPort using local JSON file storage
+ */
 export class AgentJsonRepository implements AgentRepositoryPort {
+  /**
+   * Retrieves all agents data including active agent ID
+   * @returns Object containing agents array and active agent ID
+   */
   private getAgentsData(): {
     agents: AgentConfig[];
     activeAgentId: string | null;
@@ -32,6 +49,10 @@ export class AgentJsonRepository implements AgentRepositoryPort {
     return readJsonFile(AGENTS_FILE, fallback);
   }
 
+  /**
+   * Persists agents data to JSON file
+   * @param data - Object containing agents array and active agent ID
+   */
   private saveAgentsData(data: {
     agents: AgentConfig[];
     activeAgentId: string | null;
@@ -39,16 +60,30 @@ export class AgentJsonRepository implements AgentRepositoryPort {
     writeJsonFile(AGENTS_FILE, data);
   }
 
+  /**
+   * Finds an agent by ID
+   * @param id - Agent ID to find
+   * @returns Agent configuration or undefined if not found
+   */
   findById(id: string): AgentConfig | undefined {
     const data = this.getAgentsData();
     return data.agents.find((a) => a.id === id);
   }
 
+  /**
+   * Retrieves all agents
+   * @returns Array of all agent configurations
+   */
   findAll(): AgentConfig[] {
     const data = this.getAgentsData();
     return data.agents;
   }
 
+  /**
+   * Lists agents filtered by project
+   * @param projectId - Optional project ID to filter by (undefined returns all)
+   * @returns Array of agent configurations
+   */
   listByProject(projectId?: string | null): AgentConfig[] {
     const data = this.getAgentsData();
     if (projectId === undefined) {
@@ -57,6 +92,13 @@ export class AgentJsonRepository implements AgentRepositoryPort {
     return data.agents.filter((a) => !a.projectId || a.projectId === projectId);
   }
 
+  /**
+   * Creates a new agent
+   *
+   * @param input - Agent creation input
+   * @returns The created agent configuration
+   * @throws Error if agent name is empty
+   */
   create(input: AgentInput): AgentConfig {
     const data = this.getAgentsData();
     const name = input.name.trim();
@@ -88,6 +130,13 @@ export class AgentJsonRepository implements AgentRepositoryPort {
     return newAgent;
   }
 
+  /**
+   * Updates an existing agent
+   *
+   * @param input - Agent update input containing ID and fields to update
+   * @returns The updated agent configuration
+   * @throws Error if agent is not found
+   */
   update(input: AgentUpdateInput): AgentConfig {
     const data = this.getAgentsData();
     const index = data.agents.findIndex((a) => a.id === input.id);
@@ -116,6 +165,12 @@ export class AgentJsonRepository implements AgentRepositoryPort {
     return updated;
   }
 
+  /**
+   * Deletes an agent by ID
+   * Also updates active agent if the deleted agent was active
+   *
+   * @param id - Agent ID to delete
+   */
   delete(id: string): void {
     const data = this.getAgentsData();
     const newAgents = data.agents.filter((a) => a.id !== id);
@@ -131,6 +186,12 @@ export class AgentJsonRepository implements AgentRepositoryPort {
     });
   }
 
+  /**
+   * Sets the active agent
+   *
+   * @param id - Agent ID to set as active, or null to deactivate
+   * @throws Error if the specified agent doesn't exist
+   */
   setActive(id: string | null): void {
     const data = this.getAgentsData();
     if (id) {

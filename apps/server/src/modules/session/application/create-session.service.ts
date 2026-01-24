@@ -1,6 +1,16 @@
+/**
+ * Create Session Service
+ *
+ * Orchestrates the initialization of a new chat session with an AI agent.
+ * Handles process spawning, ACP protocol initialization, and session metadata setup.
+ *
+ * @module modules/session/application/create-session.service
+ */
+
 // CreateSessionService - orchestrates session initialization
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
+import type * as acp from "@agentclientprotocol/sdk";
 import { createSessionHandlers } from "@/infra/acp/handlers";
 import { SessionBuffering } from "@/infra/acp/update";
 import { CLIENT_INFO } from "../../../config/constants";
@@ -14,73 +24,134 @@ import type {
   ChatSession,
   StoredMessage,
 } from "../../../shared/types/session.types";
+import type {
+  McpHttpServerConfig,
+  McpServerConfig,
+  McpSseServerConfig,
+  McpStdioServerConfig,
+} from "../../../shared/types/settings.types";
 
+/**
+ * Parameters for creating a new session
+ */
 export interface CreateSessionParams {
+  /** Optional project ID this session belongs to */
   projectId?: string;
+  /** File system path to the project root directory */
   projectRoot: string;
+  /** Command to spawn the agent process (defaults to "opencode") */
   command?: string;
+  /** Arguments to pass to the agent command */
   args?: string[];
+  /** Environment variables for the agent process */
   env?: Record<string, string>;
+  /** Optional predefined chat ID */
   chatId?: string;
+  /** Session ID to load (for resuming existing sessions) */
   sessionIdToLoad?: string;
 }
 
+/**
+ * CreateSessionService
+ *
+ * Core service for establishing new chat sessions with AI agents.
+ * Coordinates between the ACP protocol, session repository, and agent runtime.
+ *
+ * Responsibilities:
+ * - Spawning the agent process with appropriate environment
+ * - Initializing ACP protocol connection
+ * - Handling session creation vs session loading
+ * - Configuring MCP servers
+ * - Saving session metadata to persistent storage
+ */
 export class CreateSessionService {
+  /** Repository for session persistence */
+  private readonly sessionRepo: SessionRepositoryPort;
+  /** Runtime store for active sessions */
+  private readonly sessionRuntime: SessionRuntimePort;
+  /** Agent process runtime for spawning and managing processes */
+  private readonly agentRuntime: AgentRuntimePort;
+  /** Repository for application settings including MCP servers */
+  private readonly settingsRepo: SettingsRepositoryPort;
+
+  /**
+   * Creates a CreateSessionService with required dependencies
+   */
   constructor(
-    private sessionRepo: SessionRepositoryPort,
-    private sessionRuntime: SessionRuntimePort,
-    private agentRuntime: AgentRuntimePort,
-    private settingsRepo: SettingsRepositoryPort
-  ) {}
+    sessionRepo: SessionRepositoryPort,
+    sessionRuntime: SessionRuntimePort,
+    agentRuntime: AgentRuntimePort,
+    settingsRepo: SettingsRepositoryPort
+  ) {
+    this.sessionRepo = sessionRepo;
+    this.sessionRuntime = sessionRuntime;
+    this.agentRuntime = agentRuntime;
+    this.settingsRepo = settingsRepo;
+  }
 
-  async execute(params: CreateSessionParams): Promise<ChatSession> {
-    const chatId = params.chatId ?? crypto.randomUUID();
-    const agentCmd = params.command ?? "opencode";
-    const agentArgs = params.args ?? ["acp"];
-    const agentEnv = params.env ?? {};
-    const projectRoot = this.resolveProjectRoot(params.projectRoot);
-
-    // Spawn process
-    const proc = this.agentRuntime.spawn(agentCmd, agentArgs, {
-      cwd: projectRoot,
-      env: agentEnv,
+  /**
+   * Converts internal MCP server configurations to ACP format
+   *
+   * @param mcpServers - Array of internal MCP server configurations
+   * @returns Array of ACP-formatted MCP server objects
+   */
+  private convertMcpServersToAcpFormat(
+    mcpServers: McpServerConfig[]
+  ): acp.McpServer[] {
+    return mcpServers.map((server) => {
+      if (this.isHttpServer(server)) {
+        const httpServer = server as McpHttpServerConfig;
+        return {
+          type: "http" as const,
+          name: httpServer.name,
+          url: httpServer.url,
+          headers: httpServer.headers,
+        } as acp.McpServer;
+      }
+      if (this.isSseServer(server)) {
+        const sseServer = server as McpSseServerConfig;
+        return {
+          type: "sse" as const,
+          name: sseServer.name,
+          url: sseServer.url,
+          headers: sseServer.headers,
+        } as acp.McpServer;
+      }
+      // Stdio server
+      const stdioServer = server as McpStdioServerConfig;
+      return {
+        name: stdioServer.name,
+        command: stdioServer.command,
+        args: stdioServer.args,
+        env: stdioServer.env,
+      } as acp.McpServer;
     });
+  }
 
-    const buffer = new SessionBuffering();
-    let isReplayingHistory = false;
+  /**
+   * Type guard for HTTP MCP servers
+   */
+  private isHttpServer(server: McpServerConfig): server is McpHttpServerConfig {
+    return "type" in server && server.type === "http";
+  }
 
-    // Create runtime session
-    const chatSession: ChatSession = {
-      id: chatId,
-      proc,
-      conn: null as any,
-      projectId: params.projectId,
-      projectRoot,
-      sessionId: params.sessionIdToLoad,
-      emitter: new EventEmitter(),
-      cwd: projectRoot,
-      subscriberCount: 0,
-      messageBuffer: [],
-      pendingPermissions: new Map(),
-      terminals: new Map(),
-      buffer,
-    };
+  /**
+   * Type guard for SSE MCP servers
+   */
+  private isSseServer(server: McpServerConfig): server is McpSseServerConfig {
+    return "type" in server && server.type === "sse";
+  }
 
-    // Store in runtime before ACP hooks
-    this.sessionRuntime.set(chatId, chatSession);
-
-    const handlers = createSessionHandlers({
-      chatId,
-      buffer,
-      getIsReplaying: () => isReplayingHistory,
-      sessionRuntime: this.sessionRuntime,
-      sessionRepo: this.sessionRepo,
-    });
-
-    const conn = this.agentRuntime.createAcpConnection(proc, handlers);
-    chatSession.conn = conn;
-
-    const initResult = await conn.initialize({
+  /**
+   * Initializes the ACP protocol connection with the agent
+   *
+   * @param chatSession - The session being initialized
+   * @param chatId - The chat session identifier
+   * @returns Agent capabilities from the initialization response
+   * @throws Error if protocol version mismatch
+   */
+  private async initializeConnection(chatSession: ChatSession, chatId: string) {
+    const initResult = await chatSession.conn.initialize({
       protocolVersion: 1,
       clientInfo: CLIENT_INFO,
       clientCapabilities: {
@@ -89,60 +160,138 @@ export class CreateSessionService {
       },
     });
 
+    if (initResult.protocolVersion !== 1) {
+      this.sessionRuntime.delete(chatId);
+      chatSession.proc.kill();
+      throw new Error(
+        `Agent protocol version mismatch: ${initResult.protocolVersion}`
+      );
+    }
+
     const agentCapabilities = initResult?.agentCapabilities;
     chatSession.promptCapabilities =
       agentCapabilities?.promptCapabilities ?? {};
     chatSession.loadSessionSupported = Boolean(agentCapabilities?.loadSession);
-    chatSession.agentInfo = initResult?.agentInfo ?? undefined;
-
-    if (params.sessionIdToLoad && !chatSession.loadSessionSupported) {
-      proc.kill();
-      throw new Error("Agent does not support session/load");
-    }
-
-    if (params.sessionIdToLoad) {
-      try {
-        isReplayingHistory = true;
-        const loadResult = await conn.loadSession({
-          sessionId: params.sessionIdToLoad,
-          cwd: projectRoot,
-          mcpServers: [],
-        });
-        isReplayingHistory = false;
-        chatSession.modes = loadResult.modes ?? undefined;
-        chatSession.models = loadResult.models ?? undefined;
-
-        if (buffer.replayEventCount === 0) {
-          this.replayStoredMessages(chatId);
-          this.sessionRuntime.broadcast(chatId, {
-            type: "session_update",
-            update: { sessionUpdate: "prompt_end" },
-          });
-        } else {
-          this.sessionRuntime.broadcast(chatId, {
-            type: "session_update",
-            update: { sessionUpdate: "prompt_end" },
-          });
+    chatSession.agentInfo = initResult?.agentInfo
+      ? {
+          name: initResult.agentInfo.name,
+          title: initResult.agentInfo.title ?? undefined,
+          version: initResult.agentInfo.version,
         }
-      } catch (err) {
-        isReplayingHistory = false;
-        this.sessionRuntime.delete(chatId);
-        proc.kill();
-        throw err;
-      }
-    } else {
-      const newResult = await conn.newSession({
+      : undefined;
+
+    return agentCapabilities;
+  }
+
+  /**
+   * Handles loading an existing session from the agent
+   *
+   * @param chatSession - The session being loaded
+   * @param chatId - The chat session identifier
+   * @param params - Session creation parameters
+   * @param projectRoot - Project root directory
+   * @param buffer - Session buffering state
+   * @param mcpServers - Configured MCP servers
+   */
+  private async handleSessionLoad(
+    chatSession: ChatSession,
+    chatId: string,
+    params: CreateSessionParams,
+    projectRoot: string,
+    buffer: SessionBuffering,
+    mcpServers: McpServerConfig[]
+  ) {
+    try {
+      const loadResult = await chatSession.conn.loadSession({
+        sessionId: params.sessionIdToLoad ?? "",
         cwd: projectRoot,
-        mcpServers: [],
+        mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
       });
-      chatSession.sessionId = newResult.sessionId;
-      chatSession.modes = newResult.modes ?? undefined;
-      chatSession.models = newResult.models ?? undefined;
-      this.sessionRuntime.set(chatId, chatSession);
+      chatSession.modes = loadResult.modes ?? undefined;
+      chatSession.models = loadResult.models ?? undefined;
+
+      const currentModeId = chatSession.modes?.currentModeId;
+      if (currentModeId) {
+        this.sessionRuntime.broadcast(chatId, {
+          type: "current_mode_update",
+          modeId: currentModeId,
+        });
+      }
+
+      this.broadcastPromptEnd(chatId, buffer);
+    } catch (err) {
+      this.sessionRuntime.delete(chatId);
+      chatSession.proc.kill();
+      throw err;
     }
+  }
 
-    this.attachProcessHandlers(proc, chatId);
+  /**
+   * Handles creating a new session with the agent
+   *
+   * @param chatSession - The session being created
+   * @param chatId - The chat session identifier
+   * @param projectRoot - Project root directory
+   * @param mcpServers - Configured MCP servers
+   */
+  private async handleNewSession(
+    chatSession: ChatSession,
+    chatId: string,
+    projectRoot: string,
+    mcpServers: McpServerConfig[]
+  ) {
+    const newResult = await chatSession.conn.newSession({
+      cwd: projectRoot,
+      mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
+    });
+    chatSession.sessionId = newResult.sessionId;
+    chatSession.modes = newResult.modes ?? undefined;
+    chatSession.models = newResult.models ?? undefined;
+    if (chatSession.modes?.currentModeId) {
+      this.sessionRuntime.broadcast(chatId, {
+        type: "current_mode_update",
+        modeId: chatSession.modes.currentModeId,
+      });
+    }
+    this.sessionRuntime.set(chatId, chatSession);
+  }
 
+  /**
+   * Broadcasts prompt end and replays stored messages if needed
+   *
+   * @param chatId - The chat session identifier
+   * @param buffer - Session buffering state
+   */
+  private broadcastPromptEnd(chatId: string, buffer: SessionBuffering) {
+    if (buffer.replayEventCount === 0) {
+      this.replayStoredMessages(chatId);
+    }
+    this.sessionRuntime.broadcast(chatId, {
+      type: "session_update",
+      update: { sessionUpdate: "prompt_end" },
+    });
+  }
+
+  /**
+   * Saves session metadata to the repository
+   *
+   * @param chatId - The chat session identifier
+   * @param params - Session creation parameters
+   * @param chatSession - The session object
+   * @param agentCmd - Agent command
+   * @param agentArgs - Agent arguments
+   * @param agentEnv - Agent environment variables
+   * @param projectRoot - Project root directory
+   */
+  private saveSessionMetadata(
+    chatId: string,
+    params: CreateSessionParams,
+    chatSession: ChatSession,
+    agentCmd: string,
+    agentArgs: string[],
+    agentEnv: Record<string, string>,
+    projectRoot: string
+  ) {
     const commonSessionData = {
       projectId: params.projectId,
       projectRoot,
@@ -174,10 +323,122 @@ export class CreateSessionService {
         messages: [],
       });
     }
+  }
+
+  /**
+   * Executes the session creation process
+   *
+   * @param params - Session creation parameters
+   * @returns The created ChatSession
+   * @throws Error if agent doesn't support required features or MCP transport
+   */
+  async execute(params: CreateSessionParams): Promise<ChatSession> {
+    const chatId = params.chatId ?? crypto.randomUUID();
+    const agentCmd = params.command ?? "opencode";
+    const agentArgs = params.args ?? ["acp"];
+    const agentEnv = params.env ?? {};
+    const projectRoot = this.resolveProjectRoot(params.projectRoot);
+
+    // Spawn process
+    const proc = this.agentRuntime.spawn(agentCmd, agentArgs, {
+      cwd: projectRoot,
+      env: agentEnv,
+    });
+
+    const buffer = new SessionBuffering();
+    const storedPlan = params.chatId
+      ? this.sessionRepo.findById(chatId)?.plan
+      : undefined;
+
+    // Create runtime session
+    const chatSession: ChatSession = {
+      id: chatId,
+      proc,
+      conn: null as unknown as ChatSession["conn"],
+      projectId: params.projectId,
+      projectRoot,
+      sessionId: params.sessionIdToLoad,
+      plan: storedPlan,
+      emitter: new EventEmitter(),
+      cwd: projectRoot,
+      subscriberCount: 0,
+      messageBuffer: [],
+      pendingPermissions: new Map(),
+      toolCalls: new Map(),
+      terminals: new Map(),
+      buffer,
+    };
+
+    // Store in runtime before ACP hooks
+    this.sessionRuntime.set(chatId, chatSession);
+
+    if (chatSession.plan) {
+      this.sessionRuntime.broadcast(chatId, {
+        type: "plan_update",
+        plan: chatSession.plan,
+      });
+    }
+
+    const handlers = createSessionHandlers({
+      chatId,
+      buffer,
+      getIsReplaying: () => false,
+      sessionRuntime: this.sessionRuntime,
+      sessionRepo: this.sessionRepo,
+    });
+
+    const conn = this.agentRuntime.createAcpConnection(
+      proc,
+      handlers as acp.Client
+    );
+    chatSession.conn = conn;
+
+    const agentCapabilities = await this.initializeConnection(
+      chatSession,
+      chatId
+    );
+
+    if (params.sessionIdToLoad && !chatSession.loadSessionSupported) {
+      this.sessionRuntime.delete(chatId);
+      proc.kill();
+      throw new Error("Agent does not support session/load");
+    }
+
+    const mcpServers = this.resolveMcpServers(agentCapabilities);
+
+    if (params.sessionIdToLoad) {
+      await this.handleSessionLoad(
+        chatSession,
+        chatId,
+        params,
+        projectRoot,
+        buffer,
+        mcpServers
+      );
+    } else {
+      await this.handleNewSession(chatSession, chatId, projectRoot, mcpServers);
+    }
+
+    this.attachProcessHandlers(proc, chatId);
+    this.saveSessionMetadata(
+      chatId,
+      params,
+      chatSession,
+      agentCmd,
+      agentArgs,
+      agentEnv,
+      projectRoot
+    );
 
     return chatSession;
   }
 
+  /**
+   * Resolves the project root, validating against allowed roots
+   *
+   * @param projectRoot - The requested project root
+   * @returns The validated project root
+   */
   private resolveProjectRoot(projectRoot: string): string {
     const { projectRoots } = this.settingsRepo.get();
     if (!projectRoots || projectRoots.length === 0) {
@@ -186,6 +447,52 @@ export class CreateSessionService {
     return projectRoot;
   }
 
+  /**
+   * Resolves MCP servers, filtering out unsupported transports
+   *
+   * @param agentCapabilities - Agent's reported capabilities
+   * @returns Array of MCP servers compatible with the agent
+   * @throws Error if agent doesn't support required MCP transports
+   */
+  private resolveMcpServers(agentCapabilities?: {
+    mcpCapabilities?: { http?: boolean; sse?: boolean };
+    mcp?: { http?: boolean; sse?: boolean };
+  }): McpServerConfig[] {
+    const { mcpServers } = this.settingsRepo.get();
+    if (!mcpServers || mcpServers.length === 0) {
+      return [];
+    }
+
+    const mcpCaps =
+      agentCapabilities?.mcpCapabilities ?? agentCapabilities?.mcp;
+    const httpSupported = Boolean(mcpCaps?.http);
+    const sseSupported = Boolean(mcpCaps?.sse);
+    const blocked = mcpServers.filter((server) => {
+      if (this.isHttpServer(server)) {
+        return !httpSupported;
+      }
+      if (this.isSseServer(server)) {
+        return !sseSupported;
+      }
+      return false;
+    });
+
+    if (blocked.length > 0) {
+      const blockedNames = blocked.map((server) => server.name).join(", ");
+      throw new Error(
+        `Agent does not support MCP transports for: ${blockedNames}`
+      );
+    }
+
+    return mcpServers;
+  }
+
+  /**
+   * Attaches process event handlers for error and exit events
+   *
+   * @param proc - The spawned agent process
+   * @param chatId - The chat session identifier
+   */
   private attachProcessHandlers(
     proc: ReturnType<typeof this.agentRuntime.spawn>,
     chatId: string
@@ -223,6 +530,11 @@ export class CreateSessionService {
     });
   }
 
+  /**
+   * Replays stored messages from the repository
+   *
+   * @param chatId - The chat session identifier
+   */
   private replayStoredMessages(chatId: string) {
     const storedMessages = this.sessionRepo.getMessages(chatId);
     if (storedMessages.length === 0) {
@@ -239,6 +551,12 @@ export class CreateSessionService {
     }
   }
 
+  /**
+   * Broadcasts a stored message to the session
+   *
+   * @param chatId - The chat session identifier
+   * @param message - The stored message to broadcast
+   */
   private broadcastStoredMessage(chatId: string, message: StoredMessage) {
     if (message.role === "user") {
       if (!message.content) {

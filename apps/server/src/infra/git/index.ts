@@ -1,4 +1,13 @@
-// Git adapter for code processing
+/**
+ * Git Adapter
+ *
+ * Implements git operations for code context and project analysis.
+ * Provides methods for getting project context, diffs, and reading files.
+ * Falls back to filesystem scanning when git is unavailable.
+ *
+ * @module infra/git
+ */
+
 import { exec } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, normalize, relative } from "node:path";
@@ -6,8 +15,18 @@ import { promisify } from "node:util";
 import type { GitPort } from "../../shared/types/ports";
 
 const execAsync = promisify(exec);
+/** Regex to prevent path traversal attacks */
 const PATHTraversal_REGEX = /^(\.\.(\/|\\|$))+/;
 
+/**
+ * Recursively scans a directory for files
+ *
+ * @param dir - Current directory to scan
+ * @param base - Base directory for relative paths
+ * @param depth - Current recursion depth
+ * @param files - Array to collect file paths
+ * @param projectRules - Array to collect .mdc rule files
+ */
 async function scanDirRecursive(
   dir: string,
   base: string,
@@ -46,19 +65,30 @@ async function scanDirRecursive(
   }
 }
 
+/**
+ * GitAdapter - Implements git operations for project context
+ */
 export class GitAdapter implements GitPort {
+  /**
+   * Gets project context including tracked files, project rules, and active tabs
+   *
+   * @param scanRoot - The root directory to scan
+   * @returns Project context object with files, rules, and active tabs
+   */
   async getProjectContext(scanRoot: string) {
     const projectRules: { path: string; location: string }[] = [];
     const activeTabs: { path: string }[] = [];
     let files: string[] = [];
 
     try {
+      // Try git ls-files first for tracked files
       const { stdout } = await execAsync("git ls-files", {
         cwd: scanRoot,
         maxBuffer: 10 * 1024 * 1024,
       });
       files = stdout.split("\n").filter((f) => f.trim().length > 0);
 
+      // Find .mdc project rule files
       for (const filePath of files) {
         if (filePath.endsWith(".mdc")) {
           projectRules.push({
@@ -72,6 +102,7 @@ export class GitAdapter implements GitPort {
         "[GitAdapter] git ls-files failed, falling back to fs scan",
         error
       );
+      // Fallback to filesystem scan if git is not available
       await scanDirRecursive(scanRoot, scanRoot, 0, files, projectRules);
     }
 
@@ -82,10 +113,18 @@ export class GitAdapter implements GitPort {
     };
   }
 
+  /**
+   * Gets the current git diff including staged, unstaged, and untracked files
+   *
+   * @param projectRoot - The project root directory
+   * @returns Combined diff as a string
+   * @throws Error if git operations fail
+   */
   async getDiff(projectRoot: string): Promise<string> {
     try {
       let combinedPatch = "";
 
+      // Get diff for tracked changes
       try {
         const { stdout } = await execAsync("git diff HEAD", {
           cwd: projectRoot,
@@ -95,6 +134,7 @@ export class GitAdapter implements GitPort {
         // Ignore missing HEAD
       }
 
+      // Get diff for untracked files
       const { stdout: untrackedFilesOutput } = await execAsync(
         "git ls-files --others --exclude-standard",
         { cwd: projectRoot }
@@ -124,6 +164,14 @@ export class GitAdapter implements GitPort {
     }
   }
 
+  /**
+   * Reads a file within the project root with path traversal protection
+   *
+   * @param projectRoot - The project root directory
+   * @param relativePath - The relative path to the file
+   * @returns The file contents as a string
+   * @throws Error if path is outside project root or file cannot be read
+   */
   async readFileWithinRoot(
     projectRoot: string,
     relativePath: string

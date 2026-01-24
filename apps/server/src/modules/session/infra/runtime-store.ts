@@ -1,5 +1,13 @@
-// Session runtime store - in-memory storage for active sessions
+/**
+ * Session Runtime Store
+ *
+ * In-memory storage for active session runtimes.
+ * Manages active sessions with event buffering, broadcasting, and cleanup.
+ *
+ * @module modules/session/infra/runtime-store
+ */
 
+import { ENV } from "../../../config/environment";
 import type {
   EventBusPort,
   SessionRuntimePort,
@@ -9,34 +17,91 @@ import type {
   ChatSession,
 } from "../../../shared/types/session.types";
 
+/**
+ * SessionRuntimeStore
+ *
+ * In-memory implementation of SessionRuntimePort.
+ * Stores active session runtimes, buffers messages, and handles broadcasting.
+ *
+ * @example
+ * ```typescript
+ * const store = new SessionRuntimeStore(eventBus);
+ *
+ * store.set(chatId, session);
+ * const session = store.get(chatId);
+ * store.broadcast(chatId, { type: "message", ... });
+ * ```
+ */
 export class SessionRuntimeStore implements SessionRuntimePort {
-  private sessions = new Map<string, ChatSession>();
-  private eventBus: EventBusPort;
+  /** In-memory session storage keyed by chat ID */
+  private readonly sessions = new Map<string, ChatSession>();
+  /** Event bus for publishing broadcast events */
+  private readonly eventBus: EventBusPort;
 
+  /**
+   * Creates a SessionRuntimeStore with the event bus dependency
+   */
   constructor(eventBus: EventBusPort) {
     this.eventBus = eventBus;
   }
 
+  /**
+   * Stores a session in the runtime
+   *
+   * @param chatId - The session identifier
+   * @param session - The session runtime object
+   */
   set(chatId: string, session: ChatSession): void {
     this.sessions.set(chatId, session);
   }
 
+  /**
+   * Retrieves a session from the runtime
+   *
+   * @param chatId - The session identifier
+   * @returns The session or undefined if not found
+   */
   get(chatId: string): ChatSession | undefined {
     return this.sessions.get(chatId);
   }
 
+  /**
+   * Removes a session from the runtime
+   *
+   * @param chatId - The session identifier
+   */
   delete(chatId: string): void {
     this.sessions.delete(chatId);
   }
 
+  /**
+   * Checks if a session exists in the runtime
+   *
+   * @param chatId - The session identifier
+   * @returns True if session exists
+   */
   has(chatId: string): boolean {
     return this.sessions.has(chatId);
   }
 
+  /**
+   * Gets all active sessions
+   *
+   * @returns Array of all session runtimes
+   */
   getAll(): ChatSession[] {
     return Array.from(this.sessions.values());
   }
 
+  /**
+   * Broadcasts an event to a session's subscribers
+   *
+   * Buffers the event, emits to local subscribers, and publishes to the event bus.
+   * Maintains a circular buffer of recent events (limit: ENV.sessionBufferLimit).
+   *
+   * @param chatId - The session identifier
+   * @param event - The broadcast event
+   */
   broadcast(chatId: string, event: BroadcastEvent): void {
     const session = this.sessions.get(chatId);
     if (!session) {
@@ -45,6 +110,12 @@ export class SessionRuntimeStore implements SessionRuntimePort {
 
     // Buffer the event
     session.messageBuffer.push(event);
+    if (session.messageBuffer.length > ENV.sessionBufferLimit) {
+      session.messageBuffer.splice(
+        0,
+        session.messageBuffer.length - ENV.sessionBufferLimit
+      );
+    }
 
     // Emit to subscribers
     session.emitter.emit("data", event);

@@ -6,9 +6,9 @@ Content blocks represent displayable information that flows through the Agent Cl
 
 Content blocks appear in:
 
-* User prompts sent via [`session/prompt`](./prompt-turn#1-user-message)
-* Language model output streamed through [`session/update`](./prompt-turn#3-agent-reports-output) notifications
-* Progress updates and results from [tool calls](./tool-calls)
+* User prompts sent via [`session/prompt`](./acp-prompt-turn#1-user-message)
+* Language model output streamed through [`session/update`](./acp-prompt-turn#3-agent-reports-output) notifications
+* Progress updates and results from [tool calls](./acp-tool-calls)
 
 ## Content Types
 
@@ -20,7 +20,7 @@ This design choice enables Agents to seamlessly forward content from MCP tool ou
 
 Plain text messages form the foundation of most interactions.
 
-```json  theme={null}
+```json
 {
   "type": "text",
   "text": "What's the weather like today?"
@@ -42,7 +42,7 @@ All Agents **MUST** support text content blocks when included in prompts.
 
 Images can be included for visual context or analysis.
 
-```json  theme={null}
+```json
 {
   "type": "image",
   "mimeType": "image/png",
@@ -161,7 +161,7 @@ capability](./initialization#prompt-capabilities) when included in prompts.
 
 References to resources that the Agent can access.
 
-```json  theme={null}
+```json
 {
   "type": "resource_link",
   "uri": "file:///home/user/document.pdf",
