@@ -80,6 +80,15 @@ export class AgentJsonRepository implements AgentRepositoryPort {
   }
 
   /**
+   * Gets the active agent ID
+   * @returns Active agent ID or null if none is set
+   */
+  getActiveId(): string | null {
+    const data = this.getAgentsData();
+    return data.activeAgentId;
+  }
+
+  /**
    * Lists agents filtered by project
    * @param projectId - Optional project ID to filter by (undefined returns all)
    * @returns Array of agent configurations

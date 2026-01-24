@@ -32,7 +32,10 @@ export class AgentService {
    * @returns Array of agent configurations
    */
   listAgents(projectId?: string | null) {
-    return this.agentRepo.listByProject(projectId);
+    return {
+      agents: this.agentRepo.listByProject(projectId),
+      activeAgentId: this.agentRepo.getActiveId(),
+    };
   }
 
   /**

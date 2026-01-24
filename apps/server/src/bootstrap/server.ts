@@ -8,21 +8,17 @@
  * @module bootstrap/server
  */
 
-import { createServer } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getRequestListener } from "@hono/node-server";
-import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { logger } from "hono/logger";
-import type { WebSocket } from "ws";
-import { WebSocketServer } from "ws";
 import { ENV } from "../config/environment";
 import { ConfigPage } from "../shared/config/ui";
 import { registerHttpRoutes } from "../transport/http/routes";
 import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
+import { createBunTrpcWsHandler } from "../transport/trpc/bun-ws";
 import { getContainer, initializeContainer } from "./container";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -79,78 +75,41 @@ export function createApp() {
  */
 export async function startServer() {
   const app = createApp();
-
-  // Create HTTP + WebSocket server
-  const server = createServer(getRequestListener(app.fetch));
-
-  // Setup WebSocket for tRPC
-  const wss = new WebSocketServer({ noServer: true });
-  const handler = applyWSSHandler({
-    wss,
+  const wsHandler = createBunTrpcWsHandler({
     router: appRouter,
     createContext: createTrpcContext,
+    keepAliveMs: ENV.wsHeartbeatIntervalMs,
   });
 
-  // Handle WebSocket upgrades
-  server.on("upgrade", (req, socket, head) => {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, req);
-    });
-  });
-
-  /**
-   * Marks a WebSocket connection as alive (for heartbeat)
-   */
-  const markAlive = (socket: WebSocket & { isAlive?: boolean }) => {
-    socket.isAlive = true;
-  };
-
-  wss.on("connection", (ws, req) => {
-    console.log("[Server] WS connection", req?.url);
-    markAlive(ws);
-
-    ws.on("pong", () => {
-      markAlive(ws);
-    });
-
-    ws.on("close", (code, reason) => {
-      console.log("[Server] WS closed", code, reason.toString());
-    });
-    ws.on("error", (err) => {
-      console.error("[Server] WS error", err);
-    });
-  });
-
-  // Heartbeat interval to detect dead connections
-  const heartbeatInterval = setInterval(() => {
-    for (const ws of wss.clients) {
-      const socket = ws as WebSocket & { isAlive?: boolean };
-      if (socket.isAlive === false) {
-        socket.terminate();
-        continue;
+  // Start HTTP + WebSocket server (Bun-native)
+  const server = Bun.serve({
+    hostname: ENV.wsHost,
+    port: ENV.wsPort,
+    fetch(req, serverInstance) {
+      const upgradeHeader = req.headers.get("upgrade");
+      if (upgradeHeader?.toLowerCase() === "websocket") {
+        if (wsHandler.tryUpgrade(req, serverInstance)) {
+          return;
+        }
+        return new Response("Upgrade failed", { status: 400 });
       }
-
-      socket.isAlive = false;
-      socket.ping();
-    }
-  }, ENV.wsHeartbeatIntervalMs);
-
-  // Start server
-  server.listen(ENV.wsPort, ENV.wsHost, () => {
-    console.log(
-      `[Server] HTTP UI + WebSocket running on http://${ENV.wsHost}:${ENV.wsPort}`
-    );
+      return app.fetch(req);
+    },
+    websocket: wsHandler.websocket,
   });
+
+  console.log(
+    `[Server] HTTP UI + WebSocket running on http://${ENV.wsHost}:${ENV.wsPort}`
+  );
 
   // Graceful shutdown
   process.on("SIGTERM", () => {
-    handler.broadcastReconnectNotification();
-    clearInterval(heartbeatInterval);
-    wss.close();
-    server.close();
+    wsHandler.broadcastReconnectNotification();
+    wsHandler.stop();
+    server.stop();
   });
 
-  return await { server, wss, handler };
+  return await { server, wsHandler };
 }
 
 // Start server if run directly

@@ -40,6 +40,9 @@ export function createAcpConnectionAdapter(
 
   return new ClientSideConnection(
     () => handlers,
-    ndJsonStream(Writable.toWeb(proc.stdin), Readable.toWeb(proc.stdout))
+    ndJsonStream(
+      Writable.toWeb(proc.stdin) as unknown as WritableStream<Uint8Array>,
+      Readable.toWeb(proc.stdout) as unknown as ReadableStream<Uint8Array>
+    )
   );
 }

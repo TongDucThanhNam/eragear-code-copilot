@@ -1,7 +1,13 @@
 "use client";
 
-import { LogOut, Play, Radio, RefreshCw } from "lucide-react";
+import { Info, LogOut, Play, Radio, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { SidebarTrigger } from "../ui/sidebar";
 
 export interface AgentModel {
@@ -20,6 +26,10 @@ export interface ChatHeaderProps {
   onNewChat: (agentId: string) => void;
   onResumeChat?: () => void;
   isResuming?: boolean;
+  /** True when agent doesn't support session resume */
+  resumeNotSupported?: boolean;
+  /** Agent info from the current session (preferred for display) */
+  sessionAgentInfo?: { name: string; title?: string; version: string } | null;
 }
 
 export function ChatHeader({
@@ -31,9 +41,17 @@ export function ChatHeader({
   onNewChat,
   onResumeChat,
   isResuming,
+  resumeNotSupported,
+  sessionAgentInfo,
 }: ChatHeaderProps) {
   const activeAgent = agentModels.find((a) => a.id === activeAgentId);
-  const agentName = activeAgent?.name || activeAgentId || "No Agent";
+  // Prefer session agent info (from actual agent) over activeAgentId lookup
+  const agentName =
+    sessionAgentInfo?.title ||
+    sessionAgentInfo?.name ||
+    activeAgent?.name ||
+    activeAgentId ||
+    "No Agent";
 
   return (
     <div className="flex shrink-0 items-center justify-between bg-background/50 px-4 py-2 backdrop-blur-sm">
@@ -102,6 +120,24 @@ export function ChatHeader({
             )}
             {isResuming ? "Resuming..." : "Resume Agent"}
           </Button>
+        )}
+        {connStatus === "idle" && !onResumeChat && resumeNotSupported && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+                  <Info className="h-3.5 w-3.5" />
+                  <span>Read-only</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>This agent does not support session resume.</p>
+                <p className="text-muted-foreground text-xs">
+                  Start a new chat to interact with the agent.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
       </div>
     </div>

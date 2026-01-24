@@ -59,6 +59,7 @@ export class GetSessionStateService {
         commands: session.commands,
         promptCapabilities: session.promptCapabilities,
         loadSessionSupported: session.loadSessionSupported,
+        agentInfo: session.agentInfo ?? null,
         plan: session.plan ?? null,
       };
     }
@@ -72,6 +73,7 @@ export class GetSessionStateService {
         commands: stored.commands ?? null,
         promptCapabilities: null,
         loadSessionSupported: stored.loadSessionSupported,
+        agentInfo: stored.agentInfo ?? null,
         plan: stored.plan ?? null,
       };
     }

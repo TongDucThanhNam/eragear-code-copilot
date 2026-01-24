@@ -194,6 +194,8 @@ export interface StoredSession {
   cwd?: string;
   /** Whether load session is supported */
   loadSessionSupported?: boolean;
+  /** Whether to use unstable_resumeSession instead of loadSession */
+  useUnstableResume?: boolean;
   /** Agent metadata */
   agentInfo?: DomainAgentInfo;
   /** Current session status */
@@ -216,6 +218,10 @@ export interface StoredSession {
   plan?: Plan;
   /** Available commands */
   commands?: AvailableCommand[];
+  /** Full agent capabilities from initialize response */
+  agentCapabilities?: Record<string, unknown>;
+  /** Authentication methods supported by the agent */
+  authMethods?: Array<{ name: string; id: string; description: string }>;
 }
 
 // ============================================================================
@@ -240,6 +246,8 @@ export interface ChatSession {
   sessionId?: string;
   /** Whether load session is supported */
   loadSessionSupported?: boolean;
+  /** Whether to use unstable_resumeSession instead of loadSession */
+  useUnstableResume?: boolean;
   /** Current mode state */
   modes?: SessionModeState;
   /** Current model state */
@@ -273,6 +281,10 @@ export interface ChatSession {
   terminals: Map<string, unknown>;
   /** Message buffer for streaming */
   buffer?: SessionBuffer;
+  /** Full agent capabilities from initialize response */
+  agentCapabilities?: Record<string, unknown>;
+  /** Authentication methods supported by the agent */
+  authMethods?: Array<{ name: string; id: string; description: string }>;
 }
 
 /**
@@ -285,12 +297,16 @@ export interface TerminalState {
   process: ChildProcess;
   /** Output buffer */
   outputBuffer: string;
+  /** Output buffer bytes for accurate byte-limit truncation */
+  outputBufferBytes?: Buffer;
   /** Optional byte limit for output */
   outputByteLimit?: number;
   /** Whether output was truncated */
   truncated?: boolean;
   /** Exit status, if available */
   exitStatus?: { exitCode: number | null; signal: string | null };
+  /** Optional kill timer for enforcing terminal timeouts */
+  killTimer?: ReturnType<typeof setTimeout>;
   /** Promise resolvers for exit status */
   resolveExit: ((status: {
     exitCode: number | null;

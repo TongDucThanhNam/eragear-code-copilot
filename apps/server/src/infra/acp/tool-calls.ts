@@ -14,6 +14,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import { createId } from "@/shared/utils/id.util";
 import { fileUriToPath } from "@/shared/utils/path.util";
+import { ENV } from "../../config/environment";
 import type { SessionRuntimePort } from "../../shared/types/ports";
 import type {
   ChatSession,
@@ -22,6 +23,40 @@ import type {
 
 /** Regex for splitting text into lines across platforms */
 const LINE_SPLITTER_REGEX = /\r?\n/;
+
+/**
+ * Checks whether a command is allowed based on an allowlist.
+ * Empty allowlist means allow all commands.
+ */
+function isCommandAllowed(command: string, allowlist: string[]) {
+  if (allowlist.length === 0) {
+    return true;
+  }
+  const normalized = command.trim();
+  const base = path.basename(normalized);
+  return allowlist.includes(normalized) || allowlist.includes(base);
+}
+
+/**
+ * Filters environment variables by allowlist.
+ * Empty allowlist means allow all variables.
+ */
+function filterEnvAllowlist(
+  env: Record<string, string>,
+  allowlist: string[]
+) {
+  if (allowlist.length === 0) {
+    return env;
+  }
+  const allowed = new Set(allowlist);
+  const filtered: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (allowed.has(key)) {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
 
 /**
  * Normalizes the output limit value, handling bigint, number, and null/undefined cases
@@ -221,13 +256,23 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       params.outputByteLimit ?? null
     );
 
+    if (!isCommandAllowed(params.command, ENV.allowedTerminalCommands)) {
+      throw RequestError.invalidParams(
+        { command: params.command },
+        "Command not allowed"
+      );
+    }
+
+    const mergedEnv = {
+      ...process.env,
+      ...envArrayToRecord(params.env ?? null),
+    } as Record<string, string>;
+    const filteredEnv = filterEnvAllowlist(mergedEnv, ENV.allowedEnvKeys);
+
     // Spawn the terminal process
     const termProc = spawn(params.command, params.args ?? [], {
       cwd: allowedCwd,
-      env: {
-        ...process.env,
-        ...envArrayToRecord(params.env ?? null),
-      },
+      env: filteredEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -236,6 +281,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       id: termId,
       process: termProc,
       outputBuffer: "",
+      outputBufferBytes: outputByteLimit ? Buffer.alloc(0) : undefined,
       outputByteLimit,
       truncated: false,
       resolveExit: [],
@@ -246,15 +292,17 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     // Handle output streaming
     const handleOutput = (chunk: Buffer) => {
       const text = chunk.toString("utf8");
-      termState.outputBuffer += text;
-      if (
-        outputByteLimit !== undefined &&
-        termState.outputBuffer.length > outputByteLimit
-      ) {
-        termState.outputBuffer = termState.outputBuffer.slice(
-          termState.outputBuffer.length - outputByteLimit
-        );
-        termState.truncated = true;
+      if (outputByteLimit === undefined) {
+        termState.outputBuffer += text;
+      } else {
+        const current = termState.outputBufferBytes ?? Buffer.alloc(0);
+        let next = current.length === 0 ? chunk : Buffer.concat([current, chunk]);
+        if (next.length > outputByteLimit) {
+          next = next.subarray(next.length - outputByteLimit);
+          termState.truncated = true;
+        }
+        termState.outputBufferBytes = next;
+        termState.outputBuffer = next.toString("utf8");
       }
 
       sessionRuntime.broadcast(chatId, {
@@ -274,11 +322,28 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
         resolve({ exitCode: code, signal });
       }
       termState.resolveExit = [];
+      if (termState.killTimer) {
+        clearTimeout(termState.killTimer);
+        termState.killTimer = undefined;
+      }
     });
 
     termProc.on("error", (err) => {
       console.error(`[Server] Terminal ${termId} error:`, err);
+      if (termState.killTimer) {
+        clearTimeout(termState.killTimer);
+        termState.killTimer = undefined;
+      }
     });
+
+    const terminalTimeoutMs = ENV.terminalTimeoutMs;
+    if (terminalTimeoutMs !== undefined) {
+      termState.killTimer = setTimeout(() => {
+        if (!termProc.killed) {
+          termProc.kill("SIGTERM");
+        }
+      }, terminalTimeoutMs);
+    }
 
     return { terminalId: termId };
   }

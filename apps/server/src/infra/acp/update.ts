@@ -23,7 +23,7 @@ import type { Plan } from "../../shared/types/session.types";
  * @returns True if the update is a tool call update
  */
 function isToolCallUpdate(
-  update: acp.SessionUpdate
+  update: SessionUpdateWithLegacy
 ): update is acp.ToolCallUpdate & { sessionUpdate: "tool_call_update" } {
   return update.sessionUpdate === "tool_call_update";
 }
@@ -35,7 +35,7 @@ function isToolCallUpdate(
  * @returns True if the update is a tool call creation
  */
 function isToolCallCreate(
-  update: acp.SessionUpdate
+  update: SessionUpdateWithLegacy
 ): update is acp.ToolCall & { sessionUpdate: "tool_call" } {
   return update.sessionUpdate === "tool_call";
 }
@@ -81,7 +81,7 @@ function isReplayChunk(update: SessionUpdateWithLegacy) {
  * @param update - The session update to extract from
  * @returns The extracted plan or null if not a plan update
  */
-function extractPlan(update: acp.SessionUpdate): Plan | null {
+function extractPlan(update: SessionUpdateWithLegacy): Plan | null {
   if (update.sessionUpdate !== "plan") {
     return null;
   }

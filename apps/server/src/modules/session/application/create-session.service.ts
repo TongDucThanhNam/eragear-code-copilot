@@ -30,6 +30,7 @@ import type {
   McpSseServerConfig,
   McpStdioServerConfig,
 } from "../../../shared/types/settings.types";
+import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 
 /**
  * Parameters for creating a new session
@@ -156,9 +157,25 @@ export class CreateSessionService {
       clientInfo: CLIENT_INFO,
       clientCapabilities: {
         fs: { readTextFile: true, writeTextFile: true },
+
         terminal: true,
       },
     });
+
+    // DEBUG: Log full initialize response
+    console.log(
+      `[DEBUG] Initialize response for ${chatId}:`,
+      JSON.stringify(initResult, null, 2)
+    );
+    console.log(
+      "[DEBUG] agentCapabilities:",
+      JSON.stringify(initResult?.agentCapabilities, null, 2)
+    );
+    console.log(
+      "[DEBUG] loadSession raw value:",
+      initResult?.agentCapabilities?.loadSession,
+      `(type: ${typeof initResult?.agentCapabilities?.loadSession})`
+    );
 
     if (initResult.protocolVersion !== 1) {
       this.sessionRuntime.delete(chatId);
@@ -171,7 +188,30 @@ export class CreateSessionService {
     const agentCapabilities = initResult?.agentCapabilities;
     chatSession.promptCapabilities =
       agentCapabilities?.promptCapabilities ?? {};
-    chatSession.loadSessionSupported = Boolean(agentCapabilities?.loadSession);
+
+    // Check for both loadSession (standard) and sessionCapabilities.resume (unstable)
+    const hasLoadSession = Boolean(agentCapabilities?.loadSession);
+    const hasResumeCapability = Boolean(
+      (agentCapabilities as { sessionCapabilities?: { resume?: unknown } })
+        ?.sessionCapabilities?.resume
+    );
+
+    // Support resume if either capability is present
+    chatSession.loadSessionSupported = hasLoadSession || hasResumeCapability;
+    // Track which method to use
+    chatSession.useUnstableResume = !hasLoadSession && hasResumeCapability;
+
+    console.log(
+      "[DEBUG] loadSession:",
+      hasLoadSession,
+      "sessionCapabilities.resume:",
+      hasResumeCapability,
+      "loadSessionSupported:",
+      chatSession.loadSessionSupported,
+      "useUnstableResume:",
+      chatSession.useUnstableResume
+    );
+
     chatSession.agentInfo = initResult?.agentInfo
       ? {
           name: initResult.agentInfo.name,
@@ -179,6 +219,12 @@ export class CreateSessionService {
           version: initResult.agentInfo.version,
         }
       : undefined;
+
+    // Store full capabilities and auth methods for debugging
+    chatSession.agentCapabilities = agentCapabilities;
+    chatSession.authMethods = initResult?.authMethods as Array<{ name: string; id: string; description: string }> | undefined;
+
+    console.log("[DEBUG] agentInfo:", chatSession.agentInfo);
 
     return agentCapabilities;
   }
@@ -202,11 +248,45 @@ export class CreateSessionService {
     mcpServers: McpServerConfig[]
   ) {
     try {
-      const loadResult = await chatSession.conn.loadSession({
-        sessionId: params.sessionIdToLoad ?? "",
-        cwd: projectRoot,
-        mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
-      });
+      let loadResult: {
+        modes?: typeof chatSession.modes;
+        models?: typeof chatSession.models;
+      };
+
+      if (chatSession.useUnstableResume) {
+        // Use unstable_resumeSession for agents with sessionCapabilities.resume
+        console.log(
+          "[DEBUG] Using unstable_resumeSession for session:",
+          params.sessionIdToLoad
+        );
+        const conn = chatSession.conn as unknown as {
+          unstable_resumeSession: (params: {
+            sessionId: string;
+            cwd: string;
+            mcpServers: acp.McpServer[];
+          }) => Promise<{
+            modes?: typeof chatSession.modes;
+            models?: typeof chatSession.models;
+          }>;
+        };
+        loadResult = await conn.unstable_resumeSession({
+          sessionId: params.sessionIdToLoad ?? "",
+          cwd: projectRoot,
+          mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
+        });
+      } else {
+        // Use standard loadSession for agents with loadSession capability
+        console.log(
+          "[DEBUG] Using loadSession for session:",
+          params.sessionIdToLoad
+        );
+        loadResult = await chatSession.conn.loadSession({
+          sessionId: params.sessionIdToLoad ?? "",
+          cwd: projectRoot,
+          mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
+        });
+      }
+
       chatSession.modes = loadResult.modes ?? undefined;
       chatSession.models = loadResult.models ?? undefined;
 
@@ -301,6 +381,9 @@ export class CreateSessionService {
       cwd: projectRoot,
       agentInfo: chatSession.agentInfo,
       loadSessionSupported: chatSession.loadSessionSupported,
+      useUnstableResume: chatSession.useUnstableResume,
+      agentCapabilities: chatSession.agentCapabilities,
+      authMethods: chatSession.authMethods,
       status: "running" as const,
       modeId: chatSession.modes?.currentModeId,
       modelId: chatSession.models?.currentModelId,
@@ -333,11 +416,21 @@ export class CreateSessionService {
    * @throws Error if agent doesn't support required features or MCP transport
    */
   async execute(params: CreateSessionParams): Promise<ChatSession> {
+    // DEBUG: Log params received
+    console.log(
+      "[DEBUG] CreateSession params:",
+      JSON.stringify(params, null, 2)
+    );
+
     const chatId = params.chatId ?? crypto.randomUUID();
     const agentCmd = params.command ?? "opencode";
     const agentArgs = params.args ?? ["acp"];
     const agentEnv = params.env ?? {};
     const projectRoot = this.resolveProjectRoot(params.projectRoot);
+
+    console.log(
+      `[DEBUG] Using agent: command="${agentCmd}", args=${JSON.stringify(agentArgs)}`
+    );
 
     // Spawn process
     const proc = this.agentRuntime.spawn(agentCmd, agentArgs, {
@@ -399,6 +492,11 @@ export class CreateSessionService {
     );
 
     if (params.sessionIdToLoad && !chatSession.loadSessionSupported) {
+      console.log(
+        `[DEBUG] Resume rejected for ${chatId}:`,
+        `sessionIdToLoad=${params.sessionIdToLoad},`,
+        `loadSessionSupported=${chatSession.loadSessionSupported}`
+      );
       this.sessionRuntime.delete(chatId);
       proc.kill();
       throw new Error("Agent does not support session/load");
@@ -504,6 +602,10 @@ export class CreateSessionService {
         error: `Agent process error: ${err.message}`,
       });
       this.sessionRepo.updateStatus(chatId, "stopped");
+      const session = this.sessionRuntime.get(chatId);
+      if (session) {
+        terminateSessionTerminals(session);
+      }
     });
 
     proc.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
@@ -524,6 +626,10 @@ export class CreateSessionService {
       }
 
       this.sessionRepo.updateStatus(chatId, "stopped");
+      const session = this.sessionRuntime.get(chatId);
+      if (session) {
+        terminateSessionTerminals(session);
+      }
       if (this.sessionRuntime.has(chatId)) {
         this.sessionRuntime.delete(chatId);
       }

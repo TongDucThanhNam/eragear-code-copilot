@@ -11,6 +11,8 @@
 import type { Context, Hono } from "hono";
 
 import { getContainer } from "../../bootstrap/container";
+import { StopSessionService } from "../../modules/session/application/stop-session.service";
+import { terminateSessionTerminals } from "../../shared/utils/session-cleanup.util";
 import type { Project } from "../../shared/types/project.types";
 import type { StoredSession } from "../../shared/types/session.types";
 import type { Settings } from "../../shared/types/settings.types";
@@ -240,8 +242,9 @@ export function registerHttpRoutes(app: Hono) {
 
     return c.body(stream, 200, {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     });
   });
 
@@ -253,14 +256,11 @@ export function registerHttpRoutes(app: Hono) {
       return c.json({ error: "chatId is required" }, 400);
     }
 
-    const runtime = container.getSessionRuntime();
-    const session = runtime.get(chatId);
-    if (session) {
-      console.log(`[API] Stopping session ${chatId}`);
-      session.proc.kill();
-    }
-
-    container.getSessions().updateStatus(chatId, "stopped");
+    const service = new StopSessionService(
+      container.getSessions(),
+      container.getSessionRuntime()
+    );
+    service.execute(chatId);
     container.getEventBus().publish({
       type: "dashboard_refresh",
       reason: "session_stopped",
@@ -282,6 +282,7 @@ export function registerHttpRoutes(app: Hono) {
     const session = runtime.get(chatId);
     if (session) {
       console.log(`[API] Deleting session ${chatId}`);
+      terminateSessionTerminals(session);
       session.proc.kill();
       runtime.delete(chatId);
     }

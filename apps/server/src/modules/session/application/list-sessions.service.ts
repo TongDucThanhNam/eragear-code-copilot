@@ -70,6 +70,8 @@ export class ListSessionsService {
       const agentInfo = activeSession?.agentInfo ?? session.agentInfo;
       const agentName = agentInfo?.title ?? agentInfo?.name;
       const plan = activeSession?.plan ?? session.plan ?? null;
+      const agentCapabilities = activeSession?.agentCapabilities ?? session.agentCapabilities;
+      const authMethods = activeSession?.authMethods ?? session.authMethods;
       const derivedProjectId =
         session.projectId ??
         projects.find((project) => project.path === session.projectRoot)?.id;
@@ -94,6 +96,8 @@ export class ListSessionsService {
         loadSessionSupported,
         agentInfo,
         agentName,
+        agentCapabilities,
+        authMethods,
         plan,
         pinned: session.pinned ?? false,
         archived: session.archived ?? false,

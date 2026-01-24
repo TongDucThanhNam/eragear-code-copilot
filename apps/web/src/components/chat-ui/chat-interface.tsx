@@ -82,6 +82,14 @@ export function ChatInterface({
     audio?: boolean;
     embeddedContext?: boolean;
   }>({});
+  const [loadSessionSupported, setLoadSessionSupported] = useState<
+    boolean | undefined
+  >(undefined);
+  const [sessionAgentInfo, setSessionAgentInfo] = useState<{
+    name: string;
+    title?: string;
+    version: string;
+  } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatIdRef = useRef<string | null>(initialChatId || null);
@@ -127,9 +135,9 @@ export function ChatInterface({
         id: session.id,
         name: session.name
           ? session.name
-          : session.modeId
-            ? `Session (${session.modeId})`
-            : `Session ${session.id.slice(0, 8)}`,
+          : session.agentName
+          ? session.agentName
+          : `Session ${session.id.slice(0, 8)}`,
         projectName: session.projectId ? projectLookup[session.projectId] : null,
       }));
   }, [projectLookup, sessionsData]);
@@ -248,6 +256,8 @@ export function ChatInterface({
 
       // Clear old messages before loading new ones
       setMessages([]);
+      setLoadSessionSupported(undefined);
+      setSessionAgentInfo(null);
 
       setChatId(initialChatId);
       chatIdRef.current = initialChatId;
@@ -270,6 +280,8 @@ export function ChatInterface({
         setConnStatus("idle");
         setMessages([]);
         setStatus("ready");
+        setLoadSessionSupported(undefined);
+        setSessionAgentInfo(null);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -378,11 +390,16 @@ export function ChatInterface({
       if (state.promptCapabilities) {
         setPromptCapabilities(state.promptCapabilities);
       }
+      setLoadSessionSupported(state.loadSessionSupported ?? false);
+      if (state.agentInfo) {
+        setSessionAgentInfo(state.agentInfo);
+      }
     },
     []
   );
 
   useEffect(() => {
+    console.log("[Client] sessionState effect:", { sessionState, connStatus, hasSessionState: !!sessionState });
     if (sessionState && connStatus === "connecting") {
       console.log("[Client] Session state restored:", sessionState);
 
@@ -404,6 +421,7 @@ export function ChatInterface({
 
       if (sessionState.status === "stopped") {
         console.log("[Client] Session is stopped, but history restored");
+        setLoadSessionSupported(sessionState.loadSessionSupported ?? false);
         setConnStatus("idle");
         setStatus("ready");
         isResumingRef.current = false;
@@ -1011,10 +1029,13 @@ export function ChatInterface({
     ]
   );
 
+  const subscriptionEnabled = !!chatId && connStatus === "connected";
+  console.log("[Client] Subscription check:", { chatId, connStatus, subscriptionEnabled });
+  
   trpc.onSessionEvents.useSubscription(
     { chatId: chatId || "" },
     {
-      enabled: !!chatId && connStatus === "connected",
+      enabled: subscriptionEnabled,
       onData(event: unknown) {
         console.log("[Client] tRPC Event:", event);
         processSessionEvent(event as BroadcastEvent);
@@ -1081,6 +1102,10 @@ export function ChatInterface({
         if (data.promptCapabilities) {
           setPromptCapabilities(data.promptCapabilities);
         }
+        setLoadSessionSupported(data.loadSessionSupported ?? false);
+        if (data.agentInfo) {
+          setSessionAgentInfo(data.agentInfo);
+        }
         setConnStatus("connected");
       } catch (e) {
         console.error("Failed to init chat", e);
@@ -1095,6 +1120,8 @@ export function ChatInterface({
     setChatId(null);
     chatIdRef.current = null;
     setTerminalOutputs({});
+    setLoadSessionSupported(undefined);
+    setSessionAgentInfo(null);
     useDiffStore.getState().clearDiffs();
 
     if (onChatIdChange) {
@@ -1337,9 +1364,11 @@ export function ChatInterface({
         connStatus={connStatus}
         isResuming={resumeSessionMutation.isPending}
         onNewChat={handleNewChat}
-        onResumeChat={handleResume}
+        onResumeChat={loadSessionSupported ? handleResume : undefined}
         onStopChat={handleStopChat}
         projectName={activeProject?.name}
+        resumeNotSupported={loadSessionSupported === false}
+        sessionAgentInfo={sessionAgentInfo}
       />
 
       <ChatMessages

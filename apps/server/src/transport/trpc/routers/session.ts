@@ -20,6 +20,7 @@ import { StopSessionService } from "@/modules/session/application/stop-session.s
 import { UpdateSessionMetaService } from "@/modules/session/application/update-session-meta.service";
 import { ENV } from "../../../config/environment";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
+import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import { publicProcedure, router } from "../base";
 
 export const sessionRouter = router({
@@ -34,6 +35,9 @@ export const sessionRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      // DEBUG: Log tRPC input
+      console.log(`[DEBUG] createSession tRPC input:`, JSON.stringify(input, null, 2));
+
       const project = ctx.container.getProjects().findById(input.projectId);
       if (!project) {
         throw new Error("Project not found");
@@ -58,6 +62,7 @@ export const sessionRouter = router({
         models: res.models,
         promptCapabilities: res.promptCapabilities,
         loadSessionSupported: res.loadSessionSupported ?? false,
+        agentInfo: res.agentInfo ?? null,
       };
     }),
 
@@ -181,6 +186,7 @@ export const sessionRouter = router({
                 .getSessionRuntime()
                 .get(input.chatId);
               if (currentSession && currentSession.subscriberCount <= 0) {
+                terminateSessionTerminals(currentSession);
                 currentSession.proc.kill();
                 ctx.container.getSessionRuntime().delete(input.chatId);
                 ctx.container

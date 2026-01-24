@@ -78,6 +78,8 @@ export interface AgentRepositoryPort {
   findById(id: string): AgentConfig | undefined;
   /** Find all agents */
   findAll(): AgentConfig[];
+  /** Get the currently active agent ID */
+  getActiveId(): string | null;
   /** List agents by project */
   listByProject(projectId?: string | null): AgentConfig[];
   /** Create a new agent */

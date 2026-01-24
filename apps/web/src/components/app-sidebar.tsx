@@ -78,10 +78,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         sessionId: s.sessionId,
         name: s.name
           ? s.name
-          : s.modeId
-          ? `Session (${s.modeId})`
+          : s.agentName
+          ? s.agentName
           : `Session ${s.id.slice(0, 8)}`,
         icon: getAgentIcon(s.agentName),
+        agentName: s.agentName,
+        agentInfo: s.agentInfo,
+        agentCapabilities: s.agentCapabilities,
+        authMethods: s.authMethods,
         status: getStatus(),
         pinned: s.pinned ?? false,
         lastActiveAt: s.lastActiveAt ?? 0,
@@ -113,7 +117,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             name: s.name,
             isActive: s.status === "active",
             status: s.status,
-            // icon: s.icon // if needed later
+            agentName: s.agentName,
+            sessionId: s.sessionId,
+            agentInfo: s.agentInfo,
+            agentCapabilities: s.agentCapabilities,
+            authMethods: s.authMethods,
+            fullData: s,
           }))}
         />
       </SidebarContent>
