@@ -1,7 +1,16 @@
 "use client";
 
 import type { PermissionOption } from "@agentclientprotocol/sdk";
-import { memo, useMemo } from "react";
+import {
+  AudioLinesIcon,
+  CheckIcon,
+  CopyIcon,
+  FileTextIcon,
+  ImageIcon,
+  LinkIcon,
+} from "lucide-react";
+import { memo, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Conversation,
   ConversationContent,
@@ -9,6 +18,8 @@ import {
 } from "@/components/ai-elements/conversation";
 import {
   Message,
+  MessageAction,
+  MessageActions,
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
@@ -33,6 +44,13 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface TextPart {
   type: "text";
@@ -59,7 +77,22 @@ export interface PlanPart {
   entries: { content: string; status: PlanStatus }[];
 }
 
-export type MessagePart = TextPart | ToolPart | PlanPart;
+export interface ContextItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  kind: "resource" | "resource_link" | "image" | "audio";
+  uri?: string;
+  mimeType?: string | null;
+  size?: number | null;
+}
+
+export interface ContextPart {
+  type: "context";
+  items: ContextItem[];
+}
+
+export type MessagePart = TextPart | ToolPart | PlanPart | ContextPart;
 
 export interface MessageType {
   key: string;
@@ -120,6 +153,49 @@ const PlanMessagePart = memo(
   )
 );
 PlanMessagePart.displayName = "PlanMessagePart";
+
+const getContextIcon = (kind: ContextItem["kind"]) => {
+  switch (kind) {
+    case "image":
+      return ImageIcon;
+    case "audio":
+      return AudioLinesIcon;
+    case "resource_link":
+      return LinkIcon;
+    default:
+      return FileTextIcon;
+  }
+};
+
+const ContextMessagePart = memo(({ items }: { items: ContextItem[] }) => (
+  <div className="flex flex-wrap gap-2">
+    {items.map((item) => {
+      const Icon = getContextIcon(item.kind);
+      const label = item.subtitle ? `${item.title} • ${item.subtitle}` : item.title;
+      return (
+        <TooltipProvider key={item.id}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge className="flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs" variant="outline">
+                <Icon className="size-3 text-muted-foreground" />
+                <span className="truncate">@{item.title}</span>
+                {item.subtitle && (
+                  <span className="truncate text-muted-foreground">
+                    {item.subtitle}
+                  </span>
+                )}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-xs break-words text-xs">{label}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    })}
+  </div>
+));
+ContextMessagePart.displayName = "ContextMessagePart";
 
 interface ToolMessagePartProps {
   tool: ToolPart;
@@ -219,6 +295,54 @@ const ToolMessagePart = memo(
 );
 ToolMessagePart.displayName = "ToolMessagePart";
 
+const buildMessageCopyText = (message: MessageType) => {
+  const textParts = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.content.trim())
+    .filter(Boolean);
+
+  return textParts.join("\n\n");
+};
+
+const CopyMessageAction = memo(({ text }: { text: string }) => {
+  const [isCopied, setIsCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!text) {
+      return;
+    }
+
+    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
+      toast.error("Clipboard API not available");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setIsCopied(true);
+      toast.success("Copied message");
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (error) {
+      toast.error("Failed to copy message");
+    }
+  };
+
+  const Icon = isCopied ? CheckIcon : CopyIcon;
+
+  return (
+    <MessageAction
+      aria-label="Copy message"
+      disabled={!text}
+      label="Copy message"
+      onClick={handleCopy}
+      tooltip={isCopied ? "Copied" : "Copy"}
+    >
+      <Icon className="size-3.5" />
+    </MessageAction>
+  );
+});
+CopyMessageAction.displayName = "CopyMessageAction";
+
 export function ChatMessages({
   messages,
   terminalOutputs,
@@ -229,7 +353,7 @@ export function ChatMessages({
   const memoizedMessages = useMemo(() => messages, [messages]);
 
   return (
-    <Conversation className="min-h-0 flex-1 overflow-y-auto">
+    <Conversation className="min-h-0 flex-1 overflow-y-hidden">
       <ConversationContent>
         {memoizedMessages.map((message) => (
           <Message from={message.from} key={message.key}>
@@ -249,6 +373,15 @@ export function ChatMessages({
                       <TextMessagePart
                         content={part.content}
                         key={`text-${part.content.slice(0, 10)}-${_index}`}
+                      />
+                    );
+                  }
+
+                  if (part.type === "context") {
+                    return (
+                      <ContextMessagePart
+                        items={part.items}
+                        key={`context-${part.items[0]?.id ?? _index}`}
                       />
                     );
                   }
@@ -276,6 +409,11 @@ export function ChatMessages({
                   return null;
                 })}
               </MessageContent>
+              <div className="mt-2 flex justify-end opacity-0 transition group-hover:opacity-100">
+                <MessageActions>
+                  <CopyMessageAction text={buildMessageCopyText(message)} />
+                </MessageActions>
+              </div>
             </div>
           </Message>
         ))}

@@ -8,6 +8,8 @@ import { ChatInput } from "@/components/chat-ui/chat-input";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import {
   ChatMessages,
+  type ContextItem,
+  type ContextPart,
   type MessageType,
   type ToolPart,
 } from "@/components/chat-ui/chat-messages";
@@ -77,7 +79,7 @@ export function ChatInterface({
   const [availableCommands, setAvailableCommands] = useState<
     { name: string; description: string; input?: { hint: string } }[]
   >([]);
-  const [_promptCapabilities, setPromptCapabilities] = useState<{
+  const [promptCapabilities, setPromptCapabilities] = useState<{
     image?: boolean;
     audio?: boolean;
     embeddedContext?: boolean;
@@ -411,11 +413,23 @@ export function ChatInterface({
           chatHistory.length,
           "messages"
         );
-        const convertedMessages = chatHistory.map((msg) => ({
-          key: msg.id,
-          from: msg.role as "user" | "assistant",
-          parts: [{ type: "text" as const, content: msg.content }],
-        }));
+        const convertedMessages = chatHistory.map((msg) => {
+          const contextItems = buildContextItems(
+            (msg.contentBlocks ?? []) as StoredContentBlock[]
+          );
+          const parts: MessageType["parts"] = [];
+          if (contextItems.length > 0) {
+            parts.push({ type: "context", items: contextItems });
+          }
+          if (msg.content) {
+            parts.push({ type: "text" as const, content: msg.content });
+          }
+          return {
+            key: msg.id,
+            from: msg.role as "user" | "assistant",
+            parts,
+          };
+        });
         setMessages(convertedMessages);
       }
 
@@ -712,6 +726,202 @@ export function ChatInterface({
     [updateMessagesState]
   );
 
+  type StoredContentBlock =
+    | { type: "text"; text: string; annotations?: unknown }
+    | {
+        type: "image";
+        data: string;
+        mimeType: string;
+        uri?: string;
+        annotations?: unknown;
+      }
+    | {
+        type: "audio";
+        data: string;
+        mimeType: string;
+        annotations?: unknown;
+      }
+    | {
+        type: "resource";
+        resource: {
+          uri: string;
+          text?: string;
+          blob?: string;
+          mimeType?: string;
+        };
+        annotations?: unknown;
+      }
+    | {
+        type: "resource_link";
+        uri: string;
+        name: string;
+        mimeType?: string | null;
+        title?: string | null;
+        description?: string | null;
+        size?: number | null;
+        annotations?: unknown;
+      };
+
+  const parseContentBlock = useCallback(
+    (content: unknown): StoredContentBlock | null => {
+      if (!content || typeof content !== "object") {
+        return null;
+      }
+      const type = (content as { type?: string }).type;
+      if (
+        type === "text" ||
+        type === "image" ||
+        type === "audio" ||
+        type === "resource" ||
+        type === "resource_link"
+      ) {
+        return content as StoredContentBlock;
+      }
+      return null;
+    },
+    []
+  );
+
+  const stripFileProtocol = useCallback((uri?: string) => {
+    if (!uri) {
+      return "";
+    }
+    return uri.replace(/^file:\/\//, "");
+  }, []);
+
+  const toContextItem = useCallback(
+    (block: StoredContentBlock): ContextItem | null => {
+      if (block.type === "text") {
+        return null;
+      }
+      if (block.type === "resource") {
+        const uri = block.resource.uri;
+        const cleaned = stripFileProtocol(uri);
+        const parts = cleaned.split("/");
+        const title = parts.pop() || cleaned || "resource";
+        const subtitle = parts.join("/");
+        return {
+          id: uri || title,
+          title,
+          subtitle: subtitle || undefined,
+          kind: "resource",
+          uri,
+          mimeType: block.resource.mimeType ?? null,
+        };
+      }
+      if (block.type === "resource_link") {
+        const cleaned = stripFileProtocol(block.uri);
+        const parts = cleaned.split("/");
+        const fallbackTitle = parts.pop() || cleaned || block.name || "resource";
+        const title = block.title || block.name || fallbackTitle;
+        const subtitle = parts.join("/") || undefined;
+        return {
+          id: block.uri || title,
+          title,
+          subtitle,
+          kind: "resource_link",
+          uri: block.uri,
+          mimeType: block.mimeType ?? null,
+          size: block.size ?? null,
+        };
+      }
+      if (block.type === "image") {
+        const cleaned = stripFileProtocol(block.uri);
+        const title = cleaned.split("/").pop() || "image";
+        return {
+          id: block.uri || title,
+          title,
+          kind: "image",
+          uri: block.uri,
+          mimeType: block.mimeType ?? null,
+        };
+      }
+      if (block.type === "audio") {
+        return {
+          id: `audio-${Date.now()}-${Math.random()}`,
+          title: "audio",
+          kind: "audio",
+          mimeType: block.mimeType ?? null,
+        };
+      }
+      return null;
+    },
+    [stripFileProtocol]
+  );
+
+  const buildContextItems = useCallback(
+    (blocks: StoredContentBlock[] | undefined | null) => {
+      if (!blocks || blocks.length === 0) {
+        return [];
+      }
+      const items = blocks
+        .map((block) => toContextItem(block))
+        .filter((item): item is ContextItem => Boolean(item));
+
+      const seen = new Set<string>();
+      return items.filter((item) => {
+        const key = item.uri || item.id || item.title;
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+    },
+    [toContextItem]
+  );
+
+  const upsertContextPart = useCallback(
+    (parts: MessageType["parts"], items: ContextItem[]): MessageType["parts"] => {
+      if (items.length === 0) {
+        return parts;
+      }
+      const existingIndex = parts.findIndex(
+        (part): part is ContextPart => part.type === "context"
+      );
+      if (existingIndex === -1) {
+        return [{ type: "context", items }, ...parts];
+      }
+      const existing = parts[existingIndex] as ContextPart;
+      const mergedItems = [...existing.items];
+      const seen = new Set(mergedItems.map((item) => item.uri || item.id));
+      for (const item of items) {
+        const key = item.uri || item.id;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        mergedItems.push(item);
+      }
+      const nextParts = [...parts];
+      nextParts[existingIndex] = { ...existing, items: mergedItems };
+      return nextParts;
+    },
+    []
+  );
+
+  const appendContextToMessage = useCallback(
+    (from: "user" | "assistant", items: ContextItem[]) => {
+      if (items.length === 0) {
+        return;
+      }
+      updateMessagesState((prev) => {
+        const lastMsg = prev.at(-1);
+        if (lastMsg && lastMsg.from === from) {
+          const parts = upsertContextPart([...lastMsg.parts], items);
+          return [...prev.slice(0, -1), { ...lastMsg, parts }];
+        }
+        const newMsg: MessageType = {
+          key: nanoid(),
+          from,
+          parts: [{ type: "context", items }],
+        };
+        return [...prev, newMsg];
+      });
+    },
+    [updateMessagesState, upsertContextPart]
+  );
+
   const handleAgentThought = useCallback(
     (chunk: string) => {
       updateMessagesState((prev) => {
@@ -777,6 +987,7 @@ export function ChatInterface({
     id: string;
     text: string;
     timestamp: number;
+    contentBlocks?: StoredContentBlock[];
   }
 
   interface SessionUpdateEvent {
@@ -824,7 +1035,17 @@ export function ChatInterface({
     (u: SessionUpdateEvent) => {
       switch (u.sessionUpdate) {
         case "user_message_chunk": {
-          const text = extractTextFromContent(u.content, u.text);
+          const contentBlock = parseContentBlock(u.content);
+          if (contentBlock && contentBlock.type !== "text") {
+            const items = buildContextItems([contentBlock]);
+            appendContextToMessage("user", items);
+            lastStreamKindRef.current = "user";
+            return;
+          }
+          const text = extractTextFromContent(
+            contentBlock?.type === "text" ? contentBlock.text : u.content,
+            u.text
+          );
           if (!text) {
             return;
           }
@@ -860,7 +1081,20 @@ export function ChatInterface({
         }
 
         case "agent_message_chunk": {
-          const text = extractTextFromContent(u.content, u.text);
+          const contentBlock = parseContentBlock(u.content);
+          if (contentBlock && contentBlock.type !== "text") {
+            const items = buildContextItems([contentBlock]);
+            appendContextToMessage("assistant", items);
+            lastStreamKindRef.current = "agent";
+            if (isReplayingHistoryRef.current) {
+              setStatus("ready");
+            }
+            return;
+          }
+          const text = extractTextFromContent(
+            contentBlock?.type === "text" ? contentBlock.text : u.content,
+            u.text
+          );
           if (text) {
             handleAgentChunk(text);
             lastStreamKindRef.current = "agent";
@@ -933,12 +1167,15 @@ export function ChatInterface({
       }
     },
     [
+      appendContextToMessage,
+      buildContextItems,
       extractTextFromContent,
       handleAgentChunk,
       handleAgentThought,
       handleAgentToolCall,
       handleAgentToolCallUpdate,
       handleAgentPlan,
+      parseContentBlock,
     ]
   );
 
@@ -954,12 +1191,20 @@ export function ChatInterface({
         case "user_message": {
           const exists = messages.some((m) => m.key === event.id);
           if (!exists) {
+            const contextItems = buildContextItems(event.contentBlocks);
+            const parts: MessageType["parts"] = [];
+            if (contextItems.length > 0) {
+              parts.push({ type: "context", items: contextItems });
+            }
+            if (event.text) {
+              parts.push({ type: "text", content: event.text });
+            }
             setMessages((prev) => [
               ...prev,
               {
                 key: event.id,
                 from: "user" as const,
-                parts: [{ type: "text", content: event.text }],
+                parts,
               },
             ]);
           }
@@ -1023,6 +1268,7 @@ export function ChatInterface({
     },
     [
       messages,
+      buildContextItems,
       handlePermissionRequest,
       processSessionUpdate,
       scheduleReplayReset,
@@ -1197,11 +1443,18 @@ export function ChatInterface({
     if (!chatId) {
       return;
     }
+    if (connStatus !== "connected") {
+      toast.error("Session is not connected");
+      return;
+    }
     try {
       await setModeMutation.mutateAsync({ chatId, modeId });
       setCurrentModeId(modeId);
     } catch (e) {
       console.error("Failed to set mode", e);
+      toast.error(
+        e instanceof Error ? e.message : "Failed to set mode"
+      );
     }
   };
 
@@ -1209,18 +1462,27 @@ export function ChatInterface({
     if (!chatId) {
       return;
     }
+    if (connStatus !== "connected") {
+      toast.error("Session is not connected");
+      return;
+    }
     try {
       await setModelMutation.mutateAsync({ chatId, modelId });
       setCurrentModelId(modelId);
     } catch (e) {
       console.error("Failed to set model", e);
+      toast.error(
+        e instanceof Error ? e.message : "Failed to set model"
+      );
     }
   };
 
   const addUserMessage = useCallback(
     async (
       content: string,
-      images?: { base64: string; mimeType: string }[]
+      images?: { base64: string; mimeType: string }[],
+      resources?: { uri: string; text: string; mimeType?: string }[],
+      resourceLinks?: { uri: string; name: string; mimeType?: string }[]
     ) => {
       if (!chatId) {
         return;
@@ -1233,6 +1495,8 @@ export function ChatInterface({
           chatId,
           text: content,
           images,
+          resources,
+          resourceLinks,
         });
 
         if (res.stopReason === "cancelled") {
@@ -1267,7 +1531,8 @@ export function ChatInterface({
   const handleSubmit = async (message: PromptInputMessage) => {
     const hasText = Boolean(message.text);
     const hasFiles = message.files.length > 0;
-    if (!(hasText || hasFiles)) {
+    const hasMentions = (message.mentions?.length ?? 0) > 0;
+    if (!(hasText || hasFiles || hasMentions)) {
       return;
     }
 
@@ -1289,7 +1554,56 @@ export function ChatInterface({
       }
     }
 
-    addUserMessage(message.text, images.length > 0 ? images : undefined);
+    const mentionPaths = Array.from(new Set(message.mentions ?? []));
+    const resources: { uri: string; text: string; mimeType?: string }[] = [];
+    const resourceLinks: { uri: string; name: string; mimeType?: string }[] =
+      [];
+
+    const buildFileUri = (path: string) => {
+      if (activeProject?.path) {
+        const base = activeProject.path.replace(/\\/g, "/");
+        return `file://${base}/${path}`;
+      }
+      return path;
+    };
+
+    if (mentionPaths.length > 0 && chatId) {
+      if (promptCapabilities.embeddedContext) {
+        const results = await Promise.allSettled(
+          mentionPaths.map(async (path) => {
+            const res = await utils.getFileContent.fetch({ chatId, path });
+            return { path, content: res.content };
+          })
+        );
+
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            resources.push({
+              uri: buildFileUri(result.value.path),
+              text: result.value.content,
+              mimeType: "text/plain",
+            });
+          } else {
+            console.error("Failed to load mention file", result.reason);
+            toast.error("Failed to load referenced file.");
+          }
+        }
+      } else {
+        resourceLinks.push(
+          ...mentionPaths.map((path) => ({
+            uri: buildFileUri(path),
+            name: path,
+          }))
+        );
+      }
+    }
+
+    addUserMessage(
+      message.text,
+      images.length > 0 ? images : undefined,
+      resources.length > 0 ? resources : undefined,
+      resourceLinks.length > 0 ? resourceLinks : undefined
+    );
   };
 
   const { data: projectContext } = trpc.getProjectContext.useQuery(

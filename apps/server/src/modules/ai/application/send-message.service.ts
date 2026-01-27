@@ -12,6 +12,12 @@ import type {
   SessionRuntimePort,
 } from "../../../shared/types/ports";
 import { buildPrompt } from "./prompt.builder";
+import {
+  getAcpErrorText,
+  isProcessExited,
+  isProcessTransportNotReady,
+} from "./acp-error.util";
+import { toStoredContentBlocks } from "../../../shared/utils/content-block.util";
 
 /**
  * SendMessageService
@@ -96,23 +102,33 @@ export class SendMessageService {
     if (!session?.sessionId) {
       throw new Error("Chat not found");
     }
+    const stdin = session.proc.stdin;
+    if (
+      !stdin ||
+      stdin.destroyed ||
+      !stdin.writable ||
+      session.proc.killed ||
+      session.proc.exitCode !== null
+    ) {
+      throw new Error("Session is not running");
+    }
+    if (session.conn.signal.aborted) {
+      throw new Error("Session connection is closed");
+    }
+
+    const capabilities = session.promptCapabilities ?? {};
+    if (input.images?.length && !capabilities.image) {
+      throw new Error("Agent does not support image content");
+    }
+    if (input.audio?.length && !capabilities.audio) {
+      throw new Error("Agent does not support audio content");
+    }
+    if (input.resources?.length && !capabilities.embeddedContext) {
+      throw new Error("Agent does not support embedded context");
+    }
 
     const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const msgTimestamp = Date.now();
-
-    this.sessionRepo.appendMessage(input.chatId, {
-      id: msgId,
-      role: "user",
-      content: input.text,
-      timestamp: msgTimestamp,
-    });
-
-    this.sessionRuntime.broadcast(input.chatId, {
-      type: "user_message",
-      id: msgId,
-      text: input.text,
-      timestamp: msgTimestamp,
-    });
 
     const prompt = buildPrompt({
       text: input.text,
@@ -122,11 +138,66 @@ export class SendMessageService {
       resources: input.resources,
       resourceLinks: input.resourceLinks,
     });
+    const storedPromptBlocks = toStoredContentBlocks(prompt);
 
-    const res = await session.conn.prompt({
-      sessionId: session.sessionId,
-      prompt,
+    this.sessionRepo.appendMessage(input.chatId, {
+      id: msgId,
+      role: "user",
+      content: input.text,
+      contentBlocks: storedPromptBlocks,
+      timestamp: msgTimestamp,
     });
+
+    this.sessionRuntime.broadcast(input.chatId, {
+      type: "user_message",
+      id: msgId,
+      text: input.text,
+      timestamp: msgTimestamp,
+      contentBlocks: storedPromptBlocks,
+    });
+
+    const markStopped = (reason: string) => {
+      this.sessionRuntime.broadcast(input.chatId, {
+        type: "error",
+        error: reason,
+      });
+      this.sessionRepo.updateStatus(input.chatId, "stopped");
+      if (!session.proc.killed) {
+        session.proc.kill();
+      }
+      this.sessionRuntime.delete(input.chatId);
+    };
+
+    let res: { stopReason: string } | null = null;
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        res = await session.conn.prompt({
+          sessionId: session.sessionId,
+          prompt,
+        });
+        break;
+      } catch (error) {
+        const errorText = getAcpErrorText(error);
+        if (
+          isProcessTransportNotReady(errorText) &&
+          attempt < maxAttempts - 1
+        ) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 150 * (attempt + 1))
+          );
+          continue;
+        }
+        if (isProcessExited(errorText)) {
+          markStopped(errorText || "Agent process exited");
+          throw new Error(errorText || "Agent process exited");
+        }
+        throw new Error(errorText || "Failed to send message");
+      }
+    }
+    if (!res) {
+      throw new Error("Failed to send message");
+    }
 
     if (session.buffer) {
       const message = session.buffer.flush();
@@ -135,7 +206,9 @@ export class SendMessageService {
           id: message.id,
           role: "assistant",
           content: message.content,
+          contentBlocks: message.contentBlocks,
           reasoning: message.reasoning,
+          reasoningBlocks: message.reasoningBlocks,
           timestamp: Date.now(),
         });
       }

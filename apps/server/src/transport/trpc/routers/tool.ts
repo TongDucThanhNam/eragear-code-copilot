@@ -9,11 +9,11 @@
 
 import { z } from "zod";
 import { RespondPermissionService } from "@/modules/tooling/application/respond-permission.service";
-import { publicProcedure, router } from "../base";
+import { protectedProcedure, router } from "../base";
 
 export const toolRouter = router({
   /** Respond to a permission request from an agent */
-  respondToPermissionRequest: publicProcedure
+  respondToPermissionRequest: protectedProcedure
     .input(
       z.object({
         chatId: z.string(),

@@ -18,14 +18,37 @@ interface ProjectState {
   projects: Project[];
   activeProjectId: string | null;
   isProjectCreateOpen: boolean;
+  editingProject: Project | null;
+  projectMutations: {
+    updateProject?: (input: {
+      id: string;
+      name?: string;
+      path?: string;
+      description?: string | null;
+      tags?: string[];
+      favorite?: boolean;
+    }) => void;
+    deleteProject?: (input: { id: string }) => void;
+  };
 
   setProjects: (projects: Project[]) => void;
   setActiveProjectId: (id: string | null) => void;
   addProject: (project: Project) => void;
-  updateProject: (project: Project) => void;
+  updateProject: (input: {
+    id: string;
+    name?: string;
+    path?: string;
+    description?: string | null;
+    tags?: string[];
+    favorite?: boolean;
+  }) => void;
+  updateProjectLocal: (project: Project) => void;
   removeProject: (id: string) => void;
+  removeProjectLocal: (id: string) => void;
   getActiveProject: () => Project | null;
   setIsProjectCreateOpen: (isOpen: boolean) => void;
+  setEditingProject: (project: Project | null) => void;
+  setProjectMutations: (mutations: ProjectState["projectMutations"]) => void;
 }
 
 export const useProjectStore = create<ProjectState>()(
@@ -34,6 +57,8 @@ export const useProjectStore = create<ProjectState>()(
       projects: [],
       activeProjectId: null,
       isProjectCreateOpen: false,
+      editingProject: null,
+      projectMutations: {},
 
       setProjects: (projects) =>
         set((state) => {
@@ -56,14 +81,24 @@ export const useProjectStore = create<ProjectState>()(
           activeProjectId: state.activeProjectId ?? project.id,
         })),
 
-      updateProject: (project) =>
+      updateProject: (input) => {
+        const { projectMutations } = get();
+        projectMutations.updateProject?.(input);
+      },
+
+      updateProjectLocal: (project) =>
         set((state) => ({
           projects: state.projects.map((p) =>
             p.id === project.id ? project : p
           ),
         })),
 
-      removeProject: (id) =>
+      removeProject: (id) => {
+        const { projectMutations } = get();
+        projectMutations.deleteProject?.({ id });
+      },
+
+      removeProjectLocal: (id) =>
         set((state) => ({
           projects: state.projects.filter((p) => p.id !== id),
           activeProjectId:
@@ -79,6 +114,8 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       setIsProjectCreateOpen: (isOpen) => set({ isProjectCreateOpen: isOpen }),
+      setEditingProject: (project) => set({ editingProject: project }),
+      setProjectMutations: (mutations) => set({ projectMutations: mutations }),
     }),
     {
       name: "eragear-projects",

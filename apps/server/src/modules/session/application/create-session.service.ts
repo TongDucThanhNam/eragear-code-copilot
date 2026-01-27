@@ -664,36 +664,45 @@ export class CreateSessionService {
    * @param message - The stored message to broadcast
    */
   private broadcastStoredMessage(chatId: string, message: StoredMessage) {
+    const contentBlocks =
+      message.contentBlocks ??
+      (message.content ? [{ type: "text", text: message.content }] : []);
+    const reasoningBlocks =
+      message.reasoningBlocks ??
+      (message.reasoning ? [{ type: "text", text: message.reasoning }] : []);
+
     if (message.role === "user") {
-      if (!message.content) {
+      if (contentBlocks.length === 0) {
         return;
       }
-      this.sessionRuntime.broadcast(chatId, {
-        type: "session_update",
-        update: {
-          sessionUpdate: "user_message_chunk",
-          content: { type: "text", text: message.content },
-        },
-      });
+      for (const block of contentBlocks) {
+        this.sessionRuntime.broadcast(chatId, {
+          type: "session_update",
+          update: {
+            sessionUpdate: "user_message_chunk",
+            content: block,
+          },
+        });
+      }
       return;
     }
 
-    if (message.reasoning) {
+    for (const block of reasoningBlocks) {
       this.sessionRuntime.broadcast(chatId, {
         type: "session_update",
         update: {
           sessionUpdate: "agent_thought_chunk",
-          content: { type: "text", text: message.reasoning },
+          content: block,
         },
       });
     }
 
-    if (message.content) {
+    for (const block of contentBlocks) {
       this.sessionRuntime.broadcast(chatId, {
         type: "session_update",
         update: {
           sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: message.content },
+          content: block,
         },
       });
     }

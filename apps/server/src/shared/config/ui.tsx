@@ -213,6 +213,17 @@ export function ConfigPage({
                     <span class="relative z-10">Agents</span>
                   </button>
                   <button
+                    aria-controls="tab-auth"
+                    aria-selected="false"
+                    class="tab-btn group relative border-ink border-l px-4 py-3 font-mono text-xs uppercase tracking-[0.15em] transition-colors hover:bg-ink hover:text-paper"
+                    data-tab="auth"
+                    id="tab-btn-auth"
+                    role="tab"
+                    type="button"
+                  >
+                    <span class="relative z-10">Auth</span>
+                  </button>
+                  <button
                     aria-controls="tab-settings"
                     aria-selected="false"
                     class="tab-btn group relative border-ink border-l px-4 py-3 font-mono text-xs uppercase tracking-[0.15em] transition-colors hover:bg-ink hover:text-paper"
@@ -388,6 +399,130 @@ export function ConfigPage({
 
                   <div class="min-h-[100px] p-4" id="agent-stats">
                     <div class="loading">Loading agent stats</div>
+                  </div>
+                </section>
+              </div>
+
+              {/* Auth Tab */}
+              <div
+                aria-labelledby="tab-btn-auth"
+                class="tab-content hidden max-h-[calc(100dvh-280px)] overflow-y-auto"
+                id="tab-auth"
+                role="tabpanel"
+              >
+                {/* API Keys */}
+                <section class="border-2 border-ink bg-paper shadow-news">
+                  <div class="border-ink border-b-2 p-6">
+                    <div class="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h2 class="font-black font-display text-4xl tracking-tight">
+                          API Keys
+                        </h2>
+                        <p class="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
+                          Manage API keys for client connections
+                        </p>
+                      </div>
+                      <div class="flex flex-col items-end gap-2">
+                        <button
+                          class="btn btn-primary min-h-[44px]"
+                          id="create-api-key-btn"
+                          type="button"
+                        >
+                          + Create Key
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="p-6">
+                    <form
+                      class="mb-4 hidden border-2 border-ink bg-paper/80 p-4"
+                      id="api-key-form"
+                    >
+                      <div class="grid gap-3 md:grid-cols-3">
+                        <label class="flex flex-col gap-1 font-mono text-xs uppercase tracking-widest">
+                          Name
+                          <input
+                            class="input-underline"
+                            name="name"
+                            placeholder="Default"
+                            type="text"
+                          />
+                        </label>
+                        <label class="flex flex-col gap-1 font-mono text-xs uppercase tracking-widest">
+                          Prefix
+                          <input
+                            class="input-underline"
+                            name="prefix"
+                            placeholder="eg_"
+                            type="text"
+                          />
+                        </label>
+                        <label class="flex flex-col gap-1 font-mono text-xs uppercase tracking-widest">
+                          Expires (days)
+                          <input
+                            class="input-underline"
+                            min="0"
+                            name="expiresInDays"
+                            placeholder="0"
+                            type="number"
+                          />
+                        </label>
+                      </div>
+                      <div class="mt-4 flex flex-wrap gap-2">
+                        <button
+                          class="btn btn-secondary min-h-[44px]"
+                          type="submit"
+                        >
+                          Create
+                        </button>
+                        <button
+                          class="btn btn-secondary min-h-[44px]"
+                          id="api-key-cancel-btn"
+                          type="button"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+
+                    <div
+                      class="hidden border-2 border-ink bg-accent/10 px-4 py-3 font-mono text-xs"
+                      id="api-key-created"
+                    />
+
+                    <div class="min-h-[120px]" id="api-keys-list">
+                      <div class="loading">Loading API keys</div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Device Sessions */}
+                <section class="mt-4 border-2 border-ink bg-paper shadow-news">
+                  <div class="border-ink border-b-2 p-6">
+                    <div class="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <h2 class="font-black font-display text-3xl tracking-tight">
+                          Device Sessions
+                        </h2>
+                        <p class="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
+                          Manage active login sessions across devices
+                        </p>
+                      </div>
+                      <div class="flex flex-col items-end gap-2">
+                        <button
+                          class="btn btn-secondary min-h-[44px]"
+                          id="refresh-device-sessions"
+                          type="button"
+                        >
+                          Refresh
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="min-h-[120px] p-6" id="device-sessions-list">
+                    <div class="loading">Loading device sessions</div>
                   </div>
                 </section>
               </div>

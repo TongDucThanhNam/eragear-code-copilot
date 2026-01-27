@@ -148,12 +148,19 @@ export function buildPrompt(params: {
   if (params.resources) {
     prompt.push(
       ...params.resources.map((res): ContentBlock => {
-        if (res.text) {
+        const hasText = res.text !== undefined;
+        const hasBlob = res.blob !== undefined;
+        if (hasText === hasBlob) {
+          throw new Error(
+            "Resource must include exactly one of text or blob."
+          );
+        }
+        if (hasText) {
           return {
             type: "resource",
             resource: {
               uri: res.uri,
-              text: res.text,
+              text: res.text!,
               mimeType: res.mimeType,
             },
             annotations: res.annotations,
@@ -163,7 +170,7 @@ export function buildPrompt(params: {
           type: "resource",
           resource: {
             uri: res.uri,
-            blob: res.blob as string,
+            blob: res.blob!,
             mimeType: res.mimeType,
           },
           annotations: res.annotations,
@@ -175,19 +182,40 @@ export function buildPrompt(params: {
   if (params.resourceLinks) {
     prompt.push(
       ...params.resourceLinks.map(
-        (link): ContentBlock => ({
-          type: "resource_link",
-          uri: link.uri,
-          name: link.name,
-          mimeType: link.mimeType,
-          title: link.title,
-          description: link.description,
-          size: typeof link.size === "number" ? BigInt(link.size) : link.size,
-          annotations: link.annotations,
-        })
+        (link): ContentBlock => {
+          const size = normalizeResourceLinkSize(link.size);
+          return {
+            type: "resource_link",
+            uri: link.uri,
+            name: link.name,
+            mimeType: link.mimeType,
+            title: link.title,
+            description: link.description,
+            ...(size !== undefined
+              ? { size: size as unknown as bigint }
+              : {}),
+            annotations: link.annotations,
+          };
+        }
       )
     );
   }
 
   return prompt;
+}
+
+function normalizeResourceLinkSize(
+  size?: number | bigint
+): number | undefined {
+  if (size === undefined) {
+    return undefined;
+  }
+  if (typeof size === "bigint") {
+    const asNumber = Number(size);
+    return Number.isSafeInteger(asNumber) ? asNumber : undefined;
+  }
+  if (typeof size === "number") {
+    return Number.isFinite(size) ? size : undefined;
+  }
+  return undefined;
 }

@@ -5,8 +5,18 @@ import { ChevronRight, Folder, Pin, Plus } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ClaudeAI, OpenAI, OpenCode } from "@/components/ui/icons";
 import {
   Collapsible,
   CollapsibleContent,
@@ -19,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ClaudeAI, OpenAI, OpenCode } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -86,6 +97,47 @@ const getAgentIcon = (agentName: string | undefined) => {
   }
 };
 
+const getSessionDisplayId = (session: SessionItem) => {
+  const rawId = session.sessionId || session.id;
+  if (rawId.length <= 12) {
+    return rawId;
+  }
+  const head = rawId.slice(0, 7);
+  const tail = rawId.slice(-4);
+  return `${head}...${tail}`;
+};
+
+const getSessionStatusLabel = (status: SessionItem["status"]) => {
+  if (status === "streaming") {
+    return "running";
+  }
+  return status;
+};
+
+const getStatusBadgeClassName = (status: SessionItem["status"]) => {
+  switch (status) {
+    case "active":
+      return "border-none bg-green-600/10 text-green-600 focus-visible:ring-green-600/20 focus-visible:outline-none dark:bg-green-400/10 dark:text-green-400 dark:focus-visible:ring-green-400/40 [a&]:hover:bg-green-600/5 dark:[a&]:hover:bg-green-400/5";
+    case "streaming":
+      return "border-none bg-amber-600/10 text-amber-600 focus-visible:ring-amber-600/20 focus-visible:outline-none dark:bg-amber-400/10 dark:text-amber-400 dark:focus-visible:ring-amber-400/40 [a&]:hover:bg-amber-600/5 dark:[a&]:hover:bg-amber-400/5";
+    case "inactive":
+    default:
+      return "bg-destructive/10 [a&]:hover:bg-destructive/5 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 text-destructive border-none focus-visible:outline-none";
+  }
+};
+
+const getStatusDotClassName = (status: SessionItem["status"]) => {
+  switch (status) {
+    case "active":
+      return "bg-green-600 dark:bg-green-400";
+    case "streaming":
+      return "bg-amber-600 dark:bg-amber-400";
+    case "inactive":
+    default:
+      return "bg-destructive";
+  }
+};
+
 export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const navigate = useNavigate();
   const {
@@ -116,7 +168,13 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [selectedSessionForDetails, setSelectedSessionForDetails] = useState<SessionItem | null>(null);
+  const [selectedSessionForDetails, setSelectedSessionForDetails] =
+    useState<SessionItem | null>(null);
+  const [deleteProjectTargetId, setDeleteProjectTargetId] = useState<
+    string | null
+  >(null);
+  const [deleteSessionTarget, setDeleteSessionTarget] =
+    useState<SessionItem | null>(null);
 
   // Fetch projects
   // Fetch projects and agents
@@ -223,6 +281,13 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     return map;
   }, [sessions]);
 
+  const deleteProjectTarget = useMemo(() => {
+    if (!deleteProjectTargetId) {
+      return null;
+    }
+    return projects.find((item) => item.id === deleteProjectTargetId) || null;
+  }, [deleteProjectTargetId, projects]);
+
   const handleSelectProject = (projectId: string) => {
     setActiveProjectId(projectId);
     setActiveMutation.mutate({ id: projectId });
@@ -283,17 +348,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       toast.error("Project not found");
       return;
     }
-    const confirmed = window.confirm(
-      `Delete project "${project.name}"? This cannot be undone.`
-    );
-    if (!confirmed) {
-      return;
-    }
-    if (activeProjectId === projectId) {
-      setActiveProjectId(null);
-      setActiveMutation.mutate({ id: null });
-    }
-    deleteProjectMutation.mutate({ id: projectId });
+    setDeleteProjectTargetId(projectId);
   };
 
   const handleRename = (session: SessionItem) => {
@@ -334,13 +389,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   };
 
   const handleDeleteSession = (session: SessionItem) => {
-    const confirmed = window.confirm(
-      `Delete session "${session.name}"? This cannot be undone.`
-    );
-    if (!confirmed) {
-      return;
-    }
-    deleteSessionMutation.mutate({ chatId: session.id });
+    setDeleteSessionTarget(session);
   };
 
   const isLoading = listQuery.isLoading;
@@ -450,6 +499,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
                                   >
                                     <Link
                                       search={{ chatId: session.id }}
+                                      title={session.sessionId || session.id}
                                       to="/"
                                     >
                                       {session.pinned && (
@@ -462,11 +512,33 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
                                             : ""
                                         }
                                       >
-                                        <span className="flex items-center gap-1.5">
+                                        <span className="flex min-w-0 flex-1 items-center gap-1.5">
                                           {getAgentIcon(session.agentName)}
-                                          {session.name}
+                                          <span className="min-w-0 flex-1 truncate">
+                                            {getSessionDisplayId(session)}
+                                          </span>
                                         </span>
                                       </span>
+                                      <div className="ml-auto shrink-0">
+                                        <Badge
+                                          className={`${getStatusBadgeClassName(
+                                            session.status
+                                          )} px-1.5 py-0 text-[10px] uppercase`}
+                                        >
+                                          <span
+                                            className={`size-1.5 rounded-full ${getStatusDotClassName(
+                                              session.status
+                                            )} ${
+                                              session.status === "streaming"
+                                                ? "animate-pulse"
+                                                : ""
+                                            }`}
+                                          />
+                                          {getSessionStatusLabel(
+                                            session.status
+                                          )}
+                                        </Badge>
+                                      </div>
                                     </Link>
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
@@ -484,7 +556,9 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
                                 </ContextMenuItem>
                                 <ContextMenuSeparator />
                                 <ContextMenuItem
-                                  onClick={() => setSelectedSessionForDetails(session)}
+                                  onClick={() =>
+                                    setSelectedSessionForDetails(session)
+                                  }
                                 >
                                   View Details
                                 </ContextMenuItem>
@@ -700,45 +774,155 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
         </DialogContent>
       </Dialog>
 
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteProjectTargetId(null);
+          }
+        }}
+        open={deleteProjectTargetId !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteProjectTarget
+                ? `Delete "${deleteProjectTarget.name}" and its sessions?`
+                : "This will permanently delete the project and its sessions."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!deleteProjectTargetId) {
+                  return;
+                }
+                if (activeProjectId === deleteProjectTargetId) {
+                  setActiveProjectId(null);
+                  setActiveMutation.mutate({ id: null });
+                }
+                deleteProjectMutation.mutate({ id: deleteProjectTargetId });
+                setDeleteProjectTargetId(null);
+              }}
+              variant="destructive"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteSessionTarget(null);
+          }
+        }}
+        open={deleteSessionTarget !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteSessionTarget
+                ? `Delete session ${getSessionDisplayId(
+                    deleteSessionTarget
+                  )}? This cannot be undone.`
+                : "This cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!deleteSessionTarget) {
+                  return;
+                }
+                deleteSessionMutation.mutate({
+                  chatId: deleteSessionTarget.id,
+                });
+                setDeleteSessionTarget(null);
+              }}
+              variant="destructive"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Session Details Dialog */}
       <Dialog
-        open={selectedSessionForDetails !== null}
         onOpenChange={(open) => {
-          if (!open) setSelectedSessionForDetails(null);
+          if (!open) {
+            setSelectedSessionForDetails(null);
+          }
         }}
+        open={selectedSessionForDetails !== null}
       >
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Session Details</DialogTitle>
           </DialogHeader>
           {selectedSessionForDetails && (
             <div className="space-y-4">
               <div>
-                <h3 className="font-semibold text-sm mb-2">Basic Info</h3>
-                <div className="text-sm space-y-1 bg-muted p-3 rounded">
-                  <div><strong>Session ID:</strong> {selectedSessionForDetails.sessionId || selectedSessionForDetails.id.slice(0, 12)}</div>
-                  <div><strong>Chat ID:</strong> {selectedSessionForDetails.id.slice(0, 12)}...</div>
-                  <div><strong>Name:</strong> {selectedSessionForDetails.name}</div>
-                  <div><strong>Agent:</strong> {selectedSessionForDetails.agentName || "Unknown"}</div>
-                  <div><strong>Status:</strong> {selectedSessionForDetails.status}</div>
+                <h3 className="mb-2 font-semibold text-sm">Basic Info</h3>
+                <div className="space-y-1 rounded bg-muted p-3 text-sm">
+                  <div>
+                    <strong>Session ID:</strong>{" "}
+                    {selectedSessionForDetails.sessionId ||
+                      selectedSessionForDetails.id.slice(0, 12)}
+                  </div>
+                  <div>
+                    <strong>Chat ID:</strong>{" "}
+                    {selectedSessionForDetails.id.slice(0, 12)}...
+                  </div>
+                  <div>
+                    <strong>Name:</strong> {selectedSessionForDetails.name}
+                  </div>
+                  <div>
+                    <strong>Agent:</strong>{" "}
+                    {selectedSessionForDetails.agentName || "Unknown"}
+                  </div>
+                  <div>
+                    <strong>Status:</strong> {selectedSessionForDetails.status}
+                  </div>
                 </div>
               </div>
 
               {selectedSessionForDetails.agentInfo && (
                 <div>
-                  <h3 className="font-semibold text-sm mb-2">Agent Info</h3>
-                  <div className="text-sm space-y-1 bg-muted p-3 rounded">
-                    <div><strong>Name:</strong> {selectedSessionForDetails.agentInfo.name}</div>
-                    <div><strong>Title:</strong> {selectedSessionForDetails.agentInfo.title}</div>
-                    <div><strong>Version:</strong> {selectedSessionForDetails.agentInfo.version}</div>
+                  <h3 className="mb-2 font-semibold text-sm">Agent Info</h3>
+                  <div className="space-y-1 rounded bg-muted p-3 text-sm">
+                    <div>
+                      <strong>Name:</strong>{" "}
+                      {selectedSessionForDetails.agentInfo.name}
+                    </div>
+                    <div>
+                      <strong>Title:</strong>{" "}
+                      {selectedSessionForDetails.agentInfo.title}
+                    </div>
+                    <div>
+                      <strong>Version:</strong>{" "}
+                      {selectedSessionForDetails.agentInfo.version}
+                    </div>
                   </div>
                 </div>
               )}
 
               <div>
-                <h3 className="font-semibold text-sm mb-2">Full Session Data (JSON)</h3>
-                <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-96 font-mono">
-                  {JSON.stringify(selectedSessionForDetails.fullData || selectedSessionForDetails, null, 2)}
+                <h3 className="mb-2 font-semibold text-sm">
+                  Full Session Data (JSON)
+                </h3>
+                <pre className="max-h-96 overflow-auto rounded bg-muted p-3 font-mono text-xs">
+                  {JSON.stringify(
+                    selectedSessionForDetails.fullData ||
+                      selectedSessionForDetails,
+                    null,
+                    2
+                  )}
                 </pre>
               </div>
             </div>

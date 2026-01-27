@@ -126,6 +126,97 @@ SESSION_IDLE_TIMEOUT_MS=600000
 
 ---
 
+## Authentication (Better-auth + Bun SQLite)
+
+The server uses Better-auth with Bun's built-in SQLite for local-first auth.
+
+### What it protects
+- **HTTP dashboard** (`/`) and all **HTTP API** routes under `/api/*` (except `/api/auth/*`) require auth.
+- **tRPC over WebSocket** requires auth. All tRPC procedures are `protectedProcedure`.
+
+### Admin login (dashboard)
+- Login UI: `GET /login`
+- Sign-in endpoint: `POST /api/auth/sign-in/username`
+- Username/password auth is enabled (Better-auth username plugin).
+
+> Sign-up is **disabled by default**. First admin is bootstrapped automatically.
+
+#### Where to find the initial admin password (Ubuntu/Linux)
+If `AUTH_ADMIN_PASSWORD` is not set, the server generates credentials and stores them here:
+```
+~/.config/Eragear/admin.credentials.json
+```
+
+If `XDG_CONFIG_HOME` is set:
+```
+$XDG_CONFIG_HOME/Eragear/admin.credentials.json
+```
+
+Quick lookup:
+```
+find ~/.config -name admin.credentials.json -maxdepth 3
+```
+
+### API key auth (client connections)
+- Default header: `x-api-key` (also accepts `Authorization: Bearer <key>`).
+- For browser WS clients, pass `apiKey` in the WS query string:
+  - `ws://localhost:3000?apiKey=<key>`
+
+### Admin management (dashboard + HTTP API)
+The dashboard now includes an **Auth** tab to manage API keys and device sessions.
+
+Server-side admin endpoints (require dashboard login session):
+```
+GET    /api/admin/api-keys
+POST   /api/admin/api-keys
+DELETE /api/admin/api-keys
+GET    /api/admin/device-sessions
+POST   /api/admin/device-sessions/revoke
+POST   /api/admin/device-sessions/activate
+```
+
+### Default storage location
+Auth files are stored in the OS config directory:
+- **Windows**: `%APPDATA%\\Eragear\\auth.sqlite`
+- **macOS**: `~/Library/Application Support/Eragear/auth.sqlite`
+- **Linux**: `$XDG_CONFIG_HOME/Eragear/auth.sqlite` or `~/.config/Eragear/auth.sqlite`
+
+Alongside the DB you’ll also see:
+- `auth.secret`
+- `admin.credentials.json`
+- `api-key.json` (when auto-generated)
+
+### Overrides
+You can override the auth DB path:
+```
+AUTH_DB_PATH=/path/to/auth.sqlite
+```
+When set, the auth files will be stored in the same directory.
+
+### Bootstrap behavior
+- If no users exist, the server creates a default admin user.
+- If no API keys exist and `AUTH_BOOTSTRAP_API_KEY=true`, a default API key is created.
+
+### Auth environment variables
+```
+# Required in production (recommended)
+AUTH_SECRET=your-32+char-secret
+AUTH_BASE_URL=http://localhost:3000
+AUTH_TRUSTED_ORIGINS=http://localhost:3000,https://your-domain
+
+# Admin bootstrap (optional)
+AUTH_ADMIN_USERNAME=admin
+AUTH_ADMIN_PASSWORD=change-me
+AUTH_ADMIN_EMAIL=admin@localhost.local
+
+# Behavior toggles
+AUTH_ALLOW_SIGNUP=false
+AUTH_BOOTSTRAP_API_KEY=true
+AUTH_API_KEY_PREFIX=eg_
+```
+
+---
+
 ## ACP Flow
 
 ### 1) Initialization

@@ -10,7 +10,12 @@
 import type { ChildProcess } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import type {
+  AudioContent,
   ClientSideConnection,
+  EmbeddedResource,
+  ImageContent,
+  ResourceLink,
+  TextContent,
   ToolCall,
   ToolCallUpdate,
 } from "@agentclientprotocol/sdk";
@@ -30,13 +35,31 @@ export interface StoredMessage {
   role: "user" | "assistant";
   /** Text content of the message */
   content: string;
+  /** Structured content blocks for the message */
+  contentBlocks?: StoredContentBlock[];
   /** Timestamp when the message was created */
   timestamp: number;
   /** Optional tool calls made during this message */
   toolCalls?: Array<{ name: string; args: unknown }>;
   /** Optional reasoning content from the agent */
   reasoning?: string;
+  /** Optional structured reasoning blocks */
+  reasoningBlocks?: StoredContentBlock[];
 }
+
+/**
+ * JSON-safe representation of ACP ContentBlock for storage
+ * (normalizes BigInt fields to numbers when possible).
+ */
+export type StoredContentBlock =
+  | (TextContent & { type: "text" })
+  | (ImageContent & { type: "image" })
+  | (AudioContent & { type: "audio" })
+  | (EmbeddedResource & { type: "resource" })
+  | (Omit<ResourceLink, "size"> & {
+      type: "resource_link";
+      size?: number | null;
+    });
 
 /**
  * Session mode state information
@@ -90,12 +113,18 @@ export interface PromptCapabilities {
 export interface SessionBuffer {
   /** Number of replay events */
   replayEventCount: number;
-  /** Append text content to the buffer */
-  appendContent(text: string): void;
-  /** Append reasoning text to the buffer */
-  appendReasoning(text: string): void;
+  /** Append content block to the buffer */
+  appendContent(block: StoredContentBlock): void;
+  /** Append reasoning block to the buffer */
+  appendReasoning(block: StoredContentBlock): void;
   /** Flush and return the accumulated message, or null if empty */
-  flush(): { id: string; content: string; reasoning?: string } | null;
+  flush(): {
+    id: string;
+    content: string;
+    contentBlocks: StoredContentBlock[];
+    reasoning?: string;
+    reasoningBlocks?: StoredContentBlock[];
+  } | null;
   /** Check if buffer has accumulated content */
   hasContent(): boolean;
   /** Reset the buffer */
@@ -164,7 +193,13 @@ export type BroadcastEvent =
       toolCall: unknown;
       options?: unknown;
     }
-  | { type: "user_message"; id: string; text: string; timestamp: number }
+  | {
+      type: "user_message";
+      id: string;
+      text: string;
+      timestamp: number;
+      contentBlocks?: StoredContentBlock[];
+    }
   | { type: "message"; message: unknown }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string }

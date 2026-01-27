@@ -1,43 +1,135 @@
-# Eragear Server (ACP Client)
+# Eragear Server (ACP Client) — Operational Map
 
-Tài liệu định hướng cho agent khi làm việc trong `apps/server`.
+Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc xong biết
+đi đâu, sửa ở đâu, không được làm gì, và test/debug như thế nào.
 
-## Kiến trúc 4 lớp
+## 1) Definition Block (đọc 60 giây)
 
-- **Application** (`src/modules/*/application`): use case, orchestration, gọi domain + infra để hoàn thành tác vụ.
-- **Domain** (`src/modules/*/domain`): entity, rule nghiệp vụ cốt lõi; ít phụ thuộc công nghệ.
-- **Infra** (`src/infra`, `src/modules/*/infra`): hiện thực kỹ thuật (ACP, storage, process, filesystem...).
-- **Transport** (`src/transport`): HTTP/tRPC/WS routes, nhận request, map dữ liệu, gọi application.
+- **Module** = vertical slice nằm dưới `src/modules/<feature>/` gồm `application/`, `domain/`, `infra/`.
+- **Transport** (`src/transport/**`) là API boundary (HTTP/tRPC/WS); chỉ validate/map input, gọi application.
+- **Application** (`src/modules/*/application/**`) là use-case orchestration; gọi domain + ports.
+- **Domain** (`src/modules/*/domain/**`) chứa entity + rule/invariant; không import `transport`/`infra`.
+- **Ports/contracts** nằm ở `src/shared/types/ports.ts`; application depend on ports, infra implements.
+- **Global infra** (`src/infra/**`) = adapter dùng chung (ACP, process, filesystem, git, storage).
+- **Module infra** (`src/modules/*/infra/**`) = persistence/runtime đặc thù module (JSON repo, runtime store).
+- **Infra được phép có policy/IO logic** (allowlist, sandbox, retry, mapping), **không chứa domain rules**.
+- **Dependency wiring** ở `src/bootstrap/container.ts` (ports → adapters).
+- **Process entry** ở `src/index.ts`; HTTP/WS wiring ở `src/bootstrap/server.ts`.
 
-**Vì sao tốt cho AI**
-- Dễ định vị: biết logic ở đâu, adapter ở đâu, luồng dữ liệu đi qua đâu.
-- Giảm side effects: domain sạch → reasoning chính xác hơn.
-- Dễ thay thế: đổi DB/transport không chạm domain.
-- Dễ sửa theo phạm vi: AI chỉnh đúng layer, ít lan.
+## 2) Where to start (5 entry points)
 
-## Mapping thư mục chính
+- `src/index.ts`: process entry; gọi `startServer()`.
+- `src/bootstrap/server.ts`: tạo Hono app, đăng ký HTTP routes, tRPC WS handler, serve UI.
+- `src/bootstrap/container.ts`: DI wiring ports/adapters; nơi thêm adapter mới.
+- `src/transport/trpc/router.ts` + `src/transport/trpc/routers/*.ts`: API boundary & procedure definitions.
+- `src/infra/acp/*`: ACP bridge (connection, handlers, permission, tool-calls, update).
 
-- `src/bootstrap/`: khởi tạo container, server.
-- `src/config/`: cấu hình môi trường, hằng số.
-- `src/modules/`: domain + application theo feature (agent, ai, project, session...).
-- `src/infra/`: adapter cho ACP, process, filesystem, git + **storage primitives** (json-store).
-- `src/transport/`: HTTP/tRPC/WS routing **tập trung ở root** (Option 2: centralized transport).
-- `src/shared/`: types, errors, utils dùng chung.
-- `src/shared/config/`: shared UI config (dashboard HTML) và các cấu hình cross-layer.
+## 3) Flow Catalog (chuẩn repo, dùng để đặt logic đúng chỗ)
 
-## Where to change what (quick map)
+### Flow 1: Create session
 
-- **API/tRPC/WS**: `src/transport/**`
-- **Use-cases**: `src/modules/*/application/**`
-- **Domain rules/entities**: `src/modules/*/domain/**`
-- **ACP / platform adapters**: `src/infra/acp/**`, `src/infra/process/**`, `src/infra/filesystem/**`
-- **Persistence (module adapters)**: `src/modules/*/infra/**` (JSON repositories)
-- **Storage primitives**: `src/infra/storage/json-store.ts`
+1. UI gọi tRPC `createSession` (`src/transport/trpc/routers/session.ts`).
+2. Transport validate input (zod) và gọi `CreateSessionService`.
+3. `CreateSessionService` (`src/modules/session/application/create-session.service.ts`)
+   orchestration: repo, runtime, agent runtime, settings.
+4. `AgentRuntimeAdapter` (`src/infra/process/index.ts`) spawn process + ACP
+   connection (`src/infra/acp/connection.ts`).
+5. `createSessionHandlers` (`src/infra/acp/handlers.ts`) gắn
+   permission/update/tool-calls.
+6. `createSessionUpdateHandler` (`src/infra/acp/update.ts`) buffer + persist.
+7. `SessionRuntimeStore` broadcast events (`src/modules/session/infra/runtime-store.ts`).
 
-## Quy ước chỉnh sửa
+### Flow 2: Incoming ACP update
 
-- Đặt logic nghiệp vụ vào `domain` hoặc `application`, không để trong `transport`.
-- `transport` chỉ nên validate/map input và gọi `application`.
-- `infra` chỉ hiện thực interface/adapter, không chứa rule nghiệp vụ.
-- Không tạo `modules/*/transport` cho procedures cho đến khi quyết định đổi sang module-level transport.
-- Domain không import `infra`/`transport`. Application không import `transport`. Transport không import `domain`/`infra`.
+1. Agent gửi update → `createSessionHandlers.sessionUpdate`
+   (`src/infra/acp/handlers.ts`).
+2. `createSessionUpdateHandler` xử lý buffer/plan/mode/tool calls
+   (`src/infra/acp/update.ts`).
+3. Persist qua `SessionRepositoryPort` (JSON repo trong
+   `src/modules/session/infra/session.repository.json.ts`).
+4. Broadcast qua `SessionRuntimePort` → `onSessionEvents` subscription
+   (`src/transport/trpc/routers/session.ts`).
+
+### Flow 3: Tool-call permission
+
+1. Agent request permission → `createPermissionHandler`
+   (`src/infra/acp/permission.ts`).
+2. Request được broadcast qua runtime → UI.
+3. UI phản hồi qua tRPC `respondToPermissionRequest`
+   (`src/transport/trpc/routers/tool.ts`).
+4. `RespondPermissionService` resolve pending request
+   (`src/modules/tooling/application/respond-permission.service.ts`).
+
+### Flow 4: Persistence (JSON store)
+
+1. Application gọi `SessionRepositoryPort` (port ở `src/shared/types/ports.ts`).
+2. Implementation là JSON repo (`src/modules/session/infra/session.repository.json.ts`).
+3. JSON store dùng `src/infra/storage/json-store.ts` → `.eragear/*.json`.
+
+## 4) Decision Table: đặt code ở đâu?
+
+| Nếu cần... | Đặt ở | Ví dụ thực tế |
+| --- | --- | --- |
+| Validate/map input | `src/transport/**` | `transport/trpc/routers/session.ts` (zod) |
+| Orchestrate nhiều dependency | `src/modules/*/application/**` | `modules/session/application/create-session.service.ts` |
+| State + invariant domain | `src/modules/*/domain/**` | `modules/project/domain/project.entity.ts` |
+| IO/policy (allowlist/sandbox/retry) | `src/infra/**` | `infra/acp/tool-calls.ts`, `infra/process/index.ts` |
+| Persistence/runtime module | `src/modules/*/infra/**` | `modules/session/infra/session.repository.json.ts` |
+| Contract/port | `src/shared/types/ports.ts` | `SessionRepositoryPort`, `AgentRuntimePort` |
+
+## 5) Golden Paths (cách thêm tính năng không phá kiến trúc)
+
+### A. Thêm API mới
+
+1. Thêm procedure ở `src/transport/trpc/routers/*.ts` (validate input).
+2. Tạo service ở `src/modules/<feature>/application`.
+3. Nếu cần IO mới: thêm port ở `src/shared/types/ports.ts`.
+4. Implement adapter ở `src/infra/**` hoặc `src/modules/*/infra/**`.
+5. Wire port/adapter ở `src/bootstrap/container.ts`.
+
+### B. Thêm tool-call mới cho ACP
+
+1. Thêm handler ở `src/infra/acp/tool-calls.ts`.
+2. Nếu cần state/domain: gọi service ở `src/modules/*/application/**`
+   qua container/runtime (không thao tác repo trực tiếp trong handler trừ IO/policy).
+3. Nếu cần permission: dùng flow `requestPermission` → `respondToPermissionRequest`.
+
+## 6) Anti-patterns (đừng làm)
+
+- Gọi repo trực tiếp trong transport (`src/transport/**`).
+- Đặt orchestration trong transport thay vì application.
+- Đặt ports ở domain (ports ở `src/shared/types/ports.ts`).
+- Đặt business rules trong infra (infra chỉ policy/IO).
+- Tool-call handler tự tạo session state (phải qua runtime/service).
+- Domain import `infra`/`transport`.
+- Tạo `modules/*/transport` mới (chưa dùng module-level transport).
+- Bypass `SessionRuntimePort` khi broadcast event (dùng runtime store).
+- Viết trực tiếp file JSON ngoài `json-store.ts` (dùng storage primitive).
+- Hardcode path ngoài `projectRoot` trong tool calls (phải resolve/sandbox).
+
+## 7) Glossary (chuẩn hóa thuật ngữ)
+
+- **ChatId**: ID của session runtime (sống trong RAM).
+- **Session (stored)**: session metadata + messages lưu ở `.eragear/sessions.json`.
+- **Session runtime**: đối tượng đang chạy trong RAM (`SessionRuntimeStore`).
+- **ACP connection**: kết nối NDJSON với agent (`infra/acp/connection.ts`).
+- **ACP handlers**: bộ callback nhận update/permission/tool calls (`infra/acp/handlers.ts`).
+- **Tool call**: agent yêu cầu chạy tool (fs/terminal).
+- **Permission request**: yêu cầu người dùng chấp thuận tool call.
+- **Buffer**: gom message chunk trước khi persist (`SessionBuffering`).
+- **Replay**: lịch sử được agent replay khi resume (`isReplayingHistory`).
+- **Event bus**: kênh pub/sub trong server (`shared/utils/event-bus.ts`).
+
+## 8) Test & Debug Map (nhanh, thực dụng)
+
+- **Run dev**: `bun run dev` (entry: `src/index.ts`).
+- **Type check**: `bun run check-types`.
+- **Build**: `bun run build` (gồm UI build).
+- **Log tags chính**: `[Server]`, `[DEBUG]`, `[Storage]` (xem trong `src/**`).
+- **ACP handlers**: `src/infra/acp/handlers.ts`, update logic ở `src/infra/acp/update.ts`.
+- **Runtime & broadcast**: `src/modules/session/infra/runtime-store.ts`.
+- **Config/allowlist**: `src/config/environment.ts` (ALLOWED_* , *_TIMEOUT_MS).
+- **Lỗi thường gặp**:
+  - `Agent command not allowed` → `src/infra/process/index.ts`.
+  - `Access denied (outside project root)` → `src/infra/acp/tool-calls.ts`.
+  - `Chat not found` / `Session is not running` → `modules/ai/application/send-message.service.ts`.

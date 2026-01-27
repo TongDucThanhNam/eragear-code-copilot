@@ -9,11 +9,11 @@
 
 import { z } from "zod";
 import { AgentService } from "@/modules/agent/application/agent.service";
-import { publicProcedure, router } from "../base";
+import { protectedProcedure, router } from "../base";
 
 export const agentsRouter = router({
   /** List all agents, optionally filtered by project ID */
-  list: publicProcedure
+  list: protectedProcedure
     .input(z.object({ projectId: z.string().nullish() }).optional())
     .query(({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());
@@ -21,7 +21,7 @@ export const agentsRouter = router({
     }),
 
   /** Create a new agent configuration */
-  create: publicProcedure
+  create: protectedProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -38,7 +38,7 @@ export const agentsRouter = router({
     }),
 
   /** Update an existing agent configuration */
-  update: publicProcedure
+  update: protectedProcedure
     .input(
       z.object({
         id: z.string(),
@@ -57,7 +57,7 @@ export const agentsRouter = router({
     }),
 
   /** Delete an agent configuration */
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());
@@ -65,7 +65,7 @@ export const agentsRouter = router({
     }),
 
   /** Set the active agent (for UI state) */
-  setActive: publicProcedure
+  setActive: protectedProcedure
     .input(z.object({ id: z.string().nullable() }))
     .mutation(({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());

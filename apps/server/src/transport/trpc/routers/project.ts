@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import { ProjectService } from "@/modules/project/application/project.service";
-import { publicProcedure, router } from "../base";
+import { protectedProcedure, router } from "../base";
 
 const ProjectInputSchema = z.object({
   name: z.string().min(1),
@@ -25,13 +25,13 @@ const ProjectUpdateSchema = ProjectInputSchema.partial().extend({
 
 export const projectRouter = router({
   /** List all projects */
-  listProjects: publicProcedure.query(({ ctx }) => {
+  listProjects: protectedProcedure.query(({ ctx }) => {
     const service = new ProjectService(ctx.container.getProjects());
     return service.listProjects();
   }),
 
   /** Create a new project */
-  createProject: publicProcedure
+  createProject: protectedProcedure
     .input(ProjectInputSchema)
     .mutation(({ input, ctx }) => {
       const service = new ProjectService(ctx.container.getProjects());
@@ -39,7 +39,7 @@ export const projectRouter = router({
     }),
 
   /** Update an existing project */
-  updateProject: publicProcedure
+  updateProject: protectedProcedure
     .input(ProjectUpdateSchema)
     .mutation(({ input, ctx }) => {
       const service = new ProjectService(ctx.container.getProjects());
@@ -47,7 +47,7 @@ export const projectRouter = router({
     }),
 
   /** Delete a project */
-  deleteProject: publicProcedure
+  deleteProject: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ input, ctx }) => {
       const service = new ProjectService(ctx.container.getProjects());
@@ -55,7 +55,7 @@ export const projectRouter = router({
     }),
 
   /** Set the active project (for UI state) */
-  setActiveProject: publicProcedure
+  setActiveProject: protectedProcedure
     .input(z.object({ id: z.string().nullable() }))
     .mutation(({ input, ctx }) => {
       const service = new ProjectService(ctx.container.getProjects());

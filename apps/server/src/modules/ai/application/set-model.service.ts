@@ -7,7 +7,15 @@
  * @module modules/ai/application/set-model.service
  */
 
-import type { SessionRuntimePort } from "../../../shared/types/ports";
+import type {
+  SessionRepositoryPort,
+  SessionRuntimePort,
+} from "../../../shared/types/ports";
+import {
+  getAcpErrorText,
+  isProcessExited,
+  isProcessTransportNotReady,
+} from "./acp-error.util";
 
 /**
  * Connection interface for the unstable setSessionModel method
@@ -39,12 +47,18 @@ interface ConnWithUnstableModel {
 export class SetModelService {
   /** Runtime store for accessing active sessions */
   private readonly sessionRuntime: SessionRuntimePort;
+  /** Repository for session persistence */
+  private readonly sessionRepo: SessionRepositoryPort;
 
   /**
    * Creates a SetModelService with required dependencies
    */
-  constructor(sessionRuntime: SessionRuntimePort) {
+  constructor(
+    sessionRuntime: SessionRuntimePort,
+    sessionRepo: SessionRepositoryPort
+  ) {
     this.sessionRuntime = sessionRuntime;
+    this.sessionRepo = sessionRepo;
   }
 
   /**
@@ -60,13 +74,69 @@ export class SetModelService {
     if (!session?.sessionId) {
       throw new Error("Chat not found");
     }
+    const stdin = session.proc.stdin;
+    if (
+      !stdin ||
+      stdin.destroyed ||
+      !stdin.writable ||
+      session.proc.killed ||
+      session.proc.exitCode !== null
+    ) {
+      throw new Error("Session is not running");
+    }
+    if (session.conn.signal.aborted) {
+      throw new Error("Session connection is closed");
+    }
 
-    await (
-      session.conn as unknown as ConnWithUnstableModel
-    ).unstable_setSessionModel({
-      sessionId: session.sessionId,
-      modelId,
-    });
+    const markStopped = (reason: string) => {
+      this.sessionRuntime.broadcast(chatId, {
+        type: "error",
+        error: reason,
+      });
+      this.sessionRepo.updateStatus(chatId, "stopped");
+      if (!session.proc.killed) {
+        session.proc.kill();
+      }
+      this.sessionRuntime.delete(chatId);
+    };
+
+    const sendRequest = async () => {
+      await (
+        session.conn as unknown as ConnWithUnstableModel
+      ).unstable_setSessionModel({
+        sessionId: session.sessionId,
+        modelId,
+      });
+    };
+
+    try {
+      const maxAttempts = 3;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          await sendRequest();
+          break;
+        } catch (error) {
+          const errorText = getAcpErrorText(error);
+          if (
+            isProcessTransportNotReady(errorText) &&
+            attempt < maxAttempts - 1
+          ) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, 150 * (attempt + 1))
+            );
+            continue;
+          }
+          if (isProcessExited(errorText)) {
+            markStopped(errorText || "Agent process exited");
+            throw new Error(errorText || "Agent process exited");
+          }
+          throw error;
+        }
+      }
+    } catch (error) {
+      const errorText = getAcpErrorText(error);
+      throw new Error(errorText || "Failed to set model");
+    }
 
     if (session.models) {
       session.models.currentModelId = modelId;

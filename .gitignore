@@ -49,3 +49,4 @@ coverage
 tmp
 temp
 apps/server/.eragear/sessions.json
+.agentlens

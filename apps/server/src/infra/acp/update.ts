@@ -10,11 +10,12 @@
 
 import type * as acp from "@agentclientprotocol/sdk";
 import { createId } from "@/shared/utils/id.util";
+import { toStoredContentBlock } from "@/shared/utils/content-block.util";
 import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "../../shared/types/ports";
-import type { Plan } from "../../shared/types/session.types";
+import type { Plan, StoredContentBlock } from "../../shared/types/session.types";
 
 /**
  * Type guard to check if an update is a tool call update
@@ -54,11 +55,35 @@ export type SessionUpdateWithLegacy = acp.SessionUpdate | LegacySessionUpdate;
  * @param content - The content block to extract from
  * @returns The text content or empty string for non-text blocks
  */
-function contentToText(content: acp.ContentBlock) {
+function contentBlockToText(content: StoredContentBlock) {
   if (content.type !== "text") {
     return "";
   }
   return content.text;
+}
+
+function sanitizeContentBlock(block: acp.ContentBlock): StoredContentBlock {
+  return toStoredContentBlock(block);
+}
+
+function sanitizeToolCallContent(
+  content?: acp.ToolCallContent[] | null
+): acp.ToolCallContent[] | undefined {
+  if (content === null) {
+    return undefined;
+  }
+  if (!content) {
+    return content;
+  }
+  return content.map((item) => {
+    if (item.type !== "content") {
+      return item;
+    }
+    return {
+      ...item,
+      content: sanitizeContentBlock(item.content),
+    } as acp.ToolCallContent;
+  });
 }
 
 /**
@@ -101,14 +126,16 @@ function extractPlan(update: SessionUpdateWithLegacy): Plan | null {
  * @example
  * ```typescript
  * const buffer = new SessionBuffering();
- * buffer.appendContent("Hello");
- * buffer.appendReasoning("Let me think...");
+ * buffer.appendContent({ type: "text", text: "Hello" });
+ * buffer.appendReasoning({ type: "text", text: "Let me think..." });
  * const message = buffer.flush(); // Returns complete message or null
  * ```
  */
 export class SessionBuffering {
   private content = "";
   private reasoning = "";
+  private contentBlocks: StoredContentBlock[] = [];
+  private reasoningBlocks: StoredContentBlock[] = [];
   private messageId: string | null = null;
   /** Count of replay events processed during history replay */
   replayEventCount = 0;
@@ -118,8 +145,8 @@ export class SessionBuffering {
    *
    * @param text - The text content to append
    */
-  appendContent(text: string) {
-    this.appendText("content", text);
+  appendContent(block: StoredContentBlock) {
+    this.appendBlock("content", block);
   }
 
   /**
@@ -127,8 +154,8 @@ export class SessionBuffering {
    *
    * @param text - The reasoning text to append
    */
-  appendReasoning(text: string) {
-    this.appendText("reasoning", text);
+  appendReasoning(block: StoredContentBlock) {
+    this.appendBlock("reasoning", block);
   }
 
   /**
@@ -145,9 +172,18 @@ export class SessionBuffering {
     const messageId = this.messageId ?? createId("msg");
     const content = this.content;
     const reasoning = this.reasoning || undefined;
+    const contentBlocks = [...this.contentBlocks];
+    const reasoningBlocks =
+      this.reasoningBlocks.length > 0 ? [...this.reasoningBlocks] : undefined;
     this.reset();
 
-    return { id: messageId, content, reasoning };
+    return {
+      id: messageId,
+      content,
+      contentBlocks,
+      reasoning,
+      reasoningBlocks,
+    };
   }
 
   /**
@@ -156,7 +192,9 @@ export class SessionBuffering {
    * @returns True if buffer has content
    */
   hasContent() {
-    return this.content.length > 0 || this.reasoning.length > 0;
+    return (
+      this.contentBlocks.length > 0 || this.reasoningBlocks.length > 0
+    );
   }
 
   /**
@@ -165,6 +203,8 @@ export class SessionBuffering {
   reset() {
     this.content = "";
     this.reasoning = "";
+    this.contentBlocks = [];
+    this.reasoningBlocks = [];
     this.messageId = null;
   }
 
@@ -174,11 +214,21 @@ export class SessionBuffering {
    * @param target - The field to append to ("content" or "reasoning")
    * @param text - The text to append
    */
-  private appendText(target: "content" | "reasoning", text: string) {
-    if (!text) {
-      return;
+  private appendBlock(
+    target: "content" | "reasoning",
+    block: StoredContentBlock
+  ) {
+    if (target === "content") {
+      this.contentBlocks.push(block);
+    } else {
+      this.reasoningBlocks.push(block);
     }
-    this[target] += text;
+
+    const text = contentBlockToText(block);
+    if (text) {
+      this[target] += text;
+    }
+
     if (!this.messageId) {
       this.messageId = createId("msg");
     }
@@ -300,16 +350,26 @@ function handleToolCallCreate(
   }
 
   const { sessionUpdate: _sessionUpdate, ...toolCall } = update;
+  const sanitizedToolCall: acp.ToolCall = {
+    ...toolCall,
+    content: sanitizeToolCallContent(toolCall.content),
+  };
   const session = sessionRuntime.get(chatId);
   if (session) {
-    session.toolCalls.set(update.toolCallId, toolCall);
+    session.toolCalls.set(update.toolCallId, sanitizedToolCall);
   }
 
   sessionRuntime.broadcast(chatId, {
     type: "tool_call",
-    toolCall,
+    toolCall: sanitizedToolCall,
   });
-  sessionRuntime.broadcast(chatId, { type: "session_update", update });
+  sessionRuntime.broadcast(chatId, {
+    type: "session_update",
+    update: {
+      ...update,
+      content: sanitizeToolCallContent(update.content),
+    },
+  });
   return true;
 }
 
@@ -330,7 +390,12 @@ function handleToolCallUpdate(
     return false;
   }
 
-  const { sessionUpdate: _sessionUpdate, ...toolCallUpdate } = update;
+  const sanitizedUpdate = {
+    ...update,
+    content: sanitizeToolCallContent(update.content),
+  };
+  const { sessionUpdate: _sessionUpdate, ...toolCallUpdate } =
+    sanitizedUpdate;
   const session = sessionRuntime.get(chatId);
   const existing = session?.toolCalls.get(update.toolCallId);
   const merged = existing
@@ -357,7 +422,7 @@ function handleToolCallUpdate(
     merged.rawOutput = update.rawOutput ?? undefined;
   }
   if ("content" in update) {
-    merged.content = update.content ?? undefined;
+    merged.content = sanitizeToolCallContent(update.content) ?? undefined;
   }
   if ("locations" in update) {
     merged.locations = update.locations ?? undefined;
@@ -371,7 +436,10 @@ function handleToolCallUpdate(
     type: "tool_call_update",
     toolCall: toolCallUpdate,
   });
-  sessionRuntime.broadcast(chatId, { type: "session_update", update });
+  sessionRuntime.broadcast(chatId, {
+    type: "session_update",
+    update: sanitizedUpdate,
+  });
   return true;
 }
 
@@ -394,12 +462,11 @@ function handleBufferedMessage(
   // Buffer content chunks (not during replay)
   if (!isReplayingHistory) {
     if (update.sessionUpdate === "agent_message_chunk") {
-      const text = contentToText(update.content);
-      buffer.appendContent(text);
+      buffer.appendContent(toStoredContentBlock(update.content));
     }
 
     if (update.sessionUpdate === "agent_thought_chunk") {
-      buffer.appendReasoning(contentToText(update.content));
+      buffer.appendReasoning(toStoredContentBlock(update.content));
     }
   }
 
@@ -414,7 +481,9 @@ function handleBufferedMessage(
         id: message.id,
         role: "assistant",
         content: message.content,
+        contentBlocks: message.contentBlocks,
         reasoning: message.reasoning,
+        reasoningBlocks: message.reasoningBlocks,
         timestamp: Date.now(),
       });
     }
@@ -498,7 +567,20 @@ export function createSessionUpdateHandler(
       );
     }
 
+    const updateForBroadcast =
+      update.sessionUpdate === "user_message_chunk" ||
+      update.sessionUpdate === "agent_message_chunk" ||
+      update.sessionUpdate === "agent_thought_chunk"
+        ? {
+            ...update,
+            content: sanitizeContentBlock(update.content),
+          }
+        : update;
+
     // Broadcast generic session update
-    sessionRuntime.broadcast(chatId, { type: "session_update", update });
+    sessionRuntime.broadcast(chatId, {
+      type: "session_update",
+      update: updateForBroadcast,
+    });
   };
 }

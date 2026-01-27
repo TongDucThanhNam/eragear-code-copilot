@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Surface } from "heroui-native";
 import { useCallback } from "react";
-import { FlatList, Pressable, Text, View } from "react-native";
+import { Alert, FlatList, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { trpc } from "@/lib/trpc";
@@ -19,6 +19,8 @@ export function ProjectDrawerContent({
   const projects = useProjectStore((s) => s.projects);
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const setActiveProjectId = useProjectStore((s) => s.setActiveProjectId);
+  const setEditingProject = useProjectStore((s) => s.setEditingProject);
+  const removeProject = useProjectStore((s) => s.removeProject);
   const setIsProjectCreateOpen = useProjectStore(
     (s) => s.setIsProjectCreateOpen
   );
@@ -86,14 +88,43 @@ export function ProjectDrawerContent({
                 </View>
               )}
             </View>
-            {isActive && (
-              <Ionicons color="#3b82f6" name="checkmark-circle" size={20} />
-            )}
+            <View className="flex-row items-center gap-2">
+              <Pressable
+                onPress={(event) => {
+                  event.stopPropagation();
+                  setEditingProject(item);
+                }}
+              >
+                <Ionicons color="#94a3b8" name="create-outline" size={18} />
+              </Pressable>
+              <Pressable
+                onPress={(event) => {
+                  event.stopPropagation();
+                  Alert.alert(
+                    "Delete Project",
+                    `Delete project "${item.name}"?`,
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Delete",
+                        style: "destructive",
+                        onPress: () => removeProject(item.id),
+                      },
+                    ]
+                  );
+                }}
+              >
+                <Ionicons color="#ef4444" name="trash-outline" size={18} />
+              </Pressable>
+              {isActive && (
+                <Ionicons color="#3b82f6" name="checkmark-circle" size={20} />
+              )}
+            </View>
           </Surface>
         </Pressable>
       );
     },
-    [activeProjectId, handleSelectProject]
+    [activeProjectId, handleSelectProject, removeProject, setEditingProject]
   );
 
   return (

@@ -12,11 +12,11 @@ import { CancelPromptService } from "@/modules/ai/application/cancel-prompt.serv
 import { SendMessageService } from "@/modules/ai/application/send-message.service";
 import { SetModeService } from "@/modules/ai/application/set-mode.service";
 import { SetModelService } from "@/modules/ai/application/set-model.service";
-import { publicProcedure, router } from "../base";
+import { protectedProcedure, router } from "../base";
 
 export const aiRouter = router({
   /** Send a message to an agent session */
-  sendMessage: publicProcedure
+  sendMessage: protectedProcedure
     .input(
       z.object({
         chatId: z.string(),
@@ -43,13 +43,24 @@ export const aiRouter = router({
           .optional(),
         resources: z
           .array(
-            z.object({
-              uri: z.string(),
-              text: z.string().optional(),
-              blob: z.string().optional(),
-              mimeType: z.string().optional(),
-              annotations: z.record(z.string(), z.unknown()).optional(),
-            })
+            z
+              .object({
+                uri: z.string(),
+                text: z.string().optional(),
+                blob: z.string().optional(),
+                mimeType: z.string().optional(),
+                annotations: z.record(z.string(), z.unknown()).optional(),
+              })
+              .superRefine((value, ctx) => {
+                const hasText = value.text !== undefined;
+                const hasBlob = value.blob !== undefined;
+                if (hasText === hasBlob) {
+                  ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "Resource must include exactly one of text or blob",
+                  });
+                }
+              })
           )
           .optional(),
         resourceLinks: z
@@ -76,23 +87,29 @@ export const aiRouter = router({
     }),
 
   /** Set the active model for a session */
-  setModel: publicProcedure
+  setModel: protectedProcedure
     .input(z.object({ chatId: z.string(), modelId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const service = new SetModelService(ctx.container.getSessionRuntime());
+      const service = new SetModelService(
+        ctx.container.getSessionRuntime(),
+        ctx.container.getSessions()
+      );
       return await service.execute(input.chatId, input.modelId);
     }),
 
   /** Set the active mode for a session */
-  setMode: publicProcedure
+  setMode: protectedProcedure
     .input(z.object({ chatId: z.string(), modeId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const service = new SetModeService(ctx.container.getSessionRuntime());
+      const service = new SetModeService(
+        ctx.container.getSessionRuntime(),
+        ctx.container.getSessions()
+      );
       return await service.execute(input.chatId, input.modeId);
     }),
 
   /** Cancel an ongoing prompt in a session */
-  cancelPrompt: publicProcedure
+  cancelPrompt: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const service = new CancelPromptService(

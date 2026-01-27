@@ -11,12 +11,13 @@
 import type { Context, Hono } from "hono";
 
 import { getContainer } from "../../bootstrap/container";
+import { auth } from "../../infra/auth/auth";
 import { StopSessionService } from "../../modules/session/application/stop-session.service";
-import { terminateSessionTerminals } from "../../shared/utils/session-cleanup.util";
 import type { Project } from "../../shared/types/project.types";
 import type { StoredSession } from "../../shared/types/session.types";
 import type { Settings } from "../../shared/types/settings.types";
 import { isPathWithinRoots } from "../../shared/utils/project-roots.util";
+import { terminateSessionTerminals } from "../../shared/utils/session-cleanup.util";
 
 function parseFormDataToSettings(
   formData: Record<string, string | File | undefined>,
@@ -503,6 +504,123 @@ export function registerHttpRoutes(app: Hono) {
     } catch (error) {
       console.error("Failed to delete agent:", error);
       return c.json({ error: "Failed to delete agent" }, 500);
+    }
+  });
+
+  // ============================================================================
+  // AUTH ADMIN API
+  // ============================================================================
+
+  app.get("/api/admin/api-keys", async (c: Context) => {
+    try {
+      const keys = await auth.api.listApiKeys({
+        headers: c.req.raw.headers,
+      });
+      return c.json({ keys });
+    } catch (error) {
+      console.error("Failed to list API keys:", error);
+      return c.json({ error: "Failed to list API keys" }, 500);
+    }
+  });
+
+  app.post("/api/admin/api-keys", async (c: Context) => {
+    try {
+      const body = await c.req.json();
+      const { name, prefix, expiresIn } = body as {
+        name?: string;
+        prefix?: string;
+        expiresIn?: number;
+      };
+
+      const session = await auth.api.getSession({
+        headers: c.req.raw.headers,
+      });
+      if (!session) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
+
+      const apiKey = await auth.api.createApiKey({
+        body: {
+          name,
+          prefix,
+          expiresIn,
+          userId: session.user.id,
+        },
+      });
+
+      return c.json({ apiKey });
+    } catch (error) {
+      console.error("Failed to create API key:", error);
+      return c.json({ error: "Failed to create API key" }, 500);
+    }
+  });
+
+  app.delete("/api/admin/api-keys", async (c: Context) => {
+    try {
+      const body = await c.req.json();
+      const { id } = body as { id?: string };
+      if (!id) {
+        return c.json({ error: "id is required" }, 400);
+      }
+
+      const result = await auth.api.deleteApiKey({
+        body: { id },
+        headers: c.req.raw.headers,
+      });
+      return c.json({ result });
+    } catch (error) {
+      console.error("Failed to delete API key:", error);
+      return c.json({ error: "Failed to delete API key" }, 500);
+    }
+  });
+
+  app.get("/api/admin/device-sessions", async (c: Context) => {
+    try {
+      const sessions = await auth.api.listDeviceSessions({
+        headers: c.req.raw.headers,
+      });
+      return c.json({ sessions });
+    } catch (error) {
+      console.error("Failed to list device sessions:", error);
+      return c.json({ error: "Failed to list device sessions" }, 500);
+    }
+  });
+
+  app.post("/api/admin/device-sessions/revoke", async (c: Context) => {
+    try {
+      const body = await c.req.json();
+      const { sessionToken } = body as { sessionToken?: string };
+      if (!sessionToken) {
+        return c.json({ error: "sessionToken is required" }, 400);
+      }
+
+      const result = await auth.api.revokeDeviceSession({
+        body: { sessionToken },
+        headers: c.req.raw.headers,
+      });
+      return c.json({ result });
+    } catch (error) {
+      console.error("Failed to revoke device session:", error);
+      return c.json({ error: "Failed to revoke device session" }, 500);
+    }
+  });
+
+  app.post("/api/admin/device-sessions/activate", async (c: Context) => {
+    try {
+      const body = await c.req.json();
+      const { sessionToken } = body as { sessionToken?: string };
+      if (!sessionToken) {
+        return c.json({ error: "sessionToken is required" }, 400);
+      }
+
+      const result = await auth.api.setActiveSession({
+        body: { sessionToken },
+        headers: c.req.raw.headers,
+      });
+      return c.json({ session: result });
+    } catch (error) {
+      console.error("Failed to set active session:", error);
+      return c.json({ error: "Failed to set active session" }, 500);
     }
   });
 }

@@ -28,6 +28,18 @@ const envSchema = z.object({
   ALLOWED_AGENT_COMMANDS: z.string().optional(),
   ALLOWED_TERMINAL_COMMANDS: z.string().optional(),
   ALLOWED_ENV_KEYS: z.string().optional(),
+  AUTH_SECRET: z.string().optional(),
+  BETTER_AUTH_SECRET: z.string().optional(),
+  AUTH_BASE_URL: z.string().optional(),
+  BETTER_AUTH_URL: z.string().optional(),
+  AUTH_TRUSTED_ORIGINS: z.string().optional(),
+  AUTH_ADMIN_USERNAME: z.string().optional(),
+  AUTH_ADMIN_PASSWORD: z.string().optional(),
+  AUTH_ADMIN_EMAIL: z.string().optional(),
+  AUTH_ALLOW_SIGNUP: z.string().optional(),
+  AUTH_DB_PATH: z.string().optional(),
+  AUTH_BOOTSTRAP_API_KEY: z.string().optional(),
+  AUTH_API_KEY_PREFIX: z.string().optional(),
 });
 
 /** Parse environment variables */
@@ -82,6 +94,32 @@ function toList(value: string | undefined) {
 }
 
 /**
+ * Converts a string environment variable to a boolean
+ *
+ * @param value - The string value to convert
+ * @param fallback - The fallback boolean if value is empty
+ * @returns The parsed boolean or fallback
+ */
+function toBoolean(value: string | undefined, fallback: boolean) {
+  if (!value) {
+    return fallback;
+  }
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+const wsPort = toNumber(env.WS_PORT, DEFAULT_WS_PORT);
+const wsHost = env.WS_HOST ?? DEFAULT_WS_HOST;
+const normalizedAuthHost = wsHost === "0.0.0.0" ? "localhost" : wsHost;
+const authBaseUrl =
+  env.AUTH_BASE_URL ??
+  env.BETTER_AUTH_URL ??
+  `http://${normalizedAuthHost}:${wsPort}`;
+const authTrustedOrigins = toList(env.AUTH_TRUSTED_ORIGINS);
+if (!authTrustedOrigins.includes(authBaseUrl)) {
+  authTrustedOrigins.unshift(authBaseUrl);
+}
+
+/**
  * Application configuration loaded from environment variables
  * All values have sensible defaults
  */
@@ -102,9 +140,9 @@ export const ENV = {
     DEFAULT_WS_HEARTBEAT_INTERVAL_MS
   ),
   /** WebSocket server port */
-  wsPort: toNumber(env.WS_PORT, DEFAULT_WS_PORT),
+  wsPort,
   /** WebSocket server host */
-  wsHost: env.WS_HOST ?? DEFAULT_WS_HOST,
+  wsHost,
   /** Optional maximum agent runtime duration in milliseconds */
   agentTimeoutMs: toOptionalNumber(env.AGENT_TIMEOUT_MS),
   /** Optional maximum terminal runtime duration in milliseconds */
@@ -115,4 +153,24 @@ export const ENV = {
   allowedTerminalCommands: toList(env.ALLOWED_TERMINAL_COMMANDS),
   /** Optional allowlist of environment variable keys (empty = allow all) */
   allowedEnvKeys: toList(env.ALLOWED_ENV_KEYS),
+  /** Better Auth secret (persisted or env) */
+  authSecret: env.AUTH_SECRET ?? env.BETTER_AUTH_SECRET,
+  /** Better Auth base URL */
+  authBaseUrl,
+  /** Better Auth trusted origins */
+  authTrustedOrigins,
+  /** Optional admin bootstrap username */
+  authAdminUsername: env.AUTH_ADMIN_USERNAME,
+  /** Optional admin bootstrap password */
+  authAdminPassword: env.AUTH_ADMIN_PASSWORD,
+  /** Optional admin bootstrap email */
+  authAdminEmail: env.AUTH_ADMIN_EMAIL,
+  /** Allow public sign-up via HTTP endpoints */
+  authAllowSignup: toBoolean(env.AUTH_ALLOW_SIGNUP, false),
+  /** Optional auth database path override */
+  authDbPath: env.AUTH_DB_PATH,
+  /** Bootstrap a default API key if none exist */
+  authBootstrapApiKey: toBoolean(env.AUTH_BOOTSTRAP_API_KEY, true),
+  /** Default API key prefix */
+  authApiKeyPrefix: env.AUTH_API_KEY_PREFIX,
 };

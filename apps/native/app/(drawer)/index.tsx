@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { Button, Spinner, Surface, Tabs, TextField } from "heroui-native";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -39,10 +40,17 @@ export default function SessionsScreen() {
   const setProjects = useProjectStore((s) => s.setProjects);
   const setActiveProjectId = useProjectStore((s) => s.setActiveProjectId);
   const addProject = useProjectStore((s) => s.addProject);
+  const updateProject = useProjectStore((s) => s.updateProject);
+  const updateProjectLocal = useProjectStore((s) => s.updateProjectLocal);
+  const removeProject = useProjectStore((s) => s.removeProject);
+  const removeProjectLocal = useProjectStore((s) => s.removeProjectLocal);
+  const editingProject = useProjectStore((s) => s.editingProject);
+  const setEditingProject = useProjectStore((s) => s.setEditingProject);
   const isProjectCreateOpen = useProjectStore((s) => s.isProjectCreateOpen);
   const setIsProjectCreateOpen = useProjectStore(
     (s) => s.setIsProjectCreateOpen
   );
+  const setProjectMutations = useProjectStore((s) => s.setProjectMutations);
   const activeAgentId = useSettingsStore((s) => s.activeAgentId);
   const setActiveAgentId = useSettingsStore((s) => s.setActiveAgentId);
   const getAgents = useSettingsStore((s) => s.getAgents);
@@ -55,6 +63,19 @@ export default function SessionsScreen() {
     description: "",
     tags: "",
   });
+  const [editProjectForm, setEditProjectForm] = useState({
+    name: "",
+    path: "",
+    description: "",
+    tags: "",
+  });
+  const [sessionActionTarget, setSessionActionTarget] = useState<{
+    id: string;
+    name?: string | null;
+    pinned?: boolean;
+    archived?: boolean;
+  } | null>(null);
+  const [sessionNameDraft, setSessionNameDraft] = useState("");
 
   const sessionsQuery = trpc.getSessions.useQuery(undefined, {
     refetchOnWindowFocus: true,
@@ -89,12 +110,75 @@ export default function SessionsScreen() {
       setError(message);
     },
   });
+  const updateProjectMutation = trpc.updateProject.useMutation({
+    onSuccess: (project) => {
+      updateProjectLocal(project);
+      projectsQuery.refetch();
+      setEditingProject(null);
+    },
+    onError: (err) => {
+      const message =
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to update project.";
+      setError(message);
+    },
+  });
+  const deleteProjectMutation = trpc.deleteProject.useMutation({
+    onSuccess: (_data, variables) => {
+      removeProjectLocal(variables.id);
+      if (activeProjectId === variables.id) {
+        setActiveProjectId(null);
+        setActiveProjectMutation.mutate({ id: null });
+      }
+      projectsQuery.refetch();
+      if (editingProject?.id === variables.id) {
+        setEditingProject(null);
+      }
+    },
+    onError: (err) => {
+      const message =
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to delete project.";
+      setError(message);
+    },
+  });
 
   const deleteSessionMutation = trpc.deleteSession.useMutation({
     onSuccess: () => {
       sessionsQuery.refetch();
     },
   });
+  const updateSessionMetaMutation = trpc.updateSessionMeta.useMutation({
+    onSuccess: () => {
+      sessionsQuery.refetch();
+      setSessionActionTarget(null);
+    },
+    onError: (err) => {
+      const message =
+        typeof err?.message === "string"
+          ? err.message
+          : "Failed to update session.";
+      setError(message);
+    },
+  });
+
+  const projectMutationHandlers = useMemo(
+    () => ({
+      updateProject: (input: {
+        id: string;
+        name?: string;
+        path?: string;
+        description?: string | null;
+        tags?: string[];
+        favorite?: boolean;
+      }) => updateProjectMutation.mutate(input),
+      deleteProject: (input: { id: string }) =>
+        deleteProjectMutation.mutate(input),
+    }),
+    [deleteProjectMutation.mutate, updateProjectMutation.mutate]
+  );
 
   const activeProject = useMemo(() => {
     if (!activeProjectId) {
@@ -205,6 +289,92 @@ export default function SessionsScreen() {
     });
   };
 
+  const handleUpdateProject = () => {
+    if (!editingProject) {
+      return;
+    }
+    setError(null);
+    const name = editProjectForm.name.trim();
+    const path = editProjectForm.path.trim();
+    const hasName = name.length > 0;
+    const hasPath = path.length > 0;
+
+    if (!(hasName && hasPath)) {
+      setError("Project name and path are required.");
+      return;
+    }
+
+    const tags = editProjectForm.tags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+
+    updateProject({
+      id: editingProject.id,
+      name,
+      path,
+      description: editProjectForm.description.trim() || undefined,
+      tags,
+    });
+  };
+
+  const handleDeleteProject = (projectId: string, projectName: string) => {
+    Alert.alert("Delete Project", `Delete project "${projectName}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => removeProject(projectId),
+      },
+    ]);
+  };
+
+  const handleOpenSessionActions = (session: {
+    id: string;
+    name?: string | null;
+    pinned?: boolean;
+    archived?: boolean;
+  }) => {
+    setSessionActionTarget({
+      id: session.id,
+      name: session.name ?? "",
+      pinned: session.pinned ?? false,
+      archived: session.archived ?? false,
+    });
+    setSessionNameDraft(session.name ?? "");
+  };
+
+  const handleRenameSession = () => {
+    if (!sessionActionTarget) {
+      return;
+    }
+    const trimmed = sessionNameDraft.trim();
+    updateSessionMetaMutation.mutate({
+      chatId: sessionActionTarget.id,
+      name: trimmed.length > 0 ? trimmed : null,
+    });
+  };
+
+  const handleTogglePinSession = () => {
+    if (!sessionActionTarget) {
+      return;
+    }
+    updateSessionMetaMutation.mutate({
+      chatId: sessionActionTarget.id,
+      pinned: !sessionActionTarget.pinned,
+    });
+  };
+
+  const handleToggleArchiveSession = () => {
+    if (!sessionActionTarget) {
+      return;
+    }
+    updateSessionMetaMutation.mutate({
+      chatId: sessionActionTarget.id,
+      archived: !sessionActionTarget.archived,
+    });
+  };
+
   const sessions = sessionsQuery.data ?? [];
   const agents = getAgents();
 
@@ -240,12 +410,29 @@ export default function SessionsScreen() {
     }
   }, [activeProjectId, projectsQuery.data, setActiveProjectId, setProjects]);
 
+  useEffect(() => {
+    setProjectMutations(projectMutationHandlers);
+  }, [projectMutationHandlers, setProjectMutations]);
+
   // Reset form when modal closes
   useEffect(() => {
     if (!isProjectCreateOpen) {
       setProjectForm({ name: "", path: "", description: "", tags: "" });
     }
   }, [isProjectCreateOpen]);
+
+  useEffect(() => {
+    if (!editingProject) {
+      setEditProjectForm({ name: "", path: "", description: "", tags: "" });
+      return;
+    }
+    setEditProjectForm({
+      name: editingProject.name,
+      path: editingProject.path,
+      description: editingProject.description ?? "",
+      tags: editingProject.tags?.join(", ") ?? "",
+    });
+  }, [editingProject]);
 
   const activeCount = visibleSessions.filter((s) => s.isActive).length;
   const inactiveCount = visibleSessions.filter((s) => !s.isActive).length;
@@ -305,8 +492,18 @@ export default function SessionsScreen() {
                     className="flex-1 font-medium text-foreground"
                     numberOfLines={1}
                   >
-                    {truncateSessionId(item.sessionId)}
+                    {item.name?.trim()
+                      ? item.name
+                      : truncateSessionId(item.sessionId)}
                   </Text>
+                  {item.pinned && (
+                    <Ionicons
+                      color="#f59e0b"
+                      name="pin"
+                      size={16}
+                      style={{ marginLeft: 6 }}
+                    />
+                  )}
                   {!item.isActive && (
                     <View className="ml-2 rounded bg-zinc-700 px-2 py-0.5">
                       <Text className="text-xs text-zinc-300">
@@ -317,6 +514,14 @@ export default function SessionsScreen() {
                     </View>
                   )}
                 </View>
+                {item.name?.trim() ? (
+                  <Text
+                    className="mt-0.5 text-xs text-muted-foreground"
+                    numberOfLines={1}
+                  >
+                    {truncateSessionId(item.sessionId)}
+                  </Text>
+                ) : null}
                 <View className="mt-1 flex-row items-center">
                   <View
                     className={`mr-2 h-2 w-2 rounded-full ${
@@ -326,6 +531,11 @@ export default function SessionsScreen() {
                   <Text className="text-muted-foreground text-sm">
                     {item.isActive ? "Active" : "Inactive"}
                   </Text>
+                  {item.archived && (
+                    <View className="ml-2 rounded bg-zinc-800 px-2 py-0.5">
+                      <Text className="text-xs text-zinc-400">Archived</Text>
+                    </View>
+                  )}
                   {item.modeId && (
                     <Text className="ml-2 text-muted-foreground text-sm">
                       • {item.modeId}
@@ -333,12 +543,30 @@ export default function SessionsScreen() {
                   )}
                 </View>
               </View>
-              <Pressable
-                className="p-2"
-                onPress={() => handleDeleteSession(item.id)}
-              >
-                <Ionicons color="#ef4444" name="trash-outline" size={20} />
-              </Pressable>
+              <View className="flex-row items-center">
+                <Pressable
+                  className="p-2"
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    handleOpenSessionActions(item);
+                  }}
+                >
+                  <Ionicons
+                    color="#94a3b8"
+                    name="ellipsis-vertical"
+                    size={18}
+                  />
+                </Pressable>
+                <Pressable
+                  className="p-2"
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    handleDeleteSession(item.id);
+                  }}
+                >
+                  <Ionicons color="#ef4444" name="trash-outline" size={20} />
+                </Pressable>
+              </View>
             </Surface>
           </Pressable>
         )}
@@ -503,6 +731,188 @@ export default function SessionsScreen() {
                     ? "Creating..."
                     : "Create Project"}
                 </Button.Label>
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Project Modal */}
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setEditingProject(null)}
+        transparent
+        visible={Boolean(editingProject)}
+      >
+        <View className="flex-1 justify-end bg-black/60">
+          <View className="max-h-[80%] rounded-t-3xl bg-zinc-900 p-6">
+            <View className="mb-4 flex-row items-center justify-between">
+              <Text className="font-semibold text-lg text-white">
+                Edit Project
+              </Text>
+              <Pressable onPress={() => setEditingProject(null)}>
+                <Ionicons color="#94a3b8" name="close" size={20} />
+              </Pressable>
+            </View>
+
+            <ScrollView>
+              <TextField>
+                <TextField.Label>Name</TextField.Label>
+                <TextField.Input
+                  autoCapitalize="none"
+                  onChangeText={(value) =>
+                    setEditProjectForm((prev) => ({ ...prev, name: value }))
+                  }
+                  placeholder="My Project"
+                  value={editProjectForm.name}
+                />
+              </TextField>
+
+              <TextField>
+                <TextField.Label>Path</TextField.Label>
+                <TextField.Input
+                  autoCapitalize="none"
+                  onChangeText={(value) =>
+                    setEditProjectForm((prev) => ({ ...prev, path: value }))
+                  }
+                  placeholder="/absolute/path/to/project"
+                  value={editProjectForm.path}
+                />
+              </TextField>
+
+              <TextField>
+                <TextField.Label>Description</TextField.Label>
+                <TextField.Input
+                  autoCapitalize="none"
+                  onChangeText={(value) =>
+                    setEditProjectForm((prev) => ({
+                      ...prev,
+                      description: value,
+                    }))
+                  }
+                  placeholder="Optional description"
+                  value={editProjectForm.description}
+                />
+              </TextField>
+
+              <TextField>
+                <TextField.Label>Tags</TextField.Label>
+                <TextField.Input
+                  autoCapitalize="none"
+                  onChangeText={(value) =>
+                    setEditProjectForm((prev) => ({ ...prev, tags: value }))
+                  }
+                  placeholder="frontend, api, ui"
+                  value={editProjectForm.tags}
+                />
+              </TextField>
+            </ScrollView>
+
+            <View className="pt-2">
+              <Button
+                isDisabled={updateProjectMutation.isPending}
+                onPress={handleUpdateProject}
+              >
+                <Button.Label>
+                  {updateProjectMutation.isPending
+                    ? "Saving..."
+                    : "Save Changes"}
+                </Button.Label>
+              </Button>
+              {editingProject ? (
+                <Pressable
+                  className="mt-3 items-center rounded-lg border border-red-500/40 px-4 py-2.5"
+                  onPress={() =>
+                    handleDeleteProject(editingProject.id, editingProject.name)
+                  }
+                >
+                  <Text className="font-semibold text-red-400">
+                    Delete Project
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Button
+                onPress={() => setEditingProject(null)}
+                variant="ghost"
+              >
+                <Button.Label>Cancel</Button.Label>
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Session Actions Modal */}
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setSessionActionTarget(null)}
+        transparent
+        visible={Boolean(sessionActionTarget)}
+      >
+        <View className="flex-1 justify-end bg-black/60">
+          <View className="max-h-[70%] rounded-t-3xl bg-zinc-900 p-6">
+            <View className="mb-4 flex-row items-center justify-between">
+              <Text className="font-semibold text-lg text-white">
+                Session Options
+              </Text>
+              <Pressable onPress={() => setSessionActionTarget(null)}>
+                <Ionicons color="#94a3b8" name="close" size={20} />
+              </Pressable>
+            </View>
+
+            <TextField>
+              <TextField.Label>Rename Session</TextField.Label>
+              <TextField.Input
+                autoCapitalize="none"
+                onChangeText={setSessionNameDraft}
+                placeholder="Session name"
+                value={sessionNameDraft}
+              />
+            </TextField>
+
+            <View className="mt-3">
+              <Button
+                isDisabled={updateSessionMetaMutation.isPending}
+                onPress={handleRenameSession}
+              >
+                <Button.Label>
+                  {updateSessionMetaMutation.isPending
+                    ? "Saving..."
+                    : "Save Name"}
+                </Button.Label>
+              </Button>
+            </View>
+
+            <View className="mt-4 gap-2">
+              <Button
+                isDisabled={updateSessionMetaMutation.isPending}
+                onPress={handleTogglePinSession}
+                variant="ghost"
+              >
+                <Button.Label>
+                  {sessionActionTarget?.pinned ? "Unpin Session" : "Pin Session"}
+                </Button.Label>
+              </Button>
+              <Button
+                isDisabled={updateSessionMetaMutation.isPending}
+                onPress={handleToggleArchiveSession}
+                variant="ghost"
+              >
+                <Button.Label>
+                  {sessionActionTarget?.archived
+                    ? "Unarchive Session"
+                    : "Archive Session"}
+                </Button.Label>
+              </Button>
+            </View>
+
+            <View className="pt-2">
+              <Button
+                isDisabled={updateSessionMetaMutation.isPending}
+                onPress={() => setSessionActionTarget(null)}
+                variant="ghost"
+              >
+                <Button.Label>Close</Button.Label>
               </Button>
             </View>
           </View>

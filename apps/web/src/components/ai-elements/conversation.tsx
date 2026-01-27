@@ -14,8 +14,8 @@ export const Conversation = ({ className, ...props }: ConversationProps) => (
     className={cn("relative w-full min-w-0 flex-1 overflow-y-auto", className)}
     initial="smooth"
     resize="auto"
-    scroll="smooth"
     role="log"
+    scroll="smooth"
     {...props}
   />
 );

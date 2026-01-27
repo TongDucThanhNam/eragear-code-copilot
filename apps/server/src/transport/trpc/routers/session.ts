@@ -21,11 +21,11 @@ import { UpdateSessionMetaService } from "@/modules/session/application/update-s
 import { ENV } from "../../../config/environment";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
-import { publicProcedure, router } from "../base";
+import { protectedProcedure, router } from "../base";
 
 export const sessionRouter = router({
   /** Create a new session for a project */
-  createSession: publicProcedure
+  createSession: protectedProcedure
     .input(
       z.object({
         projectId: z.string().min(1),
@@ -67,7 +67,7 @@ export const sessionRouter = router({
     }),
 
   /** Stop a running session */
-  stopSession: publicProcedure
+  stopSession: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .mutation(({ input, ctx }) => {
       const service = new StopSessionService(
@@ -78,7 +78,7 @@ export const sessionRouter = router({
     }),
 
   /** Resume a stopped session */
-  resumeSession: publicProcedure
+  resumeSession: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const service = new ResumeSessionService(
@@ -91,7 +91,7 @@ export const sessionRouter = router({
     }),
 
   /** Delete a session */
-  deleteSession: publicProcedure
+  deleteSession: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .mutation(({ input, ctx }) => {
       const service = new DeleteSessionService(
@@ -102,7 +102,7 @@ export const sessionRouter = router({
     }),
 
   /** Get current session state */
-  getSessionState: publicProcedure
+  getSessionState: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .query(({ input, ctx }) => {
       const service = new GetSessionStateService(
@@ -113,7 +113,7 @@ export const sessionRouter = router({
     }),
 
   /** List all sessions */
-  getSessions: publicProcedure.query(({ ctx }) => {
+  getSessions: protectedProcedure.query(({ ctx }) => {
     const service = new ListSessionsService(
       ctx.container.getSessions(),
       ctx.container.getSessionRuntime(),
@@ -123,7 +123,7 @@ export const sessionRouter = router({
   }),
 
   /** Update session metadata (name, pinned, archived) */
-  updateSessionMeta: publicProcedure
+  updateSessionMeta: protectedProcedure
     .input(
       z.object({
         chatId: z.string(),
@@ -138,7 +138,7 @@ export const sessionRouter = router({
     }),
 
   /** Get session message history */
-  getSessionMessages: publicProcedure
+  getSessionMessages: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .query(({ input, ctx }) => {
       const service = new GetSessionMessagesService(
@@ -148,7 +148,7 @@ export const sessionRouter = router({
     }),
 
   /** Subscribe to real-time session events */
-  onSessionEvents: publicProcedure
+  onSessionEvents: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .subscription(({ input, ctx }) => {
       return observable<BroadcastEvent>((emit) => {

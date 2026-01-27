@@ -9,11 +9,11 @@
 
 import { z } from "zod";
 import { CodeContextService } from "@/modules/tooling/application/code-context.service";
-import { publicProcedure, router } from "../base";
+import { protectedProcedure, router } from "../base";
 
 export const codeRouter = router({
   /** Get project context (rules, tabs, files) */
-  getProjectContext: publicProcedure
+  getProjectContext: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .query(({ input, ctx }) => {
       const service = new CodeContextService(
@@ -24,7 +24,7 @@ export const codeRouter = router({
     }),
 
   /** Get git diff for the project's working directory */
-  getGitDiff: publicProcedure
+  getGitDiff: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .query(({ input, ctx }) => {
       const service = new CodeContextService(
@@ -35,7 +35,7 @@ export const codeRouter = router({
     }),
 
   /** Get file content from the project */
-  getFileContent: publicProcedure
+  getFileContent: protectedProcedure
     .input(z.object({ chatId: z.string(), path: z.string() }))
     .query(async ({ input, ctx }) => {
       const service = new CodeContextService(

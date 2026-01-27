@@ -10,3 +10,4 @@
 .gitignore
 apps/web
 apps/native
+.agentlens

@@ -69,6 +69,41 @@ interface AgentConfig {
   updatedAt: number;
 }
 
+interface ApiKeyItem {
+  id: string;
+  name: string | null;
+  prefix: string | null;
+  start: string | null;
+  enabled: boolean;
+  expiresAt: string | null;
+  createdAt: string;
+  lastRequest: string | null;
+}
+
+interface ApiKeyCreateResponse {
+  id: string;
+  key: string;
+  name: string | null;
+  prefix: string | null;
+  start: string | null;
+  createdAt: string;
+}
+
+interface DeviceSessionItem {
+  session: {
+    token: string;
+    createdAt: string;
+    expiresAt: string;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  };
+  user: {
+    id: string;
+    email: string;
+    name: string;
+  };
+}
+
 interface GlobalWindow extends Window {
   __DASHBOARD__?: DashboardData;
   loadDashboardData: () => Promise<void>;
@@ -90,6 +125,7 @@ interface GlobalWindow extends Window {
   editAgent: (agentId: string) => void;
   updateAgent: (e: SubmitEvent) => Promise<void>;
   hideEditAgentModal: () => void;
+  loadAuthData: () => Promise<void>;
 }
 
 // ============================================================================
@@ -108,6 +144,7 @@ let agentsData: AgentConfig[] = [];
 let dashboardPollTimer: number | null = null;
 const DASHBOARD_REFRESH_MS = 5000;
 let settingsForm: HTMLFormElement | null = null;
+let authDataLoaded = false;
 
 // ============================================================================
 // INITIALIZATION
@@ -309,6 +346,39 @@ function setupEventListeners(): void {
       }
     });
   }
+
+  // Auth tab controls
+  const createApiKeyBtn = document.getElementById("create-api-key-btn");
+  if (createApiKeyBtn) {
+    createApiKeyBtn.addEventListener("click", () => {
+      const form = document.getElementById("api-key-form");
+      form?.classList.remove("hidden");
+    });
+  }
+
+  const apiKeyCancelBtn = document.getElementById("api-key-cancel-btn");
+  if (apiKeyCancelBtn) {
+    apiKeyCancelBtn.addEventListener("click", () => {
+      const form = document.getElementById("api-key-form");
+      form?.classList.add("hidden");
+    });
+  }
+
+  const apiKeyForm = document.getElementById(
+    "api-key-form"
+  ) as HTMLFormElement | null;
+  if (apiKeyForm) {
+    apiKeyForm.addEventListener("submit", createApiKey);
+  }
+
+  const refreshDeviceSessionsBtn = document.getElementById(
+    "refresh-device-sessions"
+  );
+  if (refreshDeviceSessionsBtn) {
+    refreshDeviceSessionsBtn.addEventListener("click", () => {
+      loadDeviceSessions();
+    });
+  }
 }
 
 // ============================================================================
@@ -441,6 +511,273 @@ async function loadDashboardData(): Promise<void> {
   } finally {
     isDashboardLoading = false;
   }
+}
+
+// ============================================================================
+// AUTH MANAGEMENT
+// ============================================================================
+
+async function loadAuthData(): Promise<void> {
+  if (authDataLoaded) {
+    return;
+  }
+  await Promise.all([loadApiKeys(), loadDeviceSessions()]);
+  authDataLoaded = true;
+}
+
+async function loadApiKeys(): Promise<void> {
+  try {
+    const res = await fetch("/api/admin/api-keys");
+    if (!res.ok) {
+      throw new Error("Failed to load API keys");
+    }
+    const data = (await res.json()) as { keys: ApiKeyItem[] };
+    renderApiKeys(data.keys ?? []);
+  } catch (err) {
+    console.error("Failed to load API keys:", err);
+    const container = document.getElementById("api-keys-list");
+    if (container) {
+      container.innerHTML =
+        '<div class="empty-state">Failed to load API keys</div>';
+    }
+  }
+}
+
+async function createApiKey(e: SubmitEvent): Promise<void> {
+  e.preventDefault();
+  const form = e.target as HTMLFormElement;
+  const formData = new FormData(form);
+  const name = (formData.get("name") as string | null)?.trim();
+  const prefix = (formData.get("prefix") as string | null)?.trim();
+  const expiresInDays = Number(formData.get("expiresInDays") ?? 0);
+  const expiresIn =
+    Number.isFinite(expiresInDays) && expiresInDays > 0
+      ? Math.round(expiresInDays * 86_400)
+      : undefined;
+
+  try {
+    const res = await fetch("/api/admin/api-keys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: name || undefined,
+        prefix: prefix || undefined,
+        expiresIn,
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to create API key");
+    }
+
+    const data = (await res.json()) as { apiKey: ApiKeyCreateResponse };
+    const created = document.getElementById("api-key-created");
+    if (created) {
+      created.textContent = `New API key: ${data.apiKey.key}`;
+      created.classList.remove("hidden");
+    }
+
+    form.reset();
+    form.classList.add("hidden");
+    await loadApiKeys();
+  } catch (err) {
+    console.error("Failed to create API key:", err);
+    showErrorBanner("Failed to create API key.");
+  }
+}
+
+async function deleteApiKey(id: string): Promise<void> {
+  try {
+    const res = await fetch("/api/admin/api-keys", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to delete API key");
+    }
+
+    await loadApiKeys();
+  } catch (err) {
+    console.error("Failed to delete API key:", err);
+    showErrorBanner("Failed to delete API key.");
+  }
+}
+
+function renderApiKeys(keys: ApiKeyItem[]): void {
+  const container = document.getElementById("api-keys-list");
+  if (!container) {
+    return;
+  }
+
+  if (keys.length === 0) {
+    container.innerHTML =
+      '<div class="empty-state">No API keys yet.</div>';
+    return;
+  }
+
+  container.innerHTML = keys
+    .map((key) => {
+      const name = key.name ?? "Untitled";
+      const prefix = key.prefix ?? "";
+      const start = key.start ?? "";
+      const displayKey = `${prefix}${start}`;
+      const expires = key.expiresAt ? formatDateTime(key.expiresAt) : "Never";
+      const lastRequest = key.lastRequest
+        ? formatDateTime(key.lastRequest)
+        : "Never";
+      return `<div class="border-2 border-ink px-3 py-2 mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div class="font-mono text-xs uppercase tracking-widest">${escapeHtml(
+            name
+          )}</div>
+          <div class="font-mono text-[11px] text-muted">
+            ${escapeHtml(displayKey)} • Expires: ${escapeHtml(
+        expires
+      )} • Last used: ${escapeHtml(lastRequest)}
+          </div>
+        </div>
+        <button class="btn btn-secondary min-h-[36px]" data-api-key-id="${escapeHtml(
+          key.id
+        )}">Revoke</button>
+      </div>`;
+    })
+    .join("");
+
+  const revokeButtons = container.querySelectorAll(
+    "[data-api-key-id]"
+  ) as NodeListOf<HTMLButtonElement>;
+  revokeButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.apiKeyId;
+      if (id) {
+        deleteApiKey(id);
+      }
+    });
+  });
+}
+
+async function loadDeviceSessions(): Promise<void> {
+  try {
+    const res = await fetch("/api/admin/device-sessions");
+    if (!res.ok) {
+      throw new Error("Failed to load device sessions");
+    }
+    const data = (await res.json()) as { sessions: DeviceSessionItem[] };
+    renderDeviceSessions(data.sessions ?? []);
+  } catch (err) {
+    console.error("Failed to load device sessions:", err);
+    const container = document.getElementById("device-sessions-list");
+    if (container) {
+      container.innerHTML =
+        '<div class="empty-state">Failed to load device sessions</div>';
+    }
+  }
+}
+
+async function revokeDeviceSession(sessionToken: string): Promise<void> {
+  try {
+    const res = await fetch("/api/admin/device-sessions/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionToken }),
+    });
+    if (!res.ok) {
+      throw new Error("Failed to revoke session");
+    }
+    await loadDeviceSessions();
+  } catch (err) {
+    console.error("Failed to revoke device session:", err);
+    showErrorBanner("Failed to revoke device session.");
+  }
+}
+
+async function activateDeviceSession(sessionToken: string): Promise<void> {
+  try {
+    const res = await fetch("/api/admin/device-sessions/activate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionToken }),
+    });
+    if (!res.ok) {
+      throw new Error("Failed to activate session");
+    }
+    await loadDeviceSessions();
+  } catch (err) {
+    console.error("Failed to activate device session:", err);
+    showErrorBanner("Failed to activate device session.");
+  }
+}
+
+function renderDeviceSessions(sessions: DeviceSessionItem[]): void {
+  const container = document.getElementById("device-sessions-list");
+  if (!container) {
+    return;
+  }
+
+  if (sessions.length === 0) {
+    container.innerHTML =
+      '<div class="empty-state">No device sessions found.</div>';
+    return;
+  }
+
+  container.innerHTML = sessions
+    .map((item) => {
+      const ua = item.session.userAgent ?? "Unknown device";
+      const ip = item.session.ipAddress ?? "Unknown IP";
+      const createdAt = formatDateTime(item.session.createdAt);
+      const expiresAt = formatDateTime(item.session.expiresAt);
+      const tokenPreview = item.session.token.slice(0, 6);
+      return `<div class="border-2 border-ink px-3 py-2 mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div class="font-mono text-xs uppercase tracking-widest">${escapeHtml(
+            item.user.name
+          )}</div>
+          <div class="font-mono text-[11px] text-muted">
+            ${escapeHtml(ua)} • ${escapeHtml(ip)} • Created: ${escapeHtml(
+        createdAt
+      )} • Expires: ${escapeHtml(expiresAt)}
+          </div>
+          <div class="font-mono text-[10px] text-muted">
+            Token: ${escapeHtml(tokenPreview)}…
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-secondary min-h-[36px]" data-session-activate="${escapeHtml(
+            item.session.token
+          )}">Set Active</button>
+          <button class="btn btn-secondary min-h-[36px]" data-session-revoke="${escapeHtml(
+            item.session.token
+          )}">Revoke</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+
+  const revokeButtons = container.querySelectorAll(
+    "[data-session-revoke]"
+  ) as NodeListOf<HTMLButtonElement>;
+  revokeButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const token = btn.dataset.sessionRevoke;
+      if (token) {
+        revokeDeviceSession(token);
+      }
+    });
+  });
+
+  const activateButtons = container.querySelectorAll(
+    "[data-session-activate]"
+  ) as NodeListOf<HTMLButtonElement>;
+  activateButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const token = btn.dataset.sessionActivate;
+      if (token) {
+        activateDeviceSession(token);
+      }
+    });
+  });
 }
 
 // ============================================================================
@@ -953,6 +1290,10 @@ function switchTab(tabName: string): void {
   if (targetTab) {
     targetTab.classList.remove("hidden");
   }
+
+  if (tabName === "auth") {
+    loadAuthData();
+  }
 }
 
 // ============================================================================
@@ -983,6 +1324,17 @@ function formatTimeAgo(timestamp: number): string {
     return `${Math.floor(seconds / 3600)}h ago`;
   }
   return `${Math.floor(seconds / 86_400)}d ago`;
+}
+
+function formatDateTime(value: string | number | null): string {
+  if (!value) {
+    return "Never";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Invalid date";
+  }
+  return date.toLocaleString();
 }
 
 function escapeHtml(text: string): string {
@@ -1609,3 +1961,4 @@ globalWindow.viewAgent = viewAgent;
 globalWindow.editAgent = editAgent;
 globalWindow.updateAgent = updateAgent;
 globalWindow.hideEditAgentModal = hideEditAgentModal;
+globalWindow.loadAuthData = loadAuthData;

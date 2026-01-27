@@ -12,15 +12,24 @@ function ResizablePanelGroup({
 }: React.ComponentProps<typeof Group>) {
   return (
     <Group
-      className={cn("flex h-full w-full", className)}
+      className={cn("flex h-full min-h-0 min-w-0 w-full", className)}
       data-slot="resizable-panel-group"
       {...props}
     />
   );
 }
 
-function ResizablePanel({ ...props }: React.ComponentProps<typeof Panel>) {
-  return <Panel data-slot="resizable-panel" {...props} />;
+function ResizablePanel({
+  className,
+  ...props
+}: React.ComponentProps<typeof Panel>) {
+  return (
+    <Panel
+      className={cn("min-h-0 min-w-0", className)}
+      data-slot="resizable-panel"
+      {...props}
+    />
+  );
 }
 
 function ResizableHandle({
