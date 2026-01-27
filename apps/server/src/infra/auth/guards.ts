@@ -109,6 +109,12 @@ export async function getAuthContext(
     return null;
   }
 
+  return await getAuthContextFromApiKey(apiKey);
+}
+
+export async function getAuthContextFromApiKey(
+  apiKey: string
+): Promise<AuthContext | null> {
   try {
     const result = await auth.api.verifyApiKey({ body: { key: apiKey } });
     if (!result?.valid || !result.key?.userId) {

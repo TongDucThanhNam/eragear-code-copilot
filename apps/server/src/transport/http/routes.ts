@@ -558,13 +558,14 @@ export function registerHttpRoutes(app: Hono) {
   app.delete("/api/admin/api-keys", async (c: Context) => {
     try {
       const body = await c.req.json();
-      const { id } = body as { id?: string };
-      if (!id) {
-        return c.json({ error: "id is required" }, 400);
+      const { keyId, id } = body as { keyId?: string; id?: string };
+      const resolvedKeyId = keyId ?? id;
+      if (!resolvedKeyId) {
+        return c.json({ error: "keyId is required" }, 400);
       }
 
       const result = await auth.api.deleteApiKey({
-        body: { id },
+        body: { keyId: resolvedKeyId },
         headers: c.req.raw.headers,
       });
       return c.json({ result });

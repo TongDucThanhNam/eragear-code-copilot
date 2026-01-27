@@ -415,7 +415,7 @@
     "pinned": false,
     "archived": false,
     "createdAt": 1769270664525,
-    "lastActiveAt": 1769498945315,
+    "lastActiveAt": 1769526480106,
     "messages": [
       {
         "id": "msg-1769270716987-3jgmhdpm3ji",
@@ -819,6 +819,16 @@
         "description": "Complete a security review of the pending changes on the current branch",
         "input": null,
         "name": "security-review"
+      },
+      {
+        "description": "Get help with web search using Exa",
+        "input": null,
+        "name": "mcp:exa:web_search_help"
+      },
+      {
+        "description": "Get help finding code examples and documentation",
+        "input": null,
+        "name": "mcp:exa:code_search_help"
       }
     ]
   }

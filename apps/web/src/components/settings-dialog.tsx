@@ -5,6 +5,8 @@ import {
   Code2,
   Cpu,
   Edit2,
+  Globe,
+  Key,
   MessageSquare,
   Plus,
   Sparkles,
@@ -34,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
+import { useServerConfigStore } from "@/store/server-config-store";
 
 type AgentType = "claude" | "codex" | "opencode" | "gemini" | "other";
 
@@ -43,6 +46,9 @@ type SettingsDialogProps = {
 };
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+  // Server Connection State
+  const { serverUrl, apiKey, setServerUrl, setApiKey } = useServerConfigStore();
+
   // Sub-Dialog State (Add/Edit)
   const [isEditOpen, setIsEditOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -207,6 +213,34 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           </DialogHeader>
 
           <div className="space-y-6">
+            {/* Server Connection Section */}
+            <div className="rounded-lg border p-4">
+              <h3 className="font-medium mb-3 flex items-center gap-2">
+                <Globe className="h-4 w-4" /> Server Connection
+              </h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs" htmlFor="serverUrl">Server URL</Label>
+                  <Input
+                    id="serverUrl"
+                    placeholder="ws://localhost:3000"
+                    value={serverUrl}
+                    onChange={(e) => setServerUrl(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs" htmlFor="apiKey">API Key</Label>
+                  <Input
+                    id="apiKey"
+                    type="password"
+                    placeholder="eg_xxxxxxxxxxxxx"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-end">
               <Button onClick={handleAddNew} size="sm">
                 <Plus className="mr-2 h-4 w-4" /> Add Agent

@@ -2,7 +2,6 @@
 
 Multi-platform AI coding assistant using ACP (Agent Client Protocol).
 ## Architecture
-Before working on this codebase, read .agentlens/INDEX.md for navigation.
 
 
 | Layer | Location | Stack |

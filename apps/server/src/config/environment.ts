@@ -87,6 +87,9 @@ function toList(value: string | undefined) {
   if (!value) {
     return [];
   }
+  if (value.trim() === "*") {
+    return ["*"];
+  }
   return value
     .split(",")
     .map((item) => item.trim())
@@ -115,8 +118,20 @@ const authBaseUrl =
   env.BETTER_AUTH_URL ??
   `http://${normalizedAuthHost}:${wsPort}`;
 const authTrustedOrigins = toList(env.AUTH_TRUSTED_ORIGINS);
-if (!authTrustedOrigins.includes(authBaseUrl)) {
-  authTrustedOrigins.unshift(authBaseUrl);
+if (authTrustedOrigins[0] !== "*") {
+  const defaultDevOrigins = [
+    "http://localhost:3001",
+    "http://localhost:5173",
+    "http://localhost:4173",
+  ];
+  for (const origin of defaultDevOrigins) {
+    if (!authTrustedOrigins.includes(origin)) {
+      authTrustedOrigins.push(origin);
+    }
+  }
+  if (!authTrustedOrigins.includes(authBaseUrl)) {
+    authTrustedOrigins.unshift(authBaseUrl);
+  }
 }
 
 /**

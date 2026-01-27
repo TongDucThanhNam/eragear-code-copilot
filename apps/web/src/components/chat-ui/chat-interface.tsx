@@ -359,6 +359,24 @@ export function ChatInterface({
     historyError,
   ]);
 
+  // Dispatch auth error event when UNAUTHORIZED is detected
+  useEffect(() => {
+    const errorMessage = stateError?.message || historyError?.message || "";
+    if (
+      (connStatus === "connecting" || connStatus === "error") &&
+      (errorMessage.includes("UNAUTHORIZED") ||
+        errorMessage.toLowerCase().includes("unauthorized") ||
+        errorMessage.toLowerCase().includes("authentication"))
+    ) {
+      window.dispatchEvent(
+        new CustomEvent("auth-error", {
+          detail: "Authentication failed. Please check your API key.",
+        })
+      );
+      setConnStatus("error");
+    }
+  }, [stateError, historyError, connStatus]);
+
   const restoreSessionState = useCallback(
     (state: NonNullable<typeof sessionState>) => {
       if (state.modes) {

@@ -573,8 +573,69 @@ async function createApiKey(e: SubmitEvent): Promise<void> {
     const data = (await res.json()) as { apiKey: ApiKeyCreateResponse };
     const created = document.getElementById("api-key-created");
     if (created) {
-      created.textContent = `New API key: ${data.apiKey.key}`;
+      const keyValue = data.apiKey.key;
+      const safeName = escapeHtml(data.apiKey.name ?? "Default");
+      const payload = JSON.stringify(
+        {
+          name: data.apiKey.name ?? "Default",
+          key: keyValue,
+          createdAt: data.apiKey.createdAt,
+        },
+        null,
+        2
+      );
+
+      created.innerHTML = `
+        <div class="mb-2 font-mono text-[11px] uppercase tracking-widest text-muted">
+          This API key is shown only once. Copy or download it now.
+        </div>
+        <div class="font-mono text-xs break-all">${escapeHtml(keyValue)}</div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button class="btn btn-secondary min-h-[36px]" data-api-key-copy>Copy</button>
+          <button class="btn btn-secondary min-h-[36px]" data-api-key-download>Download JSON</button>
+        </div>
+      `;
       created.classList.remove("hidden");
+
+      const copyBtn = created.querySelector(
+        "[data-api-key-copy]"
+      ) as HTMLButtonElement | null;
+      if (copyBtn) {
+        copyBtn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(keyValue);
+            copyBtn.textContent = "Copied!";
+            setTimeout(() => {
+              copyBtn.textContent = "Copy";
+            }, 1500);
+          } catch (err) {
+            console.error("Failed to copy API key:", err);
+            showErrorBanner("Failed to copy API key.");
+          }
+        });
+      }
+
+      const downloadBtn = created.querySelector(
+        "[data-api-key-download]"
+      ) as HTMLButtonElement | null;
+      if (downloadBtn) {
+        downloadBtn.addEventListener("click", () => {
+          try {
+            const blob = new Blob([payload], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `eragear-api-key-${safeName}.json`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+          } catch (err) {
+            console.error("Failed to download API key:", err);
+            showErrorBanner("Failed to download API key.");
+          }
+        });
+      }
     }
 
     form.reset();
@@ -591,7 +652,7 @@ async function deleteApiKey(id: string): Promise<void> {
     const res = await fetch("/api/admin/api-keys", {
       method: "DELETE",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ keyId: id }),
     });
 
     if (!res.ok) {
@@ -612,8 +673,7 @@ function renderApiKeys(keys: ApiKeyItem[]): void {
   }
 
   if (keys.length === 0) {
-    container.innerHTML =
-      '<div class="empty-state">No API keys yet.</div>';
+    container.innerHTML = '<div class="empty-state">No API keys yet.</div>';
     return;
   }
 
@@ -634,8 +694,8 @@ function renderApiKeys(keys: ApiKeyItem[]): void {
           )}</div>
           <div class="font-mono text-[11px] text-muted">
             ${escapeHtml(displayKey)} • Expires: ${escapeHtml(
-        expires
-      )} • Last used: ${escapeHtml(lastRequest)}
+              expires
+            )} • Last used: ${escapeHtml(lastRequest)}
           </div>
         </div>
         <button class="btn btn-secondary min-h-[36px]" data-api-key-id="${escapeHtml(
@@ -648,14 +708,14 @@ function renderApiKeys(keys: ApiKeyItem[]): void {
   const revokeButtons = container.querySelectorAll(
     "[data-api-key-id]"
   ) as NodeListOf<HTMLButtonElement>;
-  revokeButtons.forEach((btn) => {
+  for (const btn of revokeButtons) {
     btn.addEventListener("click", () => {
       const id = btn.dataset.apiKeyId;
       if (id) {
         deleteApiKey(id);
       }
     });
-  });
+  }
 }
 
 async function loadDeviceSessions(): Promise<void> {
@@ -736,8 +796,8 @@ function renderDeviceSessions(sessions: DeviceSessionItem[]): void {
           )}</div>
           <div class="font-mono text-[11px] text-muted">
             ${escapeHtml(ua)} • ${escapeHtml(ip)} • Created: ${escapeHtml(
-        createdAt
-      )} • Expires: ${escapeHtml(expiresAt)}
+              createdAt
+            )} • Expires: ${escapeHtml(expiresAt)}
           </div>
           <div class="font-mono text-[10px] text-muted">
             Token: ${escapeHtml(tokenPreview)}…
@@ -758,26 +818,26 @@ function renderDeviceSessions(sessions: DeviceSessionItem[]): void {
   const revokeButtons = container.querySelectorAll(
     "[data-session-revoke]"
   ) as NodeListOf<HTMLButtonElement>;
-  revokeButtons.forEach((btn) => {
+  for (const btn of revokeButtons) {
     btn.addEventListener("click", () => {
       const token = btn.dataset.sessionRevoke;
       if (token) {
         revokeDeviceSession(token);
       }
     });
-  });
+  }
 
   const activateButtons = container.querySelectorAll(
     "[data-session-activate]"
   ) as NodeListOf<HTMLButtonElement>;
-  activateButtons.forEach((btn) => {
+  for (const btn of activateButtons) {
     btn.addEventListener("click", () => {
       const token = btn.dataset.sessionActivate;
       if (token) {
         activateDeviceSession(token);
       }
     });
-  });
+  }
 }
 
 // ============================================================================

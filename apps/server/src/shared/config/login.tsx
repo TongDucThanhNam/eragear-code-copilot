@@ -1024,7 +1024,7 @@ export function LoginPage({ error, username }: LoginPageProps) {
                 }
 
                 const username = usernameInput.value.trim();
-                const password = passwordInput.value;
+                const password = passwordInput.value.trim();
 
                 // Set loading state
                 setLoading(true);

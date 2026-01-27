@@ -36,6 +36,10 @@ export const authConfig = {
     apiKey({
       apiKeyHeaders: ["x-api-key", "authorization"],
       defaultPrefix: ENV.authApiKeyPrefix ?? "eg_",
+      rateLimit: {
+        enabled: false,
+      },
+      enableSessionForAPIKeys: true,
     }),
   ],
 };

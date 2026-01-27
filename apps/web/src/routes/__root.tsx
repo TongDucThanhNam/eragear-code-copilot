@@ -4,7 +4,7 @@ import {
   Outlet,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
-
+import { ConnectionSetupDialog } from "@/components/connection-setup-dialog";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -47,6 +47,7 @@ function RootComponent() {
         <Outlet />
         {/* </div> */}
         <Toaster richColors />
+        <ConnectionSetupDialog />
       </ThemeProvider>
       <TanStackRouterDevtools position="bottom-right" />
     </>
