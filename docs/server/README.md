@@ -54,14 +54,14 @@ src/
 ├── infra/
 │   ├── acp/                    # ACP handlers, buffering, tool-calls
 │   ├── storage/                # JSON store adapters
-│   ├── filesystem/             # Safe file IO
 │   ├── git/                    # Git context/diff adapter
 │   └── process/                # Agent process runtime
 ├── shared/
-│   ├── types/                  # Shared types + ports
+│   ├── ports/                  # Cross-cutting ports (event bus)
+│   ├── types/                  # Shared types
 │   ├── errors/                 # Shared error types
 │   └── utils/                  # Utilities + event bus
-└── shared/config/              # Dashboard UI markup
+└── transport/http/ui/           # Dashboard UI markup
 ```
 
 ## Key endpoints
@@ -86,6 +86,11 @@ DELETE /api/admin/api-keys
 GET    /api/admin/device-sessions
 POST   /api/admin/device-sessions/revoke
 POST   /api/admin/device-sessions/activate
+```
+
+### tRPC: Auth
+```
+auth.getMe
 ```
 
 ## Authentication overview

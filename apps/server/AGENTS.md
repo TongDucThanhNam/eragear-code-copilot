@@ -9,8 +9,8 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 - **Transport** (`src/transport/**`) là API boundary (HTTP/tRPC/WS); chỉ validate/map input, gọi application.
 - **Application** (`src/modules/*/application/**`) là use-case orchestration; gọi domain + ports.
 - **Domain** (`src/modules/*/domain/**`) chứa entity + rule/invariant; không import `transport`/`infra`.
-- **Ports/contracts** nằm ở `src/shared/types/ports.ts`; application depend on ports, infra implements.
-- **Global infra** (`src/infra/**`) = adapter dùng chung (ACP, process, filesystem, git, storage).
+- **Ports/contracts** nằm ở `src/modules/*/application/ports/**` (cross-cutting ở `src/shared/ports`); application depend on ports, infra implements.
+- **Global infra** (`src/infra/**`) = adapter dùng chung (ACP, process, git, storage).
 - **Module infra** (`src/modules/*/infra/**`) = persistence/runtime đặc thù module (JSON repo, runtime store).
 - **Infra được phép có policy/IO logic** (allowlist, sandbox, retry, mapping), **không chứa domain rules**.
 - **Dependency wiring** ở `src/bootstrap/container.ts` (ports → adapters).
@@ -62,7 +62,7 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 
 ### Flow 4: Persistence (JSON store)
 
-1. Application gọi `SessionRepositoryPort` (port ở `src/shared/types/ports.ts`).
+1. Application gọi `SessionRepositoryPort` (port ở `src/modules/session/application/ports`).
 2. Implementation là JSON repo (`src/modules/session/infra/session.repository.json.ts`).
 3. JSON store dùng `src/infra/storage/json-store.ts` → `.eragear/*.json`.
 
@@ -75,7 +75,7 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 | State + invariant domain | `src/modules/*/domain/**` | `modules/project/domain/project.entity.ts` |
 | IO/policy (allowlist/sandbox/retry) | `src/infra/**` | `infra/acp/tool-calls.ts`, `infra/process/index.ts` |
 | Persistence/runtime module | `src/modules/*/infra/**` | `modules/session/infra/session.repository.json.ts` |
-| Contract/port | `src/shared/types/ports.ts` | `SessionRepositoryPort`, `AgentRuntimePort` |
+| Contract/port | `src/modules/*/application/ports/**` (+ `src/shared/ports`) | `SessionRepositoryPort`, `AgentRuntimePort` |
 
 ## 5) Golden Paths (cách thêm tính năng không phá kiến trúc)
 
@@ -83,7 +83,7 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 
 1. Thêm procedure ở `src/transport/trpc/routers/*.ts` (validate input).
 2. Tạo service ở `src/modules/<feature>/application`.
-3. Nếu cần IO mới: thêm port ở `src/shared/types/ports.ts`.
+3. Nếu cần IO mới: thêm port ở `src/modules/<feature>/application/ports/` (hoặc `src/shared/ports` nếu cross-cutting).
 4. Implement adapter ở `src/infra/**` hoặc `src/modules/*/infra/**`.
 5. Wire port/adapter ở `src/bootstrap/container.ts`.
 
@@ -98,7 +98,7 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 
 - Gọi repo trực tiếp trong transport (`src/transport/**`).
 - Đặt orchestration trong transport thay vì application.
-- Đặt ports ở domain (ports ở `src/shared/types/ports.ts`).
+- Đặt ports ở domain (ports ở `src/modules/*/application/ports/**`).
 - Đặt business rules trong infra (infra chỉ policy/IO).
 - Tool-call handler tự tạo session state (phải qua runtime/service).
 - Domain import `infra`/`transport`.

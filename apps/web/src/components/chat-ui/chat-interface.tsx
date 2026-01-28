@@ -5,7 +5,6 @@ import type { PlanStatus } from "@/components/ai-elements/plan";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatInput } from "@/components/chat-ui/chat-input";
-import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import {
   ChatMessages,
   type ContextItem,
@@ -13,6 +12,7 @@ import {
   type MessageType,
   type ToolPart,
 } from "@/components/chat-ui/chat-messages";
+import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import { trpc } from "@/lib/trpc";
 import { useChatStatusStore } from "@/store/chat-status-store";
 import { useDiffStore } from "@/store/diff-store";
@@ -119,7 +119,9 @@ export function ChatInterface({
   >({});
 
   const [messages, setMessages] = useState<MessageType[]>([]);
-  const batchUpdateQueueRef = useRef<Array<(prev: MessageType[]) => MessageType[]>>([]);
+  const batchUpdateQueueRef = useRef<
+    Array<(prev: MessageType[]) => MessageType[]>
+  >([]);
   const batchUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const quickSwitchSessions = useMemo(() => {
@@ -138,9 +140,11 @@ export function ChatInterface({
         name: session.name
           ? session.name
           : session.agentName
-          ? session.agentName
-          : `Session ${session.id.slice(0, 8)}`,
-        projectName: session.projectId ? projectLookup[session.projectId] : null,
+            ? session.agentName
+            : `Session ${session.id.slice(0, 8)}`,
+        projectName: session.projectId
+          ? projectLookup[session.projectId]
+          : null,
       }));
   }, [projectLookup, sessionsData]);
 
@@ -215,10 +219,10 @@ export function ChatInterface({
   // Batch updates to reduce re-renders during streaming
   const flushBatchQueue = useCallback(() => {
     if (batchUpdateQueueRef.current.length === 0) return;
-    
+
     const updates = batchUpdateQueueRef.current;
     batchUpdateQueueRef.current = [];
-    
+
     setMessages((prev) => {
       let result = prev;
       for (const updater of updates) {
@@ -232,12 +236,12 @@ export function ChatInterface({
     (updater: (old: MessageType[]) => MessageType[]) => {
       // Queue the update instead of immediate setMessages
       batchUpdateQueueRef.current.push(updater);
-      
+
       // Clear existing timer
       if (batchUpdateTimerRef.current) {
         clearTimeout(batchUpdateTimerRef.current);
       }
-      
+
       // Batch updates with a 16ms debounce (roughly one frame)
       batchUpdateTimerRef.current = setTimeout(() => {
         flushBatchQueue();
@@ -270,21 +274,19 @@ export function ChatInterface({
         initialChatId,
         "connStatus: connecting"
       );
-    } else {
-      if (!initialChatId && chatId) {
-        // If prop cleared but we have local state, reset everything
-        console.log("[ChatInterface] Clearing chat");
-        utils.getSessionState.invalidate({ chatId });
-        utils.getSessionMessages.invalidate({ chatId });
+    } else if (!initialChatId && chatId) {
+      // If prop cleared but we have local state, reset everything
+      console.log("[ChatInterface] Clearing chat");
+      utils.getSessionState.invalidate({ chatId });
+      utils.getSessionMessages.invalidate({ chatId });
 
-        setChatId(null);
-        chatIdRef.current = null;
-        setConnStatus("idle");
-        setMessages([]);
-        setStatus("ready");
-        setLoadSessionSupported(undefined);
-        setSessionAgentInfo(null);
-      }
+      setChatId(null);
+      chatIdRef.current = null;
+      setConnStatus("idle");
+      setMessages([]);
+      setStatus("ready");
+      setLoadSessionSupported(undefined);
+      setSessionAgentInfo(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialChatId]);
@@ -419,7 +421,11 @@ export function ChatInterface({
   );
 
   useEffect(() => {
-    console.log("[Client] sessionState effect:", { sessionState, connStatus, hasSessionState: !!sessionState });
+    console.log("[Client] sessionState effect:", {
+      sessionState,
+      connStatus,
+      hasSessionState: !!sessionState,
+    });
     if (sessionState && connStatus === "connecting") {
       console.log("[Client] Session state restored:", sessionState);
 
@@ -830,7 +836,8 @@ export function ChatInterface({
       if (block.type === "resource_link") {
         const cleaned = stripFileProtocol(block.uri);
         const parts = cleaned.split("/");
-        const fallbackTitle = parts.pop() || cleaned || block.name || "resource";
+        const fallbackTitle =
+          parts.pop() || cleaned || block.name || "resource";
         const title = block.title || block.name || fallbackTitle;
         const subtitle = parts.join("/") || undefined;
         return {
@@ -890,7 +897,10 @@ export function ChatInterface({
   );
 
   const upsertContextPart = useCallback(
-    (parts: MessageType["parts"], items: ContextItem[]): MessageType["parts"] => {
+    (
+      parts: MessageType["parts"],
+      items: ContextItem[]
+    ): MessageType["parts"] => {
       if (items.length === 0) {
         return parts;
       }
@@ -1294,8 +1304,12 @@ export function ChatInterface({
   );
 
   const subscriptionEnabled = !!chatId && connStatus === "connected";
-  console.log("[Client] Subscription check:", { chatId, connStatus, subscriptionEnabled });
-  
+  console.log("[Client] Subscription check:", {
+    chatId,
+    connStatus,
+    subscriptionEnabled,
+  });
+
   trpc.onSessionEvents.useSubscription(
     { chatId: chatId || "" },
     {
@@ -1470,9 +1484,7 @@ export function ChatInterface({
       setCurrentModeId(modeId);
     } catch (e) {
       console.error("Failed to set mode", e);
-      toast.error(
-        e instanceof Error ? e.message : "Failed to set mode"
-      );
+      toast.error(e instanceof Error ? e.message : "Failed to set mode");
     }
   };
 
@@ -1489,9 +1501,7 @@ export function ChatInterface({
       setCurrentModelId(modelId);
     } catch (e) {
       console.error("Failed to set model", e);
-      toast.error(
-        e instanceof Error ? e.message : "Failed to set model"
-      );
+      toast.error(e instanceof Error ? e.message : "Failed to set model");
     }
   };
 

@@ -7,15 +7,13 @@
  * @module modules/session/infra/runtime-store
  */
 
+import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import { ENV } from "../../../config/environment";
-import type {
-  EventBusPort,
-  SessionRuntimePort,
-} from "../../../shared/types/ports";
 import type {
   BroadcastEvent,
   ChatSession,
 } from "../../../shared/types/session.types";
+import type { SessionRuntimePort } from "../application/ports/session-runtime.port";
 
 /**
  * SessionRuntimeStore

@@ -6,7 +6,7 @@
  * @module modules/session/application/get-session-messages.service
  */
 
-import type { SessionRepositoryPort } from "../../../shared/types/ports";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
 /**
  * GetSessionMessagesService

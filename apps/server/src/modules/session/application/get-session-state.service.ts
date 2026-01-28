@@ -7,10 +7,8 @@
  * @module modules/session/application/get-session-state.service
  */
 
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "../../../shared/types/ports";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 /**
  * GetSessionStateService

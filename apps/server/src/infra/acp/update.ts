@@ -9,13 +9,15 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
-import { createId } from "@/shared/utils/id.util";
 import { toStoredContentBlock } from "@/shared/utils/content-block.util";
+import { createId } from "@/shared/utils/id.util";
+import type { SessionBufferingPort } from "@/modules/session/application/ports/session-acp.port";
+import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "../../shared/types/ports";
-import type { Plan, StoredContentBlock } from "../../shared/types/session.types";
+  Plan,
+  StoredContentBlock,
+} from "../../shared/types/session.types";
 
 /**
  * Type guard to check if an update is a tool call update
@@ -131,7 +133,7 @@ function extractPlan(update: SessionUpdateWithLegacy): Plan | null {
  * const message = buffer.flush(); // Returns complete message or null
  * ```
  */
-export class SessionBuffering {
+export class SessionBuffering implements SessionBufferingPort {
   private content = "";
   private reasoning = "";
   private contentBlocks: StoredContentBlock[] = [];
@@ -163,7 +165,7 @@ export class SessionBuffering {
    *
    * @returns Complete message object or null if buffer is empty
    */
-  flush() {
+  flush(): ReturnType<SessionBufferingPort["flush"]> {
     if (!this.hasContent()) {
       this.reset();
       return null;
@@ -192,9 +194,7 @@ export class SessionBuffering {
    * @returns True if buffer has content
    */
   hasContent() {
-    return (
-      this.contentBlocks.length > 0 || this.reasoningBlocks.length > 0
-    );
+    return this.contentBlocks.length > 0 || this.reasoningBlocks.length > 0;
   }
 
   /**
@@ -394,8 +394,7 @@ function handleToolCallUpdate(
     ...update,
     content: sanitizeToolCallContent(update.content),
   };
-  const { sessionUpdate: _sessionUpdate, ...toolCallUpdate } =
-    sanitizedUpdate;
+  const { sessionUpdate: _sessionUpdate, ...toolCallUpdate } = sanitizedUpdate;
   const session = sessionRuntime.get(chatId);
   const existing = session?.toolCalls.get(update.toolCallId);
   const merged = existing
@@ -454,7 +453,7 @@ function handleToolCallUpdate(
  */
 function handleBufferedMessage(
   chatId: string,
-  buffer: SessionBuffering,
+  buffer: SessionBufferingPort,
   isReplayingHistory: boolean,
   update: SessionUpdateWithLegacy,
   sessionRepo: SessionRepositoryPort
@@ -514,7 +513,7 @@ export function createSessionUpdateHandler(
 ) {
   return function handleSessionUpdate(params: {
     chatId: string;
-    buffer: SessionBuffering;
+    buffer: SessionBufferingPort;
     isReplayingHistory: boolean;
     update: SessionUpdateWithLegacy;
   }) {

@@ -10,12 +10,12 @@ Successfully refactored `apps/server` from a monolithic structure to a **Clean A
 
 ### ✅ Phase 1: Structure & Ports
 - Created modular folder hierarchy: `bootstrap/`, `transport/`, `modules/`, `infra/`, `shared/`
-- Defined 9 port interfaces in `shared/types/ports.ts` for dependency inversion
+- Defined port interfaces under `modules/*/application/ports/` (cross-cutting in `shared/ports/`) for dependency inversion
 - Extracted and organized types in `shared/types/`
 
 ### ✅ Phase 2: Infra Adapters  
 - **Storage**: Session, Project, Agent, Settings (JSON-based adapters)
-- **I/O**: FileSystem adapter for safe path resolution
+- **I/O**: File access policy enforced in ACP tool calls
 - **VCS**: Git adapter for project context and diffs
 - **ACP**: Protocol connection & session buffering
 - **Process**: Agent runtime spawning
@@ -142,7 +142,7 @@ Start with:
 
 **Development**: `src/bootstrap/server.ts`
 **Container DI**: `src/bootstrap/container.ts`
-**Port Contracts**: `src/shared/types/ports.ts`
+**Port Contracts**: `src/modules/*/application/ports/` + `src/shared/ports/`
 **Domain Logic**: `src/modules/*/domain/`
 
 ## Configuration

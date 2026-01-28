@@ -20,7 +20,7 @@
 - [x] Project storage adapter (project.adapter.ts)
 - [x] Agent storage adapter (agent.adapter.ts)
 - [x] Settings storage adapter (ui-settings.adapter.ts)
-- [x] FileSystem adapter with path resolution
+- [x] File access policy handled in ACP tool calls
 - [x] Git adapter (project context, diff, file reading)
 - [x] ACP connection adapter + SessionBuffering
 - [x] Agent runtime adapter (process spawning)
@@ -96,8 +96,6 @@ apps/server/src/
 │   │   ├── tool-calls.ts
 │   │   ├── update.ts
 │   │   └── index.ts
-│   ├── filesystem/
-│   │   └── index.ts
 │   ├── git/
 │   │   └── index.ts
 │   ├── process/
@@ -110,14 +108,15 @@ apps/server/src/
 │       ├── ui-settings.adapter.ts
 │       └── index.ts
 ├── shared/
+│   ├── ports/
+│   │   └── event-bus.port.ts
 │   ├── types/
 │   │   ├── index.ts
 │   │   ├── common.types.ts
 │   │   ├── agent.types.ts
 │   │   ├── project.types.ts
 │   │   ├── session.types.ts
-│   │   ├── settings.types.ts
-│   │   └── ports.ts
+│   │   └── settings.types.ts
 │   ├── errors/
 │   │   └── index.ts
 │   └── utils/
@@ -202,7 +201,7 @@ apps/server/src/
 
 ### For AI Agents
 - Start with `src/README.md`
-- Understand ports in `shared/types/ports.ts`
+- Understand ports in `modules/*/application/ports/` and `shared/ports/`
 - Follow flow: transport → application → domain → infra
 - Use container to access dependencies
 

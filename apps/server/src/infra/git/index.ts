@@ -12,7 +12,7 @@ import { exec } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, normalize, relative } from "node:path";
 import { promisify } from "node:util";
-import type { GitPort } from "../../shared/types/ports";
+import type { GitPort } from "@/modules/tooling/application/ports/git.port";
 
 const execAsync = promisify(exec);
 /** Regex to prevent path traversal attacks */

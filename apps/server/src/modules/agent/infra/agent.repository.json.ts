@@ -13,7 +13,7 @@ import type {
   AgentInput,
   AgentUpdateInput,
 } from "../../../shared/types/agent.types";
-import type { AgentRepositoryPort } from "../../../shared/types/ports";
+import type { AgentRepositoryPort } from "../application/ports/agent-repository.port";
 
 /** Storage file name for agents data */
 const AGENTS_FILE = "agents.json";

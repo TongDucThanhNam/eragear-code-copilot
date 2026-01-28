@@ -2,17 +2,17 @@ import { auth } from "./auth";
 
 type HeaderRecord = Record<string, string | string[] | undefined>;
 
-type RequestLike = {
+interface RequestLike {
   headers: Headers | HeaderRecord;
   url?: string;
-};
+}
 
-export type AuthContext = {
+export interface AuthContext {
   type: "session" | "apiKey";
   userId: string;
   user?: unknown;
   session?: unknown;
-};
+}
 
 function normalizeHeaders(headers: Headers | HeaderRecord): Headers {
   if (headers instanceof Headers) {
@@ -44,12 +44,16 @@ function extractApiKeyFromHeaders(headers: Headers): string | null {
   }
 
   const [scheme, token] = authHeader.split(" ");
-  if (!scheme || !token) {
+  if (!(scheme && token)) {
     return null;
   }
 
   const normalized = scheme.toLowerCase();
-  if (normalized === "bearer" || normalized === "apikey" || normalized === "api-key") {
+  if (
+    normalized === "bearer" ||
+    normalized === "apikey" ||
+    normalized === "api-key"
+  ) {
     return token.trim();
   }
 
@@ -69,6 +73,7 @@ function extractApiKeyFromUrl(url?: string): string | null {
       parsed.searchParams.get("apikey");
     return key ? key.trim() : null;
   } catch (error) {
+    console.error("Failed to extract API key from URL:", error);
     return null;
   }
 }
@@ -117,14 +122,12 @@ export async function getAuthContextFromApiKey(
 ): Promise<AuthContext | null> {
   try {
     const result = await auth.api.verifyApiKey({ body: { key: apiKey } });
-    if (!result?.valid || !result.key?.userId) {
+    if (!(result?.valid && result.key?.userId)) {
       return null;
     }
-    return {
-      type: "apiKey",
-      userId: result.key.userId,
-    };
+    return { type: "apiKey", userId: result.key.userId };
   } catch (error) {
+    console.error("Failed to verify API key:", error);
     return null;
   }
 }

@@ -7,10 +7,8 @@
  * @module modules/session/application/delete-session.service
  */
 
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "../../../shared/types/ports";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 /**
  * DeleteSessionService

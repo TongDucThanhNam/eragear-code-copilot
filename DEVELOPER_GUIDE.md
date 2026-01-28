@@ -18,7 +18,7 @@ User clicks Delete → tRPC Procedure calls Service →
 Create `modules/[feature]/application/[action].service.ts`:
 
 ```typescript
-import type { [RepositoryPort] } from '../../../shared/types/ports';
+import type { [RepositoryPort] } from '../../../modules/[feature]/application/ports/[repository].port';
 
 export class [ActionService] {
   constructor(
@@ -60,7 +60,7 @@ export const [module]Router = router({
 
 ```typescript
 import { describe, it, expect } from 'vitest';
-import type { [RepositoryPort] } from '../../../shared/types/ports';
+import type { [RepositoryPort] } from '../../../modules/[feature]/application/ports/[repository].port';
 
 class MockRepository implements [RepositoryPort] {
   // Implement port methods for testing
@@ -92,17 +92,17 @@ const runtime = container.getSessionRuntime();
 runtime.broadcast(chatId, { type: 'connected' });
 ```
 
-### Getting File Content
+### Getting File Content (within project root)
 
 ```typescript
-const fs = container.fileSystemAdapter;
-const content = await fs.readTextFile(chatId, filePath);
+const git = container.getGit();
+const content = await git.readFileWithinRoot(projectRoot, relativePath);
 ```
 
 ### Running Git Command
 
 ```typescript
-const git = container.gitAdapter;
+const git = container.getGit();
 const diff = await git.getDiff(projectRoot);
 ```
 
@@ -197,4 +197,4 @@ eventBus.publish({ type: 'project:deleted', id });
 - Main architecture: see `src/README.md`
 - Full design doc: see `ARCHITECTURE_REFACTOR.md`
 - Module structure: see `modules/[module]/README.md`
-- Types & ports: see `shared/types/ports.ts`
+- Ports: see `modules/*/application/ports/` and `shared/ports/`

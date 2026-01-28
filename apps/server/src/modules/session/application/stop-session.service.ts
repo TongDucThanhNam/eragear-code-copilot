@@ -1,8 +1,6 @@
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "../../../shared/types/ports";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 export class StopSessionService {
   private readonly sessionRepo: SessionRepositoryPort;

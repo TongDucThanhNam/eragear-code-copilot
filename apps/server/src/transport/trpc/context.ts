@@ -8,13 +8,18 @@
  */
 
 import { getContainer } from "../../bootstrap/container";
-import { getAuthContext } from "../../infra/auth/guards";
-import { auth } from "../../infra/auth/auth";
 
-type RequestLike = {
+interface RequestLike {
   headers: Headers | Record<string, string | string[] | undefined>;
   url?: string;
-};
+}
+
+export interface AuthContext {
+  type: "session" | "apiKey";
+  userId: string;
+  user?: unknown;
+  session?: unknown;
+}
 
 /**
  * Creates a tRPC context containing the DI container
@@ -31,40 +36,40 @@ export async function createTrpcContext(opts?: {
   req?: RequestLike;
   connectionParams?: Record<string, unknown> | null;
 }) {
+  const container = getContainer();
+  const auth = container.getAuth();
   const apiKey =
     typeof opts?.connectionParams?.apiKey === "string"
       ? (opts.connectionParams.apiKey as string)
       : undefined;
-  const authContext = apiKey
-    ? await (async () => {
-        const session = await auth.api.getSession({
-          headers: new Headers({ "x-api-key": apiKey }),
-        });
-        if (session) {
-          return {
-            type: "apiKey",
-            userId: session.user.id,
-            user: session.user,
-            session: session.session,
-          };
-        }
-
-        const result = await auth.api.verifyApiKey({
-          body: { key: apiKey },
-        });
-        if (!result?.valid || !result.key?.userId) {
-          return null;
-        }
-        return {
+  let authContext: AuthContext | null = null;
+  if (apiKey) {
+    const session = await auth.api.getSession({
+      headers: new Headers({ "x-api-key": apiKey }),
+    });
+    if (session) {
+      authContext = {
+        type: "apiKey",
+        userId: session.user.id,
+        user: session.user,
+        session: session.session,
+      };
+    } else {
+      const result = await auth.api.verifyApiKey({
+        body: { key: apiKey },
+      });
+      if (result?.valid && result.key?.userId) {
+        authContext = {
           type: "apiKey",
           userId: result.key.userId,
         };
-      })()
-    : opts?.req
-      ? await getAuthContext(opts.req)
-      : null;
+      }
+    }
+  } else if (opts?.req) {
+    authContext = await container.getAuthContext(opts.req);
+  }
   return {
-    container: getContainer(),
+    container,
     auth: authContext,
   };
 }

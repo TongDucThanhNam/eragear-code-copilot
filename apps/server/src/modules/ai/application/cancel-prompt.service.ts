@@ -7,7 +7,7 @@
  * @module modules/ai/application/cancel-prompt.service
  */
 
-import type { SessionRuntimePort } from "../../../shared/types/ports";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 
 /**
  * CancelPromptService

@@ -151,16 +151,14 @@ export function buildPrompt(params: {
         const hasText = res.text !== undefined;
         const hasBlob = res.blob !== undefined;
         if (hasText === hasBlob) {
-          throw new Error(
-            "Resource must include exactly one of text or blob."
-          );
+          throw new Error("Resource must include exactly one of text or blob.");
         }
         if (hasText) {
           return {
             type: "resource",
             resource: {
               uri: res.uri,
-              text: res.text!,
+              text: res.text ?? "",
               mimeType: res.mimeType,
             },
             annotations: res.annotations,
@@ -170,7 +168,7 @@ export function buildPrompt(params: {
           type: "resource",
           resource: {
             uri: res.uri,
-            blob: res.blob!,
+            blob: res.blob ?? "",
             mimeType: res.mimeType,
           },
           annotations: res.annotations,
@@ -181,32 +179,26 @@ export function buildPrompt(params: {
 
   if (params.resourceLinks) {
     prompt.push(
-      ...params.resourceLinks.map(
-        (link): ContentBlock => {
-          const size = normalizeResourceLinkSize(link.size);
-          return {
-            type: "resource_link",
-            uri: link.uri,
-            name: link.name,
-            mimeType: link.mimeType,
-            title: link.title,
-            description: link.description,
-            ...(size !== undefined
-              ? { size: size as unknown as bigint }
-              : {}),
-            annotations: link.annotations,
-          };
-        }
-      )
+      ...params.resourceLinks.map((link): ContentBlock => {
+        const size = normalizeResourceLinkSize(link.size);
+        return {
+          type: "resource_link",
+          uri: link.uri,
+          name: link.name,
+          mimeType: link.mimeType,
+          title: link.title,
+          description: link.description,
+          ...(size !== undefined ? { size: size as unknown as bigint } : {}),
+          annotations: link.annotations,
+        };
+      })
     );
   }
 
   return prompt;
 }
 
-function normalizeResourceLinkSize(
-  size?: number | bigint
-): number | undefined {
+function normalizeResourceLinkSize(size?: number | bigint): number | undefined {
   if (size === undefined) {
     return undefined;
   }

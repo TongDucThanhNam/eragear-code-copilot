@@ -1,4 +1,4 @@
-import type { SessionRepositoryPort } from "../../../shared/types/ports";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
 export class UpdateSessionMetaService {
   private readonly sessionRepo: SessionRepositoryPort;

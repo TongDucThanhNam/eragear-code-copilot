@@ -7,7 +7,7 @@
  * @module shared/utils/event-bus
  */
 
-import type { EventBusPort } from "../../shared/types/ports";
+import type { EventBusPort } from "../ports/event-bus.port";
 
 /**
  * Base event structure for the bus

@@ -7,11 +7,11 @@
  * @module modules/project/application/project.service
  */
 
-import type { ProjectRepositoryPort } from "../../../shared/types/ports";
 import type {
   ProjectInput,
   ProjectUpdateInput,
 } from "../../../shared/types/project.types";
+import type { ProjectRepositoryPort } from "./ports/project-repository.port";
 
 export class ProjectService {
   /** Repository for project persistence operations */

@@ -8,7 +8,7 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
-import type { SessionRuntimePort } from "../../../shared/types/ports";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 
 /**
  * RespondPermissionService

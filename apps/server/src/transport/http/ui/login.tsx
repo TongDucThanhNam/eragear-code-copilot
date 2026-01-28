@@ -1033,6 +1033,7 @@ export function LoginPage({ error, username }: LoginPageProps) {
                   const res = await fetch('/api/auth/sign-in/username', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
+                    credentials: 'include',
                     body: JSON.stringify({ username, password }),
                   });
 
@@ -1053,6 +1054,8 @@ export function LoginPage({ error, username }: LoginPageProps) {
                     const body = await res.json();
                     if (body?.message) {
                       message = body.message;
+                    } else if (body?.error?.message) {
+                      message = body.error.message;
                     }
                   } catch (err) {
                     // ignore parse errors

@@ -31,15 +31,8 @@ const getAgentIcon = (agentTitle: string | undefined) => {
   }
 };
 
-const data = {
-  user: {
-    name: "Vide Coder",
-    email: "admin@openai.com",
-    avatar: "",
-  },
-};
-
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { data: me } = trpc.auth.getMe.useQuery();
   const { data: sessions } = trpc.getSessions.useQuery(undefined, {
     refetchInterval: 5000,
   });
@@ -127,7 +120,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser
+          user={{
+            name: me?.user?.name ?? "User",
+            email: me?.user?.email ?? "unknown",
+            avatar: me?.user?.image ?? "",
+          }}
+        />
       </SidebarFooter>
     </Sidebar>
   );

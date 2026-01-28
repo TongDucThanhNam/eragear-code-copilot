@@ -11,7 +11,7 @@ import type {
   AgentInput,
   AgentUpdateInput,
 } from "../../../shared/types/agent.types";
-import type { AgentRepositoryPort } from "../../../shared/types/ports";
+import type { AgentRepositoryPort } from "./ports/agent-repository.port";
 
 export class AgentService {
   /** Repository for agent persistence operations */

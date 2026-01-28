@@ -118,9 +118,11 @@ const authBaseUrl =
   env.BETTER_AUTH_URL ??
   `http://${normalizedAuthHost}:${wsPort}`;
 const authTrustedOrigins = toList(env.AUTH_TRUSTED_ORIGINS);
-if (authTrustedOrigins[0] !== "*") {
+  if (authTrustedOrigins[0] !== "*") {
   const defaultDevOrigins = [
-    "http://localhost:3001",
+    `http://localhost:${wsPort}`,
+    `http://127.0.0.1:${wsPort}`,
+    `http://0.0.0.0:${wsPort}`,
     "http://localhost:5173",
     "http://localhost:4173",
   ];

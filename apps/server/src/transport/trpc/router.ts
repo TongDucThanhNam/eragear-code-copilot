@@ -10,6 +10,7 @@
 import t, { router } from "./base";
 import { agentsRouter } from "./routers/agents";
 import { aiRouter } from "./routers/ai";
+import { authRouter } from "./routers/auth";
 import { codeRouter } from "./routers/code";
 import { projectRouter } from "./routers/project";
 import { sessionRouter } from "./routers/session";
@@ -24,7 +25,7 @@ export const appRouter = t.mergeRouters(
   projectRouter,
   aiRouter,
   toolRouter,
-  router({ agents: agentsRouter })
+  router({ agents: agentsRouter, auth: authRouter })
 );
 
 /** Type definition for the main app router (used by clients) */

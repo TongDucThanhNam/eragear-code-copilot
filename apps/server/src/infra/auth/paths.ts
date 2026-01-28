@@ -7,9 +7,7 @@ const AUTH_DIR_NAME = "Eragear";
 
 function getPlatformConfigDir(): string {
   if (process.platform === "win32") {
-    return (
-      process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming")
-    );
+    return process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
   }
 
   if (process.platform === "darwin") {

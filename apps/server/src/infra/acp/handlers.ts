@@ -9,13 +9,12 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "../../shared/types/ports";
+import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { SessionBufferingPort } from "@/modules/session/application/ports/session-acp.port";
 import { createPermissionHandler } from "./permission";
 import { createToolCallHandlers } from "./tool-calls";
-import { createSessionUpdateHandler, type SessionBuffering } from "./update";
+import { createSessionUpdateHandler } from "./update";
 
 /**
  * Creates ACP client handlers for managing a session
@@ -41,7 +40,7 @@ import { createSessionUpdateHandler, type SessionBuffering } from "./update";
  */
 export function createSessionHandlers(params: {
   chatId: string;
-  buffer: SessionBuffering;
+  buffer: SessionBufferingPort;
   getIsReplaying: () => boolean;
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;

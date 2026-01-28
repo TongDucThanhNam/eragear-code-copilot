@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import type { Client } from "@agentclientprotocol/sdk";
 import { ENV } from "../../config/environment";
-import type { AgentRuntimePort } from "../../shared/types/ports";
+import type { AgentRuntimePort } from "@/modules/session/application/ports/agent-runtime.port";
 import { createAcpConnectionAdapter } from "../acp/connection";
 
 /**
@@ -32,10 +32,7 @@ function isCommandAllowed(command: string, allowlist: string[]) {
  * Filters environment variables by allowlist.
  * Empty allowlist means allow all variables.
  */
-function filterEnvAllowlist(
-  env: Record<string, string>,
-  allowlist: string[]
-) {
+function filterEnvAllowlist(env: Record<string, string>, allowlist: string[]) {
   if (allowlist.length === 0) {
     return env;
   }

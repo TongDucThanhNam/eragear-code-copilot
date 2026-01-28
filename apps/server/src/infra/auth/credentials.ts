@@ -1,23 +1,22 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { ENV } from "../../config/environment";
 import { getAuthStorageFile } from "./paths";
 
-export type AdminCredentials = {
+export interface AdminCredentials {
   username: string;
   password: string;
   email: string;
   createdAt: string;
   source: "env" | "file" | "generated";
-};
+}
 
 const DEFAULT_USERNAME = "admin";
 const DEFAULT_EMAIL_DOMAIN = "localhost.local";
 
 export function getOrCreateAdminCredentials(): AdminCredentials {
   const username = ENV.authAdminUsername ?? DEFAULT_USERNAME;
-  const email =
-    ENV.authAdminEmail ?? `${username}@${DEFAULT_EMAIL_DOMAIN}`;
+  const email = ENV.authAdminEmail ?? `${username}@${DEFAULT_EMAIL_DOMAIN}`;
 
   if (ENV.authAdminPassword) {
     return {

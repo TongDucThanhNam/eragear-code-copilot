@@ -1,7 +1,7 @@
-type AcpErrorShape = {
+interface AcpErrorShape {
   message?: unknown;
   data?: { details?: unknown };
-};
+}
 
 export const getAcpErrorText = (error: unknown): string => {
   const parts: string[] = [];

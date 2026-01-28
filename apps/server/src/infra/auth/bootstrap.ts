@@ -1,9 +1,9 @@
 import { writeFileSync } from "node:fs";
 import { getMigrations } from "better-auth/db";
 import { ENV } from "../../config/environment";
-import { getAuthStorageFile } from "./paths";
 import { auth, authConfig, authDb, authState } from "./auth";
 import { getOrCreateAdminCredentials } from "./credentials";
+import { getAuthStorageFile } from "./paths";
 
 function getTableCount(table: string): number {
   try {

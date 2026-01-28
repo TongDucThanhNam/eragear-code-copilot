@@ -47,18 +47,21 @@ modules/[module]/
 
 ## Ports (Contracts)
 
-Defined in `shared/types/ports.ts`:
+Ports live with their owning modules under `modules/*/application/ports/`.
+Cross-cutting ports live under `shared/ports/`.
 
-- `SessionRepositoryPort` - session persistence
-- `ProjectRepositoryPort` - project management
-- `AgentRepositoryPort` - agent configuration
-- `SettingsRepositoryPort` - settings
-- `SessionRuntimePort` - in-memory session state
-- `EventBusPort` - event publishing
-- `AgentRuntimePort` - process spawning
-- `FileSystemPort` - file I/O
-- `GitPort` - git operations
-- `TerminalPort` - terminal management
+Examples:
+
+- `modules/session/application/ports/`:
+  - `SessionRepositoryPort` - session persistence
+  - `SessionRuntimePort` - in-memory session state
+  - `AgentRuntimePort` - process spawning
+  - `SessionAcpPort` - ACP handler/buffer creation
+- `modules/project/application/ports/`: `ProjectRepositoryPort`
+- `modules/agent/application/ports/`: `AgentRepositoryPort`
+- `modules/settings/application/ports/`: `SettingsRepositoryPort`
+- `modules/tooling/application/ports/`: `GitPort`
+- `shared/ports/`: `EventBusPort`
 
 ## Data Flow Example: Send Message
 

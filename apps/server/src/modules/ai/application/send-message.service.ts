@@ -7,17 +7,15 @@
  * @module modules/ai/application/send-message.service
  */
 
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "../../../shared/types/ports";
-import { buildPrompt } from "./prompt.builder";
+import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import { toStoredContentBlocks } from "../../../shared/utils/content-block.util";
 import {
   getAcpErrorText,
   isProcessExited,
   isProcessTransportNotReady,
 } from "./acp-error.util";
-import { toStoredContentBlocks } from "../../../shared/utils/content-block.util";
+import { buildPrompt } from "./prompt.builder";
 
 /**
  * SendMessageService

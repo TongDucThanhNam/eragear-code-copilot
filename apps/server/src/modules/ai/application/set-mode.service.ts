@@ -7,10 +7,8 @@
  * @module modules/ai/application/set-mode.service
  */
 
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "../../../shared/types/ports";
+import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import {
   getAcpErrorText,
   isProcessExited,
@@ -87,7 +85,7 @@ export class SetModeService {
 
     const sendRequest = async () => {
       await session.conn.setSessionMode({
-        sessionId: session.sessionId,
+        sessionId: session.sessionId ?? "",
         modeId,
       });
     };

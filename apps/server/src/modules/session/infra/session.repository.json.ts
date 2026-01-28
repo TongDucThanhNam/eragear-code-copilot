@@ -8,11 +8,11 @@
  */
 
 import { readJsonFile, writeJsonFile } from "../../../infra/storage/json-store";
-import type { SessionRepositoryPort } from "../../../shared/types/ports";
 import type {
   StoredMessage,
   StoredSession,
 } from "../../../shared/types/session.types";
+import type { SessionRepositoryPort } from "../application/ports/session-repository.port";
 
 /** Path to the sessions JSON file */
 const SESSIONS_FILE = "sessions.json";

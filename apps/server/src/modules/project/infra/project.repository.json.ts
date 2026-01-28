@@ -10,12 +10,12 @@
 
 import { resolveProjectPath } from "@/shared/utils/project-roots.util";
 import { readJsonFile, writeJsonFile } from "../../../infra/storage/json-store";
-import type { ProjectRepositoryPort } from "../../../shared/types/ports";
 import type {
   Project,
   ProjectInput,
   ProjectUpdateInput,
 } from "../../../shared/types/project.types";
+import type { ProjectRepositoryPort } from "../application/ports/project-repository.port";
 
 /** Storage file name for projects data */
 const PROJECTS_FILE = "projects.json";

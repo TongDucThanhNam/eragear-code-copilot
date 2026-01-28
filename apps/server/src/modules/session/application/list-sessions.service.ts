@@ -7,11 +7,9 @@
  * @module modules/session/application/list-sessions.service
  */
 
-import type {
-  ProjectRepositoryPort,
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "../../../shared/types/ports";
+import type { ProjectRepositoryPort } from "@/modules/project/application/ports/project-repository.port";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 /**
  * ListSessionsService
@@ -70,7 +68,8 @@ export class ListSessionsService {
       const agentInfo = activeSession?.agentInfo ?? session.agentInfo;
       const agentName = agentInfo?.title ?? agentInfo?.name;
       const plan = activeSession?.plan ?? session.plan ?? null;
-      const agentCapabilities = activeSession?.agentCapabilities ?? session.agentCapabilities;
+      const agentCapabilities =
+        activeSession?.agentCapabilities ?? session.agentCapabilities;
       const authMethods = activeSession?.authMethods ?? session.authMethods;
       const derivedProjectId =
         session.projectId ??

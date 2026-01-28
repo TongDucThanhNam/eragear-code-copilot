@@ -1,19 +1,19 @@
+import { Database } from "bun:sqlite";
 import { betterAuth } from "better-auth";
 import { apiKey, multiSession, username } from "better-auth/plugins";
-import { Database } from "bun:sqlite";
 import { ENV } from "../../config/environment";
-import { getAuthSecret } from "./secret";
 import { getAuthDbPath } from "./paths";
+import { getAuthSecret } from "./secret";
 
 const authDbPath = getAuthDbPath();
 const authDb = new Database(authDbPath);
 
-type AuthState = {
+interface AuthState {
   hasUsers: boolean;
   adminUserId: string | null;
   adminUsername: string | null;
   bootstrapApiKey: string | null;
-};
+}
 
 export const authState: AuthState = {
   hasUsers: false,

@@ -49,6 +49,10 @@ WebSocket URL:
 ws://<host>:<port>
 ```
 
+### User profile (for UI)
+Use the `auth.getMe` tRPC query to fetch the user profile
+associated with the API key. This is used by the sidebar NavUser UI.
+
 ### HTTP (non-browser)
 Either header is accepted:
 ```
@@ -68,6 +72,41 @@ POST   /api/admin/device-sessions/revoke
 POST   /api/admin/device-sessions/activate
 ```
 
+## Dynamic domains (Cloudflare Tunnel / reverse proxy)
+
+If users host the server themselves and access it through a tunnel or
+reverse proxy with a **dynamic domain**, the auth system can adapt at runtime.
+
+### How it works
+- The server derives the request origin from these headers (in order):
+  - `Origin`
+  - `X-Forwarded-Host` or `Host` + `X-Forwarded-Proto` (or `CF-Visitor`)
+- When the origin matches the host (same-origin), it is **auto‑trusted**
+  for `/api/auth/*` and `authConfig.baseURL` is updated on the fly.
+- This allows arbitrary user domains without hardcoding `AUTH_BASE_URL`.
+
+### Required proxy headers
+Your tunnel/proxy **must** forward these headers for HTTPS to work correctly:
+- `Host` (or `X-Forwarded-Host`)
+- `X-Forwarded-Proto` = `https`
+  - Cloudflare Tunnel also sends `CF-Visitor: {"scheme":"https"}`.
+
+If these headers are missing, cookies may be set as non‑secure and login can fail.
+
+### When you still need env config
+Dynamic auto‑trust only covers **same‑origin** UI → API calls.  
+If the UI and API are on **different origins**, set:
+
+```
+AUTH_BASE_URL=https://api.your-domain.tld
+AUTH_TRUSTED_ORIGINS=https://app.your-domain.tld,https://api.your-domain.tld
+```
+
+### Recommended (tunnel) checklist
+1) Open DevTools → Network → `/api/auth/sign-in/username`
+2) Check response headers for `Set-Cookie`
+3) Confirm request headers include `Origin`, `Host`, and `X-Forwarded-Proto`
+
 ## Troubleshooting
 
 ### Login fails
@@ -76,6 +115,8 @@ POST   /api/admin/device-sessions/activate
   1) Stop the server.
   2) Delete `~/.config/Eragear/auth.sqlite` and `~/.config/Eragear/admin.credentials.json`.
   3) Start the server again to re-bootstrap credentials.
+ - If using a tunnel/reverse proxy, verify forwarded headers and HTTPS scheme
+   (see “Dynamic domains” section above).
 
 ### Health check CORS error
 - If the client cannot call `/api/health`, verify CORS headers are present.

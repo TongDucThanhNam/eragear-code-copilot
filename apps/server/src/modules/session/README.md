@@ -35,6 +35,7 @@ Manages AI agent chat sessions - creation, state, messaging, and lifecycle.
 - `SessionRepositoryPort` - Persist session metadata & messages
 - `SessionRuntimePort` - Track active session state
 - `AgentRuntimePort` - Spawn & communicate with agent process
+- `SessionAcpPort` - Create ACP handlers/buffers
 - `EventBusPort` - Publish session events
 
 ## Data Flow: Create Session

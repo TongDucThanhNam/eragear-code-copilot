@@ -5,10 +5,11 @@
   "scripts": {
     "build": "tsdown && bun run ui:build",
     "check-types": "tsc -b",
-    "compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile dist/server",
-    "dev": "bun run --hot src/index.ts",
+    "compile": "bun run ui:build && bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile dist/server",
+    "dev": "bun run ui:dev & bun run --hot src/index.ts",
     "start": "bun run dist/index.js",
-    "ui:build": "bun build --target browser --minify ./src/shared/config/public/ui/dashboard.ts --outfile ./public/dashboard.js && cp ./src/shared/config/public/ui/styles.css ./public/styles.css"
+    "ui:dev": "bun build ./ui/client.tsx --outdir ./public --target browser --format esm --watch",
+    "ui:build": "bun build ./ui/client.tsx --outfile ./public/client.js --target browser --format esm --minify && cp ./src/transport/http/ui/styles.css ./public/styles.css"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.13.0",

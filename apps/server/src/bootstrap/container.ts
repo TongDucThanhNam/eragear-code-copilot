@@ -8,7 +8,9 @@
  * @module bootstrap/container
  */
 
-import { FileSystemAdapter } from "../infra/filesystem";
+import { auth, authDb } from "../infra/auth/auth";
+import { getAuthContext } from "../infra/auth/guards";
+import { SessionAcpAdapter } from "../infra/acp/session-acp.adapter";
 import { GitAdapter } from "../infra/git";
 import { AgentRuntimeAdapter } from "../infra/process";
 import { AgentJsonRepository } from "../modules/agent/infra/agent.repository.json";
@@ -17,15 +19,15 @@ import { SessionRuntimeStore } from "../modules/session/infra/runtime-store";
 import { SessionJsonRepository } from "../modules/session/infra/session.repository.json";
 import { SettingsJsonRepository } from "../modules/settings/infra/ui-settings.repository.json";
 import type {
-  AgentRepositoryPort,
-  AgentRuntimePort,
-  EventBusPort,
-  FileSystemPort,
-  ProjectRepositoryPort,
-  SessionRepositoryPort,
-  SessionRuntimePort,
-  SettingsRepositoryPort,
-} from "../shared/types/ports";
+  SessionAcpPort,
+} from "@/modules/session/application/ports/session-acp.port";
+import type { AgentRepositoryPort } from "@/modules/agent/application/ports/agent-repository.port";
+import type { ProjectRepositoryPort } from "@/modules/project/application/ports/project-repository.port";
+import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { SettingsRepositoryPort } from "@/modules/settings/application/ports/settings-repository.port";
+import type { AgentRuntimePort } from "@/modules/session/application/ports/agent-runtime.port";
+import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { Settings } from "../shared/types/settings.types";
 import { EventBus } from "../shared/utils/event-bus";
 
@@ -50,12 +52,12 @@ export class Container {
   settingsRepo: SettingsRepositoryPort;
 
   // Adapters
-  /** File system adapter for file operations within session context */
-  fileSystemAdapter: FileSystemPort;
   /** Git adapter for git operations and project context */
   gitAdapter: GitAdapter;
   /** Agent runtime adapter for spawning and managing agent processes */
   agentRuntimeAdapter: AgentRuntimePort;
+  /** ACP session adapter for ACP handlers and buffering */
+  sessionAcpAdapter: SessionAcpPort;
 
   /**
    * Creates a new Container instance
@@ -73,9 +75,9 @@ export class Container {
     this.settingsRepo = new SettingsJsonRepository();
 
     // Initialize adapters
-    this.fileSystemAdapter = new FileSystemAdapter(this.sessionRuntime);
     this.gitAdapter = new GitAdapter();
     this.agentRuntimeAdapter = new AgentRuntimeAdapter();
+    this.sessionAcpAdapter = new SessionAcpAdapter();
   }
 
   /**
@@ -170,6 +172,14 @@ export class Container {
   }
 
   /**
+   * Gets the ACP session adapter
+   * @returns The ACP session adapter
+   */
+  getSessionAcp(): SessionAcpPort {
+    return this.sessionAcpAdapter;
+  }
+
+  /**
    * Gets the git adapter
    * @returns The git adapter for git operations
    */
@@ -177,12 +187,30 @@ export class Container {
     return this.gitAdapter;
   }
 
+
   /**
-   * Gets the file system adapter
-   * @returns The file system port for file operations
+   * Gets the auth service instance
+   * @returns The auth service for authentication operations
    */
-  getFileSystem(): FileSystemPort {
-    return this.fileSystemAdapter;
+  getAuth() {
+    return auth;
+  }
+
+  /**
+   * Gets the auth database instance
+   * @returns The database for auth queries
+   */
+  getAuthDb() {
+    return authDb;
+  }
+
+  /**
+   * Resolves auth context from a request-like object
+   * @param req - Request-like object containing headers and URL
+   * @returns The resolved auth context or null
+   */
+  getAuthContext(req?: Parameters<typeof getAuthContext>[0]) {
+    return getAuthContext(req);
   }
 }
 

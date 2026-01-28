@@ -18,11 +18,12 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { WebSocketServer } from "ws";
 import { ENV } from "../config/environment";
-import { auth, authState } from "../infra/auth/auth";
+import { auth, authConfig, authState } from "../infra/auth/auth";
 import { ensureAuthSetup } from "../infra/auth/bootstrap";
 import { getAuthContext, getSessionFromRequest } from "../infra/auth/guards";
-import { LoginPage } from "../shared/config/login";
-import { ConfigPage } from "../shared/config/ui";
+import { LoginPage } from "../transport/http/ui/login";
+import { buildDashboardData } from "../transport/http/ui/dashboard-data";
+import { ConfigPage } from "../transport/http/ui/config-page";
 import { registerHttpRoutes } from "../transport/http/routes";
 import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
@@ -35,6 +36,101 @@ const PUBLIC_UI_PATH = join(__dirname, "../../public");
 const UI_PATH_PREFIX = /^\/ui\//;
 /** Regex to remove leading slashes */
 const LEADING_SLASHES = /^\/+/;
+
+function normalizeOrigin(value: string | null): string | null {
+  if (!value || value === "null") {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function getForwardedProto(headers: Headers): string | null {
+  const forwarded = headers.get("x-forwarded-proto");
+  if (forwarded) {
+    return forwarded.split(",")[0]?.trim() ?? null;
+  }
+
+  const cfVisitor = headers.get("cf-visitor");
+  if (cfVisitor) {
+    try {
+      const parsed = JSON.parse(cfVisitor) as { scheme?: string };
+      if (parsed.scheme) {
+        return parsed.scheme;
+      }
+    } catch (error) {
+      console.warn("[Auth] Failed to parse CF-Visitor header:", error);
+    }
+  }
+
+  return null;
+}
+
+function resolveHostOrigin(headers: Headers): string | null {
+  const host = headers.get("x-forwarded-host") ?? headers.get("host");
+  if (!host) {
+    return null;
+  }
+  const proto = getForwardedProto(headers) ?? "http";
+  if (proto !== "http" && proto !== "https") {
+    return null;
+  }
+
+  return `${proto}://${host}`;
+}
+
+function resolveRequestOrigin(headers: Headers): string | null {
+  const originHeader = normalizeOrigin(headers.get("origin"));
+  const hostOrigin = resolveHostOrigin(headers);
+  if (originHeader) {
+    if (hostOrigin && originHeader !== hostOrigin) {
+      return null;
+    }
+    return originHeader;
+  }
+  return hostOrigin;
+}
+
+function resolveCorsOrigin(origin?: string | null): string | undefined {
+  const normalized = normalizeOrigin(origin ?? null);
+  if (!normalized) {
+    return undefined;
+  }
+
+  const trusted = authConfig.trustedOrigins;
+  if (Array.isArray(trusted)) {
+    if (trusted[0] === "*" || trusted.includes(normalized)) {
+      return normalized;
+    }
+    return undefined;
+  }
+
+  if (trusted === "*") {
+    return normalized;
+  }
+
+  return trusted === normalized ? normalized : undefined;
+}
+
+function ensureTrustedOrigin(origin: string) {
+  const trusted = authConfig.trustedOrigins;
+  if (Array.isArray(trusted) && trusted[0] !== "*") {
+    if (!trusted.includes(origin)) {
+      trusted.push(origin);
+    }
+  }
+
+  if (authConfig.baseURL !== origin) {
+    authConfig.baseURL = origin;
+  }
+}
 
 /**
  * Creates the Hono application with all middleware and routes
@@ -51,10 +147,18 @@ export function createApp() {
   app.use(logger());
 
   // Auth CORS + handler
+  app.use("/api/auth/*", async (c, next) => {
+    const origin = resolveRequestOrigin(c.req.raw.headers);
+    if (origin) {
+      ensureTrustedOrigin(origin);
+    }
+    return next();
+  });
+
   app.use(
     "/api/auth/*",
     cors({
-      origin: ENV.authTrustedOrigins,
+      origin: resolveCorsOrigin,
       allowHeaders: ["Content-Type", "Authorization", "x-api-key"],
       allowMethods: ["POST", "GET", "OPTIONS"],
       exposeHeaders: ["Content-Length"],
@@ -160,6 +264,18 @@ export function createApp() {
     return next();
   });
 
+  // Protect UI form submissions
+  app.use("/form/*", async (c, next) => {
+    const session = await getSessionFromRequest({
+      headers: c.req.raw.headers,
+      url: c.req.raw.url,
+    });
+    if (!session) {
+      return c.redirect("/login");
+    }
+    return next();
+  });
+
   // Register HTTP routes
   registerHttpRoutes(app);
 
@@ -172,8 +288,52 @@ export function createApp() {
     if (!session) {
       return c.redirect("/login");
     }
+    const container = getContainer();
+    const settings = container.getSettings().get();
+    const projects = container.getProjects().findAll();
+    const storedSessions = container.getSessions().findAll();
+    const runtimeSessions = container.getSessionRuntime();
+    const agents = container.getAgents().findAll();
+
+    let apiKeys: unknown = [];
+    let deviceSessions: unknown = [];
+
+    try {
+      apiKeys = await auth.api.listApiKeys({ headers: c.req.raw.headers });
+    } catch (error) {
+      console.error("Failed to load API keys:", error);
+    }
+
+    try {
+      deviceSessions = await auth.api.listDeviceSessions({
+        headers: c.req.raw.headers,
+      });
+    } catch (error) {
+      console.error("Failed to load device sessions:", error);
+    }
+
+    const dashboardData = buildDashboardData({
+      projects,
+      sessions: storedSessions,
+      runtimeSessions,
+      agents,
+      apiKeys: Array.isArray(apiKeys) ? apiKeys : [],
+      deviceSessions: Array.isArray(deviceSessions) ? deviceSessions : [],
+    });
+
+    const { tab, success, error, notice, restart } = c.req.query();
+    const requiresRestart = restart
+      ? restart.split(",").map((value) => value.trim()).filter(Boolean)
+      : undefined;
+
     const html = `<!DOCTYPE html>${ConfigPage({
-      settings: getContainer().getSettings().get(),
+      settings,
+      dashboardData,
+      activeTab: tab,
+      success: success === "1",
+      notice: notice || undefined,
+      errors: error ? { general: error } : undefined,
+      requiresRestart,
     })}`;
     return c.html(html);
   });

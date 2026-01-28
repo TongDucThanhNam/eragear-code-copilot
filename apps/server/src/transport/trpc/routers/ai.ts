@@ -57,7 +57,8 @@ export const aiRouter = router({
                 if (hasText === hasBlob) {
                   ctx.addIssue({
                     code: z.ZodIssueCode.custom,
-                    message: "Resource must include exactly one of text or blob",
+                    message:
+                      "Resource must include exactly one of text or blob",
                   });
                 }
               })

@@ -11,15 +11,8 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import type * as acp from "@agentclientprotocol/sdk";
-import { createSessionHandlers } from "@/infra/acp/handlers";
-import { SessionBuffering } from "@/infra/acp/update";
+import type { SettingsRepositoryPort } from "@/modules/settings/application/ports/settings-repository.port";
 import { CLIENT_INFO } from "../../../config/constants";
-import type {
-  AgentRuntimePort,
-  SessionRepositoryPort,
-  SessionRuntimePort,
-  SettingsRepositoryPort,
-} from "../../../shared/types/ports";
 import type {
   ChatSession,
   StoredMessage,
@@ -31,6 +24,13 @@ import type {
   McpStdioServerConfig,
 } from "../../../shared/types/settings.types";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
+import type { AgentRuntimePort } from "./ports/agent-runtime.port";
+import type {
+  SessionAcpPort,
+  SessionBufferingPort,
+} from "./ports/session-acp.port";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 /**
  * Parameters for creating a new session
@@ -74,6 +74,8 @@ export class CreateSessionService {
   private readonly agentRuntime: AgentRuntimePort;
   /** Repository for application settings including MCP servers */
   private readonly settingsRepo: SettingsRepositoryPort;
+  /** ACP session adapter */
+  private readonly sessionAcp: SessionAcpPort;
 
   /**
    * Creates a CreateSessionService with required dependencies
@@ -82,12 +84,14 @@ export class CreateSessionService {
     sessionRepo: SessionRepositoryPort,
     sessionRuntime: SessionRuntimePort,
     agentRuntime: AgentRuntimePort,
-    settingsRepo: SettingsRepositoryPort
+    settingsRepo: SettingsRepositoryPort,
+    sessionAcp: SessionAcpPort
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
     this.agentRuntime = agentRuntime;
     this.settingsRepo = settingsRepo;
+    this.sessionAcp = sessionAcp;
   }
 
   /**
@@ -214,15 +218,17 @@ export class CreateSessionService {
 
     chatSession.agentInfo = initResult?.agentInfo
       ? {
-          name: initResult.agentInfo.name,
-          title: initResult.agentInfo.title ?? undefined,
-          version: initResult.agentInfo.version,
-        }
+        name: initResult.agentInfo.name,
+        title: initResult.agentInfo.title ?? undefined,
+        version: initResult.agentInfo.version,
+      }
       : undefined;
 
     // Store full capabilities and auth methods for debugging
     chatSession.agentCapabilities = agentCapabilities;
-    chatSession.authMethods = initResult?.authMethods as Array<{ name: string; id: string; description: string }> | undefined;
+    chatSession.authMethods = initResult?.authMethods as
+      | Array<{ name: string; id: string; description: string }>
+      | undefined;
 
     console.log("[DEBUG] agentInfo:", chatSession.agentInfo);
 
@@ -244,13 +250,13 @@ export class CreateSessionService {
     chatId: string,
     params: CreateSessionParams,
     projectRoot: string,
-    buffer: SessionBuffering,
+    buffer: SessionBufferingPort,
     mcpServers: McpServerConfig[]
   ) {
     try {
       let loadResult: {
-        modes?: typeof chatSession.modes;
-        models?: typeof chatSession.models;
+        modes?: typeof chatSession.modes | null;
+        models?: typeof chatSession.models | null;
       };
 
       if (chatSession.useUnstableResume) {
@@ -342,7 +348,7 @@ export class CreateSessionService {
    * @param chatId - The chat session identifier
    * @param buffer - Session buffering state
    */
-  private broadcastPromptEnd(chatId: string, buffer: SessionBuffering) {
+  private broadcastPromptEnd(chatId: string, buffer: SessionBufferingPort) {
     if (buffer.replayEventCount === 0) {
       this.replayStoredMessages(chatId);
     }
@@ -438,7 +444,7 @@ export class CreateSessionService {
       env: agentEnv,
     });
 
-    const buffer = new SessionBuffering();
+    const buffer = this.sessionAcp.createBuffer();
     const storedPlan = params.chatId
       ? this.sessionRepo.findById(chatId)?.plan
       : undefined;
@@ -472,7 +478,7 @@ export class CreateSessionService {
       });
     }
 
-    const handlers = createSessionHandlers({
+    const handlers = this.sessionAcp.createHandlers({
       chatId,
       buffer,
       getIsReplaying: () => false,

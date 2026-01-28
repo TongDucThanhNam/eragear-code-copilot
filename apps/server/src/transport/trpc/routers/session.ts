@@ -36,7 +36,10 @@ export const sessionRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       // DEBUG: Log tRPC input
-      console.log(`[DEBUG] createSession tRPC input:`, JSON.stringify(input, null, 2));
+      console.log(
+        "[DEBUG] createSession tRPC input:",
+        JSON.stringify(input, null, 2)
+      );
 
       const project = ctx.container.getProjects().findById(input.projectId);
       if (!project) {
@@ -46,7 +49,8 @@ export const sessionRouter = router({
         ctx.container.getSessions(),
         ctx.container.getSessionRuntime(),
         ctx.container.getAgentRuntime(),
-        ctx.container.getSettings()
+        ctx.container.getSettings(),
+        ctx.container.getSessionAcp()
       );
       const res = await service.execute({
         projectId: input.projectId,
@@ -85,7 +89,8 @@ export const sessionRouter = router({
         ctx.container.getSessions(),
         ctx.container.getSessionRuntime(),
         ctx.container.getAgentRuntime(),
-        ctx.container.getSettings()
+        ctx.container.getSettings(),
+        ctx.container.getSessionAcp()
       );
       return await service.execute(input.chatId);
     }),

@@ -15,7 +15,7 @@ import { RequestError } from "@agentclientprotocol/sdk";
 import { createId } from "@/shared/utils/id.util";
 import { fileUriToPath } from "@/shared/utils/path.util";
 import { ENV } from "../../config/environment";
-import type { SessionRuntimePort } from "../../shared/types/ports";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type {
   ChatSession,
   TerminalState,
@@ -41,10 +41,7 @@ function isCommandAllowed(command: string, allowlist: string[]) {
  * Filters environment variables by allowlist.
  * Empty allowlist means allow all variables.
  */
-function filterEnvAllowlist(
-  env: Record<string, string>,
-  allowlist: string[]
-) {
+function filterEnvAllowlist(env: Record<string, string>, allowlist: string[]) {
   if (allowlist.length === 0) {
     return env;
   }
@@ -296,7 +293,8 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
         termState.outputBuffer += text;
       } else {
         const current = termState.outputBufferBytes ?? Buffer.alloc(0);
-        let next = current.length === 0 ? chunk : Buffer.concat([current, chunk]);
+        let next =
+          current.length === 0 ? chunk : Buffer.concat([current, chunk]);
         if (next.length > outputByteLimit) {
           next = next.subarray(next.length - outputByteLimit);
           termState.truncated = true;

@@ -10,11 +10,11 @@
 
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../../infra/storage/json-store";
-import type { SettingsRepositoryPort } from "../../../shared/types/ports";
 import type {
   McpServerConfig,
   Settings,
 } from "../../../shared/types/settings.types";
+import type { SettingsRepositoryPort } from "../application/ports/settings-repository.port";
 
 // ============================================================================
 // Zod Schemas

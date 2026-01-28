@@ -7,10 +7,8 @@
  * @module modules/ai/application/set-model.service
  */
 
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "../../../shared/types/ports";
+import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import {
   getAcpErrorText,
   isProcessExited,
@@ -104,7 +102,7 @@ export class SetModelService {
       await (
         session.conn as unknown as ConnWithUnstableModel
       ).unstable_setSessionModel({
-        sessionId: session.sessionId,
+        sessionId: session.sessionId ?? "",
         modelId,
       });
     };
