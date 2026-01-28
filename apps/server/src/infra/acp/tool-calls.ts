@@ -12,10 +12,10 @@ import { readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import { createId } from "@/shared/utils/id.util";
 import { fileUriToPath } from "@/shared/utils/path.util";
 import { ENV } from "../../config/environment";
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type {
   ChatSession,
   TerminalState,

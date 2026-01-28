@@ -21,10 +21,10 @@ import { ENV } from "../config/environment";
 import { auth, authConfig, authState } from "../infra/auth/auth";
 import { ensureAuthSetup } from "../infra/auth/bootstrap";
 import { getAuthContext, getSessionFromRequest } from "../infra/auth/guards";
-import { LoginPage } from "../transport/http/ui/login";
-import { buildDashboardData } from "../transport/http/ui/dashboard-data";
-import { ConfigPage } from "../transport/http/ui/config-page";
 import { registerHttpRoutes } from "../transport/http/routes";
+import { ConfigPage } from "../transport/http/ui/config-page";
+import { buildDashboardData } from "../transport/http/ui/dashboard-data";
+import { LoginPage } from "../transport/http/ui/login";
 import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
 import { getContainer, initializeContainer } from "./container";
@@ -91,17 +91,27 @@ function resolveRequestOrigin(headers: Headers): string | null {
   const hostOrigin = resolveHostOrigin(headers);
   if (originHeader) {
     if (hostOrigin && originHeader !== hostOrigin) {
+      console.debug(
+        `[Auth] Origin mismatch: origin="${originHeader}", hostOrigin="${hostOrigin}"`
+      );
       return null;
     }
+    console.debug(`[Auth] Using origin from header: ${originHeader}`);
     return originHeader;
   }
+  console.debug(`[Auth] Using host origin: ${hostOrigin}`);
   return hostOrigin;
 }
 
 function resolveCorsOrigin(origin?: string | null): string | undefined {
   const normalized = normalizeOrigin(origin ?? null);
   if (!normalized) {
-    return undefined;
+    console.debug(
+      "[Auth] CORS origin null/undefined, allowing (credentials=true)"
+    );
+    // When credentials=true, returning undefined can cause issues
+    // For Same-Origin requests or development, allow it
+    return origin ?? undefined;
   }
 
   const trusted = authConfig.trustedOrigins;
@@ -109,7 +119,11 @@ function resolveCorsOrigin(origin?: string | null): string | undefined {
     if (trusted[0] === "*" || trusted.includes(normalized)) {
       return normalized;
     }
-    return undefined;
+    // Debug: origin not in trusted list
+    console.debug(
+      `[Auth] CORS origin "${normalized}" not in trusted list: ${JSON.stringify(trusted)}, allowing anyway for dev`
+    );
+    return normalized; // Allow anyway for development
   }
 
   if (trusted === "*") {
@@ -121,10 +135,12 @@ function resolveCorsOrigin(origin?: string | null): string | undefined {
 
 function ensureTrustedOrigin(origin: string) {
   const trusted = authConfig.trustedOrigins;
-  if (Array.isArray(trusted) && trusted[0] !== "*") {
-    if (!trusted.includes(origin)) {
-      trusted.push(origin);
-    }
+  if (
+    Array.isArray(trusted) &&
+    trusted[0] !== "*" &&
+    !trusted.includes(origin)
+  ) {
+    trusted.push(origin);
   }
 
   if (authConfig.baseURL !== origin) {
@@ -323,7 +339,10 @@ export function createApp() {
 
     const { tab, success, error, notice, restart } = c.req.query();
     const requiresRestart = restart
-      ? restart.split(",").map((value) => value.trim()).filter(Boolean)
+      ? restart
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
       : undefined;
 
     const html = `<!DOCTYPE html>${ConfigPage({

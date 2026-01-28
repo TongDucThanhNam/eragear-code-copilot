@@ -9,9 +9,9 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
+import type { SessionBufferingPort } from "@/modules/session/application/ports/session-acp.port";
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
-import type { SessionBufferingPort } from "@/modules/session/application/ports/session-acp.port";
 import { createPermissionHandler } from "./permission";
 import { createToolCallHandlers } from "./tool-calls";
 import { createSessionUpdateHandler } from "./update";

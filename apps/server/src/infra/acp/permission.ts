@@ -9,8 +9,8 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
-import { createId } from "@/shared/utils/id.util";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import { createId } from "@/shared/utils/id.util";
 
 /**
  * Creates a permission request handler for a session runtime

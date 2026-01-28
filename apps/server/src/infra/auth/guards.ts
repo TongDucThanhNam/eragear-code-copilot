@@ -82,10 +82,41 @@ export async function getSessionFromRequest(
   req: RequestLike
 ): Promise<{ user: unknown; session: unknown } | null> {
   const headers = normalizeHeaders(req.headers);
+  const cookieHeader = headers.get("cookie");
+  console.debug(
+    `[Auth] getSessionFromRequest: url=${req.url}, cookie=${cookieHeader ? "present" : "missing"}`
+  );
+
+  // Log all headers for debugging
+  if (cookieHeader) {
+    console.debug(`[Auth] Cookie header value: ${cookieHeader}`);
+  }
+
   const session = await auth.api.getSession({ headers });
   if (!session) {
+    console.debug(
+      "[Auth] getSessionFromRequest: session=null (no valid session)"
+    );
+    // Debug: try to understand why session is null
+    // Check if better-auth can verify the token directly
+    try {
+      // Extract token from cookie for debugging
+      const tokenMatch = cookieHeader?.match(
+        /better-auth\.session_token[^=]*=(.+)/
+      );
+      if (tokenMatch) {
+        console.debug(
+          `[Auth] Extracted token: ${tokenMatch[1].substring(0, 50)}...`
+        );
+      }
+    } catch (e) {
+      // ignore
+    }
     return null;
   }
+  console.debug(
+    `[Auth] getSessionFromRequest: session found for user=${(session as { user?: { username?: string } }).user?.username}`
+  );
   return { user: session.user, session: session.session };
 }
 

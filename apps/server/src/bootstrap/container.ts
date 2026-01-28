@@ -8,9 +8,17 @@
  * @module bootstrap/container
  */
 
+import type { AgentRepositoryPort } from "@/modules/agent/application/ports/agent-repository.port";
+import type { ProjectRepositoryPort } from "@/modules/project/application/ports/project-repository.port";
+import type { AgentRuntimePort } from "@/modules/session/application/ports/agent-runtime.port";
+import type { SessionAcpPort } from "@/modules/session/application/ports/session-acp.port";
+import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { SettingsRepositoryPort } from "@/modules/settings/application/ports/settings-repository.port";
+import type { EventBusPort } from "@/shared/ports/event-bus.port";
+import { SessionAcpAdapter } from "../infra/acp/session-acp.adapter";
 import { auth, authDb } from "../infra/auth/auth";
 import { getAuthContext } from "../infra/auth/guards";
-import { SessionAcpAdapter } from "../infra/acp/session-acp.adapter";
 import { GitAdapter } from "../infra/git";
 import { AgentRuntimeAdapter } from "../infra/process";
 import { AgentJsonRepository } from "../modules/agent/infra/agent.repository.json";
@@ -18,16 +26,6 @@ import { ProjectJsonRepository } from "../modules/project/infra/project.reposito
 import { SessionRuntimeStore } from "../modules/session/infra/runtime-store";
 import { SessionJsonRepository } from "../modules/session/infra/session.repository.json";
 import { SettingsJsonRepository } from "../modules/settings/infra/ui-settings.repository.json";
-import type {
-  SessionAcpPort,
-} from "@/modules/session/application/ports/session-acp.port";
-import type { AgentRepositoryPort } from "@/modules/agent/application/ports/agent-repository.port";
-import type { ProjectRepositoryPort } from "@/modules/project/application/ports/project-repository.port";
-import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
-import type { SettingsRepositoryPort } from "@/modules/settings/application/ports/settings-repository.port";
-import type { AgentRuntimePort } from "@/modules/session/application/ports/agent-runtime.port";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { Settings } from "../shared/types/settings.types";
 import { EventBus } from "../shared/utils/event-bus";
 
@@ -186,7 +184,6 @@ export class Container {
   getGit(): GitAdapter {
     return this.gitAdapter;
   }
-
 
   /**
    * Gets the auth service instance

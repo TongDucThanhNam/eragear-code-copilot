@@ -11,8 +11,8 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import type { Client } from "@agentclientprotocol/sdk";
-import { ENV } from "../../config/environment";
 import type { AgentRuntimePort } from "@/modules/session/application/ports/agent-runtime.port";
+import { ENV } from "../../config/environment";
 import { createAcpConnectionAdapter } from "../acp/connection";
 
 /**

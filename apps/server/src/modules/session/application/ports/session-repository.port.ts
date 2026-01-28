@@ -1,4 +1,7 @@
-import type { StoredMessage, StoredSession } from "@/shared/types/session.types";
+import type {
+  StoredMessage,
+  StoredSession,
+} from "@/shared/types/session.types";
 
 /**
  * Port for session data persistence operations.

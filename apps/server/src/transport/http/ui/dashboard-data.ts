@@ -1,7 +1,7 @@
+import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type { AgentConfig } from "@/shared/types/agent.types";
 import type { Project } from "@/shared/types/project.types";
 import type { StoredSession } from "@/shared/types/session.types";
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 
 export interface DashboardStats {
   totalProjects: number;

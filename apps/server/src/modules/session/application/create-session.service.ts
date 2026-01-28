@@ -218,10 +218,10 @@ export class CreateSessionService {
 
     chatSession.agentInfo = initResult?.agentInfo
       ? {
-        name: initResult.agentInfo.name,
-        title: initResult.agentInfo.title ?? undefined,
-        version: initResult.agentInfo.version,
-      }
+          name: initResult.agentInfo.name,
+          title: initResult.agentInfo.title ?? undefined,
+          version: initResult.agentInfo.version,
+        }
       : undefined;
 
     // Store full capabilities and auth methods for debugging

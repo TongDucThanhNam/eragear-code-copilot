@@ -1,8 +1,5 @@
 import type { Settings } from "@/shared/types/settings.types";
-import type {
-  ApiKeyCreateResponse,
-  DashboardData,
-} from "./dashboard-data";
+import type { ApiKeyCreateResponse, DashboardData } from "./dashboard-data";
 
 type TabKey = "sessions" | "projects" | "agents" | "auth" | "settings";
 
@@ -139,8 +136,8 @@ export function ConfigPage({
               <ProjectsTab activeTab={tab} projects={data.projects} />
               <AgentsTab
                 activeTab={tab}
-                agents={data.agents}
                 agentStats={data.stats.agentStats}
+                agents={data.agents}
               />
               <AuthTab
                 activeTab={tab}
@@ -169,7 +166,7 @@ export function ConfigPage({
         <EditAgentModals agents={data.agents} />
 
         <div data-active-tab={tab} id="client-root" />
-        <script type="module" src="/ui/client.js" />
+        <script src="/ui/client.js" type="module" />
       </body>
     </html>
   );
@@ -294,10 +291,7 @@ function SessionsTab({
                 <button class="btn btn-primary min-h-[44px]" type="button">
                   + New Session
                 </button>
-                <a
-                  class="btn btn-secondary min-h-[44px]"
-                  href="/?tab=sessions"
-                >
+                <a class="btn btn-secondary min-h-[44px]" href="/?tab=sessions">
                   ↻
                 </a>
               </div>
@@ -329,8 +323,8 @@ function SessionRow({ session }: { session: SessionSummary }) {
 
   return (
     <div class={`session-item ${session.isActive ? "active" : ""}`}>
-      <div class="flex items-center session-info">
-        <span class={`status-dot ${statusClass}`}></span>
+      <div class="session-info flex items-center">
+        <span class={`status-dot ${statusClass}`} />
         <div>
           <div class="session-project truncate">
             {session.projectName || "Unknown"}
@@ -415,18 +409,20 @@ function ProjectsTab({
 function ProjectCard({ project }: { project: ProjectSummary }) {
   return (
     <div class="card project-card">
-      <div class="flex items-center justify-between mb-2">
+      <div class="mb-2 flex items-center justify-between">
         <span class="project-name">{project.name}</span>
-        <span class={`badge ${project.runningCount > 0 ? "badge-success" : ""}`}>
+        <span
+          class={`badge ${project.runningCount > 0 ? "badge-success" : ""}`}
+        >
           {project.runningCount} running
         </span>
       </div>
       <p class="project-path">{project.path}</p>
-      <div class="flex items-center justify-between mt-3">
-        <span class="text-xs text-muted">
+      <div class="mt-3 flex items-center justify-between">
+        <span class="text-muted text-xs">
           {project.sessionCount} session{project.sessionCount !== 1 ? "s" : ""}
         </span>
-        <span class="text-xs text-muted">
+        <span class="text-muted text-xs">
           {project.lastOpenedAt ? formatTimeAgo(project.lastOpenedAt) : "Never"}
         </span>
       </div>
@@ -444,7 +440,7 @@ function AgentsTab({
   activeTab: TabKey;
 }) {
   return (
-    <TabPanel activeTab={activeTab} tab="agents" scrollable>
+    <TabPanel activeTab={activeTab} scrollable tab="agents">
       <section class="border-2 border-ink bg-paper shadow-news">
         <div class="border-ink border-b-2 p-6">
           <div class="flex flex-wrap items-start justify-between gap-4">
@@ -509,22 +505,21 @@ function AgentCard({ agent }: { agent: AgentSummary }) {
   const typeClass = typeColors[agent.type] || typeColors.other;
 
   return (
-    <div class="card agent-card flex items-center justify-between gap-4 mb-2">
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 mb-1">
-          <span class="font-semibold truncate">{agent.name}</span>
+    <div class="card agent-card mb-2 flex items-center justify-between gap-4">
+      <div class="min-w-0 flex-1">
+        <div class="mb-1 flex items-center gap-2">
+          <span class="truncate font-semibold">{agent.name}</span>
           <span class={`badge ${typeClass} text-[10px]`}>{agent.type}</span>
         </div>
-        <code class="font-mono text-xs text-muted truncate block">
+        <code class="block truncate font-mono text-muted text-xs">
           {agent.command}
-          {agent.args && agent.args.length > 0 ? ` ${agent.args.join(" ")}` : ""}
+          {agent.args && agent.args.length > 0
+            ? ` ${agent.args.join(" ")}`
+            : ""}
         </code>
       </div>
       <div class="flex gap-2">
-        <a
-          class="btn btn-sm btn-secondary"
-          href={`#edit-agent-${agent.id}`}
-        >
+        <a class="btn btn-sm btn-secondary" href={`#edit-agent-${agent.id}`}>
           Edit
         </a>
         <form action="/form/agents/delete" method="post">
@@ -552,7 +547,7 @@ function AgentStats({ stats }: { stats: DashboardStats["agentStats"] }) {
             <span class="font-semibold">{name}</span>
             <span class="font-mono text-xs">
               <span class="text-success">{stat.running} running</span>
-              <span class="text-muted ml-4">{stat.count} total</span>
+              <span class="ml-4 text-muted">{stat.count} total</span>
             </span>
           </div>
         </div>
@@ -573,7 +568,7 @@ function AuthTab({
   activeTab: TabKey;
 }) {
   return (
-    <TabPanel activeTab={activeTab} tab="auth" scrollable>
+    <TabPanel activeTab={activeTab} scrollable tab="auth">
       <section class="border-2 border-ink bg-paper shadow-news">
         <div class="border-ink border-b-2 p-6">
           <div class="flex flex-wrap items-start justify-between gap-4">
@@ -649,9 +644,7 @@ function AuthTab({
             {apiKeys.length === 0 ? (
               <div class="empty-state">No API keys yet.</div>
             ) : (
-              apiKeys.map((key) => (
-                <ApiKeyRow key={key.id} item={key} />
-              ))
+              apiKeys.map((key) => <ApiKeyRow item={key} key={key.id} />)
             )}
           </div>
         </div>
@@ -681,7 +674,7 @@ function AuthTab({
             <div class="empty-state">No device sessions found.</div>
           ) : (
             deviceSessions.map((item) => (
-              <DeviceSessionRow key={item.session.token} item={item} />
+              <DeviceSessionRow item={item} key={item.session.token} />
             ))
           )}
         </div>
@@ -701,7 +694,7 @@ function ApiKeyRow({ item }: { item: ApiKeyItem }) {
     : "Never";
 
   return (
-    <div class="border-2 border-ink px-3 py-2 mb-2 flex flex-wrap items-center justify-between gap-2">
+    <div class="mb-2 flex flex-wrap items-center justify-between gap-2 border-2 border-ink px-3 py-2">
       <div>
         <div class="font-mono text-xs uppercase tracking-widest">{name}</div>
         <div class="font-mono text-[11px] text-muted">
@@ -726,7 +719,7 @@ function DeviceSessionRow({ item }: { item: DeviceSessionItem }) {
   const tokenPreview = item.session.token.slice(0, 6);
 
   return (
-    <div class="border-2 border-ink px-3 py-2 mb-2 flex flex-wrap items-center justify-between gap-2">
+    <div class="mb-2 flex flex-wrap items-center justify-between gap-2 border-2 border-ink px-3 py-2">
       <div>
         <div class="font-mono text-xs uppercase tracking-widest">
           {item.user.name}
@@ -734,25 +727,19 @@ function DeviceSessionRow({ item }: { item: DeviceSessionItem }) {
         <div class="font-mono text-[11px] text-muted">
           {ua} • {ip} • Created: {createdAt} • Expires: {expiresAt}
         </div>
-        <div class="font-mono text-[10px] text-muted">Token: {tokenPreview}…</div>
+        <div class="font-mono text-[10px] text-muted">
+          Token: {tokenPreview}…
+        </div>
       </div>
       <div class="flex flex-wrap gap-2">
         <form action="/form/admin/device-sessions/activate" method="post">
-          <input
-            name="sessionToken"
-            type="hidden"
-            value={item.session.token}
-          />
+          <input name="sessionToken" type="hidden" value={item.session.token} />
           <button class="btn btn-secondary min-h-[36px]" type="submit">
             Set Active
           </button>
         </form>
         <form action="/form/admin/device-sessions/revoke" method="post">
-          <input
-            name="sessionToken"
-            type="hidden"
-            value={item.session.token}
-          />
+          <input name="sessionToken" type="hidden" value={item.session.token} />
           <button class="btn btn-secondary min-h-[36px]" type="submit">
             Revoke
           </button>
@@ -772,7 +759,7 @@ function SettingsTab({
   activeTab: TabKey;
 }) {
   return (
-    <TabPanel activeTab={activeTab} tab="settings" scrollable>
+    <TabPanel activeTab={activeTab} scrollable tab="settings">
       <form action="/form/settings" method="post">
         <section class="border-2 border-ink bg-paper shadow-news">
           <div class="flex items-start justify-between border-ink border-b-2 p-6">
@@ -847,7 +834,10 @@ function SettingsTab({
         </section>
 
         <div class="mt-6 border-ink border-t-2 pt-6 text-center">
-          <button class="btn btn-primary min-h-[52px] px-10 text-base" type="submit">
+          <button
+            class="btn btn-primary min-h-[52px] px-10 text-base"
+            type="submit"
+          >
             Save Settings
           </button>
           <p class="mt-2 font-mono text-[10px] text-muted">
@@ -944,7 +934,9 @@ function DashboardFooter() {
     <footer class="mt-auto flex-shrink-0 border-ink border-t-2 py-3">
       <div class="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-muted uppercase tracking-widest">
         <p>© Eragear • ACP Client v1.0</p>
-        <p class="hidden sm:block">Printed in the Cloud • All Sessions Reserved</p>
+        <p class="hidden sm:block">
+          Printed in the Cloud • All Sessions Reserved
+        </p>
         <p>
           Fig. 1.0 —{" "}
           {new Date().toLocaleTimeString("en-US", {
@@ -974,8 +966,8 @@ function TabPanel({
   return (
     <div
       aria-labelledby={`tab-btn-${tab}`}
-      class={`tab-content${isActive ? "" : " hidden"}${
-        scrollable ? " max-h-[calc(100dvh-280px)] overflow-y-auto" : ""
+      class={`tab-content${isActive ? "" : "hidden"}${
+        scrollable ? "max-h-[calc(100dvh-280px)] overflow-y-auto" : ""
       }${className ? ` ${className}` : ""}`}
       data-tab-panel={tab}
       id={`tab-${tab}`}
@@ -1107,7 +1099,12 @@ function AddAgentModal() {
             >
               Agent Type *
             </label>
-            <select class="input-underline w-full" id="agent-type" name="type" required>
+            <select
+              class="input-underline w-full"
+              id="agent-type"
+              name="type"
+              required
+            >
               <option value="claude">Claude</option>
               <option value="codex">Codex</option>
               <option value="opencode">OpenCode</option>
@@ -1181,7 +1178,10 @@ function EditAgentModals({ agents }: { agents: AgentSummary[] }) {
           <div class="modal-panel mx-4 w-full max-w-lg border-2 border-ink bg-paper shadow-news">
             <div class="flex items-center justify-between border-ink border-b-2 p-6">
               <h3 class="font-black font-display text-2xl">Edit Agent</h3>
-              <a class="text-2xl leading-none hover:text-accent" href="#">
+              <a
+                class="text-2xl leading-none hover:text-accent"
+                href="/#agents"
+              >
                 ×
               </a>
             </div>
@@ -1219,22 +1219,19 @@ function EditAgentModals({ agents }: { agents: AgentSummary[] }) {
                   name="type"
                   required
                 >
-                  <option value="claude" selected={agent.type === "claude"}>
+                  <option selected={agent.type === "claude"} value="claude">
                     Claude
                   </option>
-                  <option value="codex" selected={agent.type === "codex"}>
+                  <option selected={agent.type === "codex"} value="codex">
                     Codex
                   </option>
-                  <option
-                    value="opencode"
-                    selected={agent.type === "opencode"}
-                  >
+                  <option selected={agent.type === "opencode"} value="opencode">
                     OpenCode
                   </option>
-                  <option value="gemini" selected={agent.type === "gemini"}>
+                  <option selected={agent.type === "gemini"} value="gemini">
                     Gemini
                   </option>
-                  <option value="other" selected={agent.type === "other"}>
+                  <option selected={agent.type === "other"} value="other">
                     Other
                   </option>
                 </select>
@@ -1281,7 +1278,7 @@ function EditAgentModals({ agents }: { agents: AgentSummary[] }) {
                 <button class="btn btn-primary flex-1" type="submit">
                   Save Changes
                 </button>
-                <a class="btn btn-secondary" href="#">
+                <a class="btn btn-secondary" href="/#agents">
                   Cancel
                 </a>
               </div>
