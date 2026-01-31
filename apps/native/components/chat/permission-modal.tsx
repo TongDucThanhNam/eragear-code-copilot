@@ -3,14 +3,59 @@ import type { PermissionRequest } from "@/store/chat-store";
 
 interface PermissionModalProps {
   request: PermissionRequest | null;
-  onApprove: (requestId: string, decision: string) => void;
-  onReject: (requestId: string, decision: string) => void;
+  onRespond: (requestId: string, decision: string) => void;
+}
+
+type NormalizedOption = {
+  id: string;
+  label: string;
+  description?: string;
+};
+
+const DEFAULT_OPTIONS: NormalizedOption[] = [
+  { id: "reject", label: "Deny", description: "Reject this tool call." },
+  { id: "allow", label: "Approve", description: "Allow once." },
+];
+
+function normalizePermissionOptions(
+  options: PermissionRequest["options"]
+): NormalizedOption[] {
+  if (!options) {
+    return [];
+  }
+  const rawOptions = Array.isArray(options) ? options : options.options ?? [];
+  return rawOptions
+    .map((option) => {
+      const id =
+        option.optionId ||
+        option.id ||
+        option.kind ||
+        option.name ||
+        option.label ||
+        "";
+      const label = option.label || option.name || option.optionId || id;
+      if (!id || !label) {
+        return null;
+      }
+      return { id, label, description: option.description };
+    })
+    .filter((option): option is NormalizedOption => Boolean(option));
+}
+
+function getActionStyle(optionId: string, label: string) {
+  const value = `${optionId} ${label}`.toLowerCase();
+  if (value.includes("allow") || value.includes("approve") || value.includes("yes")) {
+    return "bg-green-600";
+  }
+  if (value.includes("deny") || value.includes("reject") || value.includes("no")) {
+    return "bg-red-600";
+  }
+  return "bg-zinc-700";
 }
 
 export function PermissionModal({
   request,
-  onApprove,
-  onReject,
+  onRespond,
 }: PermissionModalProps) {
   if (!request) {
     return null;
@@ -18,6 +63,8 @@ export function PermissionModal({
 
   const toolCall = request.toolCall;
   const requestId = request.requestId;
+  const options = normalizePermissionOptions(request.options);
+  const actionOptions = options.length > 0 ? options : DEFAULT_OPTIONS;
 
   return (
     <Modal animationType="slide" transparent visible={!!request}>
@@ -29,7 +76,7 @@ export function PermissionModal({
           <Text className="mb-2 text-zinc-300">
             The agent wants to execute:{" "}
             <Text className="font-bold text-yellow-500">
-              {toolCall?.kind || "Tool"}
+              {toolCall?.title || toolCall?.kind || "Tool"}
             </Text>
           </Text>
 
@@ -39,19 +86,24 @@ export function PermissionModal({
             </Text>
           </ScrollView>
 
-          <View className="flex-row justify-between pt-4">
-            <TouchableOpacity
-              className="mr-2 flex-1 items-center rounded-xl bg-red-600 p-4"
-              onPress={() => onReject(requestId, "reject")}
-            >
-              <Text className="font-bold text-white">Deny</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="ml-2 flex-1 items-center rounded-xl bg-green-600 p-4"
-              onPress={() => onApprove(requestId, "allow")}
-            >
-              <Text className="font-bold text-white">Approve</Text>
-            </TouchableOpacity>
+          <View className="flex-row flex-wrap gap-3 pt-2">
+            {actionOptions.map((option) => (
+              <TouchableOpacity
+                className={`flex-1 items-center rounded-xl p-4 ${getActionStyle(
+                  option.id,
+                  option.label
+                )}`}
+                key={option.id}
+                onPress={() => onRespond(requestId, option.id)}
+              >
+                <Text className="font-bold text-white">{option.label}</Text>
+                {option.description && (
+                  <Text className="mt-1 text-xs text-white/80">
+                    {option.description}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
       </View>

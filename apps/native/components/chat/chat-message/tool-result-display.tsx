@@ -1,5 +1,16 @@
-import { ScrollView, Text, useColorScheme, View } from "react-native";
-import Markdown from "react-native-markdown-display";
+import { useMemo } from "react";
+import {
+  Linking,
+  type ImageStyle,
+  ScrollView,
+  type StyleProp,
+  Text,
+  type TextStyle,
+  useColorScheme,
+  View,
+  type ViewStyle,
+} from "react-native";
+import Markdown from "markdown-to-jsx/native";
 import { isTerminalOutput } from "./utils";
 
 interface ToolResultDisplayProps {
@@ -20,6 +31,64 @@ export function ToolResultDisplay({ content, status }: ToolResultDisplayProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const isError = status === "error" || status === "failed";
+  const terminalMarkdownStyles = useMemo(
+    () =>
+      ({
+        paragraph: { marginBottom: 0 },
+        text: {
+          color: isDark ? "#ffffff" : "#333333",
+          fontFamily: "monospace",
+          fontSize: 12,
+        },
+        code: {
+          color: isError ? "#ef4444" : "#22c55e",
+          fontFamily: "monospace",
+          fontSize: 12,
+        },
+        codeBlock: {
+          color: isError ? "#ef4444" : "#22c55e",
+          fontFamily: "monospace",
+          fontSize: 12,
+        },
+        codeInline: {
+          color: isError ? "#ef4444" : "#22c55e",
+          fontFamily: "monospace",
+          fontSize: 12,
+        },
+        pre: { backgroundColor: "transparent" },
+        link: { color: "#58a6ff", textDecorationLine: "underline" },
+      }) as Record<string, StyleProp<ViewStyle | TextStyle | ImageStyle>>,
+    [isDark, isError]
+  );
+  const blockMarkdownStyles = useMemo(
+    () =>
+      ({
+        paragraph: { marginBottom: 0 },
+        text: {
+          color: isDark ? "#ffffff" : "#333333",
+          fontFamily: "monospace",
+          fontSize: 12,
+        },
+        code: {
+          color: isError ? "#ef4444" : "#cccccc",
+          fontFamily: "monospace",
+          fontSize: 12,
+        },
+        codeBlock: {
+          color: isError ? "#ef4444" : "#cccccc",
+          fontFamily: "monospace",
+          fontSize: 12,
+        },
+        codeInline: {
+          color: isError ? "#ef4444" : "#cccccc",
+          fontFamily: "monospace",
+          fontSize: 12,
+        },
+        pre: { backgroundColor: "transparent" },
+        link: { color: "#58a6ff", textDecorationLine: "underline" },
+      }) as Record<string, StyleProp<ViewStyle | TextStyle | ImageStyle>>,
+    [isDark, isError]
+  );
 
   // Debug: show when content is missing or empty
   if (!content || content.length === 0) {
@@ -51,27 +120,10 @@ export function ToolResultDisplay({ content, status }: ToolResultDisplayProps) {
             >
               <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                 <Markdown
-                  mergeStyle={false}
-                  style={{
-                    codeblock: {
-                      backgroundColor: "transparent",
-                      fontFamily: "monospace",
-                    },
-                    pre: {
-                      backgroundColor: "transparent",
-                      padding: 0,
-                      margin: 0,
-                    },
-                    code: {
-                      backgroundColor: "transparent",
-                      fontFamily: "monospace",
-                      fontSize: 12,
-                      color: isError ? "#ef4444" : "#22c55e",
-                    },
-                    text: {
-                      color: isDark ? "#ffffff" : "#333333",
-                      fontFamily: "monospace",
-                      fontSize: 12,
+                  options={{
+                    styles: terminalMarkdownStyles,
+                    onLinkPress: (url) => {
+                      Linking.openURL(url);
                     },
                   }}
                 >
@@ -91,27 +143,10 @@ export function ToolResultDisplay({ content, status }: ToolResultDisplayProps) {
             >
               <ScrollView horizontal showsHorizontalScrollIndicator={true}>
                 <Markdown
-                  mergeStyle={false}
-                  style={{
-                    codeblock: {
-                      backgroundColor: "transparent",
-                      fontFamily: "monospace",
-                    },
-                    pre: {
-                      backgroundColor: "transparent",
-                      padding: 0,
-                      margin: 0,
-                    },
-                    code: {
-                      backgroundColor: "transparent",
-                      fontFamily: "monospace",
-                      fontSize: 12,
-                      color: isError ? "#ef4444" : "#cccccc",
-                    },
-                    text: {
-                      color: isDark ? "#ffffff" : "#333333",
-                      fontFamily: "monospace",
-                      fontSize: 12,
+                  options={{
+                    styles: blockMarkdownStyles,
+                    onLinkPress: (url) => {
+                      Linking.openURL(url);
                     },
                   }}
                 >

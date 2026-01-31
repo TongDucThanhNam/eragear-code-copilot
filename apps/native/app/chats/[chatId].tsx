@@ -5,10 +5,12 @@ import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatHeader } from "@/components/chat/chat-header/chat-header";
 import { ChatInput } from "@/components/chat/chat-input/chat-input";
+import { AttachmentModal } from "@/components/chat/chat-input/attachment-modal";
 import { ChatMessages } from "@/components/chat/chat-message/chat-messages";
 import { PermissionModal } from "@/components/chat/permission-modal";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { useChat } from "@/hooks/use-chat";
+import { useMessageAttachments } from "@/hooks/use-message-attachments";
 import { trpc } from "@/lib/trpc";
 import type { SessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
@@ -90,6 +92,7 @@ export default function ChatScreen() {
     commands,
     updateSessionStatus,
     clearChatFailed,
+    promptCapabilities,
   } = useChatStore();
 
   const router = useRouter();
@@ -107,12 +110,30 @@ export default function ChatScreen() {
   const [inputHeight, setInputHeight] = useState(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [forceActive, setForceActive] = useState(false);
+  const {
+    attachments,
+    canAttachAudio,
+    canAttachImages,
+    canAttachResources,
+    isAttachmentModalOpen,
+    openAttachmentModal,
+    closeAttachmentModal,
+    pickAudio,
+    pickImages,
+    pickResource,
+    removeAttachment,
+    resetAttachments,
+  } = useMessageAttachments({ promptCapabilities });
   const isReadOnly = isReadOnlyParam && !forceActive;
   const isConfigured = useAuthConfigured();
 
   useEffect(() => {
     setForceActive(false);
   }, []);
+
+  useEffect(() => {
+    resetAttachments();
+  }, [chatId, resetAttachments]);
 
   // Query for historical messages (read-only mode)
   const messagesQuery = trpc.getSessionMessages.useQuery(
@@ -138,6 +159,17 @@ export default function ChatScreen() {
       setModel(modelId);
     },
     [setModel]
+  );
+
+  const handleSendMessage = useCallback(
+    async (text: string) => {
+      const normalizedText = text.trim().length > 0 ? text : "";
+      const sent = await sendMessage(normalizedText, attachments);
+      if (sent) {
+        resetAttachments();
+      }
+    },
+    [attachments, resetAttachments, sendMessage]
   );
   const listContentPadding = Math.max(100, inputHeight + insets.bottom + 16);
   const keyboardBottomOffset = inputHeight > 0 ? inputHeight + 16 : 0;
@@ -320,6 +352,7 @@ export default function ChatScreen() {
       {!isReadOnly && (
         <KeyboardStickyView>
           <ChatInput
+            attachments={attachments}
             availableCommands={commands}
             availableModels={models?.availableModels ?? []}
             availableModes={modes?.availableModes ?? []}
@@ -329,16 +362,25 @@ export default function ChatScreen() {
             onHeightChange={handleInputHeightChange}
             onModeChange={handleModeChange}
             onModelChange={handleModelChange}
-            onSend={sendMessage}
+            onOpenAttachment={openAttachmentModal}
+            onRemoveAttachment={removeAttachment}
+            onSend={handleSendMessage}
           />
         </KeyboardStickyView>
       )}
 
-      <PermissionModal
-        onApprove={respondToPermission}
-        onReject={respondToPermission}
-        request={pendingPermission}
+      <AttachmentModal
+        canPickAudio={canAttachAudio}
+        canPickImage={canAttachImages}
+        canPickResource={canAttachResources}
+        isOpen={isAttachmentModalOpen}
+        onClose={closeAttachmentModal}
+        onPickAudio={pickAudio}
+        onPickImage={pickImages}
+        onPickResource={pickResource}
       />
+
+      <PermissionModal onRespond={respondToPermission} request={pendingPermission} />
     </View>
   );
 }

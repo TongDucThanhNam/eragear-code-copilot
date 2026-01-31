@@ -2,6 +2,7 @@ import { Surface } from "heroui-native";
 import { useState } from "react";
 import { type LayoutChangeEvent, View } from "react-native";
 import { ActionBar } from "./action-bar";
+import { AttachmentList } from "./attachment-list";
 import { ChatInputArea } from "./chat-input-area";
 import { ModeSelector } from "./mode-selector";
 import type { ChatInputProps } from "./types";
@@ -11,6 +12,8 @@ export function ChatInput({
   disabled,
   onHeightChange,
   onOpenAttachment,
+  attachments,
+  onRemoveAttachment,
   availableModes,
   currentModeId,
   onModeChange,
@@ -22,7 +25,8 @@ export function ChatInput({
   const [text, setText] = useState("");
   const [showModeMenu, setShowModeMenu] = useState(false);
 
-  const isSendDisabled = disabled || !text.trim();
+  const hasContent = text.trim().length > 0 || attachments.length > 0;
+  const isSendDisabled = disabled || !hasContent;
 
   const handleSend = () => {
     if (isSendDisabled) {
@@ -58,6 +62,10 @@ export function ChatInput({
         )}
 
         {/* Text Input */}
+        <AttachmentList
+          attachments={attachments}
+          onRemove={onRemoveAttachment}
+        />
         <ChatInputArea
           disabled={disabled}
           onChangeText={setText}

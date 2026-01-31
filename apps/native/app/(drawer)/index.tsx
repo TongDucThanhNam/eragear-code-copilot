@@ -1,6 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { Button, Spinner, Surface, Tabs, TextField } from "heroui-native";
+import {
+  Button,
+  Spinner,
+  Surface,
+  Tabs,
+  TextField,
+  useThemeColor,
+} from "heroui-native";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -12,10 +19,11 @@ import {
   Text,
   View,
 } from "react-native";
-
+import { AgentIcon } from "@/components/agents/agent-icons";
 import { Container } from "@/components/common/container";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { trpc } from "@/lib/trpc";
+import type { SessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
 import { useProjectStore } from "@/store/project-store";
 import type { Agent } from "@/store/settings-store";
@@ -48,9 +56,9 @@ function formatTimestamp(dateString: string): string {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
+  const diffMins = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMs / 3_600_000);
+  const diffDays = Math.floor(diffMs / 86_400_000);
 
   if (diffMins < 1) return "Just now";
   if (diffMins < 60) return `${diffMins}m ago`;
@@ -59,19 +67,19 @@ function formatTimestamp(dateString: string): string {
   return date.toLocaleDateString();
 }
 
-function truncatePath(path: string | undefined, maxLength = 40): string {
-  if (!path) return "";
-  if (path.length <= maxLength) return path;
-  const parts = path.split("/");
-  if (parts.length <= 2) return path;
-  // Show first 2 and last part: /home/.../project
-  const first = parts.slice(0, 2).join("/");
-  const last = parts[parts.length - 1];
-  return `${first}/.../${last}`;
+function getSessionAgentType(session: SessionInfo): string | null {
+  return (
+    session.agentInfo?.title ||
+    session.agentInfo?.name ||
+    session.agentName ||
+    null
+  );
 }
 
 export default function SessionsScreen() {
   const router = useRouter();
+  const themeColorForeground = useThemeColor("foreground");
+  const themeColorMuted = useThemeColor("muted");
   const { setActiveChatId, setSessions, setConnStatus, setModes, setModels } =
     useChatStore();
   const projects = useProjectStore((s) => s.projects);
@@ -520,9 +528,9 @@ export default function SessionsScreen() {
 
     return (
       <FlatList
+        contentContainerStyle={{ paddingBottom: 80 }}
         data={filteredSessions}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: 80 }}
         refreshControl={
           <RefreshControl
             onRefresh={() => sessionsQuery.refetch()}
@@ -531,8 +539,11 @@ export default function SessionsScreen() {
         }
         renderItem={({ item }) => {
           const sessionTitle = getSessionTitle(item.name, item.sessionId);
+          const sessionAgentType = getSessionAgentType(item);
           return (
-            <Pressable onPress={() => handleOpenSession(item.id, item.isActive)}>
+            <Pressable
+              onPress={() => handleOpenSession(item.id, item.isActive)}
+            >
               <Surface className="mb-3 flex-row items-start justify-between rounded-lg p-3">
                 <View className="flex-1 pr-3">
                   {/* Title row with status indicator */}
@@ -542,8 +553,14 @@ export default function SessionsScreen() {
                         item.isActive ? "bg-green-500" : "bg-zinc-500"
                       }`}
                     />
+                    <AgentIcon
+                      color={themeColorForeground}
+                      secondaryColor={themeColorMuted}
+                      size={16}
+                      type={sessionAgentType}
+                    />
                     <Text
-                      className="flex-1 font-medium text-base text-foreground"
+                      className="ml-2 flex-1 font-medium text-base text-foreground"
                       numberOfLines={1}
                     >
                       {sessionTitle}
@@ -551,7 +568,7 @@ export default function SessionsScreen() {
                     {item.pinned && (
                       <Ionicons
                         color="#f59e0b"
-                        name="pin.fill"
+                        name="pin"
                         size={14}
                         style={{ marginLeft: 6 }}
                       />
@@ -589,15 +606,13 @@ export default function SessionsScreen() {
                               : "text-zinc-300"
                           }`}
                         >
-                          {item.loadSessionSupported
-                            ? "Resume"
-                            : "Read-only"}
+                          {item.loadSessionSupported ? "Resume" : "Read-only"}
                         </Text>
                       </View>
                     )}
                     {item.modeId && (
                       <View className="rounded bg-primary/20 px-2 py-0.5">
-                        <Text className="font-medium text-xs text-primary">
+                        <Text className="font-medium text-primary text-xs">
                           {item.modeId}
                         </Text>
                       </View>
@@ -620,7 +635,11 @@ export default function SessionsScreen() {
                     handleOpenSessionActions(item);
                   }}
                 >
-                  <Ionicons color="#94a3b8" name="ellipsis-vertical" size={20} />
+                  <Ionicons
+                    color="#94a3b8"
+                    name="ellipsis-vertical"
+                    size={20}
+                  />
                 </Pressable>
               </Surface>
             </Pressable>
@@ -639,68 +658,29 @@ export default function SessionsScreen() {
           </View>
         ) : null}
 
-        {/* Active Project Display Card */}
-        <Surface className="mb-4 flex-row items-center gap-3 rounded-lg border border-primary p-3">
-          <View className="h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
-            <Ionicons color="#60a5fa" name="folder" size={20} />
-          </View>
-          <View className="flex-1">
-            <Text className="font-medium text-[10px] text-zinc-400 uppercase tracking-wider">
-              Active Project
-            </Text>
-            <Text
-              className="font-semibold text-sm text-white"
-              numberOfLines={1}
-            >
-              {activeProject?.name || "No project selected"}
-            </Text>
-            <Text className="text-xs text-zinc-500" numberOfLines={1}>
-              {activeProject?.path
-                ? truncatePath(activeProject.path, 45)
-                : "Use drawer to select a project"}
-            </Text>
-          </View>
-        </Surface>
-
-        {/* Header with New Chat button */}
-        <View className="mb-4 flex-row items-center justify-between">
-          <Text className="font-semibold text-foreground text-xl">
-            Chat Sessions
-          </Text>
-          <Button
-            isDisabled={createSessionMutation.isPending}
-            onPress={handleCreateSession}
-          >
-            {createSessionMutation.isPending ? (
-              <Spinner size="sm" />
-            ) : (
-              <>
-                <Ionicons color="white" name="add" size={20} />
-                <Text className="ml-1 text-white">New Chat</Text>
-              </>
-            )}
-          </Button>
-        </View>
-
         {/* Filter Tabs */}
         <Tabs
           onValueChange={(key: string) => setActiveTab(key as FilterTab)}
           value={activeTab}
           variant="pill"
         >
-          <Tabs.List>
-            <Tabs.ScrollView className="w-full" scrollAlign="center">
-              <Tabs.Indicator />
-              <Tabs.Trigger value="active">
-                <Tabs.Label>Active ({activeCount})</Tabs.Label>
-              </Tabs.Trigger>
-              <Tabs.Trigger value="inactive">
-                <Tabs.Label>Inactive ({inactiveCount})</Tabs.Label>
-              </Tabs.Trigger>
-              <Tabs.Trigger value="all">
-                <Tabs.Label>All ({visibleSessions.length})</Tabs.Label>
-              </Tabs.Trigger>
-            </Tabs.ScrollView>
+          <Tabs.List className="w-full flex-row">
+            <Tabs.Indicator />
+            <Tabs.Trigger className="flex-1 items-center" value="active">
+              <Tabs.Label className="text-center">
+                Active ({activeCount})
+              </Tabs.Label>
+            </Tabs.Trigger>
+            <Tabs.Trigger className="flex-1 items-center" value="inactive">
+              <Tabs.Label className="text-center">
+                Inactive ({inactiveCount})
+              </Tabs.Label>
+            </Tabs.Trigger>
+            <Tabs.Trigger className="flex-1 items-center" value="all">
+              <Tabs.Label className="text-center">
+                All ({visibleSessions.length})
+              </Tabs.Label>
+            </Tabs.Trigger>
           </Tabs.List>
         </Tabs>
 
@@ -963,7 +943,7 @@ export default function SessionsScreen() {
               </Button>
             </View>
 
-            <View className="border-t border-zinc-800 mt-4 pt-4">
+            <View className="mt-4 border-zinc-800 border-t pt-4">
               <Button
                 isDisabled={updateSessionMetaMutation.isPending}
                 onPress={() => {
@@ -1038,13 +1018,21 @@ export default function SessionsScreen() {
                     onPress={() => handleSelectAgent(agent.id)}
                   >
                     <View className="flex-row items-center justify-between">
-                      <View className="flex-1">
-                        <Text className="font-semibold text-white">
-                          {agent.name}
-                        </Text>
-                        <Text className="mt-1 text-xs text-zinc-400">
-                          {agent.type} • {agent.command}
-                        </Text>
+                      <View className="flex-1 flex-row items-center gap-3">
+                        <AgentIcon
+                          color="#f8fafc"
+                          secondaryColor="#94a3b8"
+                          size={20}
+                          type={agent.type}
+                        />
+                        <View className="flex-1">
+                          <Text className="font-semibold text-white">
+                            {agent.name}
+                          </Text>
+                          <Text className="mt-1 text-xs text-zinc-400">
+                            {agent.type} • {agent.command}
+                          </Text>
+                        </View>
                       </View>
                       {activeAgentId === agent.id ? (
                         <Ionicons

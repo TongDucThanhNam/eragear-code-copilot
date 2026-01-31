@@ -12,6 +12,7 @@ import { useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import { withUniwind } from "uniwind";
 
+import { AgentIcon } from "@/components/agents/agent-icons";
 import { Container } from "@/components/common/container";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { trpc } from "@/lib/trpc";
@@ -24,6 +25,7 @@ const AGENT_TYPES = ["opencode", "codex", "claude", "gemini", "other"] as const;
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const themeColorForeground = useThemeColor("foreground");
   const themeColorSuccess = useThemeColor("success");
   const themeColorMuted = useThemeColor("muted");
   const themeColorDanger = useThemeColor("danger");
@@ -236,6 +238,12 @@ export default function SettingsScreen() {
                           color={isActive ? themeColorSuccess : themeColorMuted}
                           name={isActive ? "radio-button-on" : "radio-button-off"}
                           size={16}
+                        />
+                        <AgentIcon
+                          color={themeColorForeground}
+                          secondaryColor={themeColorMuted}
+                          size={18}
+                          type={agent.type}
                         />
                         <Text className="font-semibold text-base text-foreground">
                           {agent.name}

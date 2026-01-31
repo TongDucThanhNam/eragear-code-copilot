@@ -37,7 +37,7 @@ export function ProjectDrawerContent({
   );
 
   const renderProjectItem = useCallback(
-    ({ item }: { item: typeof projects[0] }) => {
+    ({ item }: { item: (typeof projects)[0] }) => {
       const isActive = item.id === activeProjectId;
 
       return (

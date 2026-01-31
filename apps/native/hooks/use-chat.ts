@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { useAuthConfigured } from "@/hooks/use-auth-config";
+import { buildSendMessagePayload, type Attachment } from "@/lib/attachments";
 import { trpc } from "@/lib/trpc";
 import {
   type PermissionRequest,
@@ -16,6 +17,7 @@ const nanoid = () => Math.random().toString(36).substring(2, 10);
 type SessionEvent =
   | { type: "connected" }
   | { type: "current_mode_update"; modeId: string }
+  | { type: "plan_update"; plan: Plan }
   | { type: "session_update"; update?: SessionUpdate }
   | {
       type: "request_permission";
@@ -28,6 +30,10 @@ type SessionEvent =
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string }
   | { type: "terminal_output"; terminalId: string; data: string };
+
+type Plan = {
+  entries: Array<{ content: string; status: string }>;
+};
 
 // Session update types (matching ACP protocol)
 type SessionUpdate =
@@ -224,10 +230,50 @@ export function useChat() {
     }
   );
 
+  const applyPlanEntries = useCallback(
+    (
+      entries: Array<{ content: string; status: string }>,
+      store: ReturnType<typeof useChatStore.getState>
+    ) => {
+      if (!entries.length) {
+        return;
+      }
+      store.flushPending();
+      const planPart = {
+        type: "plan" as const,
+        items: entries.map((entry) => ({
+          content: entry.content,
+          status: entry.status,
+        })),
+      };
+      const lastMsg = store.messages.at(-1);
+
+      if (lastMsg?.role === "assistant") {
+        const lastPart = lastMsg.parts.at(-1);
+        if (lastPart?.type === "plan") {
+          const newParts = [...lastMsg.parts];
+          newParts[newParts.length - 1] = planPart;
+          store.updateLastAssistantMessage(newParts);
+        } else {
+          store.updateLastAssistantMessage([...lastMsg.parts, planPart]);
+        }
+      } else {
+        store.addMessage({
+          id: nanoid(),
+          role: "assistant",
+          parts: [planPart],
+          timestamp: Date.now(),
+        });
+      }
+    },
+    []
+  );
+
   const applySessionState = useCallback(
     (data: NonNullable<typeof sessionStateQuery.data>) => {
       const store = useChatStore.getState();
       if (data.status === "stopped") {
+        store.setPromptCapabilities(null);
         store.setConnStatus("idle");
         return;
       }
@@ -246,9 +292,21 @@ export function useChat() {
         }));
         store.setCommands(commands);
       }
+      if (data.promptCapabilities !== undefined) {
+        store.setPromptCapabilities(data.promptCapabilities);
+      }
+      if (data.plan?.entries?.length) {
+        applyPlanEntries(
+          data.plan.entries.map((entry) => ({
+            content: entry.content,
+            status: entry.status,
+          })),
+          store
+        );
+      }
       store.setConnStatus("connected");
     },
-    []
+    [applyPlanEntries]
   );
 
   useEffect(() => {
@@ -436,37 +494,15 @@ export function useChat() {
         sessionUpdate: "plan";
         entries: Array<{ title?: string; text?: string; status: string }>;
       };
-      store.flushPending();
-      const entries = planUpdate.entries;
-      const lastMsg = store.messages.at(-1);
-
-      const planPart = {
-        type: "plan" as const,
-        items: entries.map((e) => ({
-          content: e.title || e.text || "",
-          status: e.status,
+      applyPlanEntries(
+        planUpdate.entries.map((entry) => ({
+          content: entry.title || entry.text || "",
+          status: entry.status,
         })),
-      };
-
-      if (lastMsg?.role === "assistant") {
-        const lastPart = lastMsg.parts.at(-1);
-        if (lastPart?.type === "plan") {
-          const newParts = [...lastMsg.parts];
-          newParts[newParts.length - 1] = planPart;
-          store.updateLastAssistantMessage(newParts);
-        } else {
-          store.updateLastAssistantMessage([...lastMsg.parts, planPart]);
-        }
-      } else {
-        store.addMessage({
-          id: nanoid(),
-          role: "assistant",
-          parts: [planPart],
-          timestamp: Date.now(),
-        });
-      }
+        store
+      );
     },
-    []
+    [applyPlanEntries]
   );
 
   const handleAvailableCommandsUpdate = useCallback(
@@ -558,6 +594,16 @@ export function useChat() {
           lastStreamKindRef.current = "other";
           break;
 
+        case "plan_update":
+          applyPlanEntries(
+            event.plan.entries.map((entry) => ({
+              content: entry.content,
+              status: entry.status,
+            })),
+            store
+          );
+          break;
+
         case "session_update":
           if (event.update) {
             handleSessionUpdate(event.update, store);
@@ -597,7 +643,7 @@ export function useChat() {
           break;
       }
     },
-    [handleSessionUpdate]
+    [applyPlanEntries, handleSessionUpdate]
   );
 
   // Check if this chat has already failed (prevents infinite loop)
@@ -671,6 +717,9 @@ export function useChat() {
       if (res.models) {
         store.setModels(res.models);
       }
+      if (res.promptCapabilities !== undefined) {
+        store.setPromptCapabilities(res.promptCapabilities);
+      }
       store.setConnStatus("connected");
     } catch (e) {
       const error = e as Error;
@@ -679,9 +728,9 @@ export function useChat() {
     }
   };
 
-  const sendMessage = async (text: string) => {
+  const sendMessage = async (text: string, attachments: Attachment[] = []) => {
     if (!activeChatId) {
-      return;
+      return false;
     }
     const store = useChatStore.getState();
 
@@ -690,10 +739,16 @@ export function useChat() {
     // This ensures consistency between live and replayed messages.
 
     try {
-      await sendMessageMutation.mutateAsync({ chatId: activeChatId, text });
+      const payload = buildSendMessagePayload(text, attachments);
+      await sendMessageMutation.mutateAsync({
+        chatId: activeChatId,
+        ...payload,
+      });
+      return true;
     } catch (e) {
       const error = e as Error;
       store.setError(error.message);
+      return false;
     }
   };
 
@@ -783,6 +838,9 @@ export function useChat() {
       const res = await resumeSessionMutation.mutateAsync({ chatId });
       const state = await utils.getSessionState.fetch({ chatId });
       applySessionState(state);
+      if (res?.promptCapabilities !== undefined) {
+        store.setPromptCapabilities(res.promptCapabilities);
+      }
       return res;
     } catch (e) {
       const error = e as Error;

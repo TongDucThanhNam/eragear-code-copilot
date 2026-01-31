@@ -1,6 +1,16 @@
 import { Accordion } from "heroui-native";
-import { Text, useColorScheme, View } from "react-native";
-import Markdown from "react-native-markdown-display";
+import { useMemo } from "react";
+import {
+  Linking,
+  type ImageStyle,
+  type StyleProp,
+  Text,
+  type TextStyle,
+  useColorScheme,
+  View,
+  type ViewStyle,
+} from "react-native";
+import Markdown from "markdown-to-jsx/native";
 import type { MessagePart } from "@/store/chat-store";
 import { ToolResultDisplay } from "./tool-result-display";
 import { getPlanStatusIcon } from "./utils";
@@ -12,15 +22,25 @@ interface TextPartProps {
 export function TextPart({ text }: TextPartProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
-
-  return (
-    <Markdown
-      mergeStyle={false}
-      style={{
+  const markdownStyles = useMemo(
+    () =>
+      ({
+        paragraph: { marginBottom: 8 },
         text: { color: isDark ? "#ffffff" : "#333333" },
         code: { color: isDark ? "#58a6ff" : "#333333" },
         blockquote: { color: isDark ? "#a0a0a0" : "#666666" },
-        link: { color: "#58a6ff" },
+        link: { color: "#58a6ff", textDecorationLine: "underline" },
+      }) as Record<string, StyleProp<ViewStyle | TextStyle | ImageStyle>>,
+    [isDark]
+  );
+
+  return (
+    <Markdown
+      options={{
+        styles: markdownStyles,
+        onLinkPress: (url) => {
+          Linking.openURL(url);
+        },
       }}
     >
       {text}

@@ -27,6 +27,12 @@ export interface AvailableCommand {
   input?: { hint: string };
 }
 
+export interface PromptCapabilities {
+  image?: boolean;
+  audio?: boolean;
+  embeddedContext?: boolean;
+}
+
 export interface SessionInfo {
   id: string;
   sessionId?: string;
@@ -104,18 +110,25 @@ export interface ToolCall {
 }
 
 export interface PermissionOption {
-  id: string;
-  label: string;
+  optionId?: string;
+  id?: string;
+  kind?: string;
+  name?: string;
+  label?: string;
   description?: string;
 }
+
+export type PermissionOptions =
+  | PermissionOption[]
+  | {
+      allowOther?: boolean;
+      options?: PermissionOption[];
+    };
 
 export interface PermissionRequest {
   requestId: string;
   toolCall: ToolCall;
-  options?: {
-    allowOther?: boolean;
-    options?: PermissionOption[];
-  };
+  options?: PermissionOptions;
 }
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
@@ -136,6 +149,7 @@ interface ChatState {
   modes: SessionModeState | null;
   models: SessionModelState | null;
   commands: AvailableCommand[];
+  promptCapabilities: PromptCapabilities | null;
 
   // Permission
   pendingPermission: PermissionRequest | null;
@@ -165,6 +179,7 @@ interface ChatState {
   setModes: (modes: SessionModeState | null) => void;
   setModels: (models: SessionModelState | null) => void;
   setCommands: (commands: AvailableCommand[]) => void;
+  setPromptCapabilities: (capabilities: PromptCapabilities | null) => void;
 
   setPendingPermission: (permission: PermissionRequest | null) => void;
 
@@ -192,6 +207,7 @@ const initialState = {
   modes: null,
   models: null,
   commands: [],
+  promptCapabilities: null,
   pendingPermission: null,
   terminalOutput: new Map<string, string>(),
   connStatus: "idle" as ConnectionStatus,
@@ -224,6 +240,7 @@ export const useChatStore = create<ChatState>()(
             modes: null,
             models: null,
             commands: [],
+            promptCapabilities: null,
             pendingPermission: null,
             terminalOutput: new Map(),
             error: null,
@@ -401,6 +418,8 @@ export const useChatStore = create<ChatState>()(
       setModes: (modes) => set({ modes }),
       setModels: (models) => set({ models }),
       setCommands: (commands) => set({ commands }),
+      setPromptCapabilities: (capabilities) =>
+        set({ promptCapabilities: capabilities }),
 
       setPendingPermission: (permission) =>
         set({ pendingPermission: permission }),

@@ -19,10 +19,11 @@ export function ModelSelector({
   onOpenChange,
   disabled,
 }: ModelSelectorProps) {
+  const selectedModel =
+    availableModels.find((m) => m.modelId === currentModelId) ??
+    availableModels[0];
   const selectedLabel =
-    availableModels.find((m) => m.modelId === currentModelId)?.modelId ||
-    availableModels[0]?.modelId ||
-    "Select model";
+    selectedModel?.name || selectedModel?.modelId || "Select model";
 
   return (
     <Popover isOpen={isOpen} onOpenChange={onOpenChange}>
