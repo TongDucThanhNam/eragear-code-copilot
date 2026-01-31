@@ -11,6 +11,7 @@ import type { SessionRepositoryPort } from "@/modules/session/application/ports/
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import {
   getAcpErrorText,
+  isMethodNotFound,
   isProcessExited,
   isProcessTransportNotReady,
 } from "./acp-error.util";
@@ -71,6 +72,18 @@ export class SetModelService {
     const session = this.sessionRuntime.get(chatId);
     if (!session?.sessionId) {
       throw new Error("Chat not found");
+    }
+    if (!session.models || session.models.availableModels.length === 0) {
+      throw new Error("Agent does not support model switching");
+    }
+    const isAvailableModel = session.models.availableModels.some(
+      (model) => model.modelId === modelId
+    );
+    if (!isAvailableModel) {
+      throw new Error("Model is not available for this session");
+    }
+    if (session.models.currentModelId === modelId) {
+      return { ok: true };
     }
     const stdin = session.proc.stdin;
     if (
@@ -133,6 +146,9 @@ export class SetModelService {
       }
     } catch (error) {
       const errorText = getAcpErrorText(error);
+      if (isMethodNotFound(errorText)) {
+        throw new Error("Agent does not support model switching");
+      }
       throw new Error(errorText || "Failed to set model");
     }
 

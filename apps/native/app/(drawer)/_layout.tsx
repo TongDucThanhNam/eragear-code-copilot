@@ -3,23 +3,21 @@ import { Drawer } from "expo-router/drawer";
 import { useThemeColor } from "heroui-native";
 import { useCallback } from "react";
 import { Text } from "react-native";
-
-import { ProjectDrawerContent } from "@/components/drawer/project-drawer-content";
 import { ThemeToggle } from "@/components/common/theme-toggle";
+import { ProjectDrawerContent } from "@/components/drawer/project-drawer-content";
 
 function DrawerLayout() {
   const themeColorForeground = useThemeColor("foreground");
   const themeColorBackground = useThemeColor("background");
+  const themeColorMuted = useThemeColor("muted");
 
   const renderThemeToggle = useCallback(() => <ThemeToggle />, []);
 
-  const renderDrawerContent = useCallback(
-    () => <ProjectDrawerContent />,
-    []
-  );
+  const renderDrawerContent = useCallback(() => <ProjectDrawerContent />, []);
 
   return (
     <Drawer
+      drawerContent={renderDrawerContent}
       screenOptions={{
         headerTintColor: themeColorForeground,
         headerStyle: { backgroundColor: themeColorBackground },
@@ -29,21 +27,23 @@ function DrawerLayout() {
         },
         headerRight: renderThemeToggle,
         drawerStyle: { backgroundColor: themeColorBackground },
+        drawerInactiveTintColor: themeColorMuted,
       }}
-      drawerContent={renderDrawerContent}
     >
       <Drawer.Screen
         name="index"
         options={{
           headerTitle: "Sessions",
-          drawerLabel: ({ color, focused }) => (
-            <Text style={{ color: focused ? color : themeColorForeground }}>
+          drawerLabel: ({ focused }) => (
+            <Text
+              className={focused ? "text-primary" : "text-muted-foreground"}
+            >
               Sessions
             </Text>
           ),
-          drawerIcon: ({ size, color, focused }) => (
+          drawerIcon: ({ size, focused }) => (
             <Ionicons
-              color={focused ? color : themeColorForeground}
+              color={focused ? "hsl(var(--color-primary))" : themeColorMuted}
               name="chatbubbles-outline"
               size={size}
             />
@@ -54,14 +54,16 @@ function DrawerLayout() {
         name="settings"
         options={{
           headerTitle: "Settings",
-          drawerLabel: ({ color, focused }) => (
-            <Text style={{ color: focused ? color : themeColorForeground }}>
+          drawerLabel: ({ focused }) => (
+            <Text
+              className={focused ? "text-primary" : "text-muted-foreground"}
+            >
               Settings
             </Text>
           ),
-          drawerIcon: ({ size, color, focused }) => (
+          drawerIcon: ({ size, focused }) => (
             <Ionicons
-              color={focused ? color : themeColorForeground}
+              color={focused ? "hsl(var(--color-primary))" : themeColorMuted}
               name="settings-outline"
               size={size}
             />

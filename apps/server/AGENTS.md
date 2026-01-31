@@ -1,135 +1,391 @@
-# Eragear Server (ACP Client) — Operational Map
+# Eragear Server — Hướng Dẫn Kiến Trúc & Luồng Hoạt Động
 
-Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc xong biết
-đi đâu, sửa ở đâu, không được làm gì, và test/debug như thế nào.
+> Tài liệu giải thích cấu trúc server và cách dữ liệu di chuyển.
 
-## 1) Definition Block (đọc 60 giây)
+---
 
-- **Module** = vertical slice nằm dưới `src/modules/<feature>/` gồm `application/`, `domain/`, `infra/`.
-- **Transport** (`src/transport/**`) là API boundary (HTTP/tRPC/WS); chỉ validate/map input, gọi application.
-- **Application** (`src/modules/*/application/**`) là use-case orchestration; gọi domain + ports.
-- **Domain** (`src/modules/*/domain/**`) chứa entity + rule/invariant; không import `transport`/`infra`.
-- **Ports/contracts** nằm ở `src/modules/*/application/ports/**` (cross-cutting ở `src/shared/ports`); application depend on ports, infra implements.
-- **Global infra** (`src/infra/**`) = adapter dùng chung (ACP, process, git, storage).
-- **Module infra** (`src/modules/*/infra/**`) = persistence/runtime đặc thù module (JSON repo, runtime store).
-- **Infra được phép có policy/IO logic** (allowlist, sandbox, retry, mapping), **không chứa domain rules**.
-- **Dependency wiring** ở `src/bootstrap/container.ts` (ports → adapters).
-- **Process entry** ở `src/index.ts`; HTTP/WS wiring ở `src/bootstrap/server.ts`.
+## 1. Tổng Quan
 
-## 2) Where to start (5 entry points)
+### 1.1 Vai Trò Server
 
-- `src/index.ts`: process entry; gọi `startServer()`.
-- `src/bootstrap/server.ts`: tạo Hono app, đăng ký HTTP routes, tRPC WS handler, serve UI.
-- `src/bootstrap/container.ts`: DI wiring ports/adapters; nơi thêm adapter mới.
-- `src/transport/trpc/router.ts` + `src/transport/trpc/routers/*.ts`: API boundary & procedure definitions.
-- `src/infra/acp/*`: ACP bridge (connection, handlers, permission, tool-calls, update).
+Server là **ACP Client** - cầu nối giữa UI và các Coding Agent (Claude code, Codex, Gemini CLI) bên ngoài:
+- Quản lý vòng đời của Agent (spawn/stop)
+- Bridge giao tiếp giữa UI và Agent
+- Cung cấp capabilities (filesystem, terminal, git)
+- Lưu trữ messages và state
 
-## 3) Flow Catalog (chuẩn repo, dùng để đặt logic đúng chỗ)
+### 1.2 Luồng Dữ Liệu
 
-### Flow 1: Create session
+```
+UI → tRPC/WSS → Server → ACP Connection → Agent
+         ↓                         ↓
+    Response ← UI ← Server ← ACP Connection
+```
 
-1. UI gọi tRPC `createSession` (`src/transport/trpc/routers/session.ts`).
-2. Transport validate input (zod) và gọi `CreateSessionService`.
-3. `CreateSessionService` (`src/modules/session/application/create-session.service.ts`)
-   orchestration: repo, runtime, agent runtime, settings.
-4. `AgentRuntimeAdapter` (`src/infra/process/index.ts`) spawn process + ACP
-   connection (`src/infra/acp/connection.ts`).
-5. `createSessionHandlers` (`src/infra/acp/handlers.ts`) gắn
-   permission/update/tool-calls.
-6. `createSessionUpdateHandler` (`src/infra/acp/update.ts`) buffer + persist.
-7. `SessionRuntimeStore` broadcast events (`src/modules/session/infra/runtime-store.ts`).
+---
 
-### Flow 2: Incoming ACP update
+## 2. Cấu Trúc Thư Mục
 
-1. Agent gửi update → `createSessionHandlers.sessionUpdate`
-   (`src/infra/acp/handlers.ts`).
-2. `createSessionUpdateHandler` xử lý buffer/plan/mode/tool calls
-   (`src/infra/acp/update.ts`).
-3. Persist qua `SessionRepositoryPort` (JSON repo trong
-   `src/modules/session/infra/session.repository.json.ts`).
-4. Broadcast qua `SessionRuntimePort` → `onSessionEvents` subscription
-   (`src/transport/trpc/routers/session.ts`).
+```
+src/
+├── bootstrap/           # Entry point & DI container
+│   ├── container.ts     # Wiring ports ↔ adapters
+│   └── server.ts        # Hono app, HTTP routes, WS handler
+│
+├── transport/           # API boundary (HTTP/tRPC/WS)
+│   ├── http/            # HTTP server (static UI, config page)
+│   │   └── ui/          # Dashboard UI assets
+│   ├── trpc/            # tRPC router & procedures
+│   │   ├── router.ts
+│   │   ├── context.ts
+│   │   └── routers/
+│   │       ├── session.ts    # Session CRUD
+│   │       ├── ai.ts         # Send message, set model/mode
+│   │       ├── tool.ts       # Permission response
+│   │       ├── project.ts    # Project management
+│   │       ├── agents.ts     # Agent configs
+│   │       ├── auth.ts       # Authentication
+│   │       └── code.ts       # Code context
+│   └── ws/              # WebSocket handlers
+│
+├── infra/               # Global adapters (IO/policy)
+│   ├── acp/             # ACP bridge, handlers, permission
+│   │   ├── connection.ts     # NDJSON connection
+│   │   ├── handlers.ts       # ACP event handlers
+│   │   ├── update.ts         # Message buffering
+│   │   ├── permission.ts     # Permission requests
+│   │   ├── tool-calls.ts     # Tool call execution
+│   │   └── session-acp.adapter.ts
+│   ├── process/         # Spawn agent processes
+│   ├── filesystem/      # File operations
+│   ├── git/             # Git operations
+│   ├── storage/         # JSON persistence
+│   └── auth/            # Authentication
+│
+├── modules/             # Feature modules (vertical slices)
+│   ├── session/
+│   │   ├── application/ # Use-case orchestration
+│   │   │   ├── ports/   # Port interfaces
+│   │   │   ├── create-session.service.ts
+│   │   │   ├── send-message.service.ts
+│   │   │   └── ...
+│   │   ├── domain/      # Entities & invariants
+│   │   └── infra/       # Module-specific persistence
+│   ├── agent/
+│   ├── ai/
+│   ├── project/
+│   ├── settings/
+│   └── tooling/
+│
+└── shared/              # Cross-cutting concerns
+    ├── ports/           # Shared port interfaces
+    ├── types/           # Type definitions
+    ├── utils/           # Utilities
+    └── errors/          # Error definitions
+```
 
-### Flow 3: Tool-call permission
+---
 
-1. Agent request permission → `createPermissionHandler`
-   (`src/infra/acp/permission.ts`).
-2. Request được broadcast qua runtime → UI.
-3. UI phản hồi qua tRPC `respondToPermissionRequest`
-   (`src/transport/trpc/routers/tool.ts`).
-4. `RespondPermissionService` resolve pending request
-   (`src/modules/tooling/application/respond-permission.service.ts`).
+## 3. Các Lớp Kiến Trúc
 
-### Flow 4: Persistence (JSON store)
+| Lớp | Vị trí | Vai trò |
+|-----|--------|---------|
+| **Transport** | `src/transport/**` | API boundary: validate input, gọi application |
+| **Application** | `src/modules/*/application/**` | Use-case orchestration |
+| **Domain** | `src/modules/*/domain/**` | Entity + rules |
+| **Ports** | `src/modules/*/application/ports/**` | Interface (DI) |
+| **Global Infra** | `src/infra/**` | Adapters dùng chung |
+| **Module Infra** | `src/modules/*/infra/**` | Persistence đặc thù |
 
-1. Application gọi `SessionRepositoryPort` (port ở `src/modules/session/application/ports`).
-2. Implementation là JSON repo (`src/modules/session/infra/session.repository.json.ts`).
-3. JSON store dùng `src/infra/storage/json-store.ts` → `.eragear/*.json`.
+**Quy tắc:**
+- Domain **không import** `transport`/`infra`
+- Infra **chỉ** policy/IO, **không** domain rules
+- Application **phụ thuộc ports**, Infra **implement ports**
 
-## 4) Decision Table: đặt code ở đâu?
+---
 
-| Nếu cần... | Đặt ở | Ví dụ thực tế |
-| --- | --- | --- |
-| Validate/map input | `src/transport/**` | `transport/trpc/routers/session.ts` (zod) |
-| Orchestrate nhiều dependency | `src/modules/*/application/**` | `modules/session/application/create-session.service.ts` |
-| State + invariant domain | `src/modules/*/domain/**` | `modules/project/domain/project.entity.ts` |
-| IO/policy (allowlist/sandbox/retry) | `src/infra/**` | `infra/acp/tool-calls.ts`, `infra/process/index.ts` |
-| Persistence/runtime module | `src/modules/*/infra/**` | `modules/session/infra/session.repository.json.ts` |
-| Contract/port | `src/modules/*/application/ports/**` (+ `src/shared/ports`) | `SessionRepositoryPort`, `AgentRuntimePort` |
+## 4. Luồng Hoạt Động
 
-## 5) Golden Paths (cách thêm tính năng không phá kiến trúc)
+### 4.1 Tạo Session Mới
 
-### A. Thêm API mới
+```
+User → UI → tRPC createSession → CreateSessionService
+                                        │
+                                        ▼
+                              AgentRuntimeAdapter (spawn)
+                                        │
+                                        ▼
+                              ACP Connection + Handlers
+                                        │
+                                        ▼
+                              SessionRuntimeStore (RAM)
+                                        │
+                                        ▼
+                              SessionRepository (JSON)
+```
 
-1. Thêm procedure ở `src/transport/trpc/routers/*.ts` (validate input).
-2. Tạo service ở `src/modules/<feature>/application`.
-3. Nếu cần IO mới: thêm port ở `src/modules/<feature>/application/ports/` (hoặc `src/shared/ports` nếu cross-cutting).
-4. Implement adapter ở `src/infra/**` hoặc `src/modules/*/infra/**`.
-5. Wire port/adapter ở `src/bootstrap/container.ts`.
+**Chi tiết:**
+1. UI gọi tRPC `createSession`
+2. Transport validate (zod) → gọi `CreateSessionService`
+3. Service orchestration: repo, runtime, agent runtime
+4. `AgentRuntimeAdapter` spawn process + ACP connection
+5. ACP handlers gắn permission/update/tool-calls
+6. `SessionRuntimeStore` lưu trong RAM + broadcast events
+7. `SessionRepository` persist vào JSON
 
-### B. Thêm tool-call mới cho ACP
+### 4.2 Gửi Tin Nhắn
 
-1. Thêm handler ở `src/infra/acp/tool-calls.ts`.
-2. Nếu cần state/domain: gọi service ở `src/modules/*/application/**`
-   qua container/runtime (không thao tác repo trực tiếp trong handler trừ IO/policy).
-3. Nếu cần permission: dùng flow `requestPermission` → `respondToPermissionRequest`.
+```
+User → UI → tRPC sendMessage → SendMessageService
+                                    │
+                                    ▼
+                          SessionRuntimeStore (lookup)
+                                    │
+                                    ▼
+                          SessionAcpPort (send to agent)
+                                    │
+                                    ▼
+                          Agent Process (ACP)
+                                    │
+                                    ▼
+                          ACP Update Handler
+                                    │
+                                    ▼
+                          UI Subscription (WSS)
+```
 
-## 6) Anti-patterns (đừng làm)
+### 4.3 Agent Yêu Cầu Quyền
 
-- Gọi repo trực tiếp trong transport (`src/transport/**`).
-- Đặt orchestration trong transport thay vì application.
-- Đặt ports ở domain (ports ở `src/modules/*/application/ports/**`).
-- Đặt business rules trong infra (infra chỉ policy/IO).
-- Tool-call handler tự tạo session state (phải qua runtime/service).
-- Domain import `infra`/`transport`.
-- Tạo `modules/*/transport` mới (chưa dùng module-level transport).
-- Bypass `SessionRuntimePort` khi broadcast event (dùng runtime store).
-- Viết trực tiếp file JSON ngoài `json-store.ts` (dùng storage primitive).
-- Hardcode path ngoài `projectRoot` trong tool calls (phải resolve/sandbox).
+```
+Agent → ACP Permission Request
+            │
+            ▼
+createPermissionHandler (lưu pending request)
+            │
+            ▼
+SessionRuntimeStore → broadcast → UI (show dialog)
+            │
+            ▼
+User approve/deny → tRPC respondToPermissionRequest
+            │
+            ▼
+RespondPermissionService → resolve request
+            │
+            ▼
+ACP Connection → gửi result về Agent
+```
 
-## 7) Glossary (chuẩn hóa thuật ngữ)
+### 4.4 Tool Call
 
-- **ChatId**: ID của session runtime (sống trong RAM).
-- **Session (stored)**: session metadata + messages lưu ở `.eragear/sessions.json`.
-- **Session runtime**: đối tượng đang chạy trong RAM (`SessionRuntimeStore`).
-- **ACP connection**: kết nối NDJSON với agent (`infra/acp/connection.ts`).
-- **ACP handlers**: bộ callback nhận update/permission/tool calls (`infra/acp/handlers.ts`).
-- **Tool call**: agent yêu cầu chạy tool (fs/terminal).
-- **Permission request**: yêu cầu người dùng chấp thuận tool call.
-- **Buffer**: gom message chunk trước khi persist (`SessionBuffering`).
-- **Replay**: lịch sử được agent replay khi resume (`isReplayingHistory`).
-- **Event bus**: kênh pub/sub trong server (`shared/utils/event-bus.ts`).
+```
+Agent → Tool call request (ACP)
+            │
+            ▼
+createToolCallHandler (tool-calls.ts)
+  - Check sandbox (allowed roots)
+  - Check allowlist
+  - Resolve paths
+  - Execute operation
+            │
+            ▼
+Result → ACP → Agent
+```
 
-## 8) Test & Debug Map (nhanh, thực dụng)
+---
 
-- **Run dev**: `bun run dev` (entry: `src/index.ts`).
-- **Type check**: `bun run check-types`.
-- **Build**: `bun run build` (gồm UI build).
-- **Log tags chính**: `[Server]`, `[DEBUG]`, `[Storage]` (xem trong `src/**`).
-- **ACP handlers**: `src/infra/acp/handlers.ts`, update logic ở `src/infra/acp/update.ts`.
-- **Runtime & broadcast**: `src/modules/session/infra/runtime-store.ts`.
-- **Config/allowlist**: `src/config/environment.ts` (ALLOWED_* , *_TIMEOUT_MS).
-- **Lỗi thường gặp**:
-  - `Agent command not allowed` → `src/infra/process/index.ts`.
-  - `Access denied (outside project root)` → `src/infra/acp/tool-calls.ts`.
-  - `Chat not found` / `Session is not running` → `modules/ai/application/send-message.service.ts`.
+## 5. Thành Phần Quan Trọng
+
+### 5.1 Container (`bootstrap/container.ts`)
+
+```typescript
+export class Container {
+  // Repositories
+  sessionRepo: SessionRepositoryPort;
+  projectRepo: ProjectRepositoryPort;
+  agentRepo: AgentRepositoryPort;
+  settingsRepo: SettingsRepositoryPort;
+
+  // Adapters
+  agentRuntimeAdapter: AgentRuntimePort;
+  sessionAcpAdapter: SessionAcpPort;
+  gitAdapter: GitAdapter;
+}
+```
+
+### 5.2 ACP Connection (`infra/acp/connection.ts`)
+
+- Tạo `ClientSideConnection` từ child process
+- NDJSON stream cho bidirectional communication
+
+### 5.3 Session Runtime Store (`modules/session/infra/runtime-store.ts`)
+
+- Lưu session đang chạy trong RAM (Map<chatId, SessionRuntime>)
+- Broadcast events qua WebSocket
+- Quản lý lifecycle của active sessions
+
+### 5.4 JSON Store (`infra/storage/json-store.ts`)
+
+- Persistence layer cho tất cả data
+- Lưu trong `.eragear/*.json`
+
+---
+
+## 6. Entry Points
+
+| File | Vai trò |
+|------|---------|
+| `src/index.ts` | Process entry |
+| `src/bootstrap/server.ts` | Hono app, routes, WS handler |
+| `src/bootstrap/container.ts` | DI wiring |
+| `src/transport/trpc/router.ts` | tRPC initialization |
+| `src/transport/trpc/routers/*.ts` | API procedures |
+
+---
+
+## 7. Thuật Ngữ
+
+| Thuật ngữ | Ý nghĩa |
+|-----------|---------|
+| **ChatId** | ID của session runtime (RAM) |
+| **Session (stored)** | Session metadata + messages (JSON) |
+| **Session runtime** | Session đang chạy trong RAM |
+| **ACP connection** | Kết nối NDJSON với agent |
+| **ACP handlers** | Callbacks cho update/permission/tool-calls |
+| **Tool call** | Agent yêu cầu chạy tool |
+| **Permission request** | Yêu cầu user chấp thuận tool call |
+| **Buffer** | Gom message chunk trước persist |
+
+---
+
+## 8. Thêm Tính Năng
+
+### Thêm API mới
+
+1. Thêm procedure ở `src/transport/trpc/routers/*.ts` (zod validate)
+2. Tạo service ở `src/modules/<feature>/application/`
+3. Nếu cần IO: thêm port ở `src/modules/<feature>/application/ports/`
+4. Implement adapter ở `src/infra/**`
+5. Wire ở `src/bootstrap/container.ts`
+
+### Thêm tool-call
+
+1. Thêm handler ở `src/infra/acp/tool-calls.ts`
+2. Gọi service qua container nếu cần state
+3. Nếu cần permission: dùng `requestPermission`
+
+---
+
+## 9. Debug
+
+| Vấn đề | File |
+|--------|------|
+| Agent command not allowed | `infra/process/index.ts` |
+| Access denied (outside root) | `infra/acp/tool-calls.ts` |
+| Session not found | `modules/ai/application/send-message.service.ts` |
+| ACP messages | `infra/acp/handlers.ts`, `update.ts` |
+| Runtime & broadcast | `modules/session/infra/runtime-store.ts` |
+
+**Log tags:** `[Server]`, `[DEBUG]`, `[Storage]`
+
+---
+
+## 10. Deployment & Distribution
+
+### 10.1 Build thành Executable
+
+Server được build thành **standalone executable** bằng TSDown/Bun:
+
+```bash
+bun run build  # Output: dist/eragear-server (hoặc .exe trên Windows)
+```
+
+Executable này:
+- Bundles tất cả code + UI vào một file
+- Không cần cài đặt Node.js/Bun trên máy user
+- User chỉ cần chạy file, server sẽ khởi động ngay lập tức
+
+### 10.2 Cài Đặt & Chạy
+
+```bash
+# Download executable
+./eragear-server
+
+# Với config tùy chỉnh
+./eragear-server --port 3000 --project-roots /path/to/projects
+
+# Chạy như service (Linux)
+sudo ./eragear-server install
+sudo systemctl start eragear-server
+```
+
+### 10.3 Truy Cập Server
+
+**Local Access:**
+```
+http://localhost:<port>
+```
+
+**Remote Access (Cloudflare Tunnel):**
+
+Server hỗ trợ tích hợp Cloudflare Tunnel để truy cập từ xa:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        User's Machine                           │
+│  ┌─────────────────────┐      ┌─────────────────────────────┐  │
+│  │ eragear-server      │      │ cloudflared tunnel          │  │
+│  │ - HTTP Server       │◄────►│ -Tunnel to cloudflare       │  │
+│  │ - tRPC/WSS          │      │ -Public URL: xxx.trycloudflare.com│
+│  └─────────────────────┘      └─────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │ Internet
+                              ▼
+                    ┌─────────────────────┐
+                    │ User's Browser      │
+                    │ (Remote Access)     │
+                    └─────────────────────┘
+```
+
+**Kết nối từ xa:**
+1. Server tạo Cloudflare tunnel khi được bật
+2. URL public được hiển thị (ví dụ: `https://xxx.trycloudflare.com`)
+3. User có thể truy cập từ bất kỳ đâu qua URL này
+
+### 10.4 Cấu Hình Server
+
+| Option | Mô tả | Mặc định |
+|--------|-------|----------|
+| `--port` | Port chạy HTTP server | 3113 |
+| `--project-roots` | Thư mục project được phép | Current directory |
+| `--cloudflare` | Bật Cloudflare tunnel | false |
+| `--auth-required` | Yêu cầu đăng nhập | false |
+
+**Environment variables:**
+- `ERAGEAR_PORT`
+- `ERAGEAR_PROJECT_ROOTS`
+- `ERAGEAR_CLOUDFLARE`
+- `ERAGEAR_AUTH_REQUIRED`
+
+### 10.5 Data Storage
+
+```
+~/.eragear/
+├── sessions.json      # Session history
+├── projects.json      # Project configs
+├── agents.json        # Agent configs
+└── settings.json      # App settings
+```
+
+---
+
+## 11. Anti-patterns (Đừng Làm)
+
+- Gọi repo trực tiếp trong transport
+- Đặt orchestration trong transport
+- Đặt ports ở domain
+- Đặt business rules trong infra
+- Domain import `infra`/`transport`
+- Bypass SessionRuntimePort khi broadcast
+- Viết trực tiếp file JSON ngoài json-store.ts
+- Hardcode path ngoài `projectRoot`

@@ -67,6 +67,7 @@ export interface DeviceSessionItem {
     email: string;
     name: string;
   };
+  isActive?: boolean;
 }
 
 export interface DashboardData {

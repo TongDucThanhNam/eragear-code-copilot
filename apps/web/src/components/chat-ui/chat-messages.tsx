@@ -51,6 +51,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  ContentBlocksView,
+  type StoredContentBlock,
+} from "@/components/chat-ui/content-blocks";
 
 export interface TextPart {
   type: "text";
@@ -92,7 +96,17 @@ export interface ContextPart {
   items: ContextItem[];
 }
 
-export type MessagePart = TextPart | ToolPart | PlanPart | ContextPart;
+export interface ContentBlockPart {
+  type: "content_block";
+  blocks: StoredContentBlock[];
+}
+
+export type MessagePart =
+  | TextPart
+  | ToolPart
+  | PlanPart
+  | ContextPart
+  | ContentBlockPart;
 
 export interface MessageType {
   key: string;
@@ -196,6 +210,13 @@ const ContextMessagePart = memo(({ items }: { items: ContextItem[] }) => (
   </div>
 ));
 ContextMessagePart.displayName = "ContextMessagePart";
+
+const ContentBlocksMessagePart = memo(
+  ({ blocks }: { blocks: StoredContentBlock[] }) => (
+    <ContentBlocksView blocks={blocks} />
+  )
+);
+ContentBlocksMessagePart.displayName = "ContentBlocksMessagePart";
 
 interface ToolMessagePartProps {
   tool: ToolPart;
@@ -382,6 +403,15 @@ export function ChatMessages({
                       <ContextMessagePart
                         items={part.items}
                         key={`context-${part.items[0]?.id ?? _index}`}
+                      />
+                    );
+                  }
+
+                  if (part.type === "content_block") {
+                    return (
+                      <ContentBlocksMessagePart
+                        blocks={part.blocks}
+                        key={`content-block-${part.blocks[0]?.type ?? _index}`}
                       />
                     );
                   }

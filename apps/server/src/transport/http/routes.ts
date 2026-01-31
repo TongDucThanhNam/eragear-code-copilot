@@ -11,18 +11,18 @@
 import type { Context, Hono } from "hono";
 
 import { getContainer } from "../../bootstrap/container";
-import { getSessionFromRequest } from "../../infra/auth/guards";
 import { StopSessionService } from "../../modules/session/application/stop-session.service";
 import type { Project } from "../../shared/types/project.types";
 import type { StoredSession } from "../../shared/types/session.types";
 import { isPathWithinRoots } from "../../shared/utils/project-roots.util";
 import { terminateSessionTerminals } from "../../shared/utils/session-cleanup.util";
 import { parseUiSettingsForm } from "../../shared/utils/ui-settings.util";
-import { ConfigPage } from "./ui/config-page";
 import {
   type ApiKeyCreateResponse,
   buildDashboardData,
 } from "./ui/dashboard-data";
+import { ConfigPage } from "./ui/dashboard-view";
+import { getSessionFromRequest } from "./utils/auth";
 
 type FormDataRecord = Record<string, string | File | undefined>;
 

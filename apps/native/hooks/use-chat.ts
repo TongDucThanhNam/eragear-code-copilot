@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
+
+import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { trpc } from "@/lib/trpc";
 import {
   type PermissionRequest,
@@ -6,7 +8,6 @@ import {
   useChatStore,
 } from "@/store/chat-store";
 import { useProjectStore } from "@/store/project-store";
-import { useSettingsStore } from "@/store/settings-store";
 
 // Helper for random IDs
 const nanoid = () => Math.random().toString(36).substring(2, 10);
@@ -186,12 +187,18 @@ export function useChat() {
   const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChatIsReadOnly = useChatStore((s) => s.activeChatIsReadOnly);
   const connStatus = useChatStore((s) => s.connStatus);
-  const activeAgentId = useSettingsStore((s) => s.activeAgentId);
-  const getAgents = useSettingsStore((s) => s.getAgents);
   const getActiveProject = useProjectStore((s) => s.getActiveProject);
+  const isConfigured = useAuthConfigured();
 
   const utils = trpc.useUtils();
   const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
+
+  // Fetch agents from server (managed by server now)
+  const { data: agentsData } = trpc.agents.list.useQuery(undefined, {
+    enabled: isConfigured,
+  });
+  const agents = agentsData?.agents || [];
+  const activeAgentId = agentsData?.activeAgentId;
 
   // Mutations
   const createSessionMutation = trpc.createSession.useMutation();
@@ -209,7 +216,10 @@ export function useChat() {
     { chatId: activeChatId || "" },
     {
       enabled:
-        !!activeChatId && !activeChatIsReadOnly && connStatus === "connecting",
+        isConfigured &&
+        !!activeChatId &&
+        !activeChatIsReadOnly &&
+        connStatus === "connecting",
       retry: false,
     }
   );
@@ -596,7 +606,8 @@ export function useChat() {
     !!activeChatId &&
     !activeChatIsReadOnly &&
     !isChatFailed(activeChatId) &&
-    connStatus === "connected";
+    connStatus === "connected" &&
+    isConfigured;
 
   // Subscription
   trpc.onSessionEvents.useSubscription(
@@ -630,7 +641,7 @@ export function useChat() {
   const createSession = async () => {
     try {
       const agentId = activeAgentId;
-      const agent = getAgents().find((a) => a.id === agentId);
+      const agent = agents.find((a) => a.id === agentId);
       const store = useChatStore.getState();
       const activeProject = getActiveProject();
 
@@ -651,7 +662,6 @@ export function useChat() {
         command: agent.command,
         args: agent.args,
         env: agent.env,
-        cwd: agent.cwd,
       });
 
       store.setActiveChatId(res.chatId);
@@ -715,7 +725,15 @@ export function useChat() {
       }
     } catch (e) {
       const error = e as Error;
-      store.setError(error.message);
+      const message = error?.message || "Failed to set model";
+      const normalized = message.toLowerCase();
+      if (
+        normalized.includes("model switching") ||
+        normalized.includes("method not found")
+      ) {
+        store.setModels(null);
+      }
+      store.setError(message);
     }
   };
 

@@ -7,11 +7,13 @@ import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatInput } from "@/components/chat-ui/chat-input";
 import {
   ChatMessages,
+  type ContentBlockPart,
   type ContextItem,
   type ContextPart,
   type MessageType,
   type ToolPart,
 } from "@/components/chat-ui/chat-messages";
+import type { StoredContentBlock } from "@/components/chat-ui/content-blocks";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import { trpc } from "@/lib/trpc";
 import { useChatStatusStore } from "@/store/chat-status-store";
@@ -441,9 +443,15 @@ export function ChatInterface({
           const contextItems = buildContextItems(
             (msg.contentBlocks ?? []) as StoredContentBlock[]
           );
+          const contentBlocks = getDisplayContentBlocks(
+            (msg.contentBlocks ?? []) as StoredContentBlock[]
+          );
           const parts: MessageType["parts"] = [];
           if (contextItems.length > 0) {
             parts.push({ type: "context", items: contextItems });
+          }
+          if (contentBlocks.length > 0) {
+            parts.push({ type: "content_block", blocks: contentBlocks });
           }
           if (msg.content) {
             parts.push({ type: "text" as const, content: msg.content });
@@ -526,11 +534,6 @@ export function ChatInterface({
   const handleAgentToolCall = useCallback(
     (tool: ToolCallContent) => {
       updateMessagesState((prev) => {
-        const lastMsg = prev.at(-1);
-        if (!lastMsg || lastMsg.from !== "assistant") {
-          return prev;
-        }
-
         const { terminalId, diffs } = extractToolContentInfo(tool.content);
 
         const newTool: ToolPart = {
@@ -551,8 +554,55 @@ export function ChatInterface({
           diffs,
         };
 
-        const parts = [...lastMsg.parts, newTool];
-        return [...prev.slice(0, -1), { ...lastMsg, parts }];
+        for (let msgIndex = prev.length - 1; msgIndex >= 0; msgIndex -= 1) {
+          const message = prev[msgIndex];
+          const partIndex = message.parts.findIndex(
+            (p): p is ToolPart =>
+              p.type === "tool" && p.toolCallId === tool.toolCallId
+          );
+          if (partIndex === -1) {
+            continue;
+          }
+
+          const parts = [...message.parts];
+          const existing = parts[partIndex] as ToolPart;
+          const mergedStatus =
+            existing.status === "approval-requested" &&
+            newTool.status === "pending"
+              ? existing.status
+              : newTool.status;
+          parts[partIndex] = {
+            ...existing,
+            name: newTool.name || existing.name,
+            description: newTool.description || existing.description,
+            status: mergedStatus,
+            parameters:
+              Object.keys(newTool.parameters).length > 0
+                ? newTool.parameters
+                : existing.parameters,
+            terminalId: newTool.terminalId ?? existing.terminalId,
+            diffs:
+              newTool.diffs && newTool.diffs.length > 0
+                ? newTool.diffs
+                : existing.diffs,
+          };
+          return [
+            ...prev.slice(0, msgIndex),
+            { ...message, parts },
+            ...prev.slice(msgIndex + 1),
+          ];
+        }
+
+        const lastMsg = prev.at(-1);
+        if (lastMsg && lastMsg.from === "assistant") {
+          const parts = [...lastMsg.parts, newTool];
+          return [...prev.slice(0, -1), { ...lastMsg, parts }];
+        }
+
+        return [
+          ...prev,
+          { key: nanoid(), from: "assistant", parts: [newTool] },
+        ];
       });
     },
     [updateMessagesState, extractToolContentInfo]
@@ -594,36 +644,47 @@ export function ChatInterface({
   const handleAgentToolCallUpdate = useCallback(
     (update: ToolCallUpdateContent) => {
       updateMessagesState((prev) => {
-        const lastMsg = prev.at(-1);
-        if (!lastMsg || lastMsg.from !== "assistant") {
-          return prev;
+        for (let msgIndex = prev.length - 1; msgIndex >= 0; msgIndex -= 1) {
+          const message = prev[msgIndex];
+          const parts = [...message.parts];
+          const partIndex = parts.findIndex(
+            (p): p is ToolPart =>
+              p.type === "tool" && p.toolCallId === update.toolCallId
+          );
+
+          if (partIndex === -1) {
+            continue;
+          }
+
+          let tool = { ...parts[partIndex] } as ToolPart;
+
+          if (update.status) {
+            const nextStatus = update.status as
+              | "pending"
+              | "approval-requested"
+              | "running"
+              | "completed"
+              | "error";
+            if (
+              !(
+                tool.status === "approval-requested" && nextStatus === "pending"
+              )
+            ) {
+              tool.status = nextStatus;
+            }
+          }
+
+          tool = updateToolFromContent(tool, update.content);
+
+          parts[partIndex] = tool;
+          return [
+            ...prev.slice(0, msgIndex),
+            { ...message, parts },
+            ...prev.slice(msgIndex + 1),
+          ];
         }
 
-        const parts = [...lastMsg.parts];
-        const partIndex = parts.findIndex(
-          (p): p is ToolPart =>
-            p.type === "tool" && p.toolCallId === update.toolCallId
-        );
-
-        if (partIndex === -1) {
-          return prev;
-        }
-
-        let tool = { ...parts[partIndex] } as ToolPart;
-
-        if (update.status) {
-          tool.status = update.status as
-            | "pending"
-            | "approval-requested"
-            | "running"
-            | "completed"
-            | "error";
-        }
-
-        tool = updateToolFromContent(tool, update.content);
-
-        parts[partIndex] = tool;
-        return [...prev.slice(0, -1), { ...lastMsg, parts }];
+        return prev;
       });
     },
     [updateMessagesState, updateToolFromContent]
@@ -661,36 +722,77 @@ export function ChatInterface({
   );
 
   const handlePermissionRequest = useCallback(
-    (
-      requestId: string,
-      toolCall: { toolCallId: string },
-      options?: unknown[]
-    ) => {
+    (requestId: string, toolCall: ToolCallContent, options?: unknown[]) => {
       updateMessagesState((prev) => {
-        const lastMsg = prev.at(-1);
-        if (!lastMsg || lastMsg.from !== "assistant") {
+        if (!toolCall?.toolCallId) {
           return prev;
         }
 
-        const parts = [...lastMsg.parts];
-        const partIndex = parts.findIndex(
-          (p): p is ToolPart =>
-            p.type === "tool" && p.toolCallId === toolCall.toolCallId
-        );
+        const { terminalId, diffs } = extractToolContentInfo(toolCall.content);
+        const approvalTool: ToolPart = {
+          type: "tool",
+          toolCallId: toolCall.toolCallId,
+          name: toolCall.title || toolCall.kind || "Tool",
+          description: toolCall.kind || "",
+          status: "approval-requested" as const,
+          parameters: toolCall.rawInput || {},
+          result: undefined,
+          error: undefined,
+          requestId,
+          options,
+          terminalId,
+          diffs,
+        };
 
-        if (partIndex !== -1) {
+        for (let msgIndex = prev.length - 1; msgIndex >= 0; msgIndex -= 1) {
+          const message = prev[msgIndex];
+          const parts = [...message.parts];
+          const partIndex = parts.findIndex(
+            (p): p is ToolPart =>
+              p.type === "tool" && p.toolCallId === toolCall.toolCallId
+          );
+          if (partIndex === -1) {
+            continue;
+          }
+
+          const existing = parts[partIndex] as ToolPart;
           parts[partIndex] = {
-            ...parts[partIndex],
-            status: "approval-requested" as const,
+            ...existing,
+            status: "approval-requested",
             requestId,
             options,
-          } as ToolPart;
+            name: approvalTool.name || existing.name,
+            description: approvalTool.description || existing.description,
+            parameters:
+              Object.keys(approvalTool.parameters).length > 0
+                ? approvalTool.parameters
+                : existing.parameters,
+            terminalId: approvalTool.terminalId ?? existing.terminalId,
+            diffs:
+              approvalTool.diffs && approvalTool.diffs.length > 0
+                ? approvalTool.diffs
+                : existing.diffs,
+          };
+          return [
+            ...prev.slice(0, msgIndex),
+            { ...message, parts },
+            ...prev.slice(msgIndex + 1),
+          ];
+        }
+
+        const lastMsg = prev.at(-1);
+        if (lastMsg && lastMsg.from === "assistant") {
+          const parts = [...lastMsg.parts, approvalTool];
           return [...prev.slice(0, -1), { ...lastMsg, parts }];
         }
-        return prev;
+
+        return [
+          ...prev,
+          { key: nanoid(), from: "assistant", parts: [approvalTool] },
+        ];
       });
     },
-    [updateMessagesState]
+    [updateMessagesState, extractToolContentInfo]
   );
 
   const handleApproveTool = useCallback(
@@ -749,42 +851,6 @@ export function ChatInterface({
     },
     [updateMessagesState]
   );
-
-  type StoredContentBlock =
-    | { type: "text"; text: string; annotations?: unknown }
-    | {
-        type: "image";
-        data: string;
-        mimeType: string;
-        uri?: string;
-        annotations?: unknown;
-      }
-    | {
-        type: "audio";
-        data: string;
-        mimeType: string;
-        annotations?: unknown;
-      }
-    | {
-        type: "resource";
-        resource: {
-          uri: string;
-          text?: string;
-          blob?: string;
-          mimeType?: string;
-        };
-        annotations?: unknown;
-      }
-    | {
-        type: "resource_link";
-        uri: string;
-        name: string;
-        mimeType?: string | null;
-        title?: string | null;
-        description?: string | null;
-        size?: number | null;
-        annotations?: unknown;
-      };
 
   const parseContentBlock = useCallback(
     (content: unknown): StoredContentBlock | null => {
@@ -896,6 +962,76 @@ export function ChatInterface({
     [toContextItem]
   );
 
+  const getDisplayContentBlocks = useCallback(
+    (blocks: StoredContentBlock[] | undefined | null) => {
+      if (!blocks || blocks.length === 0) {
+        return [];
+      }
+      return blocks.filter((block) => block.type !== "text");
+    },
+    []
+  );
+
+  const getContentBlockKey = useCallback((block: StoredContentBlock) => {
+    switch (block.type) {
+      case "image":
+      case "audio":
+        return `${block.type}:${block.uri ?? ""}:${block.mimeType}:${block.data.slice(0, 24)}`;
+      case "resource":
+        return `resource:${block.resource.uri}:${block.resource.mimeType ?? ""}:${
+          block.resource.text?.slice(0, 24) ?? block.resource.blob?.slice(0, 24) ?? ""
+        }`;
+      case "resource_link":
+        return `resource_link:${block.uri}:${block.name}:${block.size ?? ""}`;
+      default:
+        return `block:${block.type}`;
+    }
+  }, []);
+
+  const upsertContentBlockPart = useCallback(
+    (
+      parts: MessageType["parts"],
+      blocks: StoredContentBlock[]
+    ): MessageType["parts"] => {
+      if (blocks.length === 0) {
+        return parts;
+      }
+      const existingIndex = parts.findIndex(
+        (part): part is ContentBlockPart => part.type === "content_block"
+      );
+      if (existingIndex === -1) {
+        const insertIndex = parts.findIndex((part) => part.type !== "context");
+        const nextPart: ContentBlockPart = {
+          type: "content_block",
+          blocks,
+        };
+        if (insertIndex === -1) {
+          return [...parts, nextPart];
+        }
+        return [
+          ...parts.slice(0, insertIndex),
+          nextPart,
+          ...parts.slice(insertIndex),
+        ];
+      }
+      const existing = parts[existingIndex] as ContentBlockPart;
+      const mergedBlocks = [...existing.blocks];
+      const seen = new Set(mergedBlocks.map(getContentBlockKey));
+      for (const block of blocks) {
+        const key = getContentBlockKey(block);
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        mergedBlocks.push(block);
+      }
+      const nextParts = [...parts];
+      nextParts[existingIndex] = { ...existing, blocks: mergedBlocks };
+      return nextParts;
+    },
+    [getContentBlockKey]
+  );
+
   const upsertContextPart = useCallback(
     (
       parts: MessageType["parts"],
@@ -926,6 +1062,32 @@ export function ChatInterface({
       return nextParts;
     },
     []
+  );
+
+  const appendContentBlocksToMessage = useCallback(
+    (from: "user" | "assistant", blocks: StoredContentBlock[]) => {
+      const displayBlocks = getDisplayContentBlocks(blocks);
+      if (displayBlocks.length === 0) {
+        return;
+      }
+      updateMessagesState((prev) => {
+        const lastMsg = prev.at(-1);
+        if (lastMsg && lastMsg.from === from) {
+          const parts = upsertContentBlockPart(
+            [...lastMsg.parts],
+            displayBlocks
+          );
+          return [...prev.slice(0, -1), { ...lastMsg, parts }];
+        }
+        const newMsg: MessageType = {
+          key: nanoid(),
+          from,
+          parts: [{ type: "content_block", blocks: displayBlocks }],
+        };
+        return [...prev, newMsg];
+      });
+    },
+    [getDisplayContentBlocks, updateMessagesState, upsertContentBlockPart]
   );
 
   const appendContextToMessage = useCallback(
@@ -1052,7 +1214,7 @@ export function ChatInterface({
     | {
         type: "request_permission";
         requestId: string;
-        toolCall: { toolCallId: string };
+        toolCall: ToolCallContent;
         options?: unknown[];
       }
     | { type: "error"; error: string }
@@ -1067,6 +1229,7 @@ export function ChatInterface({
           if (contentBlock && contentBlock.type !== "text") {
             const items = buildContextItems([contentBlock]);
             appendContextToMessage("user", items);
+            appendContentBlocksToMessage("user", [contentBlock]);
             lastStreamKindRef.current = "user";
             return;
           }
@@ -1113,6 +1276,7 @@ export function ChatInterface({
           if (contentBlock && contentBlock.type !== "text") {
             const items = buildContextItems([contentBlock]);
             appendContextToMessage("assistant", items);
+            appendContentBlocksToMessage("assistant", [contentBlock]);
             lastStreamKindRef.current = "agent";
             if (isReplayingHistoryRef.current) {
               setStatus("ready");
@@ -1195,6 +1359,7 @@ export function ChatInterface({
       }
     },
     [
+      appendContentBlocksToMessage,
       appendContextToMessage,
       buildContextItems,
       extractTextFromContent,
@@ -1220,9 +1385,15 @@ export function ChatInterface({
           const exists = messages.some((m) => m.key === event.id);
           if (!exists) {
             const contextItems = buildContextItems(event.contentBlocks);
+            const contentBlocks = getDisplayContentBlocks(
+              event.contentBlocks as StoredContentBlock[]
+            );
             const parts: MessageType["parts"] = [];
             if (contextItems.length > 0) {
               parts.push({ type: "context", items: contextItems });
+            }
+            if (contentBlocks.length > 0) {
+              parts.push({ type: "content_block", blocks: contentBlocks });
             }
             if (event.text) {
               parts.push({ type: "text", content: event.text });
@@ -1297,6 +1468,7 @@ export function ChatInterface({
     [
       messages,
       buildContextItems,
+      getDisplayContentBlocks,
       handlePermissionRequest,
       processSessionUpdate,
       scheduleReplayReset,
@@ -1501,7 +1673,16 @@ export function ChatInterface({
       setCurrentModelId(modelId);
     } catch (e) {
       console.error("Failed to set model", e);
-      toast.error(e instanceof Error ? e.message : "Failed to set model");
+      const message = e instanceof Error ? e.message : "Failed to set model";
+      const normalized = message.toLowerCase();
+      if (
+        normalized.includes("model switching") ||
+        normalized.includes("method not found")
+      ) {
+        setAvailableModels([]);
+        setCurrentModelId(null);
+      }
+      toast.error(message);
     }
   };
 

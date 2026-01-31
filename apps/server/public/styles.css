@@ -1236,10 +1236,10 @@ input[type="color"] {
   }
 }
 
-::focus-visible {
+/* ::focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
-}
+} */
 
 /* Screen reader only - visually hidden but accessible */
 .sr-only {

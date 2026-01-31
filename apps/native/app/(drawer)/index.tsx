@@ -14,10 +14,11 @@ import {
 } from "react-native";
 
 import { Container } from "@/components/common/container";
+import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { trpc } from "@/lib/trpc";
 import { useChatStore } from "@/store/chat-store";
 import { useProjectStore } from "@/store/project-store";
-import { type Agent, useSettingsStore } from "@/store/settings-store";
+import type { Agent } from "@/store/settings-store";
 
 type FilterTab = "all" | "active" | "inactive";
 
@@ -28,7 +29,45 @@ function truncateSessionId(id: string | undefined): string {
   if (id.length <= 12) {
     return id;
   }
-  return `${id.slice(0, 6)}...${id.slice(-6)}`;
+  return `${id.slice(0, 6)}...${id.at(-6)}`;
+}
+
+function getSessionTitle(
+  name: string | null | undefined,
+  sessionId: string
+): string {
+  const trimmedName = name?.trim();
+  if (trimmedName) {
+    return trimmedName;
+  }
+  // Fallback: use truncated session ID as title
+  return truncateSessionId(sessionId);
+}
+
+function formatTimestamp(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
+function truncatePath(path: string | undefined, maxLength = 40): string {
+  if (!path) return "";
+  if (path.length <= maxLength) return path;
+  const parts = path.split("/");
+  if (parts.length <= 2) return path;
+  // Show first 2 and last part: /home/.../project
+  const first = parts.slice(0, 2).join("/");
+  const last = parts[parts.length - 1];
+  return `${first}/.../${last}`;
 }
 
 export default function SessionsScreen() {
@@ -51,10 +90,15 @@ export default function SessionsScreen() {
     (s) => s.setIsProjectCreateOpen
   );
   const setProjectMutations = useProjectStore((s) => s.setProjectMutations);
-  const activeAgentId = useSettingsStore((s) => s.activeAgentId);
-  const setActiveAgentId = useSettingsStore((s) => s.setActiveAgentId);
-  const getAgents = useSettingsStore((s) => s.getAgents);
   const [error, setError] = useState<string | null>(null);
+  const isConfigured = useAuthConfigured();
+
+  // Fetch agents from server (managed by server now)
+  const { data: agentsData } = trpc.agents.list.useQuery(undefined, {
+    enabled: isConfigured,
+  });
+  const agents = agentsData?.agents || [];
+  const activeAgentId = agentsData?.activeAgentId;
   const [isAgentPickerOpen, setIsAgentPickerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<FilterTab>("active");
   const [projectForm, setProjectForm] = useState({
@@ -79,9 +123,11 @@ export default function SessionsScreen() {
 
   const sessionsQuery = trpc.getSessions.useQuery(undefined, {
     refetchOnWindowFocus: true,
+    enabled: isConfigured,
   });
   const projectsQuery = trpc.listProjects.useQuery(undefined, {
     refetchOnWindowFocus: true,
+    enabled: isConfigured,
   });
 
   const createSessionMutation = trpc.createSession.useMutation();
@@ -195,7 +241,6 @@ export default function SessionsScreen() {
       );
       return;
     }
-    const agents = getAgents();
     if (agents.length === 0) {
       setError("Please configure an ACP agent before starting a session.");
       router.push("/settings");
@@ -205,11 +250,12 @@ export default function SessionsScreen() {
     setIsAgentPickerOpen(true);
   };
 
+  const setActiveAgentMutation = trpc.agents.setActive.useMutation();
+
   const handleSelectAgent = async (agentId: string) => {
     setError(null);
     setIsAgentPickerOpen(false);
 
-    const agents = getAgents();
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) {
       setError("Selected agent not found. Please configure an ACP agent.");
@@ -223,7 +269,7 @@ export default function SessionsScreen() {
       return;
     }
 
-    setActiveAgentId(agentId);
+    setActiveAgentMutation.mutate({ id: agentId });
     setConnStatus("connecting");
 
     try {
@@ -376,7 +422,6 @@ export default function SessionsScreen() {
   };
 
   const sessions = sessionsQuery.data ?? [];
-  const agents = getAgents();
 
   const visibleSessions = activeProjectId
     ? sessions.filter((session) => session.projectId === activeProjectId)
@@ -477,99 +522,110 @@ export default function SessionsScreen() {
       <FlatList
         data={filteredSessions}
         keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingBottom: 80 }}
         refreshControl={
           <RefreshControl
             onRefresh={() => sessionsQuery.refetch()}
             refreshing={sessionsQuery.isFetching}
           />
         }
-        renderItem={({ item }) => (
-          <Pressable onPress={() => handleOpenSession(item.id, item.isActive)}>
-            <Surface className="mb-3 flex-row items-center justify-between rounded-lg p-3">
-              <View className="flex-1">
-                <View className="flex-row items-center">
-                  <Text
-                    className="flex-1 font-medium text-foreground"
-                    numberOfLines={1}
-                  >
-                    {item.name?.trim()
-                      ? item.name
-                      : truncateSessionId(item.sessionId)}
-                  </Text>
-                  {item.pinned && (
-                    <Ionicons
-                      color="#f59e0b"
-                      name="pin"
-                      size={16}
-                      style={{ marginLeft: 6 }}
+        renderItem={({ item }) => {
+          const sessionTitle = getSessionTitle(item.name, item.sessionId);
+          return (
+            <Pressable onPress={() => handleOpenSession(item.id, item.isActive)}>
+              <Surface className="mb-3 flex-row items-start justify-between rounded-lg p-3">
+                <View className="flex-1 pr-3">
+                  {/* Title row with status indicator */}
+                  <View className="flex-row items-center">
+                    <View
+                      className={`mr-2 h-2 w-2 rounded-full ${
+                        item.isActive ? "bg-green-500" : "bg-zinc-500"
+                      }`}
                     />
-                  )}
-                  {!item.isActive && (
-                    <View className="ml-2 rounded bg-zinc-700 px-2 py-0.5">
-                      <Text className="text-xs text-zinc-300">
-                        {item.loadSessionSupported
-                          ? "Resume available"
-                          : "Read-only"}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                {item.name?.trim() ? (
+                    <Text
+                      className="flex-1 font-medium text-base text-foreground"
+                      numberOfLines={1}
+                    >
+                      {sessionTitle}
+                    </Text>
+                    {item.pinned && (
+                      <Ionicons
+                        color="#f59e0b"
+                        name="pin.fill"
+                        size={14}
+                        style={{ marginLeft: 6 }}
+                      />
+                    )}
+                  </View>
+
+                  {/* ID and timestamp - subtle */}
                   <Text
-                    className="mt-0.5 text-xs text-muted-foreground"
+                    className="mt-0.5 text-muted-foreground text-xs"
                     numberOfLines={1}
                   >
                     {truncateSessionId(item.sessionId)}
+                    {item.lastActiveAt && (
+                      <Text className="text-zinc-500">
+                        {" • "}
+                        {formatTimestamp(item.lastActiveAt)}
+                      </Text>
+                    )}
                   </Text>
-                ) : null}
-                <View className="mt-1 flex-row items-center">
-                  <View
-                    className={`mr-2 h-2 w-2 rounded-full ${
-                      item.isActive ? "bg-green-500" : "bg-zinc-500"
-                    }`}
-                  />
-                  <Text className="text-muted-foreground text-sm">
-                    {item.isActive ? "Active" : "Inactive"}
-                  </Text>
-                  {item.archived && (
-                    <View className="ml-2 rounded bg-zinc-800 px-2 py-0.5">
-                      <Text className="text-xs text-zinc-400">Archived</Text>
-                    </View>
-                  )}
-                  {item.modeId && (
-                    <Text className="ml-2 text-muted-foreground text-sm">
-                      • {item.modeId}
-                    </Text>
-                  )}
+
+                  {/* Status badges - compact */}
+                  <View className="mt-2 flex-row flex-wrap gap-1.5">
+                    {!item.isActive && (
+                      <View
+                        className={`rounded px-2 py-0.5 ${
+                          item.loadSessionSupported
+                            ? "bg-green-500/20"
+                            : "bg-zinc-700"
+                        }`}
+                      >
+                        <Text
+                          className={`font-medium text-xs ${
+                            item.loadSessionSupported
+                              ? "text-green-400"
+                              : "text-zinc-300"
+                          }`}
+                        >
+                          {item.loadSessionSupported
+                            ? "Resume"
+                            : "Read-only"}
+                        </Text>
+                      </View>
+                    )}
+                    {item.modeId && (
+                      <View className="rounded bg-primary/20 px-2 py-0.5">
+                        <Text className="font-medium text-xs text-primary">
+                          {item.modeId}
+                        </Text>
+                      </View>
+                    )}
+                    {item.archived && (
+                      <View className="rounded bg-zinc-700 px-2 py-0.5">
+                        <Text className="font-medium text-xs text-zinc-300">
+                          Archived
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
-              </View>
-              <View className="flex-row items-center">
+
+                {/* Menu button only */}
                 <Pressable
-                  className="p-2"
+                  className="p-1"
                   onPress={(event) => {
                     event.stopPropagation();
                     handleOpenSessionActions(item);
                   }}
                 >
-                  <Ionicons
-                    color="#94a3b8"
-                    name="ellipsis-vertical"
-                    size={18}
-                  />
+                  <Ionicons color="#94a3b8" name="ellipsis-vertical" size={20} />
                 </Pressable>
-                <Pressable
-                  className="p-2"
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    handleDeleteSession(item.id);
-                  }}
-                >
-                  <Ionicons color="#ef4444" name="trash-outline" size={20} />
-                </Pressable>
-              </View>
-            </Surface>
-          </Pressable>
-        )}
+              </Surface>
+            </Pressable>
+          );
+        }}
       />
     );
   })();
@@ -586,20 +642,22 @@ export default function SessionsScreen() {
         {/* Active Project Display Card */}
         <Surface className="mb-4 flex-row items-center gap-3 rounded-lg border border-primary p-3">
           <View className="h-10 w-10 items-center justify-center rounded-lg bg-primary/20">
-            <Ionicons color="#3b82f6" name="folder" size={20} />
+            <Ionicons color="#60a5fa" name="folder" size={20} />
           </View>
           <View className="flex-1">
-            <Text className="text-[11px] text-muted-foreground">
+            <Text className="font-medium text-[10px] text-zinc-400 uppercase tracking-wider">
               Active Project
             </Text>
             <Text
-              className="font-semibold text-[11px] text-foreground"
+              className="font-semibold text-sm text-white"
               numberOfLines={1}
             >
               {activeProject?.name || "No project selected"}
             </Text>
-            <Text className="text-muted-foreground text-xs" numberOfLines={1}>
-              {activeProject?.path || "Use drawer to select a project"}
+            <Text className="text-xs text-zinc-500" numberOfLines={1}>
+              {activeProject?.path
+                ? truncatePath(activeProject.path, 45)
+                : "Use drawer to select a project"}
             </Text>
           </View>
         </Surface>
@@ -831,10 +889,7 @@ export default function SessionsScreen() {
                   </Text>
                 </Pressable>
               ) : null}
-              <Button
-                onPress={() => setEditingProject(null)}
-                variant="ghost"
-              >
+              <Button onPress={() => setEditingProject(null)} variant="ghost">
                 <Button.Label>Cancel</Button.Label>
               </Button>
             </View>
@@ -890,7 +945,9 @@ export default function SessionsScreen() {
                 variant="ghost"
               >
                 <Button.Label>
-                  {sessionActionTarget?.pinned ? "Unpin Session" : "Pin Session"}
+                  {sessionActionTarget?.pinned
+                    ? "Unpin Session"
+                    : "Pin Session"}
                 </Button.Label>
               </Button>
               <Button
@@ -902,6 +959,36 @@ export default function SessionsScreen() {
                   {sessionActionTarget?.archived
                     ? "Unarchive Session"
                     : "Archive Session"}
+                </Button.Label>
+              </Button>
+            </View>
+
+            <View className="border-t border-zinc-800 mt-4 pt-4">
+              <Button
+                isDisabled={updateSessionMetaMutation.isPending}
+                onPress={() => {
+                  if (sessionActionTarget) {
+                    Alert.alert(
+                      "Delete Session",
+                      "Are you sure you want to delete this session?",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Delete",
+                          style: "destructive",
+                          onPress: () => {
+                            handleDeleteSession(sessionActionTarget.id);
+                            setSessionActionTarget(null);
+                          },
+                        },
+                      ]
+                    );
+                  }
+                }}
+                variant="ghost"
+              >
+                <Button.Label className="text-red-400">
+                  Delete Session
                 </Button.Label>
               </Button>
             </View>

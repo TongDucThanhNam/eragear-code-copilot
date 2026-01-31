@@ -7,6 +7,7 @@ import { ChatHeader } from "@/components/chat/chat-header/chat-header";
 import { ChatInput } from "@/components/chat/chat-input/chat-input";
 import { ChatMessages } from "@/components/chat/chat-message/chat-messages";
 import { PermissionModal } from "@/components/chat/permission-modal";
+import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { useChat } from "@/hooks/use-chat";
 import { trpc } from "@/lib/trpc";
 import type { SessionInfo } from "@/store/chat-store";
@@ -107,6 +108,7 @@ export default function ChatScreen() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [forceActive, setForceActive] = useState(false);
   const isReadOnly = isReadOnlyParam && !forceActive;
+  const isConfigured = useAuthConfigured();
 
   useEffect(() => {
     setForceActive(false);
@@ -116,7 +118,7 @@ export default function ChatScreen() {
   const messagesQuery = trpc.getSessionMessages.useQuery(
     { chatId: chatId || "" },
     {
-      enabled: isReadOnly && !!chatId,
+      enabled: isConfigured && isReadOnly && !!chatId,
     }
   );
 

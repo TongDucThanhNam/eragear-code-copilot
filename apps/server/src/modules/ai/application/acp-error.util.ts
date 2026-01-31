@@ -41,3 +41,7 @@ export const isProcessExited = (errorText: string) => {
     normalized.includes("cannot write to terminated process")
   );
 };
+
+export const isMethodNotFound = (errorText: string) => {
+  return errorText.toLowerCase().includes("method not found");
+};
