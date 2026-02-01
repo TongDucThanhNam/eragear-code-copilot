@@ -1,4 +1,5 @@
 import { FlashList } from "@shopify/flash-list";
+import { useMemo } from "react";
 import type { ScrollViewProps } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import type { ChatMessage } from "@/store/chat-store";
@@ -7,8 +8,7 @@ import { MessageItem } from "./message-item";
 interface ChatMessagesProps {
   messages: ChatMessage[];
   terminalOutputs: Map<string, string>;
-  onApprove?: (requestId: string, decision: string) => void;
-  onReject?: (requestId: string, decision: string) => void;
+  isStreaming: boolean;
   contentPaddingBottom?: number;
   keyboardBottomOffset?: number;
 }
@@ -16,9 +16,18 @@ interface ChatMessagesProps {
 export function ChatMessages({
   messages,
   terminalOutputs,
+  isStreaming,
   contentPaddingBottom = 100,
   keyboardBottomOffset = 0,
 }: ChatMessagesProps) {
+  const lastAssistantMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === "assistant") {
+        return messages[i]?.id ?? null;
+      }
+    }
+    return null;
+  }, [messages]);
   const listPaddingBottom = Math.max(100, contentPaddingBottom);
   const renderScrollComponent = (props: ScrollViewProps) => (
     <KeyboardAwareScrollView {...props} bottomOffset={keyboardBottomOffset} />
@@ -33,7 +42,11 @@ export function ChatMessages({
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       renderItem={({ item }) => (
-        <MessageItem message={item} terminalOutputs={terminalOutputs} />
+        <MessageItem
+          isLiveMessage={isStreaming && item.id === lastAssistantMessageId}
+          message={item}
+          terminalOutputs={terminalOutputs}
+        />
       )}
       renderScrollComponent={renderScrollComponent}
     />

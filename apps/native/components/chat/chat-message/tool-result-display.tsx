@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { compiler as compileMarkdown } from "markdown-to-jsx/native";
+import { Children, isValidElement, useCallback, useMemo } from "react";
 import {
   Linking,
   type ImageStyle,
@@ -10,7 +11,6 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import Markdown from "markdown-to-jsx/native";
 import { isTerminalOutput } from "./utils";
 
 interface ToolResultDisplayProps {
@@ -31,6 +31,22 @@ export function ToolResultDisplay({ content, status }: ToolResultDisplayProps) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const isError = status === "error" || status === "failed";
+  const onLinkPress = useCallback((url: string) => {
+    Linking.openURL(url);
+  }, []);
+  const wrapTextNodes = useCallback(
+    (node: React.ReactNode) =>
+      Children.map(node, (child) => {
+        if (typeof child === "string" || typeof child === "number") {
+          return <Text>{child}</Text>;
+        }
+        if (isValidElement(child)) {
+          return child;
+        }
+        return null;
+      }),
+    []
+  );
   const terminalMarkdownStyles = useMemo(
     () =>
       ({
@@ -59,6 +75,13 @@ export function ToolResultDisplay({ content, status }: ToolResultDisplayProps) {
         link: { color: "#58a6ff", textDecorationLine: "underline" },
       }) as Record<string, StyleProp<ViewStyle | TextStyle | ImageStyle>>,
     [isDark, isError]
+  );
+  const terminalMarkdownOptions = useMemo(
+    () => ({
+      styles: terminalMarkdownStyles,
+      onLinkPress,
+    }),
+    [onLinkPress, terminalMarkdownStyles]
   );
   const blockMarkdownStyles = useMemo(
     () =>
@@ -89,6 +112,13 @@ export function ToolResultDisplay({ content, status }: ToolResultDisplayProps) {
       }) as Record<string, StyleProp<ViewStyle | TextStyle | ImageStyle>>,
     [isDark, isError]
   );
+  const blockMarkdownOptions = useMemo(
+    () => ({
+      styles: blockMarkdownStyles,
+      onLinkPress,
+    }),
+    [blockMarkdownStyles, onLinkPress]
+  );
 
   // Debug: show when content is missing or empty
   if (!content || content.length === 0) {
@@ -113,22 +143,19 @@ export function ToolResultDisplay({ content, status }: ToolResultDisplayProps) {
         }
         // Check if it looks like terminal output
         if (isTerminalOutput(text)) {
+          const terminalMarkdown = wrapTextNodes(
+            compileMarkdown(
+              `\`\`\`text\n${text}\n\`\`\`\n`,
+              terminalMarkdownOptions
+            )
+          );
           return (
             <View
               className="max-h-48 rounded bg-surface-foreground/5 p-2"
               key={text.slice(0, 20)}
             >
               <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-                <Markdown
-                  options={{
-                    styles: terminalMarkdownStyles,
-                    onLinkPress: (url) => {
-                      Linking.openURL(url);
-                    },
-                  }}
-                >
-                  {`\`\`\`text\n${text}\n\`\`\`\n`}
-                </Markdown>
+                {terminalMarkdown}
               </ScrollView>
             </View>
           );
@@ -136,22 +163,19 @@ export function ToolResultDisplay({ content, status }: ToolResultDisplayProps) {
 
         // Multi-line text
         if (text.includes("\n")) {
+          const blockMarkdown = wrapTextNodes(
+            compileMarkdown(
+              `\`\`\`text\n${text}\n\`\`\`\n`,
+              blockMarkdownOptions
+            )
+          );
           return (
             <View
               className="max-h-48 rounded bg-surface-foreground/5 p-2"
               key={text.slice(0, 20)}
             >
               <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-                <Markdown
-                  options={{
-                    styles: blockMarkdownStyles,
-                    onLinkPress: (url) => {
-                      Linking.openURL(url);
-                    },
-                  }}
-                >
-                  {`\`\`\`text\n${text}\n\`\`\`\n`}
-                </Markdown>
+                {blockMarkdown}
               </ScrollView>
             </View>
           );
