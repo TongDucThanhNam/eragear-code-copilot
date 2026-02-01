@@ -83,6 +83,7 @@ export default function ChatScreen() {
     isChatFailed,
     addMessage,
     clearMessages,
+    clearSessionView,
     setConnStatus,
     setError,
     modes,
@@ -91,6 +92,7 @@ export default function ChatScreen() {
     updateSessionStatus,
     clearChatFailed,
     promptCapabilities,
+    supportsModelSwitching,
   } = useChatStore();
 
   const router = useRouter();
@@ -270,6 +272,7 @@ export default function ChatScreen() {
       setForceActive(true);
       clearChatFailed(validChatId);
       setError(null);
+      clearSessionView();
       setActiveChatId(validChatId, false);
       await resumeSession(validChatId);
       updateSessionStatus(validChatId, "running");
@@ -355,6 +358,7 @@ export default function ChatScreen() {
             availableModes={modes?.availableModes ?? []}
             currentModeId={modes?.currentModeId ?? null}
             currentModelId={models?.currentModelId ?? null}
+            supportsModelSwitching={supportsModelSwitching}
             disabled={connStatus !== "connected" || isSending}
             onHeightChange={handleInputHeightChange}
             onModeChange={handleModeChange}

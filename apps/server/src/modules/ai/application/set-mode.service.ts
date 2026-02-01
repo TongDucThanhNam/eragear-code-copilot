@@ -11,6 +11,7 @@ import type { SessionRepositoryPort } from "@/modules/session/application/ports/
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import {
   getAcpErrorText,
+  isMethodNotFound,
   isProcessExited,
   isProcessTransportNotReady,
 } from "./acp-error.util";
@@ -56,6 +57,21 @@ export class SetModeService {
     const session = this.sessionRuntime.get(chatId);
     if (!session?.sessionId) {
       throw new Error("Chat not found");
+    }
+    // Check if agent supports mode switching
+    if (!session.modes || session.modes.availableModes.length === 0) {
+      throw new Error("Agent does not support mode switching");
+    }
+    // Check if the requested mode is available
+    const isAvailableMode = session.modes.availableModes.some(
+      (mode) => mode.id === modeId
+    );
+    if (!isAvailableMode) {
+      throw new Error("Mode is not available for this session");
+    }
+    // Skip if already on this mode
+    if (session.modes.currentModeId === modeId) {
+      return { ok: true };
     }
     const stdin = session.proc.stdin;
     if (
@@ -116,6 +132,9 @@ export class SetModeService {
       }
     } catch (error) {
       const errorText = getAcpErrorText(error);
+      if (isMethodNotFound(errorText)) {
+        throw new Error("Agent does not support mode switching");
+      }
       throw new Error(errorText || "Failed to set mode");
     }
 

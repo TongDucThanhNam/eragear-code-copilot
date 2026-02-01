@@ -35,7 +35,11 @@ export function ChatMessages({
 
   return (
     <FlashList
-      contentContainerStyle={{ padding: 16, paddingBottom: listPaddingBottom }}
+      contentContainerStyle={{
+        padding: 16,
+        paddingTop: 12,
+        paddingBottom: listPaddingBottom,
+      }}
       data={messages}
       // estimatedItemSize={100}
       // inverted={false}

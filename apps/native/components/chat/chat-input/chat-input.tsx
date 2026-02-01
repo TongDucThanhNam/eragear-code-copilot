@@ -19,6 +19,7 @@ export function ChatInput({
   onModeChange,
   availableModels,
   currentModelId,
+  supportsModelSwitching,
   onModelChange,
   availableCommands,
 }: ChatInputProps) {
@@ -45,8 +46,8 @@ export function ChatInput({
   };
 
   return (
-    <View className="px-1 pb-3" onLayout={handleLayout}>
-      <Surface className="overflow-hidden rounded-2xl border border-divider">
+    <View className="px-3 pb-4" onLayout={handleLayout}>
+      <Surface className="overflow-hidden rounded-2xl border border-divider bg-surface">
         {/* Mode Selector */}
         {availableModes.length > 0 && (
           <View className="flex-row items-center gap-2 border-divider border-b px-3 py-2">
@@ -77,6 +78,7 @@ export function ChatInput({
           availableCommands={availableCommands}
           availableModels={availableModels}
           currentModelId={currentModelId}
+          supportsModelSwitching={supportsModelSwitching}
           disabled={disabled}
           isSendDisabled={isSendDisabled}
           onModelChange={onModelChange}

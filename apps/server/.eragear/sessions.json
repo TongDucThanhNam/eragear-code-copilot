@@ -401,13 +401,13 @@
         "id": "claude-login"
       }
     ],
-    "status": "stopped",
+    "status": "running",
     "modeId": "default",
     "modelId": "default",
     "pinned": false,
     "archived": false,
     "createdAt": 1769270664525,
-    "lastActiveAt": 1769526480106,
+    "lastActiveAt": 1769933059176,
     "messages": [
       {
         "id": "msg-1769270716987-3jgmhdpm3ji",
@@ -686,14 +686,9 @@
     ],
     "commands": [
       {
-        "description": "Generates UI components and pages in \"Studygram\" style (handmade notebook aesthetic). Use when the user asks for UI design, frontend styling, specific Studygram components, or Tailwind v4 implementation. (user)",
+        "description": "Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill. (user)",
         "input": null,
-        "name": "design-system-studygram"
-      },
-      {
-        "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, or applications. Generates creative, polished code that avoids generic AI aesthetics. (user)",
-        "input": null,
-        "name": "frontend-design"
+        "name": "find-skills"
       },
       {
         "description": "Comprehensive guidelines for Obsidian.md plugin development including all 27 ESLint rules, TypeScript best practices, memory management, API usage (requestUrl vs fetch), UI/UX standards, and submission requirements. Use when working with Obsidian plugins, main.ts files, manifest.json, Plugin class, MarkdownView, TFile, vault operations, or any Obsidian API development. (user)",
@@ -701,29 +696,14 @@
         "name": "obsidian"
       },
       {
-        "description": "Comprehensive assistant for Obsidian notes. Can READ notes efficiently (search, peek, section read) and WRITE notes using valid Obsidian syntax (wikilinks, callouts, frontmatter). (user)",
+        "description": "Interactive guide for creating a new Obsidian plugin with best practices (user)",
         "input": null,
-        "name": "obsidian-assistant"
-      },
-      {
-        "description": "Create and edit Obsidian Flavored Markdown with wikilinks, embeds, callouts, properties, and other Obsidian-specific syntax. Use when working with .md files in Obsidian, or when the user mentions wikilinks, callouts, frontmatter, tags, embeds, or Obsidian notes. (user)",
-        "input": null,
-        "name": "obsidian-markdown"
-      },
-      {
-        "description": "Use this skill when the user asks to list files, show directory structure, check file permissions, or explore the codebase layout. Replaces standard 'ls' with 'eza'. (user)",
-        "input": null,
-        "name": "smart-listing"
+        "name": "create-plugin"
       },
       {
         "description": "Load Obsidian plugin development guidelines and best practices (user)",
         "input": null,
         "name": "obsidian"
-      },
-      {
-        "description": "Interactive guide for creating a new Obsidian plugin with best practices (user)",
-        "input": null,
-        "name": "create-plugin"
       },
       {
         "description": "Create and edit JSON Canvas files (.canvas) with nodes, edges, groups, and connections. Use when working with .canvas files, creating visual canvases, mind maps, flowcharts, or when the user mentions Canvas files in Obsidian. (plugin:obsidian@obsidian-skills)",
@@ -822,7 +802,8 @@
         "input": null,
         "name": "mcp:exa:code_search_help"
       }
-    ]
+    ],
+    "supportsModelSwitching": false
   },
   {
     "id": "cd939764-0cbf-42ba-829f-49c46ccfe270",
@@ -1333,13 +1314,13 @@
         "id": "opencode-login"
       }
     ],
-    "status": "running",
+    "status": "stopped",
     "modeId": "build",
     "modelId": "opencode/big-pickle",
     "pinned": false,
     "archived": false,
     "createdAt": 1769823113487,
-    "lastActiveAt": 1769927894790,
+    "lastActiveAt": 1769933039101,
     "messages": [
       {
         "id": "msg-1769824626134-5g7btlkrc6p",
@@ -2676,6 +2657,425 @@
           }
         ],
         "timestamp": 1769927292837
+      },
+      {
+        "id": "msg-1769932983547-vuozhlvum8j",
+        "role": "user",
+        "content": "i want to fuck 🥹",
+        "contentBlocks": [
+          {
+            "type": "text",
+            "text": "i want to fuck 🥹"
+          }
+        ],
+        "timestamp": 1769932983547
+      },
+      {
+        "id": "msg-1769932609984-nvx1va4l4me",
+        "role": "assistant",
+        "content": "\nHello! I'm here to help you with your eragear-code-copilot project. What would you like to work on today?\nI'm an AI assistant powered by opencode, but I don't have information about which specific model I'm running on. \n\nIf you're asking about the AI models available in your eragear project, I can help you explore the agent configurations. Would you like me to check what AI agents/models are configured in your system?\nBased on the code, your system is configured with a default agent called \"Default (Opencode)\" that uses the `opencode` command with `acp` arguments. This appears to be the opencode tool itself running as an AI agent.\n\nThe system supports multiple agent types and allows you to configure different AI models/agents through the agent repository. You can add agents like Claude Code, Codex, Gemini CLI, etc. by configuring their command and arguments.\n\nWould you like me to check what other agents might be configured or help you add a new AI model to your system?\n👍 感谢！\n\n如果你想添加新的AI模型（比如Claude、GPT等）到你的系统，或者有其他开发问题，随时告诉我。我可以帮你：\n\n- 配置新的AI代理\n- 查看项目结构\n- 解决代码问题\n- 或者其他开发任务\n\n需要帮助什么吗？\nHello! How can I help you with your eragear-code-copilot project today?\nI understand you might be feeling frustrated or overwhelmed. If you're running into issues with your code or project, I'm here to help you work through them. \n\nWhat specific problem are you facing? I can help with:\n- Code debugging\n- Project setup issues\n- Adding new features\n- Understanding the codebase\n- Or any other development tasks\n\nLet me know what's causing the frustration and I'll do my best to help you solve it.",
+        "contentBlocks": [
+          {
+            "text": "\nHello! I'm here to help you with your eragear-code-copilot project. What would you like to work on today?",
+            "type": "text"
+          },
+          {
+            "text": "\nI'm an AI assistant powered by opencode, but I don't have information about which specific model I'm running on. \n\nIf you're asking about the AI models available in your eragear project, I can help you explore the agent configurations. Would you like me to check what AI agents/models are configured in your system?",
+            "type": "text"
+          },
+          {
+            "text": "\nBased on the code, your system is configured with a default agent called \"Default (Opencode)\" that uses the `opencode` command with `acp` arguments. This appears to be the opencode tool itself running as an AI agent.\n\nThe system supports multiple agent types and allows you to configure different AI models/agents through the agent repository. You can add agents like Claude Code, Codex, Gemini CLI, etc. by configuring their command and arguments.\n\nWould you like me to check what other agents might be configured or help you add a new AI model to your system?",
+            "type": "text"
+          },
+          {
+            "text": "\n👍 感谢！\n\n如果你想添加新的AI模型（比如Claude、GPT等）到你的系统，或者有其他开发问题，随时告诉我。我可以帮你：\n\n- 配置新的AI代理\n- 查看项目结构\n- 解决代码问题\n- 或者其他开发任务\n\n需要帮助什么吗？",
+            "type": "text"
+          },
+          {
+            "text": "\nHello! How can I help you with your eragear-code-copilot project today?",
+            "type": "text"
+          },
+          {
+            "text": "\n",
+            "type": "text"
+          },
+          {
+            "text": "I",
+            "type": "text"
+          },
+          {
+            "text": " understand",
+            "type": "text"
+          },
+          {
+            "text": " you",
+            "type": "text"
+          },
+          {
+            "text": " might",
+            "type": "text"
+          },
+          {
+            "text": " be",
+            "type": "text"
+          },
+          {
+            "text": " feeling",
+            "type": "text"
+          },
+          {
+            "text": " frustrated",
+            "type": "text"
+          },
+          {
+            "text": " or",
+            "type": "text"
+          },
+          {
+            "text": " overwhelmed",
+            "type": "text"
+          },
+          {
+            "text": ".",
+            "type": "text"
+          },
+          {
+            "text": " If",
+            "type": "text"
+          },
+          {
+            "text": " you",
+            "type": "text"
+          },
+          {
+            "text": "'re",
+            "type": "text"
+          },
+          {
+            "text": " running",
+            "type": "text"
+          },
+          {
+            "text": " into",
+            "type": "text"
+          },
+          {
+            "text": " issues",
+            "type": "text"
+          },
+          {
+            "text": " with",
+            "type": "text"
+          },
+          {
+            "text": " your",
+            "type": "text"
+          },
+          {
+            "text": " code",
+            "type": "text"
+          },
+          {
+            "text": " or",
+            "type": "text"
+          },
+          {
+            "text": " project",
+            "type": "text"
+          },
+          {
+            "text": ",",
+            "type": "text"
+          },
+          {
+            "text": " I",
+            "type": "text"
+          },
+          {
+            "text": "'m",
+            "type": "text"
+          },
+          {
+            "text": " here",
+            "type": "text"
+          },
+          {
+            "text": " to",
+            "type": "text"
+          },
+          {
+            "text": " help",
+            "type": "text"
+          },
+          {
+            "text": " you",
+            "type": "text"
+          },
+          {
+            "text": " work",
+            "type": "text"
+          },
+          {
+            "text": " through",
+            "type": "text"
+          },
+          {
+            "text": " them",
+            "type": "text"
+          },
+          {
+            "text": ".",
+            "type": "text"
+          },
+          {
+            "text": " \n\n",
+            "type": "text"
+          },
+          {
+            "text": "What",
+            "type": "text"
+          },
+          {
+            "text": " specific",
+            "type": "text"
+          },
+          {
+            "text": " problem",
+            "type": "text"
+          },
+          {
+            "text": " are",
+            "type": "text"
+          },
+          {
+            "text": " you",
+            "type": "text"
+          },
+          {
+            "text": " facing",
+            "type": "text"
+          },
+          {
+            "text": "?",
+            "type": "text"
+          },
+          {
+            "text": " I",
+            "type": "text"
+          },
+          {
+            "text": " can",
+            "type": "text"
+          },
+          {
+            "text": " help",
+            "type": "text"
+          },
+          {
+            "text": " with",
+            "type": "text"
+          },
+          {
+            "text": ":\n",
+            "type": "text"
+          },
+          {
+            "text": "-",
+            "type": "text"
+          },
+          {
+            "text": " Code",
+            "type": "text"
+          },
+          {
+            "text": " debugging",
+            "type": "text"
+          },
+          {
+            "text": "\n",
+            "type": "text"
+          },
+          {
+            "text": "-",
+            "type": "text"
+          },
+          {
+            "text": " Project",
+            "type": "text"
+          },
+          {
+            "text": " setup",
+            "type": "text"
+          },
+          {
+            "text": " issues",
+            "type": "text"
+          },
+          {
+            "text": "\n",
+            "type": "text"
+          },
+          {
+            "text": "-",
+            "type": "text"
+          },
+          {
+            "text": " Adding",
+            "type": "text"
+          },
+          {
+            "text": " new",
+            "type": "text"
+          },
+          {
+            "text": " features",
+            "type": "text"
+          },
+          {
+            "text": "\n",
+            "type": "text"
+          },
+          {
+            "text": "-",
+            "type": "text"
+          },
+          {
+            "text": " Understanding",
+            "type": "text"
+          },
+          {
+            "text": " the",
+            "type": "text"
+          },
+          {
+            "text": " code",
+            "type": "text"
+          },
+          {
+            "text": "base",
+            "type": "text"
+          },
+          {
+            "text": "\n",
+            "type": "text"
+          },
+          {
+            "text": "-",
+            "type": "text"
+          },
+          {
+            "text": " Or",
+            "type": "text"
+          },
+          {
+            "text": " any",
+            "type": "text"
+          },
+          {
+            "text": " other",
+            "type": "text"
+          },
+          {
+            "text": " development",
+            "type": "text"
+          },
+          {
+            "text": " tasks",
+            "type": "text"
+          },
+          {
+            "text": "\n\n",
+            "type": "text"
+          },
+          {
+            "text": "Let",
+            "type": "text"
+          },
+          {
+            "text": " me",
+            "type": "text"
+          },
+          {
+            "text": " know",
+            "type": "text"
+          },
+          {
+            "text": " what",
+            "type": "text"
+          },
+          {
+            "text": "'s",
+            "type": "text"
+          },
+          {
+            "text": " causing",
+            "type": "text"
+          },
+          {
+            "text": " the",
+            "type": "text"
+          },
+          {
+            "text": " frustration",
+            "type": "text"
+          },
+          {
+            "text": " and",
+            "type": "text"
+          },
+          {
+            "text": " I",
+            "type": "text"
+          },
+          {
+            "text": "'ll",
+            "type": "text"
+          },
+          {
+            "text": " do",
+            "type": "text"
+          },
+          {
+            "text": " my",
+            "type": "text"
+          },
+          {
+            "text": " best",
+            "type": "text"
+          },
+          {
+            "text": " to",
+            "type": "text"
+          },
+          {
+            "text": " help",
+            "type": "text"
+          },
+          {
+            "text": " you",
+            "type": "text"
+          },
+          {
+            "text": " solve",
+            "type": "text"
+          },
+          {
+            "text": " it",
+            "type": "text"
+          },
+          {
+            "text": ".",
+            "type": "text"
+          }
+        ],
+        "reasoning": "\n",
+        "reasoningBlocks": [
+          {
+            "text": "\n",
+            "type": "text"
+          }
+        ],
+        "timestamp": 1769932989996
       }
     ],
     "commands": [
@@ -2691,6 +3091,7 @@
         "description": "compact the session",
         "name": "compact"
       }
-    ]
+    ],
+    "supportsModelSwitching": false
   }
 ]

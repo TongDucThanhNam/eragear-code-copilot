@@ -231,6 +231,8 @@ export interface StoredSession {
   loadSessionSupported?: boolean;
   /** Whether to use unstable_resumeSession instead of loadSession */
   useUnstableResume?: boolean;
+  /** Whether agent supports runtime model switching (session/set_model method) */
+  supportsModelSwitching?: boolean;
   /** Agent metadata */
   agentInfo?: DomainAgentInfo;
   /** Current session status */
@@ -283,6 +285,8 @@ export interface ChatSession {
   loadSessionSupported?: boolean;
   /** Whether to use unstable_resumeSession instead of loadSession */
   useUnstableResume?: boolean;
+  /** Whether agent supports runtime model switching (session/set_model method) */
+  supportsModelSwitching?: boolean;
   /** Current mode state */
   modes?: SessionModeState;
   /** Current model state */

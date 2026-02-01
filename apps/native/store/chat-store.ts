@@ -148,6 +148,7 @@ interface ChatState {
   // Session capabilities
   modes: SessionModeState | null;
   models: SessionModelState | null;
+  supportsModelSwitching: boolean;
   commands: AvailableCommand[];
   promptCapabilities: PromptCapabilities | null;
 
@@ -175,9 +176,11 @@ interface ChatState {
   appendToReasoning: (text: string) => void;
   flushPending: () => void;
   clearMessages: () => void;
+  clearSessionView: () => void;
 
   setModes: (modes: SessionModeState | null) => void;
   setModels: (models: SessionModelState | null) => void;
+  setSupportsModelSwitching: (supported: boolean) => void;
   setCommands: (commands: AvailableCommand[]) => void;
   setPromptCapabilities: (capabilities: PromptCapabilities | null) => void;
 
@@ -206,6 +209,7 @@ const initialState = {
   pendingReasoning: "",
   modes: null,
   models: null,
+  supportsModelSwitching: false,
   commands: [],
   promptCapabilities: null,
   pendingPermission: null,
@@ -243,6 +247,7 @@ export const useChatStore = create<ChatState>()(
             pendingReasoning: "",
             modes: null,
             models: null,
+            supportsModelSwitching: false,
             commands: [],
             promptCapabilities: null,
             pendingPermission: null,
@@ -420,9 +425,18 @@ export const useChatStore = create<ChatState>()(
 
       clearMessages: () =>
         set({ messages: [], pendingText: "", pendingReasoning: "" }),
+      clearSessionView: () =>
+        set({
+          messages: [],
+          pendingText: "",
+          pendingReasoning: "",
+          terminalOutput: new Map(),
+        }),
 
       setModes: (modes) => set({ modes }),
       setModels: (models) => set({ models }),
+      setSupportsModelSwitching: (supported) =>
+        set({ supportsModelSwitching: supported }),
       setCommands: (commands) => set({ commands }),
       setPromptCapabilities: (capabilities) =>
         set({ promptCapabilities: capabilities }),

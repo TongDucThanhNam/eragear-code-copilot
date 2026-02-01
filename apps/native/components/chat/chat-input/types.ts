@@ -31,6 +31,7 @@ export interface ChatInputProps {
   onModeChange: (modeId: string) => void;
   availableModels: Model[];
   currentModelId: string | null;
+  supportsModelSwitching?: boolean;
   onModelChange: (modelId: string) => void;
   availableCommands: Command[];
 }

@@ -57,6 +57,7 @@ export class GetSessionStateService {
         commands: session.commands,
         promptCapabilities: session.promptCapabilities,
         loadSessionSupported: session.loadSessionSupported,
+        supportsModelSwitching: session.supportsModelSwitching ?? false,
         agentInfo: session.agentInfo ?? null,
         plan: session.plan ?? null,
       };
@@ -71,6 +72,7 @@ export class GetSessionStateService {
         commands: stored.commands ?? null,
         promptCapabilities: null,
         loadSessionSupported: stored.loadSessionSupported,
+        supportsModelSwitching: stored.supportsModelSwitching ?? false,
         agentInfo: stored.agentInfo ?? null,
         plan: stored.plan ?? null,
       };

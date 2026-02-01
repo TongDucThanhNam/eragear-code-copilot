@@ -76,6 +76,13 @@ export class SetModelService {
     if (!session.models || session.models.availableModels.length === 0) {
       throw new Error("Agent does not support model switching");
     }
+    // Check if agent advertised support for session/set_model method
+    // This is an unstable feature that requires the agent to enable it
+    if (!session.supportsModelSwitching) {
+      throw new Error(
+        "Agent does not support runtime model switching (session/set_model is an unstable feature)"
+      );
+    }
     const isAvailableModel = session.models.availableModels.some(
       (model) => model.modelId === modelId
     );

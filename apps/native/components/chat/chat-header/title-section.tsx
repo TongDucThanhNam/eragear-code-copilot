@@ -10,8 +10,10 @@ interface TitleSectionProps {
 
 export function TitleSection({ title, status, subtitle }: TitleSectionProps) {
   return (
-    <View className="flex-1">
-      <Text className="font-bold text-foreground text-lg">{title}</Text>
+    <View className="flex-1 px-2">
+      <Text className="font-semibold text-base text-foreground" numberOfLines={1}>
+        {title}
+      </Text>
       <StatusIndicator status={status} subtitle={subtitle} />
     </View>
   );

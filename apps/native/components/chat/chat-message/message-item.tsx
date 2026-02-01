@@ -203,6 +203,12 @@ export function MessageItem({
     ],
   }));
 
+  const showLive = displayMode !== "collapsed";
+  const visibleActivities =
+    displayMode === "live"
+      ? activities.slice(-MAX_VISIBLE_ACTIVITIES)
+      : activities;
+
   useEffect(() => {
     if (!showLive) {
       return;
@@ -218,8 +224,10 @@ export function MessageItem({
       >
         <View
           className={cn_inline(
-            "rounded-2xl p-3",
-            isUserMessage ? "max-w-[85%] bg-accent" : "w-full bg-surface"
+            "rounded-2xl border p-3",
+            isUserMessage
+              ? "max-w-[82%] rounded-br-md border-transparent bg-accent"
+              : "max-w-[88%] rounded-bl-md border-divider bg-surface"
           )}
         >
           {message.parts.map((part, index) => (
@@ -234,13 +242,8 @@ export function MessageItem({
     );
   }
 
-  const visibleActivities =
-    displayMode === "live"
-      ? activities.slice(-MAX_VISIBLE_ACTIVITIES)
-      : activities;
   const hiddenCount = Math.max(0, activities.length - visibleActivities.length);
 
-  const showLive = displayMode !== "collapsed";
   const showSummary = displayMode !== "live";
   const durationLabel = formatDuration(
     displayMode === "collapsed"
@@ -315,7 +318,7 @@ export function MessageItem({
           <AnimatedView
             entering={FadeIn.delay(FINAL_TEXT_DELAY_MS).duration(300)}
           >
-            <View className="mt-3">
+            <View className="mt-3 max-w-[88%] rounded-2xl rounded-bl-md border border-divider bg-surface p-3">
               <MessagePartItem
                 part={finalTextPart}
                 terminalOutputs={terminalOutputs}

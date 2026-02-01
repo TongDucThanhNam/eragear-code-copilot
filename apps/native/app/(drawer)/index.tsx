@@ -87,7 +87,9 @@ export default function SessionsScreen() {
     setModes,
     setModels,
     setPromptCapabilities,
+    setSupportsModelSwitching,
   } = useChatStore();
+  const utils = trpc.useUtils();
   const projects = useProjectStore((s) => s.projects);
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const setProjects = useProjectStore((s) => s.setProjects);
@@ -303,6 +305,19 @@ export default function SessionsScreen() {
       }
       setPromptCapabilities(data.promptCapabilities ?? null);
       setConnStatus("connected");
+
+      try {
+        const sessionState = await utils.getSessionState.fetch({
+          chatId: data.chatId,
+        });
+        if (sessionState?.supportsModelSwitching !== undefined) {
+          setSupportsModelSwitching(
+            Boolean(sessionState.supportsModelSwitching)
+          );
+        }
+      } catch (err) {
+        console.warn("Failed to fetch session state", err);
+      }
 
       sessionsQuery.refetch();
       router.push(`/chats/${data.chatId}`);

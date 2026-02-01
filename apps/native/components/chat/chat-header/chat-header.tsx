@@ -14,7 +14,7 @@ export function ChatHeader({
   title,
 }: ChatHeaderProps) {
   return (
-    <View className="flex-row items-center justify-between border-divider border-b bg-background p-4 pt-12">
+    <View className="flex-row items-center justify-between border-divider border-b bg-background px-4 py-3">
       <BackButton />
       <TitleSection status={status} subtitle={subtitle} title={title} />
       <ActionButtons

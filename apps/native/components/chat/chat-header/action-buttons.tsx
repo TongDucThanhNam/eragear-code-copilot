@@ -17,10 +17,10 @@ export function ActionButtons({
     if (canResume) {
       return (
         <TouchableOpacity
-          className="ml-2 rounded bg-success px-3 py-1"
+          className="ml-2 rounded-full border border-success/40 bg-success/15 px-3.5 py-1.5"
           onPress={onResume}
         >
-          <Text className="text-sm text-success-foreground">Resume</Text>
+          <Text className="text-xs text-success">Resume</Text>
         </TouchableOpacity>
       );
     }
@@ -29,10 +29,10 @@ export function ActionButtons({
 
   return (
     <TouchableOpacity
-      className="ml-2 rounded bg-danger px-3 py-1"
+      className="ml-2 rounded-full border border-danger/40 bg-danger/15 px-3.5 py-1.5"
       onPress={onStop}
     >
-      <Text className="text-danger-foreground text-sm">Stop</Text>
+      <Text className="text-xs text-danger">Stop</Text>
     </TouchableOpacity>
   );
 }

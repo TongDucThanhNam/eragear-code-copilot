@@ -13,8 +13,8 @@ export function StatusIndicator({ status, subtitle }: StatusIndicatorProps) {
 
   return (
     <View className="flex-row items-center">
-      <View className={`mr-2 h-2 w-2 rounded-full ${statusColor}`} />
-      <Text className="text-muted text-sm">{statusText}</Text>
+      <View className={`mr-2 h-1.5 w-1.5 rounded-full ${statusColor}`} />
+      <Text className="text-muted text-xs">{statusText}</Text>
     </View>
   );
 }

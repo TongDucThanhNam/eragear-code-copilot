@@ -83,6 +83,7 @@ export class ResumeSessionService {
         models: existing.models,
         promptCapabilities: existing.promptCapabilities,
         loadSessionSupported: existing.loadSessionSupported ?? false,
+        supportsModelSwitching: existing.supportsModelSwitching ?? false,
         plan: existing.plan ?? stored.plan ?? null,
       };
     }
@@ -110,6 +111,7 @@ export class ResumeSessionService {
       models: res.models,
       promptCapabilities: res.promptCapabilities,
       loadSessionSupported: res.loadSessionSupported ?? false,
+      supportsModelSwitching: res.supportsModelSwitching ?? false,
       plan: res.plan ?? stored.plan ?? null,
     };
   }

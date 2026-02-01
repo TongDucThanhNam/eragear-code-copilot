@@ -195,15 +195,20 @@ export class CreateSessionService {
 
     // Check for both loadSession (standard) and sessionCapabilities.resume (unstable)
     const hasLoadSession = Boolean(agentCapabilities?.loadSession);
-    const hasResumeCapability = Boolean(
-      (agentCapabilities as { sessionCapabilities?: { resume?: unknown } })
-        ?.sessionCapabilities?.resume
-    );
+    const sessionCapabilities = (
+      agentCapabilities as { sessionCapabilities?: Record<string, unknown> }
+    )?.sessionCapabilities;
+    const hasResumeCapability = Boolean(sessionCapabilities?.resume);
 
     // Support resume if either capability is present
     chatSession.loadSessionSupported = hasLoadSession || hasResumeCapability;
     // Track which method to use
     chatSession.useUnstableResume = !hasLoadSession && hasResumeCapability;
+
+    // Check if agent supports runtime model switching (unstable session/set_model method)
+    // This is different from returning models in session response - that just lists available models
+    const hasSetModelCapability = Boolean(sessionCapabilities?.setModel);
+    chatSession.supportsModelSwitching = hasSetModelCapability;
 
     console.log(
       "[DEBUG] loadSession:",
@@ -213,15 +218,17 @@ export class CreateSessionService {
       "loadSessionSupported:",
       chatSession.loadSessionSupported,
       "useUnstableResume:",
-      chatSession.useUnstableResume
+      chatSession.useUnstableResume,
+      "supportsModelSwitching:",
+      chatSession.supportsModelSwitching
     );
 
     chatSession.agentInfo = initResult?.agentInfo
       ? {
-          name: initResult.agentInfo.name,
-          title: initResult.agentInfo.title ?? undefined,
-          version: initResult.agentInfo.version,
-        }
+        name: initResult.agentInfo.name,
+        title: initResult.agentInfo.title ?? undefined,
+        version: initResult.agentInfo.version,
+      }
       : undefined;
 
     // Store full capabilities and auth methods for debugging
@@ -388,6 +395,7 @@ export class CreateSessionService {
       agentInfo: chatSession.agentInfo,
       loadSessionSupported: chatSession.loadSessionSupported,
       useUnstableResume: chatSession.useUnstableResume,
+      supportsModelSwitching: chatSession.supportsModelSwitching,
       agentCapabilities: chatSession.agentCapabilities,
       authMethods: chatSession.authMethods,
       status: "running" as const,

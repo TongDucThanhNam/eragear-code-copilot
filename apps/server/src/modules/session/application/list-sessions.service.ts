@@ -71,6 +71,10 @@ export class ListSessionsService {
       const agentCapabilities =
         activeSession?.agentCapabilities ?? session.agentCapabilities;
       const authMethods = activeSession?.authMethods ?? session.authMethods;
+      const supportsModelSwitching =
+        activeSession?.supportsModelSwitching ??
+        session.supportsModelSwitching ??
+        false;
       const derivedProjectId =
         session.projectId ??
         projects.find((project) => project.path === session.projectRoot)?.id;
@@ -93,6 +97,7 @@ export class ListSessionsService {
         createdAt: session.createdAt,
         lastActiveAt: session.lastActiveAt,
         loadSessionSupported,
+        supportsModelSwitching,
         agentInfo,
         agentName,
         agentCapabilities,

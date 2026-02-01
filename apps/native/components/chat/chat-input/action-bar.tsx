@@ -17,6 +17,7 @@ interface ActionBarProps {
   isSendDisabled: boolean;
   availableModels: ChatInputProps["availableModels"];
   currentModelId: string | null;
+  supportsModelSwitching?: boolean;
   onModelChange: (modelId: string) => void;
   availableCommands: ChatInputProps["availableCommands"];
 }
@@ -29,6 +30,7 @@ export function ActionBar({
   isSendDisabled,
   availableModels,
   currentModelId,
+  supportsModelSwitching,
   onModelChange,
   availableCommands,
 }: ActionBarProps) {
@@ -61,7 +63,7 @@ export function ActionBar({
           <ModelSelector
             availableModels={availableModels}
             currentModelId={currentModelId}
-            disabled={disabled}
+            disabled={disabled || supportsModelSwitching === false}
             isOpen={showModelMenu}
             onModelChange={onModelChange}
             onOpenChange={setShowModelMenu}

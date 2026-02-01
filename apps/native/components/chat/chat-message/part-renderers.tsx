@@ -4,7 +4,7 @@ import { DiffPart } from "./diff-part";
 import { PlanPart } from "./plan-part";
 import { ReasoningPart } from "./reasoning-part";
 import { TerminalPart } from "./terminal-part";
-import { TextPart } from "./text-part";
+import MarkdownText from "./text-part";
 import { ToolCallPart } from "./tool-call-part";
 import { ToolResultPart } from "./tool-result-part";
 
@@ -16,7 +16,7 @@ interface PartRenderersProps {
 export function PartRenderers({ part, terminalOutputs }: PartRenderersProps) {
   switch (part.type) {
     case "text":
-      return <TextPart text={part.text} />;
+      return <MarkdownText>{part.text}</MarkdownText>;
 
     case "reasoning":
       return <ReasoningPart text={part.text} />;

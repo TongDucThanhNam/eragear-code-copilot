@@ -274,6 +274,9 @@ export function useChat() {
       if (data.models) {
         store.setModels(data.models);
       }
+      if (data.supportsModelSwitching !== undefined) {
+        store.setSupportsModelSwitching(Boolean(data.supportsModelSwitching));
+      }
       if (data.commands) {
         const commands = (data.commands || []).map((cmd) => ({
           name: cmd.name,
@@ -727,6 +730,12 @@ export function useChat() {
       return;
     }
     const store = useChatStore.getState();
+    if (!store.supportsModelSwitching) {
+      const message =
+        "Agent does not support runtime model switching (session/set_model is an unstable feature)";
+      store.setError(message);
+      throw new Error(message);
+    }
     try {
       await setModelMutation.mutateAsync({ chatId: activeChatId, modelId });
       if (store.models) {
@@ -740,7 +749,7 @@ export function useChat() {
         normalized.includes("model switching") ||
         normalized.includes("method not found")
       ) {
-        store.setModels(null);
+        store.setSupportsModelSwitching(false);
       }
       store.setError(message);
     }
@@ -789,7 +798,9 @@ export function useChat() {
     const store = useChatStore.getState();
     try {
       store.setConnStatus("connecting");
+      await utils.getSessionState.cancel({ chatId });
       const res = await resumeSessionMutation.mutateAsync({ chatId });
+      await utils.getSessionState.invalidate({ chatId });
       const state = await utils.getSessionState.fetch({ chatId });
       applySessionState(state);
       if (res?.promptCapabilities !== undefined) {
