@@ -1,10 +1,8 @@
 import { Chip, Spinner } from "heroui-native";
-import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { Text, View } from "react-native";
 import Animated, {
   Easing,
-  FadeInUp,
-  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -15,7 +13,6 @@ import type { MessagePart } from "@/store/chat-store";
 import { cn_inline } from "./utils";
 
 const AnimatedView = Animated.createAnimatedComponent(View);
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 type ActivityKind = "tool" | "thinking" | "plan";
 type ActivityStatus = "running" | "completed";
@@ -224,10 +221,49 @@ export function ActivityRow({
     }
   };
 
+  const getKindDotClass = () => {
+    switch (item.kind) {
+      case "tool":
+        return "bg-emerald-500";
+      case "plan":
+        return "bg-amber-500";
+      default:
+        return "bg-sky-500";
+    }
+  };
+
+  if (isCompact) {
+    return (
+      <AnimatedView
+        className="flex-row items-center gap-2 py-1.5"
+        style={animatedStyle}
+      >
+        <View className="relative h-2 w-2">
+          <View className={`h-2 w-2 rounded-full ${getKindDotClass()}`} />
+          {isRunning && (
+            <AnimatedView
+              className="absolute inset-0 bg-accent/30"
+              style={pulseStyle}
+            />
+          )}
+        </View>
+        <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">
+          {kindLabel}
+        </Text>
+        <Text className="flex-1 text-foreground text-xs" numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Text className="text-[10px] text-muted-foreground">
+          {isRunning ? "Running" : "Done"}
+        </Text>
+      </AnimatedView>
+    );
+  }
+
   return (
     <AnimatedView
       className={cn_inline(
-        "relative overflow-hidden rounded-xl border px-3 py-2",
+        "relative overflow-hidden border px-3 py-2",
         isRunning
           ? "border-accent/70 bg-accent/10"
           : "border-transparent bg-surface-foreground/5",
@@ -237,7 +273,7 @@ export function ActivityRow({
     >
       {isRunning && (
         <AnimatedView
-          className="absolute inset-0 rounded-xl bg-accent/10"
+          className="absolute inset-0 bg-accent/10"
           style={pulseStyle}
         />
       )}
@@ -268,109 +304,5 @@ export function ActivityRow({
         </Text>
       )}
     </AnimatedView>
-  );
-}
-
-export function SummaryBar({
-  toolCount,
-  thinkingCount,
-  durationLabel,
-  isExpanded,
-  onToggle,
-}: {
-  toolCount: number;
-  thinkingCount: number;
-  durationLabel: string;
-  isExpanded: boolean;
-  onToggle: () => void;
-}) {
-  const pressValue = useSharedValue(0);
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: 1 - pressValue.value * 0.02 }],
-    backgroundColor: interpolateColor(
-      pressValue.value,
-      [0, 1],
-      ["rgba(255,255,255,0.02)", "rgba(88,166,255,0.12)"]
-    ),
-  }));
-
-  return (
-    <AnimatedPressable
-      className="rounded-2xl border border-surface-foreground/10 px-4 py-3"
-      onPress={onToggle}
-      onPressIn={() => {
-        pressValue.value = withTiming(1, { duration: 120 });
-      }}
-      onPressOut={() => {
-        pressValue.value = withTiming(0, { duration: 160 });
-      }}
-      style={animatedStyle}
-    >
-      <View className="flex-row items-center justify-between">
-        <View>
-          <Text className="text-muted-foreground text-xs uppercase tracking-wide">
-            Activity summary
-          </Text>
-          <Text className="mt-1 text-foreground text-sm">
-            {toolCount} tools, {thinkingCount} thinking - {durationLabel}
-          </Text>
-        </View>
-        <Text className="text-accent text-xs">
-          {isExpanded ? "Hide" : "Show"}
-        </Text>
-      </View>
-    </AnimatedPressable>
-  );
-}
-
-export function ExpandedActivityList({
-  activities,
-  isExpanded,
-}: {
-  activities: ActivityItem[];
-  isExpanded: boolean;
-}) {
-  const [contentHeight, setContentHeight] = useState(0);
-  const height = useSharedValue(0);
-
-  useEffect(() => {
-    height.value = withTiming(isExpanded ? contentHeight : 0, {
-      duration: 280,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, [contentHeight, height, isExpanded]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    height: height.value,
-    opacity: height.value === 0 ? 0 : 1,
-  }));
-
-  const renderItems = (compact: boolean) =>
-    activities.map((item, index) => (
-      <AnimatedView
-        entering={
-          isExpanded ? FadeInUp.delay(index * 40).duration(240) : undefined
-        }
-        key={item.id}
-      >
-        <ActivityRow isCompact={compact} item={item} />
-      </AnimatedView>
-    ));
-
-  return (
-    <View className="relative mt-3">
-      <View
-        className="absolute right-0 left-0 opacity-0"
-        onLayout={(event) => {
-          setContentHeight(event.nativeEvent.layout.height);
-        }}
-        pointerEvents="none"
-      >
-        {renderItems(false)}
-      </View>
-      <AnimatedView className="overflow-hidden" style={animatedStyle}>
-        {isExpanded ? renderItems(false) : null}
-      </AnimatedView>
-    </View>
   );
 }

@@ -1,4 +1,4 @@
-import { Chip } from "heroui-native";
+import { Accordion, Chip } from "heroui-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import Animated, {
@@ -13,9 +13,7 @@ import type { ChatMessage } from "@/store/chat-store";
 import {
   ActivityRow,
   buildActivityModel,
-  ExpandedActivityList,
   formatDuration,
-  SummaryBar,
 } from "./agentic-activity";
 import { MessagePartItem } from "./message-part-item";
 import { cn_inline } from "./utils";
@@ -67,7 +65,6 @@ export function MessageItem({
   const [displayMode, setDisplayMode] = useState<DisplayMode>(() =>
     isLiveMessage && hasActivities ? "live" : "collapsed"
   );
-  const [isExpanded, setIsExpanded] = useState(false);
   const [durationMs, setDurationMs] = useState(0);
   const liveScrollRef = useRef<ScrollView | null>(null);
 
@@ -85,7 +82,6 @@ export function MessageItem({
     firstActivityAtRef.current = null;
     lastActivityAtRef.current = null;
     setDurationMs(0);
-    setIsExpanded(false);
     if (hasActivities && isLiveMessage) {
       setDisplayMode("live");
     } else if (hasActivities) {
@@ -137,7 +133,6 @@ export function MessageItem({
       if (first !== null && last !== null) {
         setDurationMs(Math.max(0, last - first));
       }
-      setIsExpanded(false);
     }
     return undefined;
   }, [displayMode]);
@@ -250,6 +245,7 @@ export function MessageItem({
       ? durationMs
       : Date.now() - (firstActivityAtRef.current ?? Date.now())
   );
+  const summaryLabel = `${toolCount} tools, ${thinkingCount} thinking - ${durationLabel}`;
 
   return (
     <View className="mb-4 w-full">
@@ -281,36 +277,55 @@ export function MessageItem({
           </AnimatedView>
         )}
 
+        {/* Show Summary */}
         {showSummary && (
           <AnimatedView
             exiting={FadeOut.duration(200)}
             key={`summary-${message.id}`}
             style={summaryStyle}
           >
-            <SummaryBar
-              durationLabel={durationLabel}
-              isExpanded={isExpanded}
-              onToggle={() => {
-                setIsExpanded((prev) => !prev);
-              }}
-              thinkingCount={thinkingCount}
-              toolCount={toolCount}
-            />
-            <ExpandedActivityList
-              activities={activities}
-              isExpanded={isExpanded}
-            />
-            {detailParts.length > 0 && isExpanded && (
-              <View className="mt-3">
-                {detailParts.map((part, index) => (
-                  <MessagePartItem
-                    key={`detail-${part.type}-${index}`}
-                    part={part}
-                    terminalOutputs={terminalOutputs}
-                  />
-                ))}
-              </View>
-            )}
+            <Accordion variant="surface">
+              <Accordion.Item value={`summary-${message.id}`}>
+                <Accordion.Trigger className="min-h-8 px-2 py-1.5">
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-1 pr-2">
+                      <Text
+                        className="text-foreground text-xs"
+                        numberOfLines={1}
+                      >
+                        Activity · {summaryLabel}
+                      </Text>
+                    </View>
+                    <View className="flex-row items-center gap-2">
+                      <Text className="text-[11px] text-muted-foreground">
+                        {activities.length}
+                      </Text>
+                      <Accordion.Indicator />
+                    </View>
+                  </View>
+                </Accordion.Trigger>
+                <Accordion.Content className="px-2 pt-0 pb-2">
+                  <View className="border-divider border-t">
+                    {activities.map((item) => (
+                      <View className="border-divider border-b" key={item.id}>
+                        <ActivityRow isCompact item={item} />
+                      </View>
+                    ))}
+                  </View>
+                  {detailParts.length > 0 && (
+                    <View className="mt-3">
+                      {detailParts.map((part, index) => (
+                        <MessagePartItem
+                          key={`detail-${part.type}-${index}`}
+                          part={part}
+                          terminalOutputs={terminalOutputs}
+                        />
+                      ))}
+                    </View>
+                  )}
+                </Accordion.Content>
+              </Accordion.Item>
+            </Accordion>
           </AnimatedView>
         )}
 
@@ -318,7 +333,7 @@ export function MessageItem({
           <AnimatedView
             entering={FadeIn.delay(FINAL_TEXT_DELAY_MS).duration(300)}
           >
-            <View className="mt-3 max-w-[88%] rounded-2xl rounded-bl-md border border-divider bg-surface p-3">
+            <View className="mt-3 p-3">
               <MessagePartItem
                 part={finalTextPart}
                 terminalOutputs={terminalOutputs}
