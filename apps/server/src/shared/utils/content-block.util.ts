@@ -6,7 +6,11 @@
  * @module shared/utils/content-block.util
  */
 
-import type { ContentBlock, ResourceLink } from "@agentclientprotocol/sdk";
+import type {
+  ContentBlock,
+  ResourceLink,
+  ToolCallContent,
+} from "@agentclientprotocol/sdk";
 import type { StoredContentBlock } from "../types/session.types";
 
 /**
@@ -33,6 +37,29 @@ export function toStoredContentBlocks(
   blocks: ContentBlock[]
 ): StoredContentBlock[] {
   return blocks.map(toStoredContentBlock);
+}
+
+/**
+ * Convert tool call content blocks into JSON-safe content.
+ */
+export function toStoredToolCallContent(
+  content?: ToolCallContent[] | null
+): ToolCallContent[] | undefined {
+  if (content === null) {
+    return undefined;
+  }
+  if (!content) {
+    return content;
+  }
+  return content.map((item) => {
+    if (item.type !== "content") {
+      return item;
+    }
+    return {
+      ...item,
+      content: toStoredContentBlock(item.content),
+    } as ToolCallContent;
+  });
 }
 
 function normalizeResourceLinkSize(

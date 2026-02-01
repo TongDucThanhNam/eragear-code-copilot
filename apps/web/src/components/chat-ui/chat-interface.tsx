@@ -1,19 +1,13 @@
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { PlanStatus } from "@/components/ai-elements/plan";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatInput } from "@/components/chat-ui/chat-input";
 import {
   ChatMessages,
-  type ContentBlockPart,
-  type ContextItem,
-  type ContextPart,
-  type MessageType,
-  type ToolPart,
 } from "@/components/chat-ui/chat-messages";
-import type { StoredContentBlock } from "@/components/chat-ui/content-blocks";
+import type { ToolUIPart, UIMessage } from "@repo/shared";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import { trpc } from "@/lib/trpc";
 import { useChatStatusStore } from "@/store/chat-status-store";
@@ -97,32 +91,16 @@ export function ChatInterface({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatIdRef = useRef<string | null>(initialChatId || null);
-  const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
   const isReplayingHistoryRef = useRef(false);
   const isResumingRef = useRef(false); // Track when resuming to skip chatHistory restore
-  const replayResetTimerRef = useRef<number | null>(null);
-
-  const scheduleReplayReset = useCallback(() => {
-    if (!isReplayingHistoryRef.current) {
-      return;
-    }
-    if (replayResetTimerRef.current) {
-      window.clearTimeout(replayResetTimerRef.current);
-    }
-    replayResetTimerRef.current = window.setTimeout(() => {
-      setStatus("ready");
-      isReplayingHistoryRef.current = false;
-      replayResetTimerRef.current = null;
-    }, 120);
-  }, []);
 
   const [terminalOutputs, setTerminalOutputs] = useState<
     Record<string, string>
   >({});
 
-  const [messages, setMessages] = useState<MessageType[]>([]);
+  const [messages, setMessages] = useState<UIMessage[]>([]);
   const batchUpdateQueueRef = useRef<
-    Array<(prev: MessageType[]) => MessageType[]>
+    Array<(prev: UIMessage[]) => UIMessage[]>
   >([]);
   const batchUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -235,7 +213,7 @@ export function ChatInterface({
   }, []);
 
   const updateMessagesState = useCallback(
-    (updater: (old: MessageType[]) => MessageType[]) => {
+    (updater: (old: UIMessage[]) => UIMessage[]) => {
       // Queue the update instead of immediate setMessages
       batchUpdateQueueRef.current.push(updater);
 
@@ -439,30 +417,7 @@ export function ChatInterface({
           chatHistory.length,
           "messages"
         );
-        const convertedMessages = chatHistory.map((msg) => {
-          const contextItems = buildContextItems(
-            (msg.contentBlocks ?? []) as StoredContentBlock[]
-          );
-          const contentBlocks = getDisplayContentBlocks(
-            (msg.contentBlocks ?? []) as StoredContentBlock[]
-          );
-          const parts: MessageType["parts"] = [];
-          if (contextItems.length > 0) {
-            parts.push({ type: "context", items: contextItems });
-          }
-          if (contentBlocks.length > 0) {
-            parts.push({ type: "content_block", blocks: contentBlocks });
-          }
-          if (msg.content) {
-            parts.push({ type: "text" as const, content: msg.content });
-          }
-          return {
-            key: msg.id,
-            from: msg.role as "user" | "assistant",
-            parts,
-          };
-        });
-        setMessages(convertedMessages);
+        setMessages(chatHistory as UIMessage[]);
       }
 
       if (sessionState.status === "stopped") {
@@ -481,319 +436,38 @@ export function ChatInterface({
     }
   }, [sessionState, chatHistory, connStatus, restoreSessionState]);
 
-  const extractToolContentInfo = useCallback(
-    (
-      content:
-        | Array<{
-            type: string;
-            terminalId?: string;
-            path?: string;
-            oldText?: string;
-            newText?: string;
-          }>
-        | undefined
-    ): {
-      terminalId: string | undefined;
-      diffs: Array<{ path: string; oldText?: string; newText: string }>;
-    } => {
-      if (!(content && Array.isArray(content))) {
-        return { terminalId: undefined, diffs: [] };
-      }
-
-      const terminalId = content.find(
-        (c): c is { type: "terminal"; terminalId: string } =>
-          c.type === "terminal"
-      )?.terminalId;
-
-      const diffParts = content.filter(
-        (
-          c
-        ): c is {
-          type: "diff";
-          path: string;
-          oldText?: string;
-          newText: string;
-        } => c.type === "diff"
-      );
-      const diffs = diffParts.map((d) => ({
-        path: d.path,
-        oldText: d.oldText,
-        newText: d.newText,
-      }));
-
-      if (diffs.length > 0) {
-        const addDiff = useDiffStore.getState().addDiff;
-        diffs.forEach(addDiff);
-      }
-
-      return { terminalId, diffs };
-    },
-    []
-  );
-
-  const handleAgentToolCall = useCallback(
-    (tool: ToolCallContent) => {
+  const upsertUiMessage = useCallback(
+    (next: UIMessage) => {
       updateMessagesState((prev) => {
-        const { terminalId, diffs } = extractToolContentInfo(tool.content);
-
-        const newTool: ToolPart = {
-          type: "tool",
-          toolCallId: tool.toolCallId,
-          name: tool.title || tool.kind || "Tool",
-          description: tool.kind || "",
-          status: (tool.status || "pending") as
-            | "pending"
-            | "approval-requested"
-            | "running"
-            | "completed"
-            | "error",
-          parameters: tool.rawInput || {},
-          result: undefined,
-          error: undefined,
-          terminalId,
-          diffs,
-        };
-
-        for (let msgIndex = prev.length - 1; msgIndex >= 0; msgIndex -= 1) {
-          const message = prev[msgIndex];
-          const partIndex = message.parts.findIndex(
-            (p): p is ToolPart =>
-              p.type === "tool" && p.toolCallId === tool.toolCallId
-          );
-          if (partIndex === -1) {
-            continue;
-          }
-
-          const parts = [...message.parts];
-          const existing = parts[partIndex] as ToolPart;
-          const mergedStatus =
-            existing.status === "approval-requested" &&
-            newTool.status === "pending"
-              ? existing.status
-              : newTool.status;
-          parts[partIndex] = {
-            ...existing,
-            name: newTool.name || existing.name,
-            description: newTool.description || existing.description,
-            status: mergedStatus,
-            parameters:
-              Object.keys(newTool.parameters).length > 0
-                ? newTool.parameters
-                : existing.parameters,
-            terminalId: newTool.terminalId ?? existing.terminalId,
-            diffs:
-              newTool.diffs && newTool.diffs.length > 0
-                ? newTool.diffs
-                : existing.diffs,
-          };
-          return [
-            ...prev.slice(0, msgIndex),
-            { ...message, parts },
-            ...prev.slice(msgIndex + 1),
-          ];
+        const index = prev.findIndex((message) => message.id === next.id);
+        if (index === -1) {
+          return [...prev, next];
         }
-
-        const lastMsg = prev.at(-1);
-        if (lastMsg && lastMsg.from === "assistant") {
-          const parts = [...lastMsg.parts, newTool];
-          return [...prev.slice(0, -1), { ...lastMsg, parts }];
-        }
-
-        return [
-          ...prev,
-          { key: nanoid(), from: "assistant", parts: [newTool] },
-        ];
-      });
-    },
-    [updateMessagesState, extractToolContentInfo]
-  );
-
-  const updateToolFromContent = useCallback(
-    (
-      tool: ToolPart,
-      content:
-        | Array<{
-            type: string;
-            content?: { text: string };
-            terminalId?: string;
-            path?: string;
-            oldText?: string;
-            newText?: string;
-          }>
-        | undefined
-    ): ToolPart => {
-      if (!(content && Array.isArray(content))) {
-        return tool;
-      }
-
-      tool.result = content.map((c) => c.content?.text || "").join("\n");
-
-      const { terminalId, diffs } = extractToolContentInfo(content);
-      if (terminalId) {
-        tool.terminalId = terminalId;
-      }
-      if (diffs.length > 0) {
-        tool.diffs = diffs;
-      }
-
-      return tool;
-    },
-    [extractToolContentInfo]
-  );
-
-  const handleAgentToolCallUpdate = useCallback(
-    (update: ToolCallUpdateContent) => {
-      updateMessagesState((prev) => {
-        for (let msgIndex = prev.length - 1; msgIndex >= 0; msgIndex -= 1) {
-          const message = prev[msgIndex];
-          const parts = [...message.parts];
-          const partIndex = parts.findIndex(
-            (p): p is ToolPart =>
-              p.type === "tool" && p.toolCallId === update.toolCallId
-          );
-
-          if (partIndex === -1) {
-            continue;
-          }
-
-          let tool = { ...parts[partIndex] } as ToolPart;
-
-          if (update.status) {
-            const nextStatus = update.status as
-              | "pending"
-              | "approval-requested"
-              | "running"
-              | "completed"
-              | "error";
-            if (
-              !(
-                tool.status === "approval-requested" && nextStatus === "pending"
-              )
-            ) {
-              tool.status = nextStatus;
-            }
-          }
-
-          tool = updateToolFromContent(tool, update.content);
-
-          parts[partIndex] = tool;
-          return [
-            ...prev.slice(0, msgIndex),
-            { ...message, parts },
-            ...prev.slice(msgIndex + 1),
-          ];
-        }
-
-        return prev;
-      });
-    },
-    [updateMessagesState, updateToolFromContent]
-  );
-
-  const handleAgentPlan = useCallback(
-    (entries: Array<{ id: string; content: string; status: string }>) => {
-      const typedEntries: Array<{ content: string; status: PlanStatus }> =
-        entries.map((e) => ({
-          content: e.content,
-          status: e.status as PlanStatus,
-        }));
-
-      updateMessagesState((prev) => {
-        const lastMsg = prev.at(-1);
-        if (lastMsg && lastMsg.from === "assistant") {
-          const parts = [...lastMsg.parts];
-          const lastPart = parts.at(-1);
-          if (lastPart && lastPart.type === "plan") {
-            parts[parts.length - 1] = { ...lastPart, entries: typedEntries };
-          } else {
-            parts.push({ type: "plan", entries: typedEntries });
-          }
-          return [...prev.slice(0, -1), { ...lastMsg, parts }];
-        }
-        const newMsg: MessageType = {
-          key: nanoid(),
-          from: "assistant",
-          parts: [{ type: "plan", entries: typedEntries }],
-        };
-        return [...prev, newMsg];
+        const updated = [...prev];
+        updated[index] = next;
+        return updated;
       });
     },
     [updateMessagesState]
   );
 
-  const handlePermissionRequest = useCallback(
-    (requestId: string, toolCall: ToolCallContent, options?: unknown[]) => {
-      updateMessagesState((prev) => {
-        if (!toolCall?.toolCallId) {
-          return prev;
-        }
-
-        const { terminalId, diffs } = extractToolContentInfo(toolCall.content);
-        const approvalTool: ToolPart = {
-          type: "tool",
-          toolCallId: toolCall.toolCallId,
-          name: toolCall.title || toolCall.kind || "Tool",
-          description: toolCall.kind || "",
-          status: "approval-requested" as const,
-          parameters: toolCall.rawInput || {},
-          result: undefined,
-          error: undefined,
-          requestId,
-          options,
-          terminalId,
-          diffs,
-        };
-
-        for (let msgIndex = prev.length - 1; msgIndex >= 0; msgIndex -= 1) {
-          const message = prev[msgIndex];
-          const parts = [...message.parts];
-          const partIndex = parts.findIndex(
-            (p): p is ToolPart =>
-              p.type === "tool" && p.toolCallId === toolCall.toolCallId
-          );
-          if (partIndex === -1) {
-            continue;
-          }
-
-          const existing = parts[partIndex] as ToolPart;
-          parts[partIndex] = {
-            ...existing,
-            status: "approval-requested",
-            requestId,
-            options,
-            name: approvalTool.name || existing.name,
-            description: approvalTool.description || existing.description,
-            parameters:
-              Object.keys(approvalTool.parameters).length > 0
-                ? approvalTool.parameters
-                : existing.parameters,
-            terminalId: approvalTool.terminalId ?? existing.terminalId,
-            diffs:
-              approvalTool.diffs && approvalTool.diffs.length > 0
-                ? approvalTool.diffs
-                : existing.diffs,
-          };
-          return [
-            ...prev.slice(0, msgIndex),
-            { ...message, parts },
-            ...prev.slice(msgIndex + 1),
-          ];
-        }
-
-        const lastMsg = prev.at(-1);
-        if (lastMsg && lastMsg.from === "assistant") {
-          const parts = [...lastMsg.parts, approvalTool];
-          return [...prev.slice(0, -1), { ...lastMsg, parts }];
-        }
-
-        return [
-          ...prev,
-          { key: nanoid(), from: "assistant", parts: [approvalTool] },
-        ];
-      });
-    },
-    [updateMessagesState, extractToolContentInfo]
-  );
+  const isMessageStreaming = useCallback((message: UIMessage) => {
+    return message.parts.some((part) => {
+      if (part.type === "text" || part.type === "reasoning") {
+        return part.state === "streaming";
+      }
+      if (part.type.startsWith("tool-")) {
+        const toolPart = part as ToolUIPart;
+        return (
+          toolPart.state === "input-streaming" ||
+          toolPart.state === "input-available" ||
+          toolPart.state === "approval-requested" ||
+          toolPart.state === "approval-responded"
+        );
+      }
+      return false;
+    });
+  }, []);
 
   const handleApproveTool = useCallback(
     (requestId: string, decision = "allow") => {
@@ -823,633 +497,56 @@ export function ChatInterface({
     [chatId, permissionResponseMutation]
   );
 
-  const handleAgentChunk = useCallback(
-    (chunk: string) => {
-      updateMessagesState((prev) => {
-        const lastMsg = prev.at(-1);
-        if (lastMsg && lastMsg.from === "assistant") {
-          const parts = [...lastMsg.parts];
-          const lastPart = parts.at(-1);
-          if (lastPart && lastPart.type === "text") {
-            const newContent = lastPart.content + chunk;
-            parts[parts.length - 1] = { ...lastPart, content: newContent };
-          } else {
-            parts.push({ type: "text", content: chunk });
-          }
-          return [...prev.slice(0, -1), { ...lastMsg, parts }];
-        }
-        const newMsg: MessageType = {
-          key: nanoid(),
-          from: "assistant",
-          parts: [{ type: "text", content: chunk }],
-        };
-        return [...prev, newMsg];
-      });
-      if (!isReplayingHistoryRef.current) {
-        setStatus("streaming");
-      }
-    },
-    [updateMessagesState]
-  );
-
-  const parseContentBlock = useCallback(
-    (content: unknown): StoredContentBlock | null => {
-      if (!content || typeof content !== "object") {
-        return null;
-      }
-      const type = (content as { type?: string }).type;
-      if (
-        type === "text" ||
-        type === "image" ||
-        type === "audio" ||
-        type === "resource" ||
-        type === "resource_link"
-      ) {
-        return content as StoredContentBlock;
-      }
-      return null;
-    },
-    []
-  );
-
-  const stripFileProtocol = useCallback((uri?: string) => {
-    if (!uri) {
-      return "";
-    }
-    return uri.replace(/^file:\/\//, "");
-  }, []);
-
-  const toContextItem = useCallback(
-    (block: StoredContentBlock): ContextItem | null => {
-      if (block.type === "text") {
-        return null;
-      }
-      if (block.type === "resource") {
-        const uri = block.resource.uri;
-        const cleaned = stripFileProtocol(uri);
-        const parts = cleaned.split("/");
-        const title = parts.pop() || cleaned || "resource";
-        const subtitle = parts.join("/");
-        return {
-          id: uri || title,
-          title,
-          subtitle: subtitle || undefined,
-          kind: "resource",
-          uri,
-          mimeType: block.resource.mimeType ?? null,
-        };
-      }
-      if (block.type === "resource_link") {
-        const cleaned = stripFileProtocol(block.uri);
-        const parts = cleaned.split("/");
-        const fallbackTitle =
-          parts.pop() || cleaned || block.name || "resource";
-        const title = block.title || block.name || fallbackTitle;
-        const subtitle = parts.join("/") || undefined;
-        return {
-          id: block.uri || title,
-          title,
-          subtitle,
-          kind: "resource_link",
-          uri: block.uri,
-          mimeType: block.mimeType ?? null,
-          size: block.size ?? null,
-        };
-      }
-      if (block.type === "image") {
-        const cleaned = stripFileProtocol(block.uri);
-        const title = cleaned.split("/").pop() || "image";
-        return {
-          id: block.uri || title,
-          title,
-          kind: "image",
-          uri: block.uri,
-          mimeType: block.mimeType ?? null,
-        };
-      }
-      if (block.type === "audio") {
-        return {
-          id: `audio-${Date.now()}-${Math.random()}`,
-          title: "audio",
-          kind: "audio",
-          mimeType: block.mimeType ?? null,
-        };
-      }
-      return null;
-    },
-    [stripFileProtocol]
-  );
-
-  const buildContextItems = useCallback(
-    (blocks: StoredContentBlock[] | undefined | null) => {
-      if (!blocks || blocks.length === 0) {
-        return [];
-      }
-      const items = blocks
-        .map((block) => toContextItem(block))
-        .filter((item): item is ContextItem => Boolean(item));
-
-      const seen = new Set<string>();
-      return items.filter((item) => {
-        const key = item.uri || item.id || item.title;
-        if (seen.has(key)) {
-          return false;
-        }
-        seen.add(key);
-        return true;
-      });
-    },
-    [toContextItem]
-  );
-
-  const getDisplayContentBlocks = useCallback(
-    (blocks: StoredContentBlock[] | undefined | null) => {
-      if (!blocks || blocks.length === 0) {
-        return [];
-      }
-      return blocks.filter((block) => block.type !== "text");
-    },
-    []
-  );
-
-  const getContentBlockKey = useCallback((block: StoredContentBlock) => {
-    switch (block.type) {
-      case "image":
-      case "audio":
-        return `${block.type}:${block.uri ?? ""}:${block.mimeType}:${block.data.slice(0, 24)}`;
-      case "resource":
-        return `resource:${block.resource.uri}:${block.resource.mimeType ?? ""}:${
-          block.resource.text?.slice(0, 24) ?? block.resource.blob?.slice(0, 24) ?? ""
-        }`;
-      case "resource_link":
-        return `resource_link:${block.uri}:${block.name}:${block.size ?? ""}`;
-      default:
-        return `block:${block.type}`;
-    }
-  }, []);
-
-  const upsertContentBlockPart = useCallback(
-    (
-      parts: MessageType["parts"],
-      blocks: StoredContentBlock[]
-    ): MessageType["parts"] => {
-      if (blocks.length === 0) {
-        return parts;
-      }
-      const existingIndex = parts.findIndex(
-        (part): part is ContentBlockPart => part.type === "content_block"
-      );
-      if (existingIndex === -1) {
-        const insertIndex = parts.findIndex((part) => part.type !== "context");
-        const nextPart: ContentBlockPart = {
-          type: "content_block",
-          blocks,
-        };
-        if (insertIndex === -1) {
-          return [...parts, nextPart];
-        }
-        return [
-          ...parts.slice(0, insertIndex),
-          nextPart,
-          ...parts.slice(insertIndex),
-        ];
-      }
-      const existing = parts[existingIndex] as ContentBlockPart;
-      const mergedBlocks = [...existing.blocks];
-      const seen = new Set(mergedBlocks.map(getContentBlockKey));
-      for (const block of blocks) {
-        const key = getContentBlockKey(block);
-        if (seen.has(key)) {
-          continue;
-        }
-        seen.add(key);
-        mergedBlocks.push(block);
-      }
-      const nextParts = [...parts];
-      nextParts[existingIndex] = { ...existing, blocks: mergedBlocks };
-      return nextParts;
-    },
-    [getContentBlockKey]
-  );
-
-  const upsertContextPart = useCallback(
-    (
-      parts: MessageType["parts"],
-      items: ContextItem[]
-    ): MessageType["parts"] => {
-      if (items.length === 0) {
-        return parts;
-      }
-      const existingIndex = parts.findIndex(
-        (part): part is ContextPart => part.type === "context"
-      );
-      if (existingIndex === -1) {
-        return [{ type: "context", items }, ...parts];
-      }
-      const existing = parts[existingIndex] as ContextPart;
-      const mergedItems = [...existing.items];
-      const seen = new Set(mergedItems.map((item) => item.uri || item.id));
-      for (const item of items) {
-        const key = item.uri || item.id;
-        if (seen.has(key)) {
-          continue;
-        }
-        seen.add(key);
-        mergedItems.push(item);
-      }
-      const nextParts = [...parts];
-      nextParts[existingIndex] = { ...existing, items: mergedItems };
-      return nextParts;
-    },
-    []
-  );
-
-  const appendContentBlocksToMessage = useCallback(
-    (from: "user" | "assistant", blocks: StoredContentBlock[]) => {
-      const displayBlocks = getDisplayContentBlocks(blocks);
-      if (displayBlocks.length === 0) {
-        return;
-      }
-      updateMessagesState((prev) => {
-        const lastMsg = prev.at(-1);
-        if (lastMsg && lastMsg.from === from) {
-          const parts = upsertContentBlockPart(
-            [...lastMsg.parts],
-            displayBlocks
-          );
-          return [...prev.slice(0, -1), { ...lastMsg, parts }];
-        }
-        const newMsg: MessageType = {
-          key: nanoid(),
-          from,
-          parts: [{ type: "content_block", blocks: displayBlocks }],
-        };
-        return [...prev, newMsg];
-      });
-    },
-    [getDisplayContentBlocks, updateMessagesState, upsertContentBlockPart]
-  );
-
-  const appendContextToMessage = useCallback(
-    (from: "user" | "assistant", items: ContextItem[]) => {
-      if (items.length === 0) {
-        return;
-      }
-      updateMessagesState((prev) => {
-        const lastMsg = prev.at(-1);
-        if (lastMsg && lastMsg.from === from) {
-          const parts = upsertContextPart([...lastMsg.parts], items);
-          return [...prev.slice(0, -1), { ...lastMsg, parts }];
-        }
-        const newMsg: MessageType = {
-          key: nanoid(),
-          from,
-          parts: [{ type: "context", items }],
-        };
-        return [...prev, newMsg];
-      });
-    },
-    [updateMessagesState, upsertContextPart]
-  );
-
-  const handleAgentThought = useCallback(
-    (chunk: string) => {
-      updateMessagesState((prev) => {
-        const lastMsg = prev.at(-1);
-        if (lastMsg && lastMsg.from === "assistant") {
-          const currentReasoning = lastMsg.reasoning?.content || "";
-          const newReasoning = currentReasoning + chunk;
-          const newLastMsg = {
-            ...lastMsg,
-            reasoning: {
-              content: newReasoning,
-              duration: lastMsg.reasoning?.duration || 0,
-            },
-          };
-          return [...prev.slice(0, -1), newLastMsg];
-        }
-        const newMsg: MessageType = {
-          key: nanoid(),
-          from: "assistant",
-          parts: [],
-          reasoning: {
-            content: chunk,
-            duration: 0,
-          },
-        };
-        return [...prev, newMsg];
-      });
-      if (!isReplayingHistoryRef.current) {
-        setStatus("streaming");
-      }
-    },
-    [updateMessagesState]
-  );
-
-  const extractTextFromContent = useCallback(
-    (content: unknown, fallbackText?: string): string => {
-      if (typeof content === "string") {
-        return content;
-      }
-      if (typeof content === "object" && content !== null) {
-        const obj = content as Record<string, unknown>;
-        const text = obj.text as string | undefined;
-        if (text) {
-          return text;
-        }
-        const delta = obj.delta as Record<string, unknown> | undefined;
-        if (delta?.text && typeof delta.text === "string") {
-          return delta.text;
-        }
-        const value = obj.value as string | undefined;
-        if (value) {
-          return value;
-        }
-        return fallbackText || "";
-      }
-      return fallbackText || "";
-    },
-    []
-  );
-
-  interface UserMessageEvent {
-    type: "user_message";
-    id: string;
-    text: string;
-    timestamp: number;
-    contentBlocks?: StoredContentBlock[];
-  }
-
-  interface SessionUpdateEvent {
-    sessionUpdate:
-      | "user_message_chunk"
-      | "agent_message_chunk"
-      | "agent_thought_chunk"
-      | "tool_call"
-      | "tool_call_update"
-      | "available_commands_update"
-      | "plan"
-      | "turn_end"
-      | "prompt_end";
-    content?: unknown;
-    text?: string;
-    toolCallId?: string;
-    title?: string;
-    kind?: string;
-    rawInput?: Record<string, unknown>;
-    status?: string;
-    availableCommands?: Array<{
-      name: string;
-      description: string;
-      input?: { hint: string } | null;
-    }>;
-    entries?: Array<{ id: string; content: string; status: string }>;
-  }
-
   type BroadcastEvent =
     | { type: "connected" }
-    | UserMessageEvent
-    | { type: "session_update"; update: SessionUpdateEvent }
-    | { type: "current_mode_update"; modeId: string }
+    | { type: "ui_message"; message: UIMessage }
     | {
-        type: "request_permission";
-        requestId: string;
-        toolCall: ToolCallContent;
-        options?: unknown[];
+        type: "available_commands_update";
+        availableCommands: Array<{
+          name: string;
+          description: string;
+          input?: { hint: string } | null;
+        }>;
       }
+    | { type: "current_mode_update"; modeId: string }
     | { type: "error"; error: string }
     | { type: "heartbeat"; ts: number }
     | { type: "terminal_output"; terminalId: string; data: string };
-
-  const processSessionUpdate = useCallback(
-    (u: SessionUpdateEvent) => {
-      switch (u.sessionUpdate) {
-        case "user_message_chunk": {
-          const contentBlock = parseContentBlock(u.content);
-          if (contentBlock && contentBlock.type !== "text") {
-            const items = buildContextItems([contentBlock]);
-            appendContextToMessage("user", items);
-            appendContentBlocksToMessage("user", [contentBlock]);
-            lastStreamKindRef.current = "user";
-            return;
-          }
-          const text = extractTextFromContent(
-            contentBlock?.type === "text" ? contentBlock.text : u.content,
-            u.text
-          );
-          if (!text) {
-            return;
-          }
-          setMessages((prev) => {
-            const lastMsg = prev.at(-1);
-            if (
-              lastStreamKindRef.current === "user" &&
-              lastMsg &&
-              lastMsg.from === "user"
-            ) {
-              const parts = [...lastMsg.parts];
-              const lastPart = parts.at(-1);
-              if (lastPart && lastPart.type === "text") {
-                const newContent = lastPart.content + text;
-                parts[parts.length - 1] = {
-                  ...lastPart,
-                  content: newContent,
-                };
-              } else {
-                parts.push({ type: "text", content: text });
-              }
-              return [...prev.slice(0, -1), { ...lastMsg, parts }];
-            }
-            const newMsg: MessageType = {
-              key: nanoid(),
-              from: "user",
-              parts: [{ type: "text", content: text }],
-            };
-            return [...prev, newMsg];
-          });
-          lastStreamKindRef.current = "user";
-          return;
-        }
-
-        case "agent_message_chunk": {
-          const contentBlock = parseContentBlock(u.content);
-          if (contentBlock && contentBlock.type !== "text") {
-            const items = buildContextItems([contentBlock]);
-            appendContextToMessage("assistant", items);
-            appendContentBlocksToMessage("assistant", [contentBlock]);
-            lastStreamKindRef.current = "agent";
-            if (isReplayingHistoryRef.current) {
-              setStatus("ready");
-            }
-            return;
-          }
-          const text = extractTextFromContent(
-            contentBlock?.type === "text" ? contentBlock.text : u.content,
-            u.text
-          );
-          if (text) {
-            handleAgentChunk(text);
-            lastStreamKindRef.current = "agent";
-            if (isReplayingHistoryRef.current) {
-              setStatus("ready");
-            }
-          } else {
-            console.warn("[Client] Could not extract text from chunk:", u);
-          }
-          return;
-        }
-
-        case "agent_thought_chunk": {
-          const text = extractTextFromContent(u.content, u.text);
-          if (text) {
-            handleAgentThought(text);
-            lastStreamKindRef.current = "agent";
-            if (isReplayingHistoryRef.current) {
-              setStatus("ready");
-            }
-          } else {
-            console.warn("[Client] Could not extract thought from chunk:", u);
-          }
-          return;
-        }
-
-        case "tool_call":
-          lastStreamKindRef.current = "other";
-          handleAgentToolCall(u as unknown as ToolCallContent);
-          return;
-
-        case "tool_call_update":
-          if (u.toolCallId) {
-            handleAgentToolCallUpdate(u as ToolCallUpdateContent);
-          }
-          return;
-
-        case "available_commands_update": {
-          console.log(
-            "[Client] Commands update:",
-            JSON.stringify(u.availableCommands, null, 2)
-          );
-          if (u.availableCommands) {
-            setAvailableCommands(
-              u.availableCommands.map((c) => ({
-                name: c.name,
-                description: c.description,
-                input: c.input ?? undefined,
-              }))
-            );
-          }
-          return;
-        }
-
-        case "plan":
-          if (u.entries) {
-            handleAgentPlan(u.entries);
-          }
-          return;
-
-        case "turn_end":
-        case "prompt_end":
-          setStatus("ready");
-          lastStreamKindRef.current = "other";
-          isReplayingHistoryRef.current = false;
-          return;
-
-        default:
-          return;
-      }
-    },
-    [
-      appendContentBlocksToMessage,
-      appendContextToMessage,
-      buildContextItems,
-      extractTextFromContent,
-      handleAgentChunk,
-      handleAgentThought,
-      handleAgentToolCall,
-      handleAgentToolCallUpdate,
-      handleAgentPlan,
-      parseContentBlock,
-    ]
-  );
 
   const processSessionEvent = useCallback(
     (event: BroadcastEvent) => {
       switch (event.type) {
         case "connected":
           console.log("[Client] Connection confirmed by server");
-          isReplayingHistoryRef.current = true;
+          setConnStatus("connected");
           setStatus("ready");
+          isReplayingHistoryRef.current = true;
           return;
 
-        case "user_message": {
-          const exists = messages.some((m) => m.key === event.id);
-          if (!exists) {
-            const contextItems = buildContextItems(event.contentBlocks);
-            const contentBlocks = getDisplayContentBlocks(
-              event.contentBlocks as StoredContentBlock[]
-            );
-            const parts: MessageType["parts"] = [];
-            if (contextItems.length > 0) {
-              parts.push({ type: "context", items: contextItems });
+        case "ui_message": {
+          upsertUiMessage(event.message);
+          if (event.message.role === "assistant") {
+            const streaming = isMessageStreaming(event.message);
+            setStatus(streaming ? "streaming" : "ready");
+            if (!streaming) {
+              isReplayingHistoryRef.current = false;
             }
-            if (contentBlocks.length > 0) {
-              parts.push({ type: "content_block", blocks: contentBlocks });
-            }
-            if (event.text) {
-              parts.push({ type: "text", content: event.text });
-            }
-            setMessages((prev) => [
-              ...prev,
-              {
-                key: event.id,
-                from: "user" as const,
-                parts,
-              },
-            ]);
           }
-          lastStreamKindRef.current = "other";
           return;
         }
 
-        case "session_update": {
-          const u = event.update;
-          console.log(
-            "[Client] Session Update Detail:",
-            JSON.stringify(u, null, 2)
+        case "available_commands_update":
+          setAvailableCommands(
+            event.availableCommands.map((c) => ({
+              name: c.name,
+              description: c.description,
+              input: c.input ?? undefined,
+            }))
           );
-          processSessionUpdate(u);
-          scheduleReplayReset();
           return;
-        }
 
         case "current_mode_update":
           setCurrentModeId(event.modeId);
-          return;
-
-        case "request_permission":
-          console.log("[Client] Permission Request:", event);
-          handlePermissionRequest(
-            event.requestId,
-            event.toolCall,
-            event.options
-          );
-          return;
-
-        case "error":
-          console.error("tRPC Error Event:", event.error);
-          setConnStatus("error");
-          setMessages((prev) => [
-            ...prev,
-            {
-              key: nanoid(),
-              from: "assistant" as const,
-              parts: [{ type: "text", content: `❌ Error: ${event.error}` }],
-            },
-          ]);
-          return;
-
-        case "heartbeat":
-          console.log("[Client] Heartbeat", event.ts);
           return;
 
         case "terminal_output":
@@ -1461,17 +558,36 @@ export function ChatInterface({
           }
           return;
 
+        case "error":
+          console.error("tRPC Error Event:", event.error);
+          setConnStatus("error");
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: nanoid(),
+              role: "assistant",
+              parts: [{ type: "text", text: `❌ Error: ${event.error}` }],
+            },
+          ]);
+          return;
+
+        case "heartbeat":
+          console.log("[Client] Heartbeat", event.ts);
+          return;
+
         default:
           return;
       }
     },
     [
-      messages,
-      buildContextItems,
-      getDisplayContentBlocks,
-      handlePermissionRequest,
-      processSessionUpdate,
-      scheduleReplayReset,
+      isMessageStreaming,
+      setAvailableCommands,
+      setConnStatus,
+      setCurrentModeId,
+      setMessages,
+      setStatus,
+      setTerminalOutputs,
+      upsertUiMessage,
     ]
   );
 
@@ -1712,18 +828,18 @@ export function ChatInterface({
           updateMessagesState((prev) => [
             ...prev,
             {
-              key: nanoid(),
-              from: "assistant",
-              parts: [{ type: "text", content: "🚫 Generation cancelled." }],
+              id: nanoid(),
+              role: "assistant",
+              parts: [{ type: "text", text: "🚫 Generation cancelled." }],
             },
           ]);
         } else if (res.stopReason === "max_tokens") {
           updateMessagesState((prev) => [
             ...prev,
             {
-              key: nanoid(),
-              from: "assistant",
-              parts: [{ type: "text", content: "⚠️ Max tokens reached." }],
+              id: nanoid(),
+              role: "assistant",
+              parts: [{ type: "text", text: "⚠️ Max tokens reached." }],
             },
           ]);
         }

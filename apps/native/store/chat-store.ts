@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import type { UIMessage } from "@repo/shared";
 
 // Types matching the server's state
 export interface SessionModeState {
@@ -52,63 +53,6 @@ export interface SessionInfo {
   lastActiveAt?: number;
 }
 
-// Message part types matching ACP format
-export type MessagePart =
-  | { type: "text"; text: string }
-  | { type: "reasoning"; text: string }
-  | { type: "tool_call"; toolCallId: string; name: string; args: unknown }
-  | {
-      type: "tool_result";
-      toolCallId: string;
-      status: string;
-      content?: Array<{
-        type: string;
-        text?: string;
-        source?: {
-          type: string;
-          text?: string;
-          oldText?: string;
-          path?: string;
-        };
-      }>;
-    }
-  | { type: "plan"; items: Array<{ content: string; status: string }> }
-  | {
-      type: "diff";
-      path: string;
-      oldText?: string;
-      newText: string;
-    }
-  | { type: "terminal"; terminalId: string };
-
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  parts: MessagePart[];
-  timestamp: number;
-}
-
-// Tool call types matching ACP protocol
-export interface ToolCall {
-  kind?: string;
-  title: string;
-  rawInput?: unknown;
-  rawOutput?: unknown;
-  status?: "pending" | "in_progress" | "completed" | "failed";
-  locations?: Array<{ path: string; line?: number }>;
-  content?: Array<{
-    type: string;
-    text?: string;
-    source?: {
-      type: string;
-      text?: string;
-      oldText?: string;
-      path?: string;
-    };
-  }>;
-  _meta?: Record<string, unknown>;
-}
-
 export interface PermissionOption {
   optionId?: string;
   id?: string;
@@ -127,7 +71,9 @@ export type PermissionOptions =
 
 export interface PermissionRequest {
   requestId: string;
-  toolCall: ToolCall;
+  toolCallId: string;
+  title: string;
+  input?: unknown;
   options?: PermissionOptions;
 }
 
@@ -141,9 +87,7 @@ interface ChatState {
   failedChatIds: Set<string>; // Track sessions that failed to connect
 
   // Current chat state
-  messages: ChatMessage[];
-  pendingText: string; // Streaming text buffer
-  pendingReasoning: string; // Streaming reasoning buffer
+  messages: UIMessage[];
 
   // Session capabilities
   modes: SessionModeState | null;
@@ -169,13 +113,8 @@ interface ChatState {
   updateSessionStatus: (id: string, status: SessionInfo["status"]) => void;
   removeSession: (id: string) => void;
 
-  addMessage: (message: ChatMessage) => void;
-  updateLastAssistantMessage: (parts: MessagePart[]) => void;
-  appendToText: (text: string) => void;
-  appendToUserText: (text: string) => void;
-  appendToReasoning: (text: string) => void;
-  flushPending: () => void;
-  clearMessages: () => void;
+  setMessages: (messages: UIMessage[]) => void;
+  upsertMessage: (message: UIMessage) => void;
   clearSessionView: () => void;
 
   setModes: (modes: SessionModeState | null) => void;
@@ -205,8 +144,6 @@ const initialState = {
   activeChatIsReadOnly: false,
   failedChatIds: new Set<string>(),
   messages: [],
-  pendingText: "",
-  pendingReasoning: "",
   modes: null,
   models: null,
   supportsModelSwitching: false,
@@ -243,8 +180,6 @@ export const useChatStore = create<ChatState>()(
             activeChatId: id,
             activeChatIsReadOnly: readOnly,
             messages: isReadOnlyTransition ? state.messages : [],
-            pendingText: "",
-            pendingReasoning: "",
             modes: null,
             models: null,
             supportsModelSwitching: false,
@@ -280,157 +215,23 @@ export const useChatStore = create<ChatState>()(
           activeChatId: state.activeChatId === id ? null : state.activeChatId,
         })),
 
-      addMessage: (message) =>
-        set((state) => ({ messages: [...state.messages, message] })),
-
-      updateLastAssistantMessage: (parts) =>
+      setMessages: (messages) => set({ messages }),
+      upsertMessage: (message) =>
         set((state) => {
-          const messages = [...state.messages];
-          const lastIdx = messages.length - 1;
-          if (lastIdx >= 0 && messages[lastIdx].role === "assistant") {
-            messages[lastIdx] = { ...messages[lastIdx], parts };
+          const index = state.messages.findIndex((m) => m.id === message.id);
+          if (index === -1) {
+            return { messages: [...state.messages, message] };
           }
-          return { messages };
+          const updated = [...state.messages];
+          updated[index] = message;
+          return { messages: updated };
         }),
 
-      appendToText: (text) =>
-        set((state) => {
-          const messages = [...state.messages];
-          const lastMsg = messages.at(-1);
-
-          if (lastMsg?.role === "assistant") {
-            const parts = [...lastMsg.parts];
-            const lastPart = parts.at(-1);
-            if (lastPart?.type === "text") {
-              parts[parts.length - 1] = {
-                ...lastPart,
-                text: lastPart.text + text,
-              };
-            } else {
-              parts.push({ type: "text", text });
-            }
-            messages[messages.length - 1] = { ...lastMsg, parts };
-          } else {
-            messages.push({
-              id: `msg_${Date.now()}`,
-              role: "assistant",
-              parts: [{ type: "text", text }],
-              timestamp: Date.now(),
-            });
-          }
-
-          return { messages };
-        }),
-
-      appendToUserText: (text) =>
-        set((state) => {
-          const messages = [...state.messages];
-          const lastMsg = messages.at(-1);
-
-          if (lastMsg?.role === "user") {
-            const parts = [...lastMsg.parts];
-            const lastPart = parts.at(-1);
-            if (lastPart?.type === "text") {
-              parts[parts.length - 1] = {
-                ...lastPart,
-                text: lastPart.text + text,
-              };
-            } else {
-              parts.push({ type: "text", text });
-            }
-            messages[messages.length - 1] = { ...lastMsg, parts };
-          } else {
-            messages.push({
-              id: `msg_${Date.now()}`,
-              role: "user",
-              parts: [{ type: "text", text }],
-              timestamp: Date.now(),
-            });
-          }
-
-          return { messages };
-        }),
-
-      appendToReasoning: (text) =>
-        set((state) => {
-          const messages = [...state.messages];
-          const lastMsg = messages.at(-1);
-
-          if (lastMsg?.role === "assistant") {
-            const parts = [...lastMsg.parts];
-            const lastPart = parts.at(-1);
-            if (lastPart?.type === "reasoning") {
-              parts[parts.length - 1] = {
-                ...lastPart,
-                text: lastPart.text + text,
-              };
-            } else {
-              parts.push({ type: "reasoning", text });
-            }
-            messages[messages.length - 1] = { ...lastMsg, parts };
-          } else {
-            messages.push({
-              id: `msg_${Date.now()}`,
-              role: "assistant",
-              parts: [{ type: "reasoning", text }],
-              timestamp: Date.now(),
-            });
-          }
-
-          return { messages };
-        }),
-
-      flushPending: () => {
-        const { pendingText, pendingReasoning, messages } = get();
-        if (!(pendingText || pendingReasoning)) {
-          return;
-        }
-
-        const parts: MessagePart[] = [];
-        if (pendingReasoning) {
-          parts.push({ type: "reasoning", text: pendingReasoning });
-        }
-        if (pendingText) {
-          parts.push({ type: "text", text: pendingText });
-        }
-
-        // Append to last assistant message or create new one
-        const lastMsg = messages.at(-1);
-        if (lastMsg?.role === "assistant") {
-          set((state) => ({
-            messages: state.messages.map((m, i) =>
-              i === state.messages.length - 1
-                ? { ...m, parts: [...m.parts, ...parts] }
-                : m
-            ),
-            pendingText: "",
-            pendingReasoning: "",
-          }));
-        } else {
-          set((state) => ({
-            messages: [
-              ...state.messages,
-              {
-                id: `msg_${Date.now()}`,
-                role: "assistant",
-                parts,
-                timestamp: Date.now(),
-              },
-            ],
-            pendingText: "",
-            pendingReasoning: "",
-          }));
-        }
-      },
-
-      clearMessages: () =>
-        set({ messages: [], pendingText: "", pendingReasoning: "" }),
       clearSessionView: () =>
         set({
           messages: [],
-          pendingText: "",
-          pendingReasoning: "",
           terminalOutput: new Map(),
+          pendingPermission: null,
         }),
 
       setModes: (modes) => set({ modes }),

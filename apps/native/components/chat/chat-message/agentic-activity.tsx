@@ -11,7 +11,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import type { MessagePart } from "@/store/chat-store";
+import type { ToolUIPart, UIMessagePart } from "@repo/shared";
 import { cn_inline } from "./utils";
 
 const AnimatedView = Animated.createAnimatedComponent(View);
@@ -49,35 +49,37 @@ export interface ActivityItem {
 
 export interface ActivityModel {
   activities: ActivityItem[];
-  detailParts: MessagePart[];
-  finalTextPart: Extract<MessagePart, { type: "text" }> | null;
+  detailParts: UIMessagePart[];
+  finalTextPart: Extract<UIMessagePart, { type: "text" }> | null;
   hasRunningTools: boolean;
   thinkingCount: number;
   toolCount: number;
 }
 
-const isToolCall = (
-  part: MessagePart
-): part is Extract<MessagePart, { type: "tool_call" }> =>
-  part.type === "tool_call";
-
-const isToolResult = (
-  part: MessagePart
-): part is Extract<MessagePart, { type: "tool_result" }> =>
-  part.type === "tool_result";
+const isToolPart = (part: UIMessagePart): part is ToolUIPart =>
+  part.type.startsWith("tool-");
 
 const isReasoning = (
-  part: MessagePart
-): part is Extract<MessagePart, { type: "reasoning" }> =>
+  part: UIMessagePart
+): part is Extract<UIMessagePart, { type: "reasoning" }> =>
   part.type === "reasoning";
 
-const isPlan = (
-  part: MessagePart
-): part is Extract<MessagePart, { type: "plan" }> => part.type === "plan";
-
 const isText = (
-  part: MessagePart
-): part is Extract<MessagePart, { type: "text" }> => part.type === "text";
+  part: UIMessagePart
+): part is Extract<UIMessagePart, { type: "text" }> => part.type === "text";
+
+const isPlanOutput = (
+  output: unknown
+): output is { entries: Array<{ content: string; status: string }> } =>
+  typeof output === "object" &&
+  output !== null &&
+  Array.isArray((output as { entries?: unknown }).entries);
+
+const isToolRunning = (tool: ToolUIPart) =>
+  tool.state === "input-streaming" ||
+  tool.state === "input-available" ||
+  tool.state === "approval-requested" ||
+  tool.state === "approval-responded";
 
 function summarizeText(text: string, limit = 80) {
   const normalized = text.replace(/\s+/gu, " ").trim();
@@ -233,46 +235,55 @@ export const ActivityLabel = memo(function ActivityLabel({
 });
 
 export function buildActivityModel(
-  parts: MessagePart[],
+  parts: UIMessagePart[],
   isLiveMessage: boolean
 ): ActivityModel {
-  const toolResults = new Map<
-    string,
-    Extract<MessagePart, { type: "tool_result" }>
-  >();
-  const detailParts: MessagePart[] = [];
+  const detailParts: UIMessagePart[] = [];
   const activities: ActivityItem[] = [];
 
   let toolCount = 0;
   let thinkingCount = 0;
 
-  for (const part of parts) {
-    if (isToolResult(part)) {
-      toolResults.set(part.toolCallId, part);
-    }
-  }
-
   const textParts = parts.filter(isText);
   const finalTextPart = textParts.at(-1) ?? null;
 
   parts.forEach((part, index) => {
-    if (isToolCall(part)) {
+    if (isToolPart(part)) {
+      const title = part.title ?? part.type.replace(/^tool-/, "tool");
+      if (part.type === "tool-plan" && part.state === "output-available" && isPlanOutput(part.output)) {
+        const entryCount = part.output.entries.length;
+        thinkingCount += entryCount;
+        activities.push({
+          id: part.toolCallId,
+          kind: "plan",
+          title: `Plan updated (${entryCount} steps)`,
+          status: "completed",
+          detail: "Plan refreshed",
+        });
+        detailParts.push(part);
+        return;
+      }
+
       toolCount += 1;
-      const result = toolResults.get(part.toolCallId);
+      const running = isToolRunning(part);
       activities.push({
         id: part.toolCallId,
         kind: "tool",
-        title: part.name,
-        status: result ? "completed" : "running",
-        detail: result ? "Completed" : "Running",
+        title,
+        status: running ? "running" : "completed",
+        detail: running ? "Running" : "Completed",
       });
+      if (!running) {
+        detailParts.push(part);
+      }
       return;
     }
 
     if (isReasoning(part)) {
       thinkingCount += 1;
       const summary = summarizeText(part.text || "Thinking", 72);
-      const isRunning = isLiveMessage && index === parts.length - 1;
+      const isRunning =
+        part.state === "streaming" || (isLiveMessage && index === parts.length - 1);
       activities.push({
         id: `thinking-${index}`,
         kind: "thinking",
@@ -281,29 +292,6 @@ export function buildActivityModel(
         detail: isRunning ? "Processing" : "Completed",
       });
       return;
-    }
-
-    if (isPlan(part)) {
-      const entryCount = part.items.length;
-      thinkingCount += entryCount;
-      activities.push({
-        id: `plan-${index}`,
-        kind: "plan",
-        title: `Plan updated (${entryCount} steps)`,
-        status: "completed",
-        detail: "Plan refreshed",
-      });
-      detailParts.push(part);
-      return;
-    }
-
-    if (part.type === "diff" || part.type === "terminal") {
-      detailParts.push(part);
-      return;
-    }
-
-    if (isToolResult(part)) {
-      detailParts.push(part);
     }
   });
 

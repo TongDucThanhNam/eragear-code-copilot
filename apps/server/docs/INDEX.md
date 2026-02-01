@@ -133,3 +133,7 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
   - `Agent command not allowed` → `src/infra/process/index.ts`.
   - `Access denied (outside project root)` → `src/infra/acp/tool-calls.ts`.
   - `Chat not found` / `Session is not running` → `modules/ai/application/send-message.service.ts`.
+
+## 9) Chuẩn hóa UIMessage (client dùng chung)
+
+- `docs/ui-message-normalization.md`: mapping ACP → UIMessage, tool/permission parts.

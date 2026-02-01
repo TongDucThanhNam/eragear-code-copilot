@@ -38,6 +38,7 @@
     "@trpc/client": "^11.8.1",
     "@trpc/react-query": "^11.8.1",
     "@trpc/server": "^11.8.1",
+    "@repo/shared": "workspace:*",
     "@types/xterm": "^3.0.0",
     "@xyflow/react": "^12.10.0",
     "ai": "^6.0.33",

@@ -11,6 +11,10 @@ import type { SessionRepositoryPort } from "@/modules/session/application/ports/
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import { toStoredContentBlocks } from "../../../shared/utils/content-block.util";
 import {
+  buildUserMessageFromBlocks,
+  finalizeStreamingParts,
+} from "../../../shared/utils/ui-message.util";
+import {
   getAcpErrorText,
   isProcessExited,
   isProcessTransportNotReady,
@@ -146,12 +150,17 @@ export class SendMessageService {
       timestamp: msgTimestamp,
     });
 
-    this.sessionRuntime.broadcast(input.chatId, {
-      type: "user_message",
-      id: msgId,
-      text: input.text,
-      timestamp: msgTimestamp,
+    const uiMessage = buildUserMessageFromBlocks({
+      messageId: msgId,
       contentBlocks: storedPromptBlocks,
+    });
+    const session = this.sessionRuntime.get(input.chatId);
+    if (session) {
+      session.uiState.messages.set(uiMessage.id, uiMessage);
+    }
+    this.sessionRuntime.broadcast(input.chatId, {
+      type: "ui_message",
+      message: uiMessage,
     });
 
     const markStopped = (reason: string) => {
@@ -212,10 +221,17 @@ export class SendMessageService {
       }
     }
 
-    this.sessionRuntime.broadcast(input.chatId, {
-      type: "session_update",
-      update: { sessionUpdate: "prompt_end" },
-    });
+    const current = session.uiState.currentAssistantId
+      ? session.uiState.messages.get(session.uiState.currentAssistantId)
+      : null;
+    if (current) {
+      finalizeStreamingParts(current);
+      this.sessionRuntime.broadcast(input.chatId, {
+        type: "ui_message",
+        message: current,
+      });
+      session.uiState.currentAssistantId = undefined;
+    }
 
     return { stopReason: res.stopReason };
   }

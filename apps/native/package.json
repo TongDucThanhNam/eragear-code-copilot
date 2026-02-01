@@ -25,6 +25,7 @@
     "@tanstack/react-query": "^5.64.0",
     "@trpc/client": "^11.4.0",
     "@trpc/react-query": "^11.4.0",
+    "@repo/shared": "workspace:*",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "expo": "~54.0.33",

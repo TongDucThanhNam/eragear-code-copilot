@@ -1,9 +1,9 @@
-import type { MessagePart } from "@/store/chat-store";
+import type { UIMessagePart } from "@repo/shared";
 import { PartRenderers } from "./part-renderers";
 import { getPartKey } from "./utils";
 
 interface MessagePartItemProps {
-  part: MessagePart;
+  part: UIMessagePart;
   terminalOutputs: Map<string, string>;
 }
 

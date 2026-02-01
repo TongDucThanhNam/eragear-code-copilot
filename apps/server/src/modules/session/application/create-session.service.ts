@@ -24,6 +24,16 @@ import type {
   McpStdioServerConfig,
 } from "../../../shared/types/settings.types";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
+import {
+  buildAssistantMessageFromBlocks,
+  buildPlanToolPart,
+  buildUserMessageFromBlocks,
+  createUiMessageState,
+  finalizeStreamingParts,
+  getOrCreateAssistantMessage,
+  getPlanToolCallId,
+  upsertToolPart,
+} from "../../../shared/utils/ui-message.util";
 import type { AgentRuntimePort } from "./ports/agent-runtime.port";
 import type {
   SessionAcpPort,
@@ -359,10 +369,19 @@ export class CreateSessionService {
     if (buffer.replayEventCount === 0) {
       this.replayStoredMessages(chatId);
     }
-    this.sessionRuntime.broadcast(chatId, {
-      type: "session_update",
-      update: { sessionUpdate: "prompt_end" },
-    });
+    const session = this.sessionRuntime.get(chatId);
+    const currentMessageId = session?.uiState.currentAssistantId;
+    if (session && currentMessageId) {
+      const message = session.uiState.messages.get(currentMessageId);
+      if (message) {
+        finalizeStreamingParts(message);
+        this.sessionRuntime.broadcast(chatId, {
+          type: "ui_message",
+          message,
+        });
+      }
+      session.uiState.currentAssistantId = undefined;
+    }
   }
 
   /**
@@ -474,15 +493,26 @@ export class CreateSessionService {
       toolCalls: new Map(),
       terminals: new Map(),
       buffer,
+      uiState: createUiMessageState(),
     };
 
     // Store in runtime before ACP hooks
     this.sessionRuntime.set(chatId, chatSession);
 
     if (chatSession.plan) {
+      const message = getOrCreateAssistantMessage(chatSession.uiState);
+      const planTool = buildPlanToolPart(
+        chatSession.plan,
+        getPlanToolCallId(chatId)
+      );
+      const { message: updated } = upsertToolPart({
+        state: chatSession.uiState,
+        messageId: message.id,
+        part: planTool,
+      });
       this.sessionRuntime.broadcast(chatId, {
-        type: "plan_update",
-        plan: chatSession.plan,
+        type: "ui_message",
+        message: updated,
       });
     }
 
@@ -684,41 +714,36 @@ export class CreateSessionService {
     const reasoningBlocks =
       message.reasoningBlocks ??
       (message.reasoning ? [{ type: "text", text: message.reasoning }] : []);
+    const session = this.sessionRuntime.get(chatId);
 
     if (message.role === "user") {
       if (contentBlocks.length === 0) {
         return;
       }
-      for (const block of contentBlocks) {
-        this.sessionRuntime.broadcast(chatId, {
-          type: "session_update",
-          update: {
-            sessionUpdate: "user_message_chunk",
-            content: block,
-          },
-        });
+      const uiMessage = buildUserMessageFromBlocks({
+        messageId: message.id,
+        contentBlocks,
+      });
+      if (session) {
+        session.uiState.messages.set(uiMessage.id, uiMessage);
       }
+      this.sessionRuntime.broadcast(chatId, {
+        type: "ui_message",
+        message: uiMessage,
+      });
       return;
     }
-
-    for (const block of reasoningBlocks) {
-      this.sessionRuntime.broadcast(chatId, {
-        type: "session_update",
-        update: {
-          sessionUpdate: "agent_thought_chunk",
-          content: block,
-        },
-      });
+    const uiMessage = buildAssistantMessageFromBlocks({
+      messageId: message.id,
+      contentBlocks,
+      reasoningBlocks,
+    });
+    if (session) {
+      session.uiState.messages.set(uiMessage.id, uiMessage);
     }
-
-    for (const block of contentBlocks) {
-      this.sessionRuntime.broadcast(chatId, {
-        type: "session_update",
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: block,
-        },
-      });
-    }
+    this.sessionRuntime.broadcast(chatId, {
+      type: "ui_message",
+      message: uiMessage,
+    });
   }
 }

@@ -3,11 +3,11 @@ import { useMemo } from "react";
 import type { ScrollViewProps } from "react-native";
 import { Text, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import type { ChatMessage } from "@/store/chat-store";
+import type { UIMessage } from "@repo/shared";
 import { MessageItem } from "./message-item";
 
 interface ChatMessagesProps {
-  messages: ChatMessage[];
+  messages: UIMessage[];
   terminalOutputs: Map<string, string>;
   isStreaming: boolean;
   contentPaddingBottom?: number;

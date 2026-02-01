@@ -1,29 +1,31 @@
 import { Accordion } from "heroui-native";
 import { Text, View } from "react-native";
+import type { ToolUIPart } from "@repo/shared";
 import { ToolResultDisplay } from "./tool-result-display";
 
 interface ToolResultPartProps {
   toolCallId: string;
-  content?: Array<{
-    type: string;
-    text?: string;
-    source?: {
-      type: string;
-      text?: string;
-      oldText?: string;
-      path?: string;
-    };
-  }>;
-  status: string;
+  output?: unknown;
+  state: ToolUIPart["state"];
+  terminalOutputs: Map<string, string>;
+  errorText?: string;
 }
 
 export function ToolResultPart({
   toolCallId,
-  content,
-  status,
+  output,
+  state,
+  terminalOutputs,
+  errorText,
 }: ToolResultPartProps) {
-  const isError = status === "error" || status === "failed";
+  const isError = state === "output-error" || state === "output-denied";
   const statusIcon = isError ? "✗" : "✓";
+  const statusLabel =
+    state === "output-error"
+      ? "Error"
+      : state === "output-denied"
+        ? "Denied"
+        : "Completed";
 
   return (
     <View className="mt-2">
@@ -39,13 +41,18 @@ export function ToolResultPart({
               <Text
                 className={`font-mono text-xs ${isError ? "text-danger" : "text-success"}`}
               >
-                {toolCallId}
+                {toolCallId} · {statusLabel}
               </Text>
             </View>
             <Accordion.Indicator />
           </Accordion.Trigger>
           <Accordion.Content className="px-2 pt-0 pb-2">
-            <ToolResultDisplay content={content} status={status} />
+            <ToolResultDisplay
+              errorText={errorText}
+              output={output}
+              state={state}
+              terminalOutputs={terminalOutputs}
+            />
           </Accordion.Content>
         </Accordion.Item>
       </Accordion>

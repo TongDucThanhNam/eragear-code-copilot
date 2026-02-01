@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,6 +12,7 @@ import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { useChat } from "@/hooks/use-chat";
 import { useMessageAttachments } from "@/hooks/use-message-attachments";
 import { trpc } from "@/lib/trpc";
+import type { ToolUIPart, UIMessage } from "@repo/shared";
 import type { SessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
 
@@ -89,8 +90,7 @@ export default function ChatScreen() {
     sessions,
     activeChatId,
     isChatFailed,
-    addMessage,
-    clearMessages,
+    setMessages,
     clearSessionView,
     setConnStatus,
     setError,
@@ -133,6 +133,23 @@ export default function ChatScreen() {
   } = useMessageAttachments({ promptCapabilities });
   const isReadOnly = isReadOnlyParam && !forceActive;
   const isConfigured = useAuthConfigured();
+  const isMessageStreaming = useCallback((message: UIMessage) => {
+    return message.parts.some((part) => {
+      if (part.type === "text" || part.type === "reasoning") {
+        return part.state === "streaming";
+      }
+      if (part.type.startsWith("tool-")) {
+        const toolPart = part as ToolUIPart;
+        return (
+          toolPart.state === "input-streaming" ||
+          toolPart.state === "input-available" ||
+          toolPart.state === "approval-requested" ||
+          toolPart.state === "approval-responded"
+        );
+      }
+      return false;
+    });
+  }, []);
 
   useEffect(() => {
     setForceActive(false);
@@ -189,28 +206,14 @@ export default function ChatScreen() {
     }
 
     setIsLoadingHistory(true);
-    clearMessages();
-    for (const msg of messagesQuery.data) {
-      addMessage({
-        id: msg.id,
-        role: msg.role,
-        parts: [
-          ...(msg.reasoning
-            ? [{ type: "reasoning" as const, text: msg.reasoning }]
-            : []),
-          { type: "text" as const, text: msg.content },
-        ],
-        timestamp: msg.timestamp,
-      });
-    }
+    setMessages(messagesQuery.data as UIMessage[]);
     setConnStatus("idle");
     setIsLoadingHistory(false);
   }, [
     isReadOnly,
     messagesQuery.data,
     chatId,
-    addMessage,
-    clearMessages,
+    setMessages,
     setConnStatus,
   ]);
 
@@ -306,6 +309,18 @@ export default function ChatScreen() {
     ? messagesQuery.isLoading || isLoadingHistory
     : connStatus === "connecting" && messages.length === 0;
   const chatTitle = computeChatTitle(currentSession, isReadOnly, canResumeChat);
+  const isStreaming = useMemo(() => {
+    if (isReadOnly || connStatus !== "connected") {
+      return false;
+    }
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message?.role === "assistant") {
+        return isMessageStreaming(message);
+      }
+    }
+    return false;
+  }, [connStatus, isMessageStreaming, isReadOnly, messages]);
 
   return (
     <View
@@ -347,7 +362,7 @@ export default function ChatScreen() {
         ) : (
           <ChatMessages
             contentPaddingBottom={listContentPadding}
-            isStreaming={!isReadOnly && connStatus === "connected"}
+            isStreaming={isStreaming}
             keyboardBottomOffset={keyboardBottomOffset}
             messages={messages}
             terminalOutputs={terminalOutput}

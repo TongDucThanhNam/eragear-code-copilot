@@ -9,7 +9,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
-import type { ChatMessage } from "@/store/chat-store";
+import type { UIMessage } from "@repo/shared";
 import {
   ActivityRow,
   buildActivityModel,
@@ -30,12 +30,12 @@ const FINAL_TEXT_DELAY_MS = SUMMARY_DELAY_MS + SUMMARY_ENTER_MS + 120;
 
 type DisplayMode = "live" | "transitioning" | "collapsed";
 interface MessageItemProps {
-  message: ChatMessage;
+  message: UIMessage;
   terminalOutputs: Map<string, string>;
   isLiveMessage: boolean;
 }
 
-const extractMessageText = (parts: ChatMessage["parts"]) =>
+const extractMessageText = (parts: UIMessage["parts"]) =>
   parts
     .filter((part) => part.type === "text")
     .map((part) => part.text)

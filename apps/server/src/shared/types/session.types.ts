@@ -17,8 +17,8 @@ import type {
   ResourceLink,
   TextContent,
   ToolCall,
-  ToolCallUpdate,
 } from "@agentclientprotocol/sdk";
+import type { UIMessage } from "@repo/shared";
 import type { AgentInfo as DomainAgentInfo } from "./agent.types";
 
 // ============================================================================
@@ -178,29 +178,30 @@ export interface Plan {
 }
 
 /**
+ * UI message state for streaming and tool updates
+ */
+export interface UiMessageState {
+  /** Messages keyed by message ID */
+  messages: Map<string, UIMessage>;
+  /** Current assistant message ID for streaming chunks */
+  currentAssistantId?: string;
+  /** Current user message ID for replayed chunks */
+  currentUserId?: string;
+  /** Tool part lookup by tool call ID */
+  toolPartIndex: Map<string, { messageId: string; partIndex: number }>;
+}
+
+/**
  * Union type for all broadcast events to clients
  */
 export type BroadcastEvent =
   | { type: "connected" }
-  | { type: "tool_call"; toolCall: ToolCall }
-  | { type: "tool_call_update"; toolCall: ToolCallUpdate }
+  | { type: "ui_message"; message: UIMessage }
   | { type: "current_mode_update"; modeId: string }
-  | { type: "session_update"; update: unknown }
-  | { type: "plan_update"; plan: Plan }
   | {
-      type: "request_permission";
-      requestId: string;
-      toolCall: unknown;
-      options?: unknown;
+      type: "available_commands_update";
+      availableCommands: AvailableCommand[];
     }
-  | {
-      type: "user_message";
-      id: string;
-      text: string;
-      timestamp: number;
-      contentBlocks?: StoredContentBlock[];
-    }
-  | { type: "message"; message: unknown }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string }
   | { type: "terminal_output"; terminalId: string; data: string };
@@ -312,7 +313,14 @@ export interface ChatSession {
   /** Pending permission requests */
   pendingPermissions: Map<
     string,
-    { resolve: (decision: unknown) => void; options: unknown[] }
+    {
+      resolve: (decision: unknown) => void;
+      options: unknown[];
+      toolCallId?: string;
+      toolName?: string;
+      title?: string;
+      input?: unknown;
+    }
   >;
   /** Active tool calls */
   toolCalls: Map<string, ToolCall>;
@@ -320,6 +328,8 @@ export interface ChatSession {
   terminals: Map<string, unknown>;
   /** Message buffer for streaming */
   buffer?: SessionBuffer;
+  /** UI message state for streaming updates */
+  uiState: UiMessageState;
   /** Full agent capabilities from initialize response */
   agentCapabilities?: Record<string, unknown>;
   /** Authentication methods supported by the agent */

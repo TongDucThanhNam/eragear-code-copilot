@@ -1,3 +1,9 @@
+import type {
+  DataUIPart,
+  ToolUIPart,
+  UIMessage,
+  UIMessagePart,
+} from "@repo/shared";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
@@ -5,189 +11,92 @@ import { Platform } from "react-native";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { type Attachment, buildSendMessagePayload } from "@/lib/attachments";
 import { trpc } from "@/lib/trpc";
-import {
-  type PermissionRequest,
-  type ToolCall,
-  useChatStore,
-} from "@/store/chat-store";
-
-// Helper for random IDs
-const nanoid = () => Math.random().toString(36).substring(2, 10);
+import { type PermissionRequest, useChatStore } from "@/store/chat-store";
 
 // Session event types (matching server's BroadcastEvent)
 type SessionEvent =
   | { type: "connected" }
   | { type: "current_mode_update"; modeId: string }
-  | { type: "plan_update"; plan: Plan }
-  | { type: "session_update"; update?: SessionUpdate }
   | {
-      type: "request_permission";
-      requestId: string;
-      toolCall: unknown;
-      options?: unknown;
+      type: "available_commands_update";
+      availableCommands: Array<{
+        name: string;
+        description: string;
+        input?: { hint: string } | null;
+      }>;
     }
-  | { type: "user_message"; id: string; text: string; timestamp: number }
-  | { type: "message"; message: unknown }
+  | { type: "ui_message"; message: UIMessage }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string }
   | { type: "terminal_output"; terminalId: string; data: string };
 
-type Plan = {
-  entries: Array<{ content: string; status: string }>;
+type PermissionOptionsPayload = {
+  requestId?: string;
+  options?: PermissionRequest["options"];
 };
 
-// Session update types (matching ACP protocol)
-type SessionUpdate =
-  | {
-      sessionUpdate: "user_message_chunk";
-      content: unknown;
-      text?: string;
-    }
-  | {
-      sessionUpdate: "agent_message_chunk";
-      content: unknown;
-      text?: string;
-    }
-  | {
-      sessionUpdate: "agent_thought_chunk";
-      content: unknown;
-      text?: string;
-    }
-  | {
-      sessionUpdate: "tool_call";
-      toolCallId: string;
-      title?: string;
-      kind?: string;
-      rawInput?: unknown;
-    }
-  | {
-      sessionUpdate: "tool_call_update";
-      toolCallId: string;
-      content?: unknown;
-      status?: string;
-      rawOutput?: unknown;
-    }
-  | {
-      sessionUpdate: "plan";
-      entries: Array<{ title?: string; text?: string; status: string }>;
-    }
-  | {
-      sessionUpdate: "available_commands_update";
-      availableCommands: unknown[];
-    }
-  | {
-      sessionUpdate: "current_mode_update";
-      currentModeId: string;
-    }
-  | { sessionUpdate: "turn_end" }
-  | { sessionUpdate: "prompt_end" }
-  | { sessionUpdate: string; [key: string]: unknown };
+const isToolPart = (part: UIMessagePart): part is ToolUIPart =>
+  part.type.startsWith("tool-");
 
-// Helper to extract text from content
-function extractTextFromContent(
-  content: unknown,
-  fallbackText?: string
-): string {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (typeof content === "object" && content !== null) {
-    return (
-      (content as { text?: string }).text ||
-      (content as { delta?: { text?: string } }).delta?.text ||
-      ""
-    );
-  }
-  return fallbackText || "";
-}
+const isDataPart = (part: UIMessagePart, type: string): part is DataUIPart =>
+  part.type === type;
 
-// Helper to convert content to tool_result content format (matching ACP protocol)
-type ToolResultContentItem = {
-  type: string;
-  text?: string;
-  source?: {
-    type: string;
-    text?: string;
-    oldText?: string;
-    path?: string;
-  };
+const isMessageStreaming = (message: UIMessage) =>
+  message.parts.some((part) => {
+    if (part.type === "text" || part.type === "reasoning") {
+      return part.state === "streaming";
+    }
+    if (isToolPart(part)) {
+      return (
+        part.state === "input-streaming" ||
+        part.state === "input-available" ||
+        part.state === "approval-requested" ||
+        part.state === "approval-responded"
+      );
+    }
+    return false;
+  });
+
+const getPermissionOptions = (
+  message: UIMessage,
+  requestId: string
+): PermissionRequest["options"] => {
+  const part = message.parts.find(
+    (item) =>
+      isDataPart(item, "data-permission-options") &&
+      typeof item.data === "object" &&
+      item.data !== null &&
+      (item.data as PermissionOptionsPayload).requestId === requestId
+  );
+  if (!part || typeof part.data !== "object" || part.data === null) {
+    return undefined;
+  }
+  return (part.data as PermissionOptionsPayload).options;
 };
 
-function parseContentToToolResultContent(
-  content: unknown
-): ToolResultContentItem[] {
-  if (!content) {
-    return [];
-  }
-
-  // If content is already an array
-  if (Array.isArray(content)) {
-    return content.map((item) => {
-      if (typeof item === "object" && item !== null) {
-        const typedItem = item as {
-          type?: string;
-          text?: string;
-          output?: string;
-          source?: {
-            type?: string;
-            text?: string;
-            oldText?: string;
-            path?: string;
-          };
-        };
-        // Check for 'output' field (used by tool calls)
-        if (typedItem.output) {
-          return {
-            type: "text" as const,
-            text: typedItem.output,
-          };
-        }
+const findPendingPermission = (
+  messages: UIMessage[]
+): PermissionRequest | null => {
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (
+        isToolPart(part) &&
+        part.state === "approval-requested" &&
+        part.approval
+      ) {
+        const requestId = part.approval.id;
         return {
-          type: typedItem.type || "text",
-          text: typedItem.text,
-          source: typedItem.source
-            ? {
-                type: typedItem.source.type || "diff",
-                text: typedItem.source.text,
-                oldText: typedItem.source.oldText,
-                path: typedItem.source.path,
-              }
-            : undefined,
+          requestId,
+          toolCallId: part.toolCallId,
+          title: part.title ?? part.type.replace(/^tool-/, ""),
+          input: part.input,
+          options: getPermissionOptions(message, requestId),
         };
       }
-      return { type: "text", text: String(item) };
-    });
-  }
-
-  // If content is a single object with type/content
-  if (typeof content === "object" && content !== null) {
-    const typedContent = content as {
-      type?: string;
-      content?: unknown;
-      text?: string;
-      output?: string;
-      source?: unknown;
-    };
-
-    // Handle rawOutput structure with output field
-    if (typedContent.output) {
-      return [{ type: "text", text: typedContent.output }];
     }
-
-    if (typedContent.type === "content" && typedContent.content) {
-      return parseContentToToolResultContent(typedContent.content);
-    }
-    return [
-      {
-        type: typedContent.type || "text",
-        text: typedContent.text,
-      },
-    ];
   }
-
-  // Fallback to string
-  return [{ type: "text", text: String(content) }];
-}
+  return null;
+};
 
 export function useChat() {
   // Select only what we need for the hook's internal logic (subscription key)
@@ -197,20 +106,23 @@ export function useChat() {
   const isConfigured = useAuthConfigured();
 
   const utils = trpc.useUtils();
-  const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
-  const hapticTriggeredRef = useRef<string | null>(null);
+  const hapticTriggeredRef = useRef<Set<string>>(new Set());
 
-  const triggerStreamEndHaptic = useCallback(() => {
+  useEffect(() => {
+    hapticTriggeredRef.current = new Set();
+  }, [activeChatId]);
+
+  const triggerStreamEndHaptic = useCallback((messageId?: string) => {
     if (Platform.OS === "web") {
       return;
     }
-    const store = useChatStore.getState();
-    const lastMsg = store.messages.at(-1);
-    const msgId = lastMsg?.id;
+    if (!messageId) {
+      return;
+    }
 
-    // Only trigger haptic once per message
-    if (msgId && hapticTriggeredRef.current !== msgId) {
-      hapticTriggeredRef.current = msgId;
+    const triggered = hapticTriggeredRef.current;
+    if (!triggered.has(messageId)) {
+      triggered.add(messageId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   }, []);
@@ -236,45 +148,6 @@ export function useChat() {
         connStatus === "connecting",
       retry: false,
     }
-  );
-
-  const applyPlanEntries = useCallback(
-    (
-      entries: Array<{ content: string; status: string }>,
-      store: ReturnType<typeof useChatStore.getState>
-    ) => {
-      if (!entries.length) {
-        return;
-      }
-      store.flushPending();
-      const planPart = {
-        type: "plan" as const,
-        items: entries.map((entry) => ({
-          content: entry.content,
-          status: entry.status,
-        })),
-      };
-      const lastMsg = store.messages.at(-1);
-
-      if (lastMsg?.role === "assistant") {
-        const lastPart = lastMsg.parts.at(-1);
-        if (lastPart?.type === "plan") {
-          const newParts = [...lastMsg.parts];
-          newParts[newParts.length - 1] = planPart;
-          store.updateLastAssistantMessage(newParts);
-        } else {
-          store.updateLastAssistantMessage([...lastMsg.parts, planPart]);
-        }
-      } else {
-        store.addMessage({
-          id: nanoid(),
-          role: "assistant",
-          parts: [planPart],
-          timestamp: Date.now(),
-        });
-      }
-    },
-    []
   );
 
   const applySessionState = useCallback(
@@ -306,296 +179,25 @@ export function useChat() {
       if (data.promptCapabilities !== undefined) {
         store.setPromptCapabilities(data.promptCapabilities);
       }
-      if (data.plan?.entries?.length) {
-        applyPlanEntries(
-          data.plan.entries.map((entry) => ({
-            content: entry.content,
-            status: entry.status,
-          })),
-          store
-        );
-      }
       store.setConnStatus("connected");
     },
-    [applyPlanEntries]
+    []
   );
 
   useEffect(() => {
     const data = sessionStateQuery.data;
-    if (!data || connStatus !== "connecting") {
+    if (!data || (connStatus !== "connecting" && connStatus !== "connected")) {
       return;
     }
 
     applySessionState(data);
   }, [sessionStateQuery.data, connStatus, applySessionState]);
 
-  // Individual session update handlers
-  const handleUserMessageChunk = useCallback(
-    (
-      update: SessionUpdate,
-      store: ReturnType<typeof useChatStore.getState>
-    ) => {
-      const userUpdate = update as {
-        sessionUpdate: "user_message_chunk";
-        content: unknown;
-        text?: string;
-      };
-      const text = extractTextFromContent(userUpdate.content, userUpdate.text);
-      if (!text) {
-        return;
-      }
-
-      if (lastStreamKindRef.current === "user") {
-        store.appendToUserText(text);
-      } else {
-        store.addMessage({
-          id: nanoid(),
-          role: "user",
-          parts: [{ type: "text", text }],
-          timestamp: Date.now(),
-        });
-      }
-      lastStreamKindRef.current = "user";
-    },
-    []
-  );
-
-  const handleAgentMessageChunk = useCallback(
-    (
-      update: SessionUpdate,
-      store: ReturnType<typeof useChatStore.getState>
-    ) => {
-      const agentUpdate = update as {
-        sessionUpdate: "agent_message_chunk";
-        content: unknown;
-        text?: string;
-      };
-      const text = extractTextFromContent(
-        agentUpdate.content,
-        agentUpdate.text
-      );
-      if (!text) {
-        return;
-      }
-
-      store.appendToText(text);
-      lastStreamKindRef.current = "agent";
-    },
-    []
-  );
-
-  const handleAgentThoughtChunk = useCallback(
-    (
-      update: SessionUpdate,
-      store: ReturnType<typeof useChatStore.getState>
-    ) => {
-      const thoughtUpdate = update as {
-        sessionUpdate: "agent_thought_chunk";
-        content: unknown;
-        text?: string;
-      };
-      const text = extractTextFromContent(
-        thoughtUpdate.content,
-        thoughtUpdate.text
-      );
-      if (!text) {
-        return;
-      }
-
-      store.appendToReasoning(text);
-      lastStreamKindRef.current = "agent";
-    },
-    []
-  );
-
-  const handleToolCall = useCallback(
-    (
-      update: SessionUpdate,
-      store: ReturnType<typeof useChatStore.getState>
-    ) => {
-      const toolUpdate = update as {
-        sessionUpdate: "tool_call";
-        toolCallId: string;
-        title?: string;
-        kind?: string;
-        rawInput?: unknown;
-      };
-      store.flushPending();
-      lastStreamKindRef.current = "other";
-
-      const lastMsg = store.messages.at(-1);
-      if (lastMsg?.role === "assistant") {
-        const newParts = [
-          ...lastMsg.parts,
-          {
-            type: "tool_call" as const,
-            toolCallId: toolUpdate.toolCallId,
-            name: toolUpdate.title || toolUpdate.kind || "Tool",
-            args: toolUpdate.rawInput,
-          },
-        ];
-        store.updateLastAssistantMessage(newParts);
-      }
-    },
-    []
-  );
-
-  const handleToolCallUpdate = useCallback(
-    (
-      update: SessionUpdate,
-      store: ReturnType<typeof useChatStore.getState>
-    ) => {
-      const toolUpdate = update as {
-        sessionUpdate: "tool_call_update";
-        toolCallId: string;
-        content?: unknown;
-        status?: string;
-        rawOutput?: unknown;
-      };
-      const lastMsg = store.messages.at(-1);
-      if (lastMsg?.role !== "assistant") {
-        return;
-      }
-
-      const parts = [...lastMsg.parts];
-      const status = toolUpdate.status ?? "completed";
-      const normalizedStatus = status.toLowerCase();
-      const isTerminal =
-        normalizedStatus === "completed" ||
-        normalizedStatus === "failed" ||
-        normalizedStatus === "error";
-
-      if (!isTerminal) {
-        return;
-      }
-
-      const inputContent = toolUpdate.content ?? toolUpdate.rawOutput;
-      const contentArray = parseContentToToolResultContent(inputContent);
-      const resultPart = {
-        type: "tool_result" as const,
-        toolCallId: toolUpdate.toolCallId,
-        status,
-        content: contentArray,
-      };
-
-      const existingResultIndex = parts.findIndex(
-        (part) =>
-          part.type === "tool_result" &&
-          part.toolCallId === toolUpdate.toolCallId
-      );
-      if (existingResultIndex >= 0) {
-        parts[existingResultIndex] = resultPart;
-        store.updateLastAssistantMessage(parts);
-        return;
-      }
-
-      const toolCallIndex = parts.findIndex(
-        (part) =>
-          part.type === "tool_call" && part.toolCallId === toolUpdate.toolCallId
-      );
-      if (toolCallIndex >= 0) {
-        parts.splice(toolCallIndex + 1, 0, resultPart);
-      } else {
-        parts.push(resultPart);
-      }
-      store.updateLastAssistantMessage(parts);
-    },
-    []
-  );
-
-  const handlePlanUpdate = useCallback(
-    (
-      update: SessionUpdate,
-      store: ReturnType<typeof useChatStore.getState>
-    ) => {
-      const planUpdate = update as {
-        sessionUpdate: "plan";
-        entries: Array<{ title?: string; text?: string; status: string }>;
-      };
-      applyPlanEntries(
-        planUpdate.entries.map((entry) => ({
-          content: entry.title || entry.text || "",
-          status: entry.status,
-        })),
-        store
-      );
-    },
-    [applyPlanEntries]
-  );
-
-  const handleAvailableCommandsUpdate = useCallback(
-    (
-      update: SessionUpdate,
-      store: ReturnType<typeof useChatStore.getState>
-    ) => {
-      const cmdUpdate = update as {
-        sessionUpdate: "available_commands_update";
-        availableCommands: Array<{
-          name: string;
-          description: string;
-          input?: { hint: string } | null;
-        }>;
-      };
-      const commands = (cmdUpdate.availableCommands || []).map((cmd) => {
-        const input = cmd.input;
-        return {
-          name: cmd.name,
-          description: cmd.description,
-          input: input === null ? undefined : input,
-        } as { name: string; description: string; input?: { hint: string } };
-      });
-      store.setCommands(commands);
-    },
-    []
-  );
-
-  // Main session update handler
-  const handleSessionUpdate = useCallback(
-    (
-      update: SessionUpdate,
-      store: ReturnType<typeof useChatStore.getState>
-    ) => {
-      switch (update.sessionUpdate) {
-        case "user_message_chunk":
-          handleUserMessageChunk(update, store);
-          break;
-        case "agent_message_chunk":
-          handleAgentMessageChunk(update, store);
-          break;
-        case "agent_thought_chunk":
-          handleAgentThoughtChunk(update, store);
-          break;
-        case "tool_call":
-          handleToolCall(update, store);
-          break;
-        case "tool_call_update":
-          handleToolCallUpdate(update, store);
-          break;
-        case "plan":
-          handlePlanUpdate(update, store);
-          break;
-        case "available_commands_update":
-          handleAvailableCommandsUpdate(update, store);
-          break;
-        case "turn_end":
-        case "prompt_end":
-          triggerStreamEndHaptic();
-          break;
-        default:
-          break;
-      }
-    },
-    [
-      handleUserMessageChunk,
-      handleAgentMessageChunk,
-      handleAgentThoughtChunk,
-      handleToolCall,
-      handleToolCallUpdate,
-      handlePlanUpdate,
-      handleAvailableCommandsUpdate,
-      triggerStreamEndHaptic,
-    ]
-  );
+  const syncPendingPermission = useCallback(() => {
+    const store = useChatStore.getState();
+    const nextPending = findPendingPermission(store.messages);
+    store.setPendingPermission(nextPending);
+  }, []);
 
   // Subscription Handler
   const handleSessionEvent = useCallback(
@@ -607,46 +209,39 @@ export function useChat() {
           store.setConnStatus("connected");
           break;
 
-        case "user_message":
-          store.addMessage({
-            id: event.id || nanoid(),
-            role: "user",
-            parts: [{ type: "text", text: event.text }],
-            timestamp: event.timestamp || Date.now(),
-          });
-          lastStreamKindRef.current = "other";
-          break;
-
-        case "plan_update":
-          applyPlanEntries(
-            event.plan.entries.map((entry) => ({
-              content: entry.content,
-              status: entry.status,
-            })),
-            store
+        case "ui_message": {
+          const prev = store.messages.find(
+            (message) => message.id === event.message.id
           );
-          break;
-
-        case "session_update":
-          if (event.update) {
-            handleSessionUpdate(event.update, store);
+          const wasStreaming = prev ? isMessageStreaming(prev) : false;
+          store.upsertMessage(event.message);
+          const isStreaming = isMessageStreaming(event.message);
+          if (
+            wasStreaming &&
+            !isStreaming &&
+            event.message.role === "assistant"
+          ) {
+            triggerStreamEndHaptic(event.message.id);
           }
+          syncPendingPermission();
           break;
+        }
+
+        case "available_commands_update": {
+          const commands = (event.availableCommands || []).map((cmd) => ({
+            name: cmd.name,
+            description: cmd.description,
+            input: cmd.input === null ? undefined : cmd.input,
+          }));
+          store.setCommands(commands);
+          break;
+        }
 
         case "current_mode_update": {
           const modes = store.modes;
           if (modes) {
             store.setModes({ ...modes, currentModeId: event.modeId });
           }
-          break;
-        }
-
-        case "request_permission": {
-          store.setPendingPermission({
-            requestId: event.requestId,
-            toolCall: event.toolCall as ToolCall,
-            options: event.options as PermissionRequest["options"],
-          });
           break;
         }
 
@@ -666,7 +261,7 @@ export function useChat() {
           break;
       }
     },
-    [applyPlanEntries, handleSessionUpdate]
+    [syncPendingPermission, triggerStreamEndHaptic]
   );
 
   // Check if this chat has already failed (prevents infinite loop)
@@ -713,7 +308,7 @@ export function useChat() {
     }
     const store = useChatStore.getState();
 
-    // Note: We don't add message here. Server will broadcast user_message event
+    // Note: We don't add message here. Server will broadcast ui_message events
     // which will be received via subscription and added to store.
     // This ensures consistency between live and replayed messages.
 

@@ -9,6 +9,10 @@
 
 import type * as acp from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import {
+  buildToolApprovalResponsePart,
+  upsertToolPart,
+} from "@/shared/utils/ui-message.util";
 
 /**
  * RespondPermissionService
@@ -117,6 +121,26 @@ export class RespondPermissionService {
     };
     pending.resolve(response);
     session.pendingPermissions.delete(input.requestId);
+    if (pending.toolCallId) {
+      const approved = optionId.toLowerCase().includes("allow");
+      const toolPart = buildToolApprovalResponsePart({
+        toolCallId: pending.toolCallId,
+        toolName: pending.toolName ?? "tool",
+        title: pending.title,
+        input: pending.input,
+        approvalId: input.requestId,
+        approved,
+        reason: optionId,
+      });
+      const { message } = upsertToolPart({
+        state: session.uiState,
+        part: toolPart,
+      });
+      this.sessionRuntime.broadcast(input.chatId, {
+        type: "ui_message",
+        message,
+      });
+    }
     return response;
   }
 }

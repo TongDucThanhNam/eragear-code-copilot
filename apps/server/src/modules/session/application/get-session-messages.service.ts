@@ -7,6 +7,10 @@
  */
 
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import {
+  buildAssistantMessageFromBlocks,
+  buildUserMessageFromBlocks,
+} from "@/shared/utils/ui-message.util";
 
 /**
  * GetSessionMessagesService
@@ -37,6 +41,25 @@ export class GetSessionMessagesService {
    * ```
    */
   execute(chatId: string) {
-    return this.sessionRepo.getMessages(chatId);
+    const stored = this.sessionRepo.getMessages(chatId);
+    return stored.map((message) => {
+      const contentBlocks =
+        message.contentBlocks ??
+        (message.content ? [{ type: "text", text: message.content }] : []);
+      const reasoningBlocks =
+        message.reasoningBlocks ??
+        (message.reasoning ? [{ type: "text", text: message.reasoning }] : []);
+      if (message.role === "user") {
+        return buildUserMessageFromBlocks({
+          messageId: message.id,
+          contentBlocks,
+        });
+      }
+      return buildAssistantMessageFromBlocks({
+        messageId: message.id,
+        contentBlocks,
+        reasoningBlocks,
+      });
+    });
   }
 }

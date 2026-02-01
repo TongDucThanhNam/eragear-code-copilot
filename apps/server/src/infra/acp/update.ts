@@ -12,8 +12,23 @@ import type * as acp from "@agentclientprotocol/sdk";
 import type { SessionBufferingPort } from "@/modules/session/application/ports/session-acp.port";
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
-import { toStoredContentBlock } from "@/shared/utils/content-block.util";
+import {
+  toStoredContentBlock,
+  toStoredToolCallContent,
+} from "@/shared/utils/content-block.util";
 import { createId } from "@/shared/utils/id.util";
+import {
+  appendContentBlock,
+  appendReasoningPart,
+  buildPlanToolPart,
+  buildToolPartForUpdate,
+  buildToolPartFromCall,
+  finalizeStreamingParts,
+  getOrCreateAssistantMessage,
+  getOrCreateUserMessage,
+  getPlanToolCallId,
+  upsertToolPart,
+} from "@/shared/utils/ui-message.util";
 import type {
   Plan,
   StoredContentBlock,
@@ -64,29 +79,6 @@ function contentBlockToText(content: StoredContentBlock) {
   return content.text;
 }
 
-function sanitizeContentBlock(block: acp.ContentBlock): StoredContentBlock {
-  return toStoredContentBlock(block);
-}
-
-function sanitizeToolCallContent(
-  content?: acp.ToolCallContent[] | null
-): acp.ToolCallContent[] | undefined {
-  if (content === null) {
-    return undefined;
-  }
-  if (!content) {
-    return content;
-  }
-  return content.map((item) => {
-    if (item.type !== "content") {
-      return item;
-    }
-    return {
-      ...item,
-      content: sanitizeContentBlock(item.content),
-    } as acp.ToolCallContent;
-  });
-}
 
 /**
  * Checks if an update is a replay chunk (user/agent message or thought chunks)
@@ -209,6 +201,23 @@ export class SessionBuffering implements SessionBufferingPort {
   }
 
   /**
+   * Returns the current message ID if one has been assigned
+   */
+  getMessageId() {
+    return this.messageId;
+  }
+
+  /**
+   * Ensures a message ID exists and returns it
+   */
+  ensureMessageId() {
+    if (!this.messageId) {
+      this.messageId = createId("msg");
+    }
+    return this.messageId;
+  }
+
+  /**
    * Internal method to append text to a target field
    *
    * @param target - The field to append to ("content" or "reasoning")
@@ -294,7 +303,10 @@ function handleCommandsUpdate(
     commands: update.availableCommands,
   });
   console.log("[Server] Received commands update", update.availableCommands);
-  sessionRuntime.broadcast(chatId, { type: "session_update", update });
+  sessionRuntime.broadcast(chatId, {
+    type: "available_commands_update",
+    availableCommands: update.availableCommands,
+  });
   return true;
 }
 
@@ -327,8 +339,14 @@ function handlePlanUpdate(
   }
   sessionRepo.updateMetadata(chatId, { plan });
   console.log("[Server] Received plan update", plan);
-  sessionRuntime.broadcast(chatId, { type: "plan_update", plan });
-  sessionRuntime.broadcast(chatId, { type: "session_update", update });
+  if (session) {
+    const planTool = buildPlanToolPart(plan, getPlanToolCallId(chatId));
+    const { message } = upsertToolPart({
+      state: session.uiState,
+      part: planTool,
+    });
+    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+  }
   return true;
 }
 
@@ -352,24 +370,21 @@ function handleToolCallCreate(
   const { sessionUpdate: _sessionUpdate, ...toolCall } = update;
   const sanitizedToolCall: acp.ToolCall = {
     ...toolCall,
-    content: sanitizeToolCallContent(toolCall.content),
+    content: toStoredToolCallContent(toolCall.content),
   };
   const session = sessionRuntime.get(chatId);
   if (session) {
     session.toolCalls.set(update.toolCallId, sanitizedToolCall);
   }
-
-  sessionRuntime.broadcast(chatId, {
-    type: "tool_call",
-    toolCall: sanitizedToolCall,
-  });
-  sessionRuntime.broadcast(chatId, {
-    type: "session_update",
-    update: {
-      ...update,
-      content: sanitizeToolCallContent(update.content),
-    },
-  });
+  if (session) {
+    const toolPart = buildToolPartFromCall(sanitizedToolCall);
+    const { message } = upsertToolPart({
+      state: session.uiState,
+      messageId: session.uiState.currentAssistantId,
+      part: toolPart,
+    });
+    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+  }
   return true;
 }
 
@@ -392,9 +407,8 @@ function handleToolCallUpdate(
 
   const sanitizedUpdate = {
     ...update,
-    content: sanitizeToolCallContent(update.content),
+    content: toStoredToolCallContent(update.content),
   };
-  const { sessionUpdate: _sessionUpdate, ...toolCallUpdate } = sanitizedUpdate;
   const session = sessionRuntime.get(chatId);
   const existing = session?.toolCalls.get(update.toolCallId);
   const merged = existing
@@ -421,7 +435,7 @@ function handleToolCallUpdate(
     merged.rawOutput = update.rawOutput ?? undefined;
   }
   if ("content" in update) {
-    merged.content = sanitizeToolCallContent(update.content) ?? undefined;
+    merged.content = toStoredToolCallContent(update.content) ?? undefined;
   }
   if ("locations" in update) {
     merged.locations = update.locations ?? undefined;
@@ -430,15 +444,26 @@ function handleToolCallUpdate(
   if (session) {
     session.toolCalls.set(update.toolCallId, merged);
   }
-
-  sessionRuntime.broadcast(chatId, {
-    type: "tool_call_update",
-    toolCall: toolCallUpdate,
-  });
-  sessionRuntime.broadcast(chatId, {
-    type: "session_update",
-    update: sanitizedUpdate,
-  });
+  if (session) {
+    const toolPart = buildToolPartForUpdate({
+      toolCallId: update.toolCallId,
+      toolName: merged.kind ?? merged.title,
+      title: merged.title ?? update.title ?? undefined,
+      input: merged.rawInput,
+      rawInput: merged.rawInput,
+      status: merged.status ?? update.status ?? undefined,
+      content:
+        "content" in sanitizedUpdate
+          ? sanitizedUpdate.content ?? undefined
+          : merged.content,
+      rawOutput: merged.rawOutput,
+    });
+    const { message } = upsertToolPart({
+      state: session.uiState,
+      part: toolPart,
+    });
+    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+  }
   return true;
 }
 
@@ -456,7 +481,8 @@ function handleBufferedMessage(
   buffer: SessionBufferingPort,
   isReplayingHistory: boolean,
   update: SessionUpdateWithLegacy,
-  sessionRepo: SessionRepositoryPort
+  sessionRepo: SessionRepositoryPort,
+  sessionRuntime: SessionRuntimePort
 ) {
   // Buffer content chunks (not during replay)
   if (!isReplayingHistory) {
@@ -466,6 +492,41 @@ function handleBufferedMessage(
 
     if (update.sessionUpdate === "agent_thought_chunk") {
       buffer.appendReasoning(toStoredContentBlock(update.content));
+    }
+  }
+
+  const session = sessionRuntime.get(chatId);
+  const partState = isReplayingHistory ? "done" : "streaming";
+  if (session) {
+    if (update.sessionUpdate === "user_message_chunk") {
+      const message = getOrCreateUserMessage(session.uiState);
+      appendContentBlock(
+        message,
+        toStoredContentBlock(update.content),
+        partState
+      );
+      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    }
+
+    if (update.sessionUpdate === "agent_message_chunk") {
+      const messageId = buffer.ensureMessageId();
+      const message = getOrCreateAssistantMessage(session.uiState, messageId);
+      appendContentBlock(
+        message,
+        toStoredContentBlock(update.content),
+        partState
+      );
+      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    }
+
+    if (update.sessionUpdate === "agent_thought_chunk") {
+      const messageId = buffer.ensureMessageId();
+      const message = getOrCreateAssistantMessage(session.uiState, messageId);
+      const block = toStoredContentBlock(update.content);
+      if (block.type === "text") {
+        appendReasoningPart(message, block.text, partState);
+        sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+      }
     }
   }
 
@@ -485,6 +546,19 @@ function handleBufferedMessage(
         reasoningBlocks: message.reasoningBlocks,
         timestamp: Date.now(),
       });
+    }
+    if (session?.uiState.currentAssistantId) {
+      const current = session.uiState.messages.get(
+        session.uiState.currentAssistantId
+      );
+      if (current) {
+        finalizeStreamingParts(current);
+        sessionRuntime.broadcast(chatId, { type: "ui_message", message: current });
+      }
+      session.uiState.currentAssistantId = undefined;
+    }
+    if (session) {
+      session.uiState.currentUserId = undefined;
     }
   }
 }
@@ -530,7 +604,8 @@ export function createSessionUpdateHandler(
       buffer,
       isReplayingHistory,
       update,
-      sessionRepo
+      sessionRepo,
+      sessionRuntime
     );
 
     // Handle mode updates
@@ -565,21 +640,5 @@ export function createSessionUpdateHandler(
         JSON.stringify(update, null, 2)
       );
     }
-
-    const updateForBroadcast =
-      update.sessionUpdate === "user_message_chunk" ||
-      update.sessionUpdate === "agent_message_chunk" ||
-      update.sessionUpdate === "agent_thought_chunk"
-        ? {
-            ...update,
-            content: sanitizeContentBlock(update.content),
-          }
-        : update;
-
-    // Broadcast generic session update
-    sessionRuntime.broadcast(chatId, {
-      type: "session_update",
-      update: updateForBroadcast,
-    });
   };
 }

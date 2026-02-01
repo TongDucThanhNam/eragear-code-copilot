@@ -11,6 +11,11 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import { createId } from "@/shared/utils/id.util";
+import {
+  buildToolApprovalPart,
+  getToolNameFromCall,
+  upsertToolPart,
+} from "@/shared/utils/ui-message.util";
 
 /**
  * Creates a permission request handler for a session runtime
@@ -61,18 +66,57 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
       }
 
       // Store the resolve function to be called when user responds
+      const toolName = getToolNameFromCall(toolCall);
+      const title = toolCall.title ?? toolCall.kind ?? toolName;
       session.pendingPermissions.set(requestId, {
         resolve: (decision: unknown) =>
           resolve(decision as acp.RequestPermissionResponse),
         options,
+        toolCallId: toolCall.toolCallId,
+        toolName,
+        title,
+        input: toolCall.rawInput,
       });
 
-      // Broadcast permission request to the client
+      const toolPart = buildToolApprovalPart({
+        toolCallId: toolCall.toolCallId,
+        toolName,
+        title,
+        input: toolCall.rawInput,
+        approvalId: requestId,
+      });
+      const { message } = upsertToolPart({
+        state: session.uiState,
+        messageId: session.uiState.currentAssistantId,
+        part: toolPart,
+      });
+      const optionList = Array.isArray(options)
+        ? options
+        : Array.isArray(options?.options)
+          ? options.options
+          : [];
+      if (optionList.length > 0) {
+        const existingOptions = message.parts.find(
+          (part) =>
+            part.type === "data-permission-options" &&
+            typeof part.data === "object" &&
+            part.data !== null &&
+            (part.data as { requestId?: string }).requestId === requestId
+        );
+        if (!existingOptions) {
+          message.parts.push({
+            type: "data-permission-options",
+            data: {
+              requestId,
+              toolCallId: toolCall.toolCallId,
+              options,
+            },
+          });
+        }
+      }
       sessionRuntime.broadcast(chatId, {
-        type: "request_permission",
-        requestId,
-        toolCall,
-        options,
+        type: "ui_message",
+        message,
       });
     });
   };

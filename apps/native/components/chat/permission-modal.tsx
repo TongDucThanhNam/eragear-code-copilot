@@ -61,8 +61,11 @@ export function PermissionModal({
     return null;
   }
 
-  const toolCall = request.toolCall;
   const requestId = request.requestId;
+  const inputText =
+    request.input === undefined
+      ? "(no input provided)"
+      : JSON.stringify(request.input, null, 2);
   const options = normalizePermissionOptions(request.options);
   const actionOptions = options.length > 0 ? options : DEFAULT_OPTIONS;
 
@@ -76,14 +79,12 @@ export function PermissionModal({
           <Text className="mb-2 text-zinc-300">
             The agent wants to execute:{" "}
             <Text className="font-bold text-yellow-500">
-              {toolCall?.title || toolCall?.kind || "Tool"}
+              {request.title || "Tool"}
             </Text>
           </Text>
 
           <ScrollView className="mb-4 flex-1 rounded-lg bg-black/30 p-3">
-            <Text className="font-mono text-xs text-zinc-400">
-              {JSON.stringify(toolCall?.rawInput, null, 2)}
-            </Text>
+            <Text className="font-mono text-xs text-zinc-400">{inputText}</Text>
           </ScrollView>
 
           <View className="flex-row flex-wrap gap-3 pt-2">

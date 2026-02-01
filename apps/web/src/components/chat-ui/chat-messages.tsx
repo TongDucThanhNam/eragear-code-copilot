@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { toast } from "sonner";
+import type { ToolUIPart, UIMessage, UIMessagePart } from "@repo/shared";
 import {
   Conversation,
   ConversationContent,
@@ -51,76 +52,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  ContentBlocksView,
-  type StoredContentBlock,
-} from "@/components/chat-ui/content-blocks";
-
-export interface TextPart {
-  type: "text";
-  content: string;
-}
-
-export interface ToolPart {
-  type: "tool";
-  toolCallId: string;
-  requestId?: string;
-  name: string;
-  description: string;
-  status: "pending" | "running" | "completed" | "error" | "approval-requested";
-  parameters: Record<string, unknown>;
-  result: string | undefined;
-  error: string | undefined;
-  options?: unknown[];
-  terminalId?: string;
-  diffs?: { path: string; oldText?: string; newText: string }[];
-}
-
-export interface PlanPart {
-  type: "plan";
-  entries: { content: string; status: PlanStatus }[];
-}
-
-export interface ContextItem {
-  id: string;
-  title: string;
-  subtitle?: string;
-  kind: "resource" | "resource_link" | "image" | "audio";
-  uri?: string;
-  mimeType?: string | null;
-  size?: number | null;
-}
-
-export interface ContextPart {
-  type: "context";
-  items: ContextItem[];
-}
-
-export interface ContentBlockPart {
-  type: "content_block";
-  blocks: StoredContentBlock[];
-}
-
-export type MessagePart =
-  | TextPart
-  | ToolPart
-  | PlanPart
-  | ContextPart
-  | ContentBlockPart;
-
-export interface MessageType {
-  key: string;
-  from: "user" | "assistant";
-  sources?: { href: string; title: string }[];
-  parts: MessagePart[];
-  reasoning?: {
-    content: string;
-    duration: number;
-  };
-}
 
 export interface ChatMessagesProps {
-  messages: MessageType[];
+  messages: UIMessage[];
   terminalOutputs?: Record<string, string>;
   onApprove?: (requestId: string, decision?: string) => void;
   onReject?: (requestId: string, decision?: string) => void;
@@ -138,10 +72,18 @@ import { FileDiffView } from "./file-diff-view";
 import { TerminalView } from "./terminal-view";
 
 // Memoize individual message parts to prevent unnecessary re-renders
-const TextMessagePart = memo(({ content }: { content: string }) => (
-  <MessageResponse>{content}</MessageResponse>
+const TextMessagePart = memo(({ text }: { text: string }) => (
+  <MessageResponse>{text}</MessageResponse>
 ));
 TextMessagePart.displayName = "TextMessagePart";
+
+const ReasoningMessagePart = memo(({ text }: { text: string }) => (
+  <Reasoning>
+    <ReasoningTrigger />
+    <ReasoningContent>{text}</ReasoningContent>
+  </Reasoning>
+));
+ReasoningMessagePart.displayName = "ReasoningMessagePart";
 
 const PlanMessagePart = memo(
   ({
@@ -168,158 +110,247 @@ const PlanMessagePart = memo(
 );
 PlanMessagePart.displayName = "PlanMessagePart";
 
-const getContextIcon = (kind: ContextItem["kind"]) => {
-  switch (kind) {
-    case "image":
-      return ImageIcon;
-    case "audio":
-      return AudioLinesIcon;
-    case "resource_link":
-      return LinkIcon;
-    default:
-      return FileTextIcon;
+type SourcePart = Extract<
+  UIMessagePart,
+  { type: "source-url" | "source-document" }
+>;
+
+const getSourceIcon = (part: SourcePart) => {
+  if (part.type === "source-url") {
+    return LinkIcon;
   }
+  return FileTextIcon;
 };
 
-const ContextMessagePart = memo(({ items }: { items: ContextItem[] }) => (
-  <div className="flex flex-wrap gap-2">
-    {items.map((item) => {
-      const Icon = getContextIcon(item.kind);
-      const label = item.subtitle ? `${item.title} • ${item.subtitle}` : item.title;
-      return (
-        <TooltipProvider key={item.id}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge className="flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs" variant="outline">
-                <Icon className="size-3 text-muted-foreground" />
-                <span className="truncate">@{item.title}</span>
-                {item.subtitle && (
-                  <span className="truncate text-muted-foreground">
-                    {item.subtitle}
-                  </span>
-                )}
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="max-w-xs break-words text-xs">{label}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      );
-    })}
-  </div>
-));
-ContextMessagePart.displayName = "ContextMessagePart";
+const SourceMessagePart = memo(({ part }: { part: SourcePart }) => {
+  const Icon = getSourceIcon(part);
+  const label =
+    part.type === "source-url"
+      ? part.title ?? part.url
+      : part.title ?? part.filename ?? part.sourceId;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge className="flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs" variant="outline">
+            <Icon className="size-3 text-muted-foreground" />
+            <span className="truncate">{label}</span>
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="max-w-xs break-words text-xs">{label}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+});
+SourceMessagePart.displayName = "SourceMessagePart";
 
-const ContentBlocksMessagePart = memo(
-  ({ blocks }: { blocks: StoredContentBlock[] }) => (
-    <ContentBlocksView blocks={blocks} />
-  )
-);
-ContentBlocksMessagePart.displayName = "ContentBlocksMessagePart";
+type FilePart = Extract<UIMessagePart, { type: "file" }>;
+
+const getFileIcon = (part: FilePart) => {
+  if (part.mediaType?.startsWith("image/")) {
+    return ImageIcon;
+  }
+  if (part.mediaType?.startsWith("audio/")) {
+    return AudioLinesIcon;
+  }
+  return FileTextIcon;
+};
+
+const FileMessagePart = memo(({ part }: { part: FilePart }) => {
+  const Icon = getFileIcon(part);
+  const label = part.filename ?? part.mediaType ?? "File";
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge className="flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs" variant="outline">
+            <Icon className="size-3 text-muted-foreground" />
+            <span className="truncate">{label}</span>
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="max-w-xs break-words text-xs">{label}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+});
+FileMessagePart.displayName = "FileMessagePart";
 
 interface ToolMessagePartProps {
-  tool: ToolPart;
+  tool: ToolUIPart;
+  permission?: {
+    requestId: string;
+    options?: PermissionOption[] | { allowOther?: boolean; options?: PermissionOption[] };
+  };
   terminalOutputs?: Record<string, string>;
   onApprove?: (requestId: string, decision?: string) => void;
   onReject?: (requestId: string, decision?: string) => void;
 }
 
-const ToolMessagePart = memo(
-  ({ tool, terminalOutputs, onApprove, onReject }: ToolMessagePartProps) => (
-    <div className="mb-4 space-y-2" key={tool.toolCallId}>
-      <Tool key={tool.toolCallId}>
-        <ToolHeader state={tool.status} title={tool.name} type="tool-call" />
-        <ToolContent>
-          <ToolInput input={tool.parameters} />
-          <Confirmation approval={{ id: tool.toolCallId }} state={tool.status}>
-            <ConfirmationRequest>
-              <ConfirmationTitle>
-                Requesting permission to execute
-              </ConfirmationTitle>
-              <ConfirmationActions>
-                {/* Check if we have specific options */}
-                {tool.options && tool.options.length > 0 ? (
-                  (tool.options as PermissionOption[]).map((opt) => (
-                    <ConfirmationAction
-                      key={opt.optionId}
-                      onClick={() => {
-                        // Heuristic mapping for frontend:
-                        const id = String(opt.optionId || "").toLowerCase();
-                        const isAllow =
-                          id === "allow" || id === "yes" || id === "allow_once";
+type ToolViewState =
+  | "pending"
+  | "running"
+  | "completed"
+  | "error"
+  | "approval-requested";
 
-                        if (isAllow) {
-                          tool.requestId &&
-                            onApprove?.(tool.requestId, opt.optionId);
-                        } else {
-                          tool.requestId &&
-                            onReject?.(tool.requestId, opt.optionId);
-                        }
-                      }}
-                      variant={
-                        String(opt.optionId).includes("allow") ||
-                        String(opt.optionId).includes("yes")
-                          ? "default"
-                          : "outline"
-                      }
-                    >
-                      {opt.name || "Option"}
-                    </ConfirmationAction>
-                  ))
-                ) : (
-                  // Default fallback
-                  <>
-                    <ConfirmationAction
-                      onClick={() =>
-                        tool.requestId && onReject?.(tool.requestId)
-                      }
-                      variant="outline"
-                    >
-                      Reject
-                    </ConfirmationAction>
-                    <ConfirmationAction
-                      onClick={() =>
-                        tool.requestId && onApprove?.(tool.requestId)
-                      }
-                    >
-                      Allow
-                    </ConfirmationAction>
-                  </>
-                )}
-              </ConfirmationActions>
-            </ConfirmationRequest>
-          </Confirmation>
-          {tool.terminalId && terminalOutputs && (
-            <div className="mt-2">
-              <TerminalView output={terminalOutputs[tool.terminalId] || ""} />
-            </div>
-          )}
-          {tool.diffs && tool.diffs.length > 0 && (
-            <div className="mt-2 space-y-4">
-              {tool.diffs.map((diff, _i) => (
-                <div className="space-y-1" key={diff.path}>
-                  <FileDiffView
-                    filename={diff.path}
-                    modified={diff.newText}
-                    original={diff.oldText}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-          <ToolOutput errorText={tool.error} output={tool.result} />
-        </ToolContent>
-      </Tool>
-    </div>
-  )
+const toToolViewState = (tool: ToolUIPart): ToolViewState => {
+  switch (tool.state) {
+    case "input-streaming":
+      return "pending";
+    case "input-available":
+      return "running";
+    case "approval-requested":
+      return "approval-requested";
+    case "approval-responded":
+      return "running";
+    case "output-available":
+      return "completed";
+    case "output-error":
+    case "output-denied":
+      return "error";
+    default:
+      return "pending";
+  }
+};
+
+const parseToolOutput = (output: ToolUIPart["output"]) => {
+  if (!Array.isArray(output)) {
+    return { result: output, terminalId: undefined, diffs: [] as Array<{ path: string; oldText?: string; newText: string }> };
+  }
+  let terminalId: string | undefined;
+  const diffs: Array<{ path: string; oldText?: string; newText: string }> = [];
+  const textParts: string[] = [];
+  for (const item of output) {
+    if (item && typeof item === "object" && "type" in item) {
+      const typed = item as { type: string; terminalId?: string; path?: string; oldText?: string; newText?: string; content?: { type?: string; text?: string } };
+      if (typed.type === "terminal" && typed.terminalId) {
+        terminalId = typed.terminalId;
+      }
+      if (typed.type === "diff" && typed.path && typed.newText) {
+        diffs.push({ path: typed.path, oldText: typed.oldText, newText: typed.newText });
+      }
+      if (typed.type === "content" && typed.content?.type === "text" && typed.content.text) {
+        textParts.push(typed.content.text);
+      }
+    }
+  }
+  const result = textParts.length > 0 ? textParts.join("\n") : output;
+  return { result, terminalId, diffs };
+};
+
+const ToolMessagePart = memo(
+  ({ tool, permission, terminalOutputs, onApprove, onReject }: ToolMessagePartProps) => {
+    const viewState = toToolViewState(tool);
+    const { result, terminalId, diffs } = parseToolOutput(tool.output);
+    const errorText =
+      tool.state === "output-error"
+        ? tool.errorText
+        : tool.state === "output-denied"
+          ? "Denied"
+          : undefined;
+    const permissionOptions = permission?.options;
+    const optionsList = Array.isArray(permissionOptions)
+      ? permissionOptions
+      : permissionOptions?.options ?? [];
+
+    return (
+      <div className="mb-4 space-y-2" key={tool.toolCallId}>
+        <Tool key={tool.toolCallId}>
+          <ToolHeader state={viewState} title={tool.title} type={tool.type} />
+          <ToolContent>
+            <ToolInput input={tool.input ?? {}} />
+            <Confirmation approval={{ id: tool.toolCallId }} state={viewState}>
+              <ConfirmationRequest>
+                <ConfirmationTitle>
+                  Requesting permission to execute
+                </ConfirmationTitle>
+                <ConfirmationActions>
+                  {viewState === "approval-requested" ? (
+                    optionsList.length > 0 ? (
+                      optionsList.map((opt) => (
+                        <ConfirmationAction
+                          key={opt.optionId}
+                          onClick={() => {
+                            const id = String(opt.optionId || "").toLowerCase();
+                            const isAllow =
+                              id === "allow" || id === "yes" || id === "allow_once";
+
+                            if (isAllow) {
+                              permission?.requestId &&
+                                onApprove?.(permission.requestId, opt.optionId);
+                            } else {
+                              permission?.requestId &&
+                                onReject?.(permission.requestId, opt.optionId);
+                            }
+                          }}
+                          variant={
+                            String(opt.optionId).includes("allow") ||
+                            String(opt.optionId).includes("yes")
+                              ? "default"
+                              : "outline"
+                          }
+                        >
+                          {opt.name || "Option"}
+                        </ConfirmationAction>
+                      ))
+                    ) : (
+                      <>
+                        <ConfirmationAction
+                          onClick={() =>
+                            permission?.requestId && onReject?.(permission.requestId)
+                          }
+                          variant="outline"
+                        >
+                          Reject
+                        </ConfirmationAction>
+                        <ConfirmationAction
+                          onClick={() =>
+                            permission?.requestId && onApprove?.(permission.requestId)
+                          }
+                        >
+                          Allow
+                        </ConfirmationAction>
+                      </>
+                    )
+                  ) : null}
+                </ConfirmationActions>
+              </ConfirmationRequest>
+            </Confirmation>
+            {terminalId && terminalOutputs && (
+              <div className="mt-2">
+                <TerminalView output={terminalOutputs[terminalId] || ""} />
+              </div>
+            )}
+            {diffs.length > 0 && (
+              <div className="mt-2 space-y-4">
+                {diffs.map((diff) => (
+                  <div className="space-y-1" key={diff.path}>
+                    <FileDiffView
+                      filename={diff.path}
+                      modified={diff.newText}
+                      original={diff.oldText}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            <ToolOutput errorText={errorText} output={result} />
+          </ToolContent>
+        </Tool>
+      </div>
+    );
+  }
 );
 ToolMessagePart.displayName = "ToolMessagePart";
 
-const buildMessageCopyText = (message: MessageType) => {
+const buildMessageCopyText = (message: UIMessage) => {
   const textParts = message.parts
     .filter((part) => part.type === "text")
-    .map((part) => part.content.trim())
+    .map((part) => part.text.trim())
     .filter(Boolean);
 
   return textParts.join("\n\n");
@@ -376,63 +407,111 @@ export function ChatMessages({
   return (
     <Conversation className="min-h-0 flex-1 overflow-y-hidden">
       <ConversationContent>
-        {memoizedMessages.map((message) => (
-          <Message from={message.from} key={message.key}>
+        {memoizedMessages.map((message) => {
+          const permissionByToolCallId = new Map<
+            string,
+            { requestId: string; options?: PermissionOption[] | { allowOther?: boolean; options?: PermissionOption[] } }
+          >();
+          for (const part of message.parts) {
+            if (part.type === "data-permission-options") {
+              const data = part.data as
+                | {
+                    requestId?: string;
+                    toolCallId?: string;
+                    options?: PermissionOption[] | { allowOther?: boolean; options?: PermissionOption[] };
+                  }
+                | undefined;
+              if (data?.requestId && data.toolCallId) {
+                permissionByToolCallId.set(data.toolCallId, {
+                  requestId: data.requestId,
+                  options: data.options,
+                });
+              }
+            }
+          }
+          return (
+            <Message from={message.role} key={message.id}>
             <div>
-              {message.reasoning && (
-                <Reasoning>
-                  <ReasoningTrigger />
-                  <ReasoningContent>
-                    {message.reasoning.content}
-                  </ReasoningContent>
-                </Reasoning>
-              )}
               <MessageContent>
                 {message.parts.map((part, _index) => {
                   if (part.type === "text") {
                     return (
                       <TextMessagePart
-                        content={part.content}
-                        key={`text-${part.content.slice(0, 10)}-${_index}`}
+                        text={part.text}
+                        key={`text-${part.text.slice(0, 10)}-${_index}`}
                       />
                     );
                   }
 
-                  if (part.type === "context") {
+                  if (part.type === "reasoning") {
                     return (
-                      <ContextMessagePart
-                        items={part.items}
-                        key={`context-${part.items[0]?.id ?? _index}`}
+                      <ReasoningMessagePart
+                        key={`reasoning-${part.text.slice(0, 10)}-${_index}`}
+                        text={part.text}
                       />
                     );
                   }
 
-                  if (part.type === "content_block") {
+                  if (part.type === "source-url" || part.type === "source-document") {
                     return (
-                      <ContentBlocksMessagePart
-                        blocks={part.blocks}
-                        key={`content-block-${part.blocks[0]?.type ?? _index}`}
+                      <SourceMessagePart
+                        key={`source-${part.sourceId}-${_index}`}
+                        part={part}
                       />
                     );
                   }
 
-                  if (part.type === "plan") {
+                  if (part.type === "file") {
                     return (
-                      <PlanMessagePart
-                        entries={part.entries}
-                        key={`plan-${part.entries[0]?.content.slice(0, 10)}-${_index}`}
+                      <FileMessagePart
+                        key={`file-${part.url}-${_index}`}
+                        part={part}
                       />
                     );
                   }
 
-                  if (part.type === "tool") {
+                  if (part.type === "step-start") {
+                    return (
+                      <div
+                        className="my-2 text-xs text-muted-foreground"
+                        key={`step-${_index}`}
+                      >
+                        Step
+                      </div>
+                    );
+                  }
+
+                  if (part.type.startsWith("data-")) {
+                    return null;
+                  }
+
+                  if (part.type.startsWith("tool-")) {
+                    const toolPart = part as ToolUIPart;
+                    const permission = permissionByToolCallId.get(
+                      toolPart.toolCallId
+                    );
+                    if (
+                      toolPart.type === "tool-plan" &&
+                      toolPart.output &&
+                      typeof toolPart.output === "object" &&
+                      "entries" in toolPart.output
+                    ) {
+                      const entries = (toolPart.output as { entries: Array<{ content: string; status: PlanStatus }> }).entries;
+                      return (
+                        <PlanMessagePart
+                          entries={entries}
+                          key={`plan-${entries[0]?.content.slice(0, 10)}-${_index}`}
+                        />
+                      );
+                    }
                     return (
                       <ToolMessagePart
-                        key={`tool-${part.toolCallId}-${_index}`}
+                        key={`tool-${toolPart.toolCallId}-${_index}`}
                         onApprove={onApprove}
                         onReject={onReject}
                         terminalOutputs={terminalOutputs}
-                        tool={part}
+                        tool={toolPart}
+                        permission={permission}
                       />
                     );
                   }
@@ -446,7 +525,8 @@ export function ChatMessages({
               </div>
             </div>
           </Message>
-        ))}
+          );
+        })}
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>
