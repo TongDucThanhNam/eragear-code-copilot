@@ -1,6 +1,7 @@
 import { FlashList } from "@shopify/flash-list";
 import { useMemo } from "react";
 import type { ScrollViewProps } from "react-native";
+import { Text, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import type { ChatMessage } from "@/store/chat-store";
 import { MessageItem } from "./message-item";
@@ -20,6 +21,7 @@ export function ChatMessages({
   contentPaddingBottom = 100,
   keyboardBottomOffset = 0,
 }: ChatMessagesProps) {
+  const hasMessages = messages.length > 0;
   const lastAssistantMessageId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       if (messages[i]?.role === "assistant") {
@@ -28,23 +30,35 @@ export function ChatMessages({
     }
     return null;
   }, [messages]);
-  const listPaddingBottom = Math.max(100, contentPaddingBottom);
+  const listPaddingBottom = Math.max(96, contentPaddingBottom);
   const renderScrollComponent = (props: ScrollViewProps) => (
     <KeyboardAwareScrollView {...props} bottomOffset={keyboardBottomOffset} />
   );
+  const renderEmptyState = () => (
+    <View className="flex-1 items-center justify-center px-8">
+      <Text className="text-muted text-sm">No messages yet.</Text>
+      <Text className="mt-1 text-center text-muted text-xs">
+        Start by sending a prompt.
+      </Text>
+    </View>
+  );
+  const contentContainerStyle = {
+    flexGrow: 1,
+    paddingHorizontal: hasMessages ? 18 : 24,
+    paddingTop: hasMessages ? 12 : 24,
+    paddingBottom: hasMessages ? listPaddingBottom : 32,
+  };
 
   return (
     <FlashList
-      contentContainerStyle={{
-        padding: 16,
-        paddingTop: 12,
-        paddingBottom: listPaddingBottom,
-      }}
+      contentContainerStyle={contentContainerStyle}
       data={messages}
-      // estimatedItemSize={100}
-      // inverted={false}
+      estimatedItemSize={180}
+      ItemSeparatorComponent={() => <View className="h-4" />}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
+      keyExtractor={(item, index) => item.id ?? `${item.role}-${index}`}
+      ListEmptyComponent={hasMessages ? null : renderEmptyState}
       renderItem={({ item }) => (
         <MessageItem
           isLiveMessage={isStreaming && item.id === lastAssistantMessageId}

@@ -18,6 +18,7 @@ interface ProjectState {
   projects: Project[];
   activeProjectId: string | null;
   isProjectCreateOpen: boolean;
+  isAgentPickerOpen: boolean;
   editingProject: Project | null;
   projectMutations: {
     updateProject?: (input: {
@@ -47,6 +48,7 @@ interface ProjectState {
   removeProjectLocal: (id: string) => void;
   getActiveProject: () => Project | null;
   setIsProjectCreateOpen: (isOpen: boolean) => void;
+  setIsAgentPickerOpen: (isOpen: boolean) => void;
   setEditingProject: (project: Project | null) => void;
   setProjectMutations: (mutations: ProjectState["projectMutations"]) => void;
 }
@@ -57,6 +59,7 @@ export const useProjectStore = create<ProjectState>()(
       projects: [],
       activeProjectId: null,
       isProjectCreateOpen: false,
+      isAgentPickerOpen: false,
       editingProject: null,
       projectMutations: {},
 
@@ -69,7 +72,7 @@ export const useProjectStore = create<ProjectState>()(
             projects,
             activeProjectId: activeExists
               ? state.activeProjectId
-              : projects[0]?.id ?? null,
+              : (projects[0]?.id ?? null),
           };
         }),
 
@@ -110,10 +113,13 @@ export const useProjectStore = create<ProjectState>()(
         if (!state.activeProjectId) {
           return null;
         }
-        return state.projects.find((p) => p.id === state.activeProjectId) ?? null;
+        return (
+          state.projects.find((p) => p.id === state.activeProjectId) ?? null
+        );
       },
 
       setIsProjectCreateOpen: (isOpen) => set({ isProjectCreateOpen: isOpen }),
+      setIsAgentPickerOpen: (isOpen) => set({ isAgentPickerOpen: isOpen }),
       setEditingProject: (project) => set({ editingProject: project }),
       setProjectMutations: (mutations) => set({ projectMutations: mutations }),
     }),

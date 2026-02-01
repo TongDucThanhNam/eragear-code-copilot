@@ -20,6 +20,7 @@ function StackLayout() {
     <Stack screenOptions={{}}>
       <Stack.Screen name="(drawer)" options={{ headerShown: false }} />
       <Stack.Screen name="chats/[chatId]" options={{ headerShown: false }} />
+      <Stack.Screen name="chats/new" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen
         name="modal"
@@ -40,7 +41,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isReady) return;
+    if (!isReady) {
+      return;
+    }
 
     const currentSegment = segments[0];
     const isAuthScreen = currentSegment === "login";

@@ -1,7 +1,9 @@
+import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef } from "react";
+import { Platform } from "react-native";
 
 import { useAuthConfigured } from "@/hooks/use-auth-config";
-import { buildSendMessagePayload, type Attachment } from "@/lib/attachments";
+import { type Attachment, buildSendMessagePayload } from "@/lib/attachments";
 import { trpc } from "@/lib/trpc";
 import {
   type PermissionRequest,
@@ -196,6 +198,22 @@ export function useChat() {
 
   const utils = trpc.useUtils();
   const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
+  const hapticTriggeredRef = useRef<string | null>(null);
+
+  const triggerStreamEndHaptic = useCallback(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
+    const store = useChatStore.getState();
+    const lastMsg = store.messages.at(-1);
+    const msgId = lastMsg?.id;
+
+    // Only trigger haptic once per message
+    if (msgId && hapticTriggeredRef.current !== msgId) {
+      hapticTriggeredRef.current = msgId;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, []);
 
   // Mutations
   const stopSessionMutation = trpc.stopSession.useMutation();
@@ -473,8 +491,7 @@ export function useChat() {
 
       const toolCallIndex = parts.findIndex(
         (part) =>
-          part.type === "tool_call" &&
-          part.toolCallId === toolUpdate.toolCallId
+          part.type === "tool_call" && part.toolCallId === toolUpdate.toolCallId
       );
       if (toolCallIndex >= 0) {
         parts.splice(toolCallIndex + 1, 0, resultPart);
@@ -560,6 +577,10 @@ export function useChat() {
         case "available_commands_update":
           handleAvailableCommandsUpdate(update, store);
           break;
+        case "turn_end":
+        case "prompt_end":
+          triggerStreamEndHaptic();
+          break;
         default:
           break;
       }
@@ -572,6 +593,7 @@ export function useChat() {
       handleToolCallUpdate,
       handlePlanUpdate,
       handleAvailableCommandsUpdate,
+      triggerStreamEndHaptic,
     ]
   );
 

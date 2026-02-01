@@ -1,5 +1,7 @@
-import { Chip, Spinner } from "heroui-native";
-import { useEffect, useRef } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import * as Haptics from "expo-haptics";
+import { Spinner } from "heroui-native";
+import { memo, useEffect, useRef } from "react";
 import { Text, View } from "react-native";
 import Animated, {
   Easing,
@@ -13,6 +15,26 @@ import type { MessagePart } from "@/store/chat-store";
 import { cn_inline } from "./utils";
 
 const AnimatedView = Animated.createAnimatedComponent(View);
+
+// Phase 2: Animation Constants
+export const ANIMATION = {
+  PULSE: {
+    CYCLE_DURATION: 900,
+    STOP_DURATION: 200,
+    MIN_OPACITY: 0.7,
+    MAX_SCALE: 1.06,
+    BACKGROUND_OPACITY: 0.4,
+  },
+  COMPLETION: {
+    BUMP_DURATION: 140,
+    RETURN_DURATION: 160,
+    MAX_SCALE: 1.05,
+  },
+  ENTRY: {
+    DURATION: 200,
+    MIN_SCALE: 0.95,
+  },
+} as const;
 
 type ActivityKind = "tool" | "thinking" | "plan";
 type ActivityStatus = "running" | "completed";
@@ -74,6 +96,141 @@ export function formatDuration(ms: number) {
   const remainder = seconds % 60;
   return `${minutes}m ${remainder}s`;
 }
+
+// Phase 1: ActivityIcon Component
+export const ActivityIcon = memo(function ActivityIcon({
+  kind,
+  size = 16,
+}: {
+  kind: ActivityKind;
+  size?: number;
+}) {
+  const getIconName = () => {
+    switch (kind) {
+      case "tool":
+        return "settings-outline";
+      case "thinking":
+        return "bulb-outline";
+      case "plan":
+        return "list-outline";
+      default:
+        return "help-circle-outline";
+    }
+  };
+
+  const getColorClass = () => {
+    switch (kind) {
+      case "tool":
+        return "text-emerald-500";
+      case "thinking":
+        return "text-sky-500";
+      case "plan":
+        return "text-amber-500";
+      default:
+        return "text-muted-foreground";
+    }
+  };
+
+  return (
+    <Ionicons
+      accessibilityLabel={getIconName()}
+      accessible={true}
+      className={getColorClass()}
+      name={getIconName() as any}
+      size={size}
+      testID="activity-icon"
+    />
+  );
+});
+
+// Phase 3: ActivityStatusBadge Component
+export const ActivityStatusBadge = memo(function ActivityStatusBadge({
+  status,
+  item,
+}: {
+  status: ActivityStatus;
+  item: ActivityItem;
+}) {
+  if (status === "running") {
+    return (
+      <View className="flex-row items-center gap-1">
+        <Spinner
+          accessibilityLabel="Loading"
+          accessible={true}
+          color="accent"
+          size="sm"
+        />
+        <Text
+          accessibilityLabel="Running"
+          accessible={true}
+          className="text-[10px] text-muted-foreground"
+        >
+          Running
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View className="flex-row items-center gap-1">
+      <Ionicons
+        accessibilityLabel="Completed"
+        accessible={true}
+        className="text-success"
+        name="checkmark-circle"
+        size={12}
+      />
+      <Text
+        accessibilityLabel="Done"
+        accessible={true}
+        className="font-medium text-[10px] text-success"
+      >
+        Done
+      </Text>
+    </View>
+  );
+});
+
+// Phase 3: ActivityLabel Component
+export const ActivityLabel = memo(function ActivityLabel({
+  title,
+  kind,
+  numberOfLines,
+  size = "sm",
+}: {
+  title: string;
+  kind: ActivityKind;
+  numberOfLines?: number;
+  size?: "xs" | "sm" | "base";
+}) {
+  const getTextSizeClass = () => {
+    switch (size) {
+      case "xs":
+        return "text-xs";
+      case "sm":
+        return "text-sm";
+      case "base":
+        return "text-base";
+      default:
+        return "text-sm";
+    }
+  };
+
+  const getTextColorClass = () => {
+    return "text-foreground";
+  };
+
+  return (
+    <Text
+      accessibilityLabel={`${kind === "tool" ? "Tool" : kind === "thinking" ? "Thinking" : "Plan"}: ${title}`}
+      accessible={true}
+      className={`${getTextSizeClass()} ${getTextColorClass()} flex-1`}
+      numberOfLines={numberOfLines}
+    >
+      {title}
+    </Text>
+  );
+});
 
 export function buildActivityModel(
   parts: MessagePart[],
@@ -173,53 +330,56 @@ export function ActivityRow({
 }) {
   const scale = useSharedValue(1);
   const pulse = useSharedValue(0);
+  const successGlow = useSharedValue(0);
   const isRunning = item.status === "running";
   const prevStatusRef = useRef<ActivityStatus>(item.status);
 
   useEffect(() => {
     if (isRunning) {
       pulse.value = withRepeat(
-        withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, {
+          duration: ANIMATION.PULSE.CYCLE_DURATION,
+          easing: Easing.inOut(Easing.sin),
+        }),
         -1,
         true
       );
     } else {
-      pulse.value = withTiming(0, { duration: 200 });
+      pulse.value = withTiming(0, { duration: ANIMATION.PULSE.STOP_DURATION });
     }
   }, [isRunning, pulse]);
 
   useEffect(() => {
     if (prevStatusRef.current === "running" && item.status === "completed") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      successGlow.value = withSequence(
+        withTiming(1, { duration: 300, easing: Easing.out(Easing.ease) }),
+        withTiming(0, { duration: 500, easing: Easing.inOut(Easing.ease) })
+      );
       scale.value = withSequence(
-        withTiming(1.05, { duration: 140 }),
-        withTiming(1, { duration: 160 })
+        withTiming(ANIMATION.COMPLETION.MAX_SCALE, {
+          duration: ANIMATION.COMPLETION.BUMP_DURATION,
+          easing: Easing.out(Easing.back(1.5)),
+        }),
+        withTiming(1, { duration: ANIMATION.COMPLETION.RETURN_DURATION })
       );
     }
     prevStatusRef.current = item.status;
-  }, [item.status, scale]);
+  }, [item.status, scale, successGlow]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
   const pulseStyle = useAnimatedStyle(() => ({
-    opacity: pulse.value * 0.4,
-    transform: [{ scale: 1 + pulse.value * 0.06 }],
+    opacity: pulse.value * ANIMATION.PULSE.BACKGROUND_OPACITY,
+    transform: [{ scale: 1 + pulse.value * (ANIMATION.PULSE.MAX_SCALE - 1) }],
   }));
 
-  const kindLabel =
-    item.kind === "tool" ? "TOOL" : item.kind === "plan" ? "PLAN" : "THINKING";
-
-  const getKindColor = () => {
-    switch (item.kind) {
-      case "tool":
-        return "secondary";
-      case "plan":
-        return "tertiary";
-      default:
-        return "primary";
-    }
-  };
+  const successGlowStyle = useAnimatedStyle(() => ({
+    opacity: successGlow.value * 0.3,
+    transform: [{ scale: 1 + successGlow.value * 0.08 }],
+  }));
 
   const getKindDotClass = () => {
     switch (item.kind) {
@@ -235,7 +395,7 @@ export function ActivityRow({
   if (isCompact) {
     return (
       <AnimatedView
-        className="flex-row items-center gap-2 py-1.5"
+        className="min-h-11 flex-row items-center gap-2 py-1.5"
         style={animatedStyle}
       >
         <View className="relative h-2 w-2">
@@ -246,16 +406,21 @@ export function ActivityRow({
               style={pulseStyle}
             />
           )}
+          {!isRunning && (
+            <AnimatedView
+              className="absolute inset-0 rounded-full bg-success/40"
+              style={successGlowStyle}
+            />
+          )}
         </View>
-        <Text className="text-[10px] text-muted-foreground uppercase tracking-wide">
-          {kindLabel}
-        </Text>
-        <Text className="flex-1 text-foreground text-xs" numberOfLines={1}>
-          {item.title}
-        </Text>
-        <Text className="text-[10px] text-muted-foreground">
-          {isRunning ? "Running" : "Done"}
-        </Text>
+        <ActivityIcon kind={item.kind} size={14} />
+        <ActivityLabel
+          kind={item.kind}
+          numberOfLines={1}
+          size="xs"
+          title={item.title}
+        />
+        <ActivityStatusBadge item={item} status={item.status} />
       </AnimatedView>
     );
   }
@@ -277,26 +442,37 @@ export function ActivityRow({
           style={pulseStyle}
         />
       )}
-      <View className="flex-row items-center justify-between">
+      {!isRunning && (
+        <AnimatedView
+          className="absolute inset-0 bg-success/5"
+          style={successGlowStyle}
+        />
+      )}
+      <View className="relative z-10 flex-row items-center justify-between gap-2">
         <View className="flex-row items-center gap-1">
-          <Chip color={getKindColor()} size="sm" variant="soft">
-            {kindLabel}
-          </Chip>
+          <View className="flex-row items-center gap-1 bg-surface-foreground/10 px-2 py-0.5">
+            <ActivityIcon kind={item.kind} size={12} />
+            <Text className="font-medium text-[10px] text-muted-foreground">
+              {item.kind === "tool"
+                ? "TOOL"
+                : item.kind === "plan"
+                  ? "PLAN"
+                  : "THINKING"}
+            </Text>
+          </View>
           {isRunning && item.kind === "thinking" && (
             <Spinner color="accent" size="sm" />
           )}
         </View>
-        <Chip color={isRunning ? "accent" : "success"} size="sm" variant="soft">
-          {isRunning ? "RUNNING" : "DONE"}
-        </Chip>
+        <ActivityStatusBadge item={item} status={item.status} />
       </View>
       <View className="mt-1 flex-row items-center gap-2">
-        <Text
-          className="flex-1 text-foreground text-sm"
-          numberOfLines={isCompact ? 1 : 2}
-        >
-          {item.title}
-        </Text>
+        <ActivityLabel
+          kind={item.kind}
+          numberOfLines={2}
+          size="sm"
+          title={item.title}
+        />
       </View>
       {!isCompact && item.detail && (
         <Text className="mt-1 text-[11px] text-muted-foreground">

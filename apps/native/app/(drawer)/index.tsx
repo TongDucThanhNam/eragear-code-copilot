@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
+  BottomSheet,
   Button,
   Spinner,
   Surface,
@@ -20,8 +21,10 @@ import {
   View,
 } from "react-native";
 import { AgentIcon } from "@/components/agents/agent-icons";
+import { AgentPicker } from "@/components/agents/agent-picker";
 import { Container } from "@/components/common/container";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
+import { useCreateSession } from "@/hooks/use-create-session";
 import { trpc } from "@/lib/trpc";
 import type { SessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
@@ -80,16 +83,9 @@ export default function SessionsScreen() {
   const router = useRouter();
   const themeColorForeground = useThemeColor("foreground");
   const themeColorMuted = useThemeColor("muted");
-  const {
-    setActiveChatId,
-    setSessions,
-    setConnStatus,
-    setModes,
-    setModels,
-    setPromptCapabilities,
-    setSupportsModelSwitching,
-  } = useChatStore();
+  const { setActiveChatId, setSessions, setConnStatus } = useChatStore();
   const utils = trpc.useUtils();
+  const { createSession, isCreating } = useCreateSession();
   const projects = useProjectStore((s) => s.projects);
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const setProjects = useProjectStore((s) => s.setProjects);
@@ -115,7 +111,8 @@ export default function SessionsScreen() {
   });
   const agents = agentsData?.agents || [];
   const activeAgentId = agentsData?.activeAgentId;
-  const [isAgentPickerOpen, setIsAgentPickerOpen] = useState(false);
+  const isAgentPickerOpen = useProjectStore((s) => s.isAgentPickerOpen);
+  const setIsAgentPickerOpen = useProjectStore((s) => s.setIsAgentPickerOpen);
   const [activeTab, setActiveTab] = useState<FilterTab>("active");
   const [projectForm, setProjectForm] = useState({
     name: "",
@@ -146,7 +143,6 @@ export default function SessionsScreen() {
     enabled: isConfigured,
   });
 
-  const createSessionMutation = trpc.createSession.useMutation();
   const setActiveProjectMutation = trpc.setActiveProject.useMutation({
     onError: (err) => {
       const message =
@@ -266,13 +262,11 @@ export default function SessionsScreen() {
     setIsAgentPickerOpen(true);
   };
 
-  const setActiveAgentMutation = trpc.agents.setActive.useMutation();
-
   const handleSelectAgent = async (agentId: string) => {
     setError(null);
     setIsAgentPickerOpen(false);
 
-    const agent = agents.find((a) => a.id === agentId);
+    const agent = agents.find((a: Agent) => a.id === agentId);
     if (!agent) {
       setError("Selected agent not found. Please configure an ACP agent.");
       router.push("/settings");
@@ -285,48 +279,15 @@ export default function SessionsScreen() {
       return;
     }
 
-    setActiveAgentMutation.mutate({ id: agentId });
-    setConnStatus("connecting");
-
     try {
-      const data = await createSessionMutation.mutateAsync({
-        projectId: activeProject.id,
-        command: agent.command,
-        args: agent.args,
-        env: agent.env,
-      });
-
-      setActiveChatId(data.chatId);
-      if (data.modes) {
-        setModes(data.modes);
-      }
-      if (data.models) {
-        setModels(data.models);
-      }
-      setPromptCapabilities(data.promptCapabilities ?? null);
-      setConnStatus("connected");
-
-      try {
-        const sessionState = await utils.getSessionState.fetch({
-          chatId: data.chatId,
-        });
-        if (sessionState?.supportsModelSwitching !== undefined) {
-          setSupportsModelSwitching(
-            Boolean(sessionState.supportsModelSwitching)
-          );
-        }
-      } catch (err) {
-        console.warn("Failed to fetch session state", err);
-      }
-
-      sessionsQuery.refetch();
-      router.push(`/chats/${data.chatId}`);
+      const { chatId } = await createSession(agent, activeProject.id);
+      router.push(`/chats/${chatId}`);
     } catch (err) {
+      // Error already set in store by hook, also set local error for UI display
       const message =
         typeof err === "object" && err && "message" in err
           ? String((err as { message: string }).message)
           : "Failed to create session.";
-      setConnStatus("error");
       setError(message);
     }
   };
@@ -1008,79 +969,43 @@ export default function SessionsScreen() {
         </View>
       </Modal>
 
-      {/* Select Agent Modal */}
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setIsAgentPickerOpen(false)}
-        transparent
-        visible={isAgentPickerOpen}
+      {/* Select Agent BottomSheet */}
+      <BottomSheet
+        isOpen={isAgentPickerOpen}
+        onOpenChange={setIsAgentPickerOpen}
       >
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="max-h-[70%] rounded-t-3xl bg-zinc-900 p-6">
-            <View className="mb-4 flex-row items-center justify-between">
-              <Text className="font-semibold text-lg text-white">
-                Select Agent
-              </Text>
-              <Pressable onPress={() => setIsAgentPickerOpen(false)}>
-                <Ionicons color="#94a3b8" name="close" size={20} />
-              </Pressable>
-            </View>
+        <BottomSheet.Portal>
+          <BottomSheet.Overlay />
+          <BottomSheet.Content
+            className="rounded-t-3xl"
+            snapPoints={["50%", "70%"]}
+          >
+            <View className="flex-1 p-6">
+              <View className="mb-4 flex-row items-center justify-between">
+                <View>
+                  <BottomSheet.Title className="font-semibold text-foreground text-lg">
+                    Select Agent
+                  </BottomSheet.Title>
+                  <BottomSheet.Description className="text-muted-foreground text-sm">
+                    Choose an agent to start a new session
+                  </BottomSheet.Description>
+                </View>
+                <BottomSheet.Close hitSlop={12}>
+                  <Ionicons color="#94a3b8" name="close" size={20} />
+                </BottomSheet.Close>
+              </View>
 
-            <ScrollView>
-              {agents.length === 0 ? (
-                <Text className="text-sm text-zinc-400">
-                  No agents configured.
-                </Text>
-              ) : (
-                agents.map((agent: Agent) => (
-                  <Pressable
-                    className="mb-3 rounded-xl border border-zinc-700 p-4"
-                    disabled={createSessionMutation.isPending}
-                    key={agent.id}
-                    onPress={() => handleSelectAgent(agent.id)}
-                  >
-                    <View className="flex-row items-center justify-between">
-                      <View className="flex-1 flex-row items-center gap-3">
-                        <AgentIcon
-                          color="#f8fafc"
-                          secondaryColor="#94a3b8"
-                          size={20}
-                          type={agent.type}
-                        />
-                        <View className="flex-1">
-                          <Text className="font-semibold text-white">
-                            {agent.name}
-                          </Text>
-                          <Text className="mt-1 text-xs text-zinc-400">
-                            {agent.type} • {agent.command}
-                          </Text>
-                        </View>
-                      </View>
-                      {activeAgentId === agent.id ? (
-                        <Ionicons
-                          color="#22c55e"
-                          name="checkmark-circle"
-                          size={18}
-                        />
-                      ) : null}
-                    </View>
-                  </Pressable>
-                ))
-              )}
-            </ScrollView>
-
-            <View className="pt-2">
-              <Button
-                isDisabled={createSessionMutation.isPending}
-                onPress={() => setIsAgentPickerOpen(false)}
-                variant="ghost"
-              >
-                <Button.Label>Cancel</Button.Label>
-              </Button>
+              <AgentPicker
+                activeAgentId={activeAgentId}
+                agents={agents}
+                emptyLabel="No agents configured."
+                isLoading={isCreating}
+                onSelect={handleSelectAgent}
+              />
             </View>
-          </View>
-        </View>
-      </Modal>
+          </BottomSheet.Content>
+        </BottomSheet.Portal>
+      </BottomSheet>
     </Container>
   );
 }

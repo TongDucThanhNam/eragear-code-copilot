@@ -1,7 +1,5 @@
 "use client";
 
-import * as Haptics from "expo-haptics";
-import { useEffect } from "react";
 import { useColorScheme } from "react-native";
 import Markdown from "react-native-markdown-display";
 
@@ -11,15 +9,6 @@ export default function MarkdownText({
 }: React.ComponentProps<typeof Markdown> & { done?: boolean }) {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
-  useEffect(() => {
-    if (process.env.EXPO_OS === "ios") {
-      if (done) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } else {
-        Haptics.selectionAsync();
-      }
-    }
-  }, [done]);
   return (
     <>
       <Markdown

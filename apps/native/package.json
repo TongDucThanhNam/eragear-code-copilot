@@ -28,6 +28,7 @@
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "expo": "~54.0.33",
+    "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.10",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.21",
@@ -63,10 +64,17 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@babel/preset-env": "^7.29.0",
+    "@babel/preset-react": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
     "@eragear-code-copilot/config": "workspace:*",
+    "@react-native/js-polyfills": "^0.83.1",
     "@types/node": "^24.10.0",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "babel-preset-expo": "^54.0.10",
+    "react-test-renderer": "19.1.0",
+    "ts-node": "^10.9.2",
     "typescript": "catalog:"
   }
 }

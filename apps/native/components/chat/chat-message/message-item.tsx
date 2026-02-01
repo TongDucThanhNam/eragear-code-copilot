@@ -15,6 +15,7 @@ import {
   buildActivityModel,
   formatDuration,
 } from "./agentic-activity";
+import { MessageActions } from "./message-actions";
 import { MessagePartItem } from "./message-part-item";
 import { cn_inline } from "./utils";
 
@@ -33,6 +34,13 @@ interface MessageItemProps {
   terminalOutputs: Map<string, string>;
   isLiveMessage: boolean;
 }
+
+const extractMessageText = (parts: ChatMessage["parts"]) =>
+  parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .filter(Boolean)
+    .join("\n\n");
 
 export function MessageItem({
   message,
@@ -54,6 +62,11 @@ export function MessageItem({
   );
 
   const hasActivities = activities.length > 0 && message.role === "assistant";
+  const messageText = useMemo(
+    () => extractMessageText(message.parts),
+    [message.parts]
+  );
+  const showActions = message.role === "assistant" && messageText.length > 0;
   const activityKey = useMemo(
     () =>
       activities
@@ -214,24 +227,35 @@ export function MessageItem({
   if (!hasActivities || isUser) {
     const isUserMessage = isUser;
     return (
-      <View
-        className={cn_inline("mb-4", isUserMessage ? "self-end" : "self-start")}
-      >
+      <View className="w-full">
         <View
           className={cn_inline(
-            "rounded-2xl border p-3",
-            isUserMessage
-              ? "max-w-[82%] rounded-br-md border-transparent bg-accent"
-              : "max-w-[88%] rounded-bl-md border-divider bg-surface"
+            "flex-col gap-1.5",
+            isUserMessage ? "items-end" : "items-start"
           )}
         >
-          {message.parts.map((part, index) => (
-            <MessagePartItem
-              key={`${part.type}-${index}`}
-              part={part}
-              terminalOutputs={terminalOutputs}
+          <View
+            className={cn_inline(
+              "flex-col gap-1.5",
+              isUserMessage
+                ? "max-w-[82%] self-end text-foreground"
+                : "max-w-[88%] self-start text-muted-foreground opacity-90"
+            )}
+          >
+            {message.parts.map((part, index) => (
+              <MessagePartItem
+                key={`${part.type}-${index}`}
+                part={part}
+                terminalOutputs={terminalOutputs}
+              />
+            ))}
+          </View>
+          {showActions && (
+            <MessageActions
+              className={cn_inline(isUserMessage ? "self-end" : "self-start")}
+              text={messageText}
             />
-          ))}
+          )}
         </View>
       </View>
     );
@@ -248,13 +272,13 @@ export function MessageItem({
   const summaryLabel = `${toolCount} tools, ${thinkingCount} thinking - ${durationLabel}`;
 
   return (
-    <View className="mb-4 w-full">
+    <View className="w-full">
       <View className="w-full">
         {showLive && (
           <AnimatedView style={liveStyle}>
-            <View className="mb-2 flex-row items-center justify-between">
-              <Text className="text-muted-foreground text-xs uppercase tracking-wide">
-                Live activity
+            <View className="mb-1 flex-row items-center justify-between">
+              <Text className="text-[11px] text-muted-foreground lowercase tracking-normal">
+                live activity
               </Text>
               <Chip color="accent" size="sm" variant="soft">
                 {activities.length}
@@ -266,7 +290,11 @@ export function MessageItem({
               showsVerticalScrollIndicator={false}
             >
               {visibleActivities.map((item, index) => (
-                <ActivityRow isCompact item={item} key={item.id} />
+                <ActivityRow
+                  isCompact
+                  item={item}
+                  key={`${item.id}-${item.status}-${index}`}
+                />
               ))}
               {hiddenCount > 0 && (
                 <Text className="mt-1 text-muted-foreground text-xs">
@@ -284,30 +312,33 @@ export function MessageItem({
             key={`summary-${message.id}`}
             style={summaryStyle}
           >
-            <Accordion variant="surface">
+            <Accordion variant="default">
               <Accordion.Item value={`summary-${message.id}`}>
-                <Accordion.Trigger className="min-h-8 px-2 py-1.5">
+                <Accordion.Trigger className="min-h-7 px-1.5 py-1">
                   <View className="flex-row items-center justify-between">
                     <View className="flex-1 pr-2">
                       <Text
-                        className="text-foreground text-xs"
+                        className="text-[11px] text-muted-foreground"
                         numberOfLines={1}
                       >
-                        Activity · {summaryLabel}
+                        activity · {summaryLabel}
                       </Text>
                     </View>
                     <View className="flex-row items-center gap-2">
-                      <Text className="text-[11px] text-muted-foreground">
+                      <Text className="text-[10px] text-muted-foreground">
                         {activities.length}
                       </Text>
                       <Accordion.Indicator />
                     </View>
                   </View>
                 </Accordion.Trigger>
-                <Accordion.Content className="px-2 pt-0 pb-2">
-                  <View className="border-divider border-t">
-                    {activities.map((item) => (
-                      <View className="border-divider border-b" key={item.id}>
+                <Accordion.Content className="px-1.5 pt-0 pb-1">
+                  <View className="flex-col gap-1">
+                    {activities.map((item, index) => (
+                      <View
+                        className="py-0.5"
+                        key={`${item.id}-${item.status}-${index}`}
+                      >
                         <ActivityRow isCompact item={item} />
                       </View>
                     ))}
@@ -333,13 +364,16 @@ export function MessageItem({
           <AnimatedView
             entering={FadeIn.delay(FINAL_TEXT_DELAY_MS).duration(300)}
           >
-            <View className="mt-3 p-3">
+            <View className="mt-2">
               <MessagePartItem
                 part={finalTextPart}
                 terminalOutputs={terminalOutputs}
               />
             </View>
           </AnimatedView>
+        )}
+        {showActions && (
+          <MessageActions className="self-start" text={messageText} />
         )}
       </View>
     </View>

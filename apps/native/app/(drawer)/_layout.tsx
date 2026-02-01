@@ -18,6 +18,7 @@ function DrawerLayout() {
   const { toggleTheme, isLight } = useAppTheme();
   const projects = useProjectStore((s) => s.projects);
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
+  const setIsAgentPickerOpen = useProjectStore((s) => s.setIsAgentPickerOpen);
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -61,7 +62,7 @@ function DrawerLayout() {
                   className="flex-row items-center gap-2 rounded-md px-3 py-2 active:bg-default-100"
                   onPress={() => {
                     setIsMenuOpen(false);
-                    router.push("/chats/new");
+                    setIsAgentPickerOpen(true);
                   }}
                 >
                   <Ionicons

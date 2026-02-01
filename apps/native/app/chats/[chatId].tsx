@@ -4,8 +4,8 @@ import { ActivityIndicator, Text, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatHeader } from "@/components/chat/chat-header/chat-header";
-import { ChatInput } from "@/components/chat/chat-input/chat-input";
 import { AttachmentModal } from "@/components/chat/chat-input/attachment-modal";
+import { ChatInput } from "@/components/chat/chat-input/chat-input";
 import { ChatMessages } from "@/components/chat/chat-message/chat-messages";
 import { PermissionModal } from "@/components/chat/permission-modal";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
@@ -62,6 +62,7 @@ function computeChatTitle(
 }
 
 export default function ChatScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams<{
     chatId?: string | string[];
     readonly?: string | string[];
@@ -70,6 +71,13 @@ export default function ChatScreen() {
     ? params.chatId[0]
     : params.chatId;
   const isReadOnlyParam = params.readonly === "true";
+
+  // Guard: redirect chatId="new" to / (Sessions screen)
+  useEffect(() => {
+    if (chatId === "new") {
+      router.replace("/");
+    }
+  }, [chatId, router]);
 
   const {
     messages,
@@ -95,7 +103,6 @@ export default function ChatScreen() {
     supportsModelSwitching,
   } = useChatStore();
 
-  const router = useRouter();
   const {
     sendMessage,
     setMode,
@@ -358,7 +365,6 @@ export default function ChatScreen() {
             availableModes={modes?.availableModes ?? []}
             currentModeId={modes?.currentModeId ?? null}
             currentModelId={models?.currentModelId ?? null}
-            supportsModelSwitching={supportsModelSwitching}
             disabled={connStatus !== "connected" || isSending}
             onHeightChange={handleInputHeightChange}
             onModeChange={handleModeChange}
@@ -366,6 +372,7 @@ export default function ChatScreen() {
             onOpenAttachment={openAttachmentModal}
             onRemoveAttachment={removeAttachment}
             onSend={handleSendMessage}
+            supportsModelSwitching={supportsModelSwitching}
           />
         </KeyboardStickyView>
       )}
@@ -381,7 +388,10 @@ export default function ChatScreen() {
         onPickResource={pickResource}
       />
 
-      <PermissionModal onRespond={respondToPermission} request={pendingPermission} />
+      <PermissionModal
+        onRespond={respondToPermission}
+        request={pendingPermission}
+      />
     </View>
   );
 }

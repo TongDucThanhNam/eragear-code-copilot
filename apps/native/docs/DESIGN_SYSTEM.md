@@ -1,0 +1,3 @@
+- Dự án này sử dụng `heroui-native` - một UI library nội bộ cung cấp các thành phần giao diện người dùng như modals, buttons, accordions, v.v.
+- Sử dụng cách style built -in của `heroui-native` để đảm bảo tính nhất quán trong giao diện người dùng. Tránh thêm các styles tùy chỉnh trừ khi thực sự cần thiết.
+- Sử dụng skill `heroui-native` khi có thể.
