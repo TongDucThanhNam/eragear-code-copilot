@@ -1,3 +1,4 @@
+import { Chip, Spinner } from "heroui-native";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import Animated, {
@@ -19,22 +20,22 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 type ActivityKind = "tool" | "thinking" | "plan";
 type ActivityStatus = "running" | "completed";
 
-export type ActivityItem = {
+export interface ActivityItem {
   id: string;
   kind: ActivityKind;
   title: string;
   status: ActivityStatus;
   detail?: string;
-};
+}
 
-export type ActivityModel = {
+export interface ActivityModel {
   activities: ActivityItem[];
   detailParts: MessagePart[];
   finalTextPart: Extract<MessagePart, { type: "text" }> | null;
   hasRunningTools: boolean;
   thinkingCount: number;
   toolCount: number;
-};
+}
 
 const isToolCall = (
   part: MessagePart
@@ -81,7 +82,10 @@ export function buildActivityModel(
   parts: MessagePart[],
   isLiveMessage: boolean
 ): ActivityModel {
-  const toolResults = new Map<string, Extract<MessagePart, { type: "tool_result" }>>();
+  const toolResults = new Map<
+    string,
+    Extract<MessagePart, { type: "tool_result" }>
+  >();
   const detailParts: MessagePart[] = [];
   const activities: ActivityItem[] = [];
 
@@ -206,29 +210,19 @@ export function ActivityRow({
     transform: [{ scale: 1 + pulse.value * 0.06 }],
   }));
 
-  const cursorOpacity = useSharedValue(0);
-  useEffect(() => {
-    if (item.kind !== "thinking" || !isRunning) {
-      cursorOpacity.value = withTiming(0);
-      return;
-    }
-    cursorOpacity.value = withRepeat(
-      withTiming(1, { duration: 500 }),
-      -1,
-      true
-    );
-  }, [cursorOpacity, isRunning, item.kind]);
-
-  const cursorStyle = useAnimatedStyle(() => ({
-    opacity: cursorOpacity.value,
-  }));
-
   const kindLabel =
-    item.kind === "tool"
-      ? "TOOL"
-      : item.kind === "plan"
-        ? "PLAN"
-        : "THINKING";
+    item.kind === "tool" ? "TOOL" : item.kind === "plan" ? "PLAN" : "THINKING";
+
+  const getKindColor = () => {
+    switch (item.kind) {
+      case "tool":
+        return "secondary";
+      case "plan":
+        return "tertiary";
+      default:
+        return "primary";
+    }
+  };
 
   return (
     <AnimatedView
@@ -248,17 +242,17 @@ export function ActivityRow({
         />
       )}
       <View className="flex-row items-center justify-between">
-        <Text className="text-[10px] font-semibold text-muted-foreground">
-          {kindLabel}
-        </Text>
-        <Text
-          className={cn_inline(
-            "text-[10px] font-semibold",
-            isRunning ? "text-accent" : "text-success"
+        <View className="flex-row items-center gap-1">
+          <Chip color={getKindColor()} size="sm" variant="soft">
+            {kindLabel}
+          </Chip>
+          {isRunning && item.kind === "thinking" && (
+            <Spinner color="accent" size="sm" />
           )}
-        >
+        </View>
+        <Chip color={isRunning ? "accent" : "success"} size="sm" variant="soft">
           {isRunning ? "RUNNING" : "DONE"}
-        </Text>
+        </Chip>
       </View>
       <View className="mt-1 flex-row items-center gap-2">
         <Text
@@ -267,12 +261,6 @@ export function ActivityRow({
         >
           {item.title}
         </Text>
-        {item.kind === "thinking" && isRunning && (
-          <AnimatedView
-            className="h-4 w-1 rounded-full bg-accent"
-            style={cursorStyle}
-          />
-        )}
       </View>
       {!isCompact && item.detail && (
         <Text className="mt-1 text-[11px] text-muted-foreground">
@@ -320,7 +308,7 @@ export function SummaryBar({
     >
       <View className="flex-row items-center justify-between">
         <View>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">
+          <Text className="text-muted-foreground text-xs uppercase tracking-wide">
             Activity summary
           </Text>
           <Text className="mt-1 text-foreground text-sm">
@@ -361,9 +349,7 @@ export function ExpandedActivityList({
     activities.map((item, index) => (
       <AnimatedView
         entering={
-          isExpanded
-            ? FadeInUp.delay(index * 40).duration(240)
-            : undefined
+          isExpanded ? FadeInUp.delay(index * 40).duration(240) : undefined
         }
         key={item.id}
       >
@@ -374,7 +360,7 @@ export function ExpandedActivityList({
   return (
     <View className="relative mt-3">
       <View
-        className="absolute left-0 right-0 opacity-0"
+        className="absolute right-0 left-0 opacity-0"
         onLayout={(event) => {
           setContentHeight(event.nativeEvent.layout.height);
         }}

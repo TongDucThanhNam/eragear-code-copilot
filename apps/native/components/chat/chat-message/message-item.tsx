@@ -1,3 +1,4 @@
+import { Chip } from "heroui-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import Animated, {
@@ -11,10 +12,10 @@ import Animated, {
 import type { ChatMessage } from "@/store/chat-store";
 import {
   ActivityRow,
-  ExpandedActivityList,
-  SummaryBar,
   buildActivityModel,
+  ExpandedActivityList,
   formatDuration,
+  SummaryBar,
 } from "./agentic-activity";
 import { MessagePartItem } from "./message-part-item";
 import { cn_inline } from "./utils";
@@ -78,9 +79,7 @@ export function MessageItem({
   const liveTranslate = useSharedValue(0);
   const summaryOpacity = useSharedValue(displayMode === "collapsed" ? 1 : 0);
   const summaryScale = useSharedValue(displayMode === "collapsed" ? 1 : 0.9);
-  const summaryTranslate = useSharedValue(
-    displayMode === "collapsed" ? 0 : 12
-  );
+  const summaryTranslate = useSharedValue(displayMode === "collapsed" ? 0 : 12);
 
   useEffect(() => {
     firstActivityAtRef.current = null;
@@ -187,12 +186,7 @@ export function MessageItem({
     summaryOpacity.value = withTiming(0, { duration: 150 });
     summaryScale.value = withTiming(0.98, { duration: 150 });
     summaryTranslate.value = withTiming(8, { duration: 150 });
-  }, [
-    displayMode,
-    summaryOpacity,
-    summaryScale,
-    summaryTranslate,
-  ]);
+  }, [displayMode, summaryOpacity, summaryScale, summaryTranslate]);
 
   const liveStyle = useAnimatedStyle(() => ({
     opacity: liveOpacity.value,
@@ -209,18 +203,23 @@ export function MessageItem({
     ],
   }));
 
+  useEffect(() => {
+    if (!showLive) {
+      return;
+    }
+    liveScrollRef.current?.scrollToEnd({ animated: true });
+  }, [showLive, visibleActivities.length]);
+
   if (!hasActivities || isUser) {
+    const isUserMessage = isUser;
     return (
       <View
-        className={cn_inline(
-          "mb-4 flex-row",
-          isUser ? "justify-end" : "justify-start"
-        )}
+        className={cn_inline("mb-4", isUserMessage ? "self-end" : "self-start")}
       >
         <View
           className={cn_inline(
-            "max-w-[85%] rounded-2xl p-3",
-            isUser ? "bg-accent" : "bg-surface"
+            "rounded-2xl p-3",
+            isUserMessage ? "max-w-[85%] bg-accent" : "w-full bg-surface"
           )}
         >
           {message.parts.map((part, index) => (
@@ -249,25 +248,18 @@ export function MessageItem({
       : Date.now() - (firstActivityAtRef.current ?? Date.now())
   );
 
-  useEffect(() => {
-    if (!showLive) {
-      return;
-    }
-    liveScrollRef.current?.scrollToEnd({ animated: true });
-  }, [showLive, visibleActivities.length]);
-
   return (
-    <View className="mb-4 flex-row justify-start">
-      <View className="max-w-[90%] rounded-2xl bg-surface p-3">
+    <View className="mb-4 w-full">
+      <View className="w-full">
         {showLive && (
           <AnimatedView style={liveStyle}>
             <View className="mb-2 flex-row items-center justify-between">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">
+              <Text className="text-muted-foreground text-xs uppercase tracking-wide">
                 Live activity
               </Text>
-              <Text className="text-xs text-muted-foreground">
-                {activities.length} items
-              </Text>
+              <Chip color="accent" size="sm" variant="soft">
+                {activities.length}
+              </Chip>
             </View>
             <ScrollView
               className="max-h-44"
@@ -275,14 +267,10 @@ export function MessageItem({
               showsVerticalScrollIndicator={false}
             >
               {visibleActivities.map((item, index) => (
-                <ActivityRow
-                  isCompact
-                  item={item}
-                  key={item.id}
-                />
+                <ActivityRow isCompact item={item} key={item.id} />
               ))}
               {hiddenCount > 0 && (
-                <Text className="mt-1 text-xs text-muted-foreground">
+                <Text className="mt-1 text-muted-foreground text-xs">
                   +{hiddenCount} activities hidden
                 </Text>
               )}

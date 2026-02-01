@@ -22,6 +22,7 @@ import { Container } from "@/components/common/container";
 import { toHttpUrl } from "@/lib/server-url";
 import { trpc } from "@/lib/trpc";
 import { useAuthStore } from "@/store/auth-store";
+import { useConnectionStore } from "@/store/connection-store";
 
 // Wrap Ionicons with Uniwind for className support
 const StyledIcon = withUniwind(Ionicons);
@@ -31,6 +32,7 @@ export default function LoginScreen() {
   const { toast } = useToast();
   const utils = trpc.useUtils();
   const { serverUrl: storedServerUrl, apiKey: storedApiKey, setServerUrl, setApiKey } = useAuthStore();
+  const { errorMessage: connectionError, clearError: clearConnectionError } = useConnectionStore();
   const hostHint = Platform.OS === "android" ? "10.0.2.2:3000" : "localhost:3000";
 
   const [serverUrl, setServerUrlInput] = useState(storedServerUrl || "localhost:3000");
@@ -49,6 +51,13 @@ export default function LoginScreen() {
       setApiKeyInput(storedApiKey);
     }
   }, [storedServerUrl, storedApiKey]);
+
+  // Clear connection error when user starts typing
+  useEffect(() => {
+    if (connectionError && (serverUrl !== storedServerUrl || apiKey !== storedApiKey)) {
+      clearConnectionError();
+    }
+  }, [serverUrl, apiKey, storedServerUrl, storedApiKey, connectionError, clearConnectionError]);
 
   const testConnection = async (url: string, key: string) => {
     // Temporarily set the server URL
@@ -128,9 +137,30 @@ export default function LoginScreen() {
             <Text className="mb-2 text-center font-bold text-2xl text-foreground">
               Eragear Code Copilot
             </Text>
-            <Text className="mb-8 text-center text-muted-foreground">
+            <Text className="mb-4 text-center text-muted-foreground">
               Connect to your server
             </Text>
+
+            {/* Connection Error Banner */}
+            {connectionError && (
+              <View className="mb-4 w-full max-w-sm rounded-lg bg-warning/20 p-3">
+                <View className="flex-row items-center gap-2">
+                  <StyledIcon
+                    color="hsl(var(--color-warning))"
+                    name="warning-outline"
+                    size={20}
+                  />
+                  <View className="flex-1">
+                    <Text className="font-medium text-sm text-warning">
+                      Connection Issue
+                    </Text>
+                    <Text className="text-warning/80 text-xs">
+                      {connectionError}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
 
             <Surface
               className="w-full max-w-sm rounded-xl p-6"

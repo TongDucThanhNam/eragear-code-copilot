@@ -231,10 +231,14 @@ export const useChatStore = create<ChatState>()(
           }
           const nextConnStatus =
             id && !readOnly ? ("connecting" as ConnectionStatus) : "idle";
+          const isReadOnlyTransition =
+            Boolean(id) &&
+            state.activeChatId === id &&
+            state.activeChatIsReadOnly !== readOnly;
           return {
             activeChatId: id,
             activeChatIsReadOnly: readOnly,
-            messages: [],
+            messages: isReadOnlyTransition ? state.messages : [],
             pendingText: "",
             pendingReasoning: "",
             modes: null,
@@ -242,7 +246,9 @@ export const useChatStore = create<ChatState>()(
             commands: [],
             promptCapabilities: null,
             pendingPermission: null,
-            terminalOutput: new Map(),
+            terminalOutput: isReadOnlyTransition
+              ? state.terminalOutput
+              : new Map(),
             error: null,
             connStatus: nextConnStatus,
           };

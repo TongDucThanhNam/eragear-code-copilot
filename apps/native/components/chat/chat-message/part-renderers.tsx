@@ -1,3 +1,4 @@
+import { Text, View } from "react-native";
 import type { MessagePart } from "@/store/chat-store";
 import { DiffPart } from "./diff-part";
 import { PlanPart } from "./plan-part";
@@ -6,7 +7,6 @@ import { TerminalPart } from "./terminal-part";
 import { TextPart } from "./text-part";
 import { ToolCallPart } from "./tool-call-part";
 import { ToolResultPart } from "./tool-result-part";
-import { Text, View } from "react-native";
 
 interface PartRenderersProps {
   part: MessagePart;

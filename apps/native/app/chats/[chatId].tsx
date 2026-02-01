@@ -85,8 +85,6 @@ export default function ChatScreen() {
     clearMessages,
     setConnStatus,
     setError,
-    setModes,
-    setModels,
     modes,
     models,
     commands,
@@ -226,7 +224,7 @@ export default function ChatScreen() {
       return;
     }
 
-    if (chatId !== activeChatId) {
+    if (chatId !== activeChatId || activeChatIsReadOnly) {
       console.log("Switching to chat", chatId);
       setActiveChatId(chatId, false);
     }
@@ -271,20 +269,18 @@ export default function ChatScreen() {
     try {
       setForceActive(true);
       clearChatFailed(validChatId);
-      const res = await resumeSession(validChatId);
+      setError(null);
       setActiveChatId(validChatId, false);
-      if (res?.modes) {
-        setModes(res.modes);
-      }
-      if (res?.models) {
-        setModels(res.models);
-      }
+      await resumeSession(validChatId);
       updateSessionStatus(validChatId, "running");
       router.replace(`/chats/${validChatId}`);
     } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to resume chat.";
       console.error("Failed to resume chat", err);
       setForceActive(false);
-      setConnStatus("idle");
+      setActiveChatId(validChatId, true);
+      setError(message);
     }
   };
 
@@ -341,6 +337,7 @@ export default function ChatScreen() {
         ) : (
           <ChatMessages
             contentPaddingBottom={listContentPadding}
+            isStreaming={!isReadOnly && connStatus === "connected"}
             keyboardBottomOffset={keyboardBottomOffset}
             messages={messages}
             terminalOutputs={terminalOutput}

@@ -8,7 +8,6 @@ import {
   type ToolCall,
   useChatStore,
 } from "@/store/chat-store";
-import { useProjectStore } from "@/store/project-store";
 
 // Helper for random IDs
 const nanoid = () => Math.random().toString(36).substring(2, 10);
@@ -193,21 +192,12 @@ export function useChat() {
   const activeChatId = useChatStore((s) => s.activeChatId);
   const activeChatIsReadOnly = useChatStore((s) => s.activeChatIsReadOnly);
   const connStatus = useChatStore((s) => s.connStatus);
-  const getActiveProject = useProjectStore((s) => s.getActiveProject);
   const isConfigured = useAuthConfigured();
 
   const utils = trpc.useUtils();
   const lastStreamKindRef = useRef<"user" | "agent" | "other" | null>(null);
 
-  // Fetch agents from server (managed by server now)
-  const { data: agentsData } = trpc.agents.list.useQuery(undefined, {
-    enabled: isConfigured,
-  });
-  const agents = agentsData?.agents || [];
-  const activeAgentId = agentsData?.activeAgentId;
-
   // Mutations
-  const createSessionMutation = trpc.createSession.useMutation();
   const stopSessionMutation = trpc.stopSession.useMutation();
   const resumeSessionMutation = trpc.resumeSession.useMutation();
   const sendMessageMutation = trpc.sendMessage.useMutation();
@@ -447,40 +437,48 @@ export function useChat() {
       }
 
       const parts = [...lastMsg.parts];
-      const lastPart = parts.at(-1);
+      const status = toolUpdate.status ?? "completed";
+      const normalizedStatus = status.toLowerCase();
+      const isTerminal =
+        normalizedStatus === "completed" ||
+        normalizedStatus === "failed" ||
+        normalizedStatus === "error";
 
-      // Debug: log what we received
-      console.log("[handleToolCallUpdate]", {
-        toolCallId: toolUpdate.toolCallId,
-        status: toolUpdate.status,
-        hasContent: "content" in toolUpdate,
-        contentType: typeof toolUpdate.content,
-        contentValue: toolUpdate.content,
-        hasRawOutput: "rawOutput" in toolUpdate,
-        rawOutputType: typeof toolUpdate.rawOutput,
-        rawOutputValue: toolUpdate.rawOutput,
-      });
-
-      if (
-        lastPart?.type === "tool_call" &&
-        lastPart.toolCallId === toolUpdate.toolCallId &&
-        toolUpdate.status === "completed"
-      ) {
-        // Try content first, then rawOutput as fallback
-        const inputContent = toolUpdate.content ?? toolUpdate.rawOutput;
-        // Convert content to tool_result content array format
-        const contentArray = parseContentToToolResultContent(inputContent);
-
-        console.log("[handleToolCallUpdate] parsed content:", contentArray);
-
-        parts.push({
-          type: "tool_result" as const,
-          toolCallId: toolUpdate.toolCallId,
-          status: toolUpdate.status,
-          content: contentArray,
-        });
-        store.updateLastAssistantMessage(parts);
+      if (!isTerminal) {
+        return;
       }
+
+      const inputContent = toolUpdate.content ?? toolUpdate.rawOutput;
+      const contentArray = parseContentToToolResultContent(inputContent);
+      const resultPart = {
+        type: "tool_result" as const,
+        toolCallId: toolUpdate.toolCallId,
+        status,
+        content: contentArray,
+      };
+
+      const existingResultIndex = parts.findIndex(
+        (part) =>
+          part.type === "tool_result" &&
+          part.toolCallId === toolUpdate.toolCallId
+      );
+      if (existingResultIndex >= 0) {
+        parts[existingResultIndex] = resultPart;
+        store.updateLastAssistantMessage(parts);
+        return;
+      }
+
+      const toolCallIndex = parts.findIndex(
+        (part) =>
+          part.type === "tool_call" &&
+          part.toolCallId === toolUpdate.toolCallId
+      );
+      if (toolCallIndex >= 0) {
+        parts.splice(toolCallIndex + 1, 0, resultPart);
+      } else {
+        parts.push(resultPart);
+      }
+      store.updateLastAssistantMessage(parts);
     },
     []
   );
@@ -684,50 +682,6 @@ export function useChat() {
     }
   );
 
-  const createSession = async () => {
-    try {
-      const agentId = activeAgentId;
-      const agent = agents.find((a) => a.id === agentId);
-      const store = useChatStore.getState();
-      const activeProject = getActiveProject();
-
-      if (!agent) {
-        store.setError("Please configure an ACP agent first.");
-        store.setConnStatus("idle");
-        return;
-      }
-      if (!activeProject) {
-        store.setError("Please select a project before starting a session.");
-        store.setConnStatus("idle");
-        return;
-      }
-
-      store.setConnStatus("connecting");
-      const res = await createSessionMutation.mutateAsync({
-        projectId: activeProject.id,
-        command: agent.command,
-        args: agent.args,
-        env: agent.env,
-      });
-
-      store.setActiveChatId(res.chatId);
-      if (res.modes) {
-        store.setModes(res.modes);
-      }
-      if (res.models) {
-        store.setModels(res.models);
-      }
-      if (res.promptCapabilities !== undefined) {
-        store.setPromptCapabilities(res.promptCapabilities);
-      }
-      store.setConnStatus("connected");
-    } catch (e) {
-      const error = e as Error;
-      useChatStore.getState().setError(error.message);
-      useChatStore.getState().setConnStatus("error");
-    }
-  };
-
   const sendMessage = async (text: string, attachments: Attachment[] = []) => {
     if (!activeChatId) {
       return false;
@@ -851,7 +805,6 @@ export function useChat() {
   };
 
   return {
-    createSession,
     sendMessage,
     setMode,
     setModel,
@@ -859,7 +812,6 @@ export function useChat() {
     respondToPermission,
     stopSession,
     resumeSession,
-    isCreating: createSessionMutation.isPending,
     isResuming: resumeSessionMutation.isPending,
     isSending: sendMessageMutation.isPending,
     isCancelling: cancelPromptMutation.isPending,

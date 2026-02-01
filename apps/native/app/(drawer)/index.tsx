@@ -80,8 +80,14 @@ export default function SessionsScreen() {
   const router = useRouter();
   const themeColorForeground = useThemeColor("foreground");
   const themeColorMuted = useThemeColor("muted");
-  const { setActiveChatId, setSessions, setConnStatus, setModes, setModels } =
-    useChatStore();
+  const {
+    setActiveChatId,
+    setSessions,
+    setConnStatus,
+    setModes,
+    setModels,
+    setPromptCapabilities,
+  } = useChatStore();
   const projects = useProjectStore((s) => s.projects);
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
   const setProjects = useProjectStore((s) => s.setProjects);
@@ -295,6 +301,7 @@ export default function SessionsScreen() {
       if (data.models) {
         setModels(data.models);
       }
+      setPromptCapabilities(data.promptCapabilities ?? null);
       setConnStatus("connected");
 
       sessionsQuery.refetch();
