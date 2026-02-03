@@ -24,6 +24,7 @@ import {
 } from "@repo/shared";
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
 // ============================================================================
@@ -150,6 +151,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const messagesRef = useRef<UIMessage[]>([]);
   const modesRef = useRef<SessionModeState | null>(null);
   const isResumingRef = useRef(false);
+  const historyAppliedRef = useRef(false);
 
   // Batched updates for performance
   const batchUpdateQueueRef = useRef<Array<(prev: UIMessage[]) => UIMessage[]>>(
@@ -171,6 +173,16 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   useEffect(() => {
     modesRef.current = modes;
   }, [modes]);
+
+  useEffect(() => {
+    historyAppliedRef.current = false;
+  }, [chatId]);
+
+  useEffect(() => {
+    if (connStatus === "connecting") {
+      historyAppliedRef.current = false;
+    }
+  }, [connStatus]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -278,23 +290,42 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
 
   // Apply session state when loaded
   useEffect(() => {
-    if (sessionState && connStatus === "connecting") {
-      if (!isResumingRef.current && chatHistory && Array.isArray(chatHistory)) {
-        setMessages(chatHistory as UIMessage[]);
-        messagesRef.current = chatHistory as UIMessage[];
-      }
+    if (!sessionState || connStatus !== "connecting") {
+      return;
+    }
 
-      if (sessionState.status === "stopped") {
-        setLoadSessionSupported(sessionState.loadSessionSupported ?? false);
-        restoreSessionState(sessionState);
-        isResumingRef.current = false;
-        return;
-      }
-
+    if (sessionState.status === "stopped") {
+      setLoadSessionSupported(sessionState.loadSessionSupported ?? false);
       restoreSessionState(sessionState);
       isResumingRef.current = false;
+      return;
     }
-  }, [sessionState, chatHistory, connStatus, restoreSessionState]);
+
+    restoreSessionState(sessionState);
+    isResumingRef.current = false;
+  }, [sessionState, connStatus, restoreSessionState]);
+
+  // Apply stored history once, merging with any live messages
+  useEffect(() => {
+    if (!chatHistory || !Array.isArray(chatHistory)) {
+      return;
+    }
+    if (isResumingRef.current || historyAppliedRef.current) {
+      return;
+    }
+
+    const historyMessages = chatHistory as UIMessage[];
+    setMessages((prev) => {
+      const seen = new Set(prev.map((m) => m.id));
+      const merged = [
+        ...historyMessages.filter((m) => !seen.has(m.id)),
+        ...prev,
+      ];
+      messagesRef.current = merged;
+      return merged;
+    });
+    historyAppliedRef.current = true;
+  }, [chatHistory]);
 
   // Event handler
   const handleSessionEvent = useCallback(
@@ -438,17 +469,17 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const setModel = useCallback(
     async (modelId: string) => {
       if (!chatId) return;
-      if (!supportsModelSwitching) {
-        const message =
-          "Agent does not support runtime model switching (session/set_model is an unstable feature)";
-        setError(message);
-        throw new Error(message);
-      }
       try {
+        console.info("[Chat] setModel requested", { chatId, modelId });
         await setModelMutation.mutateAsync({ chatId, modelId });
         setModels((prev) =>
           prev ? { ...prev, currentModelId: modelId } : prev
         );
+        const modelName =
+          models?.availableModels.find((model) => model.modelId === modelId)
+            ?.name ?? modelId;
+        toast.success(`Model switched to ${modelName}`);
+        console.info("[Chat] setModel succeeded", { chatId, modelId });
       } catch (e) {
         const message = (e as Error).message || "Failed to set model";
         const normalized = message.toLowerCase();
@@ -458,10 +489,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         ) {
           setSupportsModelSwitching(false);
         }
+        console.error("[Chat] setModel failed", { chatId, modelId, error: message });
         setError(message);
       }
     },
-    [chatId, setModelMutation, supportsModelSwitching]
+    [chatId, setModelMutation, models]
   );
 
   const respondToPermission = useCallback(
@@ -500,23 +532,36 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       isResumingRef.current = true;
       setConnStatus("connecting");
       setStatus("connecting");
-      setMessages([]);
-      messagesRef.current = [];
-
-      await resumeSessionMutation.mutateAsync({ chatId });
+      const resumeResult = await resumeSessionMutation.mutateAsync({ chatId });
+      const alreadyRunning =
+        typeof resumeResult === "object" &&
+        resumeResult !== null &&
+        "alreadyRunning" in resumeResult &&
+        Boolean(
+          (resumeResult as { alreadyRunning?: boolean }).alreadyRunning
+        );
       const nextState = await utils.getSessionState.fetch({ chatId });
 
       if (nextState.status === "stopped") {
         restoreSessionState(nextState);
+        isResumingRef.current = false;
         return;
       }
 
+      if (!alreadyRunning) {
+        setMessages([]);
+        messagesRef.current = [];
+        historyAppliedRef.current = true;
+      }
+
       restoreSessionState(nextState);
+      isResumingRef.current = false;
     } catch (e) {
       console.error("Failed to resume chat", e);
       setConnStatus("error");
       setStatus("error");
       setError((e as Error).message);
+      isResumingRef.current = false;
     }
   }, [
     chatId,

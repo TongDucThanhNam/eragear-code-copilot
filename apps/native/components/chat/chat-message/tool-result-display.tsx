@@ -21,7 +21,6 @@ import { isTerminalOutput } from "./utils";
 interface ToolResultDisplayProps {
   output?: unknown;
   state: ToolUIPart["state"];
-  terminalOutputs: Map<string, string>;
   errorText?: string;
 }
 
@@ -42,7 +41,6 @@ const isContentBlock = (content: unknown): content is ContentBlock =>
 export function ToolResultDisplay({
   output,
   state,
-  terminalOutputs,
   errorText,
 }: ToolResultDisplayProps) {
   const colorScheme = useColorScheme();
@@ -233,7 +231,7 @@ export function ToolResultDisplay({
       return (
         <TerminalPart
           key={`terminal-${index}`}
-          output={terminalOutputs.get(item.terminalId)}
+          terminalId={item.terminalId}
         />
       );
     }

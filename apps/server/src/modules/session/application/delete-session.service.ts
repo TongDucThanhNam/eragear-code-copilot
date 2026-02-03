@@ -7,9 +7,9 @@
  * @module modules/session/application/delete-session.service
  */
 
+import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
-import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 
 /**
  * DeleteSessionService

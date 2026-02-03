@@ -41,6 +41,32 @@ import type {
   StoredContentBlock,
 } from "../../shared/types/session.types";
 
+function finalizeStreamingForCurrentAssistant(
+  chatId: string,
+  sessionRuntime: SessionRuntimePort
+) {
+  const session = sessionRuntime.get(chatId);
+  if (!session?.uiState.currentAssistantId) {
+    return;
+  }
+  const message = session.uiState.messages.get(
+    session.uiState.currentAssistantId
+  );
+  if (!message) {
+    return;
+  }
+  const hasStreaming = message.parts.some(
+    (part) =>
+      (part.type === "text" || part.type === "reasoning") &&
+      part.state === "streaming"
+  );
+  if (!hasStreaming) {
+    return;
+  }
+  finalizeStreamingParts(message);
+  sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+}
+
 /**
  * Type guard to check if an update is a tool call update
  *
@@ -217,9 +243,9 @@ export class SessionBuffering implements SessionBufferingPort {
   /**
    * Ensures a message ID exists and returns it
    */
-  ensureMessageId() {
+  ensureMessageId(preferredId?: string) {
     if (!this.messageId) {
-      this.messageId = createId("msg");
+      this.messageId = preferredId ?? createId("msg");
     }
     return this.messageId;
   }
@@ -336,6 +362,8 @@ function handlePlanUpdate(
     return false;
   }
 
+  finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
+
   const plan = extractPlan(update);
   if (!plan) {
     return true;
@@ -373,6 +401,8 @@ function handleToolCallCreate(
   if (!isToolCallCreate(update)) {
     return false;
   }
+
+  finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
 
   const { sessionUpdate: _sessionUpdate, ...toolCall } = update;
   const sanitizedToolCall: acp.ToolCall = {
@@ -517,18 +547,21 @@ function handleBufferedMessage(
   sessionRepo: SessionRepositoryPort,
   sessionRuntime: SessionRuntimePort
 ) {
+  const session = sessionRuntime.get(chatId);
+  const preferredMessageId = session?.uiState.currentAssistantId;
+
   // Buffer content chunks (not during replay)
   if (!isReplayingHistory) {
     if (update.sessionUpdate === "agent_message_chunk") {
+      buffer.ensureMessageId(preferredMessageId);
       buffer.appendContent(toStoredContentBlock(update.content));
     }
 
     if (update.sessionUpdate === "agent_thought_chunk") {
+      buffer.ensureMessageId(preferredMessageId);
       buffer.appendReasoning(toStoredContentBlock(update.content));
     }
   }
-
-  const session = sessionRuntime.get(chatId);
   const broadcast = sessionRuntime.broadcast.bind(sessionRuntime);
   const partState = isReplayingHistory ? "done" : "streaming";
   const updateProviderMetadata =
@@ -545,8 +578,25 @@ function handleBufferedMessage(
       sessionRuntime.broadcast(chatId, { type: "ui_message", message });
     }
 
+    if (
+      update.sessionUpdate === "agent_message_chunk" ||
+      update.sessionUpdate === "agent_thought_chunk"
+    ) {
+      const nextChunkType =
+        update.sessionUpdate === "agent_message_chunk"
+          ? "message"
+          : "reasoning";
+      if (
+        session.lastAssistantChunkType &&
+        session.lastAssistantChunkType !== nextChunkType
+      ) {
+        finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
+      }
+      session.lastAssistantChunkType = nextChunkType;
+    }
+
     if (update.sessionUpdate === "agent_message_chunk") {
-      const messageId = buffer.ensureMessageId();
+      const messageId = buffer.ensureMessageId(preferredMessageId);
       const message = getOrCreateAssistantMessage(session.uiState, messageId);
       appendContentBlock(
         message,
@@ -554,16 +604,17 @@ function handleBufferedMessage(
         partState,
         updateProviderMetadata
       );
-      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
     }
 
     if (update.sessionUpdate === "agent_thought_chunk") {
-      const messageId = buffer.ensureMessageId();
+      const messageId = buffer.ensureMessageId(preferredMessageId);
       const message = getOrCreateAssistantMessage(session.uiState, messageId);
       const block = toStoredContentBlock(update.content);
       if (block.type === "text") {
         appendReasoningBlock(message, block, partState, updateProviderMetadata);
-        sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+        if (!isReplayingHistory) {
+          sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+        }
       }
     }
   }
@@ -573,18 +624,31 @@ function handleBufferedMessage(
     update.sessionUpdate === "turn_end" ||
     update.sessionUpdate === "prompt_end"
   ) {
-    const message = buffer.flush();
-    if (!isReplayingHistory && message) {
+    const bufferedMessage = buffer.flush();
+    const currentAssistantId = session?.uiState.currentAssistantId;
+    const messageId = bufferedMessage?.id ?? currentAssistantId ?? null;
+    const currentMessage = messageId
+      ? session?.uiState.messages.get(messageId)
+      : undefined;
+    const hasParts = Boolean(currentMessage?.parts.length);
+    const shouldPersist = Boolean(bufferedMessage) || hasParts;
+
+    if (!isReplayingHistory && messageId && shouldPersist) {
+      if (currentMessage) {
+        finalizeStreamingParts(currentMessage);
+      }
       sessionRepo.appendMessage(chatId, {
-        id: message.id,
+        id: messageId,
         role: "assistant",
-        content: message.content,
-        contentBlocks: message.contentBlocks,
-        reasoning: message.reasoning,
-        reasoningBlocks: message.reasoningBlocks,
+        content: bufferedMessage?.content ?? "",
+        contentBlocks: bufferedMessage?.contentBlocks ?? [],
+        reasoning: bufferedMessage?.reasoning,
+        reasoningBlocks: bufferedMessage?.reasoningBlocks,
+        parts: currentMessage?.parts,
         timestamp: Date.now(),
       });
     }
+
     if (session?.uiState.currentAssistantId) {
       const completedId = session.uiState.currentAssistantId;
       if (!isReplayingHistory) {
@@ -597,6 +661,7 @@ function handleBufferedMessage(
         sessionRuntime.broadcast(chatId, { type: "ui_message", message: current });
       }
       session.uiState.currentAssistantId = undefined;
+      session.lastAssistantChunkType = undefined;
     }
     if (session) {
       session.uiState.currentUserId = undefined;
@@ -646,6 +711,13 @@ export function createSessionUpdateHandler(
     // Track replay events during history replay
     if (isReplayingHistory && isReplayChunk(update)) {
       buffer.replayEventCount += 1;
+    }
+
+    const suppressReplay =
+      isReplayingHistory &&
+      Boolean(sessionRuntime.get(chatId)?.suppressReplayBroadcast);
+    if (suppressReplay) {
+      return;
     }
 
     if (!isReplayingHistory) {

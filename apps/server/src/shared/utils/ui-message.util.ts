@@ -77,11 +77,7 @@ export function appendTextPart(
     return;
   }
   const last = message.parts.at(-1);
-  if (
-    last?.type === "text" &&
-    last.state === "streaming" &&
-    state === "streaming"
-  ) {
+  if (last?.type === "text" && last.state === state) {
     last.text += text;
     if (providerMetadata) {
       last.providerMetadata = mergeProviderMetadata(
@@ -107,12 +103,9 @@ export function appendReasoningPart(
     return;
   }
   const last = message.parts.at(-1);
-  if (
-    last?.type === "reasoning" &&
-    last.state === "streaming" &&
-    state === "streaming"
-  ) {
+  if (last?.type === "reasoning") {
     last.text += text;
+    last.state = state;
     if (providerMetadata) {
       last.providerMetadata = mergeProviderMetadata(
         last.providerMetadata,

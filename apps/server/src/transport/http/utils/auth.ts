@@ -25,5 +25,5 @@ interface RequestLike {
 export async function getSessionFromRequest(
   req: RequestLike
 ): Promise<{ user: SessionUser; session: unknown } | null> {
-  return infraGetSessionFromRequest(req);
+  return await infraGetSessionFromRequest(req);
 }

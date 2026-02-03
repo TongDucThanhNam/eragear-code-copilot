@@ -1,7 +1,7 @@
-type TokenizeResult = {
+interface TokenizeResult {
   tokens: string[];
   error?: string;
-};
+}
 
 function tokenizeInput(
   value: string,
@@ -70,9 +70,10 @@ function tokenizeInput(
   return { tokens };
 }
 
-export function parseArgsInput(
-  value: string
-): { args?: string[]; error?: string } {
+export function parseArgsInput(value: string): {
+  args?: string[];
+  error?: string;
+} {
   const trimmed = value.trim();
   if (!trimmed) {
     return {};

@@ -6,11 +6,11 @@
  * @module modules/session/application/get-session-messages.service
  */
 
-import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import {
   buildAssistantMessageFromBlocks,
   buildUserMessageFromBlocks,
 } from "@/shared/utils/ui-message.util";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
 /**
  * GetSessionMessagesService
@@ -43,6 +43,13 @@ export class GetSessionMessagesService {
   execute(chatId: string) {
     const stored = this.sessionRepo.getMessages(chatId);
     return stored.map((message) => {
+      if (message.parts && message.parts.length > 0) {
+        return {
+          id: message.id,
+          role: message.role,
+          parts: message.parts,
+        };
+      }
       const contentBlocks =
         message.contentBlocks ??
         (message.content ? [{ type: "text", text: message.content }] : []);

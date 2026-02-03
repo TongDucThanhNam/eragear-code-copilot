@@ -87,7 +87,8 @@ interface ChatState {
   failedChatIds: Set<string>; // Track sessions that failed to connect
 
   // Current chat state
-  messages: UIMessage[];
+  messageIds: string[];
+  messagesById: Map<string, UIMessage>;
   status: ChatStatus;
 
   // Session capabilities
@@ -118,6 +119,8 @@ interface ChatState {
 
   setMessages: (messages: UIMessage[]) => void;
   upsertMessage: (message: UIMessage) => void;
+  getMessageById: (id: string) => UIMessage | undefined;
+  getMessagesForPermission: () => Iterable<UIMessage>;
   clearSessionView: () => void;
 
   setStatus: (status: ChatStatus) => void;
@@ -149,7 +152,8 @@ const initialState = {
   activeChatId: null,
   activeChatIsReadOnly: false,
   failedChatIds: new Set<string>(),
-  messages: [],
+  messageIds: [],
+  messagesById: new Map<string, UIMessage>(),
   status: "inactive" as ChatStatus,
   modes: null,
   models: null,
@@ -190,7 +194,10 @@ export const useChatStore = create<ChatState>()(
           return {
             activeChatId: id,
             activeChatIsReadOnly: readOnly,
-            messages: isReadOnlyTransition ? state.messages : [],
+            messageIds: isReadOnlyTransition ? state.messageIds : [],
+            messagesById: isReadOnlyTransition
+              ? state.messagesById
+              : new Map<string, UIMessage>(),
             status: nextStatus,
             modes: null,
             models: null,
@@ -229,21 +236,40 @@ export const useChatStore = create<ChatState>()(
           activeChatId: state.activeChatId === id ? null : state.activeChatId,
         })),
 
-      setMessages: (messages) => set({ messages }),
+      setMessages: (messages) =>
+        set(() => {
+          const messageIds: string[] = [];
+          const messagesById = new Map<string, UIMessage>();
+          for (const message of messages) {
+            messageIds.push(message.id);
+            messagesById.set(message.id, message);
+          }
+          return { messageIds, messagesById };
+        }),
       upsertMessage: (message) =>
         set((state) => {
-          const index = state.messages.findIndex((m) => m.id === message.id);
-          if (index === -1) {
-            return { messages: [...state.messages, message] };
+          const exists = state.messagesById.has(message.id);
+          const current = state.messagesById.get(message.id);
+          if (exists && current === message) {
+            return state;
           }
-          const updated = [...state.messages];
-          updated[index] = message;
-          return { messages: updated };
+          const nextMap = new Map(state.messagesById);
+          nextMap.set(message.id, message);
+          if (exists) {
+            return { messagesById: nextMap };
+          }
+          return {
+            messagesById: nextMap,
+            messageIds: [...state.messageIds, message.id],
+          };
         }),
+      getMessageById: (id) => get().messagesById.get(id),
+      getMessagesForPermission: () => get().messagesById.values(),
 
       clearSessionView: () =>
         set({
-          messages: [],
+          messageIds: [],
+          messagesById: new Map<string, UIMessage>(),
           terminalOutput: new Map(),
           pendingPermission: null,
         }),

@@ -3,38 +3,8 @@ import * as Haptics from "expo-haptics";
 import { Spinner } from "heroui-native";
 import { memo, useEffect, useRef } from "react";
 import { Text, View } from "react-native";
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from "react-native-reanimated";
 import type { ToolUIPart, UIMessagePart } from "@repo/shared";
 import { cn_inline } from "./utils";
-
-const AnimatedView = Animated.createAnimatedComponent(View);
-
-// Phase 2: Animation Constants
-export const ANIMATION = {
-  PULSE: {
-    CYCLE_DURATION: 900,
-    STOP_DURATION: 200,
-    MIN_OPACITY: 0.7,
-    MAX_SCALE: 1.06,
-    BACKGROUND_OPACITY: 0.4,
-  },
-  COMPLETION: {
-    BUMP_DURATION: 140,
-    RETURN_DURATION: 160,
-    MAX_SCALE: 1.05,
-  },
-  ENTRY: {
-    DURATION: 200,
-    MIN_SCALE: 0.95,
-  },
-} as const;
 
 type ActivityKind = "tool" | "thinking" | "plan";
 type ActivityStatus = "running" | "completed";
@@ -316,58 +286,15 @@ export function ActivityRow({
   item: ActivityItem;
   isCompact: boolean;
 }) {
-  const scale = useSharedValue(1);
-  const pulse = useSharedValue(0);
-  const successGlow = useSharedValue(0);
   const isRunning = item.status === "running";
   const prevStatusRef = useRef<ActivityStatus>(item.status);
 
   useEffect(() => {
-    if (isRunning) {
-      pulse.value = withRepeat(
-        withTiming(1, {
-          duration: ANIMATION.PULSE.CYCLE_DURATION,
-          easing: Easing.inOut(Easing.sin),
-        }),
-        -1,
-        true
-      );
-    } else {
-      pulse.value = withTiming(0, { duration: ANIMATION.PULSE.STOP_DURATION });
-    }
-  }, [isRunning, pulse]);
-
-  useEffect(() => {
     if (prevStatusRef.current === "running" && item.status === "completed") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      successGlow.value = withSequence(
-        withTiming(1, { duration: 300, easing: Easing.out(Easing.ease) }),
-        withTiming(0, { duration: 500, easing: Easing.inOut(Easing.ease) })
-      );
-      scale.value = withSequence(
-        withTiming(ANIMATION.COMPLETION.MAX_SCALE, {
-          duration: ANIMATION.COMPLETION.BUMP_DURATION,
-          easing: Easing.out(Easing.back(1.5)),
-        }),
-        withTiming(1, { duration: ANIMATION.COMPLETION.RETURN_DURATION })
-      );
     }
     prevStatusRef.current = item.status;
-  }, [item.status, scale, successGlow]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: pulse.value * ANIMATION.PULSE.BACKGROUND_OPACITY,
-    transform: [{ scale: 1 + pulse.value * (ANIMATION.PULSE.MAX_SCALE - 1) }],
-  }));
-
-  const successGlowStyle = useAnimatedStyle(() => ({
-    opacity: successGlow.value * 0.3,
-    transform: [{ scale: 1 + successGlow.value * 0.08 }],
-  }));
+  }, [item.status]);
 
   const getKindDotClass = () => {
     switch (item.kind) {
@@ -382,24 +309,9 @@ export function ActivityRow({
 
   if (isCompact) {
     return (
-      <AnimatedView
-        className="min-h-11 flex-row items-center gap-2 py-1.5"
-        style={animatedStyle}
-      >
+      <View className="min-h-11 flex-row items-center gap-2 py-1.5">
         <View className="relative h-2 w-2">
           <View className={`h-2 w-2 rounded-full ${getKindDotClass()}`} />
-          {isRunning && (
-            <AnimatedView
-              className="absolute inset-0 bg-accent/30"
-              style={pulseStyle}
-            />
-          )}
-          {!isRunning && (
-            <AnimatedView
-              className="absolute inset-0 rounded-full bg-success/40"
-              style={successGlowStyle}
-            />
-          )}
         </View>
         <ActivityIcon kind={item.kind} size={14} />
         <ActivityLabel
@@ -409,12 +321,12 @@ export function ActivityRow({
           title={item.title}
         />
         <ActivityStatusBadge item={item} status={item.status} />
-      </AnimatedView>
+      </View>
     );
   }
 
   return (
-    <AnimatedView
+    <View
       className={cn_inline(
         "relative overflow-hidden border px-3 py-2",
         isRunning
@@ -422,20 +334,7 @@ export function ActivityRow({
           : "border-transparent bg-surface-foreground/5",
         isCompact ? "mb-2" : "mb-3"
       )}
-      style={animatedStyle}
     >
-      {isRunning && (
-        <AnimatedView
-          className="absolute inset-0 bg-accent/10"
-          style={pulseStyle}
-        />
-      )}
-      {!isRunning && (
-        <AnimatedView
-          className="absolute inset-0 bg-success/5"
-          style={successGlowStyle}
-        />
-      )}
       <View className="relative z-10 flex-row items-center justify-between gap-2">
         <View className="flex-row items-center gap-1">
           <View className="flex-row items-center gap-1 bg-surface-foreground/10 px-2 py-0.5">
@@ -467,6 +366,6 @@ export function ActivityRow({
           {item.detail}
         </Text>
       )}
-    </AnimatedView>
+    </View>
   );
 }

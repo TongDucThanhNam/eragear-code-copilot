@@ -14,7 +14,11 @@ export interface SessionRepositoryPort {
   /** Save or update a session */
   save(session: StoredSession): void;
   /** Update session status */
-  updateStatus(id: string, status: "running" | "stopped"): void;
+  updateStatus(
+    id: string,
+    status: "running" | "stopped",
+    options?: { touchLastActiveAt?: boolean }
+  ): void;
   /** Update session metadata */
   updateMetadata(id: string, updates: Partial<StoredSession>): void;
   /** Delete a session */

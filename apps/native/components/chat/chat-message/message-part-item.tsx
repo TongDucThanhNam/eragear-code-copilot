@@ -4,18 +4,10 @@ import { getPartKey } from "./utils";
 
 interface MessagePartItemProps {
   part: UIMessagePart;
-  terminalOutputs: Map<string, string>;
 }
 
-export function MessagePartItem({
-  part,
-  terminalOutputs,
-}: MessagePartItemProps) {
+export function MessagePartItem({ part }: MessagePartItemProps) {
   return (
-    <PartRenderers
-      key={getPartKey(part, 0)}
-      part={part}
-      terminalOutputs={terminalOutputs}
-    />
+    <PartRenderers key={getPartKey(part, 0)} part={part} />
   );
 }

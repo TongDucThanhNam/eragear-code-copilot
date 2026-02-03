@@ -19,7 +19,7 @@ export interface SessionBufferingPort {
   hasContent(): boolean;
   reset(): void;
   getMessageId(): string | null;
-  ensureMessageId(): string;
+  ensureMessageId(preferredId?: string): string;
 }
 
 export interface SessionAcpPort {

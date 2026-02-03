@@ -2,15 +2,7 @@ import type { UIMessage } from "@repo/shared";
 import { Accordion, Chip } from "heroui-native";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
-import Animated, {
-  FadeIn,
-  FadeInRight,
-  FadeOut,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from "react-native-reanimated";
+import { useChatStore } from "@/store/chat-store";
 import {
   ActivityRow,
   buildActivityModel,
@@ -19,8 +11,6 @@ import {
 import { MessageActions } from "./message-actions";
 import { MessagePartItem } from "./message-part-item";
 import { cn_inline } from "./utils";
-
-const AnimatedView = Animated.createAnimatedComponent(View);
 
 const MAX_VISIBLE_ACTIVITIES = 8;
 
@@ -52,38 +42,18 @@ function getMessageTimestamp(message: UIMessage): number {
   return Date.now();
 }
 
-// Role-based avatar component
-function MessageAvatar({ role }: { role: "user" | "assistant" }) {
-  if (role === "user") {
-    return (
-      <View className="h-7 w-7 items-center justify-center rounded-full bg-accent">
-        <Text className="font-medium text-white text-xs">U</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View className="h-7 w-7 items-center justify-center rounded-full bg-surface-foreground/10">
-      <Text className="font-bold text-foreground text-xs">AI</Text>
-    </View>
-  );
-}
-
-// Avatar wrapper to avoid aria role issues
-type AvatarType = "user" | "assistant";
-function AvatarWrapper({ type }: { type: AvatarType }) {
-  return <MessageAvatar role={type} />;
-}
 const LIVE_IDLE_MS = 1200;
-const LIVE_FADE_MS = 500;
-const SUMMARY_DELAY_MS = 150;
-const SUMMARY_ENTER_MS = 700;
-const FINAL_TEXT_DELAY_MS = SUMMARY_DELAY_MS + SUMMARY_ENTER_MS + 120;
 
-type DisplayMode = "live" | "transitioning" | "collapsed";
+type DisplayMode = "live" | "collapsed";
 interface MessageItemProps {
   message: UIMessage;
-  terminalOutputs: Map<string, string>;
+  isLiveMessage: boolean;
+  isFirstMessage?: boolean;
+  isLastMessage?: boolean;
+}
+
+interface MessageItemContainerProps {
+  messageId: string;
   isLiveMessage: boolean;
   isFirstMessage?: boolean;
   isLastMessage?: boolean;
@@ -98,7 +68,6 @@ const extractMessageText = (parts: UIMessage["parts"]) =>
 
 export function MessageItem({
   message,
-  terminalOutputs,
   isLiveMessage,
 }: MessageItemProps) {
   const isUser = message.role === "user";
@@ -137,13 +106,6 @@ export function MessageItem({
   const firstActivityAtRef = useRef<number | null>(null);
   const lastActivityAtRef = useRef<number | null>(null);
 
-  const liveOpacity = useSharedValue(displayMode === "live" ? 1 : 0);
-  const liveScale = useSharedValue(1);
-  const liveTranslate = useSharedValue(0);
-  const summaryOpacity = useSharedValue(displayMode === "collapsed" ? 1 : 0);
-  const summaryScale = useSharedValue(displayMode === "collapsed" ? 1 : 0.9);
-  const summaryTranslate = useSharedValue(displayMode === "collapsed" ? 0 : 12);
-
   useEffect(() => {
     firstActivityAtRef.current = null;
     lastActivityAtRef.current = null;
@@ -181,18 +143,12 @@ export function MessageItem({
       return;
     }
     const timeout = setTimeout(() => {
-      setDisplayMode((mode) => (mode === "live" ? "transitioning" : mode));
+      setDisplayMode("collapsed");
     }, LIVE_IDLE_MS);
     return () => clearTimeout(timeout);
   }, [hasActivities, hasRunningTools]);
 
   useEffect(() => {
-    if (displayMode === "transitioning") {
-      const timeout = setTimeout(() => {
-        setDisplayMode("collapsed");
-      }, LIVE_FADE_MS + 50);
-      return () => clearTimeout(timeout);
-    }
     if (displayMode === "collapsed") {
       const first = firstActivityAtRef.current;
       const last = lastActivityAtRef.current;
@@ -202,67 +158,6 @@ export function MessageItem({
     }
     return undefined;
   }, [displayMode]);
-
-  useEffect(() => {
-    if (displayMode === "live") {
-      liveOpacity.value = withTiming(1, { duration: 200 });
-      liveScale.value = withTiming(1, { duration: 200 });
-      liveTranslate.value = withTiming(0, { duration: 200 });
-      return;
-    }
-    if (displayMode === "transitioning") {
-      liveOpacity.value = withTiming(0, { duration: LIVE_FADE_MS });
-      liveScale.value = withTiming(0.95, { duration: LIVE_FADE_MS });
-      liveTranslate.value = withTiming(-8, { duration: LIVE_FADE_MS });
-      return;
-    }
-    liveOpacity.value = withTiming(0, { duration: 150 });
-  }, [displayMode, liveOpacity, liveScale, liveTranslate]);
-
-  useEffect(() => {
-    if (displayMode === "transitioning") {
-      summaryOpacity.value = 0;
-      summaryScale.value = 0.9;
-      summaryTranslate.value = 12;
-      summaryOpacity.value = withDelay(
-        SUMMARY_DELAY_MS,
-        withTiming(1, { duration: SUMMARY_ENTER_MS })
-      );
-      summaryScale.value = withDelay(
-        SUMMARY_DELAY_MS,
-        withTiming(1, { duration: SUMMARY_ENTER_MS })
-      );
-      summaryTranslate.value = withDelay(
-        SUMMARY_DELAY_MS,
-        withTiming(0, { duration: SUMMARY_ENTER_MS })
-      );
-      return;
-    }
-    if (displayMode === "collapsed") {
-      summaryOpacity.value = withTiming(1, { duration: 180 });
-      summaryScale.value = withTiming(1, { duration: 180 });
-      summaryTranslate.value = withTiming(0, { duration: 180 });
-      return;
-    }
-    summaryOpacity.value = withTiming(0, { duration: 150 });
-    summaryScale.value = withTiming(0.98, { duration: 150 });
-    summaryTranslate.value = withTiming(8, { duration: 150 });
-  }, [displayMode, summaryOpacity, summaryScale, summaryTranslate]);
-
-  const liveStyle = useAnimatedStyle(() => ({
-    opacity: liveOpacity.value,
-    transform: [
-      { translateY: liveTranslate.value },
-      { scale: liveScale.value },
-    ],
-  }));
-  const summaryStyle = useAnimatedStyle(() => ({
-    opacity: summaryOpacity.value,
-    transform: [
-      { translateY: summaryTranslate.value },
-      { scale: summaryScale.value },
-    ],
-  }));
 
   const showLive = displayMode !== "collapsed";
   const visibleActivities =
@@ -274,16 +169,15 @@ export function MessageItem({
     if (!showLive) {
       return;
     }
-    liveScrollRef.current?.scrollToEnd({ animated: true });
+    liveScrollRef.current?.scrollToEnd({ animated: false });
   }, [showLive]);
 
   if (!hasActivities || isUser) {
     const isUserMessage = isUser;
     return (
-      <AnimatedView className="w-full" entering={FadeInRight.duration(300)}>
+      <View className="w-full">
         {/* Message header with avatar and timestamp */}
         <View className="mb-1.5 flex-row items-center gap-2">
-          {!isUserMessage && <AvatarWrapper type="assistant" />}
           <Text className="text-[10px] text-muted-foreground">
             {isUserMessage ? "You" : "Assistant"}
           </Text>
@@ -291,7 +185,6 @@ export function MessageItem({
           <Text className="text-[10px] text-muted-foreground/70">
             {formatMessageTime(getMessageTimestamp(message))}
           </Text>
-          {isUserMessage && <AvatarWrapper type="user" />}
         </View>
 
         <View
@@ -312,7 +205,6 @@ export function MessageItem({
               <MessagePartItem
                 key={`${part.type}-${index}`}
                 part={part}
-                terminalOutputs={terminalOutputs}
               />
             ))}
           </View>
@@ -323,7 +215,7 @@ export function MessageItem({
             />
           )}
         </View>
-      </AnimatedView>
+      </View>
     );
   }
 
@@ -338,10 +230,9 @@ export function MessageItem({
   const summaryLabel = `${toolCount} tools, ${thinkingCount} thinking - ${durationLabel}`;
 
   return (
-    <AnimatedView className="w-full" entering={FadeInRight.duration(300)}>
-      {/* Message header with avatar and timestamp */}
+    <View className="w-full">
+      {/* Message header with timestamp */}
       <View className="mb-1.5 flex-row items-center gap-2">
-        <AvatarWrapper type="assistant" />
         <Text className="text-[10px] text-muted-foreground">Assistant</Text>
         <Text className="text-[10px] text-muted-foreground/50">·</Text>
         <Text className="text-[10px] text-muted-foreground/70">
@@ -350,11 +241,7 @@ export function MessageItem({
         {/* Streaming indicator */}
         {isLiveMessage && (
           <View className="flex-row items-center gap-1">
-            <Animated.View
-              className="h-1.5 w-1.5 rounded-full bg-accent"
-              entering={FadeIn}
-              exiting={FadeOut}
-            />
+            <View className="h-1.5 w-1.5 rounded-full bg-accent" />
             <Text className="text-[10px] text-accent">Thinking...</Text>
           </View>
         )}
@@ -362,7 +249,7 @@ export function MessageItem({
 
       <View className="w-full">
         {showLive && (
-          <AnimatedView style={liveStyle}>
+          <View>
             <View className="mb-1 flex-row items-center justify-between">
               <Text className="text-[11px] text-muted-foreground lowercase tracking-normal">
                 live activity
@@ -389,16 +276,12 @@ export function MessageItem({
                 </Text>
               )}
             </ScrollView>
-          </AnimatedView>
+          </View>
         )}
 
         {/* Show Summary */}
         {showSummary && (
-          <AnimatedView
-            exiting={FadeOut.duration(200)}
-            key={`summary-${message.id}`}
-            style={summaryStyle}
-          >
+          <View key={`summary-${message.id}`}>
             <Accordion variant="default">
               <Accordion.Item value={`summary-${message.id}`}>
                 <Accordion.Trigger className="min-h-7 px-1.5 py-1">
@@ -432,38 +315,52 @@ export function MessageItem({
                   </View>
                   {detailParts.length > 0 && (
                     <View className="mt-3">
-                      {detailParts.map((part, index) => (
-                        <MessagePartItem
-                          key={`detail-${part.type}-${index}`}
-                          part={part}
-                          terminalOutputs={terminalOutputs}
-                        />
-                      ))}
+                        {detailParts.map((part, index) => (
+                          <MessagePartItem
+                            key={`detail-${part.type}-${index}`}
+                            part={part}
+                          />
+                        ))}
                     </View>
                   )}
                 </Accordion.Content>
               </Accordion.Item>
             </Accordion>
-          </AnimatedView>
+          </View>
         )}
 
         {displayMode === "collapsed" && finalTextPart && (
-          <AnimatedView
-            entering={FadeIn.delay(FINAL_TEXT_DELAY_MS).duration(300)}
-          >
-            <View className="mt-2">
-              <MessagePartItem
-                part={finalTextPart}
-                terminalOutputs={terminalOutputs}
-              />
-            </View>
-          </AnimatedView>
+          <View className="mt-2">
+            <MessagePartItem
+              part={finalTextPart}
+            />
+          </View>
         )}
         {showActions && (
           <MessageActions className="self-start" text={messageText} />
         )}
       </View>
-    </AnimatedView>
+    </View>
+  );
+}
+
+function MessageItemContainer({
+  messageId,
+  isLiveMessage,
+  isFirstMessage,
+  isLastMessage,
+}: MessageItemContainerProps) {
+  const message = useChatStore((state) => state.messagesById.get(messageId));
+  if (!message) {
+    return null;
+  }
+  return (
+    <MemoizedMessageItem
+      isFirstMessage={isFirstMessage}
+      isLastMessage={isLastMessage}
+      isLiveMessage={isLiveMessage}
+      message={message}
+    />
   );
 }
 
@@ -488,8 +385,31 @@ function propsAreEqual(
   if (prev.isLastMessage !== next.isLastMessage) {
     return false;
   }
-  // terminalOutputs is a Map, reference comparison is fine
   return true;
 }
 
 export const MemoizedMessageItem = React.memo(MessageItem, propsAreEqual);
+
+function containerPropsAreEqual(
+  prev: MessageItemContainerProps,
+  next: MessageItemContainerProps
+): boolean {
+  if (prev.messageId !== next.messageId) {
+    return false;
+  }
+  if (prev.isLiveMessage !== next.isLiveMessage) {
+    return false;
+  }
+  if (prev.isFirstMessage !== next.isFirstMessage) {
+    return false;
+  }
+  if (prev.isLastMessage !== next.isLastMessage) {
+    return false;
+  }
+  return true;
+}
+
+export const MemoizedMessageItemContainer = React.memo(
+  MessageItemContainer,
+  containerPropsAreEqual
+);

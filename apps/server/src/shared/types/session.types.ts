@@ -18,7 +18,7 @@ import type {
   TextContent,
   ToolCall,
 } from "@agentclientprotocol/sdk";
-import type { UIMessage } from "@repo/shared";
+import type { UIMessage, UIMessagePart } from "@repo/shared";
 import type { AgentInfo as DomainAgentInfo } from "./agent.types";
 
 // ============================================================================
@@ -45,6 +45,8 @@ export interface StoredMessage {
   reasoning?: string;
   /** Optional structured reasoning blocks */
   reasoningBlocks?: StoredContentBlock[];
+  /** UI message parts for agentic rendering */
+  parts?: UIMessagePart[];
 }
 
 /**
@@ -376,6 +378,10 @@ export interface ChatSession {
   uiState: UiMessageState;
   /** Whether the agent is replaying history (loadSession) */
   isReplayingHistory?: boolean;
+  /** Skip replay broadcasts when history is already loaded from storage */
+  suppressReplayBroadcast?: boolean;
+  /** Last assistant chunk type to coalesce streaming updates */
+  lastAssistantChunkType?: "message" | "reasoning";
   /** Current chat status for UI */
   chatStatus: ChatStatus;
   /** Pending finish data for the active prompt */

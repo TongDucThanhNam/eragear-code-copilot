@@ -1,43 +1,40 @@
-import { File, Folder, Tree } from "@/components/ui/file-tree";
+import { useState } from "react";
+import {
+  FileTree as FileTreeComponent,
+  FileTreeFile,
+  FileTreeFolder,
+} from "@/components/ai-elements/file-tree";
 import { type FileNode, useFileStore } from "@/store/file-store";
 
 export function FileTree() {
   const { getFileTree } = useFileStore();
   const { setSelectedFile, selectedFile } = useFileStore();
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const files = getFileTree();
 
   const renderFileNode = (item: FileNode) => {
-    const nodeId = item.path;
-    const isSelected = selectedFile === item.path;
+    const itemPath = item.path;
 
     if (item.type === "folder") {
       return (
-        <Folder
-          element={item.name}
-          isSelect={isSelected}
-          key={nodeId}
-          value={nodeId}
-        >
+        <FileTreeFolder key={itemPath} name={item.name} path={itemPath}>
           {item.children?.map((child) => renderFileNode(child))}
-        </Folder>
+        </FileTreeFolder>
       );
     }
 
-    return (
-      <File
-        isSelect={isSelected}
-        key={nodeId}
-        onClick={() => setSelectedFile(item.path)}
-        value={nodeId}
-      >
-        {item.name}
-      </File>
-    );
+    return <FileTreeFile key={itemPath} name={item.name} path={itemPath} />;
   };
 
   return (
-    <Tree initialSelectedId={selectedFile ?? undefined}>
+    <FileTreeComponent
+      className="h-full"
+      expanded={expandedPaths}
+      onExpandedChange={setExpandedPaths}
+      onSelect={(path: string) => setSelectedFile(path)}
+      selectedPath={selectedFile ?? undefined}
+    >
       {files.map((item) => renderFileNode(item))}
-    </Tree>
+    </FileTreeComponent>
   );
 }

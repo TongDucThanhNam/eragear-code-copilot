@@ -7,11 +7,11 @@
  * @module modules/agent/application/agent.service
  */
 
+import { ValidationError } from "../../../shared/errors";
 import type {
   AgentInput,
   AgentUpdateInput,
 } from "../../../shared/types/agent.types";
-import { ValidationError } from "../../../shared/errors";
 import { parseCommandInput } from "../../../shared/utils/cli-args.util";
 import type { AgentRepositoryPort } from "./ports/agent-repository.port";
 

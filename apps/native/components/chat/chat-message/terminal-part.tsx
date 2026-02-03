@@ -1,15 +1,13 @@
 import { Text, View } from "react-native";
+import { useChatStore } from "@/store/chat-store";
 
 interface TerminalPartProps {
-  // TODO: Embeb Terminal
-  // terminalId: string;
-  output: string | undefined;
+  terminalId: string;
 }
 
-export function TerminalPart({
-  // terminalId,
-  output,
-}: TerminalPartProps) {
+export function TerminalPart({ terminalId }: TerminalPartProps) {
+  const output = useChatStore((state) => state.terminalOutput.get(terminalId));
+
   if (!output) {
     return null;
   }

@@ -35,15 +35,11 @@ export function createErrorHandler() {
     const method = c.req.method;
 
     // Log error with context
-    logger.error(
-      `Unhandled error: ${err.message}`,
-      err,
-      {
-        method,
-        path,
-        requestId,
-      }
-    );
+    logger.error(`Unhandled error: ${err.message}`, err, {
+      method,
+      path,
+      requestId,
+    });
 
     // Determine status code based on error type
     let statusCode = 500;
@@ -69,7 +65,7 @@ export function createErrorHandler() {
       timestamp: new Date().toISOString(),
     };
 
-    return c.json(response, { status: statusCode } as any);
+    return await c.json(response, { status: statusCode } as any);
   };
 }
 
@@ -79,9 +75,7 @@ export function createErrorHandler() {
  * @param handler - Async request handler
  * @returns Wrapped handler with error catching
  */
-export function withErrorHandling(
-  handler: (c: Context) => Promise<Response>
-) {
+export function withErrorHandling(handler: (c: Context) => Promise<Response>) {
   return async (c: Context) => {
     try {
       return await handler(c);

@@ -6,10 +6,10 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export const UI_STYLE_SOURCE_PATH = join(__dirname, "styles.css");
 
-export type UiAssets = {
+export interface UiAssets {
   stylesHref: string;
   clientEntry?: string;
-};
+}
 
 export function getUiAssets(isDev: boolean = ENV.isDev): UiAssets {
   return {

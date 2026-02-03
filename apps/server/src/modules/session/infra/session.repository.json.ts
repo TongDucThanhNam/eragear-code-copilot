@@ -100,12 +100,18 @@ export class SessionJsonRepository implements SessionRepositoryPort {
    * @param id - The session identifier
    * @param status - The new status value
    */
-  updateStatus(id: string, status: "running" | "stopped"): void {
+  updateStatus(
+    id: string,
+    status: "running" | "stopped",
+    options?: { touchLastActiveAt?: boolean }
+  ): void {
     const sessions = this.getSessions();
     const session = sessions.find((s) => s.id === id);
     if (session) {
       session.status = status;
-      session.lastActiveAt = Date.now();
+      if (options?.touchLastActiveAt ?? true) {
+        session.lastActiveAt = Date.now();
+      }
       this.saveSessions(sessions);
     }
   }

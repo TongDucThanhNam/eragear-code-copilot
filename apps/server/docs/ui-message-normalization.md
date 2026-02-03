@@ -53,6 +53,27 @@ liệu, không phải tự parse raw ACP.
 - `resource` → `SourceDocumentUIPart` + `DataUIPart(type=data-resource)`
 - `image/audio` → `FileUIPart` (URL hoặc data URL)
 
+## Reasoning: Coalescing + Interleaved Thinking
+
+Mục tiêu là gộp các reasoning chunk liền nhau thành một part ổn định, tránh tạo
+nhiều part nhỏ do `state` bị đổi trong quá trình stream.
+
+- Coalescing rule: nếu `part` cuối cùng là `reasoning` thì **luôn gộp** chunk mới
+  vào part đó, không phụ thuộc `state` trước đó.
+- Khi gộp, `part.state` được cập nhật theo `state` mới nhất của chunk (thường là
+  `streaming` rồi về `done` ở `turn_end`).
+- Interleaved thinking là behavior đúng: nếu có `tool-*` hoặc `text` xen vào giữa,
+  reasoning tiếp theo sẽ tạo part mới vì part cuối đã không còn là reasoning.
+- Nếu thấy reasoning bị tách thành nhiều part nhỏ liên tiếp (mỗi part 1 chunk),
+  kiểm tra ngay `appendReasoningPart` trong `apps/server/src/shared/utils/ui-message.util.ts`.
+
+## Reasoning: Broadcast Streaming
+
+- `agent_thought_chunk` được append vào UIMessage và broadcast realtime khi
+  `isReplayingHistory === false`.
+- Khi replay history, reasoning sẽ được gộp vào message và chỉ broadcast khi
+  `turn_end` flush.
+
 ## Tool output
 
 `ToolUIPart.output` nhận `ToolCallContent[]` (content/diff/terminal) đã được
@@ -74,6 +95,24 @@ normalize JSON. Live terminal output vẫn stream qua event `terminal_output`.
 - `apps/server/src/infra/acp/permission.ts`
 - `apps/server/src/modules/ai/application/send-message.service.ts`
 - `apps/server/src/modules/session/application/create-session.service.ts`
+
+## Lỗi thường gặp & hướng xử lý
+
+- Reasoning bị chia nhỏ thành nhiều part liên tiếp: kiểm tra điều kiện merge
+  trong `appendReasoningPart` và đảm bảo không phụ thuộc `state`.
+- Reasoning không realtime khi stream: đảm bảo `agent_thought_chunk` được
+  broadcast trong `handleBufferedMessage`.
+- Reasoning mất dữ liệu khi reload: kiểm tra `turn_end` có đến hay không, vì
+  persistence chỉ xảy ra khi buffer flush ở `turn_end`/`prompt_end`.
+- Tool part không cập nhật đúng: kiểm tra `toolPartIndex` trong `UiMessageState`
+  và logic `upsertToolPart`.
+
+## Checklist xác minh
+
+- UI chỉ tạo nhiều reasoning part khi có phần xen kẽ `tool-*`/`text`, không tạo
+  nhiều reasoning part liên tiếp từ cùng một stream.
+- `.eragear/sessions.json` lưu reasoning gộp đúng theo `reasoningBlocks`.
+- `ui_message` luôn chứa `parts` theo đúng thứ tự stream, không có raw ACP.
 
 ## Lưu ý
 

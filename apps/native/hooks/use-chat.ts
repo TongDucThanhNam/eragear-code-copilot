@@ -5,7 +5,7 @@
  * Preserves haptics integration and Zustand store integration.
  */
 
-import type { BroadcastEvent, UseChatOptions } from "@repo/shared";
+import type { BroadcastEvent, UIMessage, UseChatOptions } from "@repo/shared";
 import {
   applySessionState,
   findPendingPermission,
@@ -14,6 +14,7 @@ import {
 import { NotificationFeedbackType, notificationAsync } from "expo-haptics";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
+import { useShallow } from "zustand/react/shallow";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { useDeleteSession } from "@/hooks/use-delete-session";
 import { type Attachment, buildSendMessagePayload } from "@/lib/attachments";
@@ -51,7 +52,6 @@ export function useChat(options: UseChatOptions = {}) {
   const {
     activeChatId,
     activeChatIsReadOnly,
-    messages,
     status,
     connStatus,
     modes,
@@ -62,16 +62,40 @@ export function useChat(options: UseChatOptions = {}) {
     agentInfo,
     loadSessionSupported,
     pendingPermission,
-    terminalOutput,
     error,
     isChatFailed,
-  } = useChatStore();
+    getMessageById,
+  } = useChatStore(
+    useShallow((state) => ({
+      activeChatId: state.activeChatId,
+      activeChatIsReadOnly: state.activeChatIsReadOnly,
+      status: state.status,
+      connStatus: state.connStatus,
+      modes: state.modes,
+      models: state.models,
+      supportsModelSwitching: state.supportsModelSwitching,
+      commands: state.commands,
+      promptCapabilities: state.promptCapabilities,
+      agentInfo: state.agentInfo,
+      loadSessionSupported: state.loadSessionSupported,
+      pendingPermission: state.pendingPermission,
+      error: state.error,
+      isChatFailed: state.isChatFailed,
+      getMessageById: state.getMessageById,
+    }))
+  );
 
   const utils = trpc.useUtils();
   const hapticTriggeredRef = useRef<Set<string>>(new Set());
   const onFinishRef = useRef(onFinish);
   const onErrorRef = useRef(onError);
   const isResumingRef = useRef(false);
+  const pendingMessagesRef = useRef<Map<string, UIMessage>>(new Map());
+  const messageFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
+  const STREAM_FLUSH_MS = 50;
 
   // Keep refs in sync
   useEffect(() => {
@@ -82,9 +106,22 @@ export function useChat(options: UseChatOptions = {}) {
     onErrorRef.current = onError;
   }, [onError]);
 
+  useEffect(() => {
+    return () => {
+      if (messageFlushTimerRef.current) {
+        clearTimeout(messageFlushTimerRef.current);
+      }
+    };
+  }, []);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: activeChatId is intentional - reset haptics on chat change
   useEffect(() => {
     hapticTriggeredRef.current = new Set();
+    pendingMessagesRef.current.clear();
+    if (messageFlushTimerRef.current) {
+      clearTimeout(messageFlushTimerRef.current);
+      messageFlushTimerRef.current = null;
+    }
   }, [activeChatId]);
 
   const triggerStreamEndHaptic = useCallback((messageId?: string) => {
@@ -202,21 +239,81 @@ export function useChat(options: UseChatOptions = {}) {
 
   const syncPendingPermission = useCallback(() => {
     const store = useChatStore.getState();
-    const nextPending = findPendingPermission(store.messages);
+    const nextPending = findPendingPermission(store.getMessagesForPermission());
     store.setPendingPermission(nextPending);
   }, []);
+
+  const isStreamingUiMessage = useCallback((message: UIMessage) => {
+    return message.parts.some((part) => {
+      if (part.type === "text" || part.type === "reasoning") {
+        return part.state === "streaming";
+      }
+      if (part.type.startsWith("tool-")) {
+        return (
+          part.state === "input-streaming" ||
+          part.state === "input-available" ||
+          part.state === "approval-requested" ||
+          part.state === "approval-responded"
+        );
+      }
+      return false;
+    });
+  }, []);
+
+  const flushMessages = useCallback(() => {
+    const pending = pendingMessagesRef.current;
+    if (pending.size === 0) {
+      return;
+    }
+    for (const message of pending.values()) {
+      useChatStore.getState().upsertMessage(message);
+    }
+    pending.clear();
+    syncPendingPermission();
+  }, [syncPendingPermission]);
+
+  const applyMessagesImmediate = useCallback(
+    (message: UIMessage) => {
+      if (messageFlushTimerRef.current) {
+        clearTimeout(messageFlushTimerRef.current);
+        messageFlushTimerRef.current = null;
+      }
+      pendingMessagesRef.current.set(message.id, message);
+      flushMessages();
+    },
+    [flushMessages]
+  );
+
+  const scheduleMessagesUpdate = useCallback(
+    (message: UIMessage) => {
+      pendingMessagesRef.current.set(message.id, message);
+      if (messageFlushTimerRef.current) {
+        return;
+      }
+      messageFlushTimerRef.current = setTimeout(() => {
+        messageFlushTimerRef.current = null;
+        flushMessages();
+      }, STREAM_FLUSH_MS);
+    },
+    [flushMessages]
+  );
 
   // Subscription Handler - uses shared core logic
   const handleSessionEvent = useCallback(
     (event: BroadcastEvent) => {
       const store = useChatStore.getState();
-      const currentMessages = store.messages;
       const currentModes = store.modes;
+      const shouldBatch =
+        event.type === "ui_message" && isStreamingUiMessage(event.message);
+      const onMessageUpsert = shouldBatch
+        ? scheduleMessagesUpdate
+        : applyMessagesImmediate;
 
-      processSessionEvent(event, currentMessages, currentModes, {
+      processSessionEvent(event, [], currentModes, {
         onStatusChange: store.setStatus,
         onConnStatusChange: store.setConnStatus,
-        onMessagesChange: store.setMessages,
+        onMessageUpsert,
+        getMessageById,
         onModesChange: store.setModes,
         onCommandsChange: (cmds) => {
           const normalized = cmds.map((cmd) => ({
@@ -227,7 +324,6 @@ export function useChat(options: UseChatOptions = {}) {
           store.setCommands(normalized);
         },
         onTerminalOutput: store.appendTerminalOutput,
-        onPendingPermissionChange: store.setPendingPermission,
         onError: (err) => {
           store.setError(err);
           store.setStatus("error");
@@ -241,12 +337,17 @@ export function useChat(options: UseChatOptions = {}) {
           if (wasStreaming && !nowStreaming && message.role === "assistant") {
             triggerStreamEndHaptic(message.id);
           }
-          // Also sync pending permission
-          syncPendingPermission();
         },
       });
     },
-    [syncPendingPermission, triggerStreamEndHaptic]
+    [
+      isStreamingUiMessage,
+      applyMessagesImmediate,
+      scheduleMessagesUpdate,
+      syncPendingPermission,
+      triggerStreamEndHaptic,
+      getMessageById,
+    ]
   );
 
   // Check if this chat has already failed (prevents infinite loop)
@@ -354,13 +455,6 @@ export function useChat(options: UseChatOptions = {}) {
       return;
     }
     const store = useChatStore.getState();
-    if (!store.supportsModelSwitching) {
-      const message =
-        "Agent does not support runtime model switching (session/set_model is an unstable feature)";
-      store.setError(message);
-      onErrorRef.current?.(message);
-      throw new Error(message);
-    }
     try {
       await setModelMutation.mutateAsync({ chatId: activeChatId, modelId });
       if (store.models) {
@@ -447,7 +541,6 @@ export function useChat(options: UseChatOptions = {}) {
       isResumingRef.current = true;
       store.setConnStatus("connecting");
       store.setStatus("connecting");
-      store.clearSessionView();
       await utils.getSessionState.cancel({ chatId });
       const res = await resumeSessionMutation.mutateAsync({ chatId });
       await utils.getSessionState.invalidate({ chatId });
@@ -499,20 +592,12 @@ export function useChat(options: UseChatOptions = {}) {
     useChatStore.getState().setError(null);
   };
 
-  // Convert Map to Record for terminalOutputs
-  const terminalOutputs: Record<string, string> = {};
-  terminalOutput.forEach((value, key) => {
-    terminalOutputs[key] = value;
-  });
-
   return {
     // State
     id: activeChatId, // the active chat/session ID
-    messages, // chat messages
     status, //
     connStatus,
     pendingPermission,
-    terminalOutputs,
     error,
 
     // Session state

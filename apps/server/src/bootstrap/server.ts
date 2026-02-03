@@ -28,6 +28,7 @@ import { getAuthContext, getSessionFromRequest } from "../infra/auth/guards";
 import { createLogger } from "../infra/logging/structured-logger";
 import { installConsoleLogger } from "../infra/logging/logger";
 import { createRequestLogger } from "../infra/logging/request-logger";
+import { ReconcileSessionStatusService } from "../modules/session/application/reconcile-session-status.service";
 import {
   PUBLIC_UI_PATH,
   UI_PATH_PREFIX,
@@ -164,9 +165,13 @@ async function createViteDevServer(
  */
 export function createApp() {
   // Initialize DI container with allowed roots from settings
-  const container = initializeContainer();
-  const settings = container.getSettings().get();
-  initializeContainer(settings.projectRoots);
+  const initialContainer = initializeContainer();
+  const settings = initialContainer.getSettings().get();
+  const container = initializeContainer(settings.projectRoots);
+  new ReconcileSessionStatusService(
+    container.getSessions(),
+    container.getSessionRuntime()
+  ).execute();
 
   const app = new Hono();
   app.use("*", async (c, next) => {

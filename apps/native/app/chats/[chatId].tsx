@@ -1,9 +1,10 @@
 import { isChatBusyStatus, type UIMessage } from "@repo/shared";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useShallow } from "zustand/react/shallow";
 import { ChatHeader } from "@/components/chat/chat-header/chat-header";
 import { AttachmentModal } from "@/components/chat/chat-input/attachment-modal";
 import { ChatInput } from "@/components/chat/chat-input/chat-input";
@@ -81,8 +82,7 @@ export default function ChatScreen() {
   }, [chatId, router]);
 
   const {
-    messages,
-    terminalOutput,
+    messageIds,
     connStatus,
     pendingPermission,
     setActiveChatId,
@@ -91,8 +91,6 @@ export default function ChatScreen() {
     activeChatId,
     isChatFailed,
     setMessages,
-    clearSessionView,
-    setConnStatus,
     setError,
     modes,
     models,
@@ -101,7 +99,27 @@ export default function ChatScreen() {
     clearChatFailed,
     promptCapabilities,
     supportsModelSwitching,
-  } = useChatStore();
+  } = useChatStore(
+    useShallow((state) => ({
+      messageIds: state.messageIds,
+      connStatus: state.connStatus,
+      pendingPermission: state.pendingPermission,
+      setActiveChatId: state.setActiveChatId,
+      activeChatIsReadOnly: state.activeChatIsReadOnly,
+      sessions: state.sessions,
+      activeChatId: state.activeChatId,
+      isChatFailed: state.isChatFailed,
+      setMessages: state.setMessages,
+      setError: state.setError,
+      modes: state.modes,
+      models: state.models,
+      commands: state.commands,
+      updateSessionStatus: state.updateSessionStatus,
+      clearChatFailed: state.clearChatFailed,
+      promptCapabilities: state.promptCapabilities,
+      supportsModelSwitching: state.supportsModelSwitching,
+    }))
+  );
 
   const {
     sendMessage,
@@ -115,8 +133,8 @@ export default function ChatScreen() {
   } = useChat();
   const insets = useSafeAreaInsets();
   const [inputHeight, setInputHeight] = useState(0);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [forceActive, setForceActive] = useState(false);
+  const appliedHistoryRef = useRef<string | null>(null);
   const {
     attachments,
     canAttachAudio,
@@ -182,16 +200,22 @@ export default function ChatScreen() {
 
   // Load historical messages for read-only mode
   useEffect(() => {
-    const canLoad = isReadOnly && messagesQuery.data && chatId;
-    if (!canLoad) {
+    if (!isReadOnly || !messagesQuery.data || !chatId) {
       return;
     }
 
-    setIsLoadingHistory(true);
-    setMessages(messagesQuery.data as UIMessage[]);
-    setConnStatus("idle");
-    setIsLoadingHistory(false);
-  }, [isReadOnly, messagesQuery.data, chatId, setMessages, setConnStatus]);
+    const history = messagesQuery.data as UIMessage[];
+    const firstId = history[0]?.id ?? "none";
+    const lastId = history[history.length - 1]?.id ?? "none";
+    const signature = `${chatId}:${history.length}:${firstId}:${lastId}`;
+
+    if (appliedHistoryRef.current === signature) {
+      return;
+    }
+
+    appliedHistoryRef.current = signature;
+    setMessages(history);
+  }, [isReadOnly, messagesQuery.data, chatId, setMessages]);
 
   // Initialize or Switch Chat (only for active sessions)
   useEffect(() => {
@@ -258,7 +282,6 @@ export default function ChatScreen() {
       setForceActive(true);
       clearChatFailed(validChatId);
       setError(null);
-      clearSessionView();
       setActiveChatId(validChatId, false);
       await resumeSession(validChatId);
       updateSessionStatus(validChatId, "running");
@@ -282,8 +305,8 @@ export default function ChatScreen() {
   }
 
   const showLoading = isReadOnly
-    ? messagesQuery.isLoading || isLoadingHistory
-    : connStatus === "connecting" && messages.length === 0;
+    ? messagesQuery.isLoading || messagesQuery.isFetching
+    : connStatus === "connecting" && messageIds.length === 0;
   const chatTitle = computeChatTitle(currentSession, isReadOnly, canResumeChat);
   const isStreaming = useMemo(() => {
     if (isReadOnly || connStatus !== "connected") {
@@ -334,8 +357,7 @@ export default function ChatScreen() {
             contentPaddingBottom={listContentPadding}
             isStreaming={isStreaming}
             keyboardBottomOffset={keyboardBottomOffset}
-            messages={messages}
-            terminalOutputs={terminalOutput}
+            messageIds={messageIds}
           />
         )}
       </View>

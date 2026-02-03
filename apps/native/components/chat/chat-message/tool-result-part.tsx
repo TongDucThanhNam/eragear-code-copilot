@@ -7,7 +7,6 @@ interface ToolResultPartProps {
   toolCallId: string;
   output?: unknown;
   state: ToolUIPart["state"];
-  terminalOutputs: Map<string, string>;
   errorText?: string;
 }
 
@@ -15,7 +14,6 @@ export function ToolResultPart({
   toolCallId,
   output,
   state,
-  terminalOutputs,
   errorText,
 }: ToolResultPartProps) {
   const isError = state === "output-error" || state === "output-denied";
@@ -51,7 +49,6 @@ export function ToolResultPart({
               errorText={errorText}
               output={output}
               state={state}
-              terminalOutputs={terminalOutputs}
             />
           </Accordion.Content>
         </Accordion.Item>

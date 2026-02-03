@@ -1,5 +1,5 @@
-import { Linking, Pressable, Text, View } from "react-native";
 import type { ToolUIPart, UIMessagePart } from "@repo/shared";
+import { Linking, Pressable, Text, View } from "react-native";
 import { PlanPart } from "./plan-part";
 import { ReasoningPart } from "./reasoning-part";
 import MarkdownText from "./text-part";
@@ -8,7 +8,6 @@ import { ToolResultPart } from "./tool-result-part";
 
 interface PartRenderersProps {
   part: UIMessagePart;
-  terminalOutputs: Map<string, string>;
 }
 
 const isToolPart = (part: UIMessagePart): part is ToolUIPart =>
@@ -42,7 +41,7 @@ const SourceBadge = ({
   </Pressable>
 );
 
-export function PartRenderers({ part, terminalOutputs }: PartRenderersProps) {
+export function PartRenderers({ part }: PartRenderersProps) {
   switch (part.type) {
     case "text":
       return <MarkdownText>{part.text}</MarkdownText>;
@@ -51,7 +50,9 @@ export function PartRenderers({ part, terminalOutputs }: PartRenderersProps) {
       return <ReasoningPart text={part.text} />;
     case "source-url": {
       const label = part.title ?? part.url;
-      return <SourceBadge label={label} onPress={() => Linking.openURL(part.url)} />;
+      return (
+        <SourceBadge label={label} onPress={() => Linking.openURL(part.url)} />
+      );
     }
 
     case "source-document": {
@@ -67,7 +68,7 @@ export function PartRenderers({ part, terminalOutputs }: PartRenderersProps) {
     case "step-start":
       return (
         <View className="mt-2 mb-2">
-          <Text className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          <Text className="text-[11px] text-muted-foreground uppercase tracking-wide">
             Step
           </Text>
         </View>
@@ -76,7 +77,11 @@ export function PartRenderers({ part, terminalOutputs }: PartRenderersProps) {
     default:
       if (isToolPart(part)) {
         const title = getToolTitle(part);
-        if (part.type === "tool-plan" && part.state === "output-available" && isPlanOutput(part.output)) {
+        if (
+          part.type === "tool-plan" &&
+          part.state === "output-available" &&
+          isPlanOutput(part.output)
+        ) {
           const items = part.output.entries.map((entry) => ({
             content: entry.content,
             status: entry.status,
@@ -90,10 +95,13 @@ export function PartRenderers({ part, terminalOutputs }: PartRenderersProps) {
               part.state === "output-error" ||
               part.state === "output-denied") && (
               <ToolResultPart
-                errorText={part.state === "output-error" ? part.errorText : undefined}
-                output={part.state === "output-available" ? part.output : undefined}
+                errorText={
+                  part.state === "output-error" ? part.errorText : undefined
+                }
+                output={
+                  part.state === "output-available" ? part.output : undefined
+                }
                 state={part.state}
-                terminalOutputs={terminalOutputs}
                 toolCallId={part.toolCallId}
               />
             )}

@@ -384,7 +384,6 @@ export function ChatInterface({
       return;
     }
     try {
-      setMessages([]);
       await resumeSession();
     } catch (e) {
       console.error("Failed to resume chat", e);
@@ -425,6 +424,10 @@ export function ChatInterface({
 
   // Handle submit
   const handleSubmit = async (message: PromptInputMessage) => {
+    if (connStatus !== "connected") {
+      toast.error("Session is not connected");
+      return;
+    }
     const hasText = Boolean(message.text);
     const hasFiles = message.files.length > 0;
     const hasMentions = (message.mentions?.length ?? 0) > 0;

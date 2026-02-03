@@ -23,8 +23,8 @@ import type {
   McpSseServerConfig,
   McpStdioServerConfig,
 } from "../../../shared/types/settings.types";
-import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import { updateChatStatus } from "../../../shared/utils/chat-events.util";
+import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import {
   buildAssistantMessageFromBlocks,
   buildPlanToolPart,
@@ -236,10 +236,10 @@ export class CreateSessionService {
 
     chatSession.agentInfo = initResult?.agentInfo
       ? {
-        name: initResult.agentInfo.name,
-        title: initResult.agentInfo.title ?? undefined,
-        version: initResult.agentInfo.version,
-      }
+          name: initResult.agentInfo.name,
+          title: initResult.agentInfo.title ?? undefined,
+          version: initResult.agentInfo.version,
+        }
       : undefined;
 
     // Store full capabilities and auth methods for debugging
@@ -370,10 +370,12 @@ export class CreateSessionService {
    * @param buffer - Session buffering state
    */
   private broadcastPromptEnd(chatId: string, buffer: SessionBufferingPort) {
-    if (buffer.replayEventCount === 0) {
+    const session = this.sessionRuntime.get(chatId);
+    const shouldReplayStored =
+      buffer.replayEventCount === 0 && !session?.suppressReplayBroadcast;
+    if (shouldReplayStored) {
       this.replayStoredMessages(chatId);
     }
-    const session = this.sessionRuntime.get(chatId);
     const currentMessageId = session?.uiState.currentAssistantId;
     if (session && currentMessageId) {
       const message = session.uiState.messages.get(currentMessageId);
@@ -461,7 +463,7 @@ export class CreateSessionService {
 
     const chatId = params.chatId ?? crypto.randomUUID();
     const agentCmd = params.command ?? "opencode";
-    const agentArgs = params.args ?? ["acp"];
+    const agentArgs = params.args ?? this.resolveDefaultAgentArgs(agentCmd);
     const agentEnv = params.env ?? {};
     const projectRoot = this.resolveProjectRoot(params.projectRoot);
 
@@ -476,9 +478,13 @@ export class CreateSessionService {
     });
 
     const buffer = this.sessionAcp.createBuffer();
-    const storedPlan = params.chatId
-      ? this.sessionRepo.findById(chatId)?.plan
+    const storedSession = params.chatId
+      ? this.sessionRepo.findById(chatId)
       : undefined;
+    const storedPlan = storedSession?.plan;
+    const hasStoredMessages =
+      Boolean(params.sessionIdToLoad) &&
+      this.sessionRepo.getMessages(chatId).length > 0;
 
     // Create runtime session
     const chatSession: ChatSession = {
@@ -499,6 +505,8 @@ export class CreateSessionService {
       buffer,
       uiState: createUiMessageState(),
       isReplayingHistory: false,
+      suppressReplayBroadcast: hasStoredMessages,
+      lastAssistantChunkType: undefined,
       chatStatus: "connecting",
     };
 
@@ -586,6 +594,13 @@ export class CreateSessionService {
     );
 
     return chatSession;
+  }
+
+  private resolveDefaultAgentArgs(agentCmd: string): string[] {
+    if (agentCmd === "opencode") {
+      return ["acp"];
+    }
+    return [];
   }
 
   /**
@@ -678,7 +693,15 @@ export class CreateSessionService {
       const isExpectedSignal = signal === "SIGTERM" || signal === "SIGINT";
       const isCleanExit = code === 0 || (code === null && isExpectedSignal);
 
-      if (!isCleanExit) {
+      if (isCleanExit) {
+        const session = this.sessionRuntime.get(chatId);
+        updateChatStatus({
+          chatId,
+          session,
+          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+          status: "inactive",
+        });
+      } else {
         const reason = signal
           ? `signal ${signal}`
           : `code ${code ?? "unknown"}`;
@@ -692,14 +715,6 @@ export class CreateSessionService {
           session,
           broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
           status: "error",
-        });
-      } else {
-        const session = this.sessionRuntime.get(chatId);
-        updateChatStatus({
-          chatId,
-          session,
-          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-          status: "inactive",
         });
       }
 
@@ -742,6 +757,23 @@ export class CreateSessionService {
    * @param message - The stored message to broadcast
    */
   private broadcastStoredMessage(chatId: string, message: StoredMessage) {
+    if (message.parts && message.parts.length > 0) {
+      const uiMessage = {
+        id: message.id,
+        role: message.role,
+        parts: message.parts,
+      };
+      const session = this.sessionRuntime.get(chatId);
+      if (session) {
+        session.uiState.messages.set(uiMessage.id, uiMessage);
+      }
+      this.sessionRuntime.broadcast(chatId, {
+        type: "ui_message",
+        message: uiMessage,
+      });
+      return;
+    }
+
     const contentBlocks =
       message.contentBlocks ??
       (message.content ? [{ type: "text", text: message.content }] : []);

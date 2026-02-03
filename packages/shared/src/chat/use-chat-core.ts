@@ -95,7 +95,7 @@ export function getPermissionOptions(
  * Find pending permission request in messages
  */
 export function findPendingPermission(
-  messages: UIMessage[]
+  messages: Iterable<UIMessage>
 ): PermissionRequest | null {
   for (const message of messages) {
     for (const part of message.parts) {
@@ -146,6 +146,9 @@ export interface EventProcessingCallbacks {
   onStatusChange?: (status: ChatStatus) => void;
   onConnStatusChange?: (status: ConnectionStatus) => void;
   onMessagesChange?: (messages: UIMessage[]) => void;
+  onMessageUpsert?: (message: UIMessage) => void;
+  getMessageById?: (messageId: string) => UIMessage | undefined;
+  getMessagesForPermission?: () => Iterable<UIMessage>;
   onModesChange?: (modes: SessionModeState | null) => void;
   onModelsChange?: (models: SessionModelState | null) => void;
   onCommandsChange?: (commands: AvailableCommand[]) => void;
@@ -192,19 +195,31 @@ export function processSessionEvent(
       return currentMessages;
 
     case "ui_message": {
-      const prev = currentMessages.find((m) => m.id === event.message.id);
+      const prev =
+        callbacks.getMessageById?.(event.message.id) ??
+        currentMessages.find((m) => m.id === event.message.id);
       const wasStreaming = prev ? isMessageStreaming(prev) : false;
-      const newMessages = upsertMessage(currentMessages, event.message);
       const nowStreaming = isMessageStreaming(event.message);
 
-      callbacks.onMessagesChange?.(newMessages);
+      let newMessages: UIMessage[] | null = null;
+      if (callbacks.onMessageUpsert) {
+        callbacks.onMessageUpsert(event.message);
+      } else {
+        newMessages = upsertMessage(currentMessages, event.message);
+        callbacks.onMessagesChange?.(newMessages);
+      }
       callbacks.onStreamingChange?.(wasStreaming, nowStreaming, event.message);
 
       // Update pending permission after message change
-      const pendingPermission = findPendingPermission(newMessages);
-      callbacks.onPendingPermissionChange?.(pendingPermission);
+      if (callbacks.onPendingPermissionChange) {
+        const permissionSource =
+          callbacks.getMessagesForPermission?.() ??
+          (newMessages ?? currentMessages);
+        const pendingPermission = findPendingPermission(permissionSource);
+        callbacks.onPendingPermissionChange?.(pendingPermission);
+      }
 
-      return newMessages;
+      return newMessages ?? currentMessages;
     }
 
     case "available_commands_update": {

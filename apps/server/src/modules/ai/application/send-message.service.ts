@@ -158,17 +158,17 @@ export class SendMessageService {
     });
     const storedPromptBlocks = toStoredContentBlocks(prompt);
 
+    const uiMessage = buildUserMessageFromBlocks({
+      messageId: msgId,
+      contentBlocks: storedPromptBlocks,
+    });
     this.sessionRepo.appendMessage(input.chatId, {
       id: msgId,
       role: "user",
       content: input.text,
       contentBlocks: storedPromptBlocks,
+      parts: uiMessage.parts,
       timestamp: msgTimestamp,
-    });
-
-    const uiMessage = buildUserMessageFromBlocks({
-      messageId: msgId,
-      contentBlocks: storedPromptBlocks,
     });
     session.uiState.messages.set(uiMessage.id, uiMessage);
     this.sessionRuntime.broadcast(input.chatId, {

@@ -1,13 +1,13 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { getUiAssets } from "./ui-assets";
 
-export type DocumentProps = {
+export interface DocumentProps {
   title: string;
   children: ReactNode;
   head?: ReactNode;
   bodyClassName?: string;
   bodyAttributes?: HTMLAttributes<HTMLBodyElement>;
-};
+}
 
 export function Document({
   title,

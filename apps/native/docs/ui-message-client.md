@@ -16,8 +16,9 @@ Mục tiêu là chỉ xử lý `ui_message` và các event cấp cao, không par
 
 ## Lưu trữ & state
 
-- `useChatStore.messages`: mảng `UIMessage`
-- `upsertMessage(message)`: update theo `message.id`
+- `useChatStore.messageIds`: thứ tự message id
+- `useChatStore.messagesById`: map `messageId -> UIMessage`
+- `upsertMessage(message)`: update theo `message.id` (map + id list)
 - `pendingPermission` được suy ra từ:
   - `ToolUIPart.state === "approval-requested"`
   - `DataUIPart(type="data-permission-options")` để lấy options

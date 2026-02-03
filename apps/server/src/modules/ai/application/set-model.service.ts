@@ -77,13 +77,6 @@ export class SetModelService {
     if (!session.models || session.models.availableModels.length === 0) {
       throw new Error("Agent does not support model switching");
     }
-    // Check if agent advertised support for session/set_model method
-    // This is an unstable feature that requires the agent to enable it
-    if (!session.supportsModelSwitching) {
-      throw new Error(
-        "Agent does not support runtime model switching (session/set_model is an unstable feature)"
-      );
-    }
     const isAvailableModel = session.models.availableModels.some(
       (model) => model.modelId === modelId
     );
@@ -93,6 +86,10 @@ export class SetModelService {
     if (session.models.currentModelId === modelId) {
       return { ok: true };
     }
+    console.log("[Server] setModel requested", {
+      chatId,
+      modelId,
+    });
     const stdin = session.proc.stdin;
     if (
       !stdin ||
@@ -160,6 +157,11 @@ export class SetModelService {
       }
     } catch (error) {
       const errorText = getAcpErrorText(error);
+      console.error("[Server] setModel failed", {
+        chatId,
+        modelId,
+        error: errorText || "Failed to set model",
+      });
       if (isMethodNotFound(errorText)) {
         throw new Error("Agent does not support model switching");
       }
@@ -169,6 +171,10 @@ export class SetModelService {
     if (session.models) {
       session.models.currentModelId = modelId;
     }
+    console.log("[Server] setModel succeeded", {
+      chatId,
+      modelId,
+    });
     return { ok: true };
   }
 }
