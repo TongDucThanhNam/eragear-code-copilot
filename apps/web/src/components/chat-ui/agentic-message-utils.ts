@@ -156,6 +156,79 @@ export const buildMessageCopyText = (message: UIMessage) => {
   return textParts.join("\n\n");
 };
 
+export type ParsedToolOutput = {
+  result: ToolUIPart["output"];
+  terminalId?: string;
+  diffs: Array<{ path: string; oldText?: string; newText: string }>;
+};
+
+export const parseToolOutput = (
+  output: ToolUIPart["output"]
+): ParsedToolOutput => {
+  if (!Array.isArray(output)) {
+    return {
+      result: output,
+      terminalId: undefined,
+      diffs: [],
+    };
+  }
+  let terminalId: string | undefined;
+  const diffs: Array<{ path: string; oldText?: string; newText: string }> = [];
+  const textParts: string[] = [];
+  for (const item of output) {
+    if (item && typeof item === "object" && "type" in item) {
+      const typed = item as {
+        type: string;
+        terminalId?: string;
+        path?: string;
+        oldText?: string;
+        newText?: string;
+        content?: { type?: string; text?: string };
+      };
+      if (typed.type === "terminal" && typed.terminalId) {
+        terminalId = typed.terminalId;
+      }
+      if (typed.type === "diff" && typed.path && typed.newText) {
+        diffs.push({
+          path: typed.path,
+          oldText: typed.oldText,
+          newText: typed.newText,
+        });
+      }
+      if (
+        typed.type === "content" &&
+        typed.content?.type === "text" &&
+        typed.content.text
+      ) {
+        textParts.push(typed.content.text);
+      }
+    }
+  }
+  const result = textParts.length > 0 ? textParts.join("\n") : output;
+  return { result, terminalId, diffs };
+};
+
+const messageTerminalIdCache = new WeakMap<UIMessage, string[]>();
+
+export const getMessageTerminalIds = (message: UIMessage) => {
+  const cached = messageTerminalIdCache.get(message);
+  if (cached) {
+    return cached;
+  }
+  const terminalIds = new Set<string>();
+  for (const part of message.parts) {
+    if (part.type.startsWith("tool-")) {
+      const { terminalId } = parseToolOutput((part as ToolUIPart).output);
+      if (terminalId) {
+        terminalIds.add(terminalId);
+      }
+    }
+  }
+  const result = Array.from(terminalIds);
+  messageTerminalIdCache.set(message, result);
+  return result;
+};
+
 export const getPartKey = (part: UIMessagePart, index: number) => {
   if (part.type.startsWith("tool-")) {
     return `tool-${(part as ToolUIPart).toolCallId}`;

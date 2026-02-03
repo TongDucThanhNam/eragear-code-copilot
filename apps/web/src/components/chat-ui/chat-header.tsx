@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Info, LogOut, Play, Radio, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,7 +33,7 @@ export interface ChatHeaderProps {
   sessionAgentInfo?: { name: string; title?: string; version: string } | null;
 }
 
-export function ChatHeader({
+const ChatHeaderBase = ({
   activeAgentId,
   projectName,
   connStatus,
@@ -142,4 +143,7 @@ export function ChatHeader({
       </div>
     </div>
   );
-}
+};
+
+export const ChatHeader = memo(ChatHeaderBase);
+ChatHeader.displayName = "ChatHeader";

@@ -5,6 +5,7 @@ import {
   type ChangeEvent,
   type MouseEvent,
   type RefObject,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -265,7 +266,7 @@ function MentionMenu({
   );
 }
 
-export function ChatInput({
+const ChatInputBase = ({
   textareaRef,
   status,
   connStatus,
@@ -694,4 +695,7 @@ export function ChatInput({
       </PromptInputProvider>
     </div>
   );
-}
+};
+
+export const ChatInput = memo(ChatInputBase);
+ChatInput.displayName = "ChatInput";

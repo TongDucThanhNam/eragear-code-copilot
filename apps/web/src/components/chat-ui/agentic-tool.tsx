@@ -19,6 +19,7 @@ import {
 import { FileDiffView } from "./file-diff-view";
 import { TerminalView } from "./terminal-view";
 import {
+  type ParsedToolOutput,
   type PermissionEntry,
   toToolViewState,
 } from "./agentic-message-utils";
@@ -26,65 +27,23 @@ import {
 interface ToolMessagePartProps {
   tool: ToolUIPart;
   permission?: PermissionEntry;
-  terminalOutputs?: Record<string, string>;
+  parsedOutput: ParsedToolOutput;
+  terminalOutput?: string;
   onApprove?: (requestId: string, decision?: string) => void;
   onReject?: (requestId: string, decision?: string) => void;
 }
-
-const parseToolOutput = (output: ToolUIPart["output"]) => {
-  if (!Array.isArray(output)) {
-    return {
-      result: output,
-      terminalId: undefined,
-      diffs: [] as Array<{ path: string; oldText?: string; newText: string }>,
-    };
-  }
-  let terminalId: string | undefined;
-  const diffs: Array<{ path: string; oldText?: string; newText: string }> = [];
-  const textParts: string[] = [];
-  for (const item of output) {
-    if (item && typeof item === "object" && "type" in item) {
-      const typed = item as {
-        type: string;
-        terminalId?: string;
-        path?: string;
-        oldText?: string;
-        newText?: string;
-        content?: { type?: string; text?: string };
-      };
-      if (typed.type === "terminal" && typed.terminalId) {
-        terminalId = typed.terminalId;
-      }
-      if (typed.type === "diff" && typed.path && typed.newText) {
-        diffs.push({
-          path: typed.path,
-          oldText: typed.oldText,
-          newText: typed.newText,
-        });
-      }
-      if (
-        typed.type === "content" &&
-        typed.content?.type === "text" &&
-        typed.content.text
-      ) {
-        textParts.push(typed.content.text);
-      }
-    }
-  }
-  const result = textParts.length > 0 ? textParts.join("\n") : output;
-  return { result, terminalId, diffs };
-};
 
 export const ToolMessagePart = memo(
   ({
     tool,
     permission,
-    terminalOutputs,
+    parsedOutput,
+    terminalOutput,
     onApprove,
     onReject,
   }: ToolMessagePartProps) => {
     const viewState = toToolViewState(tool);
-    const { result, terminalId, diffs } = parseToolOutput(tool.output);
+    const { result, terminalId, diffs } = parsedOutput;
     const errorText =
       tool.state === "output-error"
         ? tool.errorText
@@ -165,9 +124,9 @@ export const ToolMessagePart = memo(
               </ConfirmationActions>
             </ConfirmationRequest>
           </Confirmation>
-          {terminalId && terminalOutputs && (
+          {terminalId && terminalOutput !== undefined && (
             <div className="mt-2">
-              <TerminalView output={terminalOutputs[terminalId] || ""} />
+              <TerminalView output={terminalOutput} />
             </div>
           )}
           {diffs.length > 0 && (

@@ -19,6 +19,7 @@ import {
 import {
   buildMessageCopyText,
   buildPermissionByToolCallId,
+  getMessageTerminalIds,
   isDataPart,
   isMessageStreaming,
   splitMessageParts,
@@ -143,7 +144,32 @@ const UserMessageBody = ({ parts }: { parts: UIMessagePart[] }) => {
   );
 };
 
-export function AgenticMessage({
+const areTerminalOutputsEqual = (
+  prev: Record<string, string> | undefined,
+  next: Record<string, string> | undefined,
+  message: UIMessage
+) => {
+  const terminalIds = getMessageTerminalIds(message);
+  if (terminalIds.length === 0) {
+    return true;
+  }
+  if (prev === next) {
+    return true;
+  }
+  if (!prev || !next) {
+    return false;
+  }
+  for (const terminalId of terminalIds) {
+    const prevValue = prev[terminalId] ?? "";
+    const nextValue = next[terminalId] ?? "";
+    if (prevValue !== nextValue) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const AgenticMessageBase = ({
   message,
   terminalOutputs,
   onApprove,
@@ -174,4 +200,25 @@ export function AgenticMessage({
       </div>
     </Message>
   );
-}
+};
+
+export const AgenticMessage = memo(
+  AgenticMessageBase,
+  (prevProps, nextProps) => {
+    if (prevProps.message !== nextProps.message) {
+      return false;
+    }
+    if (
+      prevProps.onApprove !== nextProps.onApprove ||
+      prevProps.onReject !== nextProps.onReject
+    ) {
+      return false;
+    }
+    return areTerminalOutputsEqual(
+      prevProps.terminalOutputs,
+      nextProps.terminalOutputs,
+      prevProps.message
+    );
+  }
+);
+AgenticMessage.displayName = "AgenticMessage";

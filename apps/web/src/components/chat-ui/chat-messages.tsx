@@ -1,7 +1,7 @@
 "use client";
 
 import type { UIMessage } from "@repo/shared";
-import { useMemo } from "react";
+import { memo } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -16,18 +16,16 @@ export interface ChatMessagesProps {
   onReject?: (requestId: string, decision?: string) => void;
 }
 
-export function ChatMessages({
+const ChatMessagesBase = ({
   messages,
   terminalOutputs,
   onApprove,
   onReject,
 }: ChatMessagesProps) {
-  const memoizedMessages = useMemo(() => messages, [messages]);
-
   return (
     <Conversation className="min-h-0 flex-1 overflow-y-hidden">
       <ConversationContent>
-        {memoizedMessages.map((message) => (
+        {messages.map((message) => (
           <AgenticMessage
             key={message.id}
             message={message}
@@ -40,4 +38,14 @@ export function ChatMessages({
       <ConversationScrollButton />
     </Conversation>
   );
-}
+};
+
+export const ChatMessages = memo(
+  ChatMessagesBase,
+  (prevProps, nextProps) =>
+    prevProps.messages === nextProps.messages &&
+    prevProps.terminalOutputs === nextProps.terminalOutputs &&
+    prevProps.onApprove === nextProps.onApprove &&
+    prevProps.onReject === nextProps.onReject
+);
+ChatMessages.displayName = "ChatMessages";

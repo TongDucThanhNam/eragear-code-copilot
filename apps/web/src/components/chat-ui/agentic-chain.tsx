@@ -32,6 +32,7 @@ import { Loader } from "@/components/ai-elements/loader";
 import {
   getActiveIndex,
   getPartKey,
+  parseToolOutput,
   type PermissionEntry,
   toToolViewState,
 } from "./agentic-message-utils";
@@ -141,6 +142,10 @@ const ChainContent = ({
 
   if (part.type.startsWith("tool-")) {
     const toolPart = part as ToolUIPart;
+    const parsedOutput = useMemo(
+      () => parseToolOutput(toolPart.output),
+      [toolPart.output]
+    );
     const permission = permissionByToolCallId.get(toolPart.toolCallId);
     if (
       toolPart.type === "tool-plan" &&
@@ -159,12 +164,17 @@ const ChainContent = ({
       ).entries;
       return <PlanMessagePart entries={entries} />;
     }
+    const terminalOutput =
+      parsedOutput.terminalId && terminalOutputs
+        ? (terminalOutputs[parsedOutput.terminalId] ?? "")
+        : undefined;
     return (
       <ToolMessagePart
         onApprove={onApprove}
         onReject={onReject}
         permission={permission}
-        terminalOutputs={terminalOutputs}
+        parsedOutput={parsedOutput}
+        terminalOutput={terminalOutput}
         tool={toolPart}
       />
     );
