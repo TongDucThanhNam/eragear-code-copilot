@@ -19,16 +19,23 @@ import {
 import { createId } from "@/shared/utils/id.util";
 import {
   appendContentBlock,
-  appendReasoningPart,
+  appendReasoningBlock,
   buildPlanToolPart,
+  buildProviderMetadataFromMeta,
   buildToolPartForUpdate,
   buildToolPartFromCall,
   finalizeStreamingParts,
   getOrCreateAssistantMessage,
   getOrCreateUserMessage,
   getPlanToolCallId,
+  upsertToolLocationsPart,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
+import {
+  maybeBroadcastChatFinish,
+  setChatFinishMessage,
+  updateChatStatus,
+} from "@/shared/utils/chat-events.util";
 import type {
   Plan,
   StoredContentBlock,
@@ -383,7 +390,18 @@ function handleToolCallCreate(
       messageId: session.uiState.currentAssistantId,
       part: toolPart,
     });
-    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    const messageWithLocations = sanitizedToolCall.locations?.length
+      ? upsertToolLocationsPart({
+          state: session.uiState,
+          toolCallId: sanitizedToolCall.toolCallId,
+          locations: sanitizedToolCall.locations,
+          messageId: message.id,
+        })
+      : message;
+    sessionRuntime.broadcast(chatId, {
+      type: "ui_message",
+      message: messageWithLocations ?? message,
+    });
   }
   return true;
 }
@@ -405,6 +423,10 @@ function handleToolCallUpdate(
     return false;
   }
 
+  const hasLocationsUpdate = Object.prototype.hasOwnProperty.call(
+    update,
+    "locations"
+  );
   const sanitizedUpdate = {
     ...update,
     content: toStoredToolCallContent(update.content),
@@ -457,12 +479,23 @@ function handleToolCallUpdate(
           ? sanitizedUpdate.content ?? undefined
           : merged.content,
       rawOutput: merged.rawOutput,
+      meta: update._meta,
     });
     const { message } = upsertToolPart({
       state: session.uiState,
       part: toolPart,
     });
-    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    const messageWithLocations = hasLocationsUpdate
+      ? upsertToolLocationsPart({
+          state: session.uiState,
+          toolCallId: update.toolCallId,
+          locations: update.locations ?? null,
+        })
+      : message;
+    sessionRuntime.broadcast(chatId, {
+      type: "ui_message",
+      message: messageWithLocations ?? message,
+    });
   }
   return true;
 }
@@ -496,14 +529,18 @@ function handleBufferedMessage(
   }
 
   const session = sessionRuntime.get(chatId);
+  const broadcast = sessionRuntime.broadcast.bind(sessionRuntime);
   const partState = isReplayingHistory ? "done" : "streaming";
+  const updateProviderMetadata =
+    "_meta" in update ? buildProviderMetadataFromMeta(update._meta) : undefined;
   if (session) {
     if (update.sessionUpdate === "user_message_chunk") {
       const message = getOrCreateUserMessage(session.uiState);
       appendContentBlock(
         message,
         toStoredContentBlock(update.content),
-        partState
+        partState,
+        updateProviderMetadata
       );
       sessionRuntime.broadcast(chatId, { type: "ui_message", message });
     }
@@ -514,7 +551,8 @@ function handleBufferedMessage(
       appendContentBlock(
         message,
         toStoredContentBlock(update.content),
-        partState
+        partState,
+        updateProviderMetadata
       );
       sessionRuntime.broadcast(chatId, { type: "ui_message", message });
     }
@@ -524,7 +562,7 @@ function handleBufferedMessage(
       const message = getOrCreateAssistantMessage(session.uiState, messageId);
       const block = toStoredContentBlock(update.content);
       if (block.type === "text") {
-        appendReasoningPart(message, block.text, partState);
+        appendReasoningBlock(message, block, partState, updateProviderMetadata);
         sessionRuntime.broadcast(chatId, { type: "ui_message", message });
       }
     }
@@ -548,9 +586,12 @@ function handleBufferedMessage(
       });
     }
     if (session?.uiState.currentAssistantId) {
-      const current = session.uiState.messages.get(
-        session.uiState.currentAssistantId
-      );
+      const completedId = session.uiState.currentAssistantId;
+      if (!isReplayingHistory) {
+        session.uiState.lastAssistantId = completedId;
+        setChatFinishMessage(session, completedId);
+      }
+      const current = session.uiState.messages.get(completedId);
       if (current) {
         finalizeStreamingParts(current);
         sessionRuntime.broadcast(chatId, { type: "ui_message", message: current });
@@ -559,6 +600,15 @@ function handleBufferedMessage(
     }
     if (session) {
       session.uiState.currentUserId = undefined;
+    }
+    if (session && !isReplayingHistory) {
+      updateChatStatus({
+        chatId,
+        session,
+        broadcast,
+        status: "ready",
+      });
+      maybeBroadcastChatFinish({ chatId, session, broadcast });
     }
   }
 }
@@ -596,6 +646,26 @@ export function createSessionUpdateHandler(
     // Track replay events during history replay
     if (isReplayingHistory && isReplayChunk(update)) {
       buffer.replayEventCount += 1;
+    }
+
+    if (!isReplayingHistory) {
+      const isStreamingUpdate =
+        update.sessionUpdate === "agent_message_chunk" ||
+        update.sessionUpdate === "agent_thought_chunk" ||
+        update.sessionUpdate === "tool_call" ||
+        update.sessionUpdate === "tool_call_update" ||
+        update.sessionUpdate === "plan";
+      if (isStreamingUpdate) {
+        const session = sessionRuntime.get(chatId);
+        if (session?.chatStatus !== "cancelling") {
+          updateChatStatus({
+            chatId,
+            session,
+            broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+            status: "streaming",
+          });
+        }
+      }
     }
 
     // Handle buffered message content

@@ -8,6 +8,7 @@
  */
 
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import { updateChatStatus } from "@/shared/utils/chat-events.util";
 
 /**
  * CancelPromptService
@@ -46,6 +47,13 @@ export class CancelPromptService {
     if (!session?.sessionId) {
       throw new Error("Chat not found");
     }
+
+    updateChatStatus({
+      chatId,
+      session,
+      broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+      status: "cancelling",
+    });
 
     await session.conn.cancel({ sessionId: session.sessionId });
     for (const [, pending] of session.pendingPermissions) {

@@ -9,6 +9,7 @@
 
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 
 /**
  * DeleteSessionService
@@ -54,6 +55,7 @@ export class DeleteSessionService {
   execute(chatId: string): { ok: true } {
     const session = this.sessionRuntime.get(chatId);
     if (session) {
+      terminateSessionTerminals(session);
       session.proc.kill();
       this.sessionRuntime.delete(chatId);
     }

@@ -15,26 +15,26 @@ export function AgentCard({ agent }: AgentCardProps) {
   const typeClass = typeColors[agent.type] || typeColors.other;
 
   return (
-    <div class="card agent-card mb-2 flex items-center justify-between gap-4">
-      <div class="min-w-0 flex-1">
-        <div class="mb-1 flex items-center gap-2">
-          <span class="truncate font-semibold">{agent.name}</span>
-          <span class={`badge ${typeClass} text-[10px]`}>{agent.type}</span>
+    <div className="card agent-card mb-2 flex items-center justify-between gap-4">
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex items-center gap-2">
+          <span className="truncate font-semibold">{agent.name}</span>
+          <span className={`badge ${typeClass} text-[10px]`}>{agent.type}</span>
         </div>
-        <code class="block truncate font-mono text-muted text-xs">
+        <code className="block truncate font-mono text-muted text-xs">
           {agent.command}
           {agent.args && agent.args.length > 0
             ? ` ${agent.args.join(" ")}`
             : ""}
         </code>
       </div>
-      <div class="flex gap-2">
-        <a class="btn btn-sm btn-secondary" href={`#edit-agent-${agent.id}`}>
+      <div className="flex gap-2">
+        <a className="btn btn-sm btn-secondary" href={`#edit-agent-${agent.id}`}>
           Edit
         </a>
         <form action="/form/agents/delete" method="post">
           <input name="agentId" type="hidden" value={agent.id} />
-          <button class="btn btn-sm btn-danger" type="submit">
+          <button className="btn btn-sm btn-danger" type="submit">
             Delete
           </button>
         </form>

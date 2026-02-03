@@ -32,14 +32,23 @@ function isCommandAllowed(command: string, allowlist: string[]) {
  * Filters environment variables by allowlist.
  * Empty allowlist means allow all variables.
  */
-function filterEnvAllowlist(env: Record<string, string>, allowlist: string[]) {
+function filterEnvAllowlist(
+  env: Record<string, string | undefined>,
+  allowlist: string[]
+) {
   if (allowlist.length === 0) {
-    return env;
+    const filtered: Record<string, string> = {};
+    for (const [key, value] of Object.entries(env)) {
+      if (typeof value === "string") {
+        filtered[key] = value;
+      }
+    }
+    return filtered;
   }
   const allowed = new Set(allowlist);
   const filtered: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
-    if (allowed.has(key)) {
+    if (allowed.has(key) && typeof value === "string") {
       filtered[key] = value;
     }
   }

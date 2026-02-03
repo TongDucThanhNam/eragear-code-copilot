@@ -16,6 +16,8 @@ export interface SessionBufferingPort {
   appendContent(block: StoredContentBlock): void;
   appendReasoning(block: StoredContentBlock): void;
   flush(): BufferedMessage | null;
+  hasContent(): boolean;
+  reset(): void;
   getMessageId(): string | null;
   ensureMessageId(): string;
 }

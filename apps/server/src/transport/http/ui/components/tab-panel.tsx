@@ -1,11 +1,11 @@
-import type { JSX } from "hono/jsx/jsx-runtime";
+import type { ReactNode } from "react";
 
 interface TabPanelProps {
   tab: string;
   activeTab: string;
   scrollable?: boolean;
   className?: string;
-  children: JSX.Element | JSX.Element[];
+  children: ReactNode;
 }
 
 export function TabPanel({
@@ -19,7 +19,7 @@ export function TabPanel({
   return (
     <div
       aria-labelledby={`tab-btn-${tab}`}
-      class={`tab-content${isActive ? "" : "hidden"}${
+      className={`tab-content${isActive ? "" : "hidden"}${
         scrollable ? "max-h-[calc(100dvh-280px)] overflow-y-auto" : ""
       }${className ? ` ${className}` : ""}`}
       data-tab-panel={tab}

@@ -61,7 +61,15 @@ import { cn } from "@/lib/utils";
 import { useFileStore } from "@/store/file-store";
 import type { SlashCommand } from "./slash-command-popup";
 
-export type ChatInputStatus = "submitted" | "streaming" | "ready" | "error";
+export type ChatInputStatus =
+  | "inactive"
+  | "connecting"
+  | "ready"
+  | "submitted"
+  | "streaming"
+  | "awaiting_permission"
+  | "cancelling"
+  | "error";
 export type ConnStatus = "idle" | "connecting" | "connected" | "error";
 
 export interface ChatInputProps {

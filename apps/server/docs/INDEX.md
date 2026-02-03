@@ -118,6 +118,11 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 - **Permission request**: yêu cầu người dùng chấp thuận tool call.
 - **Buffer**: gom message chunk trước khi persist (`SessionBuffering`).
 - **Replay**: lịch sử được agent replay khi resume (`isReplayingHistory`).
+
+## 8) Docs (tham chiếu nhanh)
+
+- `docs/ui-message-normalization.md`
+- `docs/ui-message-usechat-client.md`
 - **Event bus**: kênh pub/sub trong server (`shared/utils/event-bus.ts`).
 
 ## 8) Test & Debug Map (nhanh, thực dụng)
@@ -137,3 +142,4 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 ## 9) Chuẩn hóa UIMessage (client dùng chung)
 
 - `docs/ui-message-normalization.md`: mapping ACP → UIMessage, tool/permission parts.
+- `docs/acp/acp-chat-protocol.md`: ACP Chat Protocol v1 (tRPC + event stream spec).

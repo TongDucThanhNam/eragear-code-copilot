@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { AgentInfo, ChatStatus, UIMessage } from "@repo/shared";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import type { UIMessage } from "@repo/shared";
 
 // Types matching the server's state
 export interface SessionModeState {
@@ -88,6 +88,7 @@ interface ChatState {
 
   // Current chat state
   messages: UIMessage[];
+  status: ChatStatus;
 
   // Session capabilities
   modes: SessionModeState | null;
@@ -95,6 +96,8 @@ interface ChatState {
   supportsModelSwitching: boolean;
   commands: AvailableCommand[];
   promptCapabilities: PromptCapabilities | null;
+  agentInfo: AgentInfo | null;
+  loadSessionSupported: boolean | undefined;
 
   // Permission
   pendingPermission: PermissionRequest | null;
@@ -117,11 +120,14 @@ interface ChatState {
   upsertMessage: (message: UIMessage) => void;
   clearSessionView: () => void;
 
+  setStatus: (status: ChatStatus) => void;
   setModes: (modes: SessionModeState | null) => void;
   setModels: (models: SessionModelState | null) => void;
   setSupportsModelSwitching: (supported: boolean) => void;
   setCommands: (commands: AvailableCommand[]) => void;
   setPromptCapabilities: (capabilities: PromptCapabilities | null) => void;
+  setAgentInfo: (info: AgentInfo | null) => void;
+  setLoadSessionSupported: (supported: boolean | undefined) => void;
 
   setPendingPermission: (permission: PermissionRequest | null) => void;
 
@@ -144,11 +150,14 @@ const initialState = {
   activeChatIsReadOnly: false,
   failedChatIds: new Set<string>(),
   messages: [],
+  status: "inactive" as ChatStatus,
   modes: null,
   models: null,
   supportsModelSwitching: false,
   commands: [],
   promptCapabilities: null,
+  agentInfo: null,
+  loadSessionSupported: undefined,
   pendingPermission: null,
   terminalOutput: new Map<string, string>(),
   connStatus: "idle" as ConnectionStatus,
@@ -172,6 +181,8 @@ export const useChatStore = create<ChatState>()(
           }
           const nextConnStatus =
             id && !readOnly ? ("connecting" as ConnectionStatus) : "idle";
+          const nextStatus: ChatStatus =
+            id && !readOnly ? "connecting" : "inactive";
           const isReadOnlyTransition =
             Boolean(id) &&
             state.activeChatId === id &&
@@ -180,11 +191,14 @@ export const useChatStore = create<ChatState>()(
             activeChatId: id,
             activeChatIsReadOnly: readOnly,
             messages: isReadOnlyTransition ? state.messages : [],
+            status: nextStatus,
             modes: null,
             models: null,
             supportsModelSwitching: false,
             commands: [],
             promptCapabilities: null,
+            agentInfo: null,
+            loadSessionSupported: undefined,
             pendingPermission: null,
             terminalOutput: isReadOnlyTransition
               ? state.terminalOutput
@@ -234,6 +248,7 @@ export const useChatStore = create<ChatState>()(
           pendingPermission: null,
         }),
 
+      setStatus: (status) => set({ status }),
       setModes: (modes) => set({ modes }),
       setModels: (models) => set({ models }),
       setSupportsModelSwitching: (supported) =>
@@ -241,6 +256,9 @@ export const useChatStore = create<ChatState>()(
       setCommands: (commands) => set({ commands }),
       setPromptCapabilities: (capabilities) =>
         set({ promptCapabilities: capabilities }),
+      setAgentInfo: (info) => set({ agentInfo: info }),
+      setLoadSessionSupported: (supported) =>
+        set({ loadSessionSupported: supported }),
 
       setPendingPermission: (permission) =>
         set({ pendingPermission: permission }),

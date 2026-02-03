@@ -1,3 +1,4 @@
+import { isChatBusyStatus, type UIMessage } from "@repo/shared";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
@@ -12,8 +13,7 @@ import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { useChat } from "@/hooks/use-chat";
 import { useMessageAttachments } from "@/hooks/use-message-attachments";
 import { trpc } from "@/lib/trpc";
-import type { ToolUIPart, UIMessage } from "@repo/shared";
-import type { SessionInfo } from "@/store/chat-store";
+import type { ConnectionStatus, SessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
 
 type ResumeValidationResult =
@@ -22,10 +22,10 @@ type ResumeValidationResult =
 
 function validateResumeSession(
   chatId: string | undefined,
-  isResuming: boolean,
+  connStatus: ConnectionStatus,
   session: SessionInfo | undefined
 ): ResumeValidationResult {
-  if (!chatId || isResuming) {
+  if (!chatId || connStatus === "connecting") {
     return { valid: false, message: "" };
   }
   if (!session) {
@@ -108,10 +108,10 @@ export default function ChatScreen() {
     setMode,
     setModel,
     respondToPermission,
+    stop,
     stopSession,
     resumeSession,
-    isSending,
-    isResuming,
+    status,
   } = useChat();
   const insets = useSafeAreaInsets();
   const [inputHeight, setInputHeight] = useState(0);
@@ -133,24 +133,6 @@ export default function ChatScreen() {
   } = useMessageAttachments({ promptCapabilities });
   const isReadOnly = isReadOnlyParam && !forceActive;
   const isConfigured = useAuthConfigured();
-  const isMessageStreaming = useCallback((message: UIMessage) => {
-    return message.parts.some((part) => {
-      if (part.type === "text" || part.type === "reasoning") {
-        return part.state === "streaming";
-      }
-      if (part.type.startsWith("tool-")) {
-        const toolPart = part as ToolUIPart;
-        return (
-          toolPart.state === "input-streaming" ||
-          toolPart.state === "input-available" ||
-          toolPart.state === "approval-requested" ||
-          toolPart.state === "approval-responded"
-        );
-      }
-      return false;
-    });
-  }, []);
-
   useEffect(() => {
     setForceActive(false);
   }, []);
@@ -209,13 +191,7 @@ export default function ChatScreen() {
     setMessages(messagesQuery.data as UIMessage[]);
     setConnStatus("idle");
     setIsLoadingHistory(false);
-  }, [
-    isReadOnly,
-    messagesQuery.data,
-    chatId,
-    setMessages,
-    setConnStatus,
-  ]);
+  }, [isReadOnly, messagesQuery.data, chatId, setMessages, setConnStatus]);
 
   // Initialize or Switch Chat (only for active sessions)
   useEffect(() => {
@@ -267,7 +243,7 @@ export default function ChatScreen() {
   const handleResume = async () => {
     const validation = validateResumeSession(
       chatId,
-      isResuming,
+      connStatus,
       currentSession
     );
     if (!validation.valid) {
@@ -313,14 +289,8 @@ export default function ChatScreen() {
     if (isReadOnly || connStatus !== "connected") {
       return false;
     }
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const message = messages[i];
-      if (message?.role === "assistant") {
-        return isMessageStreaming(message);
-      }
-    }
-    return false;
-  }, [connStatus, isMessageStreaming, isReadOnly, messages]);
+    return isChatBusyStatus(status);
+  }, [connStatus, isReadOnly, status]);
 
   return (
     <View
@@ -380,13 +350,15 @@ export default function ChatScreen() {
             availableModes={modes?.availableModes ?? []}
             currentModeId={modes?.currentModeId ?? null}
             currentModelId={models?.currentModelId ?? null}
-            disabled={connStatus !== "connected" || isSending}
+            disabled={connStatus !== "connected" || status !== "ready"}
             onHeightChange={handleInputHeightChange}
             onModeChange={handleModeChange}
             onModelChange={handleModelChange}
             onOpenAttachment={openAttachmentModal}
             onRemoveAttachment={removeAttachment}
             onSend={handleSendMessage}
+            onStop={stop}
+            status={status}
             supportsModelSwitching={supportsModelSwitching}
           />
         </KeyboardStickyView>

@@ -1,4 +1,4 @@
-type TabKey = "sessions" | "projects" | "agents" | "auth" | "settings";
+type TabKey = "sessions" | "projects" | "agents" | "auth" | "settings" | "logs";
 
 interface TabButtonProps {
   tab: TabKey;
@@ -16,13 +16,13 @@ export function TabButton({ tab, label, activeTab }: TabButtonProps) {
     <button
       aria-controls={`tab-${tab}`}
       aria-selected={isActive ? "true" : "false"}
-      class={`${baseClass} ${borderClass} ${isActive ? "active" : ""}`}
+      className={`${baseClass} ${borderClass} ${isActive ? "active" : ""}`}
       data-tab={tab}
       id={`tab-btn-${tab}`}
       role="tab"
       type="button"
     >
-      <span class="relative z-10">{label}</span>
+      <span className="relative z-10">{label}</span>
     </button>
   );
 }

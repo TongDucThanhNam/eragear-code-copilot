@@ -2,6 +2,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import type {
   DataUIPart,
   FileUIPart,
+  ProviderMetadata,
   ReasoningUIPart,
   SourceDocumentUIPart,
   SourceUrlUIPart,
@@ -11,7 +12,11 @@ import type {
   UIMessagePart,
   UIMessageRole,
 } from "@repo/shared";
-import type { Plan, StoredContentBlock, UiMessageState } from "../types/session.types";
+import type {
+  Plan,
+  StoredContentBlock,
+  UiMessageState,
+} from "../types/session.types";
 import { toStoredToolCallContent } from "./content-block.util";
 import { createId } from "./id.util";
 
@@ -26,6 +31,7 @@ export function createUiMessageState(): UiMessageState {
   return {
     messages: new Map<string, UIMessage>(),
     toolPartIndex: new Map<string, { messageId: string; partIndex: number }>(),
+    lastAssistantId: undefined,
   };
 }
 
@@ -51,10 +57,11 @@ export function getOrCreateUserMessage(
 
 export function finalizeStreamingParts(message: UIMessage) {
   message.parts = message.parts.map((part) => {
-    if (part.type === "text" || part.type === "reasoning") {
-      if (part.state === "streaming") {
-        return { ...part, state: "done" as const };
-      }
+    if (
+      (part.type === "text" || part.type === "reasoning") &&
+      part.state === "streaming"
+    ) {
+      return { ...part, state: "done" as const };
     }
     return part;
   });
@@ -63,23 +70,38 @@ export function finalizeStreamingParts(message: UIMessage) {
 export function appendTextPart(
   message: UIMessage,
   text: string,
-  state: TextUIPart["state"]
+  state: TextUIPart["state"],
+  providerMetadata?: ProviderMetadata
 ) {
   if (!text) {
     return;
   }
   const last = message.parts.at(-1);
-  if (last?.type === "text" && last.state === "streaming" && state === "streaming") {
+  if (
+    last?.type === "text" &&
+    last.state === "streaming" &&
+    state === "streaming"
+  ) {
     last.text += text;
+    if (providerMetadata) {
+      last.providerMetadata = mergeProviderMetadata(
+        last.providerMetadata,
+        providerMetadata
+      );
+    }
     return;
   }
-  message.parts.push({ type: "text", text, state });
+  const part: TextUIPart = providerMetadata
+    ? { type: "text", text, state, providerMetadata }
+    : { type: "text", text, state };
+  message.parts.push(part);
 }
 
 export function appendReasoningPart(
   message: UIMessage,
   text: string,
-  state: ReasoningUIPart["state"]
+  state: ReasoningUIPart["state"],
+  providerMetadata?: ProviderMetadata
 ) {
   if (!text) {
     return;
@@ -91,72 +113,111 @@ export function appendReasoningPart(
     state === "streaming"
   ) {
     last.text += text;
+    if (providerMetadata) {
+      last.providerMetadata = mergeProviderMetadata(
+        last.providerMetadata,
+        providerMetadata
+      );
+    }
     return;
   }
-  message.parts.push({ type: "reasoning", text, state });
+  const part: ReasoningUIPart = providerMetadata
+    ? { type: "reasoning", text, state, providerMetadata }
+    : { type: "reasoning", text, state };
+  message.parts.push(part);
+}
+
+export function appendReasoningBlock(
+  message: UIMessage,
+  block: StoredContentBlock,
+  state: ReasoningUIPart["state"],
+  providerMetadata?: ProviderMetadata
+) {
+  if (block.type !== "text") {
+    return;
+  }
+  const combinedMetadata = mergeProviderMetadata(
+    getBlockProviderMetadata(block),
+    providerMetadata
+  );
+  appendReasoningPart(message, block.text, state, combinedMetadata);
 }
 
 export function appendContentBlock(
   message: UIMessage,
   block: StoredContentBlock,
-  state: TextUIPart["state"]
+  state: TextUIPart["state"],
+  providerMetadata?: ProviderMetadata
 ) {
   if (block.type === "text") {
-    appendTextPart(message, block.text, state);
+    const combinedMetadata = mergeProviderMetadata(
+      getBlockProviderMetadata(block),
+      providerMetadata
+    );
+    appendTextPart(message, block.text, state, combinedMetadata);
     return;
   }
-  const parts = contentBlockToParts(block);
+  const parts = contentBlockToParts(block, providerMetadata);
   if (parts.length > 0) {
     message.parts.push(...parts);
   }
 }
 
-export function contentBlockToParts(block: StoredContentBlock): UIMessagePart[] {
+export function contentBlockToParts(
+  block: StoredContentBlock,
+  providerMetadata?: ProviderMetadata
+): UIMessagePart[] {
   switch (block.type) {
     case "resource_link": {
+      const mergedProviderMetadata = mergeProviderMetadata(
+        getBlockProviderMetadata(block),
+        providerMetadata
+      );
       const part: SourceUrlUIPart = {
         type: "source-url",
         sourceId: block.uri,
         url: block.uri,
         title: block.title ?? block.name ?? block.uri,
+        providerMetadata: mergedProviderMetadata,
       };
       return [part];
     }
     case "resource": {
       const resource = block.resource;
       const title = resource.uri ?? "Resource";
+      const resourceMeta = getResourceMeta(resource);
+      const mergedProviderMetadata = mergeProviderMetadata(
+        getBlockProviderMetadata(block, resourceMeta),
+        providerMetadata
+      );
       const part: SourceDocumentUIPart = {
         type: "source-document",
         sourceId: resource.uri ?? title,
         mediaType: resource.mimeType ?? "text/plain",
         title,
         filename: filenameFromUri(resource.uri),
+        providerMetadata: mergedProviderMetadata,
       };
-      const parts: UIMessagePart[] = [part];
-      if ("text" in resource && resource.text) {
-        const dataPart: DataUIPart = {
-          type: "data-resource",
-          data: {
-            uri: resource.uri,
-            mimeType: resource.mimeType,
-            text: resource.text,
-          },
-        };
-        parts.push(dataPart);
-      }
-      return parts;
+      const dataPart = buildResourceDataPart(block, resource);
+      return dataPart ? [part, dataPart] : [part];
     }
     case "image":
     case "audio": {
-      const url = block.uri ?? toDataUrl(block.mimeType, block.data);
+      const uri = "uri" in block ? block.uri : undefined;
+      const url = uri ?? toDataUrl(block.mimeType, block.data);
       if (!url) {
         return [];
       }
+      const mergedProviderMetadata = mergeProviderMetadata(
+        getBlockProviderMetadata(block),
+        providerMetadata
+      );
       const part: FileUIPart = {
         type: "file",
         mediaType: block.mimeType,
         url,
-        filename: filenameFromUri(block.uri),
+        filename: filenameFromUri(uri),
+        providerMetadata: mergedProviderMetadata,
       };
       return [part];
     }
@@ -191,9 +252,7 @@ export function buildAssistantMessageFromBlocks(params: {
     parts: [],
   };
   for (const block of params.reasoningBlocks ?? []) {
-    if (block.type === "text") {
-      appendReasoningPart(message, block.text, "done");
-    }
+    appendReasoningBlock(message, block, "done");
   }
   for (const block of params.contentBlocks) {
     appendContentBlock(message, block, "done");
@@ -224,18 +283,103 @@ export function upsertToolPart(params: {
   return { message, part };
 }
 
+export function upsertToolLocationsPart(params: {
+  state: UiMessageState;
+  toolCallId: string;
+  locations?: acp.ToolCallLocation[] | null;
+  messageId?: string;
+}): UIMessage | null {
+  const { state, toolCallId, locations, messageId } = params;
+  const existing = state.toolPartIndex.get(toolCallId);
+  const existingMessage = existing
+    ? state.messages.get(existing.messageId)
+    : undefined;
+  const hasLocations = Array.isArray(locations) && locations.length > 0;
+
+  if (!(existingMessage || hasLocations)) {
+    return null;
+  }
+
+  const message =
+    existingMessage ?? getOrCreateAssistantMessage(state, messageId);
+  const index = message.parts.findIndex(
+    (part) =>
+      part.type === "data-tool-locations" &&
+      typeof part.data === "object" &&
+      part.data !== null &&
+      (part.data as { toolCallId?: string }).toolCallId === toolCallId
+  );
+
+  if (!hasLocations) {
+    if (index >= 0) {
+      message.parts.splice(index, 1);
+    }
+    return message;
+  }
+
+  const dataPart: DataUIPart = {
+    type: "data-tool-locations",
+    data: {
+      toolCallId,
+      locations,
+    },
+  };
+
+  if (index >= 0) {
+    message.parts[index] = dataPart;
+  } else {
+    message.parts.push(dataPart);
+  }
+  return message;
+}
+
 export function buildToolPartFromCall(toolCall: acp.ToolCall): ToolUIPart {
-  const toolName = normalizeToolName(toolCall.kind ?? toolCall.title ?? TOOL_FALLBACK_NAME);
+  const toolName = normalizeToolName(
+    toolCall.kind ?? toolCall.title ?? TOOL_FALLBACK_NAME
+  );
   const title = toolCall.title ?? toolCall.kind ?? TOOL_FALLBACK_NAME;
-  if (toolCall.rawInput !== undefined) {
+  const callProviderMetadata = buildProviderMetadata({
+    meta: getOptionalMeta(toolCall),
+  });
+  const resolvedInput = resolveToolInput(undefined, toolCall.rawInput);
+  const hasInput = toolCall.rawInput !== undefined;
+  const output = normalizeToolOutput(toolCall.content, toolCall.rawOutput);
+
+  if (toolCall.status === "failed") {
+    return {
+      type: toToolPartType(toolName),
+      toolCallId: toolCall.toolCallId,
+      title,
+      state: "output-error",
+      input: resolvedInput,
+      errorText: stringifyError(toolCall.rawOutput) ?? "Tool call failed",
+      ...(callProviderMetadata ? { callProviderMetadata } : {}),
+    };
+  }
+
+  if (toolCall.status === "completed" || output !== undefined) {
+    return {
+      type: toToolPartType(toolName),
+      toolCallId: toolCall.toolCallId,
+      title,
+      state: "output-available",
+      input: resolvedInput,
+      output,
+      ...(callProviderMetadata ? { callProviderMetadata } : {}),
+    };
+  }
+
+  if (hasInput) {
     return {
       type: toToolPartType(toolName),
       toolCallId: toolCall.toolCallId,
       title,
       state: "input-available",
-      input: toolCall.rawInput,
+      input: resolvedInput,
+      ...(callProviderMetadata ? { callProviderMetadata } : {}),
     };
   }
+
   return {
     type: toToolPartType(toolName),
     toolCallId: toolCall.toolCallId,
@@ -254,10 +398,15 @@ export function buildToolPartForUpdate(params: {
   content?: acp.ToolCallContent[] | null;
   rawOutput?: unknown;
   rawInput?: unknown;
+  meta?: unknown;
 }): ToolUIPart {
   const toolName = normalizeToolName(params.toolName ?? TOOL_FALLBACK_NAME);
   const title = params.title ?? params.toolName ?? TOOL_FALLBACK_NAME;
   const input = resolveToolInput(params.input, params.rawInput);
+  const hasInput = params.input !== undefined || params.rawInput !== undefined;
+  const callProviderMetadata = buildProviderMetadata({
+    meta: params.meta,
+  });
   const output = normalizeToolOutput(params.content, params.rawOutput);
   if (params.status === "failed") {
     return {
@@ -267,6 +416,7 @@ export function buildToolPartForUpdate(params: {
       state: "output-error",
       input,
       errorText: stringifyError(params.rawOutput) ?? "Tool call failed",
+      ...(callProviderMetadata ? { callProviderMetadata } : {}),
     };
   }
   if (params.status === "completed" || output !== undefined) {
@@ -277,6 +427,16 @@ export function buildToolPartForUpdate(params: {
       state: "output-available",
       input,
       output,
+      ...(callProviderMetadata ? { callProviderMetadata } : {}),
+    };
+  }
+  if (!hasInput) {
+    return {
+      type: toToolPartType(toolName),
+      toolCallId: params.toolCallId,
+      title,
+      state: "input-streaming",
+      input: undefined,
     };
   }
   return {
@@ -285,6 +445,7 @@ export function buildToolPartForUpdate(params: {
     title,
     state: "input-available",
     input,
+    ...(callProviderMetadata ? { callProviderMetadata } : {}),
   };
 }
 
@@ -294,7 +455,11 @@ export function buildToolApprovalPart(params: {
   title?: string;
   input?: unknown;
   approvalId: string;
+  meta?: unknown;
 }): ToolUIPart {
+  const callProviderMetadata = buildProviderMetadata({
+    meta: params.meta,
+  });
   return {
     type: toToolPartType(normalizeToolName(params.toolName)),
     toolCallId: params.toolCallId,
@@ -302,6 +467,7 @@ export function buildToolApprovalPart(params: {
     state: "approval-requested",
     input: resolveToolInput(params.input),
     approval: { id: params.approvalId },
+    ...(callProviderMetadata ? { callProviderMetadata } : {}),
   };
 }
 
@@ -313,7 +479,11 @@ export function buildToolApprovalResponsePart(params: {
   approvalId: string;
   approved: boolean;
   reason?: string;
+  meta?: unknown;
 }): ToolUIPart {
+  const callProviderMetadata = buildProviderMetadata({
+    meta: params.meta,
+  });
   if (!params.approved) {
     return {
       type: toToolPartType(normalizeToolName(params.toolName)),
@@ -326,6 +496,7 @@ export function buildToolApprovalResponsePart(params: {
         approved: false,
         reason: params.reason,
       },
+      ...(callProviderMetadata ? { callProviderMetadata } : {}),
     };
   }
   return {
@@ -339,6 +510,7 @@ export function buildToolApprovalResponsePart(params: {
       approved: true,
       reason: params.reason,
     },
+    ...(callProviderMetadata ? { callProviderMetadata } : {}),
   };
 }
 
@@ -353,8 +525,16 @@ export function buildPlanToolPart(plan: Plan, toolCallId: string): ToolUIPart {
   };
 }
 
-export function getToolNameFromCall(toolCall: acp.ToolCall): string {
+export function getToolNameFromCall(
+  toolCall: acp.ToolCall | acp.ToolCallUpdate
+): string {
   return toolCall.kind ?? toolCall.title ?? TOOL_FALLBACK_NAME;
+}
+
+export function buildProviderMetadataFromMeta(
+  meta?: unknown
+): ProviderMetadata | undefined {
+  return buildProviderMetadata({ meta });
 }
 
 function ensureMessage(
@@ -373,8 +553,123 @@ function ensureMessage(
 
 function normalizeToolName(name: string): string {
   const trimmed = name.trim().toLowerCase();
-  const normalized = trimmed.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  const normalized = trimmed
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
   return normalized || TOOL_FALLBACK_NAME;
+}
+
+function mergeProviderMetadata(
+  existing?: ProviderMetadata,
+  incoming?: ProviderMetadata
+): ProviderMetadata | undefined {
+  if (!incoming) {
+    return existing;
+  }
+  if (!existing) {
+    return incoming;
+  }
+  const existingAcp =
+    "acp" in existing && typeof existing.acp === "object" && existing.acp
+      ? (existing.acp as Record<string, unknown>)
+      : undefined;
+  const incomingAcp =
+    "acp" in incoming && typeof incoming.acp === "object" && incoming.acp
+      ? (incoming.acp as Record<string, unknown>)
+      : undefined;
+  const mergedAcp =
+    existingAcp || incomingAcp
+      ? { ...(existingAcp ?? {}), ...(incomingAcp ?? {}) }
+      : undefined;
+  return mergedAcp
+    ? { ...existing, ...incoming, acp: mergedAcp }
+    : { ...existing, ...incoming };
+}
+
+function buildProviderMetadata(params: {
+  meta?: unknown;
+  annotations?: unknown;
+  resourceMeta?: unknown;
+}): ProviderMetadata | undefined {
+  const acp: Record<string, unknown> = {};
+  if (params.meta !== undefined) {
+    acp._meta = params.meta;
+  }
+  if (params.annotations !== undefined) {
+    acp.annotations = params.annotations;
+  }
+  if (params.resourceMeta !== undefined) {
+    acp.resourceMeta = params.resourceMeta;
+  }
+  if (Object.keys(acp).length === 0) {
+    return undefined;
+  }
+  return { acp };
+}
+
+function getBlockProviderMetadata(
+  block: StoredContentBlock,
+  resourceMeta?: unknown
+): ProviderMetadata | undefined {
+  return buildProviderMetadata({
+    meta: getOptionalMeta(block),
+    annotations: getOptionalAnnotations(block),
+    resourceMeta,
+  });
+}
+
+function getResourceMeta(resource: unknown): unknown | undefined {
+  return getOptionalMeta(resource);
+}
+
+function getOptionalMeta(value: unknown): unknown | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  return "_meta" in value ? (value as { _meta?: unknown })._meta : undefined;
+}
+
+function getOptionalAnnotations(value: unknown): unknown | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  return "annotations" in value
+    ? (value as { annotations?: unknown }).annotations
+    : undefined;
+}
+
+function buildResourceDataPart(
+  block: Extract<StoredContentBlock, { type: "resource" }>,
+  resource: Extract<StoredContentBlock, { type: "resource" }>["resource"]
+): DataUIPart | null {
+  const hasText = "text" in resource && typeof resource.text === "string";
+  const hasBlob = "blob" in resource && typeof resource.blob === "string";
+  if (!(hasText || hasBlob)) {
+    return null;
+  }
+  const data: Record<string, unknown> = {
+    uri: resource.uri,
+    mimeType: resource.mimeType,
+  };
+  if (hasText) {
+    data.text = resource.text;
+  }
+  if (hasBlob) {
+    data.blob = resource.blob;
+  }
+  const meta = getOptionalMeta(block);
+  const annotations = getOptionalAnnotations(block);
+  if (meta !== undefined) {
+    data._meta = meta;
+  }
+  if (annotations !== undefined) {
+    data.annotations = annotations;
+  }
+  const resourceMeta = getResourceMeta(resource);
+  if (resourceMeta !== undefined) {
+    data.resourceMeta = resourceMeta;
+  }
+  return { type: "data-resource", data };
 }
 
 function toToolPartType(name: string): `tool-${string}` {
@@ -432,8 +727,11 @@ function filenameFromUri(uri?: string | null): string | undefined {
   }
 }
 
-function toDataUrl(mimeType?: string | null, data?: string | null): string | null {
-  if (!mimeType || !data) {
+function toDataUrl(
+  mimeType?: string | null,
+  data?: string | null
+): string | null {
+  if (!(mimeType && data)) {
     return null;
   }
   return `data:${mimeType};base64,${data}`;

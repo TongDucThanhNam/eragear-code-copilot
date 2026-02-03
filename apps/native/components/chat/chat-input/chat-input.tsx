@@ -9,7 +9,9 @@ import type { ChatInputProps } from "./types";
 
 export function ChatInput({
   onSend,
+  onStop,
   disabled,
+  status,
   onHeightChange,
   onOpenAttachment,
   attachments,
@@ -27,10 +29,12 @@ export function ChatInput({
   const [showModeMenu, setShowModeMenu] = useState(false);
 
   const hasContent = text.trim().length > 0 || attachments.length > 0;
-  const isSendDisabled = disabled || !hasContent;
+  const canSend = !disabled && hasContent;
+  const canStop = status === "streaming" || status === "awaiting_permission";
+  const isActionDisabled = canStop ? !onStop : !canSend;
 
   const handleSend = () => {
-    if (isSendDisabled) {
+    if (!canSend) {
       return;
     }
     onSend(text);
@@ -78,13 +82,15 @@ export function ChatInput({
           availableCommands={availableCommands}
           availableModels={availableModels}
           currentModelId={currentModelId}
-          supportsModelSwitching={supportsModelSwitching}
           disabled={disabled}
-          isSendDisabled={isSendDisabled}
+          isActionDisabled={isActionDisabled}
           onModelChange={onModelChange}
           onOpenAttachment={onOpenAttachment}
           onSend={handleSend}
+          onStop={onStop}
           onSlashCommand={handleSlashCommand}
+          status={status}
+          supportsModelSwitching={supportsModelSwitching}
         />
       </Surface>
     </View>

@@ -8,6 +8,7 @@
  */
 
 import { getContainer } from "../../bootstrap/container";
+import type { WebSocketConnectionParams } from "./types";
 
 interface RequestLike {
   headers: Headers | Record<string, string | string[] | undefined>;
@@ -24,6 +25,7 @@ export interface AuthContext {
 /**
  * Creates a tRPC context containing the DI container
  *
+ * @param opts - Optional request and connection parameters
  * @returns Context object with container for dependency access
  *
  * @example
@@ -34,15 +36,14 @@ export interface AuthContext {
  */
 export async function createTrpcContext(opts?: {
   req?: RequestLike;
-  connectionParams?: Record<string, unknown> | null;
+  connectionParams?: WebSocketConnectionParams | null;
 }) {
   const container = getContainer();
   const auth = container.getAuth();
-  const apiKey =
-    typeof opts?.connectionParams?.apiKey === "string"
-      ? (opts.connectionParams.apiKey as string)
-      : undefined;
+  const apiKey = opts?.connectionParams?.apiKey;
+
   let authContext: AuthContext | null = null;
+
   if (apiKey) {
     const session = await auth.api.getSession({
       headers: new Headers({ "x-api-key": apiKey }),
@@ -68,6 +69,7 @@ export async function createTrpcContext(opts?: {
   } else if (opts?.req) {
     authContext = await container.getAuthContext(opts.req);
   }
+
   return {
     container,
     auth: authContext,

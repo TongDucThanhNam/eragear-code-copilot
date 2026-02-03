@@ -1,6 +1,6 @@
 import { TabButton } from "./tab-button";
 
-type TabKey = "sessions" | "projects" | "agents" | "auth" | "settings";
+type TabKey = "sessions" | "projects" | "agents" | "auth" | "settings" | "logs";
 
 interface DashboardNavProps {
   activeTab: TabKey;
@@ -8,13 +8,14 @@ interface DashboardNavProps {
 
 export function DashboardNav({ activeTab }: DashboardNavProps) {
   return (
-    <nav aria-label="Dashboard sections" class="mb-6 border-ink border-b-4">
-      <div class="flex">
+    <nav aria-label="Dashboard sections" className="mb-6 border-ink border-b-4">
+      <div className="flex">
         <TabButton activeTab={activeTab} label="Sessions" tab="sessions" />
         <TabButton activeTab={activeTab} label="Projects" tab="projects" />
         <TabButton activeTab={activeTab} label="Agents" tab="agents" />
         <TabButton activeTab={activeTab} label="Auth" tab="auth" />
         <TabButton activeTab={activeTab} label="Settings" tab="settings" />
+        <TabButton activeTab={activeTab} label="Logs" tab="logs" />
       </div>
     </nav>
   );

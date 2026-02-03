@@ -72,7 +72,7 @@ export function PermissionModal({
   return (
     <Modal animationType="slide" transparent visible={!!request}>
       <View className="flex-1 justify-end bg-black/50">
-        <View className="h-[50%] rounded-t-3xl bg-zinc-900 p-6">
+        <View className="max-h-[80%] min-h-[40%] rounded-t-3xl bg-zinc-900 px-6 pb-4 pt-6">
           <Text className="mb-4 font-bold text-white text-xl">
             Permission Request
           </Text>
@@ -83,11 +83,19 @@ export function PermissionModal({
             </Text>
           </Text>
 
-          <ScrollView className="mb-4 flex-1 rounded-lg bg-black/30 p-3">
-            <Text className="font-mono text-xs text-zinc-400">{inputText}</Text>
+          <ScrollView
+            className="mt-3 flex-1"
+            contentContainerStyle={{ paddingBottom: 12 }}
+            style={{ minHeight: 0 }}
+          >
+            <View className="rounded-lg bg-black/30 p-3">
+              <Text className="font-mono text-xs text-zinc-400">
+                {inputText}
+              </Text>
+            </View>
           </ScrollView>
 
-          <View className="flex-row flex-wrap gap-3 pt-2">
+          <View className="flex-row flex-wrap gap-3 pt-4">
             {actionOptions.map((option) => (
               <TouchableOpacity
                 className={`flex-1 items-center rounded-xl p-4 ${getActionStyle(

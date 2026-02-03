@@ -7,6 +7,7 @@ export function normalizeTab(tab?: string): TabKey {
     case "auth":
     case "settings":
     case "sessions":
+    case "logs":
       return tab;
     default:
       return "sessions";

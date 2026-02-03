@@ -20,26 +20,26 @@ export function SessionsTab({ sessions, activeTab }: SessionsTabProps) {
 
   return (
     <TabPanel activeTab={activeTab} className="flex-1" tab="sessions">
-      <section class="border-2 border-ink bg-paper shadow-news">
-        <div class="border-ink border-b-2 p-6">
-          <div class="flex flex-wrap items-start justify-between gap-4">
+      <section className="border-2 border-ink bg-paper shadow-news">
+        <div className="border-ink border-b-2 p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 class="font-black font-display text-4xl tracking-tight">
+              <h2 className="font-black font-display text-4xl tracking-tight">
                 Sessions
               </h2>
-              <p class="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
+              <p className="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
                 Active and recent chat sessions across all registered projects
               </p>
             </div>
-            <div class="flex flex-col items-end gap-2">
-              <span class="border border-ink px-3 py-1 font-mono text-xs">
+            <div className="flex flex-col items-end gap-2">
+              <span className="border border-ink px-3 py-1 font-mono text-xs">
                 {sessions.length} session{sessions.length !== 1 ? "s" : ""}
               </span>
-              <div class="flex gap-2">
-                <button class="btn btn-primary min-h-[44px]" type="button">
+              <div className="flex gap-2">
+                <button className="btn btn-primary min-h-[44px]" type="button">
                   + New Session
                 </button>
-                <a class="btn btn-secondary min-h-[44px]" href="/?tab=sessions">
+                <a className="btn btn-secondary min-h-[44px]" href="/?tab=sessions">
                   ↻
                 </a>
               </div>
@@ -47,9 +47,9 @@ export function SessionsTab({ sessions, activeTab }: SessionsTabProps) {
           </div>
         </div>
 
-        <div class="max-h-[calc(100dvh-480px)] min-h-[200px] overflow-y-auto p-4">
+        <div className="max-h-[calc(100dvh-480px)] min-h-[200px] overflow-y-auto p-4">
           {sorted.length === 0 ? (
-            <div class="empty-state">
+            <div className="empty-state">
               No sessions yet. Start a chat from the UI.
             </div>
           ) : (

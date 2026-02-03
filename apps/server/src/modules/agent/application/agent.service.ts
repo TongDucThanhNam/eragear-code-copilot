@@ -11,6 +11,8 @@ import type {
   AgentInput,
   AgentUpdateInput,
 } from "../../../shared/types/agent.types";
+import { ValidationError } from "../../../shared/errors";
+import { parseCommandInput } from "../../../shared/utils/cli-args.util";
 import type { AgentRepositoryPort } from "./ports/agent-repository.port";
 
 export class AgentService {
@@ -45,7 +47,8 @@ export class AgentService {
    * @returns The created agent configuration
    */
   createAgent(input: AgentInput) {
-    return this.agentRepo.create(input);
+    const normalized = this.normalizeAgentInput(input);
+    return this.agentRepo.create(normalized);
   }
 
   /**
@@ -55,7 +58,8 @@ export class AgentService {
    * @returns The updated agent configuration
    */
   updateAgent(input: AgentUpdateInput) {
-    return this.agentRepo.update(input);
+    const normalized = this.normalizeAgentUpdateInput(input);
+    return this.agentRepo.update(normalized);
   }
 
   /**
@@ -77,5 +81,42 @@ export class AgentService {
    */
   setActive(id: string | null) {
     return this.agentRepo.setActive(id);
+  }
+
+  private normalizeAgentInput(input: AgentInput): AgentInput {
+    const normalized = this.normalizeCommandAndArgs(input.command, input.args);
+    return {
+      ...input,
+      command: normalized.command,
+      args: normalized.args,
+    };
+  }
+
+  private normalizeAgentUpdateInput(input: AgentUpdateInput): AgentUpdateInput {
+    if (!input.command) {
+      return input;
+    }
+    const normalized = this.normalizeCommandAndArgs(input.command, input.args);
+    return {
+      ...input,
+      command: normalized.command,
+      args: normalized.args,
+    };
+  }
+
+  private normalizeCommandAndArgs(command: string, args?: string[]) {
+    const parsed = parseCommandInput(command);
+    if (parsed.error || !parsed.command) {
+      throw new ValidationError(parsed.error ?? "Command is required.");
+    }
+    const mergedArgs = [...(parsed.args ?? [])];
+    if (args !== undefined) {
+      mergedArgs.push(...args);
+    }
+    return {
+      command: parsed.command,
+      args:
+        mergedArgs.length > 0 || args !== undefined ? mergedArgs : undefined,
+    };
   }
 }

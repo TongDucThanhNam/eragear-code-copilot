@@ -78,9 +78,16 @@ function extractApiKeyFromUrl(url?: string): string | null {
   }
 }
 
+export type SessionUser = {
+  id: string;
+  username?: string;
+  email?: string;
+  name?: string;
+};
+
 export async function getSessionFromRequest(
   req: RequestLike
-): Promise<{ user: unknown; session: unknown } | null> {
+): Promise<{ user: SessionUser; session: unknown } | null> {
   const headers = normalizeHeaders(req.headers);
   const cookieHeader = headers.get("cookie");
   console.debug(
@@ -104,7 +111,7 @@ export async function getSessionFromRequest(
       const tokenMatch = cookieHeader?.match(
         /better-auth\.session_token[^=]*=(.+)/
       );
-      if (tokenMatch) {
+      if (tokenMatch?.[1]) {
         console.debug(
           `[Auth] Extracted token: ${tokenMatch[1].substring(0, 50)}...`
         );
@@ -114,10 +121,18 @@ export async function getSessionFromRequest(
     }
     return null;
   }
+  const sessionData = session as {
+    user?: SessionUser;
+    session?: unknown;
+  };
+  if (!sessionData.user?.id) {
+    console.warn("[Auth] Session missing user id");
+    return null;
+  }
   console.debug(
-    `[Auth] getSessionFromRequest: session found for user=${(session as { user?: { username?: string } }).user?.username}`
+    `[Auth] getSessionFromRequest: session found for user=${sessionData.user.username}`
   );
-  return { user: session.user, session: session.session };
+  return { user: sessionData.user, session: sessionData.session };
 }
 
 export async function getAuthContext(

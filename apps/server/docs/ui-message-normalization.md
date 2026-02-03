@@ -20,6 +20,8 @@ liệu, không phải tự parse raw ACP.
 ## BroadcastEvent (từ server)
 
 - `ui_message`: sự kiện chính, chứa UIMessage đã chuẩn hóa
+- `chat_status`: trạng thái chat (`inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`)
+- `chat_finish`: stopReason + finishReason (map theo AI SDK UI)
 - `available_commands_update`: danh sách slash commands
 - `current_mode_update`: mode hiện tại
 - `terminal_output`: stream output cho terminal
@@ -41,6 +43,8 @@ liệu, không phải tự parse raw ACP.
 - `tool_call_update` → `ToolUIPart(state=output-available|output-error)`
 - `plan` → `ToolUIPart(type=tool-plan, output={ entries[] })`
 - `request_permission` → `ToolUIPart(state=approval-requested)` + `data-permission-options`
+- `_meta`/`annotations` → `providerMetadata` (Text/Reasoning/Source/File) và `callProviderMetadata` (Tool)
+- `tool_call`/`tool_call_update` có `locations` → `data-tool-locations`
 
 ## Mapping ContentBlock → UIMessagePart
 
@@ -59,7 +63,9 @@ normalize JSON. Live terminal output vẫn stream qua event `terminal_output`.
 - `data-permission-options`:
   - `{ requestId, toolCallId, options }`
 - `data-resource`:
-  - `{ uri, mimeType, text }`
+  - `{ uri, mimeType, text?, blob?, _meta?, annotations?, resourceMeta? }`
+- `data-tool-locations`:
+  - `{ toolCallId, locations }`
 
 ## Điểm chỉnh sửa chính
 

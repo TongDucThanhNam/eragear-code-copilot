@@ -12,27 +12,27 @@ export function SessionRow({ session }: SessionRowProps) {
   const badgeClass = isRunning ? "badge-success" : "badge-warning";
 
   return (
-    <div class={`session-item ${session.isActive ? "active" : ""}`}>
-      <div class="session-info flex items-center">
-        <span class={`status-dot ${statusClass}`} />
+    <div className={`session-item ${session.isActive ? "active" : ""}`}>
+      <div className="session-info flex items-center">
+        <span className={`status-dot ${statusClass}`} />
         <div>
-          <div class="session-project truncate">
+          <div className="session-project truncate">
             {session.projectName || "Unknown"}
           </div>
-          <div class="session-agent">
+          <div className="session-agent">
             {session.agentName}
             {session.modeId ? ` / ${session.modeId}` : ""}
           </div>
         </div>
       </div>
-      <div class="flex items-center gap-3">
-        <span class="session-time">{formatTimeAgo(session.lastActiveAt)}</span>
-        <span class={`badge ${badgeClass}`}>{session.status}</span>
-        <div class="session-actions">
+      <div className="flex items-center gap-3">
+        <span className="session-time">{formatTimeAgo(session.lastActiveAt)}</span>
+        <span className={`badge ${badgeClass}`}>{session.status}</span>
+        <div className="session-actions">
           <form action="/form/sessions/stop" method="post">
             <input name="chatId" type="hidden" value={session.id} />
             <button
-              class="session-action-btn stop"
+              className="session-action-btn stop"
               disabled={!canStop}
               type="submit"
             >
@@ -41,7 +41,7 @@ export function SessionRow({ session }: SessionRowProps) {
           </form>
           <form action="/form/sessions/delete" method="post">
             <input name="chatId" type="hidden" value={session.id} />
-            <button class="session-action-btn delete" type="submit">
+            <button className="session-action-btn delete" type="submit">
               Delete
             </button>
           </form>

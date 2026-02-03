@@ -62,6 +62,7 @@ export const sessionRouter = router({
       return {
         chatId: res.id,
         sessionId: res.sessionId,
+        chatStatus: res.chatStatus,
         modes: res.modes,
         models: res.models,
         promptCapabilities: res.promptCapabilities,
@@ -170,6 +171,7 @@ export const sessionRouter = router({
 
         session.subscriberCount++;
         emit.next({ type: "connected" });
+        emit.next({ type: "chat_status", status: session.chatStatus });
 
         for (const event of session.messageBuffer) {
           emit.next(event);

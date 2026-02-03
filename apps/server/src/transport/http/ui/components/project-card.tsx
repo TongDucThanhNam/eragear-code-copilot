@@ -7,21 +7,21 @@ interface ProjectCardProps {
 
 export function ProjectCard({ project }: ProjectCardProps) {
   return (
-    <div class="card project-card">
-      <div class="mb-2 flex items-center justify-between">
-        <span class="project-name">{project.name}</span>
+    <div className="card project-card">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="project-name">{project.name}</span>
         <span
-          class={`badge ${project.runningCount > 0 ? "badge-success" : ""}`}
+          className={`badge ${project.runningCount > 0 ? "badge-success" : ""}`}
         >
           {project.runningCount} running
         </span>
       </div>
-      <p class="project-path">{project.path}</p>
-      <div class="mt-3 flex items-center justify-between">
-        <span class="text-muted text-xs">
+      <p className="project-path">{project.path}</p>
+      <div className="mt-3 flex items-center justify-between">
+        <span className="text-muted text-xs">
           {project.sessionCount} session{project.sessionCount !== 1 ? "s" : ""}
         </span>
-        <span class="text-muted text-xs">
+        <span className="text-muted text-xs">
           {project.lastOpenedAt ? formatTimeAgo(project.lastOpenedAt) : "Never"}
         </span>
       </div>

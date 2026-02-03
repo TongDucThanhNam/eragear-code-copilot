@@ -7,6 +7,8 @@ upsert theo `message.id` và render theo `UIMessagePart`.
 
 - `onSessionEvents`:
   - `ui_message` (chính)
+  - `chat_status` (trạng thái: `inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`)
+  - `chat_finish` (stopReason + finishReason cho `onFinish`)
   - `available_commands_update`
   - `current_mode_update`
   - `terminal_output`
@@ -17,10 +19,23 @@ upsert theo `message.id` và render theo `UIMessagePart`.
 - `apps/web/src/components/chat-ui/chat-interface.tsx`
   - Upsert `UIMessage` theo id
   - Tính trạng thái streaming từ `part.state`
+  - Đồng bộ status từ `chat_status`
 - `apps/web/src/components/chat-ui/chat-messages.tsx`
   - Render các `UIMessagePart`
   - Parse tool output (diff/terminal/content)
   - Hiển thị xác nhận permission theo `data-permission-options`
+
+## Chat finish (AI SDK compatibility)
+
+`chat_finish` được dùng để map sang `onFinish` của AI SDK:
+
+- `stopReason`: ACP stopReason (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`)
+- `finishReason`: đã map theo AI SDK (`stop` | `length` | `content-filter` | `tool-calls` | `other`)
+- `messageId`: id message assistant hoàn tất
+- `message` (optional): UIMessage tương ứng nếu server có trong cache
+- `isAbort`: true khi stopReason = `cancelled`
+
+Client nên fallback lấy message theo `messageId` nếu `message` không có.
 
 ## Render UIMessagePart
 
@@ -29,6 +44,7 @@ upsert theo `message.id` và render theo `UIMessagePart`.
   - `tool-plan` + `output.entries` → Plan
 - `source-url` / `source-document` / `file` → badge/link
 - `data-*` → metadata (không render trực tiếp)
+  - `data-tool-locations` → follow-along theo `toolCallId` + `locations` (optional)
 
 ## Permission flow
 

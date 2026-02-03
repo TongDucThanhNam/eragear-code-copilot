@@ -52,6 +52,7 @@ export class GetSessionStateService {
     if (session) {
       return {
         status: "running" as const,
+        chatStatus: session.chatStatus,
         modes: session.modes,
         models: session.models,
         commands: session.commands,
@@ -67,6 +68,7 @@ export class GetSessionStateService {
     if (stored) {
       return {
         status: "stopped" as const,
+        chatStatus: "inactive" as const,
         modes: null,
         models: null,
         commands: stored.commands ?? null,

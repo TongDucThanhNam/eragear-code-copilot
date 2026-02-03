@@ -1,113 +1,88 @@
-import type {
-  DataUIPart,
-  ToolUIPart,
-  UIMessage,
-  UIMessagePart,
+/**
+ * useChat Hook (Native)
+ *
+ * Native-specific adapter for the shared chat core.
+ * Preserves haptics integration and Zustand store integration.
+ */
+
+import type { BroadcastEvent, UseChatOptions } from "@repo/shared";
+import {
+  applySessionState,
+  findPendingPermission,
+  processSessionEvent,
 } from "@repo/shared";
-import * as Haptics from "expo-haptics";
+import { NotificationFeedbackType, notificationAsync } from "expo-haptics";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
-
 import { useAuthConfigured } from "@/hooks/use-auth-config";
+import { useDeleteSession } from "@/hooks/use-delete-session";
 import { type Attachment, buildSendMessagePayload } from "@/lib/attachments";
 import { trpc } from "@/lib/trpc";
-import { type PermissionRequest, useChatStore } from "@/store/chat-store";
+import { useChatStore } from "@/store/chat-store";
 
-// Session event types (matching server's BroadcastEvent)
-type SessionEvent =
-  | { type: "connected" }
-  | { type: "current_mode_update"; modeId: string }
+// ============================================================================
+// Types
+// ============================================================================
+
+type SendMessageInput =
+  | string
   | {
-      type: "available_commands_update";
-      availableCommands: Array<{
-        name: string;
-        description: string;
-        input?: { hint: string } | null;
-      }>;
-    }
-  | { type: "ui_message"; message: UIMessage }
-  | { type: "heartbeat"; ts: number }
-  | { type: "error"; error: string }
-  | { type: "terminal_output"; terminalId: string; data: string };
+      text: string;
+      files?: Attachment[];
+      metadata?: unknown;
+      messageId?: string;
+    };
 
-type PermissionOptionsPayload = {
-  requestId?: string;
-  options?: PermissionRequest["options"];
-};
+interface ToolApprovalResponse {
+  id: string;
+  approved: boolean;
+  reason?: string;
+}
 
-const isToolPart = (part: UIMessagePart): part is ToolUIPart =>
-  part.type.startsWith("tool-");
+// ============================================================================
+// Hook Implementation
+// ============================================================================
 
-const isDataPart = (part: UIMessagePart, type: string): part is DataUIPart =>
-  part.type === type;
+export function useChat(options: UseChatOptions = {}) {
+  const { onFinish, onError } = options;
 
-const isMessageStreaming = (message: UIMessage) =>
-  message.parts.some((part) => {
-    if (part.type === "text" || part.type === "reasoning") {
-      return part.state === "streaming";
-    }
-    if (isToolPart(part)) {
-      return (
-        part.state === "input-streaming" ||
-        part.state === "input-available" ||
-        part.state === "approval-requested" ||
-        part.state === "approval-responded"
-      );
-    }
-    return false;
-  });
-
-const getPermissionOptions = (
-  message: UIMessage,
-  requestId: string
-): PermissionRequest["options"] => {
-  const part = message.parts.find(
-    (item) =>
-      isDataPart(item, "data-permission-options") &&
-      typeof item.data === "object" &&
-      item.data !== null &&
-      (item.data as PermissionOptionsPayload).requestId === requestId
-  );
-  if (!part || typeof part.data !== "object" || part.data === null) {
-    return undefined;
-  }
-  return (part.data as PermissionOptionsPayload).options;
-};
-
-const findPendingPermission = (
-  messages: UIMessage[]
-): PermissionRequest | null => {
-  for (const message of messages) {
-    for (const part of message.parts) {
-      if (
-        isToolPart(part) &&
-        part.state === "approval-requested" &&
-        part.approval
-      ) {
-        const requestId = part.approval.id;
-        return {
-          requestId,
-          toolCallId: part.toolCallId,
-          title: part.title ?? part.type.replace(/^tool-/, ""),
-          input: part.input,
-          options: getPermissionOptions(message, requestId),
-        };
-      }
-    }
-  }
-  return null;
-};
-
-export function useChat() {
   // Select only what we need for the hook's internal logic (subscription key)
-  const activeChatId = useChatStore((s) => s.activeChatId);
-  const activeChatIsReadOnly = useChatStore((s) => s.activeChatIsReadOnly);
-  const connStatus = useChatStore((s) => s.connStatus);
   const isConfigured = useAuthConfigured();
+  const {
+    activeChatId,
+    activeChatIsReadOnly,
+    messages,
+    status,
+    connStatus,
+    modes,
+    models,
+    supportsModelSwitching,
+    commands,
+    promptCapabilities,
+    agentInfo,
+    loadSessionSupported,
+    pendingPermission,
+    terminalOutput,
+    error,
+    isChatFailed,
+  } = useChatStore();
 
   const utils = trpc.useUtils();
   const hapticTriggeredRef = useRef<Set<string>>(new Set());
+  const onFinishRef = useRef(onFinish);
+  const onErrorRef = useRef(onError);
+  const isResumingRef = useRef(false);
 
+  // Keep refs in sync
+  useEffect(() => {
+    onFinishRef.current = onFinish;
+  }, [onFinish]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeChatId is intentional - reset haptics on chat change
   useEffect(() => {
     hapticTriggeredRef.current = new Set();
   }, [activeChatId]);
@@ -123,7 +98,7 @@ export function useChat() {
     const triggered = hapticTriggeredRef.current;
     if (!triggered.has(messageId)) {
       triggered.add(messageId);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      notificationAsync(NotificationFeedbackType.Success);
     }
   }, []);
 
@@ -136,6 +111,7 @@ export function useChat() {
   const cancelPromptMutation = trpc.cancelPrompt.useMutation();
   const respondToPermissionMutation =
     trpc.respondToPermissionRequest.useMutation();
+  const { deleteSession: deleteSessionById } = useDeleteSession();
 
   // Snapshot state (modes/models/commands) on connect or reconnect
   const sessionStateQuery = trpc.getSessionState.useQuery(
@@ -145,53 +121,84 @@ export function useChat() {
         isConfigured &&
         !!activeChatId &&
         !activeChatIsReadOnly &&
-        connStatus === "connecting",
+        connStatus === "connecting" &&
+        !isResumingRef.current,
       retry: false,
+      staleTime: 0,
     }
   );
 
-  const applySessionState = useCallback(
+  const sessionMessagesQuery = trpc.getSessionMessages.useQuery(
+    { chatId: activeChatId || "" },
+    {
+      enabled:
+        isConfigured &&
+        !!activeChatId &&
+        !activeChatIsReadOnly &&
+        connStatus === "connecting" &&
+        !isResumingRef.current,
+      retry: false,
+      staleTime: 0,
+    }
+  );
+
+  const applyStateToStore = useCallback(
     (data: NonNullable<typeof sessionStateQuery.data>) => {
       const store = useChatStore.getState();
-      if (data.status === "stopped") {
-        store.setPromptCapabilities(null);
-        store.setConnStatus("idle");
-        return;
-      }
 
-      if (data.modes) {
-        store.setModes(data.modes);
-      }
-      if (data.models) {
-        store.setModels(data.models);
-      }
-      if (data.supportsModelSwitching !== undefined) {
-        store.setSupportsModelSwitching(Boolean(data.supportsModelSwitching));
-      }
-      if (data.commands) {
-        const commands = (data.commands || []).map((cmd) => ({
-          name: cmd.name,
-          description: cmd.description,
-          input: cmd.input === null ? undefined : cmd.input,
-        }));
-        store.setCommands(commands);
-      }
-      if (data.promptCapabilities !== undefined) {
-        store.setPromptCapabilities(data.promptCapabilities);
-      }
-      store.setConnStatus("connected");
+      applySessionState(data, {
+        onStatusChange: store.setStatus,
+        onModesChange: store.setModes,
+        onModelsChange: store.setModels,
+        onSupportsModelSwitchingChange: store.setSupportsModelSwitching,
+        onCommandsChange: (cmds) => {
+          const normalized = cmds.map((cmd) => ({
+            name: cmd.name,
+            description: cmd.description,
+            input: cmd.input,
+          }));
+          store.setCommands(normalized);
+        },
+        onPromptCapabilitiesChange: store.setPromptCapabilities,
+        onLoadSessionSupportedChange: store.setLoadSessionSupported,
+        onAgentInfoChange: store.setAgentInfo,
+        onConnStatusChange: store.setConnStatus,
+      });
     },
     []
   );
 
   useEffect(() => {
     const data = sessionStateQuery.data;
-    if (!data || (connStatus !== "connecting" && connStatus !== "connected")) {
+    if (!data || connStatus !== "connecting") {
       return;
     }
 
-    applySessionState(data);
-  }, [sessionStateQuery.data, connStatus, applySessionState]);
+    const store = useChatStore.getState();
+    const history = sessionMessagesQuery.data;
+    if (Array.isArray(history)) {
+      store.setMessages(history);
+      store.setPendingPermission(findPendingPermission(history));
+    }
+
+    if (data.status === "stopped") {
+      if (data.loadSessionSupported !== undefined) {
+        store.setLoadSessionSupported(data.loadSessionSupported);
+      }
+      if (data.agentInfo !== undefined) {
+        store.setAgentInfo(data.agentInfo);
+      }
+      applyStateToStore(data);
+      return;
+    }
+
+    applyStateToStore(data);
+  }, [
+    sessionStateQuery.data,
+    sessionMessagesQuery.data,
+    connStatus,
+    applyStateToStore,
+  ]);
 
   const syncPendingPermission = useCallback(() => {
     const store = useChatStore.getState();
@@ -199,73 +206,50 @@ export function useChat() {
     store.setPendingPermission(nextPending);
   }, []);
 
-  // Subscription Handler
+  // Subscription Handler - uses shared core logic
   const handleSessionEvent = useCallback(
-    (event: SessionEvent) => {
+    (event: BroadcastEvent) => {
       const store = useChatStore.getState();
+      const currentMessages = store.messages;
+      const currentModes = store.modes;
 
-      switch (event.type) {
-        case "connected":
-          store.setConnStatus("connected");
-          break;
-
-        case "ui_message": {
-          const prev = store.messages.find(
-            (message) => message.id === event.message.id
-          );
-          const wasStreaming = prev ? isMessageStreaming(prev) : false;
-          store.upsertMessage(event.message);
-          const isStreaming = isMessageStreaming(event.message);
-          if (
-            wasStreaming &&
-            !isStreaming &&
-            event.message.role === "assistant"
-          ) {
-            triggerStreamEndHaptic(event.message.id);
-          }
-          syncPendingPermission();
-          break;
-        }
-
-        case "available_commands_update": {
-          const commands = (event.availableCommands || []).map((cmd) => ({
+      processSessionEvent(event, currentMessages, currentModes, {
+        onStatusChange: store.setStatus,
+        onConnStatusChange: store.setConnStatus,
+        onMessagesChange: store.setMessages,
+        onModesChange: store.setModes,
+        onCommandsChange: (cmds) => {
+          const normalized = cmds.map((cmd) => ({
             name: cmd.name,
             description: cmd.description,
-            input: cmd.input === null ? undefined : cmd.input,
+            input: cmd.input,
           }));
-          store.setCommands(commands);
-          break;
-        }
-
-        case "current_mode_update": {
-          const modes = store.modes;
-          if (modes) {
-            store.setModes({ ...modes, currentModeId: event.modeId });
+          store.setCommands(normalized);
+        },
+        onTerminalOutput: store.appendTerminalOutput,
+        onPendingPermissionChange: store.setPendingPermission,
+        onError: (err) => {
+          store.setError(err);
+          store.setStatus("error");
+          onErrorRef.current?.(err);
+        },
+        onFinish: (payload) => {
+          onFinishRef.current?.(payload);
+        },
+        onStreamingChange: (wasStreaming, nowStreaming, message) => {
+          // Trigger haptic when streaming ends
+          if (wasStreaming && !nowStreaming && message.role === "assistant") {
+            triggerStreamEndHaptic(message.id);
           }
-          break;
-        }
-
-        case "terminal_output": {
-          const { terminalId, data } = event;
-          if (terminalId && data) {
-            store.appendTerminalOutput(terminalId, data);
-          }
-          break;
-        }
-
-        case "error":
-          store.setError(event.error);
-          break;
-
-        default:
-          break;
-      }
+          // Also sync pending permission
+          syncPendingPermission();
+        },
+      });
     },
     [syncPendingPermission, triggerStreamEndHaptic]
   );
 
   // Check if this chat has already failed (prevents infinite loop)
-  const isChatFailed = useChatStore((s) => s.isChatFailed);
   const shouldSubscribe =
     !!activeChatId &&
     !activeChatIsReadOnly &&
@@ -278,7 +262,7 @@ export function useChat() {
     { chatId: activeChatId || "" },
     {
       enabled: shouldSubscribe,
-      onData: (data) => handleSessionEvent(data as SessionEvent),
+      onData: (data) => handleSessionEvent(data as BroadcastEvent),
       onError(err) {
         console.error("Subscription error:", err);
         const store = useChatStore.getState();
@@ -290,38 +274,60 @@ export function useChat() {
           store.markChatFailed(activeChatId);
           store.setActiveChatId(null);
           store.setConnStatus("idle");
+          store.setStatus("error");
           store.setError(
             "Chat not found. The session may have expired. Please start a new session."
           );
+          onErrorRef.current?.(message);
           return;
         }
 
         store.setConnStatus("error");
+        store.setStatus("error");
         store.setError(message);
+        onErrorRef.current?.(message);
       },
     }
   );
 
-  const sendMessage = async (text: string, attachments: Attachment[] = []) => {
+  const sendMessageWithInput = async (
+    input?: SendMessageInput,
+    attachments: Attachment[] = []
+  ) => {
     if (!activeChatId) {
       return false;
     }
     const store = useChatStore.getState();
+    const normalized =
+      typeof input === "string" ? { text: input, files: attachments } : input;
 
-    // Note: We don't add message here. Server will broadcast ui_message events
-    // which will be received via subscription and added to store.
-    // This ensures consistency between live and replayed messages.
+    if (!normalized?.text) {
+      store.setError("Message text is required");
+      return false;
+    }
+    if (normalized.messageId) {
+      const message = "Editing messages is not supported by this client";
+      store.setError(message);
+      throw new Error(message);
+    }
+
+    store.setStatus("submitted");
 
     try {
-      const payload = buildSendMessagePayload(text, attachments);
+      const payload = buildSendMessagePayload(
+        normalized.text,
+        normalized.files ?? []
+      );
       await sendMessageMutation.mutateAsync({
         chatId: activeChatId,
         ...payload,
       });
       return true;
     } catch (e) {
-      const error = e as Error;
-      store.setError(error.message);
+      const err = e as Error;
+      store.setError(err.message);
+      store.setStatus("error");
+      onErrorRef.current?.(err.message);
       return false;
     }
   };
@@ -337,8 +343,9 @@ export function useChat() {
         store.setModes({ ...store.modes, currentModeId: modeId });
       }
     } catch (e) {
-      const error = e as Error;
-      store.setError(error.message);
+      const err = e as Error;
+      store.setError(err.message);
+      onErrorRef.current?.(err.message);
     }
   };
 
@@ -351,6 +358,7 @@ export function useChat() {
       const message =
         "Agent does not support runtime model switching (session/set_model is an unstable feature)";
       store.setError(message);
+      onErrorRef.current?.(message);
       throw new Error(message);
     }
     try {
@@ -359,8 +367,8 @@ export function useChat() {
         store.setModels({ ...store.models, currentModelId: modelId });
       }
     } catch (e) {
-      const error = e as Error;
-      const message = error?.message || "Failed to set model";
+      const err = e as Error;
+      const message = err?.message || "Failed to set model";
       const normalized = message.toLowerCase();
       if (
         normalized.includes("model switching") ||
@@ -369,6 +377,7 @@ export function useChat() {
         store.setSupportsModelSwitching(false);
       }
       store.setError(message);
+      onErrorRef.current?.(message);
     }
   };
 
@@ -377,11 +386,15 @@ export function useChat() {
       return;
     }
     const store = useChatStore.getState();
+    const previousStatus = store.status;
+    store.setStatus("cancelling");
     try {
       await cancelPromptMutation.mutateAsync({ chatId: activeChatId });
     } catch (e) {
-      const error = e as Error;
-      store.setError(error.message);
+      const err = e as Error;
+      store.setError(err.message);
+      store.setStatus(previousStatus);
+      onErrorRef.current?.(err.message);
     }
   };
 
@@ -398,9 +411,16 @@ export function useChat() {
       });
       store.setPendingPermission(null);
     } catch (e) {
-      const error = e as Error;
-      store.setError(error.message);
+      const err = e as Error;
+      store.setError(err.message);
+      onErrorRef.current?.(err.message);
     }
+  };
+
+  const addToolApprovalResponse = async (response: ToolApprovalResponse) => {
+    const decision =
+      response.reason ?? (response.approved ? "allow" : "reject");
+    await respondToPermission(response.id, decision);
   };
 
   const stopSession = async () => {
@@ -408,40 +428,114 @@ export function useChat() {
       return;
     }
     await stopSessionMutation.mutateAsync({ chatId: activeChatId });
-    useChatStore.getState().setConnStatus("idle");
+    const store = useChatStore.getState();
+    store.setConnStatus("idle");
+    store.setStatus("inactive");
+  };
+
+  const deleteSession = async (chatId?: string) => {
+    const targetChatId = chatId ?? activeChatId;
+    if (!targetChatId) {
+      return false;
+    }
+    return await deleteSessionById(targetChatId);
   };
 
   const resumeSession = async (chatId: string) => {
     const store = useChatStore.getState();
     try {
+      isResumingRef.current = true;
       store.setConnStatus("connecting");
+      store.setStatus("connecting");
+      store.clearSessionView();
       await utils.getSessionState.cancel({ chatId });
       const res = await resumeSessionMutation.mutateAsync({ chatId });
       await utils.getSessionState.invalidate({ chatId });
-      const state = await utils.getSessionState.fetch({ chatId });
-      applySessionState(state);
+      await utils.getSessionMessages.invalidate({ chatId });
+      const [state, history] = await Promise.all([
+        utils.getSessionState.fetch({ chatId }),
+        utils.getSessionMessages.fetch({ chatId }),
+      ]);
+      if (Array.isArray(history)) {
+        store.setMessages(history);
+        store.setPendingPermission(findPendingPermission(history));
+      }
+      if (state.status === "stopped") {
+        if (state.agentInfo !== undefined) {
+          store.setAgentInfo(state.agentInfo);
+        }
+        if (state.loadSessionSupported !== undefined) {
+          store.setLoadSessionSupported(state.loadSessionSupported);
+        }
+        applyStateToStore(state);
+        isResumingRef.current = false;
+        return res;
+      }
+      applyStateToStore(state);
       if (res?.promptCapabilities !== undefined) {
         store.setPromptCapabilities(res.promptCapabilities);
       }
+      isResumingRef.current = false;
       return res;
     } catch (e) {
-      const error = e as Error;
-      store.setError(error.message);
+      const err = e as Error;
+      store.setError(err.message);
       store.setConnStatus("error");
+      store.setStatus("error");
+      onErrorRef.current?.(err.message);
+      isResumingRef.current = false;
       throw e;
     }
   };
 
+  const resumeStream = async () => {
+    if (!activeChatId) {
+      return;
+    }
+    await resumeSession(activeChatId);
+  };
+
+  const clearError = () => {
+    useChatStore.getState().setError(null);
+  };
+
+  // Convert Map to Record for terminalOutputs
+  const terminalOutputs: Record<string, string> = {};
+  terminalOutput.forEach((value, key) => {
+    terminalOutputs[key] = value;
+  });
+
   return {
-    sendMessage,
+    // State
+    id: activeChatId, // the active chat/session ID
+    messages, // chat messages
+    status, //
+    connStatus,
+    pendingPermission,
+    terminalOutputs,
+    error,
+
+    // Session state
+    modes,
+    models,
+    supportsModelSwitching,
+    commands,
+    promptCapabilities,
+    agentInfo,
+    loadSessionSupported,
+
+    // Actions
+    sendMessage: sendMessageWithInput,
     setMode,
     setModel,
-    cancelPrompt,
+    stop: cancelPrompt,
     respondToPermission,
+    addToolApprovalResponse,
     stopSession,
+    deleteSession,
     resumeSession,
-    isResuming: resumeSessionMutation.isPending,
-    isSending: sendMessageMutation.isPending,
-    isCancelling: cancelPromptMutation.isPending,
+    resumeStream,
+    clearError,
+    setMessages: useChatStore.getState().setMessages,
   };
 }

@@ -25,6 +25,7 @@ import { AgentPicker } from "@/components/agents/agent-picker";
 import { Container } from "@/components/common/container";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { useCreateSession } from "@/hooks/use-create-session";
+import { useDeleteSession } from "@/hooks/use-delete-session";
 import { trpc } from "@/lib/trpc";
 import type { SessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
@@ -63,10 +64,18 @@ function formatTimestamp(dateString: string): string {
   const diffHours = Math.floor(diffMs / 3_600_000);
   const diffDays = Math.floor(diffMs / 86_400_000);
 
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffMins < 1) {
+    return "Just now";
+  }
+  if (diffMins < 60) {
+    return `${diffMins}m ago`;
+  }
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+  if (diffDays < 7) {
+    return `${diffDays}d ago`;
+  }
   return date.toLocaleDateString();
 }
 
@@ -83,25 +92,28 @@ export default function SessionsScreen() {
   const router = useRouter();
   const themeColorForeground = useThemeColor("foreground");
   const themeColorMuted = useThemeColor("muted");
-  const { setActiveChatId, setSessions, setConnStatus } = useChatStore();
-  const utils = trpc.useUtils();
+  const { deleteSession, isDeleting: isDeletingSession } = useDeleteSession();
+
+  const { setActiveChatId, setSessions } = useChatStore();
   const { createSession, isCreating } = useCreateSession();
-  const projects = useProjectStore((s) => s.projects);
-  const activeProjectId = useProjectStore((s) => s.activeProjectId);
-  const setProjects = useProjectStore((s) => s.setProjects);
-  const setActiveProjectId = useProjectStore((s) => s.setActiveProjectId);
-  const addProject = useProjectStore((s) => s.addProject);
-  const updateProject = useProjectStore((s) => s.updateProject);
-  const updateProjectLocal = useProjectStore((s) => s.updateProjectLocal);
-  const removeProject = useProjectStore((s) => s.removeProject);
-  const removeProjectLocal = useProjectStore((s) => s.removeProjectLocal);
-  const editingProject = useProjectStore((s) => s.editingProject);
-  const setEditingProject = useProjectStore((s) => s.setEditingProject);
-  const isProjectCreateOpen = useProjectStore((s) => s.isProjectCreateOpen);
-  const setIsProjectCreateOpen = useProjectStore(
-    (s) => s.setIsProjectCreateOpen
-  );
-  const setProjectMutations = useProjectStore((s) => s.setProjectMutations);
+  const {
+    projects,
+    activeProjectId,
+    setProjects,
+    setActiveProjectId,
+    addProject,
+    updateProject,
+    updateProjectLocal,
+    editingProject,
+    setEditingProject,
+    isProjectCreateOpen,
+    setIsProjectCreateOpen,
+    setProjectMutations,
+    removeProject,
+    removeProjectLocal,
+    isAgentPickerOpen,
+    setIsAgentPickerOpen,
+  } = useProjectStore();
   const [error, setError] = useState<string | null>(null);
   const isConfigured = useAuthConfigured();
 
@@ -111,8 +123,6 @@ export default function SessionsScreen() {
   });
   const agents = agentsData?.agents || [];
   const activeAgentId = agentsData?.activeAgentId;
-  const isAgentPickerOpen = useProjectStore((s) => s.isAgentPickerOpen);
-  const setIsAgentPickerOpen = useProjectStore((s) => s.setIsAgentPickerOpen);
   const [activeTab, setActiveTab] = useState<FilterTab>("active");
   const [projectForm, setProjectForm] = useState({
     name: "",
@@ -203,11 +213,6 @@ export default function SessionsScreen() {
     },
   });
 
-  const deleteSessionMutation = trpc.deleteSession.useMutation({
-    onSuccess: () => {
-      sessionsQuery.refetch();
-    },
-  });
   const updateSessionMetaMutation = trpc.updateSessionMeta.useMutation({
     onSuccess: () => {
       sessionsQuery.refetch();
@@ -244,23 +249,6 @@ export default function SessionsScreen() {
     }
     return projects.find((project) => project.id === activeProjectId) ?? null;
   }, [activeProjectId, projects]);
-
-  const handleCreateSession = () => {
-    setError(null);
-    if (!activeProject) {
-      setError(
-        "Please select a project in the drawer before starting a session."
-      );
-      return;
-    }
-    if (agents.length === 0) {
-      setError("Please configure an ACP agent before starting a session.");
-      router.push("/settings");
-      return;
-    }
-
-    setIsAgentPickerOpen(true);
-  };
 
   const handleSelectAgent = async (agentId: string) => {
     setError(null);
@@ -300,7 +288,7 @@ export default function SessionsScreen() {
   };
 
   const handleDeleteSession = (chatId: string) => {
-    deleteSessionMutation.mutate({ chatId });
+    void deleteSession(chatId);
   };
 
   const handleCreateProject = () => {
@@ -928,7 +916,9 @@ export default function SessionsScreen() {
 
             <View className="mt-4 border-zinc-800 border-t pt-4">
               <Button
-                isDisabled={updateSessionMetaMutation.isPending}
+                isDisabled={
+                  updateSessionMetaMutation.isPending || isDeletingSession
+                }
                 onPress={() => {
                   if (sessionActionTarget) {
                     Alert.alert(

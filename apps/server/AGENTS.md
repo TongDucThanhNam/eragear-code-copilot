@@ -28,65 +28,149 @@ UI → tRPC/WSS → Server → ACP Connection → Agent
 
 ```
 src/
-├── bootstrap/           # Entry point & DI container
-│   ├── container.ts     # Wiring ports ↔ adapters
-│   └── server.ts        # Hono app, HTTP routes, WS handler
+├── bootstrap/                 # Entry point & DI container
+│   ├── container.ts           # Wiring ports ↔ adapters
+│   └── server.ts              # Hono app setup & middleware stack
 │
-├── transport/           # API boundary (HTTP/tRPC/WS)
-│   ├── http/            # HTTP server (static UI, config page)
-│   │   └── ui/          # Dashboard UI assets
-│   ├── trpc/            # tRPC router & procedures
-│   │   ├── router.ts
-│   │   ├── context.ts
-│   │   └── routers/
-│   │       ├── session.ts    # Session CRUD
-│   │       ├── ai.ts         # Send message, set model/mode
-│   │       ├── tool.ts       # Permission response
-│   │       ├── project.ts    # Project management
-│   │       ├── agents.ts     # Agent configs
-│   │       ├── auth.ts       # Authentication
-│   │       └── code.ts       # Code context
-│   └── ws/              # WebSocket handlers
+├── transport/                 # API boundary (HTTP/tRPC/WS)
+│   ├── http/                  # HTTP layer
+│   │   ├── constants.ts       # HTTP constants & CORS defaults
+│   │   ├── cors.ts            # Origin resolver (Cloudflare support)
+│   │   ├── cors-factory.ts    # CORS preset factory (api/auth/health/static)
+│   │   ├── error-handler.ts   # Centralized error handling
+│   │   ├── request-id.ts      # Request ID tracking middleware
+│   │   ├── routes/            # HTTP routes (modular structure)
+│   │   │   ├── index.ts       # Routes entry - registers all modules
+│   │   │   ├── helpers.ts     # Shared utilities (form parsing, etc.)
+│   │   │   ├── settings.ts    # /api/ui-settings, /form/settings
+│   │   │   ├── dashboard.ts   # /api/dashboard/*, /api/logs/*
+│   │   │   ├── sessions.ts    # /api/sessions/*, /form/sessions/*
+│   │   │   ├── projects.ts    # /api/projects/*, /form/projects/*
+│   │   │   ├── agents.ts      # /api/agents/*, /form/agents/*
+│   │   │   └── admin.ts       # /api/admin/* (API keys, device sessions)
+│   │   ├── ui/                # Dashboard UI assets
+│   │   └── utils/             # HTTP utilities
+│   ├── trpc/                  # tRPC router & procedures
+│   │   ├── router.ts          # Main router
+│   │   ├── context.ts         # Request context
+│   │   ├── types.ts           # WebSocket types
+│   │   └── routers/           # Procedures by feature
+│   │       ├── session.ts
+│   │       ├── ai.ts
+│   │       ├── tool.ts
+│   │       ├── project.ts
+│   │       ├── agents.ts
+│   │       ├── auth.ts
+│   │       └── code.ts
+│   └── ws/                    # WebSocket handlers
 │
-├── infra/               # Global adapters (IO/policy)
-│   ├── acp/             # ACP bridge, handlers, permission
-│   │   ├── connection.ts     # NDJSON connection
-│   │   ├── handlers.ts       # ACP event handlers
-│   │   ├── update.ts         # Message buffering
-│   │   ├── permission.ts     # Permission requests
-│   │   ├── tool-calls.ts     # Tool call execution
+├── infra/                     # Global adapters (IO/policy)
+│   ├── acp/                   # ACP bridge (agent communication)
+│   │   ├── connection.ts      # NDJSON connection
+│   │   ├── handlers.ts        # ACP event handlers
+│   │   ├── update.ts          # Message buffering
+│   │   ├── permission.ts      # Permission requests
+│   │   ├── tool-calls.ts      # Tool call execution
 │   │   └── session-acp.adapter.ts
-│   ├── process/         # Spawn agent processes
-│   ├── filesystem/      # File operations
-│   ├── git/             # Git operations
-│   ├── storage/         # JSON persistence
-│   └── auth/            # Authentication
+│   ├── caching/               # Response caching layer
+│   │   ├── response-cache.ts  # In-memory cache with TTL
+│   │   ├── middleware.ts      # Cache middleware factory
+│   │   ├── types.ts           # Cache type definitions
+│   │   └── index.ts           # Cache exports
+│   ├── logging/               # Structured logging
+│   │   ├── structured-logger.ts # Tag-based logger
+│   │   └── log-store.ts       # Log persistence
+│   ├── process/               # Spawn agent processes
+│   ├── filesystem/            # File operations
+│   ├── git/                   # Git operations
+│   ├── storage/               # JSON persistence
+│   └── auth/                  # Authentication
 │
-├── modules/             # Feature modules (vertical slices)
+├── modules/                   # Feature modules (vertical slices)
 │   ├── session/
-│   │   ├── application/ # Use-case orchestration
-│   │   │   ├── ports/   # Port interfaces
+│   │   ├── application/       # Use-case orchestration
+│   │   │   ├── ports/         # Port interfaces
 │   │   │   ├── create-session.service.ts
 │   │   │   ├── send-message.service.ts
 │   │   │   └── ...
-│   │   ├── domain/      # Entities & invariants
-│   │   └── infra/       # Module-specific persistence
+│   │   ├── domain/            # Entities & invariants
+│   │   └── infra/             # Module-specific persistence
 │   ├── agent/
 │   ├── ai/
 │   ├── project/
 │   ├── settings/
 │   └── tooling/
 │
-└── shared/              # Cross-cutting concerns
-    ├── ports/           # Shared port interfaces
-    ├── types/           # Type definitions
-    ├── utils/           # Utilities
-    └── errors/          # Error definitions
+└── shared/                    # Cross-cutting concerns
+    ├── ports/                 # Shared port interfaces
+    ├── types/                 # Type definitions
+    ├── utils/                 # Utilities
+    └── errors/                # Error definitions
 ```
 
 ---
 
-## 3. Các Lớp Kiến Trúc
+## 3. Hono Middleware Stack
+
+Server sử dụng Hono framework với middleware stack được tối ưu hóa:
+
+```
+Request
+   │
+   ▼
+┌─────────────────────────────────────────────┐
+│ 1. Request Logger (structured-logger.ts)    │ ← Logging first
+├─────────────────────────────────────────────┤
+│ 2. Request ID (request-id.ts)               │ ← Tracking
+├─────────────────────────────────────────────┤
+│ 3. Response Timing (X-Response-Time header) │ ← Performance
+├─────────────────────────────────────────────┤
+│ 4. Compression (gzip/brotli)                │ ← Size reduction
+├─────────────────────────────────────────────┤
+│ 5. CORS (cors-factory.ts)                   │ ← Per-route CORS
+├─────────────────────────────────────────────┤
+│ 6. Auth Protection                          │ ← Authentication
+├─────────────────────────────────────────────┤
+│ 7. Error Handler (error-handler.ts)         │ ← Centralized errors
+├─────────────────────────────────────────────┤
+│ 8. Cache Headers                            │ ← 1-year static cache
+└─────────────────────────────────────────────┘
+   │
+   ▼
+Response
+```
+
+### 3.1 CORS Factory Presets
+
+| Preset | Use Case | Credentials |
+|--------|----------|-------------|
+| `api` | API routes | Yes |
+| `auth` | Auth routes | Yes |
+| `health` | Health checks | No |
+| `static` | Static files | No |
+
+```typescript
+import { createCorsMiddlewares } from "./transport/http/cors-factory";
+
+const cors = createCorsMiddlewares(trustedOrigins);
+app.use("/api/*", cors.api);
+app.use("/health", cors.health);
+```
+
+### 3.2 Response Caching
+
+Server có built-in caching layer cho expensive computations:
+
+```typescript
+import { getResponseCache } from "./infra/caching";
+
+const cache = getResponseCache();
+const data = await cache.getOrCompute("key", () => fetchData(), { ttl: 60000 });
+```
+
+---
+
+## 4. Các Lớp Kiến Trúc
 
 | Lớp | Vị trí | Vai trò |
 |-----|--------|---------|

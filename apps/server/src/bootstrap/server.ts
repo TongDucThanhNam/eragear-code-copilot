@@ -9,128 +9,89 @@
  */
 
 import { createServer } from "node:http";
-import { join } from "node:path";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { readFile } from "node:fs/promises";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { cors } from "hono/cors";
-import { logger } from "hono/logger";
+import { compress } from "hono/compress";
+import { reactRenderer } from "@hono/react-renderer";
+import type { ViteDevServer } from "vite";
 import { WebSocketServer } from "ws";
+import { createElement, Fragment } from "react";
 import { ENV } from "../config/environment";
 import { auth, authConfig, authState } from "../infra/auth/auth";
 import { ensureAuthSetup } from "../infra/auth/bootstrap";
 import { getAuthContext, getSessionFromRequest } from "../infra/auth/guards";
+import { createLogger } from "../infra/logging/structured-logger";
+import { installConsoleLogger } from "../infra/logging/logger";
+import { createRequestLogger } from "../infra/logging/request-logger";
+import {
+  PUBLIC_UI_PATH,
+  UI_PATH_PREFIX,
+  LEADING_SLASHES,
+} from "../transport/http/constants";
+import {
+  resolveRequestOrigin,
+} from "../transport/http/cors";
+import { createCorsMiddlewares } from "../transport/http/cors-factory";
+import { createErrorHandler } from "../transport/http/error-handler";
+import { requestIdMiddleware } from "../transport/http/request-id";
 import { registerHttpRoutes } from "../transport/http/routes";
 import { buildDashboardData } from "../transport/http/ui/dashboard-data";
 import { ConfigPage } from "../transport/http/ui/dashboard-view";
-import { LoginPage } from "../transport/http/ui/login";
+import { LoginHead, LoginPage } from "../transport/http/ui/login";
+import { renderDocument } from "../transport/http/ui/render-document";
+import { UI_STYLE_SOURCE_PATH } from "../transport/http/ui/ui-assets";
+import type { WebSocketHandlerInfo } from "../transport/trpc/types";
 import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
 import { getContainer, initializeContainer } from "./container";
 
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
-/** Path to the public UI directory */
-const PUBLIC_UI_PATH = join(__dirname, "../../public");
-/** Regex to match UI path prefix */
-const UI_PATH_PREFIX = /^\/ui\//;
-/** Regex to remove leading slashes */
-const LEADING_SLASHES = /^\/+/;
+const logger = createLogger("Server");
+const viteRef: { current: ViteDevServer | null } = { current: null };
 
-function normalizeOrigin(value: string | null): string | null {
-  if (!value || value === "null") {
-    return null;
+async function pipeResponseBody(
+  res: ServerResponse,
+  response: Response
+): Promise<void> {
+  const body = response.body;
+  if (!body) {
+    res.end();
+    return;
   }
+
+  const fromWeb = (
+    Readable as typeof Readable & {
+      fromWeb?: (stream: ReadableStream) => NodeJS.ReadableStream;
+    }
+  ).fromWeb;
+
+  if (typeof fromWeb === "function") {
+    fromWeb(body as unknown as ReadableStream).pipe(res);
+    return;
+  }
+
+  // Fallback: manual chunk reading (for older Node versions)
+  const reader = body.getReader();
   try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return null;
-    }
-    return `${url.protocol}//${url.host}`;
-  } catch {
-    return null;
-  }
-}
-
-function getForwardedProto(headers: Headers): string | null {
-  const forwarded = headers.get("x-forwarded-proto");
-  if (forwarded) {
-    return forwarded.split(",")[0]?.trim() ?? null;
-  }
-
-  const cfVisitor = headers.get("cf-visitor");
-  if (cfVisitor) {
-    try {
-      const parsed = JSON.parse(cfVisitor) as { scheme?: string };
-      if (parsed.scheme) {
-        return parsed.scheme;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
       }
-    } catch (error) {
-      console.warn("[Auth] Failed to parse CF-Visitor header:", error);
+      if (value) {
+        const chunk = Buffer.from(value);
+        if (!res.write(chunk)) {
+          await new Promise<void>((resolve) => res.once("drain", resolve));
+        }
+      }
     }
+  } finally {
+    res.end();
   }
-
-  return null;
-}
-
-function resolveHostOrigin(headers: Headers): string | null {
-  const host = headers.get("x-forwarded-host") ?? headers.get("host");
-  if (!host) {
-    return null;
-  }
-  const proto = getForwardedProto(headers) ?? "http";
-  if (proto !== "http" && proto !== "https") {
-    return null;
-  }
-
-  return `${proto}://${host}`;
-}
-
-function resolveRequestOrigin(headers: Headers): string | null {
-  const originHeader = normalizeOrigin(headers.get("origin"));
-  const hostOrigin = resolveHostOrigin(headers);
-  if (originHeader) {
-    if (hostOrigin && originHeader !== hostOrigin) {
-      console.debug(
-        `[Auth] Origin mismatch: origin="${originHeader}", hostOrigin="${hostOrigin}"`
-      );
-      return null;
-    }
-    console.debug(`[Auth] Using origin from header: ${originHeader}`);
-    return originHeader;
-  }
-  console.debug(`[Auth] Using host origin: ${hostOrigin}`);
-  return hostOrigin;
-}
-
-function resolveCorsOrigin(origin?: string | null): string | undefined {
-  const normalized = normalizeOrigin(origin ?? null);
-  if (!normalized) {
-    console.debug(
-      "[Auth] CORS origin null/undefined, allowing (credentials=true)"
-    );
-    // When credentials=true, returning undefined can cause issues
-    // For Same-Origin requests or development, allow it
-    return origin ?? undefined;
-  }
-
-  const trusted = authConfig.trustedOrigins;
-  if (Array.isArray(trusted)) {
-    if (trusted[0] === "*" || trusted.includes(normalized)) {
-      return normalized;
-    }
-    // Debug: origin not in trusted list
-    console.debug(
-      `[Auth] CORS origin "${normalized}" not in trusted list: ${JSON.stringify(trusted)}, allowing anyway for dev`
-    );
-    return normalized; // Allow anyway for development
-  }
-
-  if (trusted === "*") {
-    return normalized;
-  }
-
-  return trusted === normalized ? normalized : undefined;
 }
 
 function ensureTrustedOrigin(origin: string) {
@@ -148,6 +109,54 @@ function ensureTrustedOrigin(origin: string) {
   }
 }
 
+function isViteHmrUpgrade(req: IncomingMessage): boolean {
+  const protocol = req.headers["sec-websocket-protocol"];
+  if (Array.isArray(protocol)) {
+    if (protocol.some((value) => value.includes("vite-hmr"))) {
+      return true;
+    }
+  } else if (typeof protocol === "string" && protocol.includes("vite-hmr")) {
+    return true;
+  }
+  const url = req.url ?? "";
+  return url.startsWith("/ui/@vite") || url.startsWith("/@vite");
+}
+
+async function handleViteRequest(
+  vite: ViteDevServer,
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<boolean> {
+  await new Promise<void>((resolve, reject) => {
+    vite.middlewares(req, res, (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
+  return res.writableEnded || res.headersSent;
+}
+
+async function createViteDevServer(
+  server: ReturnType<typeof createServer>
+): Promise<ViteDevServer> {
+  const { createServer: createViteServer } = await import("vite");
+  const { default: react } = await import("@vitejs/plugin-react");
+  const root = fileURLToPath(new URL("../../ui", import.meta.url));
+  return createViteServer({
+    root,
+    base: "/ui/",
+    appType: "custom",
+    server: {
+      middlewareMode: true,
+      hmr: { server },
+    },
+    plugins: [react()],
+  });
+}
+
 /**
  * Creates the Hono application with all middleware and routes
  *
@@ -160,7 +169,39 @@ export function createApp() {
   initializeContainer(settings.projectRoots);
 
   const app = new Hono();
-  app.use(logger());
+  app.use("*", async (c, next) => {
+    c.set("vite", viteRef.current);
+    return next();
+  });
+  app.use(
+    "*",
+    reactRenderer(({ children }) => createElement(Fragment, null, children))
+  );
+  app.use(createRequestLogger());
+
+  // Add request ID for tracing
+  app.use(requestIdMiddleware());
+
+  // Response timing middleware for performance monitoring
+  app.use(async (c, next) => {
+    const start = Date.now();
+    await next();
+    const duration = Date.now() - start;
+    c.res.headers.set("X-Response-Time", `${duration}ms`);
+  });
+
+  // Compression middleware - reduce response size by 60-70%
+  if (typeof globalThis.CompressionStream === "function") {
+    app.use(compress());
+  } else {
+    logger.warn("Compression disabled: CompressionStream is not available");
+  }
+
+  // Create reusable CORS middleware factory
+  const corsMiddleware = createCorsMiddlewares(authConfig.trustedOrigins);
+
+  // Apply API CORS defaults (auth/health override below)
+  app.use("/api/*", corsMiddleware.api);
 
   // Auth CORS + handler
   app.use("/api/auth/*", async (c, next) => {
@@ -171,29 +212,9 @@ export function createApp() {
     return next();
   });
 
-  app.use(
-    "/api/auth/*",
-    cors({
-      origin: resolveCorsOrigin,
-      allowHeaders: ["Content-Type", "Authorization", "x-api-key"],
-      allowMethods: ["POST", "GET", "OPTIONS"],
-      exposeHeaders: ["Content-Length"],
-      maxAge: 600,
-      credentials: true,
-    })
-  );
+  app.use("/api/auth/*", corsMiddleware.auth);
 
-  app.use(
-    "/api/health",
-    cors({
-      origin: (origin) => origin ?? "*",
-      allowHeaders: ["Content-Type", "Authorization", "x-api-key"],
-      allowMethods: ["GET", "OPTIONS"],
-      exposeHeaders: ["Content-Length"],
-      maxAge: 600,
-      credentials: false,
-    })
-  );
+  app.use("/api/health", corsMiddleware.health);
 
   app.all("/api/auth/*", async (c) => {
     const path = c.req.path;
@@ -210,7 +231,7 @@ export function createApp() {
         });
         return c.json(result);
       } catch (error) {
-        console.error("Failed to verify API key:", error);
+        logger.error("Failed to verify API key", error as Error);
         return c.json(
           {
             valid: false,
@@ -236,12 +257,29 @@ export function createApp() {
     return c.json({ ok: true, ts: Date.now() });
   });
 
-  // Serve UI static files
+  // Serve UI static files with cache headers
+  if (ENV.isDev) {
+    app.get("/ui/styles.css", async (c) => {
+      const css = await readFile(UI_STYLE_SOURCE_PATH, "utf8");
+      c.res.headers.set("Content-Type", "text/css; charset=UTF-8");
+      c.res.headers.set("Cache-Control", "no-cache");
+      return c.body(css);
+    });
+  }
+
+  app.use("/ui/*", async (c, next) => {
+    // Long-term caching for static assets (1 year)
+    c.res.headers.set(
+      "Cache-Control",
+      "public, max-age=31536000, immutable"
+    );
+    return next();
+  });
+
   app.use(
     "/ui/*",
     serveStatic({
       root: PUBLIC_UI_PATH,
-      // Ensure the path is relative so Bun's path.join uses the root.
       rewriteRequestPath: (path) =>
         path.replace(UI_PATH_PREFIX, "").replace(LEADING_SLASHES, ""),
     })
@@ -256,10 +294,13 @@ export function createApp() {
     if (session) {
       return c.redirect("/");
     }
-    const html = `<!DOCTYPE html>${LoginPage({
-      username: ENV.authAdminUsername ?? authState.adminUsername ?? "admin",
-    })}`;
-    return c.html(html);
+    const username = ENV.authAdminUsername ?? authState.adminUsername ?? "admin";
+    return renderDocument(c, createElement(LoginPage, { username }), {
+      title: "Eragear Server Login",
+      head: createElement(LoginHead, { username }),
+      bodyClassName:
+        "flex min-h-screen flex-col bg-[#F9F9F7] font-body text-[#111111] antialiased",
+    });
   });
 
   // Protect API routes (except /api/auth)
@@ -293,7 +334,11 @@ export function createApp() {
   });
 
   // Register HTTP routes
-  registerHttpRoutes(app);
+  const api = new Hono();
+  const form = new Hono();
+  registerHttpRoutes(api, form);
+  app.route("/api", api);
+  app.route("/form", form);
 
   // Dashboard UI - serves the main configuration page
   app.get("/", async (c) => {
@@ -317,7 +362,7 @@ export function createApp() {
     try {
       apiKeys = await auth.api.listApiKeys({ headers: c.req.raw.headers });
     } catch (error) {
-      console.error("Failed to load API keys:", error);
+      logger.error("Failed to load API keys", error as Error);
     }
 
     try {
@@ -325,7 +370,7 @@ export function createApp() {
         headers: c.req.raw.headers,
       });
     } catch (error) {
-      console.error("Failed to load device sessions:", error);
+      logger.error("Failed to load device sessions", error as Error);
     }
 
     const dashboardData = buildDashboardData({
@@ -345,17 +390,32 @@ export function createApp() {
           .filter(Boolean)
       : undefined;
 
-    const html = `<!DOCTYPE html>${ConfigPage({
-      settings,
-      dashboardData,
-      activeTab: tab,
-      success: success === "1",
-      notice: notice || undefined,
-      errors: error ? { general: error } : undefined,
-      requiresRestart,
-    })}`;
-    return c.html(html);
+    return renderDocument(
+      c,
+      createElement(ConfigPage, {
+        settings,
+        dashboardData,
+        activeTab: tab,
+        success: success === "1",
+        notice: notice || undefined,
+        errors: error ? { general: error } : undefined,
+        requiresRestart,
+      }),
+      {
+        title: "Eragear Server Dashboard",
+        bodyClassName: "bg-paper font-body text-ink antialiased",
+        bodyAttributes: { "data-active-tab": tab },
+      }
+    );
   });
+
+  // Explicit 404 handler for better UX
+  app.notFound((c) =>
+    c.json({ error: "Not found", path: c.req.path }, 404)
+  );
+
+  // Error handler for unhandled exceptions
+  app.onError(createErrorHandler());
 
   return app;
 }
@@ -366,9 +426,28 @@ export function createApp() {
  * @returns Promise resolving to server objects
  */
 export async function startServer() {
+  installConsoleLogger();
   await ensureAuthSetup();
   const app = createApp();
+  let vite: ViteDevServer | null = null;
   const server = createServer(async (req, res) => {
+    const requestUrl = req.url ?? "/";
+    const requestPath = requestUrl.split("?")[0] ?? "";
+    if (vite && requestPath !== "/ui/styles.css") {
+      try {
+        const handled = await handleViteRequest(vite, req, res);
+        if (handled) {
+          return;
+        }
+      } catch (error) {
+        vite.ssrFixStacktrace(error as Error);
+        logger.error("Vite middleware error", error as Error);
+        res.statusCode = 500;
+        res.end();
+        return;
+      }
+    }
+
     const host = req.headers.host ?? `${ENV.wsHost}:${ENV.wsPort}`;
     const url = new URL(req.url ?? "/", `http://${host}`);
     const headers = new Headers();
@@ -401,40 +480,62 @@ export async function startServer() {
       return;
     }
 
-    const body = await response.arrayBuffer();
-    res.end(Buffer.from(body));
+    await pipeResponseBody(res, response);
   });
+
+  if (ENV.isDev) {
+    try {
+      vite = await createViteDevServer(server);
+      viteRef.current = vite;
+      logger.info("Vite dev middleware enabled", { base: "/ui/" });
+    } catch (error) {
+      logger.error("Failed to start Vite dev middleware", error as Error);
+    }
+  }
 
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => {
+    if (vite && isViteHmrUpgrade(req)) {
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
     });
   });
+
   const wsHandler = applyWSSHandler({
     wss,
     router: appRouter,
     createContext: ({ req, info }) =>
-      createTrpcContext({ req, connectionParams: info.connectionParams }),
+      createTrpcContext({
+        req,
+        connectionParams: (info as WebSocketHandlerInfo)?.connectionParams,
+      }),
   });
 
   server.listen(ENV.wsPort, ENV.wsHost);
 
-  console.log(
-    `[Server] HTTP UI + WebSocket running on http://${ENV.wsHost}:${ENV.wsPort}`
-  );
+  logger.info("HTTP + WebSocket server started", {
+    host: ENV.wsHost,
+    port: ENV.wsPort,
+  });
 
   // Graceful shutdown
   process.on("SIGTERM", () => {
+    logger.info("SIGTERM received, gracefully shutting down");
     wsHandler.broadcastReconnectNotification();
     wss.close();
     server.close();
+    void vite?.close();
   });
 
-  return await { server, wsHandler };
+  return { server, wsHandler };
 }
 
 // Start server if run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  startServer().catch(console.error);
+  startServer().catch((err) => {
+    logger.error("Failed to start server", err as Error);
+    process.exit(1);
+  });
 }

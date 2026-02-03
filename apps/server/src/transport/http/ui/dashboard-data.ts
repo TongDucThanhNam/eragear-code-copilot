@@ -13,6 +13,14 @@ export interface DashboardStats {
   serverUptime: number;
 }
 
+export type TabKey =
+  | "projects"
+  | "agents"
+  | "auth"
+  | "settings"
+  | "sessions"
+  | "logs";
+
 export interface ProjectSummary extends Project {
   sessionCount: number;
   runningCount: number;

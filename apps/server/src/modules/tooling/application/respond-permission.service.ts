@@ -9,6 +9,7 @@
 
 import type * as acp from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
   buildToolApprovalResponsePart,
   upsertToolPart,
@@ -121,6 +122,20 @@ export class RespondPermissionService {
     };
     pending.resolve(response);
     session.pendingPermissions.delete(input.requestId);
+    const nextStatus =
+      session.pendingPermissions.size > 0
+        ? "awaiting_permission"
+        : session.chatStatus === "awaiting_permission"
+          ? "streaming"
+          : session.chatStatus;
+    if (nextStatus !== session.chatStatus) {
+      updateChatStatus({
+        chatId: input.chatId,
+        session,
+        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+        status: nextStatus,
+      });
+    }
     if (pending.toolCallId) {
       const approved = optionId.toLowerCase().includes("allow");
       const toolPart = buildToolApprovalResponsePart({
@@ -131,6 +146,7 @@ export class RespondPermissionService {
         approvalId: input.requestId,
         approved,
         reason: optionId,
+        meta: pending.meta,
       });
       const { message } = upsertToolPart({
         state: session.uiState,

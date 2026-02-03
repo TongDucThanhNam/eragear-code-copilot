@@ -1029,8 +1029,15 @@ export const PromptInputActionMenuItem = ({
 // Note: Actions that perform side-effects (like opening a file dialog)
 // are provided in opt-in modules (e.g., prompt-input-attachments).
 
+type PromptInputStatus =
+  | ChatStatus
+  | "inactive"
+  | "connecting"
+  | "awaiting_permission"
+  | "cancelling";
+
 export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
-  status?: ChatStatus;
+  status?: PromptInputStatus;
   onStop?: () => void;
 };
 
@@ -1046,15 +1053,22 @@ export const PromptInputSubmit = ({
 }: PromptInputSubmitProps) => {
   let Icon = <CornerDownLeftIcon className="size-4" />;
 
-  if (status === "submitted") {
+  if (
+    status === "submitted" ||
+    status === "connecting" ||
+    status === "cancelling"
+  ) {
     Icon = <Loader2Icon className="size-4 animate-spin" />;
-  } else if (status === "streaming") {
+  } else if (status === "streaming" || status === "awaiting_permission") {
     Icon = <SquareIcon className="size-4" />;
   } else if (status === "error") {
     Icon = <XIcon className="size-4" />;
   }
 
-  const isStreaming = status === "streaming";
+  const isStreaming =
+    status === "streaming" ||
+    status === "awaiting_permission" ||
+    status === "cancelling";
 
   return (
     <InputGroupButton

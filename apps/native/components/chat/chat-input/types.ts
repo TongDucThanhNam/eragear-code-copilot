@@ -1,3 +1,4 @@
+import type { ChatStatus } from "@repo/shared";
 import type { Attachment } from "@/lib/attachments";
 
 export interface Mode {
@@ -20,7 +21,9 @@ export interface Command {
 
 export interface ChatInputProps {
   onSend: (text: string) => void;
+  onStop?: () => void;
   disabled?: boolean;
+  status: ChatStatus;
   onHeightChange?: (height: number) => void;
   onOpenAttachment?: () => void;
   onVoice?: () => void;

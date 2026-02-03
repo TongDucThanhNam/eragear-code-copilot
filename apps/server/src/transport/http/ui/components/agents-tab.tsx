@@ -13,31 +13,31 @@ interface AgentsTabProps {
 export function AgentsTab({ agents, agentStats, activeTab }: AgentsTabProps) {
   return (
     <TabPanel activeTab={activeTab} scrollable tab="agents">
-      <section class="border-2 border-ink bg-paper shadow-news">
-        <div class="border-ink border-b-2 p-6">
-          <div class="flex flex-wrap items-start justify-between gap-4">
+      <section className="border-2 border-ink bg-paper shadow-news">
+        <div className="border-ink border-b-2 p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 class="font-black font-display text-4xl tracking-tight">
+              <h2 className="font-black font-display text-4xl tracking-tight">
                 Agent Configs
               </h2>
-              <p class="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
+              <p className="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
                 Registered agent presets for spawning sessions
               </p>
             </div>
-            <div class="flex flex-col items-end gap-2">
-              <span class="border border-ink px-3 py-1 font-mono text-xs">
+            <div className="flex flex-col items-end gap-2">
+              <span className="border border-ink px-3 py-1 font-mono text-xs">
                 {agents.length} agent{agents.length !== 1 ? "s" : ""}
               </span>
-              <a class="btn btn-primary min-h-[44px]" href="#add-agent-modal">
+              <a className="btn btn-primary min-h-[44px]" href="#add-agent-modal">
                 + Add Agent
               </a>
             </div>
           </div>
         </div>
 
-        <div class="min-h-[120px] p-4">
+        <div className="min-h-[120px] p-4">
           {agents.length === 0 ? (
-            <div class="empty-state">
+            <div className="empty-state">
               No agents configured yet. Add an agent to get started.
             </div>
           ) : (
@@ -46,19 +46,19 @@ export function AgentsTab({ agents, agentStats, activeTab }: AgentsTabProps) {
         </div>
       </section>
 
-      <section class="mt-4 border-2 border-ink bg-paper shadow-news">
-        <div class="border-ink border-b-2 p-6">
+      <section className="mt-4 border-2 border-ink bg-paper shadow-news">
+        <div className="border-ink border-b-2 p-6">
           <div>
-            <h2 class="font-black font-display text-3xl tracking-tight">
+            <h2 className="font-black font-display text-3xl tracking-tight">
               Usage Statistics
             </h2>
-            <p class="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
+            <p className="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
               Session distribution by agent type
             </p>
           </div>
         </div>
 
-        <div class="min-h-[100px] p-4">
+        <div className="min-h-[100px] p-4">
           <AgentStats stats={agentStats} />
         </div>
       </section>

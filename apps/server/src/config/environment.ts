@@ -14,6 +14,8 @@ import {
   DEFAULT_WS_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WS_HOST,
   DEFAULT_WS_PORT,
+  DEFAULT_LOG_BUFFER_LIMIT,
+  DEFAULT_LOG_FLUSH_INTERVAL_MS,
 } from "./constants";
 
 /** Zod schema for environment variable validation */
@@ -40,6 +42,12 @@ const envSchema = z.object({
   AUTH_DB_PATH: z.string().optional(),
   AUTH_BOOTSTRAP_API_KEY: z.string().optional(),
   AUTH_API_KEY_PREFIX: z.string().optional(),
+  LOG_BUFFER_LIMIT: z.string().optional(),
+  LOG_FLUSH_INTERVAL_MS: z.string().optional(),
+  LOG_RETENTION_DAYS: z.string().optional(),
+  LOG_FILE_ENABLED: z.string().optional(),
+  NODE_ENV: z.string().optional(),
+  BUN_ENV: z.string().optional(),
 });
 
 /** Parse environment variables */
@@ -113,6 +121,9 @@ function toBoolean(value: string | undefined, fallback: boolean) {
 const wsPort = toNumber(env.WS_PORT, DEFAULT_WS_PORT);
 const wsHost = env.WS_HOST ?? DEFAULT_WS_HOST;
 const normalizedAuthHost = wsHost === "0.0.0.0" ? "localhost" : wsHost;
+const runtimeEnv = env.NODE_ENV ?? env.BUN_ENV ?? "production";
+const isProd = runtimeEnv === "production";
+const isDev = !isProd;
 const authBaseUrl =
   env.AUTH_BASE_URL ??
   env.BETTER_AUTH_URL ??
@@ -141,6 +152,12 @@ if (authTrustedOrigins[0] !== "*") {
  * All values have sensible defaults
  */
 export const ENV = {
+  /** Runtime environment */
+  runtimeEnv,
+  /** True when running in development or test modes */
+  isDev,
+  /** True when running in production mode */
+  isProd,
   /** Timeout for idle sessions in milliseconds */
   sessionIdleTimeoutMs: toNumber(
     env.SESSION_IDLE_TIMEOUT_MS,
@@ -190,4 +207,15 @@ export const ENV = {
   authBootstrapApiKey: toBoolean(env.AUTH_BOOTSTRAP_API_KEY, true),
   /** Default API key prefix */
   authApiKeyPrefix: env.AUTH_API_KEY_PREFIX,
+  /** Log buffer max entries */
+  logBufferLimit: toNumber(env.LOG_BUFFER_LIMIT, DEFAULT_LOG_BUFFER_LIMIT),
+  /** Log flush interval in milliseconds */
+  logFlushIntervalMs: toNumber(
+    env.LOG_FLUSH_INTERVAL_MS,
+    DEFAULT_LOG_FLUSH_INTERVAL_MS
+  ),
+  /** Optional log retention days (undefined to keep all) */
+  logRetentionDays: toOptionalNumber(env.LOG_RETENTION_DAYS),
+  /** Enable log file sink */
+  logFileEnabled: toBoolean(env.LOG_FILE_ENABLED, true),
 };

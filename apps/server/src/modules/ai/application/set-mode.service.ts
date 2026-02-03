@@ -9,6 +9,7 @@
 
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
   getAcpErrorText,
   isMethodNotFound,
@@ -91,6 +92,12 @@ export class SetModeService {
       this.sessionRuntime.broadcast(chatId, {
         type: "error",
         error: reason,
+      });
+      updateChatStatus({
+        chatId,
+        session,
+        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+        status: "error",
       });
       this.sessionRepo.updateStatus(chatId, "stopped");
       if (!session.proc.killed) {

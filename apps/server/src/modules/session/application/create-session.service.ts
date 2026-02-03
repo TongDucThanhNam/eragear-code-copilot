@@ -24,6 +24,7 @@ import type {
   McpStdioServerConfig,
 } from "../../../shared/types/settings.types";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
+import { updateChatStatus } from "../../../shared/utils/chat-events.util";
 import {
   buildAssistantMessageFromBlocks,
   buildPlanToolPart,
@@ -277,6 +278,7 @@ export class CreateSessionService {
       };
 
       if (chatSession.useUnstableResume) {
+        chatSession.isReplayingHistory = false;
         // Use unstable_resumeSession for agents with sessionCapabilities.resume
         console.log(
           "[DEBUG] Using unstable_resumeSession for session:",
@@ -298,6 +300,7 @@ export class CreateSessionService {
           mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
         });
       } else {
+        chatSession.isReplayingHistory = true;
         // Use standard loadSession for agents with loadSession capability
         console.log(
           "[DEBUG] Using loadSession for session:",
@@ -308,6 +311,7 @@ export class CreateSessionService {
           cwd: projectRoot,
           mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
         });
+        chatSession.isReplayingHistory = false;
       }
 
       chatSession.modes = loadResult.modes ?? undefined;
@@ -494,6 +498,8 @@ export class CreateSessionService {
       terminals: new Map(),
       buffer,
       uiState: createUiMessageState(),
+      isReplayingHistory: false,
+      chatStatus: "connecting",
     };
 
     // Store in runtime before ACP hooks
@@ -519,7 +525,7 @@ export class CreateSessionService {
     const handlers = this.sessionAcp.createHandlers({
       chatId,
       buffer,
-      getIsReplaying: () => false,
+      getIsReplaying: () => Boolean(chatSession.isReplayingHistory),
       sessionRuntime: this.sessionRuntime,
       sessionRepo: this.sessionRepo,
     });
@@ -560,6 +566,13 @@ export class CreateSessionService {
     } else {
       await this.handleNewSession(chatSession, chatId, projectRoot, mcpServers);
     }
+
+    updateChatStatus({
+      chatId,
+      session: chatSession,
+      broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+      status: "ready",
+    });
 
     this.attachProcessHandlers(proc, chatId);
     this.saveSessionMetadata(
@@ -645,8 +658,14 @@ export class CreateSessionService {
         type: "error",
         error: `Agent process error: ${err.message}`,
       });
-      this.sessionRepo.updateStatus(chatId, "stopped");
       const session = this.sessionRuntime.get(chatId);
+      updateChatStatus({
+        chatId,
+        session,
+        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+        status: "error",
+      });
+      this.sessionRepo.updateStatus(chatId, "stopped");
       if (session) {
         terminateSessionTerminals(session);
       }
@@ -666,6 +685,21 @@ export class CreateSessionService {
         this.sessionRuntime.broadcast(chatId, {
           type: "error",
           error: `Agent process exited with ${reason}`,
+        });
+        const session = this.sessionRuntime.get(chatId);
+        updateChatStatus({
+          chatId,
+          session,
+          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+          status: "error",
+        });
+      } else {
+        const session = this.sessionRuntime.get(chatId);
+        updateChatStatus({
+          chatId,
+          session,
+          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+          status: "inactive",
         });
       }
 

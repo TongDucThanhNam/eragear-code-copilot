@@ -9,7 +9,7 @@
       "@/*": ["./src/*"]
     },
     "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx",
+    "types": ["bun", "react", "react-dom"],
     "strictNullChecks": true
   }
 }

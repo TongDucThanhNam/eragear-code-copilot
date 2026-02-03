@@ -1,9 +1,9 @@
 export function DashboardFooter() {
   return (
-    <footer class="mt-auto flex-shrink-0 border-ink border-t-2 py-3">
-      <div class="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-muted uppercase tracking-widest">
+    <footer className="mt-auto flex-shrink-0 border-ink border-t-2 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-muted uppercase tracking-widest">
         <p>© Eragear • ACP Client v1.0</p>
-        <p class="hidden sm:block">
+        <p className="hidden sm:block">
           Printed in the Cloud • All Sessions Reserved
         </p>
         <p>

@@ -8,7 +8,7 @@
  */
 
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
-import type { GitPort } from "../ports/git.port";
+import type { GitPort } from "./ports/git.port";
 
 /**
  * CodeContextService

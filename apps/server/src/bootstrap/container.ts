@@ -16,10 +16,12 @@ import type { SessionRepositoryPort } from "@/modules/session/application/ports/
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type { SettingsRepositoryPort } from "@/modules/settings/application/ports/settings-repository.port";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
+import type { LogStorePort } from "@/shared/ports/log-store.port";
 import { SessionAcpAdapter } from "../infra/acp/session-acp.adapter";
 import { auth, authDb } from "../infra/auth/auth";
 import { getAuthContext } from "../infra/auth/guards";
 import { GitAdapter } from "../infra/git";
+import { getLogStore } from "../infra/logging/log-store";
 import { AgentRuntimeAdapter } from "../infra/process";
 import { AgentJsonRepository } from "../modules/agent/infra/agent.repository.json";
 import { ProjectJsonRepository } from "../modules/project/infra/project.repository.json";
@@ -38,6 +40,8 @@ export class Container {
   private readonly eventBus: EventBusPort;
   /** Runtime store for active chat sessions */
   private readonly sessionRuntime: SessionRuntimePort;
+  /** Log store for server and request logs */
+  private readonly logStore: LogStorePort;
 
   // Repositories
   /** Session repository for persisting session metadata and messages */
@@ -65,6 +69,7 @@ export class Container {
     // Core services
     this.eventBus = new EventBus();
     this.sessionRuntime = new SessionRuntimeStore(this.eventBus);
+    this.logStore = getLogStore();
 
     // Initialize repositories
     this.sessionRepo = new SessionJsonRepository();
@@ -92,6 +97,14 @@ export class Container {
    */
   getSessionRuntime(): SessionRuntimePort {
     return this.sessionRuntime;
+  }
+
+  /**
+   * Gets the log store instance
+   * @returns The log store for log retrieval
+   */
+  getLogStore(): LogStorePort {
+    return this.logStore;
   }
 
   /**

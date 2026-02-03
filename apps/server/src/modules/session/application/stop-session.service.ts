@@ -1,3 +1,4 @@
+import { updateChatStatus } from "../../../shared/utils/chat-events.util";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -19,6 +20,12 @@ export class StopSessionService {
     if (session) {
       console.log(`[tRPC] Stopping session ${chatId}`);
       terminateSessionTerminals(session);
+      updateChatStatus({
+        chatId,
+        session,
+        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+        status: "inactive",
+      });
       session.proc.kill();
       // Remove from runtime so getSessionState returns "stopped"
       this.sessionRuntime.delete(chatId);

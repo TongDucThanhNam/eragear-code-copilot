@@ -9,6 +9,12 @@
 
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import {
+  mapStopReasonToFinishReason,
+  maybeBroadcastChatFinish,
+  setChatFinishStopReason,
+  updateChatStatus,
+} from "@/shared/utils/chat-events.util";
 import { toStoredContentBlocks } from "../../../shared/utils/content-block.util";
 import {
   buildUserMessageFromBlocks,
@@ -58,7 +64,7 @@ export class SendMessageService {
    * Sends a message to the agent and handles the response
    *
    * @param input - Message input parameters
-   * @returns Object containing the stop reason from the agent
+   * @returns Object containing the stop reason and related metadata
    * @throws Error if session is not found or not running
    */
   async execute(input: {
@@ -129,6 +135,16 @@ export class SendMessageService {
       throw new Error("Agent does not support embedded context");
     }
 
+    const broadcast = this.sessionRuntime.broadcast.bind(this.sessionRuntime);
+    updateChatStatus({
+      chatId: input.chatId,
+      session,
+      broadcast,
+      status: "submitted",
+    });
+    session.chatFinish = undefined;
+    session.uiState.lastAssistantId = undefined;
+
     const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const msgTimestamp = Date.now();
 
@@ -154,10 +170,7 @@ export class SendMessageService {
       messageId: msgId,
       contentBlocks: storedPromptBlocks,
     });
-    const session = this.sessionRuntime.get(input.chatId);
-    if (session) {
-      session.uiState.messages.set(uiMessage.id, uiMessage);
-    }
+    session.uiState.messages.set(uiMessage.id, uiMessage);
     this.sessionRuntime.broadcast(input.chatId, {
       type: "ui_message",
       message: uiMessage,
@@ -167,6 +180,12 @@ export class SendMessageService {
       this.sessionRuntime.broadcast(input.chatId, {
         type: "error",
         error: reason,
+      });
+      updateChatStatus({
+        chatId: input.chatId,
+        session,
+        broadcast,
+        status: "error",
       });
       this.sessionRepo.updateStatus(input.chatId, "stopped");
       if (!session.proc.killed) {
@@ -199,10 +218,22 @@ export class SendMessageService {
           markStopped(errorText || "Agent process exited");
           throw new Error(errorText || "Agent process exited");
         }
+        updateChatStatus({
+          chatId: input.chatId,
+          session,
+          broadcast,
+          status: "error",
+        });
         throw new Error(errorText || "Failed to send message");
       }
     }
     if (!res) {
+      updateChatStatus({
+        chatId: input.chatId,
+        session,
+        broadcast,
+        status: "error",
+      });
       throw new Error("Failed to send message");
     }
 
@@ -233,6 +264,28 @@ export class SendMessageService {
       session.uiState.currentAssistantId = undefined;
     }
 
-    return { stopReason: res.stopReason };
+    setChatFinishStopReason(session, res.stopReason);
+    maybeBroadcastChatFinish({
+      chatId: input.chatId,
+      session,
+      broadcast,
+    });
+
+    if (session.chatStatus === "submitted") {
+      updateChatStatus({
+        chatId: input.chatId,
+        session,
+        broadcast,
+        status: "ready",
+      });
+    }
+
+    return {
+      stopReason: res.stopReason,
+      finishReason: mapStopReasonToFinishReason(res.stopReason),
+      assistantMessageId:
+        session.uiState.lastAssistantId ?? session.uiState.currentAssistantId,
+      userMessageId: msgId,
+    };
   }
 }

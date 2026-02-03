@@ -11,6 +11,7 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import { createId } from "@/shared/utils/id.util";
+import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
   buildToolApprovalPart,
   getToolNameFromCall,
@@ -65,6 +66,13 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         return;
       }
 
+      updateChatStatus({
+        chatId,
+        session,
+        broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+        status: "awaiting_permission",
+      });
+
       // Store the resolve function to be called when user responds
       const toolName = getToolNameFromCall(toolCall);
       const title = toolCall.title ?? toolCall.kind ?? toolName;
@@ -76,6 +84,7 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         toolName,
         title,
         input: toolCall.rawInput,
+        meta: toolCall._meta,
       });
 
       const toolPart = buildToolApprovalPart({
@@ -84,17 +93,14 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         title,
         input: toolCall.rawInput,
         approvalId: requestId,
+        meta: toolCall._meta,
       });
       const { message } = upsertToolPart({
         state: session.uiState,
         messageId: session.uiState.currentAssistantId,
         part: toolPart,
       });
-      const optionList = Array.isArray(options)
-        ? options
-        : Array.isArray(options?.options)
-          ? options.options
-          : [];
+      const optionList = options;
       if (optionList.length > 0) {
         const existingOptions = message.parts.find(
           (part) =>

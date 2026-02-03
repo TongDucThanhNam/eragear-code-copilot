@@ -7,6 +7,8 @@ Mục tiêu là chỉ xử lý `ui_message` và các event cấp cao, không par
 
 - tRPC `onSessionEvents`:
   - `ui_message` (chính)
+  - `chat_status` (trạng thái: `inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`)
+  - `chat_finish` (stopReason + finishReason cho `onFinish`)
   - `available_commands_update`
   - `current_mode_update`
   - `terminal_output`
@@ -19,6 +21,19 @@ Mục tiêu là chỉ xử lý `ui_message` và các event cấp cao, không par
 - `pendingPermission` được suy ra từ:
   - `ToolUIPart.state === "approval-requested"`
   - `DataUIPart(type="data-permission-options")` để lấy options
+- `useChatStore.status` nên lấy từ `chat_status`
+
+## Chat finish (AI SDK compatibility)
+
+`chat_finish` được dùng để map sang `onFinish` của AI SDK:
+
+- `stopReason`: ACP stopReason (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`)
+- `finishReason`: đã map theo AI SDK (`stop` | `length` | `content-filter` | `tool-calls` | `other`)
+- `messageId`: id message assistant hoàn tất
+- `message` (optional): UIMessage tương ứng nếu server có trong cache
+- `isAbort`: true khi stopReason = `cancelled`
+
+Client nên fallback lấy message theo `messageId` nếu `message` không có.
 
 ## Render UIMessagePart
 
@@ -31,6 +46,7 @@ Mục tiêu là chỉ xử lý `ui_message` và các event cấp cao, không par
 - `source-url` / `source-document` / `file` → badge/link
 - `step-start` → separator
 - `data-*` → **bỏ qua** (metadata)
+  - `data-tool-locations` → follow-along theo `toolCallId` + `locations` (optional)
 
 ## Tool output
 
@@ -46,6 +62,7 @@ Mục tiêu là chỉ xử lý `ui_message` và các event cấp cao, không par
   - `text/reasoning`: `state === "streaming"`
   - `tool-*`: `input-streaming`, `input-available`, `approval-*`
 - Haptics chỉ bắn khi message chuyển từ streaming → done.
+- Có thể dùng `chat_status` để đồng bộ trạng thái UI tổng thể.
 
 ## Khi thêm part mới
 

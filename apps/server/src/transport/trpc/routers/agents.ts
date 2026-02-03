@@ -7,8 +7,10 @@
  * @module transport/trpc/routers/agents
  */
 
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { AgentService } from "@/modules/agent/application/agent.service";
+import { ValidationError } from "@/shared/errors";
 import { protectedProcedure, router } from "../base";
 
 export const agentsRouter = router({
@@ -34,7 +36,14 @@ export const agentsRouter = router({
     )
     .mutation(({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());
-      return service.createAgent(input);
+      try {
+        return service.createAgent(input);
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
+        throw error;
+      }
     }),
 
   /** Update an existing agent configuration */
@@ -53,7 +62,14 @@ export const agentsRouter = router({
     )
     .mutation(({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());
-      return service.updateAgent(input);
+      try {
+        return service.updateAgent(input);
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
+        throw error;
+      }
     }),
 
   /** Delete an agent configuration */

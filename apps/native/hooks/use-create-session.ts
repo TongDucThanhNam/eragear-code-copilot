@@ -27,6 +27,9 @@ export function useCreateSession(): UseCreateSessionReturn {
     setModels,
     setPromptCapabilities,
     setSupportsModelSwitching,
+    setAgentInfo,
+    setLoadSessionSupported,
+    setStatus,
     setError,
   } = useChatStore();
 
@@ -41,6 +44,7 @@ export function useCreateSession(): UseCreateSessionReturn {
 
       // Set connecting status
       setConnStatus("connecting");
+      setStatus("connecting");
 
       try {
         // Create session with agent config
@@ -63,7 +67,10 @@ export function useCreateSession(): UseCreateSessionReturn {
         }
 
         setPromptCapabilities(data.promptCapabilities ?? null);
+        setAgentInfo(data.agentInfo ?? null);
+        setLoadSessionSupported(data.loadSessionSupported);
         setConnStatus("connected");
+        setStatus(data.chatStatus ?? "ready");
 
         // Fetch session state to get additional capabilities
         try {
@@ -90,6 +97,7 @@ export function useCreateSession(): UseCreateSessionReturn {
             : "Failed to create session.";
 
         setConnStatus("error");
+        setStatus("error");
         setError(message);
         throw new Error(message);
       }
@@ -103,6 +111,9 @@ export function useCreateSession(): UseCreateSessionReturn {
       setModels,
       setPromptCapabilities,
       setSupportsModelSwitching,
+      setAgentInfo,
+      setLoadSessionSupported,
+      setStatus,
       setError,
       utils,
     ]

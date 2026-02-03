@@ -7,6 +7,7 @@
  * @module transport/http/utils/auth
  */
 
+import type { SessionUser } from "../../../infra/auth/guards";
 import { getSessionFromRequest as infraGetSessionFromRequest } from "../../../infra/auth/guards";
 
 type HeaderRecord = Record<string, string | string[] | undefined>;
@@ -23,6 +24,6 @@ interface RequestLike {
  */
 export async function getSessionFromRequest(
   req: RequestLike
-): Promise<{ user: unknown; session: unknown } | null> {
+): Promise<{ user: SessionUser; session: unknown } | null> {
   return infraGetSessionFromRequest(req);
 }

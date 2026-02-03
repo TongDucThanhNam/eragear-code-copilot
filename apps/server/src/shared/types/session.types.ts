@@ -185,6 +185,8 @@ export interface UiMessageState {
   messages: Map<string, UIMessage>;
   /** Current assistant message ID for streaming chunks */
   currentAssistantId?: string;
+  /** Last completed assistant message ID */
+  lastAssistantId?: string;
   /** Current user message ID for replayed chunks */
   currentUserId?: string;
   /** Tool part lookup by tool call ID */
@@ -192,10 +194,51 @@ export interface UiMessageState {
 }
 
 /**
+ * Chat status values for client UI state
+ */
+export type ChatStatus =
+  | "inactive"
+  | "connecting"
+  | "ready"
+  | "submitted"
+  | "streaming"
+  | "awaiting_permission"
+  | "cancelling"
+  | "error";
+
+/**
+ * Finish reasons aligned with AI SDK UI semantics
+ */
+export type ChatFinishReason =
+  | "stop"
+  | "length"
+  | "content-filter"
+  | "tool-calls"
+  | "error"
+  | "other";
+
+/**
+ * Pending finish info for a prompt turn
+ */
+export interface ChatFinishState {
+  stopReason?: string;
+  messageId?: string;
+}
+
+/**
  * Union type for all broadcast events to clients
  */
 export type BroadcastEvent =
   | { type: "connected" }
+  | { type: "chat_status"; status: ChatStatus }
+  | {
+      type: "chat_finish";
+      stopReason: string;
+      finishReason: ChatFinishReason;
+      messageId?: string;
+      message?: UIMessage;
+      isAbort: boolean;
+    }
   | { type: "ui_message"; message: UIMessage }
   | { type: "current_mode_update"; modeId: string }
   | {
@@ -320,6 +363,7 @@ export interface ChatSession {
       toolName?: string;
       title?: string;
       input?: unknown;
+      meta?: unknown;
     }
   >;
   /** Active tool calls */
@@ -330,6 +374,12 @@ export interface ChatSession {
   buffer?: SessionBuffer;
   /** UI message state for streaming updates */
   uiState: UiMessageState;
+  /** Whether the agent is replaying history (loadSession) */
+  isReplayingHistory?: boolean;
+  /** Current chat status for UI */
+  chatStatus: ChatStatus;
+  /** Pending finish data for the active prompt */
+  chatFinish?: ChatFinishState;
   /** Full agent capabilities from initialize response */
   agentCapabilities?: Record<string, unknown>;
   /** Authentication methods supported by the agent */

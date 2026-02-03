@@ -20,3 +20,11 @@ export const DEFAULT_WS_HOST = "0.0.0.0";
 export const DEFAULT_SESSION_BUFFER_LIMIT = 500;
 /** Default WebSocket heartbeat interval: 30 seconds in milliseconds */
 export const DEFAULT_WS_HEARTBEAT_INTERVAL_MS = 30_000;
+/** Default in-memory log buffer size */
+export const DEFAULT_LOG_BUFFER_LIMIT = 2000;
+/** Default log query limit for UI requests */
+export const DEFAULT_LOG_QUERY_LIMIT = 200;
+/** Maximum log query limit */
+export const MAX_LOG_QUERY_LIMIT = 1000;
+/** Default log file flush interval in milliseconds */
+export const DEFAULT_LOG_FLUSH_INTERVAL_MS = 250;
