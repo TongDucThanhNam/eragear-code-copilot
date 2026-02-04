@@ -69,14 +69,11 @@ export const FileTree = ({
       value={{ expandedPaths, togglePath, selectedPath, onSelect }}
     >
       <div
-        className={cn(
-          "rounded-lg border bg-background font-mono text-sm",
-          className
-        )}
+        className={cn("font-mono text-sm", className)}
         role="tree"
         {...props}
       >
-        <div className="p-2">{children}</div>
+        <div className="">{children}</div>
       </div>
     </FileTreeContext.Provider>
   );

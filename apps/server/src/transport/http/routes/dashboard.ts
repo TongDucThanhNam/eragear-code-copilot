@@ -1,285 +1,173 @@
 /**
- * Dashboard Routes
+ * Dashboard UI Routes
  *
- * API endpoints for dashboard data and real-time streaming.
+ * HTML routes + static assets for the internal server dashboard.
  *
  * Endpoints:
- * - GET /api/dashboard/projects - Get projects with session stats
- * - GET /api/dashboard/sessions - Get sessions with details
- * - GET /api/dashboard/stats    - Get overall statistics
- * - GET /api/dashboard/stream   - SSE stream for real-time updates
- * - GET /api/logs               - Get log entries
- * - GET /api/logs/stream        - SSE stream for real-time logs
+ * - GET /_/dashboard          - Dashboard UI (protected)
+ * - GET /dashboard            - Legacy redirect to /_/dashboard
+ * - GET /                    - Legacy redirect to /_/dashboard
+ * - GET /login               - Login page
+ * - GET /_/dashboard/assets/* - Dashboard static assets
  *
  * @module transport/http/routes/dashboard
  */
 
 import type { Context, Hono } from "hono";
+import { serveStatic } from "hono/bun";
+import { createElement } from "react";
+import { auth, authState } from "../../../infra/auth/auth";
+import { createLogger } from "../../../infra/logging/structured-logger";
 import { getContainer } from "../../../bootstrap/container";
-import type { Project } from "../../../shared/types/project.types";
-import type { StoredSession } from "../../../shared/types/session.types";
-import { parseLogQueryParams } from "./helpers";
+import { ENV } from "../../../config/environment";
+import {
+  DASHBOARD_ASSET_PATH,
+  DASHBOARD_ASSET_PATH_PREFIX,
+  DASHBOARD_UI_PATH,
+  LEADING_SLASHES,
+  PUBLIC_DASHBOARD_ASSETS_PATH,
+} from "../constants";
+import { getSessionFromRequest } from "../utils/auth";
+import {
+  normalizeApiKeyItem,
+  normalizeDeviceSessionItem,
+} from "./helpers";
+import { DashboardPage } from "@/presentation/dashboard/server/dashboard-page";
+import { buildDashboardData } from "@/presentation/dashboard/server/build-dashboard-data";
+import { LoginHead, LoginPage } from "@/presentation/dashboard/login";
+import { renderDocument } from "@/presentation/dashboard/server/render-document";
+import { normalizeTab } from "@/presentation/dashboard/utils";
+
+const logger = createLogger("DashboardUI");
 
 /**
- * Registers dashboard-related HTTP routes
+ * Registers dashboard-related UI routes
  */
-export function registerDashboardRoutes(api: Hono): void {
-  const container = getContainer();
+export function registerDashboardUiRoutes(app: Hono): void {
+  // Static assets (long-term cache)
+  const assetCacheControl = ENV.isDev
+    ? "no-cache"
+    : "public, max-age=31536000, immutable";
 
-  // =========================================================================
-  // Dashboard Data Endpoints
-  // =========================================================================
-
-  /**
-   * GET /api/dashboard/projects - Get all projects with session statistics
-   */
-  api.get("/dashboard/projects", (c: Context) => {
-    const projects = container.getProjects().findAll();
-    const sessions = container.getSessions().findAll();
-
-    const projectsWithStats = projects.map((project: Project) => {
-      const projectSessions = sessions.filter(
-        (s: StoredSession) =>
-          s.projectId === project.id || s.projectRoot === project.path
-      );
-      const runningSessions = projectSessions.filter(
-        (s: StoredSession) => s.status === "running"
-      );
-      return {
-        ...project,
-        sessionCount: projectSessions.length,
-        runningCount: runningSessions.length,
-        lastOpenedAt: project.lastOpenedAt,
-      };
-    });
-
-    return c.json({ projects: projectsWithStats });
+  app.use(`${DASHBOARD_ASSET_PATH}/*`, (c, next) => {
+    c.res.headers.set("Cache-Control", assetCacheControl);
+    return next();
   });
 
-  /**
-   * GET /api/dashboard/sessions - Get all sessions with details
-   */
-  api.get("/dashboard/sessions", (c: Context) => {
+  app.use(
+    `${DASHBOARD_ASSET_PATH}/*`,
+    serveStatic({
+      root: PUBLIC_DASHBOARD_ASSETS_PATH,
+      rewriteRequestPath: (path) =>
+        path.replace(DASHBOARD_ASSET_PATH_PREFIX, "").replace(LEADING_SLASHES, ""),
+    })
+  );
+
+  // Legacy redirects
+  const redirectWithQuery = (c: Context) => {
+    const requestUrl = c.req.raw.url ?? "";
+    const queryIndex = requestUrl.indexOf("?");
+    const query =
+      queryIndex === -1 ? "" : requestUrl.slice(queryIndex + 1).trim();
+    return c.redirect(
+      query ? `${DASHBOARD_UI_PATH}?${query}` : DASHBOARD_UI_PATH
+    );
+  };
+  app.get("/", redirectWithQuery);
+  app.get("/dashboard", redirectWithQuery);
+
+  // Login page
+  app.get("/login", async (c: Context) => {
+    const session = await getSessionFromRequest({
+      headers: c.req.raw.headers,
+      url: c.req.raw.url,
+    });
+    if (session) {
+      return c.redirect(DASHBOARD_UI_PATH);
+    }
+    const username = ENV.authAdminUsername ?? authState.adminUsername ?? "admin";
+    return renderDocument(c, createElement(LoginPage, { username }), {
+      title: "Eragear Server Login",
+      head: createElement(LoginHead, { username }),
+      bodyClassName:
+        "flex min-h-screen flex-col bg-[#F9F9F7] font-body text-[#111111] antialiased",
+    });
+  });
+
+  // Dashboard UI (protected)
+  app.get(DASHBOARD_UI_PATH, async (c: Context) => {
+    const session = await getSessionFromRequest({
+      headers: c.req.raw.headers,
+      url: c.req.raw.url,
+    });
+    if (!session) {
+      return c.redirect("/login");
+    }
+    const container = getContainer();
+    const settings = container.getSettings().get();
     const projects = container.getProjects().findAll();
     const storedSessions = container.getSessions().findAll();
-    const runtime = container.getSessionRuntime();
+    const runtimeSessions = container.getSessionRuntime();
+    const agents = container.getAgents().findAll();
 
-    const sessions = storedSessions.map((session: StoredSession) => {
-      const activeSession = runtime.get(session.id);
-      const isActive = Boolean(activeSession);
-      const agentInfo = activeSession?.agentInfo ?? session.agentInfo;
-      const agentName = agentInfo?.title ?? agentInfo?.name ?? "Unknown Agent";
+    let apiKeys: unknown = [];
+    let deviceSessions: unknown = [];
 
-      return {
-        id: session.id,
-        sessionId: session.sessionId,
-        projectId: session.projectId,
-        projectRoot: session.projectRoot,
-        projectName: session.projectId
-          ? projects.find((p) => p.id === session.projectId)?.name
-          : session.projectRoot.split("/").pop(),
-        modeId: session.modeId,
-        status: session.status,
-        isActive,
-        createdAt: session.createdAt,
-        lastActiveAt: session.lastActiveAt,
-        agentInfo,
-        agentName,
-        messageCount: session.messages?.length ?? 0,
-      };
-    });
-
-    const sortedSessions = [...sessions];
-    sortedSessions.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-    return c.json({ sessions: sortedSessions });
-  });
-
-  /**
-   * GET /api/dashboard/stats - Get dashboard statistics
-   */
-  api.get("/dashboard/stats", (c: Context) => {
-    const projects = container.getProjects().findAll();
-    const sessions = container.getSessions().findAll();
-
-    const now = Date.now();
-    const oneDayAgo = now - 24 * 60 * 60 * 1000;
-    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
-
-    const recentSessions = sessions.filter(
-      (s: StoredSession) => s.lastActiveAt > oneDayAgo
-    );
-    const weeklySessions = sessions.filter(
-      (s: StoredSession) => s.lastActiveAt > oneWeekAgo
-    );
-    const runningSessions = sessions.filter(
-      (s: StoredSession) => s.status === "running"
-    );
-
-    const agentStats: Record<string, { count: number; running: number }> = {};
-    for (const session of sessions) {
-      const agentName =
-        session.agentInfo?.title ?? session.agentInfo?.name ?? "Unknown";
-      if (!agentStats[agentName]) {
-        agentStats[agentName] = { count: 0, running: 0 };
-      }
-      agentStats[agentName].count++;
-      if (session.status === "running") {
-        agentStats[agentName].running++;
-      }
+    try {
+      apiKeys = await auth.api.listApiKeys({ headers: c.req.raw.headers });
+    } catch (error) {
+      logger.error("Failed to load API keys", error as Error);
     }
 
-    return c.json({
-      totalProjects: projects.length,
-      totalSessions: sessions.length,
-      activeSessions: runningSessions.length,
-      recentSessions24h: recentSessions.length,
-      weeklySessions: weeklySessions.length,
-      agentStats,
-      serverUptime: process.uptime(),
-    });
-  });
-
-  // =========================================================================
-  // Log Endpoints
-  // =========================================================================
-
-  /**
-   * GET /api/logs - Query log entries
-   */
-  api.get("/logs", (c: Context) => {
-    const parsed = parseLogQueryParams(c.req.query());
-    if (!parsed.ok) {
-      return c.json({ error: parsed.error }, 400);
+    try {
+      deviceSessions = await auth.api.listDeviceSessions({
+        headers: c.req.raw.headers,
+      });
+    } catch (error) {
+      logger.error("Failed to load device sessions", error as Error);
     }
-    const logStore = container.getLogStore();
-    return c.json(logStore.list(parsed.query));
-  });
 
-  /**
-   * GET /api/logs/stream - Real-time log streaming (SSE)
-   */
-  api.get("/logs/stream", (c: Context) => {
-    const logStore = container.getLogStore();
-    const encoder = new TextEncoder();
+    const normalizedApiKeys = Array.isArray(apiKeys)
+      ? apiKeys.map((item) => normalizeApiKeyItem(item as never))
+      : [];
+    const normalizedDeviceSessions = Array.isArray(deviceSessions)
+      ? deviceSessions.map((item) => normalizeDeviceSessionItem(item as never))
+      : [];
 
-    let unsubscribe: (() => void) | null = null;
-    let heartbeat: ReturnType<typeof setInterval> | null = null;
-    let closed = false;
-    let controllerRef: ReadableStreamDefaultController<Uint8Array> | null =
-      null;
-
-    const close = () => {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      if (heartbeat) {
-        clearInterval(heartbeat);
-      }
-      if (unsubscribe) {
-        unsubscribe();
-      }
-      if (controllerRef) {
-        controllerRef.close();
-      }
-    };
-
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controllerRef = controller;
-        const send = (payload: string) => {
-          controller.enqueue(encoder.encode(payload));
-        };
-
-        send(
-          `event: connected\ndata: ${JSON.stringify({
-            ok: true,
-            ts: Date.now(),
-          })}\n\n`
-        );
-
-        unsubscribe = logStore.subscribe((entry) => {
-          if (closed) {
-            return;
-          }
-          send(`data: ${JSON.stringify(entry)}\n\n`);
-        });
-
-        heartbeat = setInterval(() => {
-          send(`: ping ${Date.now()}\n\n`);
-        }, 15_000);
-
-        c.req.raw.signal?.addEventListener("abort", close);
-      },
-      cancel() {
-        close();
-      },
+    const dashboardData = buildDashboardData({
+      projects,
+      sessions: storedSessions,
+      runtimeSessions,
+      agents,
+      apiKeys: normalizedApiKeys,
+      deviceSessions: normalizedDeviceSessions,
     });
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
-    });
-  });
+    const { tab, success, error, notice, restart } = c.req.query();
+    const normalizedTab = normalizeTab(tab);
+    const requiresRestart = restart
+      ? restart
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : undefined;
 
-  // =========================================================================
-  // Dashboard Stream (SSE)
-  // =========================================================================
-
-  /**
-   * GET /api/dashboard/stream - Real-time dashboard updates (SSE)
-   */
-  api.get("/dashboard/stream", (c: Context) => {
-    const eventBus = container.getEventBus();
-    const encoder = new TextEncoder();
-
-    let unsubscribe: (() => void) | null = null;
-    let heartbeat: ReturnType<typeof setInterval> | null = null;
-
-    const stream = new ReadableStream({
-      start(controller) {
-        const send = (event: string, data: unknown) => {
-          controller.enqueue(
-            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-          );
-        };
-
-        send("connected", { ok: true, ts: Date.now() });
-
-        unsubscribe = eventBus.subscribe((event) => {
-          if (event && typeof event === "object" && "type" in event) {
-            const eventType = (event as { type: string }).type;
-            send(eventType, { ts: Date.now(), event });
-            return;
-          }
-          send("refresh", { ts: Date.now(), event });
-        });
-
-        heartbeat = setInterval(() => {
-          send("ping", { ts: Date.now() });
-        }, 15_000);
-      },
-      cancel() {
-        if (heartbeat) {
-          clearInterval(heartbeat);
-          heartbeat = null;
-        }
-        if (unsubscribe) {
-          unsubscribe();
-          unsubscribe = null;
-        }
-      },
-    });
-
-    return c.body(stream, 200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    });
+    return renderDocument(
+      c,
+      createElement(DashboardPage, {
+        settings,
+        dashboardData,
+        activeTab: normalizedTab,
+        success: success === "1",
+        notice: notice || undefined,
+        errors: error ? { general: error } : undefined,
+        requiresRestart,
+      }),
+      {
+        title: "Eragear Server Dashboard",
+        bodyClassName: "bg-paper font-body text-ink antialiased",
+        bodyAttributes: { "data-active-tab": normalizedTab },
+      }
+    );
   });
 }

@@ -6,9 +6,11 @@
     "build": "tsdown && bun run ui:build",
     "check-types": "tsc -b",
     "compile": "bun run ui:build && bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile dist/server",
-    "dev": "NODE_ENV=development bun run --hot src/index.ts",
+    "dev": "bun run ./scripts/dev.ts",
     "start": "bun run dist/index.js",
-    "ui:build": "bun build ./ui/client.tsx --outfile ./public/client.js --target browser --format esm --minify && cp ./src/transport/http/ui/styles.css ./public/styles.css"
+    "ui": "bun run ui:watch",
+    "ui:build": "mkdir -p ./public/dashboard && bun build ./src/presentation/dashboard/client/index.tsx --outfile ./public/dashboard/client.js --target browser --format esm --minify && cp ./src/presentation/dashboard/styles.css ./public/dashboard/styles.css",
+    "ui:watch": "bun run ./scripts/watch-dashboard-assets.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.13.1",

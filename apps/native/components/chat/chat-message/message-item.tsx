@@ -1,18 +1,20 @@
-import type { UIMessage } from "@repo/shared";
-import { Accordion, Chip } from "heroui-native";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import type { UIMessage, UIMessagePart } from "@repo/shared";
+import React, { useMemo } from "react";
+import { Linking, Text, View } from "react-native";
 import { useChatStore } from "@/store/chat-store";
+import { AttachmentBadge } from "./attachment-badge";
+import { ChainOfThought } from "./agentic-chain";
 import {
-  ActivityRow,
-  buildActivityModel,
-  formatDuration,
-} from "./agentic-activity";
+  type FilePart,
+  type SourcePart,
+  isDataPart,
+  isMessageStreaming,
+  splitMessageParts,
+} from "./agentic-message-utils";
 import { MessageActions } from "./message-actions";
 import { MessagePartItem } from "./message-part-item";
-import { cn_inline } from "./utils";
-
-const MAX_VISIBLE_ACTIVITIES = 8;
+import MarkdownText from "./text-part";
+import { cn_inline, getPartKey } from "./utils";
 
 // Format timestamp for messages
 function formatMessageTime(timestamp: number | undefined): string {
@@ -42,9 +44,163 @@ function getMessageTimestamp(message: UIMessage): number {
   return Date.now();
 }
 
-const LIVE_IDLE_MS = 1200;
+const extractMessageText = (parts: UIMessage["parts"]) =>
+  parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .filter(Boolean)
+    .join("\n\n");
 
-type DisplayMode = "live" | "collapsed";
+const AttachmentList = ({
+  items,
+}: {
+  items: Array<SourcePart | FilePart>;
+}) => {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <View className="flex-row flex-wrap gap-2">
+      {items.map((part, index) => {
+        if (part.type === "source-url") {
+          const label = part.title ?? part.url;
+          return (
+            <AttachmentBadge
+              key={getPartKey(part, index)}
+              label={label}
+              onPress={() => Linking.openURL(part.url)}
+            />
+          );
+        }
+        if (part.type === "source-document") {
+          const label = part.title ?? part.filename ?? part.sourceId;
+          return (
+            <AttachmentBadge
+              key={getPartKey(part, index)}
+              label={label}
+            />
+          );
+        }
+        const label = part.filename ?? part.mediaType ?? "File";
+        return (
+          <AttachmentBadge
+            key={getPartKey(part, index)}
+            label={label}
+          />
+        );
+      })}
+    </View>
+  );
+};
+
+const UserMessageBody = ({ parts }: { parts: UIMessagePart[] }) => {
+  const displayParts = useMemo(
+    () => parts.filter((part) => !isDataPart(part)),
+    [parts]
+  );
+
+  return (
+    <View className="flex-col gap-1.5 items-end">
+      <View
+        className={cn_inline(
+          "flex-col gap-1.5 rounded-2xl px-4 py-3",
+          "max-w-[82%] self-end bg-accent text-white"
+        )}
+      >
+        {displayParts.map((part, index) => (
+          <MessagePartItem
+            key={getPartKey(part, index)}
+            part={part}
+          />
+        ))}
+      </View>
+    </View>
+  );
+};
+
+const AssistantMessageBody = ({
+  message,
+  isLiveMessage,
+}: {
+  message: UIMessage;
+  isLiveMessage: boolean;
+}) => {
+  const { chainItems, finalText, finalAttachments } = useMemo(
+    () => splitMessageParts(message.parts),
+    [message.parts]
+  );
+  const isStreaming =
+    isMessageStreaming(message.parts) || isLiveMessage;
+  const shouldShowFinal =
+    (!!finalText || finalAttachments.length > 0) &&
+    (!isStreaming || chainItems.length === 0);
+
+  if (chainItems.length === 0) {
+    const displayParts = message.parts.filter((part) => !isDataPart(part));
+    return (
+      <View className="flex-col gap-1.5 items-start">
+        <View
+          className={cn_inline(
+            "flex-col gap-1.5 rounded-2xl px-4 py-3",
+            "max-w-[88%] self-start bg-surface-foreground/5"
+          )}
+        >
+          {displayParts.map((part, index) => (
+            <MessagePartItem
+              key={getPartKey(part, index)}
+              part={part}
+            />
+          ))}
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View className="flex-col gap-3">
+      <ChainOfThought
+        isStreaming={isStreaming}
+        items={chainItems}
+        messageId={message.id}
+      />
+      {shouldShowFinal && (
+        <View className="flex-col gap-3">
+          {finalText ? <MarkdownText>{finalText}</MarkdownText> : null}
+          <AttachmentList items={finalAttachments} />
+        </View>
+      )}
+    </View>
+  );
+};
+
+const MessageHeader = ({
+  message,
+  isLiveMessage,
+}: {
+  message: UIMessage;
+  isLiveMessage: boolean;
+}) => {
+  const isUserMessage = message.role === "user";
+  return (
+    <View className="mb-1.5 flex-row items-center gap-2">
+      <Text className="text-[10px] text-muted-foreground">
+        {isUserMessage ? "You" : "Assistant"}
+      </Text>
+      <Text className="text-[10px] text-muted-foreground/50">·</Text>
+      <Text className="text-[10px] text-muted-foreground/70">
+        {formatMessageTime(getMessageTimestamp(message))}
+      </Text>
+      {isLiveMessage && !isUserMessage && (
+        <View className="flex-row items-center gap-1">
+          <View className="h-1.5 w-1.5 rounded-full bg-accent" />
+          <Text className="text-[10px] text-accent">Thinking...</Text>
+        </View>
+      )}
+    </View>
+  );
+};
+
 interface MessageItemProps {
   message: UIMessage;
   isLiveMessage: boolean;
@@ -59,287 +215,36 @@ interface MessageItemContainerProps {
   isLastMessage?: boolean;
 }
 
-const extractMessageText = (parts: UIMessage["parts"]) =>
-  parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .filter(Boolean)
-    .join("\n\n");
-
 export function MessageItem({
   message,
   isLiveMessage,
 }: MessageItemProps) {
   const isUser = message.role === "user";
-
-  // Use ref to track if this is a live message without causing re-renders
-  const isLiveMessageRef = useRef(isLiveMessage);
-  useEffect(() => {
-    isLiveMessageRef.current = isLiveMessage;
-  }, [isLiveMessage]);
-
-  const {
-    activities,
-    detailParts,
-    finalTextPart,
-    hasRunningTools,
-    thinkingCount,
-    toolCount,
-  } = useMemo(
-    () => buildActivityModel(message.parts, isLiveMessage),
-    [message.parts, isLiveMessage]
-  );
-
-  const hasActivities = activities.length > 0 && message.role === "assistant";
   const messageText = useMemo(
     () => extractMessageText(message.parts),
     [message.parts]
   );
   const showActions = message.role === "assistant" && messageText.length > 0;
 
-  const [displayMode, setDisplayMode] = useState<DisplayMode>(() =>
-    isLiveMessage && hasActivities ? "live" : "collapsed"
-  );
-  const [durationMs, setDurationMs] = useState(0);
-  const liveScrollRef = useRef<ScrollView | null>(null);
-
-  const firstActivityAtRef = useRef<number | null>(null);
-  const lastActivityAtRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    firstActivityAtRef.current = null;
-    lastActivityAtRef.current = null;
-    setDurationMs(0);
-    if (hasActivities && isLiveMessage) {
-      setDisplayMode("live");
-    } else if (hasActivities) {
-      setDisplayMode("collapsed");
-    }
-  }, [hasActivities, isLiveMessage]);
-
-  useEffect(() => {
-    if (!hasActivities) {
-      return;
-    }
-    const now = Date.now();
-    if (!firstActivityAtRef.current) {
-      firstActivityAtRef.current = now;
-    }
-    lastActivityAtRef.current = now;
-    if (isLiveMessageRef.current) {
-      setDisplayMode("live");
-    }
-  }, [hasActivities]);
-
-  useEffect(() => {
-    if (!hasActivities) {
-      return;
-    }
-    if (hasRunningTools) {
-      return;
-    }
-    if (!isLiveMessageRef.current) {
-      setDisplayMode("collapsed");
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setDisplayMode("collapsed");
-    }, LIVE_IDLE_MS);
-    return () => clearTimeout(timeout);
-  }, [hasActivities, hasRunningTools]);
-
-  useEffect(() => {
-    if (displayMode === "collapsed") {
-      const first = firstActivityAtRef.current;
-      const last = lastActivityAtRef.current;
-      if (first !== null && last !== null) {
-        setDurationMs(Math.max(0, last - first));
-      }
-    }
-    return undefined;
-  }, [displayMode]);
-
-  const showLive = displayMode !== "collapsed";
-  const visibleActivities =
-    displayMode === "live"
-      ? activities.slice(-MAX_VISIBLE_ACTIVITIES)
-      : activities;
-
-  useEffect(() => {
-    if (!showLive) {
-      return;
-    }
-    liveScrollRef.current?.scrollToEnd({ animated: false });
-  }, [showLive]);
-
-  if (!hasActivities || isUser) {
-    const isUserMessage = isUser;
-    return (
-      <View className="w-full">
-        {/* Message header with avatar and timestamp */}
-        <View className="mb-1.5 flex-row items-center gap-2">
-          <Text className="text-[10px] text-muted-foreground">
-            {isUserMessage ? "You" : "Assistant"}
-          </Text>
-          <Text className="text-[10px] text-muted-foreground/50">·</Text>
-          <Text className="text-[10px] text-muted-foreground/70">
-            {formatMessageTime(getMessageTimestamp(message))}
-          </Text>
-        </View>
-
-        <View
-          className={cn_inline(
-            "flex-col gap-1.5",
-            isUserMessage ? "items-end" : "items-start"
-          )}
-        >
-          <View
-            className={cn_inline(
-              "flex-col gap-1.5 rounded-2xl px-4 py-3",
-              isUserMessage
-                ? "max-w-[82%] self-end bg-accent text-white"
-                : "max-w-[88%] self-start bg-surface-foreground/5 text-foreground"
-            )}
-          >
-            {message.parts.map((part, index) => (
-              <MessagePartItem
-                key={`${part.type}-${index}`}
-                part={part}
-              />
-            ))}
-          </View>
+  return (
+    <View className="w-full">
+      <MessageHeader isLiveMessage={isLiveMessage} message={message} />
+      {isUser ? (
+        <UserMessageBody parts={message.parts} />
+      ) : (
+        <View className="w-full">
+          <AssistantMessageBody
+            isLiveMessage={isLiveMessage}
+            message={message}
+          />
           {showActions && (
             <MessageActions
-              className={cn_inline(isUserMessage ? "self-end" : "self-start")}
+              className="self-start"
               text={messageText}
             />
           )}
         </View>
-      </View>
-    );
-  }
-
-  const hiddenCount = Math.max(0, activities.length - visibleActivities.length);
-
-  const showSummary = displayMode !== "live";
-  const durationLabel = formatDuration(
-    displayMode === "collapsed"
-      ? durationMs
-      : Date.now() - (firstActivityAtRef.current ?? Date.now())
-  );
-  const summaryLabel = `${toolCount} tools, ${thinkingCount} thinking - ${durationLabel}`;
-
-  return (
-    <View className="w-full">
-      {/* Message header with timestamp */}
-      <View className="mb-1.5 flex-row items-center gap-2">
-        <Text className="text-[10px] text-muted-foreground">Assistant</Text>
-        <Text className="text-[10px] text-muted-foreground/50">·</Text>
-        <Text className="text-[10px] text-muted-foreground/70">
-          {formatMessageTime(getMessageTimestamp(message))}
-        </Text>
-        {/* Streaming indicator */}
-        {isLiveMessage && (
-          <View className="flex-row items-center gap-1">
-            <View className="h-1.5 w-1.5 rounded-full bg-accent" />
-            <Text className="text-[10px] text-accent">Thinking...</Text>
-          </View>
-        )}
-      </View>
-
-      <View className="w-full">
-        {showLive && (
-          <View>
-            <View className="mb-1 flex-row items-center justify-between">
-              <Text className="text-[11px] text-muted-foreground lowercase tracking-normal">
-                live activity
-              </Text>
-              <Chip color="accent" size="sm" variant="soft">
-                {activities.length}
-              </Chip>
-            </View>
-            <ScrollView
-              className="max-h-44"
-              ref={liveScrollRef}
-              showsVerticalScrollIndicator={false}
-            >
-              {visibleActivities.map((item, index) => (
-                <ActivityRow
-                  isCompact
-                  item={item}
-                  key={`${item.id}-${item.status}-${index}`}
-                />
-              ))}
-              {hiddenCount > 0 && (
-                <Text className="mt-1 text-muted-foreground text-xs">
-                  +{hiddenCount} activities hidden
-                </Text>
-              )}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Show Summary */}
-        {showSummary && (
-          <View key={`summary-${message.id}`}>
-            <Accordion variant="default">
-              <Accordion.Item value={`summary-${message.id}`}>
-                <Accordion.Trigger className="min-h-7 px-1.5 py-1">
-                  <View className="flex-row items-center justify-between">
-                    <View className="flex-1 pr-2">
-                      <Text
-                        className="text-[11px] text-muted-foreground"
-                        numberOfLines={1}
-                      >
-                        activity · {summaryLabel}
-                      </Text>
-                    </View>
-                    <View className="flex-row items-center gap-2">
-                      <Text className="text-[10px] text-muted-foreground">
-                        {activities.length}
-                      </Text>
-                      <Accordion.Indicator />
-                    </View>
-                  </View>
-                </Accordion.Trigger>
-                <Accordion.Content className="px-1.5 pt-0 pb-1">
-                  <View className="flex-col gap-1">
-                    {activities.map((item, index) => (
-                      <View
-                        className="py-0.5"
-                        key={`${item.id}-${item.status}-${index}`}
-                      >
-                        <ActivityRow isCompact item={item} />
-                      </View>
-                    ))}
-                  </View>
-                  {detailParts.length > 0 && (
-                    <View className="mt-3">
-                        {detailParts.map((part, index) => (
-                          <MessagePartItem
-                            key={`detail-${part.type}-${index}`}
-                            part={part}
-                          />
-                        ))}
-                    </View>
-                  )}
-                </Accordion.Content>
-              </Accordion.Item>
-            </Accordion>
-          </View>
-        )}
-
-        {displayMode === "collapsed" && finalTextPart && (
-          <View className="mt-2">
-            <MessagePartItem
-              part={finalTextPart}
-            />
-          </View>
-        )}
-        {showActions && (
-          <MessageActions className="self-start" text={messageText} />
-        )}
-      </View>
+      )}
     </View>
   );
 }

@@ -7,7 +7,6 @@
  * @module transport/http/routes/helpers
  */
 
-import type { Context } from "hono";
 import {
   DEFAULT_LOG_QUERY_LIMIT,
   MAX_LOG_QUERY_LIMIT,
@@ -18,29 +17,11 @@ import type {
   ApiKeyCreateResponse,
   ApiKeyItem,
   DeviceSessionItem,
-} from "../ui/dashboard-data";
-
-// =============================================================================
-// Types
-// =============================================================================
-
-export type FormDataRecord = Record<string, string | File | undefined>;
+} from "@/presentation/dashboard/dashboard-data";
 
 export type LogQueryResult =
   | { ok: true; query: LogQuery }
   | { ok: false; error: string };
-
-// =============================================================================
-// Form Data Helpers
-// =============================================================================
-
-/**
- * Extracts a string value from form data
- */
-export function getFormValue(formData: FormDataRecord, key: string): string {
-  const value = formData[key];
-  return typeof value === "string" ? value : "";
-}
 
 /**
  * Converts a value to ISO string format
@@ -210,25 +191,4 @@ export function parseLogQueryParams(
       order: (order as LogQuery["order"]) ?? "desc",
     },
   };
-}
-
-// =============================================================================
-// Redirect Helpers
-// =============================================================================
-
-/**
- * Redirects to root with optional query parameters
- */
-export function redirectWithParams(
-  c: Context,
-  params: Record<string, string | undefined>
-): Response {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value) {
-      search.set(key, value);
-    }
-  }
-  const query = search.toString();
-  return c.redirect(query ? `/?${query}` : "/");
 }

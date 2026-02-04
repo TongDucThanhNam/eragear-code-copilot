@@ -8,12 +8,12 @@
  *
  * | Module | Endpoints |
  * |--------|-----------|
- * | settings | `/api/ui-settings`, `/form/settings` |
- * | dashboard | `/api/dashboard/*`, `/api/logs/*` |
- * | sessions | `/api/sessions/*`, `/form/sessions/*` |
- * | projects | `/api/projects/*`, `/form/projects/*` |
- * | agents | `/api/agents/*`, `/form/agents/*` |
- * | admin | `/api/admin/*`, `/form/admin/*` |
+ * | settings | `/api/ui-settings` |
+ * | dashboard-api | `/api/dashboard/*`, `/api/logs/*` |
+ * | sessions | `/api/sessions/*` |
+ * | projects | `/api/projects/*` |
+ * | agents | `/api/agents/*` |
+ * | admin | `/api/admin/*` |
  *
  * @module transport/http/routes
  */
@@ -23,7 +23,7 @@ import type { Hono } from "hono";
 // Feature route modules
 import { registerAdminRoutes } from "./admin";
 import { registerAgentRoutes } from "./agents";
-import { registerDashboardRoutes } from "./dashboard";
+import { registerDashboardApiRoutes } from "./dashboard-api";
 import { registerProjectRoutes } from "./projects";
 import { registerSessionRoutes } from "./sessions";
 import { registerSettingsRoutes } from "./settings";
@@ -40,26 +40,25 @@ import { registerSettingsRoutes } from "./settings";
  * ```typescript
  * const api = new Hono();
  * const form = new Hono();
- * registerHttpRoutes(api, form);
+ * registerHttpRoutes(api);
  * app.route("/api", api);
- * app.route("/form", form);
  * ```
  */
-export function registerHttpRoutes(api: Hono, form: Hono): void {
+export function registerHttpRoutes(api: Hono): void {
   // Register feature routes in logical order
-  registerSettingsRoutes(api, form);   // Settings must be first (used by dashboard)
-  registerDashboardRoutes(api);        // Dashboard data & streams
-  registerSessionRoutes(api, form);    // Session management
-  registerProjectRoutes(api, form);    // Project CRUD
-  registerAgentRoutes(api, form);      // Agent configuration
-  registerAdminRoutes(api, form);      // Admin operations (API keys, device sessions)
+  registerSettingsRoutes(api);         // Settings must be first (used by dashboard)
+  registerDashboardApiRoutes(api);     // Dashboard data & streams
+  registerSessionRoutes(api);          // Session management
+  registerProjectRoutes(api);          // Project CRUD
+  registerAgentRoutes(api);            // Agent configuration
+  registerAdminRoutes(api);            // Admin operations (API keys, device sessions)
 }
 
 // Re-export individual route registrations for direct use if needed
 export {
   registerAdminRoutes,
   registerAgentRoutes,
-  registerDashboardRoutes,
+  registerDashboardApiRoutes,
   registerProjectRoutes,
   registerSessionRoutes,
   registerSettingsRoutes,

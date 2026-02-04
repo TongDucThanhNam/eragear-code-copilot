@@ -1,7 +1,7 @@
 "use client";
 
-import { memo } from "react";
 import { Info, LogOut, Play, Radio, RefreshCw } from "lucide-react";
+import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -39,12 +39,11 @@ const ChatHeaderBase = ({
   connStatus,
   agentModels,
   onStopChat,
-  onNewChat,
   onResumeChat,
   isResuming,
   resumeNotSupported,
   sessionAgentInfo,
-}: ChatHeaderProps) {
+}: ChatHeaderProps) => {
   const activeAgent = agentModels.find((a) => a.id === activeAgentId);
   // Prefer session agent info (from actual agent) over activeAgentId lookup
   const agentName =

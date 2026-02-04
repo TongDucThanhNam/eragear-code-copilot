@@ -1,5 +1,6 @@
 import type { ToolUIPart, UIMessagePart } from "@repo/shared";
-import { Linking, Pressable, Text, View } from "react-native";
+import { Linking, Text, View } from "react-native";
+import { AttachmentBadge } from "./attachment-badge";
 import { PlanPart } from "./plan-part";
 import { ReasoningPart } from "./reasoning-part";
 import MarkdownText from "./text-part";
@@ -23,46 +24,32 @@ const isPlanOutput = (
   output !== null &&
   Array.isArray((output as { entries?: unknown }).entries);
 
-const SourceBadge = ({
-  label,
-  onPress,
-}: {
-  label: string;
-  onPress?: () => void;
-}) => (
-  <Pressable
-    className="mt-2 mb-2 rounded border border-divider px-2 py-1"
-    disabled={!onPress}
-    onPress={onPress}
-  >
-    <Text className="text-[11px] text-accent" numberOfLines={1}>
-      {label}
-    </Text>
-  </Pressable>
-);
-
 export function PartRenderers({ part }: PartRenderersProps) {
   switch (part.type) {
     case "text":
       return <MarkdownText>{part.text}</MarkdownText>;
 
     case "reasoning":
-      return <ReasoningPart text={part.text} />;
+      return <ReasoningPart state={part.state} text={part.text} />;
     case "source-url": {
       const label = part.title ?? part.url;
       return (
-        <SourceBadge label={label} onPress={() => Linking.openURL(part.url)} />
+        <AttachmentBadge
+          className="mt-2 mb-2"
+          label={label}
+          onPress={() => Linking.openURL(part.url)}
+        />
       );
     }
 
     case "source-document": {
       const label = part.title ?? part.filename ?? part.sourceId;
-      return <SourceBadge label={label} />;
+      return <AttachmentBadge className="mt-2 mb-2" label={label} />;
     }
 
     case "file": {
       const label = part.filename ?? part.mediaType ?? "File";
-      return <SourceBadge label={label} />;
+      return <AttachmentBadge className="mt-2 mb-2" label={label} />;
     }
 
     case "step-start":

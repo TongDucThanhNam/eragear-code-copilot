@@ -9,7 +9,9 @@ import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatInput } from "@/components/chat-ui/chat-input";
+import { ChatPlanDock } from "@/components/chat-ui/chat-plan-dock";
 import { ChatMessages } from "@/components/chat-ui/chat-messages";
+import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import { useChat } from "@/hooks/use-chat";
 import { trpc } from "@/lib/trpc";
@@ -45,6 +47,10 @@ export function ChatInterface({
   const { data: sessionsData } = trpc.getSessions.useQuery();
 
   const activeAgentId = agentsData?.activeAgentId;
+  const agentModels = useMemo(
+    () => agentsData?.agents ?? [],
+    [agentsData?.agents]
+  );
   const projects = useProjectStore((state) => state.projects);
   const activeProjectId = useProjectStore((state) => state.activeProjectId);
   const activeProject = useMemo(
@@ -63,6 +69,9 @@ export function ChatInterface({
   const [isQuickSwitchOpen, setIsQuickSwitchOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatIdRef = useRef<string | null>(initialChatId || null);
+  const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
+  const handledPermissionIdRef = useRef<string | null>(null);
+  const lastPermissionIdRef = useRef<string | null>(null);
 
   // Use the unified useChat hook
   const {
@@ -70,6 +79,7 @@ export function ChatInterface({
     status,
     connStatus,
     isStreaming,
+    pendingPermission,
     terminalOutputs,
     modes,
     models,
@@ -77,10 +87,7 @@ export function ChatInterface({
     promptCapabilities,
     agentInfo: sessionAgentInfo,
     loadSessionSupported,
-    isSending,
-    isCancelling,
     isResuming,
-    error,
     sendMessage,
     cancelPrompt,
     setMode: handleSetModeAction,
@@ -101,18 +108,26 @@ export function ChatInterface({
   });
 
   // Derived state for UI
-  const availableModes =
-    modes?.availableModes.map((m) => ({
+  const availableModes = useMemo(() => {
+    if (!modes?.availableModes) {
+      return [];
+    }
+    return modes.availableModes.map((m) => ({
       ...m,
       description: m.description || undefined,
-    })) || [];
+    }));
+  }, [modes?.availableModes]);
   const currentModeId = modes?.currentModeId || null;
-  const availableModels =
-    models?.availableModels.map((m) => ({
+  const availableModels = useMemo(() => {
+    if (!models?.availableModels) {
+      return [];
+    }
+    return models.availableModels.map((m) => ({
       modelId: m.modelId,
       name: m.name,
       description: m.description || undefined,
-    })) || [];
+    }));
+  }, [models?.availableModels]);
   const currentModelId = models?.currentModelId || null;
   const availableCommands = commands;
 
@@ -239,31 +254,109 @@ export function ChatInterface({
   const createSessionMutation = trpc.createSession.useMutation();
   const setActiveAgentMutation = trpc.agents.setActive.useMutation();
 
-  const handleApproveTool = useCallback(
-    (requestId: string, decision = "allow") => {
-      if (!chatId) {
+  useEffect(() => {
+    const requestId = pendingPermission?.requestId ?? null;
+    if (!requestId) {
+      setPermissionDialogOpen(false);
+      lastPermissionIdRef.current = null;
+      return;
+    }
+    if (requestId !== lastPermissionIdRef.current) {
+      lastPermissionIdRef.current = requestId;
+      handledPermissionIdRef.current = null;
+      setPermissionDialogOpen(true);
+    }
+  }, [pendingPermission?.requestId]);
+
+  const handlePermissionDecision = useCallback(
+    (decision: string) => {
+      const requestId = pendingPermission?.requestId;
+      if (!requestId || handledPermissionIdRef.current === requestId) {
         return;
       }
+      handledPermissionIdRef.current = requestId;
+      setPermissionDialogOpen(false);
       respondToPermission(requestId, decision);
     },
-    [chatId, respondToPermission]
+    [pendingPermission?.requestId, respondToPermission]
   );
 
-  const handleRejectTool = useCallback(
-    (requestId: string, decision = "reject") => {
-      if (!chatId) {
+  const defaultRejectDecision = useMemo(() => {
+    const options = pendingPermission?.options;
+    const list = Array.isArray(options) ? options : (options?.options ?? []);
+    const fallback = "reject";
+    if (list.length === 0) {
+      return fallback;
+    }
+    const rejectOption = list.find((option) => {
+      const id = String(
+        option.optionId ??
+          option.id ??
+          option.kind ??
+          option.name ??
+          option.label ??
+          ""
+      ).toLowerCase();
+      return id.includes("reject") || id.includes("deny") || id.includes("no");
+    });
+    if (!rejectOption) {
+      return fallback;
+    }
+    return String(
+      rejectOption.optionId ??
+        rejectOption.id ??
+        rejectOption.kind ??
+        rejectOption.name ??
+        rejectOption.label ??
+        fallback
+    );
+  }, [pendingPermission?.options]);
+
+  const handlePermissionApprove = useCallback(
+    (decision: string) => {
+      handlePermissionDecision(decision);
+    },
+    [handlePermissionDecision]
+  );
+
+  const handlePermissionReject = useCallback(
+    (decision?: string) => {
+      handlePermissionDecision(decision ?? defaultRejectDecision);
+    },
+    [defaultRejectDecision, handlePermissionDecision]
+  );
+
+  const handlePermissionDialogOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        setPermissionDialogOpen(true);
         return;
       }
-      respondToPermission(requestId, decision);
+      setPermissionDialogOpen(false);
+      const requestId = pendingPermission?.requestId;
+      if (!requestId || handledPermissionIdRef.current === requestId) {
+        return;
+      }
+      handledPermissionIdRef.current = requestId;
+      respondToPermission(requestId, defaultRejectDecision);
     },
-    [chatId, respondToPermission]
+    [defaultRejectDecision, pendingPermission?.requestId, respondToPermission]
   );
+
+  useEffect(() => {
+    if (chatId) {
+      return;
+    }
+    setPermissionDialogOpen(false);
+    handledPermissionIdRef.current = null;
+    lastPermissionIdRef.current = null;
+  }, [chatId]);
 
   // Session initialization
   const initChat = useCallback(
     async (agentId?: string) => {
       const targetId = agentId || activeAgentId;
-      const agent = agentsData?.agents.find(
+      const agent = agentModels.find(
         (a: { id: string }) => a.id === targetId
       );
       const currentProject = useProjectStore.getState().getActiveProject();
@@ -328,7 +421,7 @@ export function ChatInterface({
     [
       createSessionMutation,
       onChatIdChange,
-      agentsData,
+      agentModels,
       activeAgentId,
       restoreSessionState,
       setConnStatus,
@@ -336,21 +429,24 @@ export function ChatInterface({
     ]
   );
 
-  const handleNewChat = (agentId: string) => {
-    setMessages([]);
-    setChatId(null);
-    chatIdRef.current = null;
-    useDiffStore.getState().clearDiffs();
+  const handleNewChat = useCallback(
+    (agentId: string) => {
+      setMessages([]);
+      setChatId(null);
+      chatIdRef.current = null;
+      useDiffStore.getState().clearDiffs();
 
-    if (onChatIdChange) {
-      onChatIdChange(null);
-    }
+      if (onChatIdChange) {
+        onChatIdChange(null);
+      }
 
-    setActiveAgentMutation.mutate({ id: agentId });
-    initChat(agentId);
-  };
+      setActiveAgentMutation.mutate({ id: agentId });
+      initChat(agentId);
+    },
+    [initChat, onChatIdChange, setActiveAgentMutation, setChatId, setMessages]
+  );
 
-  const handleStopChat = async () => {
+  const handleStopChat = useCallback(async () => {
     const targetChatId = chatIdRef.current;
     if (!targetChatId) {
       return;
@@ -366,9 +462,9 @@ export function ChatInterface({
     } catch (e) {
       console.error("Failed to stop chat", e);
     }
-  };
+  }, [onChatIdChange, setChatId, stopSession]);
 
-  const handleCancel = async () => {
+  const handleCancel = useCallback(async () => {
     if (!chatId) {
       return;
     }
@@ -377,9 +473,9 @@ export function ChatInterface({
     } catch (e) {
       console.error("Failed to cancel prompt", e);
     }
-  };
+  }, [cancelPrompt, chatId]);
 
-  const handleResume = async () => {
+  const handleResume = useCallback(async () => {
     if (!chatId) {
       return;
     }
@@ -388,118 +484,134 @@ export function ChatInterface({
     } catch (e) {
       console.error("Failed to resume chat", e);
     }
-  };
+  }, [chatId, resumeSession]);
 
-  const handleSetMode = async (modeId: string) => {
-    if (!chatId) {
-      return;
-    }
-    if (connStatus !== "connected") {
-      toast.error("Session is not connected");
-      return;
-    }
-    try {
-      await handleSetModeAction(modeId);
-    } catch (e) {
-      console.error("Failed to set mode", e);
-      toast.error(e instanceof Error ? e.message : "Failed to set mode");
-    }
-  };
+  const handleSetMode = useCallback(
+    async (modeId: string) => {
+      if (!chatId) {
+        return;
+      }
+      if (connStatus !== "connected") {
+        toast.error("Session is not connected");
+        return;
+      }
+      try {
+        await handleSetModeAction(modeId);
+      } catch (e) {
+        console.error("Failed to set mode", e);
+        toast.error(e instanceof Error ? e.message : "Failed to set mode");
+      }
+    },
+    [chatId, connStatus, handleSetModeAction]
+  );
 
-  const handleSetModel = async (modelId: string) => {
-    if (!chatId) {
-      return;
-    }
-    if (connStatus !== "connected") {
-      toast.error("Session is not connected");
-      return;
-    }
-    try {
-      await handleSetModelAction(modelId);
-    } catch (e) {
-      console.error("Failed to set model", e);
-      toast.error(e instanceof Error ? e.message : "Failed to set model");
-    }
-  };
+  const handleSetModel = useCallback(
+    async (modelId: string) => {
+      if (!chatId) {
+        return;
+      }
+      if (connStatus !== "connected") {
+        toast.error("Session is not connected");
+        return;
+      }
+      try {
+        await handleSetModelAction(modelId);
+      } catch (e) {
+        console.error("Failed to set model", e);
+        toast.error(e instanceof Error ? e.message : "Failed to set model");
+      }
+    },
+    [chatId, connStatus, handleSetModelAction]
+  );
 
   // Handle submit
-  const handleSubmit = async (message: PromptInputMessage) => {
-    if (connStatus !== "connected") {
-      toast.error("Session is not connected");
-      return;
-    }
-    const hasText = Boolean(message.text);
-    const hasFiles = message.files.length > 0;
-    const hasMentions = (message.mentions?.length ?? 0) > 0;
-    if (!(hasText || hasFiles || hasMentions)) {
-      return;
-    }
-
-    const images: { base64: string; mimeType: string }[] = [];
-    for (const filePart of message.files) {
-      if (filePart.file?.type.startsWith("image/")) {
-        try {
-          const base64 = await convertFileToBase64(filePart.file);
-          images.push({
-            base64,
-            mimeType: filePart.file.type,
-          });
-        } catch (e) {
-          console.error("Failed to convert file to base64", e);
-        }
+  const handleSubmit = useCallback(
+    async (message: PromptInputMessage) => {
+      if (connStatus !== "connected") {
+        toast.error("Session is not connected");
+        return;
       }
-    }
-
-    const mentionPaths = Array.from(new Set(message.mentions ?? []));
-    const resources: { uri: string; text: string; mimeType?: string }[] = [];
-    const resourceLinks: { uri: string; name: string; mimeType?: string }[] =
-      [];
-
-    const buildFileUri = (path: string) => {
-      if (activeProject?.path) {
-        const base = activeProject.path.replace(/\\/g, "/");
-        return `file://${base}/${path}`;
+      const hasText = Boolean(message.text);
+      const hasFiles = message.files.length > 0;
+      const hasMentions = (message.mentions?.length ?? 0) > 0;
+      if (!(hasText || hasFiles || hasMentions)) {
+        return;
       }
-      return path;
-    };
 
-    if (mentionPaths.length > 0 && chatId) {
-      if (promptCapabilities?.embeddedContext) {
-        const results = await Promise.allSettled(
-          mentionPaths.map(async (path) => {
-            const res = await utils.getFileContent.fetch({ chatId, path });
-            return { path, content: res.content };
-          })
-        );
-
-        for (const result of results) {
-          if (result.status === "fulfilled") {
-            resources.push({
-              uri: buildFileUri(result.value.path),
-              text: result.value.content,
-              mimeType: "text/plain",
+      const images: { base64: string; mimeType: string }[] = [];
+      for (const filePart of message.files) {
+        if (filePart.file?.type.startsWith("image/")) {
+          try {
+            const base64 = await convertFileToBase64(filePart.file);
+            images.push({
+              base64,
+              mimeType: filePart.file.type,
             });
-          } else {
-            console.error("Failed to load mention file", result.reason);
-            toast.error("Failed to load referenced file.");
+          } catch (e) {
+            console.error("Failed to convert file to base64", e);
           }
         }
-      } else {
-        resourceLinks.push(
-          ...mentionPaths.map((path) => ({
-            uri: buildFileUri(path),
-            name: path,
-          }))
-        );
       }
-    }
 
-    sendMessage(message.text, {
-      images: images.length > 0 ? images : undefined,
-      resources: resources.length > 0 ? resources : undefined,
-      resourceLinks: resourceLinks.length > 0 ? resourceLinks : undefined,
-    });
-  };
+      const mentionPaths = Array.from(new Set(message.mentions ?? []));
+      const resources: { uri: string; text: string; mimeType?: string }[] = [];
+      const resourceLinks: { uri: string; name: string; mimeType?: string }[] =
+        [];
+
+      const buildFileUri = (path: string) => {
+        if (activeProject?.path) {
+          const base = activeProject.path.replace(/\\/g, "/");
+          return `file://${base}/${path}`;
+        }
+        return path;
+      };
+
+      if (mentionPaths.length > 0 && chatId) {
+        if (promptCapabilities?.embeddedContext) {
+          const results = await Promise.allSettled(
+            mentionPaths.map(async (path) => {
+              const res = await utils.getFileContent.fetch({ chatId, path });
+              return { path, content: res.content };
+            })
+          );
+
+          for (const result of results) {
+            if (result.status === "fulfilled") {
+              resources.push({
+                uri: buildFileUri(result.value.path),
+                text: result.value.content,
+                mimeType: "text/plain",
+              });
+            } else {
+              console.error("Failed to load mention file", result.reason);
+              toast.error("Failed to load referenced file.");
+            }
+          }
+        } else {
+          resourceLinks.push(
+            ...mentionPaths.map((path) => ({
+              uri: buildFileUri(path),
+              name: path,
+            }))
+          );
+        }
+      }
+
+      sendMessage(message.text, {
+        images: images.length > 0 ? images : undefined,
+        resources: resources.length > 0 ? resources : undefined,
+        resourceLinks: resourceLinks.length > 0 ? resourceLinks : undefined,
+      });
+    },
+    [
+      activeProject,
+      chatId,
+      connStatus,
+      promptCapabilities?.embeddedContext,
+      sendMessage,
+      utils.getFileContent,
+    ]
+  );
 
   // Project context
   const { data: projectContext } = trpc.getProjectContext.useQuery(
@@ -573,7 +685,7 @@ export function ChatInterface({
     <div className="relative flex size-full flex-col divide-y overflow-hidden">
       <ChatHeader
         activeAgentId={activeAgentId || null}
-        agentModels={agentsData?.agents || []}
+        agentModels={agentModels}
         connStatus={connStatus}
         isResuming={isResuming}
         onNewChat={handleNewChat}
@@ -586,32 +698,40 @@ export function ChatInterface({
 
       <ChatMessages
         messages={messages}
-        onApprove={handleApproveTool}
-        onReject={handleRejectTool}
         terminalOutputs={terminalOutputs}
       />
 
-      <ChatInput
-        activeTabs={projectContext?.activeTabs}
-        availableCommands={availableCommands}
-        availableModels={availableModels}
-        availableModes={availableModes}
-        connStatus={connStatus}
-        currentModeId={currentModeId}
-        currentModelId={currentModelId}
-        onCancel={handleCancel}
-        onModeChange={handleSetMode}
-        onModelChange={handleSetModel}
-        onSubmit={handleSubmit}
-        projectRules={projectContext?.projectRules}
-        status={status}
-        textareaRef={textareaRef}
-      />
+      <div className="relative">
+        <ChatPlanDock messages={messages} />
+        <ChatInput
+          activeTabs={projectContext?.activeTabs}
+          availableCommands={availableCommands}
+          availableModels={availableModels}
+          availableModes={availableModes}
+          connStatus={connStatus}
+          currentModeId={currentModeId}
+          currentModelId={currentModelId}
+          onCancel={handleCancel}
+          onModeChange={handleSetMode}
+          onModelChange={handleSetModel}
+          onSubmit={handleSubmit}
+          projectRules={projectContext?.projectRules}
+          status={status}
+          textareaRef={textareaRef}
+        />
+      </div>
       <QuickSwitchDialog
         onOpenChange={setIsQuickSwitchOpen}
         onSelect={selectSession}
         open={isQuickSwitchOpen}
         sessions={quickSwitchSessions}
+      />
+      <PermissionDialog
+        onApprove={handlePermissionApprove}
+        onOpenChange={handlePermissionDialogOpenChange}
+        onReject={handlePermissionReject}
+        open={permissionDialogOpen}
+        request={pendingPermission}
       />
     </div>
   );

@@ -281,7 +281,7 @@ const ChatInputBase = ({
   projectRules = [],
   availableCommands = [],
   onCancel,
-}: ChatInputProps) {
+}: ChatInputProps) => {
   const files = useFileStore((state) => state.files);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [mentions, setMentions] = useState<

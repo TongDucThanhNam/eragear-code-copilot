@@ -9,6 +9,7 @@
 
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { ChatSession } from "@/shared/types/session.types";
 import {
   mapStopReasonToFinishReason,
   maybeBroadcastChatFinish,
@@ -176,22 +177,68 @@ export class SendMessageService {
       message: uiMessage,
     });
 
+    const promptTask = this.handlePrompt({
+      chatId: input.chatId,
+      session,
+      prompt,
+      broadcast,
+    });
+
+    const ackTimeoutMs = 250;
+    const outcome = await Promise.race([
+      promptTask.then((result) => ({ type: "result" as const, result })),
+      new Promise<{ type: "ack" }>((resolve) =>
+        setTimeout(() => resolve({ type: "ack" }), ackTimeoutMs)
+      ),
+    ]);
+
+    if (outcome.type === "result") {
+      return { ...outcome.result, userMessageId: msgId };
+    }
+
+    // Prompt is still running; return an acknowledgement and rely on chat_finish
+    // for the final stopReason.
+    promptTask.catch(() => {
+      // Errors are handled via status updates/broadcasts inside handlePrompt.
+    });
+
+    return {
+      stopReason: "submitted",
+      finishReason: mapStopReasonToFinishReason("submitted"),
+      assistantMessageId:
+        session.uiState.lastAssistantId ?? session.uiState.currentAssistantId,
+      userMessageId: msgId,
+    };
+  }
+
+  private async handlePrompt(params: {
+    chatId: string;
+    session: ChatSession;
+    prompt: ReturnType<typeof buildPrompt>;
+    broadcast: SessionRuntimePort["broadcast"];
+  }): Promise<{
+    stopReason: string;
+    finishReason: string;
+    assistantMessageId?: string;
+  }> {
+    const { chatId, session, prompt, broadcast } = params;
+
     const markStopped = (reason: string) => {
-      this.sessionRuntime.broadcast(input.chatId, {
+      this.sessionRuntime.broadcast(chatId, {
         type: "error",
         error: reason,
       });
       updateChatStatus({
-        chatId: input.chatId,
+        chatId,
         session,
         broadcast,
         status: "error",
       });
-      this.sessionRepo.updateStatus(input.chatId, "stopped");
+      this.sessionRepo.updateStatus(chatId, "stopped");
       if (!session.proc.killed) {
         session.proc.kill();
       }
-      this.sessionRuntime.delete(input.chatId);
+      this.sessionRuntime.delete(chatId);
     };
 
     let res: { stopReason: string } | null = null;
@@ -219,7 +266,7 @@ export class SendMessageService {
           throw new Error(errorText || "Agent process exited");
         }
         updateChatStatus({
-          chatId: input.chatId,
+          chatId,
           session,
           broadcast,
           status: "error",
@@ -229,7 +276,7 @@ export class SendMessageService {
     }
     if (!res) {
       updateChatStatus({
-        chatId: input.chatId,
+        chatId,
         session,
         broadcast,
         status: "error",
@@ -240,7 +287,7 @@ export class SendMessageService {
     if (session.buffer) {
       const message = session.buffer.flush();
       if (message) {
-        this.sessionRepo.appendMessage(input.chatId, {
+        this.sessionRepo.appendMessage(chatId, {
           id: message.id,
           role: "assistant",
           content: message.content,
@@ -257,7 +304,7 @@ export class SendMessageService {
       : null;
     if (current) {
       finalizeStreamingParts(current);
-      this.sessionRuntime.broadcast(input.chatId, {
+      this.sessionRuntime.broadcast(chatId, {
         type: "ui_message",
         message: current,
       });
@@ -266,14 +313,14 @@ export class SendMessageService {
 
     setChatFinishStopReason(session, res.stopReason);
     maybeBroadcastChatFinish({
-      chatId: input.chatId,
+      chatId,
       session,
       broadcast,
     });
 
     if (session.chatStatus === "submitted") {
       updateChatStatus({
-        chatId: input.chatId,
+        chatId,
         session,
         broadcast,
         status: "ready",
@@ -285,7 +332,6 @@ export class SendMessageService {
       finishReason: mapStopReasonToFinishReason(res.stopReason),
       assistantMessageId:
         session.uiState.lastAssistantId ?? session.uiState.currentAssistantId,
-      userMessageId: msgId,
     };
   }
 }

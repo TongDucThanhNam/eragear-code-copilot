@@ -23,6 +23,7 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 - `src/bootstrap/container.ts`: DI wiring ports/adapters; nơi thêm adapter mới.
 - `src/transport/trpc/router.ts` + `src/transport/trpc/routers/*.ts`: API boundary & procedure definitions.
 - `src/infra/acp/*`: ACP bridge (connection, handlers, permission, tool-calls, update).
+- `src/presentation/dashboard/*`: dashboard UI (server render + client entry + styles).
 
 ## 3) Flow Catalog (chuẩn repo, dùng để đặt logic đúng chỗ)
 
@@ -65,6 +66,19 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 1. Application gọi `SessionRepositoryPort` (port ở `src/modules/session/application/ports`).
 2. Implementation là JSON repo (`src/modules/session/infra/session.repository.json.ts`).
 3. JSON store dùng `src/infra/storage/json-store.ts` → `.eragear/*.json`.
+
+## 3.5) Dashboard UI Map (điểm vào rõ ràng)
+
+- UI entry: `/_/dashboard` (redirect từ `/` và `/dashboard`).
+- UI route + assets mount: `src/transport/http/routes/dashboard.ts`.
+- Dashboard API data/streams: `src/transport/http/routes/dashboard-api.ts`.
+- Server render: `src/presentation/dashboard/dashboard-view.tsx`,
+  `src/presentation/dashboard/server/document.tsx`,
+  `src/presentation/dashboard/server/render-document.ts`.
+- Client behavior: `src/presentation/dashboard/client/index.tsx`.
+- Styles source: `src/presentation/dashboard/styles.css`.
+- Build output: `public/dashboard/client.js`, `public/dashboard/styles.css`.
+- Build commands: `bun run ui:build`, `bun run ui:watch`.
 
 ## 4) Decision Table: đặt code ở đâu?
 
@@ -127,9 +141,10 @@ Tài liệu vận hành cho dev/AI khi làm việc trong `apps/server`: đọc x
 
 ## 8) Test & Debug Map (nhanh, thực dụng)
 
-- **Run dev**: `bun run dev` (entry: `src/index.ts`).
+- **Run dev**: `bun run dev` (entry: `src/index.ts`, kèm `ui:watch`).
 - **Type check**: `bun run check-types`.
 - **Build**: `bun run build` (gồm UI build).
+- **Dashboard assets**: `bun run ui:build` (one-off) hoặc `bun run ui` / `bun run ui:watch` (watch build ra `public/dashboard/*`).
 - **Log tags chính**: `[Server]`, `[DEBUG]`, `[Storage]` (xem trong `src/**`).
 - **ACP handlers**: `src/infra/acp/handlers.ts`, update logic ở `src/infra/acp/update.ts`.
 - **Runtime & broadcast**: `src/modules/session/infra/runtime-store.ts`.

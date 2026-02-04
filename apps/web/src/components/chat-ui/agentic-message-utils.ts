@@ -1,4 +1,3 @@
-import type { PermissionOption } from "@agentclientprotocol/sdk";
 import type {
   TextUIPart,
   ToolUIPart,
@@ -13,13 +12,6 @@ const FINAL_PART_TYPES = new Set([
   "file",
 ]);
 
-export type PermissionEntry = {
-  requestId: string;
-  options?:
-    | PermissionOption[]
-    | { allowOther?: boolean; options?: PermissionOption[] };
-};
-
 export type SourcePart = Extract<
   UIMessagePart,
   { type: "source-url" | "source-document" }
@@ -32,34 +24,14 @@ export const isDataPart = (
 ): part is Extract<UIMessagePart, { type: `data-${string}` }> =>
   part.type.startsWith("data-");
 
+export const isPlanPart = (
+  part: UIMessagePart
+): part is Extract<ToolUIPart, { type: "tool-plan" }> =>
+  part.type === "tool-plan";
+
 const isFinalPart = (
   part: UIMessagePart
 ): part is TextUIPart | SourcePart | FilePart => FINAL_PART_TYPES.has(part.type);
-
-export const buildPermissionByToolCallId = (parts: UIMessagePart[]) => {
-  const permissionByToolCallId = new Map<string, PermissionEntry>();
-  for (const part of parts) {
-    if (part.type !== "data-permission-options") {
-      continue;
-    }
-    const data = part.data as
-      | {
-          requestId?: string;
-          toolCallId?: string;
-          options?:
-            | PermissionOption[]
-            | { allowOther?: boolean; options?: PermissionOption[] };
-        }
-      | undefined;
-    if (data?.requestId && data.toolCallId) {
-      permissionByToolCallId.set(data.toolCallId, {
-        requestId: data.requestId,
-        options: data.options,
-      });
-    }
-  }
-  return permissionByToolCallId;
-};
 
 const mergeTextParts = (parts: TextUIPart[]) => {
   const content = parts
@@ -70,7 +42,9 @@ const mergeTextParts = (parts: TextUIPart[]) => {
 };
 
 export const splitMessageParts = (parts: UIMessagePart[]) => {
-  const displayParts = parts.filter((part) => !isDataPart(part));
+  const displayParts = parts.filter(
+    (part) => !isDataPart(part) && !isPlanPart(part)
+  );
   let trailingStart = displayParts.length;
   for (let i = displayParts.length - 1; i >= 0; i -= 1) {
     if (isFinalPart(displayParts[i])) {

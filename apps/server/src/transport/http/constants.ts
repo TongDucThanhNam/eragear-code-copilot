@@ -11,11 +11,20 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
-/** Path to the public UI directory */
-export const PUBLIC_UI_PATH = join(__dirname, "../../../public");
+/** Path to the public dashboard assets directory */
+export const PUBLIC_DASHBOARD_ASSETS_PATH = join(
+  __dirname,
+  "../../../public/dashboard"
+);
 
-/** Regex to match UI path prefix (e.g., /ui/index.html) */
-export const UI_PATH_PREFIX = /^\/ui\//;
+/** Dashboard UI entry path */
+export const DASHBOARD_UI_PATH = "/_/dashboard";
+
+/** Dashboard static assets URL prefix */
+export const DASHBOARD_ASSET_PATH = "/_/dashboard/assets";
+
+/** Regex to match dashboard asset path prefix */
+export const DASHBOARD_ASSET_PATH_PREFIX = /^\/_\/dashboard\/assets\//;
 
 /** Regex to remove leading slashes from paths */
 export const LEADING_SLASHES = /^\/+/;

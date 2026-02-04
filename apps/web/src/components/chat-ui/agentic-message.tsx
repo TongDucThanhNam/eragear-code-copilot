@@ -12,26 +12,23 @@ import {
 } from "@/components/ai-elements/message";
 import { ChainOfThought } from "@/components/chat-ui/agentic-chain";
 import {
+  buildMessageCopyText,
+  type FilePart,
+  getMessageTerminalIds,
+  isDataPart,
+  isMessageStreaming,
+  type SourcePart,
+  splitMessageParts,
+} from "@/components/chat-ui/agentic-message-utils";
+import {
   AttachmentList,
   TextMessagePart,
   UserTextParts,
 } from "@/components/chat-ui/agentic-parts";
-import {
-  buildMessageCopyText,
-  buildPermissionByToolCallId,
-  getMessageTerminalIds,
-  isDataPart,
-  isMessageStreaming,
-  splitMessageParts,
-  type FilePart,
-  type SourcePart,
-} from "@/components/chat-ui/agentic-message-utils";
 
 export interface AgenticMessageProps {
   message: UIMessage;
   terminalOutputs?: Record<string, string>;
-  onApprove?: (requestId: string, decision?: string) => void;
-  onReject?: (requestId: string, decision?: string) => void;
 }
 
 const CopyMessageAction = memo(({ text }: { text: string }) => {
@@ -76,20 +73,12 @@ CopyMessageAction.displayName = "CopyMessageAction";
 const AssistantMessageBody = ({
   parts,
   terminalOutputs,
-  onApprove,
-  onReject,
 }: {
   parts: UIMessagePart[];
   terminalOutputs?: Record<string, string>;
-  onApprove?: (requestId: string, decision?: string) => void;
-  onReject?: (requestId: string, decision?: string) => void;
 }) => {
   const { chainItems, finalText, finalAttachments } = useMemo(
     () => splitMessageParts(parts),
-    [parts]
-  );
-  const permissionByToolCallId = useMemo(
-    () => buildPermissionByToolCallId(parts),
     [parts]
   );
   const streaming = useMemo(() => isMessageStreaming(parts), [parts]);
@@ -103,9 +92,6 @@ const AssistantMessageBody = ({
         <ChainOfThought
           isStreaming={streaming}
           items={chainItems}
-          onApprove={onApprove}
-          onReject={onReject}
-          permissionByToolCallId={permissionByToolCallId}
           terminalOutputs={terminalOutputs}
         />
       )}
@@ -156,7 +142,7 @@ const areTerminalOutputsEqual = (
   if (prev === next) {
     return true;
   }
-  if (!prev || !next) {
+  if (!(prev && next)) {
     return false;
   }
   for (const terminalId of terminalIds) {
@@ -172,9 +158,7 @@ const areTerminalOutputsEqual = (
 const AgenticMessageBase = ({
   message,
   terminalOutputs,
-  onApprove,
-  onReject,
-}: AgenticMessageProps) {
+}: AgenticMessageProps) => {
   const copyText = useMemo(() => buildMessageCopyText(message), [message]);
 
   return (
@@ -185,8 +169,6 @@ const AgenticMessageBase = ({
             <UserMessageBody parts={message.parts} />
           ) : (
             <AssistantMessageBody
-              onApprove={onApprove}
-              onReject={onReject}
               parts={message.parts}
               terminalOutputs={terminalOutputs}
             />
@@ -206,12 +188,6 @@ export const AgenticMessage = memo(
   AgenticMessageBase,
   (prevProps, nextProps) => {
     if (prevProps.message !== nextProps.message) {
-      return false;
-    }
-    if (
-      prevProps.onApprove !== nextProps.onApprove ||
-      prevProps.onReject !== nextProps.onReject
-    ) {
       return false;
     }
     return areTerminalOutputsEqual(

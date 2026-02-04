@@ -202,7 +202,10 @@ với `apps/server`.
 
 ### 10.3 Send Message
 
-- [ ] `sendMessage({ chatId, text, ... })` và chờ response `{ stopReason, finishReason, assistantMessageId, userMessageId }`.
+- [ ] `sendMessage({ chatId, text, ... })` nhận response
+  `{ stopReason, finishReason, assistantMessageId, userMessageId }`.
+  Nếu prompt còn chạy, `stopReason` sẽ là `"submitted"` và client nên
+  dựa vào event `chat_finish` để biết kết thúc turn.
 - [ ] Nếu agent không hỗ trợ, không gửi `images`/`audio`/`resources`.
 
 ### 10.4 Resume / Replay

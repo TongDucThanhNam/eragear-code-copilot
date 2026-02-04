@@ -10,8 +10,8 @@ import {
   SparklesIcon,
   WrenchIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { PlanStatus } from "@/components/ai-elements/plan";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Loader } from "@/components/ai-elements/loader";
 import {
   Collapsible,
   CollapsibleContent,
@@ -19,23 +19,20 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import {
+  getActiveIndex,
+  getPartKey,
+  parseToolOutput,
+  toToolViewState,
+} from "./agentic-message-utils";
+import {
   FileMessagePart,
   getFileIcon,
   getSourceIcon,
-  PlanMessagePart,
   ReasoningMessagePart,
   SourceMessagePart,
   TextMessagePart,
 } from "./agentic-parts";
 import { ToolMessagePart } from "./agentic-tool";
-import { Loader } from "@/components/ai-elements/loader";
-import {
-  getActiveIndex,
-  getPartKey,
-  parseToolOutput,
-  type PermissionEntry,
-  toToolViewState,
-} from "./agentic-message-utils";
 
 const getChainIcon = (part: UIMessagePart, isActive: boolean) => {
   if (part.type.startsWith("tool-")) {
@@ -109,16 +106,10 @@ const ChainStep = ({
 
 const ChainContent = ({
   part,
-  permissionByToolCallId,
   terminalOutputs,
-  onApprove,
-  onReject,
 }: {
   part: UIMessagePart;
-  permissionByToolCallId: Map<string, PermissionEntry>;
   terminalOutputs?: Record<string, string>;
-  onApprove?: (requestId: string, decision?: string) => void;
-  onReject?: (requestId: string, decision?: string) => void;
 }) => {
   if (part.type === "text") {
     return <TextMessagePart text={part.text} variant="chain" />;
@@ -137,42 +128,18 @@ const ChainContent = ({
   }
 
   if (part.type === "step-start") {
-    return <div className="text-xs text-muted-foreground">Step</div>;
+    return <div className="text-muted-foreground text-xs">Step</div>;
   }
 
   if (part.type.startsWith("tool-")) {
     const toolPart = part as ToolUIPart;
-    const parsedOutput = useMemo(
-      () => parseToolOutput(toolPart.output),
-      [toolPart.output]
-    );
-    const permission = permissionByToolCallId.get(toolPart.toolCallId);
-    if (
-      toolPart.type === "tool-plan" &&
-      toolPart.output &&
-      typeof toolPart.output === "object" &&
-      !Array.isArray(toolPart.output) &&
-      "entries" in toolPart.output
-    ) {
-      const entries = (
-        toolPart.output as {
-          entries: Array<{
-            content: string;
-            status: PlanStatus;
-          }>;
-        }
-      ).entries;
-      return <PlanMessagePart entries={entries} />;
-    }
+    const parsedOutput = parseToolOutput(toolPart.output);
     const terminalOutput =
       parsedOutput.terminalId && terminalOutputs
         ? (terminalOutputs[parsedOutput.terminalId] ?? "")
         : undefined;
     return (
       <ToolMessagePart
-        onApprove={onApprove}
-        onReject={onReject}
-        permission={permission}
         parsedOutput={parsedOutput}
         terminalOutput={terminalOutput}
         tool={toolPart}
@@ -186,17 +153,11 @@ const ChainContent = ({
 export const ChainOfThought = ({
   items,
   isStreaming,
-  permissionByToolCallId,
   terminalOutputs,
-  onApprove,
-  onReject,
 }: {
   items: UIMessagePart[];
   isStreaming: boolean;
-  permissionByToolCallId: Map<string, PermissionEntry>;
   terminalOutputs?: Record<string, string>;
-  onApprove?: (requestId: string, decision?: string) => void;
-  onReject?: (requestId: string, decision?: string) => void;
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   const [hasStreamed, setHasStreamed] = useState(isStreaming);
@@ -236,7 +197,7 @@ export const ChainOfThought = ({
         clearTimeout(collapseTimerRef.current);
         collapseTimerRef.current = null;
       }
-      if (!userToggled && !prevStreaming) {
+      if (!(userToggled || prevStreaming)) {
         setIsOpen(true);
       }
       return;
@@ -250,7 +211,7 @@ export const ChainOfThought = ({
       return;
     }
 
-    if (!hasStreamed || !prevStreaming) {
+    if (!(hasStreamed && prevStreaming)) {
       return;
     }
 
@@ -281,7 +242,7 @@ export const ChainOfThought = ({
 
   return (
     <Collapsible
-      className="w-full rounded-lg border bg-muted/30"
+      className="w-full border bg-muted/30"
       onOpenChange={(nextOpen) => {
         setIsOpen(nextOpen);
         setUserToggled(true);
@@ -296,7 +257,7 @@ export const ChainOfThought = ({
             <SparklesIcon className="size-4 text-muted-foreground" />
           )}
           <span className="font-medium">Chain of Thought</span>
-          <span className="text-xs text-muted-foreground">{summary}</span>
+          <span className="text-muted-foreground text-xs">{summary}</span>
         </div>
         <ChevronDownIcon
           className={cn(
@@ -309,18 +270,12 @@ export const ChainOfThought = ({
         <div className="space-y-3">
           {items.map((item, index) => (
             <ChainStep
-              key={getPartKey(item, index)}
               isActive={index === activeIndex}
               isLast={index === items.length - 1}
+              key={getPartKey(item, index)}
               part={item}
             >
-              <ChainContent
-                onApprove={onApprove}
-                onReject={onReject}
-                part={item}
-                permissionByToolCallId={permissionByToolCallId}
-                terminalOutputs={terminalOutputs}
-              />
+              <ChainContent part={item} terminalOutputs={terminalOutputs} />
             </ChainStep>
           ))}
         </div>

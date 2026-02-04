@@ -68,5 +68,5 @@ Client nên fallback lấy message theo `messageId` nếu `message` không có.
 ## Khi thêm part mới
 
 1. Update `part-renderers.tsx` + `utils.getPartKey`
-2. Nếu cần xuất hiện trong activity, update `agentic-activity.tsx`
+2. Nếu cần xuất hiện trong Chain of Thought, update `agentic-chain.tsx`
 3. Nếu có metadata, dùng `data-*` để client có thể bỏ qua an toàn

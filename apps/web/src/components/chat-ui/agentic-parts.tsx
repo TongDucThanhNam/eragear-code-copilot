@@ -5,15 +5,6 @@ import { FileTextIcon, ImageIcon, LinkIcon } from "lucide-react";
 import { memo } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import {
-  Plan,
-  PlanContent,
-  PlanHeader,
-  PlanItem,
-  type PlanStatus,
-  PlanTitle,
-  PlanTrigger,
-} from "@/components/ai-elements/plan";
-import {
   Reasoning,
   ReasoningContent,
   ReasoningTrigger,
@@ -102,31 +93,6 @@ export const ReasoningMessagePart = memo(
   }
 );
 ReasoningMessagePart.displayName = "ReasoningMessagePart";
-
-export const PlanMessagePart = memo(
-  ({
-    entries,
-  }: {
-    entries: Array<{ content: string; status: PlanStatus }>;
-  }) => (
-    <Plan className="mb-0" defaultOpen={true}>
-      <PlanHeader>
-        <PlanTitle>Plan</PlanTitle>
-        <PlanTrigger />
-      </PlanHeader>
-      <PlanContent>
-        <div className="space-y-2 pt-2">
-          {entries.map((entry, index) => (
-            <PlanItem key={`${entry.content}-${index}`} status={entry.status}>
-              {entry.content}
-            </PlanItem>
-          ))}
-        </div>
-      </PlanContent>
-    </Plan>
-  )
-);
-PlanMessagePart.displayName = "PlanMessagePart";
 
 export const SourceMessagePart = memo(({ part }: { part: SourcePart }) => {
   const Icon = getSourceIcon(part);

@@ -1,7 +1,7 @@
 /**
  * Admin Routes
  *
- * API and form endpoints for admin operations (API keys, device sessions).
+ * API endpoints for admin operations (API keys, device sessions).
  *
  * Endpoints:
  * - GET    /api/admin/api-keys                   - List API keys
@@ -10,34 +10,22 @@
  * - GET    /api/admin/device-sessions            - List device sessions
  * - POST   /api/admin/device-sessions/revoke     - Revoke device session
  * - POST   /api/admin/device-sessions/activate   - Activate device session
- * - POST   /form/admin/api-keys/create           - Create API key (HTML form)
- * - POST   /form/admin/api-keys/delete           - Delete API key (HTML form)
- * - POST   /form/admin/device-sessions/revoke    - Revoke session (HTML form)
- * - POST   /form/admin/device-sessions/activate  - Activate session (HTML form)
  *
  * @module transport/http/routes/admin
  */
 
 import type { Context, Hono } from "hono";
-import { createElement } from "react";
 import { getContainer } from "../../../bootstrap/container";
-import { buildDashboardData } from "../ui/dashboard-data";
-import { ConfigPage } from "../ui/dashboard-view";
-import { renderDocument } from "../ui/render-document";
-import { getSessionFromRequest } from "../utils/auth";
 import {
-  type FormDataRecord,
-  getFormValue,
   normalizeApiKeyCreateResponse,
   normalizeApiKeyItem,
   normalizeDeviceSessionItem,
-  redirectWithParams,
 } from "./helpers";
 
 /**
  * Registers admin-related HTTP routes
  */
-export function registerAdminRoutes(api: Hono, form: Hono): void {
+export function registerAdminRoutes(api: Hono): void {
   const container = getContainer();
   const auth = container.getAuth();
 
@@ -53,7 +41,10 @@ export function registerAdminRoutes(api: Hono, form: Hono): void {
       const keys = await auth.api.listApiKeys({
         headers: c.req.raw.headers,
       });
-      return c.json({ keys });
+      const normalized = Array.isArray(keys)
+        ? keys.map((item) => normalizeApiKeyItem(item as never))
+        : [];
+      return c.json({ keys: normalized });
     } catch (error) {
       console.error("Failed to list API keys:", error);
       return c.json({ error: "Failed to list API keys" }, 500);
@@ -79,7 +70,7 @@ export function registerAdminRoutes(api: Hono, form: Hono): void {
         return c.json({ error: "Unauthorized" }, 401);
       }
 
-      const apiKey = await auth.api.createApiKey({
+      const created = await auth.api.createApiKey({
         body: {
           name,
           prefix,
@@ -87,6 +78,17 @@ export function registerAdminRoutes(api: Hono, form: Hono): void {
           userId: session.user.id,
         },
       });
+
+      const apiKey = normalizeApiKeyCreateResponse(
+        created as {
+          id: string;
+          key: string;
+          name: string | null;
+          prefix: string | null;
+          start: string | null;
+          createdAt: string | Date;
+        }
+      );
 
       return c.json({ apiKey });
     } catch (error) {
@@ -130,7 +132,10 @@ export function registerAdminRoutes(api: Hono, form: Hono): void {
       const sessions = await auth.api.listDeviceSessions({
         headers: c.req.raw.headers,
       });
-      return c.json({ sessions });
+      const normalized = Array.isArray(sessions)
+        ? sessions.map((item) => normalizeDeviceSessionItem(item as never))
+        : [];
+      return c.json({ sessions: normalized });
     } catch (error) {
       console.error("Failed to list device sessions:", error);
       return c.json({ error: "Failed to list device sessions" }, 500);
@@ -181,192 +186,4 @@ export function registerAdminRoutes(api: Hono, form: Hono): void {
     }
   });
 
-  // =========================================================================
-  // Form Routes (HTML form submissions)
-  // =========================================================================
-
-  /**
-   * POST /form/admin/api-keys/create - Create API key via HTML form
-   */
-  form.post("/admin/api-keys/create", async (c: Context) => {
-    try {
-      const session = await getSessionFromRequest({
-        headers: c.req.raw.headers,
-        url: c.req.raw.url,
-      });
-      if (!session) {
-        return c.redirect("/login");
-      }
-
-      const body = await c.req.parseBody();
-      const formData = body as FormDataRecord;
-      const name = getFormValue(formData, "name").trim();
-      const prefix = getFormValue(formData, "prefix").trim();
-      const expiresInDays = Number(
-        getFormValue(formData, "expiresInDays") || 0
-      );
-      const expiresIn =
-        Number.isFinite(expiresInDays) && expiresInDays > 0
-          ? Math.round(expiresInDays * 86_400)
-          : undefined;
-
-      const created = normalizeApiKeyCreateResponse(
-        (await auth.api.createApiKey({
-          body: {
-            name: name || undefined,
-            prefix: prefix || undefined,
-            expiresIn,
-            userId: session.user.id,
-          },
-        })) as {
-          id: string;
-          key: string;
-          name: string | null;
-          prefix: string | null;
-          start: string | null;
-          createdAt: string | Date;
-        }
-      );
-
-      const apiKeys = await auth.api.listApiKeys({
-        headers: c.req.raw.headers,
-      });
-      const deviceSessions = await auth.api.listDeviceSessions({
-        headers: c.req.raw.headers,
-      });
-
-      const dashboardData = buildDashboardData({
-        projects: container.getProjects().findAll(),
-        sessions: container.getSessions().findAll(),
-        runtimeSessions: container.getSessionRuntime(),
-        agents: container.getAgents().findAll(),
-        apiKeys: Array.isArray(apiKeys) ? apiKeys.map(normalizeApiKeyItem) : [],
-        deviceSessions: Array.isArray(deviceSessions)
-          ? deviceSessions.map(normalizeDeviceSessionItem)
-          : [],
-      });
-
-      const activeTab = "auth";
-      return renderDocument(
-        c,
-        createElement(ConfigPage, {
-          settings: container.getSettings().get(),
-          dashboardData,
-          activeTab,
-          notice: "API key created.",
-          createdApiKey: created,
-        }),
-        {
-          title: "Eragear Server Dashboard",
-          bodyClassName: "bg-paper font-body text-ink antialiased",
-          bodyAttributes: { "data-active-tab": activeTab },
-        }
-      );
-    } catch (error) {
-      console.error("Failed to create API key:", error);
-      return redirectWithParams(c, {
-        tab: "auth",
-        error: "Failed to create API key",
-      });
-    }
-  });
-
-  /**
-   * POST /form/admin/api-keys/delete - Delete API key via HTML form
-   */
-  form.post("/admin/api-keys/delete", async (c: Context) => {
-    try {
-      const body = await c.req.parseBody();
-      const formData = body as FormDataRecord;
-      const keyId = getFormValue(formData, "keyId");
-      if (!keyId) {
-        return redirectWithParams(c, {
-          tab: "auth",
-          error: "keyId is required",
-        });
-      }
-
-      await auth.api.deleteApiKey({
-        body: { keyId },
-        headers: c.req.raw.headers,
-      });
-
-      return redirectWithParams(c, {
-        tab: "auth",
-        notice: "API key revoked.",
-      });
-    } catch (error) {
-      console.error("Failed to delete API key:", error);
-      return redirectWithParams(c, {
-        tab: "auth",
-        error: "Failed to revoke API key",
-      });
-    }
-  });
-
-  /**
-   * POST /form/admin/device-sessions/revoke - Revoke device session via HTML form
-   */
-  form.post("/admin/device-sessions/revoke", async (c: Context) => {
-    try {
-      const body = await c.req.parseBody();
-      const formData = body as FormDataRecord;
-      const sessionToken = getFormValue(formData, "sessionToken");
-      if (!sessionToken) {
-        return redirectWithParams(c, {
-          tab: "auth",
-          error: "sessionToken is required",
-        });
-      }
-
-      await auth.api.revokeDeviceSession({
-        body: { sessionToken },
-        headers: c.req.raw.headers,
-      });
-
-      return redirectWithParams(c, {
-        tab: "auth",
-        notice: "Device session revoked.",
-      });
-    } catch (error) {
-      console.error("Failed to revoke device session:", error);
-      return redirectWithParams(c, {
-        tab: "auth",
-        error: "Failed to revoke device session",
-      });
-    }
-  });
-
-  /**
-   * POST /form/admin/device-sessions/activate - Activate device session via HTML form
-   */
-  form.post("/admin/device-sessions/activate", async (c: Context) => {
-    try {
-      const body = await c.req.parseBody();
-      const formData = body as FormDataRecord;
-      const sessionToken = getFormValue(formData, "sessionToken");
-      if (!sessionToken) {
-        return redirectWithParams(c, {
-          tab: "auth",
-          error: "sessionToken is required",
-        });
-      }
-
-      await auth.api.setActiveSession({
-        body: { sessionToken },
-        headers: c.req.raw.headers,
-      });
-
-      return redirectWithParams(c, {
-        tab: "auth",
-        notice: "Device session activated.",
-      });
-    } catch (error) {
-      console.error("Failed to set active session:", error);
-      return redirectWithParams(c, {
-        tab: "auth",
-        error: "Failed to activate device session",
-      });
-    }
-  });
 }
