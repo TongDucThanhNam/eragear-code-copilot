@@ -1,9 +1,3 @@
-/**
- * Chat Interface Component (Refactored)
- *
- * Uses the unified useChat hook for state management and tRPC communication.
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
@@ -14,24 +8,12 @@ import { ChatMessages } from "@/components/chat-ui/chat-messages";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import { useChat } from "@/hooks/use-chat";
+import { prepareImageForPrompt } from "@/lib/image-prompt";
 import { trpc } from "@/lib/trpc";
 import { useChatStatusStore } from "@/store/chat-status-store";
 import { useDiffStore } from "@/store/diff-store";
 import { useFileStore } from "@/store/file-store";
 import { useProjectStore } from "@/store/project-store";
-
-const convertFileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1];
-      resolve(base64);
-    };
-    reader.onerror = (error) => reject(error);
-  });
-};
 
 interface ChatInterfaceProps {
   initialChatId?: string | null;
@@ -45,7 +27,6 @@ export function ChatInterface({
   const utils = trpc.useUtils();
   const { data: agentsData } = trpc.agents.list.useQuery();
   const { data: sessionsData } = trpc.getSessions.useQuery();
-
   const activeAgentId = agentsData?.activeAgentId;
   const agentModels = useMemo(
     () => agentsData?.agents ?? [],
@@ -72,7 +53,6 @@ export function ChatInterface({
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const handledPermissionIdRef = useRef<string | null>(null);
   const lastPermissionIdRef = useRef<string | null>(null);
-
   // Use the unified useChat hook
   const {
     messages,
@@ -130,7 +110,6 @@ export function ChatInterface({
   }, [models?.availableModels]);
   const currentModelId = models?.currentModelId || null;
   const availableCommands = commands;
-
   // Quick switch sessions
   const quickSwitchSessions = useMemo(() => {
     return (sessionsData || [])
@@ -538,19 +517,50 @@ export function ChatInterface({
         return;
       }
 
+      const imageFiles = message.files.filter((filePart) =>
+        filePart.file?.type.startsWith("image/")
+      );
       const images: { base64: string; mimeType: string }[] = [];
-      for (const filePart of message.files) {
-        if (filePart.file?.type.startsWith("image/")) {
-          try {
-            const base64 = await convertFileToBase64(filePart.file);
-            images.push({
-              base64,
-              mimeType: filePart.file.type,
-            });
-          } catch (e) {
-            console.error("Failed to convert file to base64", e);
-          }
+      const imageErrors: string[] = [];
+      for (const filePart of imageFiles) {
+        const file = filePart.file;
+        if (!file) {
+          continue;
         }
+        try {
+          const result = await prepareImageForPrompt(file);
+          if (result.ok) {
+            images.push({
+              base64: result.image.base64,
+              mimeType: result.image.mimeType,
+            });
+          } else {
+            console.error("Image processing failed", {
+              name: file.name,
+              size: file.size,
+              error: result.error,
+            });
+            imageErrors.push(`${file.name}: ${result.error.message}`);
+          }
+        } catch (error) {
+          console.error("Image processing threw", {
+            name: file.name,
+            size: file.size,
+            error,
+          });
+          imageErrors.push(`${file.name}: Failed to process image.`);
+        }
+      }
+
+      if (imageErrors.length > 0) {
+        toast.error(
+          imageErrors.length === 1
+            ? imageErrors[0]
+            : `${imageErrors.length} images could not be processed.`
+        );
+      }
+      if (imageFiles.length > 0 && images.length === 0) {
+        throw new Error("Image processing failed");
       }
 
       const mentionPaths = Array.from(new Set(message.mentions ?? []));

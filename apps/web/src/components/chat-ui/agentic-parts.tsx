@@ -3,6 +3,16 @@
 import type { ReasoningUIPart, TextUIPart } from "@repo/shared";
 import { FileTextIcon, ImageIcon, LinkIcon } from "lucide-react";
 import { memo } from "react";
+import type {
+  AttachmentData,
+  AttachmentVariant,
+} from "@/components/ai-elements/attachments";
+import {
+  Attachment,
+  AttachmentInfo,
+  AttachmentPreview,
+  Attachments,
+} from "@/components/ai-elements/attachments";
 import { MessageResponse } from "@/components/ai-elements/message";
 import {
   Reasoning,
@@ -56,9 +66,7 @@ const normalizeReasoningText = (text: string) => {
   if (!trimmed) {
     return "";
   }
-  const wrapperMatch = trimmed.match(
-    /^<([a-zA-Z][\w-]*)>([\s\S]*)<\/\1>$/
-  );
+  const wrapperMatch = trimmed.match(/^<([a-zA-Z][\w-]*)>([\s\S]*)<\/\1>$/);
   let normalized = wrapperMatch ? wrapperMatch[2].trim() : text;
   if (/<[a-zA-Z][^>]*>/.test(normalized)) {
     normalized = normalized.replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -147,23 +155,37 @@ FileMessagePart.displayName = "FileMessagePart";
 
 export const AttachmentList = ({
   items,
+  variant = "inline",
+  showMediaType,
+  className,
 }: {
   items: Array<SourcePart | FilePart>;
+  variant?: AttachmentVariant;
+  showMediaType?: boolean;
+  className?: string;
 }) => {
   if (items.length === 0) {
     return null;
   }
 
+  const shouldShowMediaType =
+    typeof showMediaType === "boolean"
+      ? showMediaType
+      : variant === "list";
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {items.map((part, index) =>
-        part.type === "file" ? (
-          <FileMessagePart key={getPartKey(part, index)} part={part} />
-        ) : (
-          <SourceMessagePart key={getPartKey(part, index)} part={part} />
-        )
-      )}
-    </div>
+    <Attachments className={className} variant={variant}>
+      {items.map((part, index) => {
+        const id = getPartKey(part, index);
+        const data: AttachmentData = { id, ...part };
+        return (
+          <Attachment data={data} key={id}>
+            <AttachmentPreview />
+            <AttachmentInfo showMediaType={shouldShowMediaType} />
+          </Attachment>
+        );
+      })}
+    </Attachments>
   );
 };
 

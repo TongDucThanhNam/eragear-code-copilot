@@ -2,7 +2,7 @@
 
 import {
   CheckIcon,
-  ChevronsUpDownIcon,
+  ChevronsDownIcon,
   CircleIcon,
   Loader2Icon,
 } from "lucide-react";
@@ -25,9 +25,9 @@ import {
 import { cn } from "@/lib/utils";
 import { Shimmer } from "./shimmer";
 
-type PlanContextValue = {
+interface PlanContextValue {
   isStreaming: boolean;
-};
+}
 
 const PlanContext = createContext<PlanContextValue | null>(null);
 
@@ -51,10 +51,7 @@ export const Plan = ({
 }: PlanProps) => (
   <PlanContext.Provider value={{ isStreaming }}>
     <Collapsible
-      className={cn(
-        "rounded-xl border bg-card text-card-foreground shadow-none",
-        className
-      )}
+      className={cn("text-card-foreground dark:bg-input/30", className)}
       data-slot="plan"
       {...props}
     >
@@ -143,12 +140,12 @@ export type PlanTriggerProps = ComponentProps<typeof CollapsibleTrigger>;
 export const PlanTrigger = ({ className, ...props }: PlanTriggerProps) => (
   <CollapsibleTrigger asChild {...props}>
     <Button
-      className={cn("size-8", className)}
+      className={cn("group size-8", className)}
       data-slot="plan-trigger"
       size="icon"
       variant="ghost"
     >
-      <ChevronsUpDownIcon className="size-4" />
+      <ChevronsDownIcon className="size-4 transition-transform group-data-[state=closed]:rotate-180" />
       <span className="sr-only">Toggle plan</span>
     </Button>
   </CollapsibleTrigger>

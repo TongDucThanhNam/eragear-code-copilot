@@ -107,11 +107,8 @@ const AssistantMessageBody = ({
   );
 };
 
-const UserMessageBody = ({ parts }: { parts: UIMessagePart[] }) => {
-  const displayParts = useMemo(
-    () => parts.filter((part) => !isDataPart(part)),
-    [parts]
-  );
+const getUserMessageParts = (parts: UIMessagePart[]) => {
+  const displayParts = parts.filter((part) => !isDataPart(part));
   const textParts = displayParts.filter(
     (part): part is TextUIPart => part.type === "text"
   );
@@ -121,13 +118,7 @@ const UserMessageBody = ({ parts }: { parts: UIMessagePart[] }) => {
       part.type === "source-document" ||
       part.type === "file"
   );
-
-  return (
-    <>
-      <UserTextParts parts={textParts} />
-      <AttachmentList items={attachmentParts} />
-    </>
-  );
+  return { textParts, attachmentParts };
 };
 
 const areTerminalOutputsEqual = (
@@ -160,20 +151,35 @@ const AgenticMessageBase = ({
   terminalOutputs,
 }: AgenticMessageProps) => {
   const copyText = useMemo(() => buildMessageCopyText(message), [message]);
+  const userParts = useMemo(
+    () => (message.role === "user" ? getUserMessageParts(message.parts) : null),
+    [message.parts, message.role]
+  );
+  const showUserContent = (userParts?.textParts.length ?? 0) > 0;
+  const userAttachments = userParts?.attachmentParts ?? [];
 
   return (
     <Message from={message.role}>
       <div>
-        <MessageContent>
-          {message.role === "user" ? (
-            <UserMessageBody parts={message.parts} />
-          ) : (
+        {message.role === "assistant" ? (
+          <MessageContent>
             <AssistantMessageBody
               parts={message.parts}
               terminalOutputs={terminalOutputs}
             />
-          )}
-        </MessageContent>
+          </MessageContent>
+        ) : showUserContent ? (
+          <MessageContent>
+            <UserTextParts parts={userParts?.textParts ?? []} />
+          </MessageContent>
+        ) : null}
+        {message.role === "user" && userAttachments.length > 0 ? (
+          <AttachmentList
+            className="mt-2"
+            items={userAttachments}
+            variant="grid"
+          />
+        ) : null}
         <div className="mt-2 flex justify-end opacity-0 transition group-hover:opacity-100">
           <MessageActions>
             <CopyMessageAction text={copyText} />

@@ -15,6 +15,9 @@ import type { SessionRuntimePort } from "@/modules/session/application/ports/ses
 import { createPermissionHandler } from "./permission";
 import { createToolCallHandlers } from "./tool-calls";
 import { createSessionUpdateHandler } from "./update";
+import { createLogger } from "@/infra/logging/structured-logger";
+
+const logger = createLogger("Debug");
 
 /**
  * Creates ACP client handlers for managing a session
@@ -56,6 +59,11 @@ export function createSessionHandlers(params: {
   return {
     /** Handles session updates (messages, tool calls, plans, etc.) */
     async sessionUpdate(params: acp.SessionNotification) {
+      logger.debug("ACP handler sessionUpdate", {
+        chatId,
+        hasUpdate: Boolean(params?.update),
+        updateType: params?.update?.sessionUpdate,
+      });
       await handleSessionUpdate({
         chatId,
         buffer,
@@ -68,6 +76,11 @@ export function createSessionHandlers(params: {
     async requestPermission(
       params: acp.RequestPermissionRequest
     ): Promise<acp.RequestPermissionResponse> {
+      logger.debug("ACP handler requestPermission", {
+        chatId,
+        requestId: params.requestId,
+        toolName: params.toolName,
+      });
       return await handlePermissionRequest({
         chatId,
         isReplayingHistory: getIsReplaying(),
@@ -77,36 +90,69 @@ export function createSessionHandlers(params: {
 
     /** Handles file reading requests */
     async readTextFile(params: acp.ReadTextFileRequest) {
+      logger.debug("ACP handler readTextFile", {
+        chatId,
+        path: params.path,
+      });
       return await toolCalls.readTextFileForChat(chatId, params);
     },
 
     /** Handles file writing requests */
     async writeTextFile(params: acp.WriteTextFileRequest) {
+      const hasContent = typeof params.content === "string";
+      logger.debug("ACP handler writeTextFile", {
+        chatId,
+        path: params.path,
+        hasContent,
+        contentLength: hasContent ? params.content.length : undefined,
+      });
       return await toolCalls.writeTextFileForChat(chatId, params);
     },
 
     /** Handles terminal creation */
     async createTerminal(params: acp.CreateTerminalRequest) {
+      logger.debug("ACP handler createTerminal", {
+        chatId,
+        command: params.command,
+        argsCount: params.args?.length ?? 0,
+      });
       return await toolCalls.createTerminal(chatId, params);
     },
 
     /** Handles waiting for terminal exit */
     async waitForTerminalExit(params: acp.WaitForTerminalExitRequest) {
+      logger.debug("ACP handler waitForTerminalExit", {
+        chatId,
+        terminalId: params.terminalId,
+      });
       return await toolCalls.waitForTerminalExit(chatId, params);
     },
 
     /** Handles terminal output retrieval */
     async terminalOutput(params: acp.TerminalOutputRequest) {
+      logger.debug("ACP handler terminalOutput", {
+        chatId,
+        terminalId: params.terminalId,
+        offset: params.offset,
+      });
       return await toolCalls.terminalOutput(chatId, params);
     },
 
     /** Handles terminal termination */
     async killTerminal(params: acp.KillTerminalCommandRequest) {
+      logger.debug("ACP handler killTerminal", {
+        chatId,
+        terminalId: params.terminalId,
+      });
       return await toolCalls.killTerminal(chatId, params);
     },
 
     /** Handles terminal resource release */
     async releaseTerminal(params: acp.ReleaseTerminalRequest) {
+      logger.debug("ACP handler releaseTerminal", {
+        chatId,
+        terminalId: params.terminalId,
+      });
       return await toolCalls.releaseTerminal(chatId, params);
     },
   };

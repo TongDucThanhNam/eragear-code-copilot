@@ -7,7 +7,11 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
-import type { FileUIPart, SourceDocumentUIPart } from "ai";
+import type {
+  FileUIPart,
+  SourceDocumentUIPart,
+  SourceUrlUIPart,
+} from "@repo/shared";
 import {
   FileTextIcon,
   GlobeIcon,
@@ -26,7 +30,8 @@ import { createContext, useContext, useMemo } from "react";
 
 export type AttachmentData =
   | (FileUIPart & { id: string })
-  | (SourceDocumentUIPart & { id: string });
+  | (SourceDocumentUIPart & { id: string })
+  | (SourceUrlUIPart & { id: string });
 
 export type AttachmentMediaCategory =
   | "image"
@@ -45,7 +50,7 @@ export type AttachmentVariant = "grid" | "inline" | "list";
 export const getMediaCategory = (
   data: AttachmentData
 ): AttachmentMediaCategory => {
-  if (data.type === "source-document") {
+  if (data.type === "source-document" || data.type === "source-url") {
     return "source";
   }
 
@@ -70,6 +75,9 @@ export const getMediaCategory = (
 export const getAttachmentLabel = (data: AttachmentData): string => {
   if (data.type === "source-document") {
     return data.title || data.filename || "Source";
+  }
+  if (data.type === "source-url") {
+    return data.title || data.url || "Source";
   }
 
   const category = getMediaCategory(data);

@@ -8,11 +8,23 @@
  */
 
 import { z } from "zod";
+import { createLogger } from "@/infra/logging/structured-logger";
 import { CancelPromptService } from "@/modules/ai/application/cancel-prompt.service";
 import { SendMessageService } from "@/modules/ai/application/send-message.service";
 import { SetModeService } from "@/modules/ai/application/set-mode.service";
 import { SetModelService } from "@/modules/ai/application/set-model.service";
 import { protectedProcedure, router } from "../base";
+
+const logger = createLogger("tRPC");
+const MAX_TEXT_PREVIEW_CHARS = 200;
+
+function toTextPreview(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_TEXT_PREVIEW_CHARS) {
+    return normalized;
+  }
+  return `${normalized.slice(0, MAX_TEXT_PREVIEW_CHARS)}...`;
+}
 
 export const aiRouter = router({
   /** Send a message to an agent session */
@@ -80,6 +92,15 @@ export const aiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      logger.info("User message received", {
+        chatId: input.chatId,
+        textLength: input.text.length,
+        textPreview: toTextPreview(input.text),
+        images: input.images?.length ?? 0,
+        audio: input.audio?.length ?? 0,
+        resources: input.resources?.length ?? 0,
+        resourceLinks: input.resourceLinks?.length ?? 0,
+      });
       const service = new SendMessageService(
         ctx.container.getSessions(),
         ctx.container.getSessionRuntime()

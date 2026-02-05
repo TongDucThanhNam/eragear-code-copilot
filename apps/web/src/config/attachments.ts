@@ -1,0 +1,4 @@
+export const ATTACHMENT_HARD_LIMIT_BYTES = 32 * 1024 * 1024;
+export const IMAGE_PROMPT_MAX_BYTES = 8 * 1024 * 1024;
+export const IMAGE_PROMPT_MAX_DIMENSION = 2048;
+export const IMAGE_PROMPT_QUALITY_STEPS = [0.85, 0.75, 0.65] as const;

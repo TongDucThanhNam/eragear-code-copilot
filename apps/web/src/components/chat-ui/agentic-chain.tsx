@@ -159,7 +159,7 @@ export const ChainOfThought = ({
   isStreaming: boolean;
   terminalOutputs?: Record<string, string>;
 }) => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [hasStreamed, setHasStreamed] = useState(isStreaming);
   const [userToggled, setUserToggled] = useState(false);
   const prevStreamingRef = useRef(isStreaming);

@@ -6,7 +6,6 @@ import {
   ChevronDownIcon,
   CircleIcon,
   ClockIcon,
-  WrenchIcon,
   XCircleIcon,
 } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
@@ -29,12 +28,12 @@ export const Tool = ({ className, ...props }: ToolProps) => (
   />
 );
 
-export type ToolHeaderProps = {
+export interface ToolHeaderProps {
   title?: string;
   type: ToolUIPart["type"];
   state: "pending" | "running" | "completed" | "error" | "approval-requested";
   className?: string;
-};
+}
 
 const getStatusBadge = (state: ToolHeaderProps["state"]) => {
   const labels: Record<ToolHeaderProps["state"], string> = {
@@ -78,7 +77,7 @@ export const ToolHeader = ({
     {...props}
   >
     <div className="flex items-center gap-2">
-      <WrenchIcon className="size-4 text-muted-foreground" />
+      {/* <WrenchIcon className="size-4 text-muted-foreground" /> */}
       <span className="font-medium text-sm">
         {title ?? type.split("-").slice(1).join("-")}
       </span>

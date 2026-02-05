@@ -27,6 +27,9 @@ import {
   isProcessTransportNotReady,
 } from "./acp-error.util";
 import { buildPrompt } from "./prompt.builder";
+import { createLogger } from "@/infra/logging/structured-logger";
+
+const logger = createLogger("Debug");
 
 /**
  * SendMessageService
@@ -106,8 +109,32 @@ export class SendMessageService {
       size?: number | bigint;
       annotations?: Record<string, unknown>;
     }[];
-  }) {
+  }): Promise<{
+    status: "submitted" | "completed";
+    stopReason: string;
+    finishReason: string;
+    assistantMessageId?: string;
+    userMessageId: string;
+    submittedAt: number;
+  }> {
+    logger.debug("SendMessageService.execute start", {
+      chatId: input.chatId,
+      textLength: input.text.length,
+      images: input.images?.length ?? 0,
+      audio: input.audio?.length ?? 0,
+      resources: input.resources?.length ?? 0,
+      resourceLinks: input.resourceLinks?.length ?? 0,
+    });
     const session = this.sessionRuntime.get(input.chatId);
+    logger.debug("SendMessageService session lookup", {
+      chatId: input.chatId,
+      hasSession: Boolean(session),
+      sessionId: session?.sessionId,
+      procPid: session?.proc.pid,
+      procKilled: session?.proc.killed,
+      procExitCode: session?.proc.exitCode,
+      connAborted: session?.conn.signal.aborted,
+    });
     if (!session?.sessionId) {
       throw new Error("Chat not found");
     }
@@ -126,6 +153,12 @@ export class SendMessageService {
     }
 
     const capabilities = session.promptCapabilities ?? {};
+    logger.debug("SendMessageService prompt capabilities", {
+      chatId: input.chatId,
+      image: Boolean(capabilities.image),
+      audio: Boolean(capabilities.audio),
+      embeddedContext: Boolean(capabilities.embeddedContext),
+    });
     if (input.images?.length && !capabilities.image) {
       throw new Error("Agent does not support image content");
     }
@@ -145,6 +178,10 @@ export class SendMessageService {
     });
     session.chatFinish = undefined;
     session.uiState.lastAssistantId = undefined;
+    logger.debug("SendMessageService chat status submitted", {
+      chatId: input.chatId,
+      sessionId: session.sessionId,
+    });
 
     const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const msgTimestamp = Date.now();
@@ -171,10 +208,21 @@ export class SendMessageService {
       parts: uiMessage.parts,
       timestamp: msgTimestamp,
     });
+    logger.debug("SendMessageService user message persisted", {
+      chatId: input.chatId,
+      messageId: msgId,
+      contentBlocks: storedPromptBlocks.length,
+      parts: uiMessage.parts.length,
+      timestamp: msgTimestamp,
+    });
     session.uiState.messages.set(uiMessage.id, uiMessage);
     this.sessionRuntime.broadcast(input.chatId, {
       type: "ui_message",
       message: uiMessage,
+    });
+    logger.debug("SendMessageService user message broadcast", {
+      chatId: input.chatId,
+      messageId: msgId,
     });
 
     const promptTask = this.handlePrompt({
@@ -193,21 +241,36 @@ export class SendMessageService {
     ]);
 
     if (outcome.type === "result") {
-      return { ...outcome.result, userMessageId: msgId };
+      logger.debug("SendMessageService prompt completed inline", {
+        chatId: input.chatId,
+        stopReason: outcome.result.stopReason,
+      });
+      return {
+        status: "completed",
+        ...outcome.result,
+        userMessageId: msgId,
+        submittedAt: msgTimestamp,
+      };
     }
 
     // Prompt is still running; return an acknowledgement and rely on chat_finish
     // for the final stopReason.
+    logger.debug("SendMessageService prompt still running", {
+      chatId: input.chatId,
+      ackTimeoutMs,
+    });
     promptTask.catch(() => {
       // Errors are handled via status updates/broadcasts inside handlePrompt.
     });
 
     return {
+      status: "submitted",
       stopReason: "submitted",
       finishReason: mapStopReasonToFinishReason("submitted"),
       assistantMessageId:
         session.uiState.lastAssistantId ?? session.uiState.currentAssistantId,
       userMessageId: msgId,
+      submittedAt: msgTimestamp,
     };
   }
 
@@ -224,6 +287,10 @@ export class SendMessageService {
     const { chatId, session, prompt, broadcast } = params;
 
     const markStopped = (reason: string) => {
+      logger.warn("SendMessageService mark stopped", {
+        chatId,
+        reason,
+      });
       this.sessionRuntime.broadcast(chatId, {
         type: "error",
         error: reason,
@@ -245,13 +312,29 @@ export class SendMessageService {
     const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
+        logger.debug("SendMessageService sending prompt", {
+          chatId,
+          sessionId: session.sessionId,
+          attempt: attempt + 1,
+          maxAttempts,
+        });
         res = await session.conn.prompt({
           sessionId: session.sessionId,
           prompt,
         });
+        logger.debug("SendMessageService prompt response", {
+          chatId,
+          stopReason: res.stopReason,
+        });
         break;
       } catch (error) {
         const errorText = getAcpErrorText(error);
+        logger.warn("SendMessageService prompt error", {
+          chatId,
+          attempt: attempt + 1,
+          maxAttempts,
+          error: errorText || "unknown",
+        });
         if (
           isProcessTransportNotReady(errorText) &&
           attempt < maxAttempts - 1
@@ -275,6 +358,10 @@ export class SendMessageService {
       }
     }
     if (!res) {
+      logger.warn("SendMessageService failed to get prompt response", {
+        chatId,
+        attempts: maxAttempts,
+      });
       updateChatStatus({
         chatId,
         session,
@@ -287,6 +374,12 @@ export class SendMessageService {
     if (session.buffer) {
       const message = session.buffer.flush();
       if (message) {
+        logger.debug("SendMessageService flushed assistant buffer", {
+          chatId,
+          messageId: message.id,
+          contentBlocks: message.contentBlocks.length,
+          reasoningBlocks: message.reasoningBlocks?.length ?? 0,
+        });
         this.sessionRepo.appendMessage(chatId, {
           id: message.id,
           role: "assistant",
@@ -308,6 +401,11 @@ export class SendMessageService {
         type: "ui_message",
         message: current,
       });
+      logger.debug("SendMessageService finalized streaming message", {
+        chatId,
+        messageId: current.id,
+        parts: current.parts.length,
+      });
       session.uiState.currentAssistantId = undefined;
     }
 
@@ -317,6 +415,10 @@ export class SendMessageService {
       session,
       broadcast,
     });
+    logger.debug("SendMessageService chat finish broadcast", {
+      chatId,
+      stopReason: res.stopReason,
+    });
 
     if (session.chatStatus === "submitted") {
       updateChatStatus({
@@ -324,6 +426,9 @@ export class SendMessageService {
         session,
         broadcast,
         status: "ready",
+      });
+      logger.debug("SendMessageService chat status ready", {
+        chatId,
       });
     }
 

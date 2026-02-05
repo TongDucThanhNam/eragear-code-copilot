@@ -9,12 +9,12 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool";
-import { FileDiffView } from "./file-diff-view";
-import { TerminalView } from "./terminal-view";
 import {
   type ParsedToolOutput,
   toToolViewState,
 } from "./agentic-message-utils";
+import { FileDiffView } from "./file-diff-view";
+import { TerminalView } from "./terminal-view";
 
 interface ToolMessagePartProps {
   tool: ToolUIPart;
@@ -23,11 +23,7 @@ interface ToolMessagePartProps {
 }
 
 export const ToolMessagePart = memo(
-  ({
-    tool,
-    parsedOutput,
-    terminalOutput,
-  }: ToolMessagePartProps) => {
+  ({ tool, parsedOutput, terminalOutput }: ToolMessagePartProps) => {
     const viewState = toToolViewState(tool);
     const { result, terminalId, diffs } = parsedOutput;
     const errorText =
@@ -37,10 +33,7 @@ export const ToolMessagePart = memo(
           ? "Denied"
           : undefined;
     return (
-      <Tool
-        className="mb-0"
-        defaultOpen={viewState === "approval-requested" || viewState === "running"}
-      >
+      <Tool className="mb-0" defaultOpen={false}>
         <ToolHeader state={viewState} title={tool.title} type={tool.type} />
         <ToolContent>
           {tool.input !== undefined ? <ToolInput input={tool.input} /> : null}

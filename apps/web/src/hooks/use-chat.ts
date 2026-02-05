@@ -175,6 +175,25 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   }, [modes]);
 
   useEffect(() => {
+    if (batchUpdateTimerRef.current) {
+      clearTimeout(batchUpdateTimerRef.current);
+      batchUpdateTimerRef.current = null;
+    }
+    batchUpdateQueueRef.current = [];
+    setMessages([]);
+    messagesRef.current = [];
+    setPendingPermission(null);
+    setTerminalOutputs({});
+    setError(null);
+    setModes(null);
+    modesRef.current = null;
+    setModels(null);
+    setSupportsModelSwitching(false);
+    setCommands([]);
+    setPromptCapabilities(null);
+    setAgentInfo(null);
+    setLoadSessionSupported(undefined);
+    isResumingRef.current = false;
     historyAppliedRef.current = false;
   }, [chatId]);
 

@@ -1,17 +1,24 @@
 "use client";
 
-import { CheckIcon, ChevronDown, Command, FileTextIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDown,
+  Command,
+  FileTextIcon,
+  XIcon,
+} from "lucide-react";
 import {
   type ChangeEvent,
   type MouseEvent,
-  type RefObject,
   memo,
+  type RefObject,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -58,9 +65,10 @@ import {
   usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
+import { MovingBorder } from "@/components/ui/moving-border";
+import { ATTACHMENT_HARD_LIMIT_BYTES } from "@/config/attachments";
 import { cn } from "@/lib/utils";
 import { useFileStore } from "@/store/file-store";
-import { BorderBeam } from "@/components/ai-elements/border-beam";
 import type { SlashCommand } from "./slash-command-popup";
 
 export type ChatInputStatus =
@@ -224,7 +232,7 @@ function MentionMenu({
   }
 
   return (
-    <div className="absolute bottom-full left-2 right-2 z-50 mb-2">
+    <div className="absolute right-2 bottom-full left-2 z-50 mb-2">
       <div className="rounded-lg border bg-popover shadow-lg">
         <div className="max-h-72 overflow-auto p-1">
           {items.length === 0 ? (
@@ -284,9 +292,7 @@ const ChatInputBase = ({
 }: ChatInputProps) => {
   const files = useFileStore((state) => state.files);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
-  const [mentions, setMentions] = useState<
-    { id: string; path: string }[]
-  >([]);
+  const [mentions, setMentions] = useState<{ id: string; path: string }[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionStart, setMentionStart] = useState<number | null>(null);
@@ -481,217 +487,222 @@ const ChatInputBase = ({
       });
 
       if (result instanceof Promise) {
-        result.then(() => setMentions([])).catch(() => {});
-      } else {
-        setMentions([]);
+        return result.then(() => {
+          setMentions([]);
+        });
       }
+      setMentions([]);
+      return result;
     },
     [mentions, onSubmit]
   );
 
+  const handleAttachmentError = useCallback(
+    (err: {
+      code: "max_files" | "max_file_size" | "accept";
+      message: string;
+    }) => toast.error(err.message),
+    []
+  );
+
   const isStreaming = status === "streaming";
+
+  const promptInputContent = (
+    <PromptInput
+      globalDrop
+      maxFileSize={ATTACHMENT_HARD_LIMIT_BYTES}
+      multiple
+      onError={handleAttachmentError}
+      onSubmit={handleSubmitWithMentions}
+    >
+      <PromptInputHeader>
+        <PromptInputHoverCard>
+          <PromptInputHoverCardTrigger>
+            <PromptInputButton
+              className="h-8!"
+              size="icon-sm"
+              variant="outline"
+            >
+              <Command className="text-muted-foreground" size={12} />
+            </PromptInputButton>
+          </PromptInputHoverCardTrigger>
+          <PromptInputHoverCardContent className="w-100 p-0">
+            <PromptInputCommand>
+              <PromptInputCommandInput
+                className="border-none focus-visible:ring-0"
+                placeholder="Add files, folders, docs..."
+              />
+              <PromptInputCommandList>
+                <PromptInputCommandEmpty className="p-3 text-muted-foreground text-sm">
+                  No results found.
+                </PromptInputCommandEmpty>
+                {availableCommands.map((cmd) => (
+                  <SlashCommandMenuItem
+                    command={cmd}
+                    key={cmd.name}
+                    textareaRef={textareaRef}
+                  />
+                ))}
+              </PromptInputCommandList>
+            </PromptInputCommand>
+          </PromptInputHoverCardContent>
+        </PromptInputHoverCard>
+
+        {mentions.length > 0 && (
+          <div className="flex w-full flex-wrap items-center gap-2 px-2 py-1">
+            {mentions.map((mention) => (
+              <div
+                className="group flex h-8 items-center gap-2 rounded-md border border-border px-2 text-xs"
+                key={mention.id}
+              >
+                <FileTextIcon className="size-3 text-muted-foreground" />
+                <span className="max-w-[220px] truncate">{mention.path}</span>
+                <Button
+                  className="size-5 p-0 opacity-0 transition-opacity group-hover:opacity-100"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    removeMention(mention.id);
+                  }}
+                  type="button"
+                  variant="ghost"
+                >
+                  <XIcon className="size-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <PromptInputAttachments>
+          {(attachment) => <PromptInputAttachment data={attachment} />}
+        </PromptInputAttachments>
+      </PromptInputHeader>
+      <PromptInputBody>
+        <PromptInputTextarea
+          onChange={handleTextChange}
+          onClick={handleTextClick}
+          onKeyDown={handleTextKeyDown}
+          ref={textareaRef}
+        />
+      </PromptInputBody>
+      <PromptInputFooter>
+        <PromptInputTools>
+          <PromptInputActionMenu>
+            <PromptInputActionMenuTrigger />
+            <PromptInputActionMenuContent>
+              <PromptInputActionAddAttachments />
+            </PromptInputActionMenuContent>
+          </PromptInputActionMenu>
+
+          {connStatus === "connected" && availableModes.length > 0 && (
+            <PromptInputSelect
+              onValueChange={(val: string) => onModeChange(val)}
+              value={currentModeId || ""}
+            >
+              <PromptInputSelectTrigger className="h-8 min-w-17.5 px-2 py-0">
+                <PromptInputSelectValue />
+              </PromptInputSelectTrigger>
+              <PromptInputSelectContent>
+                {availableModes.map((mode) => (
+                  <PromptInputSelectItem key={mode.id} value={mode.id}>
+                    {mode.name}
+                  </PromptInputSelectItem>
+                ))}
+              </PromptInputSelectContent>
+            </PromptInputSelect>
+          )}
+
+          {connStatus === "connected" && availableModels.length > 0 && (
+            <ModelSelector
+              onOpenChange={setModelSelectorOpen}
+              open={modelSelectorOpen}
+            >
+              <ModelSelectorTrigger asChild>
+                <Button className="h-8 w-50 justify-between" variant="outline">
+                  {selectedModelData?.chefSlug && (
+                    <ModelSelectorLogo provider={selectedModelData.chefSlug} />
+                  )}
+                  {selectedModelData?.name && (
+                    <ModelSelectorName>
+                      {selectedModelData.name}
+                    </ModelSelectorName>
+                  )}
+                  <ChevronDown className="ml-auto h-4 w-4 opacity-50" />
+                </Button>
+              </ModelSelectorTrigger>
+              <ModelSelectorContent>
+                <ModelSelectorInput placeholder="Search models..." />
+                <ModelSelectorList>
+                  <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+                  {chefs.map((chef) => (
+                    <ModelSelectorGroup heading={chef} key={chef}>
+                      {modelsWithDetails
+                        .filter((model) => model.chef === chef)
+                        .map((model) => (
+                          <ModelSelectorItem
+                            key={model.id}
+                            onSelect={() => {
+                              onModelChange(model.id);
+                              setModelSelectorOpen(false);
+                            }}
+                            value={model.id}
+                          >
+                            <ModelSelectorLogo provider={model.chefSlug} />
+                            <ModelSelectorName>{model.name}</ModelSelectorName>
+                            <ModelSelectorLogoGroup>
+                              {model.providers.map((provider) => (
+                                <ModelSelectorLogo
+                                  key={provider}
+                                  provider={provider}
+                                />
+                              ))}
+                            </ModelSelectorLogoGroup>
+                            {currentModelId === model.id ? (
+                              <CheckIcon className="ml-auto size-4" />
+                            ) : (
+                              <div className="ml-auto size-4" />
+                            )}
+                          </ModelSelectorItem>
+                        ))}
+                    </ModelSelectorGroup>
+                  ))}
+                </ModelSelectorList>
+              </ModelSelectorContent>
+            </ModelSelector>
+          )}
+        </PromptInputTools>
+        <PromptInputSubmit
+          disabled={connStatus !== "connected"}
+          onStop={onCancel}
+          status={status}
+        />
+      </PromptInputFooter>
+    </PromptInput>
+  );
 
   return (
     <div className="relative w-full px-2 py-2">
       <PromptInputProvider>
         <div className="relative">
-          {isStreaming && (
-            <BorderBeam
-              borderWidth={1}
-              className="opacity-90"
-              colorFrom="#7dd3fc"
-              colorTo="#facc15"
-              duration={5}
-              size={80}
-            />
+          {isStreaming ? (
+            <MovingBorder borderRadius="0" borderWidth={1} duration={4}>
+              {promptInputContent}
+            </MovingBorder>
+          ) : (
+            <div className="relative">{promptInputContent}</div>
           )}
-          <div className="relative">
-            <PromptInput globalDrop multiple onSubmit={handleSubmitWithMentions}>
-              <PromptInputHeader>
-                <PromptInputHoverCard>
-                  <PromptInputHoverCardTrigger>
-                    <PromptInputButton
-                      className="h-8!"
-                      size="icon-sm"
-                      variant="outline"
-                    >
-                      <Command className="text-muted-foreground" size={12} />
-                    </PromptInputButton>
-                  </PromptInputHoverCardTrigger>
-                  <PromptInputHoverCardContent className="w-100 p-0">
-                    <PromptInputCommand>
-                      <PromptInputCommandInput
-                        className="border-none focus-visible:ring-0"
-                        placeholder="Add files, folders, docs..."
-                      />
-                      <PromptInputCommandList>
-                        <PromptInputCommandEmpty className="p-3 text-muted-foreground text-sm">
-                          No results found.
-                        </PromptInputCommandEmpty>
-                        {availableCommands.map((cmd) => (
-                          <SlashCommandMenuItem
-                            command={cmd}
-                            key={cmd.name}
-                            textareaRef={textareaRef}
-                          />
-                        ))}
-                      </PromptInputCommandList>
-                    </PromptInputCommand>
-                  </PromptInputHoverCardContent>
-                </PromptInputHoverCard>
-
-                {mentions.length > 0 && (
-                  <div className="flex w-full flex-wrap items-center gap-2 px-2 py-1">
-                    {mentions.map((mention) => (
-                      <div
-                        className="group flex h-8 items-center gap-2 rounded-md border border-border px-2 text-xs"
-                        key={mention.id}
-                      >
-                        <FileTextIcon className="size-3 text-muted-foreground" />
-                        <span className="max-w-[220px] truncate">
-                          {mention.path}
-                        </span>
-                        <Button
-                          className="size-5 p-0 opacity-0 transition-opacity group-hover:opacity-100"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            removeMention(mention.id);
-                          }}
-                          type="button"
-                          variant="ghost"
-                        >
-                          <XIcon className="size-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <PromptInputAttachments>
-                  {(attachment) => <PromptInputAttachment data={attachment} />}
-                </PromptInputAttachments>
-              </PromptInputHeader>
-              <PromptInputBody>
-                <PromptInputTextarea
-                  onClick={handleTextClick}
-                  onChange={handleTextChange}
-                  onKeyDown={handleTextKeyDown}
-                  ref={textareaRef}
-                />
-              </PromptInputBody>
-              <PromptInputFooter>
-                <PromptInputTools>
-                  <PromptInputActionMenu>
-                    <PromptInputActionMenuTrigger />
-                    <PromptInputActionMenuContent>
-                      <PromptInputActionAddAttachments />
-                    </PromptInputActionMenuContent>
-                  </PromptInputActionMenu>
-
-                  {connStatus === "connected" && availableModes.length > 0 && (
-                    <PromptInputSelect
-                      onValueChange={(val: string) => onModeChange(val)}
-                      value={currentModeId || ""}
-                    >
-                      <PromptInputSelectTrigger className="h-8 min-w-17.5 px-2 py-0">
-                        <PromptInputSelectValue />
-                      </PromptInputSelectTrigger>
-                      <PromptInputSelectContent>
-                        {availableModes.map((mode) => (
-                          <PromptInputSelectItem key={mode.id} value={mode.id}>
-                            {mode.name}
-                          </PromptInputSelectItem>
-                        ))}
-                      </PromptInputSelectContent>
-                    </PromptInputSelect>
-                  )}
-
-                  {connStatus === "connected" && availableModels.length > 0 && (
-                    <ModelSelector
-                      onOpenChange={setModelSelectorOpen}
-                      open={modelSelectorOpen}
-                    >
-                      <ModelSelectorTrigger asChild>
-                        <Button
-                          className="h-8 w-50 justify-between"
-                          variant="outline"
-                        >
-                          {selectedModelData?.chefSlug && (
-                            <ModelSelectorLogo
-                              provider={selectedModelData.chefSlug}
-                            />
-                          )}
-                          {selectedModelData?.name && (
-                            <ModelSelectorName>
-                              {selectedModelData.name}
-                            </ModelSelectorName>
-                          )}
-                          <ChevronDown className="ml-auto h-4 w-4 opacity-50" />
-                        </Button>
-                      </ModelSelectorTrigger>
-                      <ModelSelectorContent>
-                        <ModelSelectorInput placeholder="Search models..." />
-                        <ModelSelectorList>
-                          <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                          {chefs.map((chef) => (
-                            <ModelSelectorGroup heading={chef} key={chef}>
-                              {modelsWithDetails
-                                .filter((model) => model.chef === chef)
-                                .map((model) => (
-                                  <ModelSelectorItem
-                                    key={model.id}
-                                    onSelect={() => {
-                                      onModelChange(model.id);
-                                      setModelSelectorOpen(false);
-                                    }}
-                                    value={model.id}
-                                  >
-                                    <ModelSelectorLogo provider={model.chefSlug} />
-                                    <ModelSelectorName>
-                                      {model.name}
-                                    </ModelSelectorName>
-                                    <ModelSelectorLogoGroup>
-                                      {model.providers.map((provider) => (
-                                        <ModelSelectorLogo
-                                          key={provider}
-                                          provider={provider}
-                                        />
-                                      ))}
-                                    </ModelSelectorLogoGroup>
-                                    {currentModelId === model.id ? (
-                                      <CheckIcon className="ml-auto size-4" />
-                                    ) : (
-                                      <div className="ml-auto size-4" />
-                                    )}
-                                  </ModelSelectorItem>
-                                ))}
-                            </ModelSelectorGroup>
-                          ))}
-                        </ModelSelectorList>
-                      </ModelSelectorContent>
-                    </ModelSelector>
-                  )}
-                </PromptInputTools>
-                <PromptInputSubmit
-                  disabled={connStatus !== "connected"}
-                  onStop={onCancel}
-                  status={status}
-                />
-              </PromptInputFooter>
-            </PromptInput>
-          </div>
+          <MentionMenu
+            activeIndex={mentionIndex}
+            items={mentionItems}
+            mentionStart={mentionStart}
+            onActiveIndexChange={setMentionIndex}
+            onAddMention={addMention}
+            onClose={closeMentionMenu}
+            open={mentionOpen}
+            registerSelect={registerMentionSelect}
+            textareaRef={textareaRef}
+          />
         </div>
-        <MentionMenu
-          activeIndex={mentionIndex}
-          items={mentionItems}
-          mentionStart={mentionStart}
-          onActiveIndexChange={setMentionIndex}
-          onAddMention={addMention}
-          onClose={closeMentionMenu}
-          open={mentionOpen}
-          registerSelect={registerMentionSelect}
-          textareaRef={textareaRef}
-        />
       </PromptInputProvider>
     </div>
   );

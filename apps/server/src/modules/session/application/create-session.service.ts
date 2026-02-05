@@ -213,8 +213,8 @@ export class CreateSessionService {
 
     // Support resume if either capability is present
     chatSession.loadSessionSupported = hasLoadSession || hasResumeCapability;
-    // Track which method to use
-    chatSession.useUnstableResume = !hasLoadSession && hasResumeCapability;
+    // Prefer resume when supported (fallback to loadSession if needed)
+    chatSession.useUnstableResume = hasResumeCapability;
 
     // Check if agent supports runtime model switching (unstable session/set_model method)
     // This is different from returning models in session response - that just lists available models
@@ -294,11 +294,35 @@ export class CreateSessionService {
             models?: typeof chatSession.models;
           }>;
         };
-        loadResult = await conn.unstable_resumeSession({
-          sessionId: params.sessionIdToLoad ?? "",
-          cwd: projectRoot,
-          mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
-        });
+        try {
+          loadResult = await conn.unstable_resumeSession({
+            sessionId: params.sessionIdToLoad ?? "",
+            cwd: projectRoot,
+            mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
+          });
+        } catch (error) {
+          const canFallbackToLoad = Boolean(
+            chatSession.agentCapabilities?.loadSession
+          );
+          if (!canFallbackToLoad) {
+            throw error;
+          }
+          console.warn(
+            "[DEBUG] unstable_resumeSession failed; falling back to loadSession",
+            error
+          );
+          chatSession.isReplayingHistory = true;
+          console.log(
+            "[DEBUG] Using loadSession for session:",
+            params.sessionIdToLoad
+          );
+          loadResult = await chatSession.conn.loadSession({
+            sessionId: params.sessionIdToLoad ?? "",
+            cwd: projectRoot,
+            mcpServers: this.convertMcpServersToAcpFormat(mcpServers),
+          });
+          chatSession.isReplayingHistory = false;
+        }
       } else {
         chatSession.isReplayingHistory = true;
         // Use standard loadSession for agents with loadSession capability

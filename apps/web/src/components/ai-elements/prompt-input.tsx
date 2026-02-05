@@ -75,7 +75,7 @@ import { cn } from "@/lib/utils";
 // ============================================================================
 
 export type AttachmentsContext = {
-  files: (FileUIPart & { id: string })[];
+  files: (FileUIPart & { id: string; file?: File })[];
   add: (files: File[] | FileList) => void;
   remove: (id: string) => void;
   clear: () => void;
@@ -151,7 +151,7 @@ export function PromptInputProvider({
 
   // ----- attachments state (global when wrapped)
   const [attachmentFiles, setAttachmentFiles] = useState<
-    (FileUIPart & { id: string })[]
+    (FileUIPart & { id: string; file?: File })[]
   >([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const openRef = useRef<() => void>(() => {});
@@ -170,6 +170,7 @@ export function PromptInputProvider({
           url: URL.createObjectURL(file),
           mediaType: file.type,
           filename: file.name,
+          file,
         }))
       )
     );
@@ -277,7 +278,7 @@ export const usePromptInputAttachments = () => {
 };
 
 export type PromptInputAttachmentProps = HTMLAttributes<HTMLDivElement> & {
-  data: FileUIPart & { id: string };
+  data: FileUIPart & { id: string; file?: File };
   className?: string;
 };
 
@@ -515,7 +516,7 @@ export const PromptInput = ({
     [accept]
   );
 
-  const addLocal = useCallback(
+  const filterIncomingFiles = useCallback(
     (fileList: File[] | FileList) => {
       const incoming = Array.from(fileList);
       const accepted = incoming.filter((f) => matchesAccept(f));
@@ -524,7 +525,7 @@ export const PromptInput = ({
           code: "accept",
           message: "No files match the accepted types.",
         });
-        return;
+        return [];
       }
       const withinSize = (f: File) =>
         maxFileSize ? f.size <= maxFileSize : true;
@@ -534,22 +535,32 @@ export const PromptInput = ({
           code: "max_file_size",
           message: "All files exceed the maximum size.",
         });
+        return [];
+      }
+      const capacity =
+        typeof maxFiles === "number"
+          ? Math.max(0, maxFiles - files.length)
+          : undefined;
+      const capped =
+        typeof capacity === "number" ? sized.slice(0, capacity) : sized;
+      if (typeof capacity === "number" && sized.length > capacity) {
+        onError?.({
+          code: "max_files",
+          message: "Too many files. Some were not added.",
+        });
+      }
+      return capped;
+    },
+    [files.length, matchesAccept, maxFiles, maxFileSize, onError]
+  );
+
+  const addLocal = useCallback(
+    (fileList: File[] | FileList) => {
+      const capped = filterIncomingFiles(fileList);
+      if (capped.length === 0) {
         return;
       }
-
       setItems((prev) => {
-        const capacity =
-          typeof maxFiles === "number"
-            ? Math.max(0, maxFiles - prev.length)
-            : undefined;
-        const capped =
-          typeof capacity === "number" ? sized.slice(0, capacity) : sized;
-        if (typeof capacity === "number" && sized.length > capacity) {
-          onError?.({
-            code: "max_files",
-            message: "Too many files. Some were not added.",
-          });
-        }
         const next: (FileUIPart & { id: string; file?: File })[] = [];
         for (const file of capped) {
           next.push({
@@ -564,7 +575,23 @@ export const PromptInput = ({
         return prev.concat(next);
       });
     },
-    [matchesAccept, maxFiles, maxFileSize, onError]
+    [filterIncomingFiles]
+  );
+
+  const providerAttachments = controller?.attachments;
+
+  const addWithConstraints = useCallback(
+    (fileList: File[] | FileList) => {
+      if (!providerAttachments) {
+        return;
+      }
+      const capped = filterIncomingFiles(fileList);
+      if (capped.length === 0) {
+        return;
+      }
+      providerAttachments.add(capped);
+    },
+    [filterIncomingFiles, providerAttachments]
   );
 
   const removeLocal = useCallback(
@@ -592,7 +619,7 @@ export const PromptInput = ({
     []
   );
 
-  const add = usingProvider ? controller.attachments.add : addLocal;
+  const add = usingProvider ? addWithConstraints : addLocal;
   const remove = usingProvider ? controller.attachments.remove : removeLocal;
   const clear = usingProvider ? controller.attachments.clear : clearLocal;
   const openFileDialog = usingProvider
@@ -733,7 +760,7 @@ export const PromptInput = ({
     // Convert blob URLs to data URLs asynchronously
     Promise.all(
       files.map(async ({ id, ...item }) => {
-        if (item.url && item.url.startsWith("blob:")) {
+        if (item.url?.startsWith("blob:")) {
           const dataUrl = await convertBlobUrlToDataUrl(item.url);
           // If conversion failed, keep the original blob URL
           return {

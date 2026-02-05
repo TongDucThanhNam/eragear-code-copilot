@@ -15,6 +15,7 @@ import { RequestError } from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import { createId } from "@/shared/utils/id.util";
 import { fileUriToPath } from "@/shared/utils/path.util";
+import { createLogger } from "@/infra/logging/structured-logger";
 import { ENV } from "../../config/environment";
 import type {
   ChatSession,
@@ -23,6 +24,7 @@ import type {
 
 /** Regex for splitting text into lines across platforms */
 const LINE_SPLITTER_REGEX = /\r?\n/;
+const logger = createLogger("Debug");
 
 /**
  * Checks whether a command is allowed based on an allowlist.
@@ -76,6 +78,26 @@ function normalizeOutputLimit(limit?: bigint | number | null) {
     return undefined;
   }
   return Math.min(limit, Number.MAX_SAFE_INTEGER);
+}
+
+function requireString(
+  value: unknown,
+  field: string,
+  options?: { allowEmpty?: boolean }
+): string {
+  if (typeof value !== "string") {
+    throw RequestError.invalidParams(
+      { [field]: value },
+      `${field} must be a string`
+    );
+  }
+  if (!options?.allowEmpty && value.trim().length === 0) {
+    throw RequestError.invalidParams(
+      { [field]: value },
+      `${field} is required`
+    );
+  }
+  return value;
 }
 
 /**
@@ -189,7 +211,8 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     params: acp.ReadTextFileRequest
   ): Promise<acp.ReadTextFileResponse> {
     const session = getSessionOrThrow(sessionRuntime, chatId);
-    const filePath = await resolvePathInSession(session, params.path);
+    const requestPath = requireString(params.path, "path");
+    const filePath = await resolvePathInSession(session, requestPath);
     try {
       const text = await readFile(filePath, "utf8");
       const line = params.line ?? undefined;
@@ -211,7 +234,11 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       if (error && typeof error === "object" && "code" in error) {
         const code = (error as NodeJS.ErrnoException).code;
         if (code === "ENOENT") {
-          throw RequestError.resourceNotFound(filePath);
+          logger.debug("readTextFile missing file; returning empty content", {
+            chatId,
+            path: filePath,
+          });
+          return { content: "" };
         }
       }
       throw error;
@@ -226,8 +253,12 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     params: acp.WriteTextFileRequest
   ): Promise<acp.WriteTextFileResponse> {
     const session = getSessionOrThrow(sessionRuntime, chatId);
-    const filePath = await resolvePathInSession(session, params.path);
-    await writeFile(filePath, params.content, "utf8");
+    const requestPath = requireString(params.path, "path");
+    const content = requireString(params.content, "content", {
+      allowEmpty: true,
+    });
+    const filePath = await resolvePathInSession(session, requestPath);
+    await writeFile(filePath, content, "utf8");
     return {};
   }
 

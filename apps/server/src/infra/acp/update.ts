@@ -40,6 +40,9 @@ import type {
   Plan,
   StoredContentBlock,
 } from "../../shared/types/session.types";
+import { createLogger } from "@/infra/logging/structured-logger";
+
+const logger = createLogger("Debug");
 
 function finalizeStreamingForCurrentAssistant(
   chatId: string,
@@ -110,6 +113,46 @@ function contentBlockToText(content: StoredContentBlock) {
     return "";
   }
   return content.text;
+}
+
+function summarizeUpdate(update: SessionUpdateWithLegacy) {
+  const summary: Record<string, unknown> = {
+    sessionUpdate: update.sessionUpdate,
+  };
+  if ("_meta" in update) {
+    summary.hasMeta = Boolean(update._meta);
+  }
+  if ("toolCallId" in update) {
+    summary.toolCallId = update.toolCallId;
+  }
+  if ("currentModeId" in update) {
+    summary.currentModeId = update.currentModeId;
+  }
+  if (
+    "availableCommands" in update &&
+    Array.isArray(update.availableCommands)
+  ) {
+    summary.availableCommandsCount = update.availableCommands.length;
+  }
+  if ("entries" in update && Array.isArray(update.entries)) {
+    summary.planEntries = update.entries.length;
+  }
+  if ("content" in update) {
+    const content = (update as { content?: unknown }).content;
+    if (Array.isArray(content)) {
+      summary.contentLength = content.length;
+    } else if (content && typeof content === "object") {
+      const contentType = (content as { type?: string }).type;
+      if (contentType) {
+        summary.contentType = contentType;
+      }
+      const text = (content as { text?: string }).text;
+      if (typeof text === "string") {
+        summary.contentTextLength = text.length;
+      }
+    }
+  }
+  return summary;
 }
 
 
@@ -632,6 +675,16 @@ function handleBufferedMessage(
       : undefined;
     const hasParts = Boolean(currentMessage?.parts.length);
     const shouldPersist = Boolean(bufferedMessage) || hasParts;
+    logger.debug("ACP buffered flush", {
+      chatId,
+      sessionUpdate: update.sessionUpdate,
+      buffered: Boolean(bufferedMessage),
+      bufferedContentLength: bufferedMessage?.content.length ?? 0,
+      bufferedReasoningLength: bufferedMessage?.reasoning?.length ?? 0,
+      currentAssistantId: currentAssistantId ?? undefined,
+      hasParts,
+      shouldPersist,
+    });
 
     if (!isReplayingHistory && messageId && shouldPersist) {
       if (currentMessage) {
@@ -716,6 +769,13 @@ export function createSessionUpdateHandler(
     const suppressReplay =
       isReplayingHistory &&
       Boolean(sessionRuntime.get(chatId)?.suppressReplayBroadcast);
+    const summary = summarizeUpdate(update);
+    logger.debug("ACP session update", {
+      chatId,
+      isReplayingHistory,
+      suppressReplay,
+      ...summary,
+    });
     if (suppressReplay) {
       return;
     }
