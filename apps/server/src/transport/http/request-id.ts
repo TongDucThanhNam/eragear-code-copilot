@@ -9,6 +9,7 @@
 
 import type { MiddlewareHandler } from "hono";
 import { createId } from "../../shared/utils/id.util";
+import { withObservabilityContext } from "../../shared/utils/observability-context.util";
 
 /**
  * Middleware that adds or preserves request IDs
@@ -32,14 +33,27 @@ export function requestIdMiddleware(): MiddlewareHandler {
   return async (c, next) => {
     // Use existing request ID or generate new one
     const requestId = c.req.header("x-request-id") || createId("req");
+    const traceId = c.req.header("x-trace-id") || requestId;
 
     // Store in context for use in handlers
     c.set("requestId", requestId);
+    c.set("traceId", traceId);
 
-    // Process request
-    await next();
+    await withObservabilityContext(
+      {
+        requestId,
+        traceId,
+        route: c.req.path,
+        source: "http",
+      },
+      async () => {
+        // Process request
+        await next();
+      }
+    );
 
-    // Add ID to response header for client tracing
+    // Add IDs to response header for client tracing
     c.res.headers.set("x-request-id", requestId);
+    c.res.headers.set("x-trace-id", traceId);
   };
 }

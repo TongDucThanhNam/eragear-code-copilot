@@ -8,6 +8,7 @@
  */
 
 import type { Context } from "hono";
+import { getObservabilityContext } from "@/shared/utils/observability-context.util";
 
 export interface ErrorResponse {
   error: string;
@@ -27,7 +28,12 @@ export interface ErrorResponse {
  */
 export function createErrorHandler() {
   return async (err: Error, c: Context) => {
-    const requestId = c.req.header("x-request-id") || "unknown";
+    const context = getObservabilityContext();
+    const requestId =
+      context?.requestId ||
+      ((c.get("requestId") as string | undefined) ??
+        c.req.header("x-request-id")) ||
+      "unknown";
     const path = c.req.path;
     const method = c.req.method;
 

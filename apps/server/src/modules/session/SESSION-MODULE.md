@@ -89,7 +89,9 @@ Session module không xử lý prompt send/cancel/model/mode trực tiếp:
   - replay `messageBuffer`.
 - Khi unsubscribe:
   - giảm `subscriberCount`,
-  - schedule cleanup theo `SESSION_IDLE_TIMEOUT_MS` nếu không còn subscriber.
+  - set `idleSinceAt` nếu không còn subscriber.
+- Cleanup thực tế được thực thi bởi background task
+  `session-idle-cleanup` theo `SESSION_IDLE_TIMEOUT_MS`.
 
 ## Invariants
 

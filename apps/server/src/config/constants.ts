@@ -28,3 +28,11 @@ export const DEFAULT_LOG_QUERY_LIMIT = 200;
 export const MAX_LOG_QUERY_LIMIT = 1000;
 /** Default log file flush interval in milliseconds */
 export const DEFAULT_LOG_FLUSH_INTERVAL_MS = 250;
+/** Default background runner tick interval in milliseconds */
+export const DEFAULT_BACKGROUND_TICK_MS = 1000;
+/** Default background task timeout in milliseconds */
+export const DEFAULT_BACKGROUND_TASK_TIMEOUT_MS = 30_000;
+/** Default interval for session idle cleanup task in milliseconds */
+export const DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS = 15_000;
+/** Default interval for cache prune task in milliseconds */
+export const DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS = 5 * 60 * 1000;

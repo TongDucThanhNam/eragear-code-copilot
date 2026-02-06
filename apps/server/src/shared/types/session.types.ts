@@ -351,8 +351,8 @@ export interface ChatSession {
   cwd: string;
   /** Number of subscribers */
   subscriberCount: number;
-  /** Timer for cleanup */
-  cleanupTimer?: ReturnType<typeof setTimeout>;
+  /** Timestamp when session becomes idle (no subscribers) */
+  idleSinceAt?: number;
   /** Buffer for broadcast events */
   messageBuffer: BroadcastEvent[];
   /** Pending permission requests */

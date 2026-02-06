@@ -38,6 +38,8 @@ Mục tiêu của file này là ngắn gọn. Chỉ giữ quy tắc cốt lõi v
 ## 5. Where to Read by Task
 
 - System overview: `docs/SYSTEM_REPORT.md`
+- Observability runtime: `docs/observability.md`
+- Background processing: `docs/background-processing.md`
 - Session lifecycle: `src/modules/session/SESSION-MODULE.md`
 - UI message contract: `docs/ui-message-normalization.md`
 - useChat client contract: `docs/ui-message-usechat-client.md`

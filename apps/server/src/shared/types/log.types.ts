@@ -16,6 +16,11 @@ export interface LogEntry {
   level: LogLevel;
   message: string;
   source?: string;
+  requestId?: string;
+  traceId?: string;
+  chatId?: string;
+  taskName?: string;
+  taskRunId?: string;
   request?: LogRequestMeta;
   error?: {
     message?: string;

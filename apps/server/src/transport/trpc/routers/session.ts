@@ -18,9 +18,7 @@ import { ListSessionsService } from "@/modules/session/application/list-sessions
 import { ResumeSessionService } from "@/modules/session/application/resume-session.service";
 import { StopSessionService } from "@/modules/session/application/stop-session.service";
 import { UpdateSessionMetaService } from "@/modules/session/application/update-session-meta.service";
-import { ENV } from "../../../config/environment";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
-import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import { protectedProcedure, router } from "../base";
 
 export const sessionRouter = router({
@@ -164,11 +162,7 @@ export const sessionRouter = router({
           return;
         }
 
-        if (session.cleanupTimer) {
-          clearTimeout(session.cleanupTimer);
-          session.cleanupTimer = undefined;
-        }
-
+        session.idleSinceAt = undefined;
         session.subscriberCount++;
         emit.next({ type: "connected" });
         emit.next({ type: "chat_status", status: session.chatStatus });
@@ -184,23 +178,11 @@ export const sessionRouter = router({
         session.emitter.on("data", onData);
 
         return () => {
-          session.subscriberCount--;
+          session.subscriberCount = Math.max(0, session.subscriberCount - 1);
           session.emitter.off("data", onData);
 
           if (session.subscriberCount <= 0) {
-            session.cleanupTimer = setTimeout(() => {
-              const currentSession = ctx.container
-                .getSessionRuntime()
-                .get(input.chatId);
-              if (currentSession && currentSession.subscriberCount <= 0) {
-                terminateSessionTerminals(currentSession);
-                currentSession.proc.kill();
-                ctx.container.getSessionRuntime().delete(input.chatId);
-                ctx.container
-                  .getSessions()
-                  .updateStatus(input.chatId, "stopped");
-              }
-            }, ENV.sessionIdleTimeoutMs);
+            session.idleSinceAt = Date.now();
           }
         };
       });

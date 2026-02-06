@@ -1489,7 +1489,7 @@ input[type="color"] {
 }
 
 /* Letter Spacing */
-.tracking-[0.1em] {
+/* .tracking-[0.1em] {
   letter-spacing: 0.1em;
 }
 .tracking-[0.15em] {
@@ -1500,7 +1500,7 @@ input[type="color"] {
 }
 .tracking-[0.5em] {
   letter-spacing: 0.5em;
-}
+} */
 
 /* Margin and Padding */
 .max-w-xl {

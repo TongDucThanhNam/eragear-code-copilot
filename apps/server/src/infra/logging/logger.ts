@@ -2,6 +2,7 @@ import { format } from "node:util";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LogEntry, LogLevel } from "@/shared/types/log.types";
 import { createId } from "@/shared/utils/id.util";
+import { getObservabilityContext } from "@/shared/utils/observability-context.util";
 import { getLogStore } from "./log-store";
 
 type ConsoleMethod = "log" | "info" | "warn" | "error" | "debug" | "trace";
@@ -76,15 +77,31 @@ export class Logger {
     message: string,
     context?: Partial<LogEntry>
   ): LogEntry {
+    const observability = getObservabilityContext();
+    const mergedMeta: Record<string, string | number | boolean | null> = {
+      ...(context?.meta ?? {}),
+    };
+    if (observability?.route && mergedMeta.route === undefined) {
+      mergedMeta.route = observability.route;
+    }
+    if (observability?.userId && mergedMeta.userId === undefined) {
+      mergedMeta.userId = observability.userId;
+    }
+
     return {
       id: context?.id ?? createId("log"),
       timestamp: context?.timestamp ?? Date.now(),
       level,
       message,
-      source: context?.source,
+      source: context?.source ?? observability?.source,
+      requestId: context?.requestId ?? observability?.requestId,
+      traceId: context?.traceId ?? observability?.traceId,
+      chatId: context?.chatId ?? observability?.chatId,
+      taskName: context?.taskName ?? observability?.taskName,
+      taskRunId: context?.taskRunId ?? observability?.taskRunId,
       request: context?.request,
       error: context?.error,
-      meta: context?.meta,
+      meta: Object.keys(mergedMeta).length > 0 ? mergedMeta : undefined,
     };
   }
 }

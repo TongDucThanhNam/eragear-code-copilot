@@ -15,6 +15,7 @@
  */
 
 import type { Context, Hono } from "hono";
+import { GetObservabilitySnapshotService } from "@/modules/ops/application/get-observability-snapshot.service";
 import { getContainer } from "../../../bootstrap/container";
 import type { Project } from "../../../shared/types/project.types";
 import type { StoredSession } from "../../../shared/types/session.types";
@@ -139,6 +140,19 @@ export function registerDashboardApiRoutes(api: Hono): void {
         serverUptime: process.uptime(),
       },
     });
+  });
+
+  /**
+   * GET /api/dashboard/observability - Runtime observability snapshot
+   */
+  api.get("/dashboard/observability", (c: Context) => {
+    const service = new GetObservabilitySnapshotService({
+      sessionRuntime: container.getSessionRuntime(),
+      logStore: container.getLogStore(),
+      getCacheStats: () => container.getCacheStats(),
+      getBackgroundRunnerState: () => container.getBackgroundRunnerState(),
+    });
+    return c.json({ observability: service.execute() });
   });
 
   // =========================================================================

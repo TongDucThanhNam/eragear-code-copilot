@@ -9,6 +9,10 @@
 
 import { z } from "zod";
 import {
+  DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
+  DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
+  DEFAULT_BACKGROUND_TASK_TIMEOUT_MS,
+  DEFAULT_BACKGROUND_TICK_MS,
   DEFAULT_LOG_BUFFER_LIMIT,
   DEFAULT_LOG_FLUSH_INTERVAL_MS,
   DEFAULT_SESSION_BUFFER_LIMIT,
@@ -50,6 +54,11 @@ const envSchema = z.object({
   LOG_FLUSH_INTERVAL_MS: z.string().optional(),
   LOG_RETENTION_DAYS: z.string().optional(),
   LOG_FILE_ENABLED: z.string().optional(),
+  BACKGROUND_ENABLED: z.string().optional(),
+  BACKGROUND_TICK_MS: z.string().optional(),
+  BACKGROUND_TASK_TIMEOUT_MS: z.string().optional(),
+  BACKGROUND_SESSION_CLEANUP_INTERVAL_MS: z.string().optional(),
+  BACKGROUND_CACHE_PRUNE_INTERVAL_MS: z.string().optional(),
   NODE_ENV: z.string().optional(),
   BUN_ENV: z.string().optional(),
 });
@@ -239,4 +248,26 @@ export const ENV = {
   logRetentionDays: toOptionalNumber(env.LOG_RETENTION_DAYS),
   /** Enable log file sink */
   logFileEnabled: toBoolean(env.LOG_FILE_ENABLED, true),
+  /** Enable background runner */
+  backgroundEnabled: toBoolean(env.BACKGROUND_ENABLED, true),
+  /** Background runner tick interval in milliseconds */
+  backgroundTickMs: toNumber(
+    env.BACKGROUND_TICK_MS,
+    DEFAULT_BACKGROUND_TICK_MS
+  ),
+  /** Timeout for a single background task run in milliseconds */
+  backgroundTaskTimeoutMs: toNumber(
+    env.BACKGROUND_TASK_TIMEOUT_MS,
+    DEFAULT_BACKGROUND_TASK_TIMEOUT_MS
+  ),
+  /** Interval for session idle cleanup task in milliseconds */
+  backgroundSessionCleanupIntervalMs: toNumber(
+    env.BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
+    DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS
+  ),
+  /** Interval for cache prune task in milliseconds */
+  backgroundCachePruneIntervalMs: toNumber(
+    env.BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
+    DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS
+  ),
 };

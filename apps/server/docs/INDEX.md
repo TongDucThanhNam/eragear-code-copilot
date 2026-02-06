@@ -23,6 +23,10 @@ Tài liệu điều hướng nhanh cho `apps/server`.
 
 - Session lifecycle:
   - `src/modules/session/SESSION-MODULE.md`
+- Observability:
+  - `docs/observability.md`
+- Background processing:
+  - `docs/background-processing.md`
 - UI message normalization:
   - `docs/ui-message-normalization.md`
 - Client-side useChat contract:
@@ -40,6 +44,8 @@ Các file sau là nguồn chuẩn khi docs và thực tế có khác biệt:
 - Session events and buffering: `src/infra/acp/update.ts`
 - Permission pipeline: `src/infra/acp/permission.ts`, `src/modules/tooling/application/respond-permission.service.ts`
 - JSON storage: `src/infra/storage/json-store.ts`
+- Observability snapshot: `src/modules/ops/application/get-observability-snapshot.service.ts`, `src/transport/http/routes/dashboard-api.ts`
+- Background runner: `src/infra/background/runner.ts`, `src/infra/background/tasks/*`
 
 ## 5. Security Notes
 

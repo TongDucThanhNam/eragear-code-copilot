@@ -227,7 +227,6 @@ let globalCache: ResponseCache | null = null;
 export function getResponseCache(): ResponseCache {
   if (!globalCache) {
     globalCache = new ResponseCache();
-    globalCache.enableAutoCleanup();
     logger.info("Response cache initialized");
   }
   return globalCache;

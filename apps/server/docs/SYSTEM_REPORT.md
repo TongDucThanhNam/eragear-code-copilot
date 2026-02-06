@@ -43,8 +43,8 @@ Composition root:
 
 HTTP app được tạo trong `src/bootstrap/server.ts` với middleware stack:
 
-1. request logger
-2. request-id
+1. request-id (kèm async observability context)
+2. request logger
 3. response-time header
 4. compression (nếu runtime hỗ trợ)
 5. CORS presets
@@ -84,6 +84,19 @@ Auth cho tRPC:
 - `ctx.auth` được resolve từ:
   - request headers/session (cookie hoặc API key header/query),
   - hoặc `connectionParams.apiKey` với WebSocket client.
+
+### 3.3 Observability & Background Runtime
+
+- Logs:
+  - request logs + console logs được lưu qua `LogStore`.
+  - `LogEntry` có correlation fields (`requestId`, `traceId`, `taskName`, ...).
+- Observability snapshot:
+  - `GET /api/dashboard/observability`
+  - tổng hợp log/http/session/cache/background state runtime.
+- Background runner:
+  - chạy embedded trong API process.
+  - đăng ký task định kỳ cho session idle cleanup và cache prune.
+  - start/stop cùng vòng đời server.
 
 ## 4. Session and ACP Flows
 
@@ -170,6 +183,7 @@ Nhóm biến chính:
 - Policy: `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`, `CORS_STRICT_ORIGIN`
 - Auth: `AUTH_SECRET`, `AUTH_BASE_URL`, `AUTH_TRUSTED_ORIGINS`, `AUTH_ALLOW_SIGNUP`, `AUTH_BOOTSTRAP_API_KEY`, `AUTH_API_KEY_PREFIX`, `AUTH_API_KEY_RATE_LIMIT_*`
 - Logging: `LOG_*`
+- Background: `BACKGROUND_*`
 
 Khuyến nghị remote tunnel:
 
@@ -191,3 +205,5 @@ Trong `apps/server/package.json`:
 - Unit/integration test coverage chưa được mô tả chính thức trong docs này.
 - Một số tài liệu ACP trong `docs/acp/` là protocol reference, không phải
   implementation contract của riêng codebase này.
+- Monitoring hiện tại là logs-first hardening; chưa export metrics/tracing qua
+  external observability backend (OTLP/Prometheus).

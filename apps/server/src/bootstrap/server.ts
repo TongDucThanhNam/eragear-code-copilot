@@ -21,6 +21,11 @@ import { ENV } from "../config/environment";
 import { auth, authConfig, authState } from "../infra/auth/auth";
 import { ensureAuthSetup } from "../infra/auth/bootstrap";
 import { getAuthContext } from "../infra/auth/guards";
+import {
+  BackgroundRunner,
+  createCachePruneTask,
+  createSessionIdleCleanupTask,
+} from "../infra/background";
 import { installConsoleLogger } from "../infra/logging/logger";
 import { createRequestLogger } from "../infra/logging/request-logger";
 import { createLogger } from "../infra/logging/structured-logger";
@@ -34,7 +39,7 @@ import { registerDashboardUiRoutes } from "../transport/http/routes/dashboard";
 import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
 import type { WebSocketHandlerInfo } from "../transport/trpc/types";
-import { initializeContainer } from "./container";
+import { getContainer, initializeContainer } from "./container";
 
 const logger = createLogger("Server");
 
@@ -114,10 +119,8 @@ export function createApp() {
     "*",
     reactRenderer(({ children }) => createElement(Fragment, null, children))
   );
-  app.use(createRequestLogger());
-
-  // Add request ID for tracing
   app.use(requestIdMiddleware());
+  app.use(createRequestLogger());
 
   // Response timing middleware for performance monitoring
   app.use(async (c, next) => {
@@ -239,6 +242,18 @@ export async function startServer() {
   installConsoleLogger();
   await ensureAuthSetup();
   const app = createApp();
+  const container = getContainer();
+  const backgroundRunner = new BackgroundRunner();
+  backgroundRunner.register(
+    createSessionIdleCleanupTask({
+      sessionRuntime: container.getSessionRuntime(),
+      sessionRepo: container.getSessions(),
+    })
+  );
+  backgroundRunner.register(createCachePruneTask());
+  container.setBackgroundRunnerStateProvider(() => backgroundRunner.getState());
+  backgroundRunner.start();
+
   const server = createServer(async (req, res) => {
     const host = req.headers.host ?? `${ENV.wsHost}:${ENV.wsPort}`;
     const url = new URL(req.url ?? "/", `http://${host}`);
@@ -302,6 +317,7 @@ export async function startServer() {
   // Graceful shutdown
   process.on("SIGTERM", () => {
     logger.info("SIGTERM received, gracefully shutting down");
+    backgroundRunner.stop();
     wsHandler.broadcastReconnectNotification();
     wss.close();
     server.close();

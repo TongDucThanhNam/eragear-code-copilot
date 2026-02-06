@@ -17,9 +17,12 @@ import type { SessionRuntimePort } from "@/modules/session/application/ports/ses
 import type { SettingsRepositoryPort } from "@/modules/settings/application/ports/settings-repository.port";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
+import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import { SessionAcpAdapter } from "../infra/acp/session-acp.adapter";
 import { auth, authDb } from "../infra/auth/auth";
 import { getAuthContext } from "../infra/auth/guards";
+import { getResponseCache } from "../infra/caching/response-cache";
+import type { CacheStats } from "../infra/caching/types";
 import { GitAdapter } from "../infra/git";
 import { getLogStore } from "../infra/logging/log-store";
 import { AgentRuntimeAdapter } from "../infra/process";
@@ -42,6 +45,10 @@ export class Container {
   private readonly sessionRuntime: SessionRuntimePort;
   /** Log store for server and request logs */
   private readonly logStore: LogStorePort;
+  /** Background runner state provider */
+  private backgroundRunnerStateProvider:
+    | (() => BackgroundRunnerState)
+    | undefined;
 
   // Repositories
   /** Session repository for persisting session metadata and messages */
@@ -105,6 +112,35 @@ export class Container {
    */
   getLogStore(): LogStorePort {
     return this.logStore;
+  }
+
+  /**
+   * Gets response cache statistics
+   * @returns Cache stats snapshot
+   */
+  getCacheStats(): CacheStats {
+    return getResponseCache().getStats();
+  }
+
+  /**
+   * Registers background runner state provider
+   * @param provider - Function returning current background runner state
+   */
+  setBackgroundRunnerStateProvider(
+    provider: () => BackgroundRunnerState
+  ): void {
+    this.backgroundRunnerStateProvider = provider;
+  }
+
+  /**
+   * Gets background runner state snapshot
+   * @returns Background runner state or null when runner is not configured
+   */
+  getBackgroundRunnerState(): BackgroundRunnerState | null {
+    if (!this.backgroundRunnerStateProvider) {
+      return null;
+    }
+    return this.backgroundRunnerStateProvider();
   }
 
   /**
