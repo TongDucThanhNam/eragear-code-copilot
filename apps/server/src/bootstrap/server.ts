@@ -8,34 +8,32 @@
  * @module bootstrap/server
  */
 
-import { createServer } from "node:http";
 import type { ServerResponse } from "node:http";
+import { createServer } from "node:http";
 import { Readable } from "node:stream";
+import { reactRenderer } from "@hono/react-renderer";
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
-import { reactRenderer } from "@hono/react-renderer";
-import { WebSocketServer } from "ws";
 import { createElement, Fragment } from "react";
+import { WebSocketServer } from "ws";
 import { ENV } from "../config/environment";
 import { auth, authConfig, authState } from "../infra/auth/auth";
 import { ensureAuthSetup } from "../infra/auth/bootstrap";
 import { getAuthContext } from "../infra/auth/guards";
-import { createLogger } from "../infra/logging/structured-logger";
 import { installConsoleLogger } from "../infra/logging/logger";
 import { createRequestLogger } from "../infra/logging/request-logger";
+import { createLogger } from "../infra/logging/structured-logger";
 import { ReconcileSessionStatusService } from "../modules/session/application/reconcile-session-status.service";
-import {
-  resolveRequestOrigin,
-} from "../transport/http/cors";
+import { normalizeOrigin } from "../transport/http/cors";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
 import { requestIdMiddleware } from "../transport/http/request-id";
 import { registerHttpRoutes } from "../transport/http/routes";
 import { registerDashboardUiRoutes } from "../transport/http/routes/dashboard";
-import type { WebSocketHandlerInfo } from "../transport/trpc/types";
 import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
+import type { WebSocketHandlerInfo } from "../transport/trpc/types";
 import { initializeContainer } from "./container";
 
 const logger = createLogger("Server");
@@ -137,14 +135,17 @@ export function createApp() {
   }
 
   // Create reusable CORS middleware factory
-  const corsMiddleware = createCorsMiddlewares(authConfig.trustedOrigins);
+  const corsMiddleware = createCorsMiddlewares(
+    authConfig.trustedOrigins,
+    ENV.corsStrictOrigin
+  );
 
   // Apply API CORS defaults (auth/health override below)
   app.use("/api/*", corsMiddleware.api);
 
   // Auth CORS + handler
-  app.use("/api/auth/*", async (c, next) => {
-    const origin = resolveRequestOrigin(c.req.raw.headers);
+  app.use("/api/auth/*", (c, next) => {
+    const origin = normalizeOrigin(c.req.raw.headers.get("origin"));
     if (origin) {
       ensureTrustedOrigin(origin);
     }
@@ -221,9 +222,7 @@ export function createApp() {
   registerDashboardUiRoutes(app);
 
   // Explicit 404 handler for better UX
-  app.notFound((c) =>
-    c.json({ error: "Not found", path: c.req.path }, 404)
-  );
+  app.notFound((c) => c.json({ error: "Not found", path: c.req.path }, 404));
 
   // Error handler for unhandled exceptions
   app.onError(createErrorHandler());

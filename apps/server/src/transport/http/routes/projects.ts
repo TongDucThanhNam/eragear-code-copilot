@@ -100,5 +100,4 @@ export function registerProjectRoutes(api: Hono): void {
       return c.json({ error: "Failed to delete project" }, 500);
     }
   });
-
 }

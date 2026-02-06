@@ -23,7 +23,7 @@ export function LogDetail({ entry, onClose }: LogDetailProps) {
           <span className={statusClass(entry?.request?.status)}>
             {entry?.request?.status
               ? String(entry.request.status)
-              : entry?.level?.toUpperCase() ?? "--"}
+              : (entry?.level?.toUpperCase() ?? "--")}
           </span>
           <button
             aria-label="Close details"

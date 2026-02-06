@@ -1,13 +1,13 @@
-import { DashboardView } from "@/presentation/dashboard/dashboard-view";
-import type { DashboardBootstrap } from "@/presentation/dashboard/dashboard-types";
 import {
-  EMPTY_DASHBOARD_DATA,
   type ApiKeyCreateResponse,
   type DashboardData,
+  EMPTY_DASHBOARD_DATA,
 } from "@/presentation/dashboard/dashboard-data";
+import type { DashboardBootstrap } from "@/presentation/dashboard/dashboard-types";
+import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import type { Settings } from "@/shared/types/settings.types";
-import { getUiAssets } from "./ui-assets";
 import { normalizeTab } from "../utils";
+import { getUiAssets } from "./ui-assets";
 
 interface DashboardPageProps {
   settings: Settings;
@@ -20,8 +20,8 @@ interface DashboardPageProps {
   createdApiKey?: ApiKeyCreateResponse;
 }
 
-const noop = () => {};
-const noopAsync = async () => {};
+const noop = (): void => undefined;
+const noopAsync = (): Promise<void> => Promise.resolve();
 
 function serializeBootstrap(bootstrap: DashboardBootstrap): string {
   return JSON.stringify(bootstrap).replace(/</g, "\\u003c");
@@ -79,10 +79,9 @@ export function DashboardPage({
           success={success}
         />
       </div>
-      <script
-        id="dashboard-bootstrap"
-        type="application/json"
-      >{serializeBootstrap(bootstrap)}</script>
+      <script id="dashboard-bootstrap" type="application/json">
+        {serializeBootstrap(bootstrap)}
+      </script>
       {assets.clientEntry && <script src={assets.clientEntry} type="module" />}
     </>
   );

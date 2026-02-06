@@ -121,14 +121,13 @@ export function resolveRequestOrigin(headers: Headers): string | null {
  */
 export function resolveCorsOrigin(
   origin: string | null | undefined,
-  trustedOrigins: string[] | string
+  trustedOrigins: string[] | string,
+  strict: boolean
 ): string | undefined {
   const normalized = normalizeOrigin(origin ?? null);
 
   if (!normalized) {
-    console.debug(
-      "[Auth] CORS origin null/undefined, allowing (credentials=true)"
-    );
+    // No Origin header is common for non-browser clients; do not force ACAO.
     return origin ?? undefined;
   }
 
@@ -136,9 +135,14 @@ export function resolveCorsOrigin(
     if (trustedOrigins[0] === "*" || trustedOrigins.includes(normalized)) {
       return normalized;
     }
-    // In development, allow untracked origins
-    console.debug(
-      `[Auth] CORS origin "${normalized}" not in trusted list: ${JSON.stringify(trustedOrigins)}, allowing anyway for dev`
+    if (strict) {
+      console.warn(
+        `[Auth] CORS denied for origin "${normalized}" (not in trusted origins)`
+      );
+      return undefined;
+    }
+    console.warn(
+      `[Auth] CORS permissive mode: allowing untrusted origin "${normalized}"`
     );
     return normalized;
   }
@@ -147,5 +151,19 @@ export function resolveCorsOrigin(
     return normalized;
   }
 
-  return trustedOrigins === normalized ? normalized : undefined;
+  if (trustedOrigins === normalized) {
+    return normalized;
+  }
+
+  if (strict) {
+    console.warn(
+      `[Auth] CORS denied for origin "${normalized}" (trusted origin mismatch)`
+    );
+    return undefined;
+  }
+
+  console.warn(
+    `[Auth] CORS permissive mode: allowing unmatched origin "${normalized}"`
+  );
+  return normalized;
 }

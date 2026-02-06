@@ -1,12 +1,12 @@
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
-import type { Project } from "@/shared/types/project.types";
-import type { StoredSession } from "@/shared/types/session.types";
-import type { AgentConfig } from "@/shared/types/agent.types";
 import type {
   ApiKeyItem,
   DashboardData,
   DeviceSessionItem,
 } from "@/presentation/dashboard/dashboard-data";
+import type { AgentConfig } from "@/shared/types/agent.types";
+import type { Project } from "@/shared/types/project.types";
+import type { StoredSession } from "@/shared/types/session.types";
 
 interface BuildDashboardDataInput {
   projects: Project[];

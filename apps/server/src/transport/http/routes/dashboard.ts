@@ -16,8 +16,11 @@
 import type { Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { createElement } from "react";
-import { auth, authState } from "../../../infra/auth/auth";
-import { createLogger } from "../../../infra/logging/structured-logger";
+import { LoginHead, LoginPage } from "@/presentation/dashboard/login";
+import { buildDashboardData } from "@/presentation/dashboard/server/build-dashboard-data";
+import { DashboardPage } from "@/presentation/dashboard/server/dashboard-page";
+import { renderDocument } from "@/presentation/dashboard/server/render-document";
+import { normalizeTab } from "@/presentation/dashboard/utils";
 import { getContainer } from "../../../bootstrap/container";
 import { ENV } from "../../../config/environment";
 import {
@@ -27,18 +30,13 @@ import {
   LEADING_SLASHES,
   PUBLIC_DASHBOARD_ASSETS_PATH,
 } from "../constants";
-import { getSessionFromRequest } from "../utils/auth";
 import {
-  normalizeApiKeyItem,
-  normalizeDeviceSessionItem,
-} from "./helpers";
-import { DashboardPage } from "@/presentation/dashboard/server/dashboard-page";
-import { buildDashboardData } from "@/presentation/dashboard/server/build-dashboard-data";
-import { LoginHead, LoginPage } from "@/presentation/dashboard/login";
-import { renderDocument } from "@/presentation/dashboard/server/render-document";
-import { normalizeTab } from "@/presentation/dashboard/utils";
-
-const logger = createLogger("DashboardUI");
+  getSessionFromRequest,
+  listApiKeys,
+  listDeviceSessions,
+  resolveAdminUsername,
+} from "../utils/auth";
+import { normalizeApiKeyItem, normalizeDeviceSessionItem } from "./helpers";
 
 /**
  * Registers dashboard-related UI routes
@@ -59,7 +57,9 @@ export function registerDashboardUiRoutes(app: Hono): void {
     serveStatic({
       root: PUBLIC_DASHBOARD_ASSETS_PATH,
       rewriteRequestPath: (path) =>
-        path.replace(DASHBOARD_ASSET_PATH_PREFIX, "").replace(LEADING_SLASHES, ""),
+        path
+          .replace(DASHBOARD_ASSET_PATH_PREFIX, "")
+          .replace(LEADING_SLASHES, ""),
     })
   );
 
@@ -85,7 +85,7 @@ export function registerDashboardUiRoutes(app: Hono): void {
     if (session) {
       return c.redirect(DASHBOARD_UI_PATH);
     }
-    const username = ENV.authAdminUsername ?? authState.adminUsername ?? "admin";
+    const username = resolveAdminUsername(ENV.authAdminUsername ?? "admin");
     return renderDocument(c, createElement(LoginPage, { username }), {
       title: "Eragear Server Login",
       head: createElement(LoginHead, { username }),
@@ -110,29 +110,27 @@ export function registerDashboardUiRoutes(app: Hono): void {
     const runtimeSessions = container.getSessionRuntime();
     const agents = container.getAgents().findAll();
 
-    let apiKeys: unknown = [];
-    let deviceSessions: unknown = [];
+    let apiKeys: unknown[] = [];
+    let deviceSessions: unknown[] = [];
 
     try {
-      apiKeys = await auth.api.listApiKeys({ headers: c.req.raw.headers });
+      apiKeys = await listApiKeys(c.req.raw.headers);
     } catch (error) {
-      logger.error("Failed to load API keys", error as Error);
+      console.error("[Server] Failed to load API keys", error);
     }
 
     try {
-      deviceSessions = await auth.api.listDeviceSessions({
-        headers: c.req.raw.headers,
-      });
+      deviceSessions = await listDeviceSessions(c.req.raw.headers);
     } catch (error) {
-      logger.error("Failed to load device sessions", error as Error);
+      console.error("[Server] Failed to load device sessions", error);
     }
 
-    const normalizedApiKeys = Array.isArray(apiKeys)
-      ? apiKeys.map((item) => normalizeApiKeyItem(item as never))
-      : [];
-    const normalizedDeviceSessions = Array.isArray(deviceSessions)
-      ? deviceSessions.map((item) => normalizeDeviceSessionItem(item as never))
-      : [];
+    const normalizedApiKeys = apiKeys.map((item: unknown) =>
+      normalizeApiKeyItem(item as never)
+    );
+    const normalizedDeviceSessions = deviceSessions.map((item: unknown) =>
+      normalizeDeviceSessionItem(item as never)
+    );
 
     const dashboardData = buildDashboardData({
       projects,

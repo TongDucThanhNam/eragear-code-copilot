@@ -8,11 +8,7 @@
  */
 
 import { createLogger } from "../logging/structured-logger";
-import type {
-  CacheEntry,
-  CacheOptions,
-  CacheStats,
-} from "./types";
+import type { CacheEntry, CacheOptions, CacheStats } from "./types";
 
 const logger = createLogger("Server");
 
@@ -38,7 +34,7 @@ const DEFAULT_TTL = 60 * 1000; // 1 minute default
  * ```
  */
 export class ResponseCache {
-  private store = new Map<string, CacheEntry<any>>();
+  private readonly store = new Map<string, CacheEntry<unknown>>();
   private hits = 0;
   private misses = 0;
 
@@ -63,7 +59,7 @@ export class ResponseCache {
       cached.hits++;
       this.hits++;
       logger.debug("Cache hit", { key, hits: cached.hits });
-      return cached.value;
+      return cached.value as T;
     }
 
     // Compute new value
@@ -97,7 +93,9 @@ export class ResponseCache {
    */
   get<T>(key: string): T | undefined {
     const cached = this.store.get(key);
-    if (!cached) return undefined;
+    if (!cached) {
+      return undefined;
+    }
 
     if (cached.expiresAt <= Date.now()) {
       this.store.delete(key);
@@ -106,7 +104,7 @@ export class ResponseCache {
 
     cached.hits++;
     this.hits++;
-    return cached.value;
+    return cached.value as T;
   }
 
   /**

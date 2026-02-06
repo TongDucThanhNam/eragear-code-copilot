@@ -2,9 +2,17 @@ import { existsSync, mkdirSync } from "node:fs";
 import { appendFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { ENV } from "@/config/environment";
-import type { LogStorePort, LogListResult } from "@/shared/ports/log-store.port";
-import type { LogEntry, LogLevel, LogQuery, LogStats } from "@/shared/types/log.types";
 import { ensureStorageDir } from "@/infra/storage/json-store";
+import type {
+  LogListResult,
+  LogStorePort,
+} from "@/shared/ports/log-store.port";
+import type {
+  LogEntry,
+  LogLevel,
+  LogQuery,
+  LogStats,
+} from "@/shared/types/log.types";
 
 const LOG_DIR_NAME = "logs";
 const LOG_FILE_PREFIX = "logs-";
@@ -50,7 +58,7 @@ function ensureLogDir(): string {
 class LogFileSink {
   private readonly flushIntervalMs: number;
   private readonly retentionDays?: number;
-  private buffer: string[] = [];
+  private readonly buffer: string[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushing = false;
   private activeDate = "";
@@ -71,7 +79,11 @@ class LogFileSink {
       return;
     }
     this.flushTimer = setTimeout(() => {
-      void this.flush();
+      this.flush().catch((error) => {
+        process.stderr.write(
+          `[LogStore] Failed to flush logs: ${String(error)}\n`
+        );
+      });
     }, this.flushIntervalMs);
   }
 
@@ -85,7 +97,11 @@ class LogFileSink {
         `${LOG_FILE_PREFIX}${date}${LOG_FILE_SUFFIX}`
       );
       if (this.retentionDays) {
-        void this.cleanupOldFiles(dir);
+        this.cleanupOldFiles(dir).catch((error) => {
+          process.stderr.write(
+            `[LogStore] Failed to cleanup logs: ${String(error)}\n`
+          );
+        });
       }
     }
     if (!this.activePath) {
@@ -143,7 +159,11 @@ class LogFileSink {
           if (!match) {
             return;
           }
-          const timestamp = new Date(match[1]).getTime();
+          const datePart = match[1];
+          if (!datePart) {
+            return;
+          }
+          const timestamp = new Date(datePart).getTime();
           if (Number.isNaN(timestamp) || timestamp >= cutoff) {
             return;
           }
@@ -160,7 +180,7 @@ class LogFileSink {
 
 export class LogStore implements LogStorePort {
   private readonly maxEntries: number;
-  private buffer: Array<LogEntry | undefined>;
+  private readonly buffer: Array<LogEntry | undefined>;
   private start = 0;
   private size = 0;
   private readonly listeners = new Set<(entry: LogEntry) => void>();
@@ -180,7 +200,6 @@ export class LogStore implements LogStorePort {
   append(entry: LogEntry): void {
     const isFull = this.size === this.maxEntries;
     if (isFull) {
-      const evicted = this.buffer[this.start];
       this.buffer[this.start] = entry;
       this.start = (this.start + 1) % this.maxEntries;
     } else {
@@ -194,9 +213,7 @@ export class LogStore implements LogStorePort {
       try {
         listener(entry);
       } catch (error) {
-        process.stderr.write(
-          `[LogStore] Listener error: ${String(error)}\n`
-        );
+        process.stderr.write(`[LogStore] Listener error: ${String(error)}\n`);
       }
     }
   }
@@ -204,9 +221,7 @@ export class LogStore implements LogStorePort {
   list(query?: LogQuery): LogListResult {
     const entries = this.toArray();
     const levels =
-      query?.levels && query.levels.length > 0
-        ? new Set(query.levels)
-        : null;
+      query?.levels && query.levels.length > 0 ? new Set(query.levels) : null;
     const search = query?.search?.trim().toLowerCase();
     const from = query?.from;
     const to = query?.to;

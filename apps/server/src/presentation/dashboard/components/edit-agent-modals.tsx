@@ -72,11 +72,11 @@ export function EditAgentModals({
                 </label>
                 <input
                   className="input-underline w-full"
+                  defaultValue={agent.name}
                   id={`edit-agent-name-${agent.id}`}
                   name="name"
                   required
                   type="text"
-                  defaultValue={agent.name}
                 />
               </div>
 
@@ -89,10 +89,10 @@ export function EditAgentModals({
                 </label>
                 <select
                   className="input-underline w-full"
+                  defaultValue={agent.type}
                   id={`edit-agent-type-${agent.id}`}
                   name="type"
                   required
-                  defaultValue={agent.type}
                 >
                   <option value="claude">Claude</option>
                   <option value="codex">Codex</option>
@@ -111,11 +111,11 @@ export function EditAgentModals({
                 </label>
                 <input
                   className="input-underline w-full"
+                  defaultValue={agent.command}
                   id={`edit-agent-command-${agent.id}`}
                   name="command"
                   required
                   type="text"
-                  defaultValue={agent.command}
                 />
               </div>
 
@@ -128,11 +128,11 @@ export function EditAgentModals({
                 </label>
                 <input
                   className="input-underline w-full"
+                  defaultValue={agent.args ? agent.args.join(", ") : ""}
                   id={`edit-agent-args-${agent.id}`}
                   name="args"
                   placeholder="--acp --stdio"
                   type="text"
-                  defaultValue={agent.args ? agent.args.join(", ") : ""}
                 />
                 <p className="mt-1 font-mono text-[10px] text-muted">
                   Space or comma separated. Use quotes for values with spaces.

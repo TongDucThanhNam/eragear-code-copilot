@@ -34,7 +34,10 @@ export function AgentsTab({
               <span className="border border-ink px-3 py-1 font-mono text-xs">
                 {agents.length} agent{agents.length !== 1 ? "s" : ""}
               </span>
-              <a className="btn btn-primary min-h-[44px]" href="#add-agent-modal">
+              <a
+                className="btn btn-primary min-h-[44px]"
+                href="#add-agent-modal"
+              >
                 + Add Agent
               </a>
             </div>

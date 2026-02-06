@@ -46,20 +46,10 @@ import { registerSettingsRoutes } from "./settings";
  */
 export function registerHttpRoutes(api: Hono): void {
   // Register feature routes in logical order
-  registerSettingsRoutes(api);         // Settings must be first (used by dashboard)
-  registerDashboardApiRoutes(api);     // Dashboard data & streams
-  registerSessionRoutes(api);          // Session management
-  registerProjectRoutes(api);          // Project CRUD
-  registerAgentRoutes(api);            // Agent configuration
-  registerAdminRoutes(api);            // Admin operations (API keys, device sessions)
+  registerSettingsRoutes(api); // Settings must be first (used by dashboard)
+  registerDashboardApiRoutes(api); // Dashboard data & streams
+  registerSessionRoutes(api); // Session management
+  registerProjectRoutes(api); // Project CRUD
+  registerAgentRoutes(api); // Agent configuration
+  registerAdminRoutes(api); // Admin operations (API keys, device sessions)
 }
-
-// Re-export individual route registrations for direct use if needed
-export {
-  registerAdminRoutes,
-  registerAgentRoutes,
-  registerDashboardApiRoutes,
-  registerProjectRoutes,
-  registerSessionRoutes,
-  registerSettingsRoutes,
-};

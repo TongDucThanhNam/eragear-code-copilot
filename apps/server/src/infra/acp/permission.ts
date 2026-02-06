@@ -10,8 +10,8 @@
 
 import type * as acp from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
-import { createId } from "@/shared/utils/id.util";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
+import { createId } from "@/shared/utils/id.util";
 import {
   buildToolApprovalPart,
   getToolNameFromCall,

@@ -58,8 +58,8 @@ export function createAcpConnectionAdapter(
       hasSessionUpdate:
         text.includes("sessionUpdate") || text.includes("session_update"),
       hasError:
-        text.includes("\"error\"") ||
-        text.includes("\"Error\"") ||
+        text.includes('"error"') ||
+        text.includes('"Error"') ||
         text.includes("error"),
     });
   });

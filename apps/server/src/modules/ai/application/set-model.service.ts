@@ -9,6 +9,7 @@
 
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { ChatSession } from "@/shared/types/session.types";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
   getAcpErrorText,
@@ -70,91 +71,19 @@ export class SetModelService {
    * @throws Error if session is not found or not running
    */
   async execute(chatId: string, modelId: string) {
-    const session = this.sessionRuntime.get(chatId);
-    if (!session?.sessionId) {
-      throw new Error("Chat not found");
-    }
-    if (!session.models || session.models.availableModels.length === 0) {
-      throw new Error("Agent does not support model switching");
-    }
-    const isAvailableModel = session.models.availableModels.some(
-      (model) => model.modelId === modelId
-    );
-    if (!isAvailableModel) {
-      throw new Error("Model is not available for this session");
-    }
-    if (session.models.currentModelId === modelId) {
+    const session = this.getSessionForModelSwitch(chatId);
+    if (this.isCurrentModel(session, modelId)) {
       return { ok: true };
     }
+
     console.log("[Server] setModel requested", {
       chatId,
       modelId,
     });
-    const stdin = session.proc.stdin;
-    if (
-      !stdin ||
-      stdin.destroyed ||
-      !stdin.writable ||
-      session.proc.killed ||
-      session.proc.exitCode !== null
-    ) {
-      throw new Error("Session is not running");
-    }
-    if (session.conn.signal.aborted) {
-      throw new Error("Session connection is closed");
-    }
-
-    const markStopped = (reason: string) => {
-      this.sessionRuntime.broadcast(chatId, {
-        type: "error",
-        error: reason,
-      });
-      updateChatStatus({
-        chatId,
-        session,
-        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-        status: "error",
-      });
-      this.sessionRepo.updateStatus(chatId, "stopped");
-      if (!session.proc.killed) {
-        session.proc.kill();
-      }
-      this.sessionRuntime.delete(chatId);
-    };
-
-    const sendRequest = async () => {
-      await (
-        session.conn as unknown as ConnWithUnstableModel
-      ).unstable_setSessionModel({
-        sessionId: session.sessionId ?? "",
-        modelId,
-      });
-    };
+    this.ensureSessionRunning(session);
 
     try {
-      const maxAttempts = 3;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          await sendRequest();
-          break;
-        } catch (error) {
-          const errorText = getAcpErrorText(error);
-          if (
-            isProcessTransportNotReady(errorText) &&
-            attempt < maxAttempts - 1
-          ) {
-            await new Promise((resolve) =>
-              setTimeout(resolve, 150 * (attempt + 1))
-            );
-            continue;
-          }
-          if (isProcessExited(errorText)) {
-            markStopped(errorText || "Agent process exited");
-            throw new Error(errorText || "Agent process exited");
-          }
-          throw error;
-        }
-      }
+      await this.sendModelSwitchWithRetry(chatId, session, modelId);
     } catch (error) {
       const errorText = getAcpErrorText(error);
       console.error("[Server] setModel failed", {
@@ -176,5 +105,104 @@ export class SetModelService {
       modelId,
     });
     return { ok: true };
+  }
+
+  private getSessionForModelSwitch(chatId: string): ChatSession {
+    const session = this.sessionRuntime.get(chatId);
+    if (!session?.sessionId) {
+      throw new Error("Chat not found");
+    }
+    if (!session.models || session.models.availableModels.length === 0) {
+      throw new Error("Agent does not support model switching");
+    }
+    return session;
+  }
+
+  private isCurrentModel(session: ChatSession, modelId: string) {
+    const isAvailableModel = session.models?.availableModels.some(
+      (model) => model.modelId === modelId
+    );
+    if (!isAvailableModel) {
+      throw new Error("Model is not available for this session");
+    }
+    return session.models?.currentModelId === modelId;
+  }
+
+  private ensureSessionRunning(session: ChatSession) {
+    const stdin = session.proc.stdin;
+    if (
+      !stdin ||
+      stdin.destroyed ||
+      !stdin.writable ||
+      session.proc.killed ||
+      session.proc.exitCode !== null
+    ) {
+      throw new Error("Session is not running");
+    }
+    if (session.conn.signal.aborted) {
+      throw new Error("Session connection is closed");
+    }
+  }
+
+  private async sendModelSwitchWithRetry(
+    chatId: string,
+    session: ChatSession,
+    modelId: string
+  ) {
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        await this.sendModelSwitchRequest(session, modelId);
+        return;
+      } catch (error) {
+        const errorText = getAcpErrorText(error);
+        if (
+          isProcessTransportNotReady(errorText) &&
+          attempt < maxAttempts - 1
+        ) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 150 * (attempt + 1))
+          );
+          continue;
+        }
+        if (isProcessExited(errorText)) {
+          const reason = errorText || "Agent process exited";
+          this.markSessionStopped(chatId, session, reason);
+          throw new Error(reason);
+        }
+        throw error;
+      }
+    }
+  }
+
+  private async sendModelSwitchRequest(session: ChatSession, modelId: string) {
+    await (
+      session.conn as unknown as ConnWithUnstableModel
+    ).unstable_setSessionModel({
+      sessionId: session.sessionId ?? "",
+      modelId,
+    });
+  }
+
+  private markSessionStopped(
+    chatId: string,
+    session: ChatSession,
+    reason: string
+  ) {
+    this.sessionRuntime.broadcast(chatId, {
+      type: "error",
+      error: reason,
+    });
+    updateChatStatus({
+      chatId,
+      session,
+      broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+      status: "error",
+    });
+    this.sessionRepo.updateStatus(chatId, "stopped");
+    if (!session.proc.killed) {
+      session.proc.kill();
+    }
+    this.sessionRuntime.delete(chatId);
   }
 }

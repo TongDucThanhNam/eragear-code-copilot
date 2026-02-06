@@ -1,10 +1,10 @@
-import type { Settings } from "@/shared/types/settings.types";
 import type {
   ApiKeyCreateResponse,
   DashboardData,
   TabKey,
 } from "@/presentation/dashboard/dashboard-data";
 import { EMPTY_DASHBOARD_DATA } from "@/presentation/dashboard/dashboard-data";
+import type { Settings } from "@/shared/types/settings.types";
 import { AddAgentModal } from "./components/add-agent-modal";
 import { AddProjectModal } from "./components/add-project-modal";
 import { AgentsTab } from "./components/agents-tab";

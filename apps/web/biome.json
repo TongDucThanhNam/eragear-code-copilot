@@ -1,0 +1,12 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
+	"extends": ["../../biome.jsonc"],
+	"files": {
+		"includes": [
+			"!/node_modules",
+			"!/dist",
+			"!/src/components/ai-elements",
+			"!/src/components/ui"
+		]
+	}
+}

@@ -12,7 +12,7 @@ function getTableCount(table: string): number {
       .get() as { count?: number } | undefined;
     const count = row?.count ?? 0;
     return Number.isFinite(count) ? count : 0;
-  } catch (error) {
+  } catch {
     return 0;
   }
 }
@@ -90,7 +90,7 @@ function resolveAdminUserId(): string | null {
       .prepare('SELECT id FROM "user" ORDER BY createdAt ASC LIMIT 1')
       .get() as { id?: string } | undefined;
     return fallback?.id ?? null;
-  } catch (error) {
+  } catch {
     return null;
   }
 }

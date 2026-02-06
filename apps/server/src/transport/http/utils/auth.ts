@@ -7,7 +7,11 @@
  * @module transport/http/utils/auth
  */
 
+// biome-ignore lint/style/noRestrictedImports: transport auth helpers intentionally bridge to Better Auth runtime.
+import { auth, authState } from "../../../infra/auth/auth";
+// biome-ignore lint/style/noRestrictedImports: transport auth helpers intentionally bridge to Better Auth runtime.
 import type { SessionUser } from "../../../infra/auth/guards";
+// biome-ignore lint/style/noRestrictedImports: transport auth helpers intentionally bridge to Better Auth runtime.
 import { getSessionFromRequest as infraGetSessionFromRequest } from "../../../infra/auth/guards";
 
 type HeaderRecord = Record<string, string | string[] | undefined>;
@@ -26,4 +30,18 @@ export async function getSessionFromRequest(
   req: RequestLike
 ): Promise<{ user: SessionUser; session: unknown } | null> {
   return await infraGetSessionFromRequest(req);
+}
+
+export function resolveAdminUsername(defaultUsername: string): string {
+  return authState.adminUsername ?? defaultUsername;
+}
+
+export async function listApiKeys(headers: Headers): Promise<unknown[]> {
+  const keys = await auth.api.listApiKeys({ headers });
+  return Array.isArray(keys) ? keys : [];
+}
+
+export async function listDeviceSessions(headers: Headers): Promise<unknown[]> {
+  const sessions = await auth.api.listDeviceSessions({ headers });
+  return Array.isArray(sessions) ? sessions : [];
 }

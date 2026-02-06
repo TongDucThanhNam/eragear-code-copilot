@@ -56,19 +56,22 @@ export const CORS_PRESETS = {
  */
 export function createCorsMiddleware(
   preset: keyof typeof CORS_PRESETS,
-  trustedOrigins: string[] | string = "*"
+  trustedOrigins: string[] | string = "*",
+  strictOrigin = true
 ): MiddlewareHandler {
   const config = CORS_PRESETS[preset];
 
   const corsOptions = {
-    origin: (origin: string | undefined) => resolveCorsOrigin(origin, trustedOrigins),
+    origin: (origin: string | undefined) =>
+      resolveCorsOrigin(origin, trustedOrigins, strictOrigin),
     allowHeaders: [...CORS_DEFAULTS.allowHeaders],
+    allowMethods: [...config.allowMethods],
+    credentials: config.credentials,
     exposeHeaders: [...CORS_DEFAULTS.exposeHeaders],
     maxAge: CORS_DEFAULTS.maxAge,
-    ...config,
   };
 
-  return cors(corsOptions as any);
+  return cors(corsOptions);
 }
 
 /**
@@ -87,11 +90,14 @@ export function createCorsMiddleware(
  * app.use("/api/health", corsMiddleware.health);
  * ```
  */
-export function createCorsMiddlewares(trustedOrigins: string[] | string = "*") {
+export function createCorsMiddlewares(
+  trustedOrigins: string[] | string = "*",
+  strictOrigin = true
+) {
   return {
-    api: createCorsMiddleware("api", trustedOrigins),
-    auth: createCorsMiddleware("auth", trustedOrigins),
-    health: createCorsMiddleware("health", trustedOrigins),
-    static: createCorsMiddleware("static", trustedOrigins),
+    api: createCorsMiddleware("api", trustedOrigins, strictOrigin),
+    auth: createCorsMiddleware("auth", trustedOrigins, strictOrigin),
+    health: createCorsMiddleware("health", trustedOrigins, strictOrigin),
+    static: createCorsMiddleware("static", trustedOrigins, strictOrigin),
   };
 }

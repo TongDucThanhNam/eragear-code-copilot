@@ -9,13 +9,13 @@
 
 import { z } from "zod";
 import {
+  DEFAULT_LOG_BUFFER_LIMIT,
+  DEFAULT_LOG_FLUSH_INTERVAL_MS,
   DEFAULT_SESSION_BUFFER_LIMIT,
   DEFAULT_SESSION_IDLE_TIMEOUT_MS,
   DEFAULT_WS_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WS_HOST,
   DEFAULT_WS_PORT,
-  DEFAULT_LOG_BUFFER_LIMIT,
-  DEFAULT_LOG_FLUSH_INTERVAL_MS,
 } from "./constants";
 
 /** Zod schema for environment variable validation */
@@ -42,6 +42,10 @@ const envSchema = z.object({
   AUTH_DB_PATH: z.string().optional(),
   AUTH_BOOTSTRAP_API_KEY: z.string().optional(),
   AUTH_API_KEY_PREFIX: z.string().optional(),
+  AUTH_API_KEY_RATE_LIMIT_ENABLED: z.string().optional(),
+  AUTH_API_KEY_RATE_LIMIT_TIME_WINDOW_MS: z.string().optional(),
+  AUTH_API_KEY_RATE_LIMIT_MAX_REQUESTS: z.string().optional(),
+  CORS_STRICT_ORIGIN: z.string().optional(),
   LOG_BUFFER_LIMIT: z.string().optional(),
   LOG_FLUSH_INTERVAL_MS: z.string().optional(),
   LOG_RETENTION_DAYS: z.string().optional(),
@@ -124,6 +128,8 @@ const normalizedAuthHost = wsHost === "0.0.0.0" ? "localhost" : wsHost;
 const runtimeEnv = env.NODE_ENV ?? env.BUN_ENV ?? "production";
 const isProd = runtimeEnv === "production";
 const isDev = !isProd;
+const defaultApiKeyRateLimitWindowMs = 60_000;
+const defaultApiKeyRateLimitMaxRequests = 3000;
 const authBaseUrl =
   env.AUTH_BASE_URL ??
   env.BETTER_AUTH_URL ??
@@ -193,6 +199,8 @@ export const ENV = {
   authBaseUrl,
   /** Better Auth trusted origins */
   authTrustedOrigins,
+  /** Enforce strict CORS origin allowlist; false means permissive dev mode */
+  corsStrictOrigin: toBoolean(env.CORS_STRICT_ORIGIN, isProd),
   /** Optional admin bootstrap username */
   authAdminUsername: env.AUTH_ADMIN_USERNAME,
   /** Optional admin bootstrap password */
@@ -207,6 +215,19 @@ export const ENV = {
   authBootstrapApiKey: toBoolean(env.AUTH_BOOTSTRAP_API_KEY, true),
   /** Default API key prefix */
   authApiKeyPrefix: env.AUTH_API_KEY_PREFIX,
+  /** Enable API key plugin rate limiting */
+  authApiKeyRateLimitEnabled: toBoolean(
+    env.AUTH_API_KEY_RATE_LIMIT_ENABLED,
+    true
+  ),
+  /** API key rate limit window in milliseconds */
+  authApiKeyRateLimitTimeWindowMs:
+    toOptionalNumber(env.AUTH_API_KEY_RATE_LIMIT_TIME_WINDOW_MS) ??
+    defaultApiKeyRateLimitWindowMs,
+  /** Maximum requests allowed per API key within the rate limit window */
+  authApiKeyRateLimitMaxRequests:
+    toOptionalNumber(env.AUTH_API_KEY_RATE_LIMIT_MAX_REQUESTS) ??
+    defaultApiKeyRateLimitMaxRequests,
   /** Log buffer max entries */
   logBufferLimit: toNumber(env.LOG_BUFFER_LIMIT, DEFAULT_LOG_BUFFER_LIMIT),
   /** Log flush interval in milliseconds */

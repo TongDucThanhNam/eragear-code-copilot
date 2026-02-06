@@ -122,12 +122,12 @@ export class RespondPermissionService {
     };
     pending.resolve(response);
     session.pendingPermissions.delete(input.requestId);
-    const nextStatus =
-      session.pendingPermissions.size > 0
-        ? "awaiting_permission"
-        : session.chatStatus === "awaiting_permission"
-          ? "streaming"
-          : session.chatStatus;
+    let nextStatus = session.chatStatus;
+    if (session.pendingPermissions.size > 0) {
+      nextStatus = "awaiting_permission";
+    } else if (session.chatStatus === "awaiting_permission") {
+      nextStatus = "streaming";
+    }
     if (nextStatus !== session.chatStatus) {
       updateChatStatus({
         chatId: input.chatId,

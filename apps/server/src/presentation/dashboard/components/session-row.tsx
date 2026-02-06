@@ -32,7 +32,9 @@ export function SessionRow({
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <span className="session-time">{formatTimeAgo(session.lastActiveAt)}</span>
+        <span className="session-time">
+          {formatTimeAgo(session.lastActiveAt)}
+        </span>
         <span className={`badge ${badgeClass}`}>{session.status}</span>
         <div className="session-actions">
           <button

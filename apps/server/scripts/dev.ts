@@ -1,12 +1,12 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 
-type ChildSpec = {
+interface ChildSpec {
   name: string;
   args: string[];
   env?: Record<string, string>;
-};
+}
 
-const children: NodeJS.ChildProcess[] = [];
+const children: ChildProcess[] = [];
 let shuttingDown = false;
 
 const startChild = ({ name, args, env }: ChildSpec) => {

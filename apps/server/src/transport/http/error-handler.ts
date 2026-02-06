@@ -8,9 +8,6 @@
  */
 
 import type { Context } from "hono";
-import { createLogger } from "../../infra/logging/structured-logger";
-
-const logger = createLogger("Server");
 
 export interface ErrorResponse {
   error: string;
@@ -35,14 +32,16 @@ export function createErrorHandler() {
     const method = c.req.method;
 
     // Log error with context
-    logger.error(`Unhandled error: ${err.message}`, err, {
+    console.error("[Server] Unhandled error", {
       method,
       path,
       requestId,
+      message: err.message,
+      stack: err.stack,
     });
 
     // Determine status code based on error type
-    let statusCode = 500;
+    let statusCode: 500 | 404 | 401 | 403 = 500;
     let errorCode = "INTERNAL_SERVER_ERROR";
 
     if (err.message.includes("not found")) {
@@ -65,7 +64,7 @@ export function createErrorHandler() {
       timestamp: new Date().toISOString(),
     };
 
-    return await c.json(response, { status: statusCode } as any);
+    return await c.json(response, statusCode);
   };
 }
 

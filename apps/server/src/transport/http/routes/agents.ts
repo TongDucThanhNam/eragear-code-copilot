@@ -19,7 +19,13 @@ import { ValidationError } from "../../../shared/errors";
 import { parseArgsInput } from "../../../shared/utils/cli-args.util";
 
 /** Valid agent types */
-const VALID_AGENT_TYPES = ["claude", "codex", "opencode", "gemini", "other"] as const;
+const VALID_AGENT_TYPES = [
+  "claude",
+  "codex",
+  "opencode",
+  "gemini",
+  "other",
+] as const;
 type AgentType = (typeof VALID_AGENT_TYPES)[number];
 
 /**
@@ -110,15 +116,15 @@ export function registerAgentRoutes(api: Hono): void {
       const body = await c.req.json();
       const { id, name, type, command, args, argsInput, env, projectId } =
         body as {
-        id: string;
-        name?: string;
-        type?: AgentType;
-        command?: string;
-        args?: string[];
-        argsInput?: string;
-        env?: Record<string, string>;
-        projectId?: string | null;
-      };
+          id: string;
+          name?: string;
+          type?: AgentType;
+          command?: string;
+          args?: string[];
+          argsInput?: string;
+          env?: Record<string, string>;
+          projectId?: string | null;
+        };
 
       if (!id) {
         return c.json({ error: "id is required" }, 400);
@@ -197,5 +203,4 @@ export function registerAgentRoutes(api: Hono): void {
       return c.json({ error: "Failed to delete agent" }, 500);
     }
   });
-
 }

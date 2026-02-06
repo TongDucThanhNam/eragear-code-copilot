@@ -25,10 +25,10 @@ Response format cho `requestPermission` handler không đúng theo ACP spec.
 ### Sai (trước đây)
 
 ```typescript
-// acp/protocol/permission.ts - fallback khi session không tồn tại
+// infra/acp/permission.ts - fallback khi session không tồn tại
 resolve({ outcome: "reject" });
 
-// trpc/procedures/tool.ts - resolve permission
+// tooling/application/respond-permission.service.ts - resolve permission
 pending.resolve({ outcome: "selected", optionId });
 ```
 
@@ -76,14 +76,24 @@ async requestPermission(p: any) {
 }
 ```
 
-### 2. `apps/server/src/transport/trpc/procedures/tool.ts`
+### 2. `apps/server/src/transport/trpc/routers/tool.ts`
 
 ```typescript
-// Wrap outcome trong object
-pending.resolve({ outcome: { outcome: "selected", optionId } });
+// Router chỉ nhận input rồi gọi service:
+const service = new RespondPermissionService(ctx.container.getSessionRuntime());
+return service.execute(input);
 ```
 
-### 3. `packages/runner/src/cli.ts` (nếu dùng)
+### 3. `apps/server/src/modules/tooling/application/respond-permission.service.ts`
+
+```typescript
+const response: acp.RequestPermissionResponse = {
+  outcome: { outcome: "selected", optionId },
+};
+pending.resolve(response);
+```
+
+### 4. `packages/runner/src/cli.ts` (nếu dùng)
 
 ```typescript
 async requestPermission(p: any) {

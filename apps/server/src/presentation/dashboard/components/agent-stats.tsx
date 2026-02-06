@@ -13,7 +13,11 @@ export function AgentStats({ stats }: AgentStatsProps) {
   return (
     <>
       {entries.map(([name, stat]) => (
-        <div className="card mb-2" key={name} style={{ marginBottom: "0.5rem" }}>
+        <div
+          className="card mb-2"
+          key={name}
+          style={{ marginBottom: "0.5rem" }}
+        >
           <div className="flex items-center justify-between">
             <span className="font-semibold">{name}</span>
             <span className="font-mono text-xs">

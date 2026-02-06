@@ -185,5 +185,4 @@ export function registerAdminRoutes(api: Hono): void {
       return c.json({ error: "Failed to set active session" }, 500);
     }
   });
-
 }

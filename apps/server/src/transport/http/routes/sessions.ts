@@ -73,5 +73,4 @@ export function registerSessionRoutes(api: Hono): void {
     });
     return c.json({ ok: true });
   });
-
 }

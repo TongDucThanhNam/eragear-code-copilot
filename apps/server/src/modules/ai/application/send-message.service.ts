@@ -7,6 +7,7 @@
  * @module modules/ai/application/send-message.service
  */
 
+import { createLogger } from "@/infra/logging/structured-logger";
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type { ChatSession } from "@/shared/types/session.types";
@@ -27,7 +28,6 @@ import {
   isProcessTransportNotReady,
 } from "./acp-error.util";
 import { buildPrompt } from "./prompt.builder";
-import { createLogger } from "@/infra/logging/structured-logger";
 
 const logger = createLogger("Debug");
 
@@ -310,16 +310,21 @@ export class SendMessageService {
 
     let res: { stopReason: string } | null = null;
     const maxAttempts = 3;
+    const sessionId = session.sessionId;
+    if (!sessionId) {
+      markStopped("Session is missing ACP session id");
+      throw new Error("Session is missing ACP session id");
+    }
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         logger.debug("SendMessageService sending prompt", {
           chatId,
-          sessionId: session.sessionId,
+          sessionId,
           attempt: attempt + 1,
           maxAttempts,
         });
         res = await session.conn.prompt({
-          sessionId: session.sessionId,
+          sessionId,
           prompt,
         });
         logger.debug("SendMessageService prompt response", {

@@ -9,9 +9,16 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
+import type { UIMessage } from "@repo/shared";
+import { createLogger } from "@/infra/logging/structured-logger";
 import type { SessionBufferingPort } from "@/modules/session/application/ports/session-acp.port";
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import {
+  maybeBroadcastChatFinish,
+  setChatFinishMessage,
+  updateChatStatus,
+} from "@/shared/utils/chat-events.util";
 import {
   toStoredContentBlock,
   toStoredToolCallContent,
@@ -31,16 +38,10 @@ import {
   upsertToolLocationsPart,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
-import {
-  maybeBroadcastChatFinish,
-  setChatFinishMessage,
-  updateChatStatus,
-} from "@/shared/utils/chat-events.util";
 import type {
   Plan,
   StoredContentBlock,
 } from "../../shared/types/session.types";
-import { createLogger } from "@/infra/logging/structured-logger";
 
 const logger = createLogger("Debug");
 
@@ -154,7 +155,6 @@ function summarizeUpdate(update: SessionUpdateWithLegacy) {
   }
   return summary;
 }
-
 
 /**
  * Checks if an update is a replay chunk (user/agent message or thought chunks)
@@ -496,45 +496,12 @@ function handleToolCallUpdate(
     return false;
   }
 
-  const hasLocationsUpdate = Object.prototype.hasOwnProperty.call(
-    update,
-    "locations"
-  );
-  const sanitizedUpdate = {
-    ...update,
-    content: toStoredToolCallContent(update.content),
-  };
+  const hasLocationsUpdate = Object.hasOwn(update, "locations");
   const session = sessionRuntime.get(chatId);
-  const existing = session?.toolCalls.get(update.toolCallId);
-  const merged = existing
-    ? { ...existing }
-    : ({
-        toolCallId: update.toolCallId,
-        title: update.title ?? "Tool Call",
-      } as acp.ToolCall);
-
-  // Merge update fields into existing tool call
-  if ("title" in update && update.title) {
-    merged.title = update.title;
-  }
-  if ("status" in update) {
-    merged.status = update.status ?? undefined;
-  }
-  if ("kind" in update) {
-    merged.kind = update.kind ?? undefined;
-  }
-  if ("rawInput" in update) {
-    merged.rawInput = update.rawInput ?? undefined;
-  }
-  if ("rawOutput" in update) {
-    merged.rawOutput = update.rawOutput ?? undefined;
-  }
-  if ("content" in update) {
-    merged.content = toStoredToolCallContent(update.content) ?? undefined;
-  }
-  if ("locations" in update) {
-    merged.locations = update.locations ?? undefined;
-  }
+  const merged = mergeToolCallUpdate(
+    session?.toolCalls.get(update.toolCallId),
+    update
+  );
 
   if (session) {
     session.toolCalls.set(update.toolCallId, merged);
@@ -547,10 +514,7 @@ function handleToolCallUpdate(
       input: merged.rawInput,
       rawInput: merged.rawInput,
       status: merged.status ?? update.status ?? undefined,
-      content:
-        "content" in sanitizedUpdate
-          ? sanitizedUpdate.content ?? undefined
-          : merged.content,
+      content: resolveToolCallUpdateContent(update, merged),
       rawOutput: merged.rawOutput,
       meta: update._meta,
     });
@@ -573,6 +537,51 @@ function handleToolCallUpdate(
   return true;
 }
 
+function mergeToolCallUpdate(
+  existing: acp.ToolCall | undefined,
+  update: acp.ToolCallUpdate & { sessionUpdate: "tool_call_update" }
+): acp.ToolCall {
+  const merged = existing
+    ? { ...existing }
+    : ({
+        toolCallId: update.toolCallId,
+        title: update.title ?? "Tool Call",
+      } as acp.ToolCall);
+
+  if ("title" in update && update.title) {
+    merged.title = update.title;
+  }
+  if ("status" in update) {
+    merged.status = update.status ?? undefined;
+  }
+  if ("kind" in update) {
+    merged.kind = update.kind ?? undefined;
+  }
+  if ("rawInput" in update) {
+    merged.rawInput = update.rawInput ?? undefined;
+  }
+  if ("rawOutput" in update) {
+    merged.rawOutput = update.rawOutput ?? undefined;
+  }
+  if ("content" in update) {
+    merged.content = toStoredToolCallContent(update.content) ?? undefined;
+  }
+  if ("locations" in update) {
+    merged.locations = update.locations ?? undefined;
+  }
+  return merged;
+}
+
+function resolveToolCallUpdateContent(
+  update: acp.ToolCallUpdate & { sessionUpdate: "tool_call_update" },
+  merged: acp.ToolCall
+) {
+  if (!("content" in update)) {
+    return merged.content;
+  }
+  return toStoredToolCallContent(update.content) ?? undefined;
+}
+
 /**
  * Handles buffered message content (content/reasoning chunks and turn ends)
  *
@@ -592,143 +601,320 @@ function handleBufferedMessage(
 ) {
   const session = sessionRuntime.get(chatId);
   const preferredMessageId = session?.uiState.currentAssistantId;
+  appendAgentChunksToBuffer(
+    buffer,
+    preferredMessageId,
+    isReplayingHistory,
+    update
+  );
 
-  // Buffer content chunks (not during replay)
+  handleUiChunkUpdate({
+    chatId,
+    session,
+    buffer,
+    preferredMessageId,
+    isReplayingHistory,
+    update,
+    sessionRuntime,
+  });
+
+  if (isTurnBoundaryUpdate(update)) {
+    const turnBoundary = update.sessionUpdate;
+    flushAndFinalizeTurn({
+      chatId,
+      session,
+      buffer,
+      isReplayingHistory,
+      sessionRepo,
+      sessionRuntime,
+      sessionUpdate: turnBoundary,
+    });
+  }
+}
+
+function appendAgentChunksToBuffer(
+  buffer: SessionBufferingPort,
+  preferredMessageId: string | undefined,
+  isReplayingHistory: boolean,
+  update: SessionUpdateWithLegacy
+) {
+  if (isReplayingHistory) {
+    return;
+  }
+  if (update.sessionUpdate === "agent_message_chunk") {
+    buffer.ensureMessageId(preferredMessageId);
+    buffer.appendContent(toStoredContentBlock(update.content));
+    return;
+  }
+  if (update.sessionUpdate === "agent_thought_chunk") {
+    buffer.ensureMessageId(preferredMessageId);
+    buffer.appendReasoning(toStoredContentBlock(update.content));
+  }
+}
+
+function handleUiChunkUpdate(params: {
+  chatId: string;
+  session: ReturnType<SessionRuntimePort["get"]>;
+  buffer: SessionBufferingPort;
+  preferredMessageId: string | undefined;
+  isReplayingHistory: boolean;
+  update: SessionUpdateWithLegacy;
+  sessionRuntime: SessionRuntimePort;
+}) {
+  const {
+    chatId,
+    session,
+    buffer,
+    preferredMessageId,
+    isReplayingHistory,
+    update,
+    sessionRuntime,
+  } = params;
+  if (!session) {
+    return;
+  }
+
+  const partState = isReplayingHistory ? "done" : "streaming";
+  const providerMetadata =
+    "_meta" in update ? buildProviderMetadataFromMeta(update._meta) : undefined;
+
+  if (update.sessionUpdate === "user_message_chunk") {
+    const message = getOrCreateUserMessage(session.uiState);
+    appendContentBlock(
+      message,
+      toStoredContentBlock(update.content),
+      partState,
+      providerMetadata
+    );
+    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    return;
+  }
+
+  updateAssistantChunkType(chatId, session, update, sessionRuntime);
+  appendAssistantChunk({
+    chatId,
+    session,
+    buffer,
+    preferredMessageId,
+    isReplayingHistory,
+    update,
+    partState,
+    providerMetadata,
+    sessionRuntime,
+  });
+}
+
+function updateAssistantChunkType(
+  chatId: string,
+  session: NonNullable<ReturnType<SessionRuntimePort["get"]>>,
+  update: SessionUpdateWithLegacy,
+  sessionRuntime: SessionRuntimePort
+) {
+  if (
+    update.sessionUpdate !== "agent_message_chunk" &&
+    update.sessionUpdate !== "agent_thought_chunk"
+  ) {
+    return;
+  }
+  const nextChunkType =
+    update.sessionUpdate === "agent_message_chunk" ? "message" : "reasoning";
+  if (
+    session.lastAssistantChunkType &&
+    session.lastAssistantChunkType !== nextChunkType
+  ) {
+    finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
+  }
+  session.lastAssistantChunkType = nextChunkType;
+}
+
+function appendAssistantChunk(params: {
+  chatId: string;
+  session: NonNullable<ReturnType<SessionRuntimePort["get"]>>;
+  buffer: SessionBufferingPort;
+  preferredMessageId: string | undefined;
+  isReplayingHistory: boolean;
+  update: SessionUpdateWithLegacy;
+  partState: "done" | "streaming";
+  providerMetadata:
+    | ReturnType<typeof buildProviderMetadataFromMeta>
+    | undefined;
+  sessionRuntime: SessionRuntimePort;
+}) {
+  const {
+    chatId,
+    session,
+    buffer,
+    preferredMessageId,
+    isReplayingHistory,
+    update,
+    partState,
+    providerMetadata,
+    sessionRuntime,
+  } = params;
+  if (update.sessionUpdate === "agent_message_chunk") {
+    const messageId = buffer.ensureMessageId(preferredMessageId);
+    const message = getOrCreateAssistantMessage(session.uiState, messageId);
+    appendContentBlock(
+      message,
+      toStoredContentBlock(update.content),
+      partState,
+      providerMetadata
+    );
+    return;
+  }
+  if (update.sessionUpdate !== "agent_thought_chunk") {
+    return;
+  }
+  const messageId = buffer.ensureMessageId(preferredMessageId);
+  const message = getOrCreateAssistantMessage(session.uiState, messageId);
+  const block = toStoredContentBlock(update.content);
+  if (block.type !== "text") {
+    return;
+  }
+  appendReasoningBlock(message, block, partState, providerMetadata);
   if (!isReplayingHistory) {
-    if (update.sessionUpdate === "agent_message_chunk") {
-      buffer.ensureMessageId(preferredMessageId);
-      buffer.appendContent(toStoredContentBlock(update.content));
-    }
+    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+  }
+}
 
-    if (update.sessionUpdate === "agent_thought_chunk") {
-      buffer.ensureMessageId(preferredMessageId);
-      buffer.appendReasoning(toStoredContentBlock(update.content));
+function isTurnBoundaryUpdate(
+  update: SessionUpdateWithLegacy
+): update is LegacySessionUpdate {
+  return (
+    update.sessionUpdate === "turn_end" || update.sessionUpdate === "prompt_end"
+  );
+}
+
+function flushAndFinalizeTurn(params: {
+  chatId: string;
+  session: ReturnType<SessionRuntimePort["get"]>;
+  buffer: SessionBufferingPort;
+  isReplayingHistory: boolean;
+  sessionRepo: SessionRepositoryPort;
+  sessionRuntime: SessionRuntimePort;
+  sessionUpdate: "turn_end" | "prompt_end";
+}) {
+  const {
+    chatId,
+    session,
+    buffer,
+    isReplayingHistory,
+    sessionRepo,
+    sessionRuntime,
+    sessionUpdate,
+  } = params;
+  const bufferedMessage = buffer.flush();
+  const currentAssistantId = session?.uiState.currentAssistantId;
+  const messageId = bufferedMessage?.id ?? currentAssistantId ?? null;
+  const currentMessage = messageId
+    ? session?.uiState.messages.get(messageId)
+    : undefined;
+  const hasParts = Boolean(currentMessage?.parts.length);
+  const shouldPersist = Boolean(bufferedMessage) || hasParts;
+
+  logger.debug("ACP buffered flush", {
+    chatId,
+    sessionUpdate,
+    buffered: Boolean(bufferedMessage),
+    bufferedContentLength: bufferedMessage?.content.length ?? 0,
+    bufferedReasoningLength: bufferedMessage?.reasoning?.length ?? 0,
+    currentAssistantId: currentAssistantId ?? undefined,
+    hasParts,
+    shouldPersist,
+  });
+
+  persistBufferedAssistantMessage({
+    chatId,
+    isReplayingHistory,
+    messageId,
+    shouldPersist,
+    currentMessage,
+    bufferedMessage,
+    sessionRepo,
+  });
+  finalizeAssistantTurn({
+    chatId,
+    session,
+    isReplayingHistory,
+    sessionRuntime,
+  });
+}
+
+function persistBufferedAssistantMessage(params: {
+  chatId: string;
+  isReplayingHistory: boolean;
+  messageId: string | null;
+  shouldPersist: boolean;
+  currentMessage: UIMessage | undefined;
+  bufferedMessage: ReturnType<SessionBufferingPort["flush"]>;
+  sessionRepo: SessionRepositoryPort;
+}) {
+  const {
+    chatId,
+    isReplayingHistory,
+    messageId,
+    shouldPersist,
+    currentMessage,
+    bufferedMessage,
+    sessionRepo,
+  } = params;
+  if (isReplayingHistory || !messageId || !shouldPersist) {
+    return;
+  }
+  if (currentMessage) {
+    finalizeStreamingParts(currentMessage);
+  }
+  sessionRepo.appendMessage(chatId, {
+    id: messageId,
+    role: "assistant",
+    content: bufferedMessage?.content ?? "",
+    contentBlocks: bufferedMessage?.contentBlocks ?? [],
+    reasoning: bufferedMessage?.reasoning,
+    reasoningBlocks: bufferedMessage?.reasoningBlocks,
+    parts: currentMessage?.parts,
+    timestamp: Date.now(),
+  });
+}
+
+function finalizeAssistantTurn(params: {
+  chatId: string;
+  session: ReturnType<SessionRuntimePort["get"]>;
+  isReplayingHistory: boolean;
+  sessionRuntime: SessionRuntimePort;
+}) {
+  const { chatId, session, isReplayingHistory, sessionRuntime } = params;
+  if (session?.uiState.currentAssistantId) {
+    const completedId = session.uiState.currentAssistantId;
+    if (!isReplayingHistory) {
+      session.uiState.lastAssistantId = completedId;
+      setChatFinishMessage(session, completedId);
     }
+    const current = session.uiState.messages.get(completedId);
+    if (current) {
+      finalizeStreamingParts(current);
+      sessionRuntime.broadcast(chatId, {
+        type: "ui_message",
+        message: current,
+      });
+    }
+    session.uiState.currentAssistantId = undefined;
+    session.lastAssistantChunkType = undefined;
+  }
+  if (!session) {
+    return;
+  }
+  session.uiState.currentUserId = undefined;
+  if (isReplayingHistory) {
+    return;
   }
   const broadcast = sessionRuntime.broadcast.bind(sessionRuntime);
-  const partState = isReplayingHistory ? "done" : "streaming";
-  const updateProviderMetadata =
-    "_meta" in update ? buildProviderMetadataFromMeta(update._meta) : undefined;
-  if (session) {
-    if (update.sessionUpdate === "user_message_chunk") {
-      const message = getOrCreateUserMessage(session.uiState);
-      appendContentBlock(
-        message,
-        toStoredContentBlock(update.content),
-        partState,
-        updateProviderMetadata
-      );
-      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
-    }
-
-    if (
-      update.sessionUpdate === "agent_message_chunk" ||
-      update.sessionUpdate === "agent_thought_chunk"
-    ) {
-      const nextChunkType =
-        update.sessionUpdate === "agent_message_chunk"
-          ? "message"
-          : "reasoning";
-      if (
-        session.lastAssistantChunkType &&
-        session.lastAssistantChunkType !== nextChunkType
-      ) {
-        finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
-      }
-      session.lastAssistantChunkType = nextChunkType;
-    }
-
-    if (update.sessionUpdate === "agent_message_chunk") {
-      const messageId = buffer.ensureMessageId(preferredMessageId);
-      const message = getOrCreateAssistantMessage(session.uiState, messageId);
-      appendContentBlock(
-        message,
-        toStoredContentBlock(update.content),
-        partState,
-        updateProviderMetadata
-      );
-    }
-
-    if (update.sessionUpdate === "agent_thought_chunk") {
-      const messageId = buffer.ensureMessageId(preferredMessageId);
-      const message = getOrCreateAssistantMessage(session.uiState, messageId);
-      const block = toStoredContentBlock(update.content);
-      if (block.type === "text") {
-        appendReasoningBlock(message, block, partState, updateProviderMetadata);
-        if (!isReplayingHistory) {
-          sessionRuntime.broadcast(chatId, { type: "ui_message", message });
-        }
-      }
-    }
-  }
-
-  // Flush buffer on turn end and persist message
-  if (
-    update.sessionUpdate === "turn_end" ||
-    update.sessionUpdate === "prompt_end"
-  ) {
-    const bufferedMessage = buffer.flush();
-    const currentAssistantId = session?.uiState.currentAssistantId;
-    const messageId = bufferedMessage?.id ?? currentAssistantId ?? null;
-    const currentMessage = messageId
-      ? session?.uiState.messages.get(messageId)
-      : undefined;
-    const hasParts = Boolean(currentMessage?.parts.length);
-    const shouldPersist = Boolean(bufferedMessage) || hasParts;
-    logger.debug("ACP buffered flush", {
-      chatId,
-      sessionUpdate: update.sessionUpdate,
-      buffered: Boolean(bufferedMessage),
-      bufferedContentLength: bufferedMessage?.content.length ?? 0,
-      bufferedReasoningLength: bufferedMessage?.reasoning?.length ?? 0,
-      currentAssistantId: currentAssistantId ?? undefined,
-      hasParts,
-      shouldPersist,
-    });
-
-    if (!isReplayingHistory && messageId && shouldPersist) {
-      if (currentMessage) {
-        finalizeStreamingParts(currentMessage);
-      }
-      sessionRepo.appendMessage(chatId, {
-        id: messageId,
-        role: "assistant",
-        content: bufferedMessage?.content ?? "",
-        contentBlocks: bufferedMessage?.contentBlocks ?? [],
-        reasoning: bufferedMessage?.reasoning,
-        reasoningBlocks: bufferedMessage?.reasoningBlocks,
-        parts: currentMessage?.parts,
-        timestamp: Date.now(),
-      });
-    }
-
-    if (session?.uiState.currentAssistantId) {
-      const completedId = session.uiState.currentAssistantId;
-      if (!isReplayingHistory) {
-        session.uiState.lastAssistantId = completedId;
-        setChatFinishMessage(session, completedId);
-      }
-      const current = session.uiState.messages.get(completedId);
-      if (current) {
-        finalizeStreamingParts(current);
-        sessionRuntime.broadcast(chatId, { type: "ui_message", message: current });
-      }
-      session.uiState.currentAssistantId = undefined;
-      session.lastAssistantChunkType = undefined;
-    }
-    if (session) {
-      session.uiState.currentUserId = undefined;
-    }
-    if (session && !isReplayingHistory) {
-      updateChatStatus({
-        chatId,
-        session,
-        broadcast,
-        status: "ready",
-      });
-      maybeBroadcastChatFinish({ chatId, session, broadcast });
-    }
-  }
+  updateChatStatus({
+    chatId,
+    session,
+    broadcast,
+    status: "ready",
+  });
+  maybeBroadcastChatFinish({ chatId, session, broadcast });
 }
 
 /**
@@ -761,10 +947,7 @@ export function createSessionUpdateHandler(
   }) {
     const { chatId, buffer, isReplayingHistory, update } = params;
 
-    // Track replay events during history replay
-    if (isReplayingHistory && isReplayChunk(update)) {
-      buffer.replayEventCount += 1;
-    }
+    trackReplayEvents(buffer, isReplayingHistory, update);
 
     const suppressReplay =
       isReplayingHistory &&
@@ -780,25 +963,7 @@ export function createSessionUpdateHandler(
       return;
     }
 
-    if (!isReplayingHistory) {
-      const isStreamingUpdate =
-        update.sessionUpdate === "agent_message_chunk" ||
-        update.sessionUpdate === "agent_thought_chunk" ||
-        update.sessionUpdate === "tool_call" ||
-        update.sessionUpdate === "tool_call_update" ||
-        update.sessionUpdate === "plan";
-      if (isStreamingUpdate) {
-        const session = sessionRuntime.get(chatId);
-        if (session?.chatStatus !== "cancelling") {
-          updateChatStatus({
-            chatId,
-            session,
-            broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
-            status: "streaming",
-          });
-        }
-      }
-    }
+    maybeMarkStreaming(chatId, isReplayingHistory, update, sessionRuntime);
 
     // Handle buffered message content
     handleBufferedMessage(
@@ -810,28 +975,14 @@ export function createSessionUpdateHandler(
       sessionRuntime
     );
 
-    // Handle mode updates
-    if (handleModeUpdate(chatId, update, sessionRuntime, sessionRepo)) {
-      return;
-    }
-
-    // Handle commands updates
-    if (handleCommandsUpdate(chatId, update, sessionRuntime, sessionRepo)) {
-      return;
-    }
-
-    // Handle plan updates
-    if (handlePlanUpdate(chatId, update, sessionRuntime, sessionRepo)) {
-      return;
-    }
-
-    // Handle tool call creations
-    if (handleToolCallCreate(chatId, update, sessionRuntime)) {
-      return;
-    }
-
-    // Handle tool call updates
-    if (handleToolCallUpdate(chatId, update, sessionRuntime)) {
+    const handled = [
+      () => handleModeUpdate(chatId, update, sessionRuntime, sessionRepo),
+      () => handleCommandsUpdate(chatId, update, sessionRuntime, sessionRepo),
+      () => handlePlanUpdate(chatId, update, sessionRuntime, sessionRepo),
+      () => handleToolCallCreate(chatId, update, sessionRuntime),
+      () => handleToolCallUpdate(chatId, update, sessionRuntime),
+    ].some((handler) => handler());
+    if (handled) {
       return;
     }
 
@@ -843,4 +994,45 @@ export function createSessionUpdateHandler(
       );
     }
   };
+}
+
+function trackReplayEvents(
+  buffer: SessionBufferingPort,
+  isReplayingHistory: boolean,
+  update: SessionUpdateWithLegacy
+) {
+  if (isReplayingHistory && isReplayChunk(update)) {
+    buffer.replayEventCount += 1;
+  }
+}
+
+function maybeMarkStreaming(
+  chatId: string,
+  isReplayingHistory: boolean,
+  update: SessionUpdateWithLegacy,
+  sessionRuntime: SessionRuntimePort
+) {
+  if (isReplayingHistory || !isStreamingUpdate(update)) {
+    return;
+  }
+  const session = sessionRuntime.get(chatId);
+  if (!session || session.chatStatus === "cancelling") {
+    return;
+  }
+  updateChatStatus({
+    chatId,
+    session,
+    broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+    status: "streaming",
+  });
+}
+
+function isStreamingUpdate(update: SessionUpdateWithLegacy) {
+  return (
+    update.sessionUpdate === "agent_message_chunk" ||
+    update.sessionUpdate === "agent_thought_chunk" ||
+    update.sessionUpdate === "tool_call" ||
+    update.sessionUpdate === "tool_call_update" ||
+    update.sessionUpdate === "plan"
+  );
 }

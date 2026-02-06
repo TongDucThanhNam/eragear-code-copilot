@@ -3,6 +3,8 @@ interface TokenizeResult {
   error?: string;
 }
 
+const WHITESPACE_RE = /\s/;
+
 function tokenizeInput(
   value: string,
   isSeparator: (char: string) => boolean,
@@ -11,7 +13,7 @@ function tokenizeInput(
   const tokens: string[] = [];
   let current = "";
   let quote: "'" | '"' | null = null;
-  let escape = false;
+  let isEscaped = false;
 
   const pushCurrent = () => {
     if (!current) {
@@ -21,20 +23,15 @@ function tokenizeInput(
     current = "";
   };
 
-  for (let i = 0; i < value.length; i += 1) {
-    const char = value[i];
-    if (!char) {
-      continue;
-    }
-
-    if (escape) {
+  for (const char of value) {
+    if (isEscaped) {
       current += char;
-      escape = false;
+      isEscaped = false;
       continue;
     }
 
     if (char === "\\" && quote !== "'") {
-      escape = true;
+      isEscaped = true;
       continue;
     }
 
@@ -57,7 +54,7 @@ function tokenizeInput(
     current += char;
   }
 
-  if (escape) {
+  if (isEscaped) {
     current += "\\";
   }
 
@@ -81,7 +78,7 @@ export function parseArgsInput(value: string): {
 
   const result = tokenizeInput(
     value,
-    (char) => char === "," || /\s/.test(char),
+    (char) => char === "," || WHITESPACE_RE.test(char),
     "Arguments"
   );
   if (result.error) {
@@ -101,7 +98,11 @@ export function parseCommandInput(value: string): {
     return { error: "Command is required." };
   }
 
-  const result = tokenizeInput(value, (char) => /\s/.test(char), "Command");
+  const result = tokenizeInput(
+    value,
+    (char) => WHITESPACE_RE.test(char),
+    "Command"
+  );
   if (result.error) {
     return { error: result.error };
   }

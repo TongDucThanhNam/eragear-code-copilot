@@ -55,6 +55,22 @@ function statusBucket(status?: number): StatusBucket {
   return DEFAULT_STATUSES.includes(bucket) ? bucket : "system";
 }
 
+function statusBucketLabel(bucket: StatusBucket): string {
+  if (bucket === "system") {
+    return "System";
+  }
+  if (bucket === "2xx") {
+    return `${bucket} Success`;
+  }
+  if (bucket === "3xx") {
+    return `${bucket} Redirect`;
+  }
+  if (bucket === "4xx") {
+    return `${bucket} Client`;
+  }
+  return `${bucket} Server`;
+}
+
 export function LogsTab({ activeTab }: LogsTabProps) {
   const [rawEntries, setRawEntries] = useState<LogEntry[]>([]);
   const [search, setSearch] = useState("");
@@ -106,7 +122,7 @@ export function LogsTab({ activeTab }: LogsTabProps) {
 
   useEffect(() => {
     if (activeTab === "logs") {
-      void fetchLogs();
+      fetchLogs();
     }
   }, [activeTab, fetchLogs]);
 
@@ -171,7 +187,7 @@ export function LogsTab({ activeTab }: LogsTabProps) {
     setRange("30m");
     setLevels(new Set(DEFAULT_LEVELS));
     setStatuses(new Set(DEFAULT_STATUSES));
-    void fetchLogs();
+    fetchLogs();
   };
 
   const handleLiveToggle = () => {
@@ -253,8 +269,8 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                 Logs
               </h2>
               <p className="mt-3 max-w-lg font-body text-ink-muted text-sm leading-relaxed">
-                Real-time request and system logs with live tailing and filtering
-                capabilities.
+                Real-time request and system logs with live tailing and
+                filtering capabilities.
               </p>
             </div>
             <div className="flex flex-col items-end gap-3">
@@ -323,7 +339,9 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                 </button>
                 <button
                   className="btn btn-secondary btn-sm"
-                  onClick={() => void fetchLogs()}
+                  onClick={() => {
+                    fetchLogs();
+                  }}
                   type="button"
                 >
                   Refresh
@@ -362,9 +380,7 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                         onChange={() => handleStatusToggle(bucket)}
                         type="checkbox"
                       />
-                      <span>
-                        {bucket === "system" ? "System" : `${bucket} ${bucket === "2xx" ? "Success" : bucket === "3xx" ? "Redirect" : bucket === "4xx" ? "Client" : "Server"}`}
-                      </span>
+                      <span>{statusBucketLabel(bucket)}</span>
                       <span className="log-count">
                         {counts.statusCounts[bucket]}
                       </span>
@@ -390,29 +406,22 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                     {!loading && error && (
                       <div className="log-empty">{error}</div>
                     )}
-                    {!loading && !error && filteredEntries.length === 0 && (
+                    {!(loading || error) && filteredEntries.length === 0 && (
                       <div className="log-empty">
                         No logs found for the selected filters.
                       </div>
                     )}
-                    {!loading &&
-                      !error &&
+                    {!(loading || error) &&
                       filteredEntries.map((entry) => {
                         const isSelected = entry.id === selectedId;
                         return (
-                          <div
+                          <button
                             className={`log-entry log-entry--${entry.level} ${
                               isSelected ? "is-selected" : ""
                             }`}
                             key={entry.id}
                             onClick={() => handleRowSelect(entry.id)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                handleRowSelect(entry.id);
-                              }
-                            }}
-                            role="button"
-                            tabIndex={0}
+                            type="button"
                           >
                             <div className="log-cell">
                               {formatTimestamp(entry.timestamp)}
@@ -430,7 +439,7 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                             <div className="log-cell log-request">
                               {entry.request
                                 ? `${entry.request.method} ${entry.request.path}`
-                                : entry.source ?? "--"}
+                                : (entry.source ?? "--")}
                             </div>
                             <div className="log-cell log-message">
                               {entry.error?.message ??
@@ -438,7 +447,7 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                                   ? `${entry.request.durationMs}ms`
                                   : entry.message)}
                             </div>
-                          </div>
+                          </button>
                         );
                       })}
                   </div>

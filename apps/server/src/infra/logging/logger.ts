@@ -34,7 +34,6 @@ function resolveMethod(level: LogLevel): ConsoleMethod {
       return "warn";
     case "debug":
       return "debug";
-    case "info":
     default:
       return "info";
   }

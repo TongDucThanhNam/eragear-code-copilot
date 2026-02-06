@@ -7,6 +7,8 @@ interface RequestLike {
   url?: string;
 }
 
+const API_KEY_QUERY_PARAMS = ["apiKey", "api_key", "apikey"] as const;
+
 export interface AuthContext {
   type: "session" | "apiKey";
   userId: string;
@@ -60,65 +62,32 @@ function extractApiKeyFromHeaders(headers: Headers): string | null {
   return null;
 }
 
-function extractApiKeyFromUrl(url?: string): string | null {
+function hasDeprecatedApiKeyQuery(url?: string): boolean {
   if (!url) {
-    return null;
+    return false;
   }
 
   try {
     const parsed = new URL(url, "http://localhost");
-    const key =
-      parsed.searchParams.get("apiKey") ??
-      parsed.searchParams.get("api_key") ??
-      parsed.searchParams.get("apikey");
-    return key ? key.trim() : null;
-  } catch (error) {
-    console.error("Failed to extract API key from URL:", error);
-    return null;
+    return API_KEY_QUERY_PARAMS.some((param) => parsed.searchParams.has(param));
+  } catch {
+    return false;
   }
 }
 
-export type SessionUser = {
+export interface SessionUser {
   id: string;
   username?: string;
   email?: string;
   name?: string;
-};
+}
 
 export async function getSessionFromRequest(
   req: RequestLike
 ): Promise<{ user: SessionUser; session: unknown } | null> {
   const headers = normalizeHeaders(req.headers);
-  const cookieHeader = headers.get("cookie");
-  console.debug(
-    `[Auth] getSessionFromRequest: url=${req.url}, cookie=${cookieHeader ? "present" : "missing"}`
-  );
-
-  // Log all headers for debugging
-  if (cookieHeader) {
-    console.debug(`[Auth] Cookie header value: ${cookieHeader}`);
-  }
-
   const session = await auth.api.getSession({ headers });
   if (!session) {
-    console.debug(
-      "[Auth] getSessionFromRequest: session=null (no valid session)"
-    );
-    // Debug: try to understand why session is null
-    // Check if better-auth can verify the token directly
-    try {
-      // Extract token from cookie for debugging
-      const tokenMatch = cookieHeader?.match(
-        /better-auth\.session_token[^=]*=(.+)/
-      );
-      if (tokenMatch?.[1]) {
-        console.debug(
-          `[Auth] Extracted token: ${tokenMatch[1].substring(0, 50)}...`
-        );
-      }
-    } catch (e) {
-      // ignore
-    }
     return null;
   }
   const sessionData = session as {
@@ -154,13 +123,14 @@ export async function getAuthContext(
   }
 
   const apiKeyFromHeader = extractApiKeyFromHeaders(headers);
-  const apiKeyFromUrl = extractApiKeyFromUrl(req.url);
-  const apiKey = apiKeyFromHeader ?? apiKeyFromUrl;
-  if (!apiKey) {
+  if (!apiKeyFromHeader) {
+    if (hasDeprecatedApiKeyQuery(req.url)) {
+      console.warn("[Auth] API key in query parameters is not allowed");
+    }
     return null;
   }
 
-  return await getAuthContextFromApiKey(apiKey);
+  return await getAuthContextFromApiKey(apiKeyFromHeader);
 }
 
 export async function getAuthContextFromApiKey(

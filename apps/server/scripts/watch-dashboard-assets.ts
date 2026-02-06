@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { copyFile, mkdir } from "node:fs/promises";
 import { watch } from "node:fs";
+import { copyFile, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const outDir = resolve(process.cwd(), "public/dashboard");
@@ -44,7 +44,7 @@ const build = spawn(
 );
 
 const cssWatcher = watch(cssSource, { persistent: true }, () => {
-  void copyStyles();
+  copyStyles();
 });
 
 const shutdown = (signal: NodeJS.Signals) => {

@@ -8,14 +8,12 @@
  */
 
 import { z } from "zod";
-import { createLogger } from "@/infra/logging/structured-logger";
 import { CancelPromptService } from "@/modules/ai/application/cancel-prompt.service";
 import { SendMessageService } from "@/modules/ai/application/send-message.service";
 import { SetModeService } from "@/modules/ai/application/set-mode.service";
 import { SetModelService } from "@/modules/ai/application/set-model.service";
 import { protectedProcedure, router } from "../base";
 
-const logger = createLogger("tRPC");
 const MAX_TEXT_PREVIEW_CHARS = 200;
 
 function toTextPreview(text: string): string {
@@ -92,7 +90,7 @@ export const aiRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      logger.info("User message received", {
+      console.info("[tRPC] User message received", {
         chatId: input.chatId,
         textLength: input.text.length,
         textPreview: toTextPreview(input.text),

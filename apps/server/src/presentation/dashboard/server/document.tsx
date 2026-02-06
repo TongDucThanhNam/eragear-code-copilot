@@ -1,12 +1,14 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { getUiAssets } from "./ui-assets";
 
+type BodyDataAttributes = Partial<Record<`data-${string}`, string>>;
+
 export interface DocumentProps {
   title: string;
   children: ReactNode;
   head?: ReactNode;
   bodyClassName?: string;
-  bodyAttributes?: HTMLAttributes<HTMLBodyElement>;
+  bodyAttributes?: HTMLAttributes<HTMLBodyElement> & BodyDataAttributes;
 }
 
 export function Document({

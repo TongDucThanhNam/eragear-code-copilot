@@ -4,10 +4,10 @@ import type {
   ApiKeyItem,
   DeviceSessionItem,
 } from "@/presentation/dashboard/dashboard-data";
+import { isDeviceSessionActive } from "../utils";
 import { ApiKeyRow } from "./api-key-row";
 import { DeviceSessionRow } from "./device-session-row";
 import { TabPanel } from "./tab-panel";
-import { isDeviceSessionActive } from "../utils";
 
 interface AuthTabProps {
   apiKeys: ApiKeyItem[];
@@ -98,7 +98,10 @@ export function AuthTab({
         {/* Create API Key Form - Inverted Section */}
         <div className="border-[#111111] border-b bg-[#111111] text-[#F9F9F7]">
           <div className="p-6 md:p-8">
-            <form className="grid gap-6 md:grid-cols-3" onSubmit={handleCreateKey}>
+            <form
+              className="grid gap-6 md:grid-cols-3"
+              onSubmit={handleCreateKey}
+            >
               <label className="flex flex-col gap-2">
                 <span className="font-mono text-[#E5E5E0] text-[10px] uppercase tracking-[0.15em]">
                   Key Name
@@ -167,7 +170,9 @@ export function AuthTab({
         <div className="min-h-[120px]">
           {apiKeys.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center">
-              <div className="mb-4 font-serif text-4xl text-[#E5E5E0]">☐ ☐ ☐</div>
+              <div className="mb-4 font-serif text-4xl text-[#E5E5E0]">
+                ☐ ☐ ☐
+              </div>
               <div className="font-mono text-[#737373] text-[10px] uppercase tracking-[0.15em]">
                 No API Keys Generated
               </div>
@@ -222,7 +227,9 @@ export function AuthTab({
                   <span className="font-bold font-serif text-3xl leading-none">
                     {deviceSessions.length}
                   </span>
-                  <span className="font-mono text-[#737373] text-xs">sessions</span>
+                  <span className="font-mono text-[#737373] text-xs">
+                    sessions
+                  </span>
                 </div>
               </div>
             </div>
@@ -269,7 +276,9 @@ export function AuthTab({
         <div className="min-h-[120px]">
           {deviceSessions.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 text-center">
-              <div className="mb-4 font-serif text-4xl text-[#E5E5E0]">○ ○ ○</div>
+              <div className="mb-4 font-serif text-4xl text-[#E5E5E0]">
+                ○ ○ ○
+              </div>
               <div className="font-mono text-[#737373] text-[10px] uppercase tracking-[0.15em]">
                 No Active Sessions
               </div>

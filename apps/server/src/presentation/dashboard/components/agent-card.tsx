@@ -30,7 +30,10 @@ export function AgentCard({ agent, onDeleteAgent }: AgentCardProps) {
         </code>
       </div>
       <div className="flex gap-2">
-        <a className="btn btn-sm btn-secondary" href={`#edit-agent-${agent.id}`}>
+        <a
+          className="btn btn-sm btn-secondary"
+          href={`#edit-agent-${agent.id}`}
+        >
           Edit
         </a>
         <button

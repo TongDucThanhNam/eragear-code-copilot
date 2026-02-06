@@ -59,9 +59,18 @@ function formatLogEntry(entry: LogEntry): string {
  * ```
  */
 export class StructuredLogger {
-  constructor(private tag: LogTag) {}
+  private readonly tag: LogTag;
 
-  private log(level: LogLevel, message: string, error?: Error, context?: Record<string, unknown>): void {
+  constructor(tag: LogTag) {
+    this.tag = tag;
+  }
+
+  private log(
+    level: LogLevel,
+    message: string,
+    error?: Error,
+    context?: Record<string, unknown>
+  ): void {
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
@@ -86,6 +95,9 @@ export class StructuredLogger {
       case "error":
         console.error(formatted);
         break;
+      default:
+        console.log(formatted);
+        break;
     }
   }
 
@@ -101,7 +113,11 @@ export class StructuredLogger {
     this.log("warn", message, undefined, context);
   }
 
-  error(message: string, error?: Error, context?: Record<string, unknown>): void {
+  error(
+    message: string,
+    error?: Error,
+    context?: Record<string, unknown>
+  ): void {
     this.log("error", message, error, context);
   }
 }

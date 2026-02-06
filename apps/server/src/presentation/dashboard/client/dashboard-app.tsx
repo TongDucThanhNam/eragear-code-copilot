@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Settings } from "@/shared/types/settings.types";
-import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import {
-  EMPTY_DASHBOARD_DATA,
   type ApiKeyCreateResponse,
   type DashboardData,
+  EMPTY_DASHBOARD_DATA,
   type TabKey,
 } from "@/presentation/dashboard/dashboard-data";
 import type { DashboardBootstrap } from "@/presentation/dashboard/dashboard-types";
+import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import { normalizeTab } from "@/presentation/dashboard/utils";
+import type { Settings } from "@/shared/types/settings.types";
 
 interface DashboardAppProps {
   bootstrap?: DashboardBootstrap | null;
@@ -83,9 +83,9 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
   const [dashboardData, setDashboardData] = useState<DashboardData>(
     bootstrap?.dashboardData ?? EMPTY_DASHBOARD_DATA
   );
-  const [errors, setErrors] = useState<DashboardBootstrap["errors"] | undefined>(
-    bootstrap?.errors
-  );
+  const [errors, setErrors] = useState<
+    DashboardBootstrap["errors"] | undefined
+  >(bootstrap?.errors);
   const [success, setSuccess] = useState<boolean | undefined>(
     bootstrap?.success
   );
@@ -159,7 +159,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
       refreshInFlight.current = false;
       if (refreshQueued.current) {
         refreshQueued.current = false;
-        void refreshAll();
+        refreshAll();
       }
     }
   }, [showError]);
@@ -187,7 +187,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
     const source = new EventSource("/api/dashboard/stream");
     const schedule = () => {
       if (!refreshInFlight.current) {
-        void refreshAll();
+        refreshAll();
         return;
       }
       refreshQueued.current = true;
@@ -202,7 +202,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
 
   useEffect(() => {
     if (!bootstrap) {
-      void refreshAll();
+      refreshAll();
     }
   }, [bootstrap, refreshAll]);
 
@@ -464,7 +464,9 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
       onDeleteAgent={handleDeleteAgent}
       onDeleteApiKey={handleDeleteApiKey}
       onDeleteSession={handleDeleteSession}
-      onRefreshSessions={() => void refreshAll()}
+      onRefreshSessions={() => {
+        refreshAll();
+      }}
       onRevokeDeviceSession={handleRevokeDeviceSession}
       onSaveSettings={handleSaveSettings}
       onStopSession={handleStopSession}

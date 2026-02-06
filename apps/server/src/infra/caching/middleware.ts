@@ -6,7 +6,7 @@
  * @module infra/caching/middleware
  */
 
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { getResponseCache } from "./response-cache";
 import type { CacheOptions } from "./types";
 
@@ -27,7 +27,7 @@ import type { CacheOptions } from "./types";
  * ```
  */
 export function createCacheMiddleware(
-  keyFn: (context: any) => string,
+  keyFn: (context: Context) => string,
   options: CacheOptions = {}
 ): MiddlewareHandler {
   return async (c, next) => {

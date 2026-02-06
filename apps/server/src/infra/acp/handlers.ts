@@ -9,13 +9,13 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
+import { createLogger } from "@/infra/logging/structured-logger";
 import type { SessionBufferingPort } from "@/modules/session/application/ports/session-acp.port";
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import { createPermissionHandler } from "./permission";
 import { createToolCallHandlers } from "./tool-calls";
 import { createSessionUpdateHandler } from "./update";
-import { createLogger } from "@/infra/logging/structured-logger";
 
 const logger = createLogger("Debug");
 
@@ -78,8 +78,9 @@ export function createSessionHandlers(params: {
     ): Promise<acp.RequestPermissionResponse> {
       logger.debug("ACP handler requestPermission", {
         chatId,
-        requestId: params.requestId,
-        toolName: params.toolName,
+        toolCallId: params.toolCall.toolCallId,
+        toolKind: params.toolCall.kind,
+        toolTitle: params.toolCall.title,
       });
       return await handlePermissionRequest({
         chatId,
@@ -133,7 +134,6 @@ export function createSessionHandlers(params: {
       logger.debug("ACP handler terminalOutput", {
         chatId,
         terminalId: params.terminalId,
-        offset: params.offset,
       });
       return await toolCalls.terminalOutput(chatId, params);
     },

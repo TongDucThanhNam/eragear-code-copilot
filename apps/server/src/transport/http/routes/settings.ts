@@ -47,10 +47,7 @@ export function registerSettingsRoutes(api: Hono): void {
         currentSettings
       );
       if (projectRoots.length < 1) {
-        return c.json(
-          { error: "At least one project root is required." },
-          400
-        );
+        return c.json({ error: "At least one project root is required." }, 400);
       }
       const next = container.getSettings().update({ ui, projectRoots });
       const applied = container.applySettings(next);
@@ -68,5 +65,4 @@ export function registerSettingsRoutes(api: Hono): void {
 
   api.put("/ui-settings", handleApiUpdate);
   api.post("/ui-settings", handleApiUpdate);
-
 }

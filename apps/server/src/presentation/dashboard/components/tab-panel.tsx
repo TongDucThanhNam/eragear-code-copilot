@@ -20,7 +20,7 @@ export function TabPanel({
     <div
       aria-labelledby={`tab-btn-${tab}`}
       className={`tab-content ${isActive ? "" : "hidden"}${
-        scrollable ? " max-h-[calc(100dvh-280px)] overflow-y-auto" : ""
+        scrollable ? "max-h-[calc(100dvh-280px)] overflow-y-auto" : ""
       }${className ? ` ${className}` : ""}`}
       data-tab-panel={tab}
       id={`tab-${tab}`}

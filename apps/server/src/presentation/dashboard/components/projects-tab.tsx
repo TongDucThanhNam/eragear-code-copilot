@@ -25,7 +25,10 @@ export function ProjectsTab({ projects, activeTab }: ProjectsTabProps) {
               <span className="border border-ink px-3 py-1 font-mono text-xs">
                 {projects.length} project{projects.length !== 1 ? "s" : ""}
               </span>
-              <a className="btn btn-primary min-h-[44px]" href="#add-project-modal">
+              <a
+                className="btn btn-primary min-h-[44px]"
+                href="#add-project-modal"
+              >
                 + Add Project
               </a>
             </div>

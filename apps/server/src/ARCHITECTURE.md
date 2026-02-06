@@ -1,134 +1,144 @@
-# Server Architecture - AI-Optimized Structure
+# Server Architecture (Current)
 
 ## Overview
 
-This server is built using **Clean Architecture + Ports & Adapters** with **vertical slice modules** to maximize AI understanding and maintainability.
+Server đóng vai trò ACP client và backend cho web/native:
+
+- Nhận request từ HTTP/tRPC.
+- Quản lý lifecycle agent process.
+- Bridge ACP (NDJSON over stdio).
+- Chuẩn hóa stream thành `UIMessage` để broadcast realtime.
+- Persist state/messages vào `.eragear/*.json`.
+
+## Layers
 
 ```
-Bootstrap (wiring)
+Bootstrap (composition + startup)
     ↓
-Transport (HTTP/tRPC/WS)
+Transport (HTTP / tRPC / WS)
     ↓
-Application (use-cases/services)
+Application (use-cases, orchestration)
     ↓
-Domain (business logic)
+Domain (entities + invariants)
     ↓
-Infra (adapters/IO)
+Infra (IO/policy adapters)
 ```
 
-## Technology Stack
+Quy tắc phụ thuộc:
 
-- **Framework**: Hono (lightweight, edge-ready)
-- **API**: tRPC + WebSocket
-- **Storage**: JSON files (`.eragear/`)
-- **Agent Communication**: ACP (NDJSON over stdio)
+- `transport` gọi `application`, không gọi repo trực tiếp.
+- `application` phụ thuộc vào ports.
+- `infra` implement ports.
+- `domain` không import `transport` hoặc `infra`.
 
-## Hono Middleware Stack
-
-Request flows through these layers (in order):
-
-```
-1. Request Logger     → Structured logging with tags
-2. Request ID         → Unique ID per request (X-Request-ID)
-3. Response Timing    → Performance tracking (X-Response-Time)
-4. Compression        → gzip/brotli (60-70% size reduction)
-5. CORS               → Factory-based presets (api/auth/health/static)
-6. Auth Protection    → Session-based authentication
-7. Error Handler      → Centralized error responses
-8. Cache Headers      → 1-year cache for static assets
-```
-
-## Dependency Flow
-
-- **Transport** depends on Application & Shared
-- **Application** depends on Domain, Infra Ports, & Shared
-- **Domain** depends only on Shared types
-- **Infra** implements Ports, depends on Domain
-- **Shared** has no dependencies (base types & utils)
-
-## Module Structure
-
-Each module (session, agent, project, ai, etc.) follows:
-
-```
-modules/[module]/
-  ├── domain/          # Business entities & rules
-  ├── application/     # Use-cases / services
-  ├── infra/           # Adapters specific to module
-  ├── transport/       # tRPC/HTTP endpoints
-  └── README.md
-```
-
-## Key Directories
+## Directory Map
 
 ```
 src/
-├── bootstrap/         # App entry, DI container
-├── transport/
-│   ├── http/
-│   │   ├── routes/    # Modular HTTP routes
-│   │   ├── ui/        # Dashboard UI
-│   │   └── utils/     # HTTP utilities
-│   │   └── *.ts       # Middleware (CORS, errors, request-id)
-│   ├── trpc/          # tRPC router & procedures
-│   └── ws/            # WebSocket handlers
-├── infra/
-│   ├── acp/           # Agent communication protocol
-│   ├── caching/       # Response caching layer
-│   ├── logging/       # Structured logging
-│   ├── process/       # Agent process spawning
-│   ├── filesystem/    # File operations
-│   ├── git/           # Git operations
-│   ├── storage/       # JSON persistence
-│   └── auth/          # Authentication
-├── modules/           # Feature modules
-└── shared/            # Cross-cutting types & utils
+├── bootstrap/              # createApp/startServer + DI container
+├── transport/              # HTTP routes + tRPC routers/types/context
+├── infra/                  # ACP/process/auth/storage/git/filesystem/logging/caching
+├── modules/                # Feature vertical slices (session, ai, project, ...)
+├── shared/                 # Shared types/ports/utils/errors
+└── presentation/           # Dashboard server/client render
 ```
 
-## Ports (Contracts)
+Module structure chuẩn:
 
-Ports live with their owning modules under `modules/*/application/ports/`.
-Cross-cutting ports live under `shared/ports/`.
+```
+modules/<feature>/
+├── domain/
+├── application/
+│   └── ports/
+└── infra/
+```
 
-Examples:
+## Runtime Components
 
-- `modules/session/application/ports/`:
-  - `SessionRepositoryPort` - session persistence
-  - `SessionRuntimePort` - in-memory session state
-  - `AgentRuntimePort` - process spawning
-  - `SessionAcpPort` - ACP handler/buffer creation
-- `modules/project/application/ports/`: `ProjectRepositoryPort`
-- `modules/agent/application/ports/`: `AgentRepositoryPort`
-- `modules/settings/application/ports/`: `SettingsRepositoryPort`
-- `modules/tooling/application/ports/`: `GitPort`
-- `shared/ports/`: `EventBusPort`
+### Bootstrap
 
-## Data Flow Example: Send Message
+- `src/index.ts`: process entry.
+- `src/bootstrap/server.ts`: dựng HTTP server + WebSocket upgrade + tRPC WS handler.
+- `src/bootstrap/container.ts`: wiring singleton container (ports/adapters/repositories).
 
-1. **Transport** (tRPC) receives `sendMessage` request
-2. Calls **Application** `SendMessageService.execute()`
-3. Service uses **Domain** entities & validation
-4. Service calls **Infra** adapters via ports:
-   - `sessionRuntime.get(chatId)` → runtime store
-   - `sessionRepo.appendMessage()` → storage
-   - `sessionRuntime.broadcast()` → event distribution
-5. Response goes back through transport layer
+### Transport
 
-## Adding New Features
+- HTTP routes: `src/transport/http/routes/*`.
+- tRPC router: `src/transport/trpc/router.ts`.
+- tRPC context: `src/transport/trpc/context.ts`.
+- WS transport: `applyWSSHandler` trong `src/bootstrap/server.ts`.
 
-1. Create module folder: `modules/my-feature/`
-2. Define domain entity in `domain/`
-3. Create use-case service in `application/`
-4. Implement port adapters if needed
-5. Add tRPC procedure in `transport/` or `transport/trpc/`
-6. Wire adapters in `bootstrap/container.ts`
+### Session Runtime
 
-## Key Design Principles
+- Active session store (RAM): `src/modules/session/infra/runtime-store.ts`.
+- Per-session ACP handlers: `src/infra/acp/handlers.ts`.
+- Stream buffer + UIMessage mapping: `src/infra/acp/update.ts`, `src/shared/utils/ui-message.util.ts`.
 
-- **Single Responsibility**: Each layer has one reason to change
-- **Dependency Inversion**: High-level depends on abstractions, not low-level details
-- **Testability**: Domain logic is independent, easy to test
-- **Flexibility**: Swap implementations (e.g., storage backends) without changing business logic
-- **AI-Friendly**: Clear entry points, minimal cross-module coupling
+### Persistence
 
-See individual module READMEs for details.
+- JSON store primitive: `src/infra/storage/json-store.ts`.
+- Session/project/agent/settings repos trong `src/modules/*/infra/*.json.ts`.
+- Storage dir: `.eragear/` dưới working directory.
+
+## Main Flows
+
+### Create Session
+
+1. tRPC `createSession` (`src/transport/trpc/routers/session.ts`).
+2. `CreateSessionService` orchestration (`src/modules/session/application/create-session.service.ts`).
+3. Spawn agent qua `AgentRuntimeAdapter` (`src/infra/process/index.ts`).
+4. Tạo ACP connection (`src/infra/acp/connection.ts`).
+5. Gắn ACP handlers (`src/infra/acp/handlers.ts`).
+6. Lưu runtime vào `SessionRuntimeStore`, persist metadata vào repo JSON.
+
+### Send Prompt
+
+1. tRPC `sendMessage` (`src/transport/trpc/routers/ai.ts`).
+2. `SendMessageService` (`src/modules/ai/application/send-message.service.ts`).
+3. Gửi prompt qua ACP connection.
+4. ACP updates đi qua `src/infra/acp/update.ts`, update buffer + broadcast `ui_message`.
+5. `turn_end`/`prompt_end` flush và persist.
+
+### Permission
+
+1. Agent gọi `requestPermission` trong ACP.
+2. `src/infra/acp/permission.ts` tạo pending request.
+3. Client phản hồi qua tRPC `respondToPermissionRequest`.
+4. `RespondPermissionService` resolve request + gửi kết quả về agent.
+
+## Auth Model
+
+- HTTP `/api/*` (trừ `/api/auth` và `/api/health`) yêu cầu auth context.
+- tRPC procedures dùng `protectedProcedure` yêu cầu `ctx.auth`.
+- `ctx.auth` có thể đến từ:
+  - Session/auth headers trong request.
+  - `connectionParams.apiKey` cho WebSocket tRPC.
+
+Lưu ý:
+
+- `connectionParams` là payload app-level của tRPC, không thay cho header auth ở layer reverse-proxy.
+
+## Configuration
+
+Config đọc từ `src/config/environment.ts`:
+
+- Network: `WS_HOST`, `WS_PORT`, `WS_HEARTBEAT_INTERVAL_MS`.
+- Security/auth: `AUTH_*`.
+- Process/tool policy: `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`.
+- Timeout: `SESSION_IDLE_TIMEOUT_MS`, `AGENT_TIMEOUT_MS`, `TERMINAL_TIMEOUT_MS`.
+
+## Operational Commands
+
+Trong `apps/server/package.json`:
+
+- `bun run dev`
+- `bun run check-types`
+- `bun run build`
+- `bun run ui:build`
+
+## Non-negotiable Boundaries
+
+- Không bypass runtime store khi broadcast session events.
+- Không ghi file JSON trực tiếp ngoài `json-store`.
+- Không cho tool call truy cập path ngoài allowed project roots.
+- Không đặt business rules ở transport/infra khi rule thuộc domain/application.

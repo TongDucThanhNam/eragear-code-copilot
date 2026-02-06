@@ -37,7 +37,9 @@ export const authConfig = {
       apiKeyHeaders: ["x-api-key", "authorization"],
       defaultPrefix: ENV.authApiKeyPrefix ?? "eg_",
       rateLimit: {
-        enabled: false,
+        enabled: ENV.authApiKeyRateLimitEnabled,
+        timeWindow: ENV.authApiKeyRateLimitTimeWindowMs,
+        maxRequests: ENV.authApiKeyRateLimitMaxRequests,
       },
       enableSessionForAPIKeys: true,
     }),

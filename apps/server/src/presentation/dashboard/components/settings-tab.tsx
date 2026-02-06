@@ -58,7 +58,10 @@ export function SettingsTab({
                   placeholder="/path/to/project"
                   type="text"
                 />
-                <button className="btn btn-secondary min-h-[44px]" type="submit">
+                <button
+                  className="btn btn-secondary min-h-[44px]"
+                  type="submit"
+                >
                   Add
                 </button>
               </div>
@@ -73,7 +76,9 @@ export function SettingsTab({
                   className="root-item flex items-center gap-3 border border-ink p-3 transition-colors hover:bg-muted/20"
                   key={root}
                 >
-                  <code className="flex-1 truncate font-mono text-sm">{root}</code>
+                  <code className="flex-1 truncate font-mono text-sm">
+                    {root}
+                  </code>
                   <input
                     name={`projectRoots[${index}]`}
                     type="hidden"
