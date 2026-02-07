@@ -43,6 +43,8 @@ import type {
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
+const STORED_REPLAY_PAGE_LIMIT = 200;
+
 /**
  * Parameters for creating a new session
  */
@@ -511,7 +513,12 @@ export class CreateSessionService {
     const storedPlan = storedSession?.plan;
     const hasStoredMessages =
       Boolean(params.sessionIdToLoad) &&
-      (await this.sessionRepo.getMessages(chatId)).length > 0;
+      (
+        await this.sessionRepo.getMessagesPage(chatId, {
+          limit: 1,
+          includeCompacted: true,
+        })
+      ).messages.length > 0;
 
     // Create runtime session
     const chatSession: ChatSession = {
@@ -765,7 +772,20 @@ export class CreateSessionService {
    * @param chatId - The chat session identifier
    */
   private async replayStoredMessages(chatId: string) {
-    const storedMessages = await this.sessionRepo.getMessages(chatId);
+    const storedMessages: StoredMessage[] = [];
+    let cursor: number | undefined;
+    while (true) {
+      const page = await this.sessionRepo.getMessagesPage(chatId, {
+        cursor,
+        limit: STORED_REPLAY_PAGE_LIMIT,
+        includeCompacted: true,
+      });
+      storedMessages.push(...page.messages);
+      if (!page.hasMore || page.nextCursor === undefined) {
+        break;
+      }
+      cursor = page.nextCursor;
+    }
     if (storedMessages.length === 0) {
       console.warn(
         `[Server] Agent did not replay history for ${chatId}, and no stored messages were found.`
@@ -787,6 +807,11 @@ export class CreateSessionService {
    * @param message - The stored message to broadcast
    */
   private broadcastStoredMessage(chatId: string, message: StoredMessage) {
+    const compactedText =
+      message.role === "assistant"
+        ? "[Assistant message compacted for local retention]"
+        : "[User message compacted for local retention]";
+
     if (message.parts && message.parts.length > 0) {
       const uiMessage = {
         id: message.id,
@@ -804,9 +829,16 @@ export class CreateSessionService {
       return;
     }
 
-    const contentBlocks =
-      message.contentBlocks ??
-      (message.content ? [{ type: "text", text: message.content }] : []);
+    let contentBlocks = message.contentBlocks;
+    if (!contentBlocks) {
+      if (message.content) {
+        contentBlocks = [{ type: "text", text: message.content }];
+      } else if (message.isCompacted) {
+        contentBlocks = [{ type: "text", text: compactedText }];
+      } else {
+        contentBlocks = [];
+      }
+    }
     const reasoningBlocks =
       message.reasoningBlocks ??
       (message.reasoning ? [{ type: "text", text: message.reasoning }] : []);

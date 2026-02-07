@@ -12,7 +12,9 @@ import { observable } from "@trpc/server/observable";
 import { z } from "zod";
 import {
   DEFAULT_SESSION_LIST_PAGE_LIMIT,
+  DEFAULT_SESSION_MESSAGES_PAGE_LIMIT,
   MAX_SESSION_LIST_PAGE_LIMIT,
+  MAX_SESSION_MESSAGES_PAGE_LIMIT,
 } from "@/config/constants";
 import { CreateSessionService } from "@/modules/session/application/create-session.service";
 import { DeleteSessionService } from "@/modules/session/application/delete-session.service";
@@ -164,15 +166,66 @@ export const sessionRouter = router({
       return await service.execute(input);
     }),
 
-  /** Get session message history */
+  /** @deprecated Use getSessionMessagesPage for paginated history retrieval. */
   getSessionMessages: protectedProcedure
     .input(z.object({ chatId: z.string() }))
     .query(async ({ input, ctx }) => {
       const service = new GetSessionMessagesService(
         ctx.container.getSessions()
       );
-      return await service.execute(input.chatId);
+      const messages: Awaited<
+        ReturnType<GetSessionMessagesService["execute"]>
+      >["messages"] = [];
+      let cursor: number | undefined;
+
+      while (true) {
+        const page = await service.execute({
+          chatId: input.chatId,
+          cursor,
+          limit: MAX_SESSION_MESSAGES_PAGE_LIMIT,
+          includeCompacted: true,
+        });
+        messages.push(...page.messages);
+        if (!page.hasMore || page.nextCursor === undefined) {
+          break;
+        }
+        cursor = page.nextCursor;
+      }
+
+      return messages;
     }),
+
+  /** Get paginated session message history */
+  getSessionMessagesPage: protectedProcedure
+    .input(
+      z.object({
+        chatId: z.string(),
+        cursor: z.number().int().min(0).optional(),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_SESSION_MESSAGES_PAGE_LIMIT)
+          .optional(),
+        includeCompacted: z.boolean().optional(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const service = new GetSessionMessagesService(
+        ctx.container.getSessions()
+      );
+      return await service.execute({
+        chatId: input.chatId,
+        cursor: input.cursor,
+        limit: input.limit ?? DEFAULT_SESSION_MESSAGES_PAGE_LIMIT,
+        includeCompacted: input.includeCompacted ?? true,
+      });
+    }),
+
+  /** Get current SQLite storage statistics */
+  getStorageStats: protectedProcedure.query(({ ctx }) => {
+    return ctx.container.getSessions().getStorageStats();
+  }),
 
   /** Subscribe to real-time session events */
   onSessionEvents: protectedProcedure

@@ -2,25 +2,32 @@
  * Session Repository (SQLite-backed via Drizzle ORM)
  */
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
+import { ENV } from "@/config/environment";
 import { getSqliteOrm, sqliteSchema } from "@/infra/storage/sqlite-db";
 import {
   fromSqliteBoolean,
   fromSqliteJson,
   fromSqliteJsonWithSchema,
   getSqliteDb,
+  getSqliteStorageStats,
   runInSqliteTransaction,
   toSqliteBoolean,
   toSqliteJson,
 } from "@/infra/storage/sqlite-store";
+import { enqueueSqliteWrite } from "@/infra/storage/sqlite-write-queue";
 import type {
   StoredMessage,
   StoredSession,
 } from "@/shared/types/session.types";
 import type {
   SessionListQuery,
+  SessionMessageCompactionInput,
+  SessionMessagesPageQuery,
+  SessionMessagesPageResult,
   SessionRepositoryPort,
+  SessionStorageStats,
 } from "../application/ports/session-repository.port";
 
 type SessionRow = typeof sqliteSchema.sessions.$inferSelect;
@@ -51,6 +58,7 @@ type SessionListRow = Pick<
   | "authMethodsJson"
 >;
 const MAX_SESSION_PAGE_LIMIT = 500;
+const MAX_MESSAGE_PAGE_LIMIT = 200;
 const MAX_MESSAGE_DELETE_CHUNK_SIZE = 200;
 const SESSIONS_COUNT_META_KEY = "sessions_count";
 
@@ -337,6 +345,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
           column: "parts_json",
         }
       ),
+      isCompacted: Number(row.retainedPayload ?? 1) !== 1,
     };
   }
 
@@ -374,6 +383,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     sessionId: string,
     message: StoredMessage
   ): MessageInsert {
+    this.assertMessagePayloadBudget(message);
     return {
       sessionId,
       messageId: message.id,
@@ -385,7 +395,29 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
       reasoning: message.reasoning ?? null,
       reasoningBlocksJson: toSqliteJson(message.reasoningBlocks),
       partsJson: toSqliteJson(message.parts),
+      storageTier: "hot",
+      retainedPayload: 1,
+      compactedAt: null,
     };
+  }
+
+  private assertMessagePayloadBudget(message: StoredMessage): void {
+    const contentBytes = Buffer.byteLength(message.content ?? "", "utf8");
+    if (contentBytes > ENV.messageContentMaxBytes) {
+      throw new Error(
+        `Message content exceeds max size: ${contentBytes} bytes > ${ENV.messageContentMaxBytes}`
+      );
+    }
+
+    const partsBytes = Buffer.byteLength(
+      JSON.stringify(message.parts ?? []),
+      "utf8"
+    );
+    if (partsBytes > ENV.messagePartsMaxBytes) {
+      throw new Error(
+        `Message parts payload exceeds max size: ${partsBytes} bytes > ${ENV.messagePartsMaxBytes}`
+      );
+    }
   }
 
   private toSessionSaveUpdateSet(
@@ -626,116 +658,109 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
       .select({ count: sql<number>`count(*)` })
       .from(sqliteSchema.sessions)
       .get();
-    const fallbackCount = Math.max(0, Number(row?.count ?? 0));
-
-    db.insert(sqliteSchema.appMeta)
-      .values({
-        key: SESSIONS_COUNT_META_KEY,
-        value: String(fallbackCount),
-      })
-      .onConflictDoUpdate({
-        target: sqliteSchema.appMeta.key,
-        set: { value: String(fallbackCount) },
-      })
-      .run();
-
-    return fallbackCount;
+    return Math.max(0, Number(row?.count ?? 0));
   }
 
   async save(session: StoredSession): Promise<void> {
-    const orm = await getSqliteOrm();
-    const sqliteDb = await getSqliteDb();
+    await enqueueSqliteWrite("session.save", async () => {
+      const orm = await getSqliteOrm();
+      const sqliteDb = await getSqliteDb();
 
-    runInSqliteTransaction(sqliteDb, () => {
-      const existing = orm
-        .select({ id: sqliteSchema.sessions.id })
-        .from(sqliteSchema.sessions)
-        .where(eq(sqliteSchema.sessions.id, session.id))
-        .get();
-      const hasExisting = Boolean(existing);
-      const shouldReplaceMessages = session.messages.length > 0 || !hasExisting;
+      runInSqliteTransaction(sqliteDb, () => {
+        const existing = orm
+          .select({ id: sqliteSchema.sessions.id })
+          .from(sqliteSchema.sessions)
+          .where(eq(sqliteSchema.sessions.id, session.id))
+          .get();
+        const hasExisting = Boolean(existing);
+        const shouldReplaceMessages =
+          session.messages.length > 0 || !hasExisting;
 
-      orm
-        .insert(sqliteSchema.sessions)
-        .values(this.toSessionInsert(session))
-        .onConflictDoUpdate({
-          target: sqliteSchema.sessions.id,
-          set: this.toSessionSaveUpdateSet(session),
-        })
-        .run();
-
-      if (!shouldReplaceMessages) {
-        return;
-      }
-
-      const dedupedMessageById = new Map<string, MessageInsert>();
-      for (const message of session.messages) {
-        dedupedMessageById.set(
-          message.id,
-          this.toMessageInsert(session.id, message)
-        );
-      }
-      const dedupedMessages = [...dedupedMessageById.values()];
-
-      if (dedupedMessages.length > 0) {
         orm
-          .insert(sqliteSchema.sessionMessages)
-          .values(dedupedMessages)
+          .insert(sqliteSchema.sessions)
+          .values(this.toSessionInsert(session))
           .onConflictDoUpdate({
-            target: [
-              sqliteSchema.sessionMessages.sessionId,
-              sqliteSchema.sessionMessages.messageId,
-            ],
-            set: {
-              role: sql`excluded.role`,
-              content: sql`excluded.content`,
-              contentBlocksJson: sql`excluded.content_blocks_json`,
-              timestamp: sql`excluded.timestamp`,
-              toolCallsJson: sql`excluded.tool_calls_json`,
-              reasoning: sql`excluded.reasoning`,
-              reasoningBlocksJson: sql`excluded.reasoning_blocks_json`,
-              partsJson: sql`excluded.parts_json`,
-            },
+            target: sqliteSchema.sessions.id,
+            set: this.toSessionSaveUpdateSet(session),
           })
           .run();
-      }
 
-      if (!hasExisting || dedupedMessages.length === 0) {
-        return;
-      }
+        if (!shouldReplaceMessages) {
+          return;
+        }
 
-      const incomingMessageIds = new Set(
-        dedupedMessages.map((message) => message.messageId)
-      );
-      const existingMessageIds = orm
-        .select({ messageId: sqliteSchema.sessionMessages.messageId })
-        .from(sqliteSchema.sessionMessages)
-        .where(eq(sqliteSchema.sessionMessages.sessionId, session.id))
-        .all()
-        .map((message) => message.messageId);
-      const staleMessageIds = existingMessageIds.filter(
-        (messageId) => !incomingMessageIds.has(messageId)
-      );
+        const dedupedMessageById = new Map<string, MessageInsert>();
+        for (const message of session.messages) {
+          dedupedMessageById.set(
+            message.id,
+            this.toMessageInsert(session.id, message)
+          );
+        }
+        const dedupedMessages = [...dedupedMessageById.values()];
 
-      for (
-        let start = 0;
-        start < staleMessageIds.length;
-        start += MAX_MESSAGE_DELETE_CHUNK_SIZE
-      ) {
-        const chunk = staleMessageIds.slice(
-          start,
-          start + MAX_MESSAGE_DELETE_CHUNK_SIZE
+        if (dedupedMessages.length > 0) {
+          orm
+            .insert(sqliteSchema.sessionMessages)
+            .values(dedupedMessages)
+            .onConflictDoUpdate({
+              target: [
+                sqliteSchema.sessionMessages.sessionId,
+                sqliteSchema.sessionMessages.messageId,
+              ],
+              set: {
+                role: sql`excluded.role`,
+                content: sql`excluded.content`,
+                contentBlocksJson: sql`excluded.content_blocks_json`,
+                timestamp: sql`excluded.timestamp`,
+                toolCallsJson: sql`excluded.tool_calls_json`,
+                reasoning: sql`excluded.reasoning`,
+                reasoningBlocksJson: sql`excluded.reasoning_blocks_json`,
+                partsJson: sql`excluded.parts_json`,
+                storageTier: sql`excluded.storage_tier`,
+                retainedPayload: sql`excluded.retained_payload`,
+                compactedAt: sql`excluded.compacted_at`,
+              },
+            })
+            .run();
+        }
+
+        if (!hasExisting || dedupedMessages.length === 0) {
+          return;
+        }
+
+        const incomingMessageIds = new Set(
+          dedupedMessages.map((message) => message.messageId)
         );
-        orm
-          .delete(sqliteSchema.sessionMessages)
-          .where(
-            and(
-              eq(sqliteSchema.sessionMessages.sessionId, session.id),
-              inArray(sqliteSchema.sessionMessages.messageId, chunk)
+        const existingMessageIds = orm
+          .select({ messageId: sqliteSchema.sessionMessages.messageId })
+          .from(sqliteSchema.sessionMessages)
+          .where(eq(sqliteSchema.sessionMessages.sessionId, session.id))
+          .all()
+          .map((message) => message.messageId);
+        const staleMessageIds = existingMessageIds.filter(
+          (messageId) => !incomingMessageIds.has(messageId)
+        );
+
+        for (
+          let start = 0;
+          start < staleMessageIds.length;
+          start += MAX_MESSAGE_DELETE_CHUNK_SIZE
+        ) {
+          const chunk = staleMessageIds.slice(
+            start,
+            start + MAX_MESSAGE_DELETE_CHUNK_SIZE
+          );
+          orm
+            .delete(sqliteSchema.sessionMessages)
+            .where(
+              and(
+                eq(sqliteSchema.sessionMessages.sessionId, session.id),
+                inArray(sqliteSchema.sessionMessages.messageId, chunk)
+              )
             )
-          )
-          .run();
-      }
+            .run();
+        }
+      });
     });
   }
 
@@ -744,101 +769,218 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     status: "running" | "stopped",
     options?: { touchLastActiveAt?: boolean }
   ): Promise<void> {
-    const db = await getSqliteOrm();
-    if (options?.touchLastActiveAt === true) {
+    await enqueueSqliteWrite("session.update_status", async () => {
+      const db = await getSqliteOrm();
+      if (options?.touchLastActiveAt === true) {
+        db.update(sqliteSchema.sessions)
+          .set({ status, lastActiveAt: Date.now() })
+          .where(eq(sqliteSchema.sessions.id, id))
+          .run();
+        return;
+      }
+
       db.update(sqliteSchema.sessions)
-        .set({ status, lastActiveAt: Date.now() })
+        .set({ status })
         .where(eq(sqliteSchema.sessions.id, id))
         .run();
-      return;
-    }
-
-    db.update(sqliteSchema.sessions)
-      .set({ status })
-      .where(eq(sqliteSchema.sessions.id, id))
-      .run();
+    });
   }
 
   async updateMetadata(
     id: string,
     updates: Partial<StoredSession>
   ): Promise<void> {
-    const db = await getSqliteOrm();
-    const setValues: Partial<SessionInsert> = {
-      lastActiveAt: Date.now(),
-    };
+    await enqueueSqliteWrite("session.update_metadata", async () => {
+      const db = await getSqliteOrm();
+      const setValues: Partial<SessionInsert> = {
+        lastActiveAt: Date.now(),
+      };
 
-    this.applyIdentityMetadataUpdates(setValues, updates);
-    this.applyCapabilityMetadataUpdates(setValues, updates);
-    this.applyModelMetadataUpdates(setValues, updates);
+      this.applyIdentityMetadataUpdates(setValues, updates);
+      this.applyCapabilityMetadataUpdates(setValues, updates);
+      this.applyModelMetadataUpdates(setValues, updates);
 
-    db.update(sqliteSchema.sessions)
-      .set(setValues)
-      .where(eq(sqliteSchema.sessions.id, id))
-      .run();
-  }
-
-  async delete(id: string): Promise<void> {
-    const db = await getSqliteOrm();
-    db.delete(sqliteSchema.sessions)
-      .where(eq(sqliteSchema.sessions.id, id))
-      .run();
-  }
-
-  async appendMessage(id: string, message: StoredMessage): Promise<void> {
-    const orm = await getSqliteOrm();
-    const sqliteDb = await getSqliteDb();
-
-    runInSqliteTransaction(sqliteDb, () => {
-      const row = orm
-        .select({ id: sqliteSchema.sessions.id })
-        .from(sqliteSchema.sessions)
-        .where(eq(sqliteSchema.sessions.id, id))
-        .get();
-      if (!row) {
-        return;
-      }
-
-      const values = this.toMessageInsert(id, message);
-      orm
-        .insert(sqliteSchema.sessionMessages)
-        .values(values)
-        .onConflictDoUpdate({
-          target: [
-            sqliteSchema.sessionMessages.sessionId,
-            sqliteSchema.sessionMessages.messageId,
-          ],
-          set: {
-            role: values.role,
-            content: values.content,
-            contentBlocksJson: values.contentBlocksJson,
-            timestamp: values.timestamp,
-            toolCallsJson: values.toolCallsJson,
-            reasoning: values.reasoning,
-            reasoningBlocksJson: values.reasoningBlocksJson,
-            partsJson: values.partsJson,
-          },
-        })
-        .run();
-
-      orm
-        .update(sqliteSchema.sessions)
-        .set({
-          lastActiveAt: Date.now(),
-        })
+      db.update(sqliteSchema.sessions)
+        .set(setValues)
         .where(eq(sqliteSchema.sessions.id, id))
         .run();
     });
   }
 
-  async getMessages(id: string): Promise<StoredMessage[]> {
+  async delete(id: string): Promise<void> {
+    await enqueueSqliteWrite("session.delete", async () => {
+      const db = await getSqliteOrm();
+      db.delete(sqliteSchema.sessions)
+        .where(eq(sqliteSchema.sessions.id, id))
+        .run();
+    });
+  }
+
+  async appendMessage(id: string, message: StoredMessage): Promise<void> {
+    await enqueueSqliteWrite("session.append_message", async () => {
+      const orm = await getSqliteOrm();
+      const sqliteDb = await getSqliteDb();
+
+      runInSqliteTransaction(sqliteDb, () => {
+        const row = orm
+          .select({ id: sqliteSchema.sessions.id })
+          .from(sqliteSchema.sessions)
+          .where(eq(sqliteSchema.sessions.id, id))
+          .get();
+        if (!row) {
+          return;
+        }
+
+        const values = this.toMessageInsert(id, message);
+        orm
+          .insert(sqliteSchema.sessionMessages)
+          .values(values)
+          .onConflictDoUpdate({
+            target: [
+              sqliteSchema.sessionMessages.sessionId,
+              sqliteSchema.sessionMessages.messageId,
+            ],
+            set: {
+              role: values.role,
+              content: values.content,
+              contentBlocksJson: values.contentBlocksJson,
+              timestamp: values.timestamp,
+              toolCallsJson: values.toolCallsJson,
+              reasoning: values.reasoning,
+              reasoningBlocksJson: values.reasoningBlocksJson,
+              partsJson: values.partsJson,
+              storageTier: values.storageTier,
+              retainedPayload: values.retainedPayload,
+              compactedAt: values.compactedAt,
+            },
+          })
+          .run();
+
+        orm
+          .update(sqliteSchema.sessions)
+          .set({
+            lastActiveAt: Date.now(),
+          })
+          .where(eq(sqliteSchema.sessions.id, id))
+          .run();
+      });
+    });
+  }
+
+  async getMessagesPage(
+    id: string,
+    query: SessionMessagesPageQuery
+  ): Promise<SessionMessagesPageResult> {
     const db = await getSqliteOrm();
+    const limit = Math.max(
+      1,
+      Math.min(
+        MAX_MESSAGE_PAGE_LIMIT,
+        Math.trunc(query.limit ?? MAX_MESSAGE_PAGE_LIMIT)
+      )
+    );
+    const cursor =
+      query.cursor === undefined
+        ? undefined
+        : Math.max(0, Math.trunc(query.cursor));
+    const includeCompacted = query.includeCompacted ?? true;
+
+    let whereClause = eq(sqliteSchema.sessionMessages.sessionId, id);
+    if (cursor !== undefined) {
+      whereClause = and(
+        whereClause,
+        gt(sqliteSchema.sessionMessages.seq, cursor)
+      ) as typeof whereClause;
+    }
+    if (!includeCompacted) {
+      whereClause = and(
+        whereClause,
+        eq(sqliteSchema.sessionMessages.retainedPayload, 1)
+      ) as typeof whereClause;
+    }
+
     const rows = db
       .select()
       .from(sqliteSchema.sessionMessages)
-      .where(eq(sqliteSchema.sessionMessages.sessionId, id))
-      .orderBy(sqliteSchema.sessionMessages.seq)
+      .where(whereClause)
+      .orderBy(asc(sqliteSchema.sessionMessages.seq))
+      .limit(limit + 1)
       .all();
-    return rows.map((row) => this.mapMessageRow(row));
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore
+      ? Number(pageRows.at(-1)?.seq ?? cursor ?? 0)
+      : undefined;
+    return {
+      messages: pageRows.map((row) => this.mapMessageRow(row)),
+      nextCursor,
+      hasMore,
+    };
+  }
+
+  compactMessages(
+    input: SessionMessageCompactionInput
+  ): Promise<{ compacted: number }> {
+    const cutoff = Math.max(0, Math.trunc(input.beforeTimestamp));
+    const batchSize = Math.max(1, Math.min(500, Math.trunc(input.batchSize)));
+
+    return enqueueSqliteWrite("session.compact_messages", async () => {
+      const db = await getSqliteOrm();
+      const rows = db
+        .select({
+          seq: sqliteSchema.sessionMessages.seq,
+        })
+        .from(sqliteSchema.sessionMessages)
+        .innerJoin(
+          sqliteSchema.sessions,
+          eq(sqliteSchema.sessionMessages.sessionId, sqliteSchema.sessions.id)
+        )
+        .where(
+          and(
+            lte(sqliteSchema.sessionMessages.timestamp, cutoff),
+            eq(sqliteSchema.sessionMessages.retainedPayload, 1),
+            eq(sqliteSchema.sessions.status, "stopped")
+          )
+        )
+        .orderBy(
+          asc(sqliteSchema.sessionMessages.timestamp),
+          asc(sqliteSchema.sessionMessages.seq)
+        )
+        .limit(batchSize)
+        .all();
+
+      if (rows.length === 0) {
+        return { compacted: 0 };
+      }
+
+      const seqList = rows.map((row) => row.seq);
+      db.update(sqliteSchema.sessionMessages)
+        .set({
+          content: "",
+          contentBlocksJson: null,
+          toolCallsJson: null,
+          reasoning: null,
+          reasoningBlocksJson: null,
+          partsJson: null,
+          storageTier: "cold_stub",
+          retainedPayload: 0,
+          compactedAt: Date.now(),
+        })
+        .where(inArray(sqliteSchema.sessionMessages.seq, seqList))
+        .run();
+      return { compacted: rows.length };
+    });
+  }
+
+  async getStorageStats(): Promise<SessionStorageStats> {
+    const stats = await getSqliteStorageStats();
+    return {
+      dbSizeBytes: stats.dbSizeBytes,
+      walSizeBytes: stats.walSizeBytes,
+      freePages: stats.freePages,
+      sessionCount: stats.sessionCount,
+      messageCount: stats.messageCount,
+      writeQueueDepth: stats.writeQueueDepth,
+    };
   }
 }

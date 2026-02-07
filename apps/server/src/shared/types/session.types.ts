@@ -47,6 +47,8 @@ export interface StoredMessage {
   reasoningBlocks?: StoredContentBlock[];
   /** UI message parts for agentic rendering */
   parts?: UIMessagePart[];
+  /** True when message payload has been compacted for retention */
+  isCompacted?: boolean;
 }
 
 /**

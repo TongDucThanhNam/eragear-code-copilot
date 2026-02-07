@@ -11,6 +11,7 @@ import {
   SQLITE_SETTING_KEYS,
   toSqliteJson,
 } from "@/infra/storage/sqlite-store";
+import { enqueueSqliteWrite } from "@/infra/storage/sqlite-write-queue";
 import type {
   AgentConfig,
   AgentInput,
@@ -144,18 +145,22 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       .get();
     const fallbackId = fallback?.id ?? null;
 
-    db.insert(sqliteSchema.appSettings)
-      .values({
-        key: SQLITE_SETTING_KEYS.activeAgentId,
-        valueJson: toSqliteJson(fallbackId) ?? "null",
-      })
-      .onConflictDoUpdate({
-        target: sqliteSchema.appSettings.key,
-        set: {
+    await enqueueSqliteWrite("agent.repair_active_id", async () => {
+      const writeDb = await getSqliteOrm();
+      writeDb
+        .insert(sqliteSchema.appSettings)
+        .values({
+          key: SQLITE_SETTING_KEYS.activeAgentId,
           valueJson: toSqliteJson(fallbackId) ?? "null",
-        },
-      })
-      .run();
+        })
+        .onConflictDoUpdate({
+          target: sqliteSchema.appSettings.key,
+          set: {
+            valueJson: toSqliteJson(fallbackId) ?? "null",
+          },
+        })
+        .run();
+    });
 
     return fallbackId;
   }
@@ -188,113 +193,50 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     return rows.map((row) => this.mapRow(row));
   }
 
-  async create(input: AgentInput): Promise<AgentConfig> {
-    const db = await getSqliteOrm();
-    this.ensureDefaultAgent(db);
-    const name = input.name.trim();
-    if (!name) {
-      throw new Error("Agent name is required");
-    }
+  create(input: AgentInput): Promise<AgentConfig> {
+    return enqueueSqliteWrite("agent.create", async () => {
+      const db = await getSqliteOrm();
+      this.ensureDefaultAgent(db);
+      const name = input.name.trim();
+      if (!name) {
+        throw new Error("Agent name is required");
+      }
 
-    const now = Date.now();
-    const created: AgentConfig = {
-      id: randomUUID(),
-      name,
-      type: input.type,
-      command: input.command,
-      args: input.args,
-      env: input.env,
-      projectId: input.projectId,
-      createdAt: now,
-      updatedAt: now,
-    };
+      const now = Date.now();
+      const created: AgentConfig = {
+        id: randomUUID(),
+        name,
+        type: input.type,
+        command: input.command,
+        args: input.args,
+        env: input.env,
+        projectId: input.projectId,
+        createdAt: now,
+        updatedAt: now,
+      };
 
-    db.insert(sqliteSchema.agents)
-      .values({
-        id: created.id,
-        name: created.name,
-        type: created.type,
-        command: created.command,
-        argsJson: toSqliteJson(created.args),
-        envJson: toSqliteJson(created.env),
-        projectId: created.projectId ?? null,
-        createdAt: created.createdAt,
-        updatedAt: created.updatedAt,
-      })
-      .run();
-
-    const currentActive = await this.getActiveId();
-    if (!currentActive) {
-      db.insert(sqliteSchema.appSettings)
+      db.insert(sqliteSchema.agents)
         .values({
-          key: SQLITE_SETTING_KEYS.activeAgentId,
-          valueJson: toSqliteJson(created.id) ?? "null",
-        })
-        .onConflictDoUpdate({
-          target: sqliteSchema.appSettings.key,
-          set: {
-            valueJson: toSqliteJson(created.id) ?? "null",
-          },
+          id: created.id,
+          name: created.name,
+          type: created.type,
+          command: created.command,
+          argsJson: toSqliteJson(created.args),
+          envJson: toSqliteJson(created.env),
+          projectId: created.projectId ?? null,
+          createdAt: created.createdAt,
+          updatedAt: created.updatedAt,
         })
         .run();
-    }
 
-    return created;
-  }
-
-  async update(input: AgentUpdateInput): Promise<AgentConfig> {
-    const db = await getSqliteOrm();
-    this.ensureDefaultAgent(db);
-    const row = db
-      .select()
-      .from(sqliteSchema.agents)
-      .where(eq(sqliteSchema.agents.id, input.id))
-      .get();
-    if (!row) {
-      throw new Error("Agent not found");
-    }
-
-    const current = this.mapRow(row);
-    const updated: AgentConfig = {
-      ...current,
-      name: input.name?.trim() || current.name,
-      type: input.type || current.type,
-      command: input.command || current.command,
-      args: input.args !== undefined ? input.args : current.args,
-      env: input.env !== undefined ? input.env : current.env,
-      updatedAt: Date.now(),
-    };
-
-    db.update(sqliteSchema.agents)
-      .set({
-        name: updated.name,
-        type: updated.type,
-        command: updated.command,
-        argsJson: toSqliteJson(updated.args),
-        envJson: toSqliteJson(updated.env),
-        updatedAt: updated.updatedAt,
-      })
-      .where(eq(sqliteSchema.agents.id, updated.id))
-      .run();
-
-    return updated;
-  }
-
-  async delete(id: string): Promise<void> {
-    const db = await getSqliteOrm();
-    db.transaction((tx) => {
-      tx.delete(sqliteSchema.agents)
-        .where(eq(sqliteSchema.agents.id, id))
-        .run();
-
-      const activeRow = tx
+      const activeRow = db
         .select({ valueJson: sqliteSchema.appSettings.valueJson })
         .from(sqliteSchema.appSettings)
         .where(
           eq(sqliteSchema.appSettings.key, SQLITE_SETTING_KEYS.activeAgentId)
         )
         .get();
-      const activeAgentId = fromSqliteJsonWithSchema(
+      const currentActive = fromSqliteJsonWithSchema(
         activeRow?.valueJson,
         null,
         NullableStringSchema,
@@ -303,54 +245,140 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
           column: "value_json",
         }
       );
-      if (activeAgentId !== id) {
-        return;
+      if (!currentActive) {
+        db.insert(sqliteSchema.appSettings)
+          .values({
+            key: SQLITE_SETTING_KEYS.activeAgentId,
+            valueJson: toSqliteJson(created.id) ?? "null",
+          })
+          .onConflictDoUpdate({
+            target: sqliteSchema.appSettings.key,
+            set: {
+              valueJson: toSqliteJson(created.id) ?? "null",
+            },
+          })
+          .run();
       }
 
-      const nextActive = tx
-        .select({ id: sqliteSchema.agents.id })
+      return created;
+    });
+  }
+
+  update(input: AgentUpdateInput): Promise<AgentConfig> {
+    return enqueueSqliteWrite("agent.update", async () => {
+      const db = await getSqliteOrm();
+      this.ensureDefaultAgent(db);
+      const row = db
+        .select()
         .from(sqliteSchema.agents)
-        .limit(1)
+        .where(eq(sqliteSchema.agents.id, input.id))
         .get();
-      tx.insert(sqliteSchema.appSettings)
-        .values({
-          key: SQLITE_SETTING_KEYS.activeAgentId,
-          valueJson: toSqliteJson(nextActive?.id ?? null) ?? "null",
+      if (!row) {
+        throw new Error("Agent not found");
+      }
+
+      const current = this.mapRow(row);
+      const updated: AgentConfig = {
+        ...current,
+        name: input.name?.trim() || current.name,
+        type: input.type || current.type,
+        command: input.command || current.command,
+        args: input.args !== undefined ? input.args : current.args,
+        env: input.env !== undefined ? input.env : current.env,
+        updatedAt: Date.now(),
+      };
+
+      db.update(sqliteSchema.agents)
+        .set({
+          name: updated.name,
+          type: updated.type,
+          command: updated.command,
+          argsJson: toSqliteJson(updated.args),
+          envJson: toSqliteJson(updated.env),
+          updatedAt: updated.updatedAt,
         })
-        .onConflictDoUpdate({
-          target: sqliteSchema.appSettings.key,
-          set: {
-            valueJson: toSqliteJson(nextActive?.id ?? null) ?? "null",
-          },
-        })
+        .where(eq(sqliteSchema.agents.id, updated.id))
         .run();
+
+      return updated;
+    });
+  }
+
+  async delete(id: string): Promise<void> {
+    await enqueueSqliteWrite("agent.delete", async () => {
+      const db = await getSqliteOrm();
+      db.transaction((tx) => {
+        tx.delete(sqliteSchema.agents)
+          .where(eq(sqliteSchema.agents.id, id))
+          .run();
+
+        const activeRow = tx
+          .select({ valueJson: sqliteSchema.appSettings.valueJson })
+          .from(sqliteSchema.appSettings)
+          .where(
+            eq(sqliteSchema.appSettings.key, SQLITE_SETTING_KEYS.activeAgentId)
+          )
+          .get();
+        const activeAgentId = fromSqliteJsonWithSchema(
+          activeRow?.valueJson,
+          null,
+          NullableStringSchema,
+          {
+            table: "app_settings",
+            column: "value_json",
+          }
+        );
+        if (activeAgentId !== id) {
+          return;
+        }
+
+        const nextActive = tx
+          .select({ id: sqliteSchema.agents.id })
+          .from(sqliteSchema.agents)
+          .limit(1)
+          .get();
+        tx.insert(sqliteSchema.appSettings)
+          .values({
+            key: SQLITE_SETTING_KEYS.activeAgentId,
+            valueJson: toSqliteJson(nextActive?.id ?? null) ?? "null",
+          })
+          .onConflictDoUpdate({
+            target: sqliteSchema.appSettings.key,
+            set: {
+              valueJson: toSqliteJson(nextActive?.id ?? null) ?? "null",
+            },
+          })
+          .run();
+      });
     });
   }
 
   async setActive(id: string | null): Promise<void> {
-    const db = await getSqliteOrm();
-    this.ensureDefaultAgent(db);
-    if (id) {
-      const exists = db
-        .select({ id: sqliteSchema.agents.id })
-        .from(sqliteSchema.agents)
-        .where(eq(sqliteSchema.agents.id, id))
-        .get();
-      if (!exists) {
-        throw new Error("Agent not found");
+    await enqueueSqliteWrite("agent.set_active", async () => {
+      const db = await getSqliteOrm();
+      this.ensureDefaultAgent(db);
+      if (id) {
+        const exists = db
+          .select({ id: sqliteSchema.agents.id })
+          .from(sqliteSchema.agents)
+          .where(eq(sqliteSchema.agents.id, id))
+          .get();
+        if (!exists) {
+          throw new Error("Agent not found");
+        }
       }
-    }
-    db.insert(sqliteSchema.appSettings)
-      .values({
-        key: SQLITE_SETTING_KEYS.activeAgentId,
-        valueJson: toSqliteJson(id) ?? "null",
-      })
-      .onConflictDoUpdate({
-        target: sqliteSchema.appSettings.key,
-        set: {
+      db.insert(sqliteSchema.appSettings)
+        .values({
+          key: SQLITE_SETTING_KEYS.activeAgentId,
           valueJson: toSqliteJson(id) ?? "null",
-        },
-      })
-      .run();
+        })
+        .onConflictDoUpdate({
+          target: sqliteSchema.appSettings.key,
+          set: {
+            valueJson: toSqliteJson(id) ?? "null",
+          },
+        })
+        .run();
+    });
   }
 }

@@ -10,6 +10,7 @@ import {
   SQLITE_SETTING_KEYS,
   toSqliteJson,
 } from "@/infra/storage/sqlite-store";
+import { enqueueSqliteWrite } from "@/infra/storage/sqlite-write-queue";
 import type { McpServerConfig, Settings } from "@/shared/types/settings.types";
 import type { SettingsRepositoryPort } from "../application/ports/settings-repository.port";
 
@@ -103,21 +104,21 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
       .run();
   }
 
-  private saveSettings(
-    db: Awaited<ReturnType<typeof getSqliteOrm>>,
-    settings: Settings
-  ): void {
-    this.upsertSetting(db, SQLITE_SETTING_KEYS.uiSettings, settings.ui);
-    this.upsertSetting(
-      db,
-      SQLITE_SETTING_KEYS.projectRoots,
-      settings.projectRoots
-    );
-    this.upsertSetting(
-      db,
-      SQLITE_SETTING_KEYS.mcpServers,
-      settings.mcpServers ?? []
-    );
+  private async saveSettings(settings: Settings): Promise<void> {
+    await enqueueSqliteWrite("settings.save", async () => {
+      const db = await getSqliteOrm();
+      this.upsertSetting(db, SQLITE_SETTING_KEYS.uiSettings, settings.ui);
+      this.upsertSetting(
+        db,
+        SQLITE_SETTING_KEYS.projectRoots,
+        settings.projectRoots
+      );
+      this.upsertSetting(
+        db,
+        SQLITE_SETTING_KEYS.mcpServers,
+        settings.mcpServers ?? []
+      );
+    });
   }
 
   async get(): Promise<Settings> {
@@ -147,7 +148,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
         projectRoots: parsed.projectRoots,
         mcpServers: parsed.mcpServers ?? [],
       };
-      this.saveSettings(db, normalized);
+      await this.saveSettings(normalized);
       return normalized;
     } catch {
       const partial = raw as Partial<Settings>;
@@ -169,13 +170,12 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
           ? mcpServersResult.data
           : (DEFAULT_SETTINGS.mcpServers ?? []),
       };
-      this.saveSettings(db, normalized);
+      await this.saveSettings(normalized);
       return normalized;
     }
   }
 
   async update(patch: Partial<Settings>): Promise<Settings> {
-    const db = await getSqliteOrm();
     const current = await this.get();
     const next: Settings = {
       ...current,
@@ -188,7 +188,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
           ? patch.projectRoots
           : current.projectRoots,
     };
-    this.saveSettings(db, next);
+    await this.saveSettings(next);
     return next;
   }
 }

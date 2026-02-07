@@ -1,7 +1,7 @@
 /**
  * Get Session Messages Service
  *
- * Retrieves the message history for a specific session from persistent storage.
+ * Retrieves paginated message history for a specific session.
  *
  * @module modules/session/application/get-session-messages.service
  */
@@ -29,20 +29,23 @@ export class GetSessionMessagesService {
   }
 
   /**
-   * Retrieves all messages for a session
+   * Retrieves paginated messages for a session
    *
-   * @param chatId - The chat session identifier
-   * @returns Array of stored messages in chronological order
-   *
-   * @example
-   * ```typescript
-   * const messages = service.execute("chat-123");
-   * messages.forEach(msg => console.log(msg.role, msg.content));
-   * ```
+   * @returns Paginated messages in chronological order
    */
-  async execute(chatId: string) {
-    const stored = await this.sessionRepo.getMessages(chatId);
-    return stored.map((message) => {
+  async execute(input: {
+    chatId: string;
+    cursor?: number;
+    limit?: number;
+    includeCompacted?: boolean;
+  }) {
+    const page = await this.sessionRepo.getMessagesPage(input.chatId, {
+      cursor: input.cursor,
+      limit: input.limit,
+      includeCompacted: input.includeCompacted,
+    });
+
+    const messages = page.messages.map((message) => {
       if (message.parts && message.parts.length > 0) {
         return {
           id: message.id,
@@ -50,9 +53,20 @@ export class GetSessionMessagesService {
           parts: message.parts,
         };
       }
-      const contentBlocks =
-        message.contentBlocks ??
-        (message.content ? [{ type: "text", text: message.content }] : []);
+      const compactedText =
+        message.role === "assistant"
+          ? "[Assistant message compacted for local retention]"
+          : "[User message compacted for local retention]";
+      let contentBlocks = message.contentBlocks;
+      if (!contentBlocks) {
+        if (message.content) {
+          contentBlocks = [{ type: "text", text: message.content }];
+        } else if (message.isCompacted) {
+          contentBlocks = [{ type: "text", text: compactedText }];
+        } else {
+          contentBlocks = [];
+        }
+      }
       const reasoningBlocks =
         message.reasoningBlocks ??
         (message.reasoning ? [{ type: "text", text: message.reasoning }] : []);
@@ -68,5 +82,11 @@ export class GetSessionMessagesService {
         reasoningBlocks,
       });
     });
+
+    return {
+      messages,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+    };
   }
 }

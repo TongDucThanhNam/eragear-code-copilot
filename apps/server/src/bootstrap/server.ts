@@ -25,11 +25,13 @@ import {
   BackgroundRunner,
   createCachePruneTask,
   createSessionIdleCleanupTask,
+  createSqliteStorageMaintenanceTask,
 } from "../infra/background";
 import { installConsoleLogger } from "../infra/logging/logger";
 import { createRequestLogger } from "../infra/logging/request-logger";
 import { createLogger } from "../infra/logging/structured-logger";
 import { closeSqliteStorage } from "../infra/storage/sqlite-db";
+import { runSqliteRuntimeMaintenance } from "../infra/storage/sqlite-store";
 import { ReconcileSessionStatusService } from "../modules/session/application/reconcile-session-status.service";
 import { terminateSessionTerminals } from "../shared/utils/session-cleanup.util";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
@@ -43,6 +45,8 @@ import { appRouter } from "../transport/trpc/router";
 import { getContainer, initializeContainerFromSettings } from "./container";
 
 const logger = createLogger("Server");
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const SHUTDOWN_COMPACTION_MAX_BUDGET_MS = 5000;
 
 async function pipeResponseBody(
   res: ServerResponse,
@@ -226,6 +230,12 @@ export async function startServer() {
       sessionRepo: container.getSessions(),
     })
   );
+  backgroundRunner.register(
+    createSqliteStorageMaintenanceTask({
+      sessionRepo: container.getSessions(),
+      sessionRuntime: container.getSessionRuntime(),
+    })
+  );
   backgroundRunner.register(createCachePruneTask());
   container.setBackgroundRunnerStateProvider(() => backgroundRunner.getState());
   backgroundRunner.start();
@@ -310,6 +320,39 @@ export async function startServer() {
       }
       sessionRuntime.delete(session.id);
       await sessionRepo.updateStatus(session.id, "stopped");
+    }
+
+    const compactBeforeTs =
+      Date.now() - Math.max(1, ENV.sqliteRetentionHotDays) * MS_PER_DAY;
+    const shutdownBudgetMs = Math.min(
+      SHUTDOWN_COMPACTION_MAX_BUDGET_MS,
+      Math.max(1, ENV.backgroundTaskTimeoutMs)
+    );
+    const shutdownDeadline = Date.now() + shutdownBudgetMs;
+    let compactedTotal = 0;
+    while (Date.now() < shutdownDeadline) {
+      const result = await sessionRepo.compactMessages({
+        beforeTimestamp: compactBeforeTs,
+        batchSize: ENV.sqliteRetentionCompactionBatchSize,
+      });
+      compactedTotal += result.compacted;
+      if (result.compacted === 0) {
+        break;
+      }
+    }
+    if (compactedTotal > 0) {
+      logger.info("Shutdown storage compaction completed", {
+        compactedTotal,
+        budgetMs: shutdownBudgetMs,
+      });
+    }
+
+    try {
+      await runSqliteRuntimeMaintenance();
+    } catch (error) {
+      logger.warn("SQLite runtime maintenance failed during shutdown", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     await new Promise<void>((resolve) => {

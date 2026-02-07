@@ -9,6 +9,7 @@ import {
   sessions,
 } from "./sqlite-schema";
 import { closeSqliteDb, getSqliteDb } from "./sqlite-store";
+import { stopSqliteWorker } from "./sqlite-worker-client";
 
 const sqliteSchema = {
   appMeta,
@@ -40,6 +41,7 @@ export function resetSqliteOrmCache(): void {
 }
 
 export async function closeSqliteStorage(): Promise<void> {
+  await stopSqliteWorker();
   await closeSqliteDb();
   resetSqliteOrmCache();
 }

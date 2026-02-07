@@ -18,8 +18,21 @@ const LEGACY_JSON_FILES = [
   "ui-settings.json",
 ] as const;
 const STORAGE_DIR_ENV_KEY = "ERAGEAR_STORAGE_DIR";
+const SYNC_PATH_HINTS = [
+  "onedrive",
+  "google drive",
+  "googledrive",
+  "dropbox",
+  "icloud drive",
+] as const;
 
 let storageDir: string | null = null;
+let storageResolution: {
+  path: string;
+  origin: "env" | "default" | "fallback_from_network";
+  rejectedPath?: string;
+  reason?: string;
+} | null = null;
 
 function getPlatformConfigDir(): string {
   if (process.platform === "win32") {
@@ -80,6 +93,51 @@ function getDefaultStorageCandidates(): string[] {
   return [platformDir, LEGACY_STORAGE_DIR];
 }
 
+function getSafeFallbackCandidates(excluded: string[]): string[] {
+  const defaults = getDefaultStorageCandidates();
+  const emergency = path.join(os.tmpdir(), APP_DIR_NAME);
+  return [...new Set([...defaults, emergency])].filter(
+    (candidate) => !excluded.includes(candidate)
+  );
+}
+
+function detectStorageRiskReason(dir: string): string | undefined {
+  const resolved = path.resolve(dir);
+  const normalized = resolved.replace(/\\/g, "/").toLowerCase();
+
+  if (resolved.startsWith("\\\\")) {
+    return "unc_network_path";
+  }
+  if (normalized.includes("/gvfs/") || normalized.includes("/.gvfs/")) {
+    return "gvfs_mount";
+  }
+  if (
+    normalized.startsWith("/net/") ||
+    normalized.startsWith("/nfs/") ||
+    normalized.startsWith("/afs/")
+  ) {
+    return "network_mount";
+  }
+  if (SYNC_PATH_HINTS.some((hint) => normalized.includes(hint))) {
+    return "sync_folder";
+  }
+  return undefined;
+}
+
+function resolveSafeFallback(excluded: string[]): string | undefined {
+  const candidates = getSafeFallbackCandidates(excluded);
+  for (const candidate of candidates) {
+    if (!ensureWritableDirectorySync(candidate)) {
+      continue;
+    }
+    if (detectStorageRiskReason(candidate)) {
+      continue;
+    }
+    return candidate;
+  }
+  return undefined;
+}
+
 export function getStorageDirPathSync(): string {
   if (storageDir) {
     return storageDir;
@@ -93,22 +151,65 @@ export function getStorageDirPathSync(): string {
         `[Storage] ${STORAGE_DIR_ENV_KEY} is not writable: ${resolved}`
       );
     }
-    storageDir = resolved;
-    return resolved;
-  }
-
-  const candidates = getDefaultStorageCandidates();
-  for (const candidate of candidates) {
-    if (ensureWritableDirectorySync(candidate)) {
-      storageDir = candidate;
-      return candidate;
+    const riskReason = detectStorageRiskReason(resolved);
+    if (!riskReason) {
+      storageDir = resolved;
+      storageResolution = {
+        path: resolved,
+        origin: "env",
+      };
+      return resolved;
     }
+
+    const fallback = resolveSafeFallback([resolved]);
+    if (!fallback) {
+      throw new Error(
+        `[Storage] ${STORAGE_DIR_ENV_KEY} points to a risky path (${riskReason}) and no safe local fallback is available: ${resolved}`
+      );
+    }
+
+    console.warn(
+      `[Storage] ${STORAGE_DIR_ENV_KEY} points to a risky path (${riskReason}); falling back to local storage: ${fallback}`
+    );
+    storageDir = fallback;
+    storageResolution = {
+      path: fallback,
+      origin: "fallback_from_network",
+      rejectedPath: resolved,
+      reason: riskReason,
+    };
+    return fallback;
   }
 
+  const candidates = getSafeFallbackCandidates([]);
+  const rejected: Array<{ candidate: string; reason: string }> = [];
+  for (const candidate of candidates) {
+    if (!ensureWritableDirectorySync(candidate)) {
+      continue;
+    }
+    const riskReason = detectStorageRiskReason(candidate);
+    if (riskReason) {
+      rejected.push({ candidate, reason: riskReason });
+      continue;
+    }
+    storageDir = candidate;
+    storageResolution = {
+      path: candidate,
+      origin: "default",
+    };
+    return candidate;
+  }
+
+  const rejectedText =
+    rejected.length > 0
+      ? ` Rejected risky candidates: ${rejected
+          .map((entry) => `${entry.candidate} (${entry.reason})`)
+          .join(", ")}.`
+      : "";
   throw new Error(
-    `[Storage] No writable storage directory available. Tried: ${candidates.join(
+    `[Storage] No writable safe storage directory available. Tried: ${candidates.join(
       ", "
-    )}`
+    )}.${rejectedText}`
   );
 }
 
@@ -133,4 +234,21 @@ export function getStorageFileSync(filename: string): string {
 
 export function getStorageFile(filename: string): Promise<string> {
   return Promise.resolve(getStorageFileSync(filename));
+}
+
+export function getStoragePathResolutionInfo(): {
+  path: string;
+  origin: "env" | "default" | "fallback_from_network";
+  rejectedPath?: string;
+  reason?: string;
+} | null {
+  if (!storageResolution) {
+    return null;
+  }
+  return { ...storageResolution };
+}
+
+export function resetStoragePathCacheForTests(): void {
+  storageDir = null;
+  storageResolution = null;
 }

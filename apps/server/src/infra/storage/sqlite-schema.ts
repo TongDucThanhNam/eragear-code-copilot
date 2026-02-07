@@ -84,6 +84,16 @@ export const sessions = sqliteTable(
     lastActiveAtIdx: index("idx_sessions_last_active_at").on(
       table.lastActiveAt
     ),
+    lastActiveAtIdIdx: index("idx_sessions_last_active_at_id").on(
+      table.lastActiveAt,
+      table.id
+    ),
+    projectIdLastActiveAtIdx: index(
+      "idx_sessions_project_id_last_active_at"
+    ).on(table.projectId, table.lastActiveAt),
+    archivedPinnedLastActiveAtIdx: index(
+      "idx_sessions_archived_pinned_last_active_at"
+    ).on(table.archived, table.pinned, table.lastActiveAt),
   })
 );
 
@@ -103,6 +113,9 @@ export const sessionMessages = sqliteTable(
     reasoning: text("reasoning"),
     reasoningBlocksJson: text("reasoning_blocks_json"),
     partsJson: text("parts_json"),
+    storageTier: text("storage_tier").notNull().default("hot"),
+    retainedPayload: integer("retained_payload").notNull().default(1),
+    compactedAt: integer("compacted_at"),
   },
   (table) => ({
     sessionIdMessageIdUnique: uniqueIndex(
@@ -116,5 +129,8 @@ export const sessionMessages = sqliteTable(
       table.sessionId,
       table.timestamp
     ),
+    sessionIdRetainedPayloadSeqIdx: index(
+      "idx_messages_session_id_retained_payload_seq"
+    ).on(table.sessionId, table.retainedPayload, table.seq),
   })
 );

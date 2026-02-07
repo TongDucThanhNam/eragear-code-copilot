@@ -18,6 +18,7 @@ import type { SettingsRepositoryPort } from "@/modules/settings/application/port
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
+import { ENV } from "../config/environment";
 import { SessionAcpAdapter } from "../infra/acp/session-acp.adapter";
 import { auth, authDb } from "../infra/auth/auth";
 import { getAuthContext } from "../infra/auth/guards";
@@ -26,11 +27,16 @@ import type { CacheStats } from "../infra/caching/types";
 import { GitAdapter } from "../infra/git";
 import { getLogStore } from "../infra/logging/log-store";
 import { AgentRuntimeAdapter } from "../infra/process";
+import { initializeSqliteWorker } from "../infra/storage/sqlite-worker-client";
 import { AgentSqliteRepository } from "../modules/agent/infra/agent.repository.sqlite";
+import { AgentSqliteWorkerRepository } from "../modules/agent/infra/agent.repository.sqlite.worker";
 import { ProjectSqliteRepository } from "../modules/project/infra/project.repository.sqlite";
+import { ProjectSqliteWorkerRepository } from "../modules/project/infra/project.repository.sqlite.worker";
 import { SessionRuntimeStore } from "../modules/session/infra/runtime-store";
 import { SessionSqliteRepository } from "../modules/session/infra/session.repository.sqlite";
+import { SessionSqliteWorkerRepository } from "../modules/session/infra/session.repository.sqlite.worker";
 import { SettingsSqliteRepository } from "../modules/settings/infra/settings.repository.sqlite";
+import { SettingsSqliteWorkerRepository } from "../modules/settings/infra/settings.repository.sqlite.worker";
 import type { Settings } from "../shared/types/settings.types";
 import { EventBus } from "../shared/utils/event-bus";
 
@@ -78,11 +84,21 @@ export class Container {
     this.sessionRuntime = new SessionRuntimeStore(this.eventBus);
     this.logStore = getLogStore();
 
-    // Initialize repositories
-    this.sessionRepo = new SessionSqliteRepository();
-    this.projectRepo = new ProjectSqliteRepository(allowedRoots);
-    this.agentRepo = new AgentSqliteRepository();
-    this.settingsRepo = new SettingsSqliteRepository();
+    if (ENV.sqliteWorkerEnabled) {
+      initializeSqliteWorker(allowedRoots);
+
+      // SQLite IO runs in dedicated worker thread.
+      this.sessionRepo = new SessionSqliteWorkerRepository();
+      this.projectRepo = new ProjectSqliteWorkerRepository();
+      this.agentRepo = new AgentSqliteWorkerRepository();
+      this.settingsRepo = new SettingsSqliteWorkerRepository();
+    } else {
+      // Initialize repositories
+      this.sessionRepo = new SessionSqliteRepository();
+      this.projectRepo = new ProjectSqliteRepository(allowedRoots);
+      this.agentRepo = new AgentSqliteRepository();
+      this.settingsRepo = new SettingsSqliteRepository();
+    }
 
     // Initialize adapters
     this.gitAdapter = new GitAdapter();
@@ -176,7 +192,7 @@ export class Container {
       JSON.stringify(current.projectRoots) !== JSON.stringify(next.projectRoots)
     ) {
       changedKeys.push("projectRoots");
-      this.projectRepo.setAllowedRoots(next.projectRoots);
+      await this.projectRepo.setAllowedRoots(next.projectRoots);
     }
 
     if (JSON.stringify(current.ui) !== JSON.stringify(next.ui)) {

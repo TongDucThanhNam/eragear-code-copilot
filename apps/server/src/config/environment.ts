@@ -11,16 +11,27 @@ import { z } from "zod";
 import {
   DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
   DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
+  DEFAULT_BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_BACKGROUND_TASK_TIMEOUT_MS,
   DEFAULT_BACKGROUND_TICK_MS,
   DEFAULT_LOG_BUFFER_LIMIT,
   DEFAULT_LOG_FLUSH_INTERVAL_MS,
+  DEFAULT_MESSAGE_CONTENT_MAX_BYTES,
+  DEFAULT_MESSAGE_PARTS_MAX_BYTES,
   DEFAULT_SESSION_BUFFER_LIMIT,
   DEFAULT_SESSION_IDLE_TIMEOUT_MS,
+  DEFAULT_SQLITE_BUSY_MAX_RETRIES,
+  DEFAULT_SQLITE_BUSY_RETRY_BASE_DELAY_MS,
   DEFAULT_SQLITE_BUSY_TIMEOUT_MS,
   DEFAULT_SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES,
   DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES,
   DEFAULT_SQLITE_INIT_RETRY_COOLDOWN_MS,
+  DEFAULT_SQLITE_MAX_DB_SIZE_MB,
+  DEFAULT_SQLITE_RETENTION_COMPACTION_BATCH_SIZE,
+  DEFAULT_SQLITE_RETENTION_HOT_DAYS,
+  DEFAULT_SQLITE_WAL_CHECKPOINT_INTERVAL_MS,
+  DEFAULT_SQLITE_WORKER_ENABLED,
+  DEFAULT_SQLITE_WORKER_REQUEST_TIMEOUT_MS,
   DEFAULT_WS_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WS_HOST,
   DEFAULT_WS_MAX_PAYLOAD_BYTES,
@@ -65,11 +76,22 @@ const envSchema = z.object({
   BACKGROUND_TASK_TIMEOUT_MS: z.string().optional(),
   BACKGROUND_SESSION_CLEANUP_INTERVAL_MS: z.string().optional(),
   BACKGROUND_CACHE_PRUNE_INTERVAL_MS: z.string().optional(),
+  BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS: z.string().optional(),
   SQLITE_BUSY_TIMEOUT_MS: z.string().optional(),
+  SQLITE_BUSY_MAX_RETRIES: z.string().optional(),
+  SQLITE_BUSY_RETRY_BASE_DELAY_MS: z.string().optional(),
   SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES: z.string().optional(),
   SQLITE_INCREMENTAL_VACUUM_STEP_PAGES: z.string().optional(),
+  SQLITE_WAL_CHECKPOINT_INTERVAL_MS: z.string().optional(),
+  SQLITE_RETENTION_HOT_DAYS: z.string().optional(),
+  SQLITE_RETENTION_COMPACTION_BATCH_SIZE: z.string().optional(),
+  SQLITE_MAX_DB_SIZE_MB: z.string().optional(),
   SQLITE_MIGRATIONS_DIR: z.string().optional(),
   SQLITE_INIT_RETRY_COOLDOWN_MS: z.string().optional(),
+  SQLITE_WORKER_ENABLED: z.string().optional(),
+  SQLITE_WORKER_REQUEST_TIMEOUT_MS: z.string().optional(),
+  MESSAGE_CONTENT_MAX_BYTES: z.string().optional(),
+  MESSAGE_PARTS_MAX_BYTES: z.string().optional(),
   NODE_ENV: z.string().optional(),
   BUN_ENV: z.string().optional(),
 });
@@ -300,6 +322,11 @@ export const ENV = {
     env.BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
     DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS
   ),
+  /** Interval for sqlite maintenance task in milliseconds */
+  backgroundSqliteMaintenanceIntervalMs: toNumber(
+    env.BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS,
+    DEFAULT_BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS
+  ),
   /** Cooldown before retrying a failed SQLite init */
   sqliteInitRetryCooldownMs: toNumber(
     env.SQLITE_INIT_RETRY_COOLDOWN_MS,
@@ -310,6 +337,16 @@ export const ENV = {
     env.SQLITE_BUSY_TIMEOUT_MS,
     DEFAULT_SQLITE_BUSY_TIMEOUT_MS
   ),
+  /** Maximum retries for SQLITE_BUSY operations */
+  sqliteBusyMaxRetries: toPositiveInt(
+    env.SQLITE_BUSY_MAX_RETRIES,
+    DEFAULT_SQLITE_BUSY_MAX_RETRIES
+  ),
+  /** Base delay for SQLITE_BUSY retry backoff */
+  sqliteBusyRetryBaseDelayMs: toPositiveInt(
+    env.SQLITE_BUSY_RETRY_BASE_DELAY_MS,
+    DEFAULT_SQLITE_BUSY_RETRY_BASE_DELAY_MS
+  ),
   /** Minimum free pages before incremental vacuum kicks in */
   sqliteIncrementalVacuumMinFreePages: toPositiveInt(
     env.SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES,
@@ -319,6 +356,46 @@ export const ENV = {
   sqliteIncrementalVacuumStepPages: toPositiveInt(
     env.SQLITE_INCREMENTAL_VACUUM_STEP_PAGES,
     DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES
+  ),
+  /** Interval between WAL checkpoints in milliseconds */
+  sqliteWalCheckpointIntervalMs: toPositiveInt(
+    env.SQLITE_WAL_CHECKPOINT_INTERVAL_MS,
+    DEFAULT_SQLITE_WAL_CHECKPOINT_INTERVAL_MS
+  ),
+  /** Number of days to retain full message payload before compaction */
+  sqliteRetentionHotDays: toPositiveInt(
+    env.SQLITE_RETENTION_HOT_DAYS,
+    DEFAULT_SQLITE_RETENTION_HOT_DAYS
+  ),
+  /** Maximum compacted rows per maintenance batch */
+  sqliteRetentionCompactionBatchSize: toPositiveInt(
+    env.SQLITE_RETENTION_COMPACTION_BATCH_SIZE,
+    DEFAULT_SQLITE_RETENTION_COMPACTION_BATCH_SIZE
+  ),
+  /** Soft alert threshold for SQLite DB size */
+  sqliteMaxDbSizeMb: toPositiveInt(
+    env.SQLITE_MAX_DB_SIZE_MB,
+    DEFAULT_SQLITE_MAX_DB_SIZE_MB
+  ),
+  /** Enable SQLite worker-thread request offloading */
+  sqliteWorkerEnabled: toBoolean(
+    env.SQLITE_WORKER_ENABLED,
+    DEFAULT_SQLITE_WORKER_ENABLED
+  ),
+  /** Timeout for one SQLite worker request in milliseconds */
+  sqliteWorkerRequestTimeoutMs: toPositiveInt(
+    env.SQLITE_WORKER_REQUEST_TIMEOUT_MS,
+    DEFAULT_SQLITE_WORKER_REQUEST_TIMEOUT_MS
+  ),
+  /** Maximum bytes allowed for plain message content */
+  messageContentMaxBytes: toPositiveInt(
+    env.MESSAGE_CONTENT_MAX_BYTES,
+    DEFAULT_MESSAGE_CONTENT_MAX_BYTES
+  ),
+  /** Maximum bytes allowed for serialized message parts JSON */
+  messagePartsMaxBytes: toPositiveInt(
+    env.MESSAGE_PARTS_MAX_BYTES,
+    DEFAULT_MESSAGE_PARTS_MAX_BYTES
   ),
   /** Optional override path for SQLite drizzle migrations directory */
   sqliteMigrationsDir: env.SQLITE_MIGRATIONS_DIR?.trim() || undefined,

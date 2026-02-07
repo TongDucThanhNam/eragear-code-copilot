@@ -1,5 +1,12 @@
 import { Database } from "bun:sqlite";
-import { access, copyFile, mkdir, mkdtemp, readFile } from "node:fs/promises";
+import {
+  access,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  stat,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -12,12 +19,29 @@ import type { Project } from "@/shared/types/project.types";
 import type { StoredSession } from "@/shared/types/session.types";
 import type { Settings } from "@/shared/types/settings.types";
 import { stringifyJson } from "@/shared/utils/json.util";
-import { getStorageDirPath } from "./storage-path";
+import {
+  callSqliteWorker,
+  isSqliteWorkerEnabled,
+} from "./sqlite-worker-client";
+import { isSqliteWorkerThread } from "./sqlite-worker-flags";
+import {
+  enqueueSqliteWrite,
+  getSqliteWriteQueueStats,
+} from "./sqlite-write-queue";
+import {
+  getStorageDirPath,
+  getStoragePathResolutionInfo,
+} from "./storage-path";
 
 const SQLITE_FILE_NAME = "eragear.sqlite";
+const SQLITE_WAL_FILE_SUFFIX = "-wal";
 const SCHEMA_VERSION = 2;
 const JSON_MIGRATION_MARKER_KEY = "json_migrated";
 const SCHEMA_VERSION_MARKER_KEY = "schema_version";
+const STORAGE_BACKEND_META_KEY = "storage_backend";
+const STORAGE_PATH_ORIGIN_META_KEY = "storage_path_origin";
+const STORAGE_PATH_REJECTED_META_KEY = "storage_path_rejected";
+const STORAGE_PATH_REASON_META_KEY = "storage_path_reason";
 const SQLITE_SAVEPOINT_PREFIX = "sqlite_tx_";
 const SQLITE_VARIABLE_LIMIT = 999;
 const SQLITE_AUTO_VACUUM_INCREMENTAL = 2;
@@ -74,6 +98,25 @@ let sqliteDb: Database | null = null;
 let sqliteInitPromise: Promise<Database> | null = null;
 let sqliteInitFailureState: SqliteInitFailureState | null = null;
 let sqliteSavepointCounter = 0;
+let sqliteLastCheckpointAt = 0;
+
+export interface SqliteStorageStatsSnapshot {
+  dbSizeBytes: number;
+  walSizeBytes: number;
+  freePages: number;
+  sessionCount: number;
+  messageCount: number;
+  writeQueueDepth: number;
+}
+
+export interface SqliteRuntimeMaintenanceResult {
+  checkpointRan: boolean;
+  checkpointBusy: number;
+  checkpointLogFrames: number;
+  checkpointedFrames: number;
+  freePages: number;
+  pagesToVacuum: number;
+}
 
 export class StorageTransactionError extends Error {
   readonly operation: TransactionOperation;
@@ -267,6 +310,37 @@ function readPragmaNumber(db: Database, pragmaName: string): number {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
+function runWalCheckpoint(db: Database): {
+  busy: number;
+  logFrames: number;
+  checkpointedFrames: number;
+} {
+  const row = db.query("PRAGMA wal_checkpoint(TRUNCATE)").get() as Record<
+    string,
+    unknown
+  > | null;
+
+  if (!row) {
+    return {
+      busy: 0,
+      logFrames: 0,
+      checkpointedFrames: 0,
+    };
+  }
+
+  const values = Object.values(row).map((value) => Number(value));
+  const busy = values[0] ?? 0;
+  const logFrames = values[1] ?? 0;
+  const checkpointedFrames = values[2] ?? 0;
+  return {
+    busy: Number.isFinite(busy) ? busy : 0,
+    logFrames: Number.isFinite(logFrames) ? logFrames : 0,
+    checkpointedFrames: Number.isFinite(checkpointedFrames)
+      ? checkpointedFrames
+      : 0,
+  };
+}
+
 function ensureIncrementalAutoVacuum(db: Database): void {
   const currentMode = readPragmaNumber(db, "auto_vacuum");
   if (currentMode === SQLITE_AUTO_VACUUM_INCREMENTAL) {
@@ -286,10 +360,13 @@ function ensureIncrementalAutoVacuum(db: Database): void {
   logger.info("Enabled SQLite incremental auto_vacuum mode");
 }
 
-function maybeRunIncrementalVacuum(db: Database): void {
+function maybeRunIncrementalVacuum(db: Database): {
+  freePages: number;
+  pagesToVacuum: number;
+} {
   const freePages = readPragmaNumber(db, "freelist_count");
   if (freePages < ENV.sqliteIncrementalVacuumMinFreePages) {
-    return;
+    return { freePages, pagesToVacuum: 0 };
   }
 
   const pagesToVacuum = Math.min(
@@ -302,6 +379,7 @@ function maybeRunIncrementalVacuum(db: Database): void {
     freePages,
     pagesToVacuum,
   });
+  return { freePages, pagesToVacuum };
 }
 
 function hasSqlData(db: Database): boolean {
@@ -477,6 +555,23 @@ async function ensureSqliteSchema(db: Database): Promise<void> {
   migrate(orm, { migrationsFolder });
 
   setMeta(db, SCHEMA_VERSION_MARKER_KEY, String(SCHEMA_VERSION));
+}
+
+function persistStorageResolutionMeta(db: Database): void {
+  setMeta(db, STORAGE_BACKEND_META_KEY, "sqlite_local");
+
+  const resolution = getStoragePathResolutionInfo();
+  if (!resolution) {
+    return;
+  }
+
+  setMeta(db, STORAGE_PATH_ORIGIN_META_KEY, resolution.origin);
+  if (resolution.rejectedPath) {
+    setMeta(db, STORAGE_PATH_REJECTED_META_KEY, resolution.rejectedPath);
+  }
+  if (resolution.reason) {
+    setMeta(db, STORAGE_PATH_REASON_META_KEY, resolution.reason);
+  }
 }
 
 function importLegacyProjects(db: Database, projects: Project[]): void {
@@ -808,6 +903,7 @@ async function initializeSqliteDb(): Promise<Database> {
   try {
     configureSqliteConnection(db);
     await ensureSqliteSchema(db);
+    persistStorageResolutionMeta(db);
     await maybeMigrateFromLegacyJson(db, storageDir);
     removeOrphanedSessionMessages(db);
     ensureIncrementalAutoVacuum(db);
@@ -901,7 +997,97 @@ export async function closeSqliteDb(): Promise<void> {
   } finally {
     sqliteDb = null;
     sqliteInitFailureState = null;
+    sqliteLastCheckpointAt = 0;
   }
+}
+
+async function readOptionalFileSize(filePath: string): Promise<number> {
+  try {
+    const stats = await stat(filePath);
+    return stats.size;
+  } catch {
+    return 0;
+  }
+}
+
+export async function getSqliteStorageStatsLocal(): Promise<SqliteStorageStatsSnapshot> {
+  const db = await getSqliteDb();
+  const storageDir = await getStorageDirPath();
+  const dbPath = path.join(storageDir, SQLITE_FILE_NAME);
+  const walPath = `${dbPath}${SQLITE_WAL_FILE_SUFFIX}`;
+
+  const freePages = readPragmaNumber(db, "freelist_count");
+  const sessionsCountRow = db
+    .query("SELECT value FROM app_meta WHERE key = 'sessions_count'")
+    .get() as { value?: string } | null;
+  const fallbackSessionCountRow = db
+    .query("SELECT COUNT(*) AS count FROM sessions")
+    .get() as { count?: number } | null;
+  const messageCountRow = db
+    .query("SELECT COALESCE(SUM(message_count), 0) AS total FROM sessions")
+    .get() as { total?: number } | null;
+
+  const sessionCount = Number.parseInt(sessionsCountRow?.value ?? "", 10);
+  const normalizedSessionCount = Number.isFinite(sessionCount)
+    ? Math.max(0, sessionCount)
+    : Math.max(0, Number(fallbackSessionCountRow?.count ?? 0));
+
+  return {
+    dbSizeBytes: await readOptionalFileSize(dbPath),
+    walSizeBytes: await readOptionalFileSize(walPath),
+    freePages,
+    sessionCount: normalizedSessionCount,
+    messageCount: Math.max(0, Number(messageCountRow?.total ?? 0)),
+    writeQueueDepth: getSqliteWriteQueueStats().pending,
+  };
+}
+
+export function getSqliteStorageStats(): Promise<SqliteStorageStatsSnapshot> {
+  if (isSqliteWorkerEnabled() && !isSqliteWorkerThread()) {
+    return callSqliteWorker("storage", "getStorageStats", []);
+  }
+  return getSqliteStorageStatsLocal();
+}
+
+export function runSqliteRuntimeMaintenanceLocal(): Promise<SqliteRuntimeMaintenanceResult> {
+  return enqueueSqliteWrite("sqlite.runtime_maintenance", async () => {
+    const db = await getSqliteDb();
+    const now = Date.now();
+    let checkpointRan = false;
+    let checkpointBusy = 0;
+    let checkpointLogFrames = 0;
+    let checkpointedFrames = 0;
+
+    if (
+      sqliteLastCheckpointAt === 0 ||
+      now - sqliteLastCheckpointAt >= ENV.sqliteWalCheckpointIntervalMs
+    ) {
+      const checkpointResult = runWalCheckpoint(db);
+      checkpointRan = true;
+      checkpointBusy = checkpointResult.busy;
+      checkpointLogFrames = checkpointResult.logFrames;
+      checkpointedFrames = checkpointResult.checkpointedFrames;
+      sqliteLastCheckpointAt = now;
+    }
+
+    const vacuumResult = maybeRunIncrementalVacuum(db);
+
+    return {
+      checkpointRan,
+      checkpointBusy,
+      checkpointLogFrames,
+      checkpointedFrames,
+      freePages: vacuumResult.freePages,
+      pagesToVacuum: vacuumResult.pagesToVacuum,
+    };
+  });
+}
+
+export function runSqliteRuntimeMaintenance(): Promise<SqliteRuntimeMaintenanceResult> {
+  if (isSqliteWorkerEnabled() && !isSqliteWorkerThread()) {
+    return callSqliteWorker("storage", "runMaintenance", []);
+  }
+  return runSqliteRuntimeMaintenanceLocal();
 }
 
 export function fromSqliteBoolean(value: unknown): boolean | undefined {

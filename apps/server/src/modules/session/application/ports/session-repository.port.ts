@@ -8,6 +8,32 @@ export interface SessionListQuery {
   offset?: number;
 }
 
+export interface SessionMessagesPageQuery {
+  cursor?: number;
+  limit?: number;
+  includeCompacted?: boolean;
+}
+
+export interface SessionMessagesPageResult {
+  messages: StoredMessage[];
+  nextCursor?: number;
+  hasMore: boolean;
+}
+
+export interface SessionMessageCompactionInput {
+  beforeTimestamp: number;
+  batchSize: number;
+}
+
+export interface SessionStorageStats {
+  dbSizeBytes: number;
+  walSizeBytes: number;
+  freePages: number;
+  sessionCount: number;
+  messageCount: number;
+  writeQueueDepth: number;
+}
+
 /**
  * Port for session data persistence operations.
  */
@@ -32,6 +58,15 @@ export interface SessionRepositoryPort {
   delete(id: string): Promise<void>;
   /** Append a message to a session */
   appendMessage(id: string, message: StoredMessage): Promise<void>;
-  /** Get all messages for a session */
-  getMessages(id: string): Promise<StoredMessage[]>;
+  /** Get a paginated page of messages for a session */
+  getMessagesPage(
+    id: string,
+    query: SessionMessagesPageQuery
+  ): Promise<SessionMessagesPageResult>;
+  /** Compact older message payloads to reduce DB growth */
+  compactMessages(
+    input: SessionMessageCompactionInput
+  ): Promise<{ compacted: number }>;
+  /** Get storage stats for observability and UI */
+  getStorageStats(): Promise<SessionStorageStats>;
 }

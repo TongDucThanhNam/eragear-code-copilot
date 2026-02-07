@@ -23,5 +23,5 @@ export interface ProjectRepositoryPort {
   /** Set the active project */
   setActive(id: string | null): Promise<void>;
   /** Set allowed project roots */
-  setAllowedRoots(roots: string[]): void;
+  setAllowedRoots(roots: string[]): Promise<void>;
 }

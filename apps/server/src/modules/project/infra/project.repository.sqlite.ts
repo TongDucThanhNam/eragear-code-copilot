@@ -11,6 +11,7 @@ import {
   SQLITE_SETTING_KEYS,
   toSqliteJson,
 } from "@/infra/storage/sqlite-store";
+import { enqueueSqliteWrite } from "@/infra/storage/sqlite-write-queue";
 import type {
   Project,
   ProjectInput,
@@ -30,8 +31,9 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
     this.allowedRoots = allowedRoots;
   }
 
-  setAllowedRoots(roots: string[]): void {
+  setAllowedRoots(roots: string[]): Promise<void> {
     this.allowedRoots = roots;
+    return Promise.resolve();
   }
 
   private mapRow(row: ProjectRow): Project {
@@ -90,211 +92,222 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
     );
   }
 
-  async create(input: ProjectInput): Promise<Project> {
-    const db = await getSqliteOrm();
-    const resolvedPath = resolveProjectPath(input.path, this.allowedRoots);
-    const name = input.name.trim();
+  create(input: ProjectInput): Promise<Project> {
+    return enqueueSqliteWrite("project.create", async () => {
+      const db = await getSqliteOrm();
+      const resolvedPath = resolveProjectPath(input.path, this.allowedRoots);
+      const name = input.name.trim();
 
-    if (!name) {
-      throw new Error("Project name is required");
-    }
+      if (!name) {
+        throw new Error("Project name is required");
+      }
 
-    const existing = db
-      .select({ id: sqliteSchema.projects.id })
-      .from(sqliteSchema.projects)
-      .where(eq(sqliteSchema.projects.path, resolvedPath))
-      .get();
-    if (existing) {
-      throw new Error(`Project path already exists: ${resolvedPath}`);
-    }
-
-    const now = Date.now();
-    const created: Project = {
-      id: randomUUID(),
-      name,
-      path: resolvedPath,
-      description: input.description ?? null,
-      tags: this.normalizeTags(input.tags),
-      favorite: Boolean(input.favorite),
-      createdAt: now,
-      updatedAt: now,
-      lastOpenedAt: null,
-    };
-
-    db.insert(sqliteSchema.projects)
-      .values({
-        id: created.id,
-        name: created.name,
-        path: created.path,
-        description: created.description,
-        tagsJson: toSqliteJson(created.tags) ?? "[]",
-        favorite: created.favorite ? 1 : 0,
-        createdAt: created.createdAt,
-        updatedAt: created.updatedAt,
-        lastOpenedAt: created.lastOpenedAt,
-      })
-      .run();
-
-    return created;
-  }
-
-  async update(input: ProjectUpdateInput): Promise<Project> {
-    const db = await getSqliteOrm();
-    const currentRow = db
-      .select()
-      .from(sqliteSchema.projects)
-      .where(eq(sqliteSchema.projects.id, input.id))
-      .get();
-    if (!currentRow) {
-      throw new Error("Project not found");
-    }
-    const current = this.mapRow(currentRow);
-    let nextPath = current.path;
-
-    if (input.path && input.path !== current.path) {
-      nextPath = resolveProjectPath(input.path, this.allowedRoots);
-      const exists = db
+      const existing = db
         .select({ id: sqliteSchema.projects.id })
         .from(sqliteSchema.projects)
-        .where(
-          and(
-            eq(sqliteSchema.projects.path, nextPath),
-            ne(sqliteSchema.projects.id, input.id)
-          )
-        )
+        .where(eq(sqliteSchema.projects.path, resolvedPath))
         .get();
-      if (exists) {
-        throw new Error(`Project path already exists: ${nextPath}`);
+      if (existing) {
+        throw new Error(`Project path already exists: ${resolvedPath}`);
       }
-    }
 
-    const updated: Project = {
-      ...current,
-      name: input.name ? input.name.trim() || current.name : current.name,
-      path: nextPath,
-      description:
-        input.description === undefined
-          ? current.description
-          : input.description,
-      tags: input.tags ? this.normalizeTags(input.tags) : current.tags,
-      favorite:
-        input.favorite === undefined ? current.favorite : input.favorite,
-      updatedAt: Date.now(),
-    };
+      const now = Date.now();
+      const created: Project = {
+        id: randomUUID(),
+        name,
+        path: resolvedPath,
+        description: input.description ?? null,
+        tags: this.normalizeTags(input.tags),
+        favorite: Boolean(input.favorite),
+        createdAt: now,
+        updatedAt: now,
+        lastOpenedAt: null,
+      };
 
-    db.update(sqliteSchema.projects)
-      .set({
-        name: updated.name,
-        path: updated.path,
-        description: updated.description,
-        tagsJson: toSqliteJson(updated.tags) ?? "[]",
-        favorite: updated.favorite ? 1 : 0,
-        updatedAt: updated.updatedAt,
-      })
-      .where(eq(sqliteSchema.projects.id, input.id))
-      .run();
-
-    return updated;
-  }
-
-  async delete(id: string): Promise<void> {
-    const db = await getSqliteOrm();
-    db.transaction((tx) => {
-      const project = tx
-        .select({
-          id: sqliteSchema.projects.id,
-          path: sqliteSchema.projects.path,
+      db.insert(sqliteSchema.projects)
+        .values({
+          id: created.id,
+          name: created.name,
+          path: created.path,
+          description: created.description,
+          tagsJson: toSqliteJson(created.tags) ?? "[]",
+          favorite: created.favorite ? 1 : 0,
+          createdAt: created.createdAt,
+          updatedAt: created.updatedAt,
+          lastOpenedAt: created.lastOpenedAt,
         })
-        .from(sqliteSchema.projects)
-        .where(eq(sqliteSchema.projects.id, id))
-        .get();
-      if (!project) {
-        return;
-      }
-
-      // Clean up sessions that only reference the deleted project path.
-      tx.delete(sqliteSchema.sessions)
-        .where(
-          or(
-            eq(sqliteSchema.sessions.projectId, id),
-            and(
-              isNull(sqliteSchema.sessions.projectId),
-              eq(sqliteSchema.sessions.projectRoot, project.path)
-            )
-          )
-        )
         .run();
 
-      tx.delete(sqliteSchema.projects)
-        .where(eq(sqliteSchema.projects.id, id))
-        .run();
-
-      const activeProjectRow = tx
-        .select({ valueJson: sqliteSchema.appSettings.valueJson })
-        .from(sqliteSchema.appSettings)
-        .where(
-          eq(sqliteSchema.appSettings.key, SQLITE_SETTING_KEYS.activeProjectId)
-        )
-        .get();
-      const activeProjectId = fromSqliteJsonWithSchema(
-        activeProjectRow?.valueJson,
-        null,
-        NullableStringSchema,
-        {
-          table: "app_settings",
-          column: "value_json",
-        }
-      );
-      if (activeProjectId === id) {
-        tx.insert(sqliteSchema.appSettings)
-          .values({
-            key: SQLITE_SETTING_KEYS.activeProjectId,
-            valueJson: "null",
-          })
-          .onConflictDoUpdate({
-            target: sqliteSchema.appSettings.key,
-            set: {
-              valueJson: "null",
-            },
-          })
-          .run();
-      }
+      return created;
     });
   }
 
-  async setActive(id: string | null): Promise<void> {
-    const db = await getSqliteOrm();
-    db.transaction((tx) => {
-      if (id) {
-        const project = tx
+  update(input: ProjectUpdateInput): Promise<Project> {
+    return enqueueSqliteWrite("project.update", async () => {
+      const db = await getSqliteOrm();
+      const currentRow = db
+        .select()
+        .from(sqliteSchema.projects)
+        .where(eq(sqliteSchema.projects.id, input.id))
+        .get();
+      if (!currentRow) {
+        throw new Error("Project not found");
+      }
+      const current = this.mapRow(currentRow);
+      let nextPath = current.path;
+
+      if (input.path && input.path !== current.path) {
+        nextPath = resolveProjectPath(input.path, this.allowedRoots);
+        const exists = db
           .select({ id: sqliteSchema.projects.id })
+          .from(sqliteSchema.projects)
+          .where(
+            and(
+              eq(sqliteSchema.projects.path, nextPath),
+              ne(sqliteSchema.projects.id, input.id)
+            )
+          )
+          .get();
+        if (exists) {
+          throw new Error(`Project path already exists: ${nextPath}`);
+        }
+      }
+
+      const updated: Project = {
+        ...current,
+        name: input.name ? input.name.trim() || current.name : current.name,
+        path: nextPath,
+        description:
+          input.description === undefined
+            ? current.description
+            : input.description,
+        tags: input.tags ? this.normalizeTags(input.tags) : current.tags,
+        favorite:
+          input.favorite === undefined ? current.favorite : input.favorite,
+        updatedAt: Date.now(),
+      };
+
+      db.update(sqliteSchema.projects)
+        .set({
+          name: updated.name,
+          path: updated.path,
+          description: updated.description,
+          tagsJson: toSqliteJson(updated.tags) ?? "[]",
+          favorite: updated.favorite ? 1 : 0,
+          updatedAt: updated.updatedAt,
+        })
+        .where(eq(sqliteSchema.projects.id, input.id))
+        .run();
+
+      return updated;
+    });
+  }
+
+  async delete(id: string): Promise<void> {
+    await enqueueSqliteWrite("project.delete", async () => {
+      const db = await getSqliteOrm();
+      db.transaction((tx) => {
+        const project = tx
+          .select({
+            id: sqliteSchema.projects.id,
+            path: sqliteSchema.projects.path,
+          })
           .from(sqliteSchema.projects)
           .where(eq(sqliteSchema.projects.id, id))
           .get();
         if (!project) {
-          throw new Error("Project not found");
+          return;
         }
 
-        tx.update(sqliteSchema.projects)
-          .set({
-            lastOpenedAt: Date.now(),
-            updatedAt: Date.now(),
-          })
+        // Clean up sessions that only reference the deleted project path.
+        tx.delete(sqliteSchema.sessions)
+          .where(
+            or(
+              eq(sqliteSchema.sessions.projectId, id),
+              and(
+                isNull(sqliteSchema.sessions.projectId),
+                eq(sqliteSchema.sessions.projectRoot, project.path)
+              )
+            )
+          )
+          .run();
+
+        tx.delete(sqliteSchema.projects)
           .where(eq(sqliteSchema.projects.id, id))
           .run();
-      }
-      tx.insert(sqliteSchema.appSettings)
-        .values({
-          key: SQLITE_SETTING_KEYS.activeProjectId,
-          valueJson: toSqliteJson(id) ?? "null",
-        })
-        .onConflictDoUpdate({
-          target: sqliteSchema.appSettings.key,
-          set: {
+
+        const activeProjectRow = tx
+          .select({ valueJson: sqliteSchema.appSettings.valueJson })
+          .from(sqliteSchema.appSettings)
+          .where(
+            eq(
+              sqliteSchema.appSettings.key,
+              SQLITE_SETTING_KEYS.activeProjectId
+            )
+          )
+          .get();
+        const activeProjectId = fromSqliteJsonWithSchema(
+          activeProjectRow?.valueJson,
+          null,
+          NullableStringSchema,
+          {
+            table: "app_settings",
+            column: "value_json",
+          }
+        );
+        if (activeProjectId === id) {
+          tx.insert(sqliteSchema.appSettings)
+            .values({
+              key: SQLITE_SETTING_KEYS.activeProjectId,
+              valueJson: "null",
+            })
+            .onConflictDoUpdate({
+              target: sqliteSchema.appSettings.key,
+              set: {
+                valueJson: "null",
+              },
+            })
+            .run();
+        }
+      });
+    });
+  }
+
+  async setActive(id: string | null): Promise<void> {
+    await enqueueSqliteWrite("project.set_active", async () => {
+      const db = await getSqliteOrm();
+      db.transaction((tx) => {
+        if (id) {
+          const project = tx
+            .select({ id: sqliteSchema.projects.id })
+            .from(sqliteSchema.projects)
+            .where(eq(sqliteSchema.projects.id, id))
+            .get();
+          if (!project) {
+            throw new Error("Project not found");
+          }
+
+          tx.update(sqliteSchema.projects)
+            .set({
+              lastOpenedAt: Date.now(),
+              updatedAt: Date.now(),
+            })
+            .where(eq(sqliteSchema.projects.id, id))
+            .run();
+        }
+        tx.insert(sqliteSchema.appSettings)
+          .values({
+            key: SQLITE_SETTING_KEYS.activeProjectId,
             valueJson: toSqliteJson(id) ?? "null",
-          },
-        })
-        .run();
+          })
+          .onConflictDoUpdate({
+            target: sqliteSchema.appSettings.key,
+            set: {
+              valueJson: toSqliteJson(id) ?? "null",
+            },
+          })
+          .run();
+      });
     });
   }
 

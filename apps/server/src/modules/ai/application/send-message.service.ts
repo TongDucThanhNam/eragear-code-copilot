@@ -7,6 +7,7 @@
  * @module modules/ai/application/send-message.service
  */
 
+import { ENV } from "@/config/environment";
 import { createLogger } from "@/infra/logging/structured-logger";
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
@@ -125,6 +126,12 @@ export class SendMessageService {
       resources: input.resources?.length ?? 0,
       resourceLinks: input.resourceLinks?.length ?? 0,
     });
+    const textBytes = Buffer.byteLength(input.text, "utf8");
+    if (textBytes > ENV.messageContentMaxBytes) {
+      throw new Error(
+        `Prompt text exceeds max size: ${textBytes} bytes > ${ENV.messageContentMaxBytes}`
+      );
+    }
     const session = this.sessionRuntime.get(input.chatId);
     logger.debug("SendMessageService session lookup", {
       chatId: input.chatId,

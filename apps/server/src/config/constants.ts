@@ -46,7 +46,33 @@ export const DEFAULT_SQLITE_BUSY_TIMEOUT_MS = 10_000;
 export const DEFAULT_SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES = 1024;
 /** Number of pages reclaimed per incremental vacuum pass */
 export const DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES = 512;
+/** Default interval for WAL checkpoint maintenance */
+export const DEFAULT_SQLITE_WAL_CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000;
+/** Default retention window for full message payloads */
+export const DEFAULT_SQLITE_RETENTION_HOT_DAYS = 30;
+/** Default max messages compacted in one maintenance batch */
+export const DEFAULT_SQLITE_RETENTION_COMPACTION_BATCH_SIZE = 150;
+/** Default soft alert threshold for SQLite DB size */
+export const DEFAULT_SQLITE_MAX_DB_SIZE_MB = 2048;
+/** Default max retries for SQLITE_BUSY operations */
+export const DEFAULT_SQLITE_BUSY_MAX_RETRIES = 5;
+/** Base delay for SQLITE_BUSY retry backoff */
+export const DEFAULT_SQLITE_BUSY_RETRY_BASE_DELAY_MS = 25;
+/** Enable SQLite worker-thread offloading by default */
+export const DEFAULT_SQLITE_WORKER_ENABLED = true;
+/** Default timeout for one SQLite worker request */
+export const DEFAULT_SQLITE_WORKER_REQUEST_TIMEOUT_MS = 30_000;
 /** Default page size for session list endpoints */
 export const DEFAULT_SESSION_LIST_PAGE_LIMIT = 200;
 /** Maximum page size for session list endpoints */
 export const MAX_SESSION_LIST_PAGE_LIMIT = 500;
+/** Default page size for session messages endpoints */
+export const DEFAULT_SESSION_MESSAGES_PAGE_LIMIT = 100;
+/** Maximum page size for session messages endpoints */
+export const MAX_SESSION_MESSAGES_PAGE_LIMIT = 200;
+/** Maximum allowed bytes for message content payload */
+export const DEFAULT_MESSAGE_CONTENT_MAX_BYTES = 2 * 1024 * 1024;
+/** Maximum allowed bytes for serialized message parts payload */
+export const DEFAULT_MESSAGE_PARTS_MAX_BYTES = 4 * 1024 * 1024;
+/** Default interval for SQLite maintenance background task */
+export const DEFAULT_BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
