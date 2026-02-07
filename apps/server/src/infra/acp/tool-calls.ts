@@ -14,6 +14,10 @@ import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import { createLogger } from "@/infra/logging/structured-logger";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import {
+  filterEnvAllowlist,
+  isCommandAllowed,
+} from "@/shared/utils/allowlist.util";
 import { createId } from "@/shared/utils/id.util";
 import { fileUriToPath } from "@/shared/utils/path.util";
 import { ENV } from "../../config/environment";
@@ -25,37 +29,6 @@ import type {
 /** Regex for splitting text into lines across platforms */
 const LINE_SPLITTER_REGEX = /\r?\n/;
 const logger = createLogger("Debug");
-
-/**
- * Checks whether a command is allowed based on an allowlist.
- * Empty allowlist means allow all commands.
- */
-function isCommandAllowed(command: string, allowlist: string[]) {
-  if (allowlist.length === 0) {
-    return true;
-  }
-  const normalized = command.trim();
-  const base = path.basename(normalized);
-  return allowlist.includes(normalized) || allowlist.includes(base);
-}
-
-/**
- * Filters environment variables by allowlist.
- * Empty allowlist means allow all variables.
- */
-function filterEnvAllowlist(env: Record<string, string>, allowlist: string[]) {
-  if (allowlist.length === 0) {
-    return env;
-  }
-  const allowed = new Set(allowlist);
-  const filtered: Record<string, string> = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (allowed.has(key)) {
-      filtered[key] = value;
-    }
-  }
-  return filtered;
-}
 
 /**
  * Normalizes the output limit value, handling bigint, number, and null/undefined cases

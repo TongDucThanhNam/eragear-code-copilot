@@ -17,9 +17,9 @@ export const agentsRouter = router({
   /** List all agents, optionally filtered by project ID */
   list: protectedProcedure
     .input(z.object({ projectId: z.string().nullish() }).optional())
-    .query(({ input, ctx }) => {
+    .query(async ({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());
-      return service.listAgents(input?.projectId ?? undefined);
+      return await service.listAgents(input?.projectId ?? undefined);
     }),
 
   /** Create a new agent configuration */
@@ -34,10 +34,10 @@ export const agentsRouter = router({
         projectId: z.string().nullable().optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());
       try {
-        return service.createAgent(input);
+        return await service.createAgent(input);
       } catch (error) {
         if (error instanceof ValidationError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -60,10 +60,10 @@ export const agentsRouter = router({
         env: z.record(z.string(), z.string()).optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());
       try {
-        return service.updateAgent(input);
+        return await service.updateAgent(input);
       } catch (error) {
         if (error instanceof ValidationError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -75,16 +75,16 @@ export const agentsRouter = router({
   /** Delete an agent configuration */
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());
-      return service.deleteAgent(input.id);
+      return await service.deleteAgent(input.id);
     }),
 
   /** Set the active agent (for UI state) */
   setActive: protectedProcedure
     .input(z.object({ id: z.string().nullable() }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const service = new AgentService(ctx.container.getAgents());
-      return service.setActive(input.id);
+      return await service.setActive(input.id);
     }),
 });

@@ -8,7 +8,7 @@ Server đóng vai trò ACP client và backend cho web/native:
 - Quản lý lifecycle agent process.
 - Bridge ACP (NDJSON over stdio).
 - Chuẩn hóa stream thành `UIMessage` để broadcast realtime.
-- Persist state/messages vào `.eragear/*.json`.
+- Persist state/messages vào SQLite (`eragear.sqlite`).
 
 ## Layers
 
@@ -76,9 +76,15 @@ modules/<feature>/
 
 ### Persistence
 
-- JSON store primitive: `src/infra/storage/json-store.ts`.
-- Session/project/agent/settings repos trong `src/modules/*/infra/*.json.ts`.
-- Storage dir: `.eragear/` dưới working directory.
+- Storage path source-of-truth: `src/infra/storage/storage-path.ts`.
+- SQLite bootstrap + migration: `src/infra/storage/sqlite-store.ts`.
+- Drizzle DB/schema: `src/infra/storage/sqlite-db.ts`, `src/infra/storage/sqlite-schema.ts`.
+- Session/project/agent/settings repos trong `src/modules/*/infra/*.repository.sqlite.ts`.
+- Storage dir policy:
+  - `ERAGEAR_STORAGE_DIR` override (bắt buộc writable).
+  - Nếu không có override, chọn giữa platform config dir `Eragear` và legacy
+    `.eragear/` theo dữ liệu đã tồn tại; nếu không có dữ liệu thì chọn candidate
+    writable đầu tiên.
 
 ## Main Flows
 
@@ -89,7 +95,7 @@ modules/<feature>/
 3. Spawn agent qua `AgentRuntimeAdapter` (`src/infra/process/index.ts`).
 4. Tạo ACP connection (`src/infra/acp/connection.ts`).
 5. Gắn ACP handlers (`src/infra/acp/handlers.ts`).
-6. Lưu runtime vào `SessionRuntimeStore`, persist metadata vào repo JSON.
+6. Lưu runtime vào `SessionRuntimeStore`, persist metadata vào repo SQLite.
 
 ### Send Prompt
 
@@ -139,6 +145,6 @@ Trong `apps/server/package.json`:
 ## Non-negotiable Boundaries
 
 - Không bypass runtime store khi broadcast session events.
-- Không ghi file JSON trực tiếp ngoài `json-store`.
+- Không ghi trực tiếp vào SQLite ngoài repository/storage layers.
 - Không cho tool call truy cập path ngoài allowed project roots.
 - Không đặt business rules ở transport/infra khi rule thuộc domain/application.

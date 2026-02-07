@@ -9,19 +9,19 @@ import type {
  */
 export interface ProjectRepositoryPort {
   /** Find a project by ID */
-  findById(id: string): Project | undefined;
+  findById(id: string): Promise<Project | undefined>;
   /** Find all projects */
-  findAll(): Project[];
+  findAll(): Promise<Project[]>;
   /** Get the currently active project ID */
-  getActiveId(): string | null;
+  getActiveId(): Promise<string | null>;
   /** Create a new project */
-  create(input: ProjectInput): Project;
+  create(input: ProjectInput): Promise<Project>;
   /** Update an existing project */
-  update(input: ProjectUpdateInput): Project;
+  update(input: ProjectUpdateInput): Promise<Project>;
   /** Delete a project */
-  delete(id: string): void;
+  delete(id: string): Promise<void>;
   /** Set the active project */
-  setActive(id: string | null): void;
+  setActive(id: string | null): Promise<void>;
   /** Set allowed project roots */
   setAllowedRoots(roots: string[]): void;
 }

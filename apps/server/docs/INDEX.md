@@ -31,6 +31,8 @@ Tài liệu điều hướng nhanh cho `apps/server`.
   - `docs/ui-message-normalization.md`
 - Client-side useChat contract:
   - `docs/ui-message-usechat-client.md`
+- Auth/dashboard release gate:
+  - `docs/auth-dashboard-validation.md`
 - ACP protocol references:
   - `docs/acp/*`
 
@@ -43,7 +45,9 @@ Các file sau là nguồn chuẩn khi docs và thực tế có khác biệt:
 - tRPC auth context: `src/transport/trpc/context.ts`
 - Session events and buffering: `src/infra/acp/update.ts`
 - Permission pipeline: `src/infra/acp/permission.ts`, `src/modules/tooling/application/respond-permission.service.ts`
-- JSON storage: `src/infra/storage/json-store.ts`
+- Storage path policy: `src/infra/storage/storage-path.ts`
+- SQLite boot/migration: `src/infra/storage/sqlite-store.ts`
+- Drizzle schema/db: `src/infra/storage/sqlite-schema.ts`, `src/infra/storage/sqlite-db.ts`
 - Observability snapshot: `src/modules/ops/application/get-observability-snapshot.service.ts`, `src/transport/http/routes/dashboard-api.ts`
 - Background runner: `src/infra/background/runner.ts`, `src/infra/background/tasks/*`
 
@@ -62,6 +66,8 @@ Các file sau là nguồn chuẩn khi docs và thực tế có khác biệt:
 
 - `bun run dev`
 - `bun run check-types`
+- `bun run test:auth-dashboard`
+- `bun run smoke:auth-dashboard`
 - `bun run build`
 - `bun run ui:build`
 - `bun run compile`

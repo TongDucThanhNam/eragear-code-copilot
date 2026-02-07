@@ -52,14 +52,14 @@ export class DeleteSessionService {
    * }
    * ```
    */
-  execute(chatId: string): { ok: true } {
+  async execute(chatId: string): Promise<{ ok: true }> {
     const session = this.sessionRuntime.get(chatId);
     if (session) {
       terminateSessionTerminals(session);
       session.proc.kill();
       this.sessionRuntime.delete(chatId);
     }
-    this.sessionRepo.delete(chatId);
+    await this.sessionRepo.delete(chatId);
     return { ok: true };
   }
 }

@@ -17,8 +17,13 @@ import {
   DEFAULT_LOG_FLUSH_INTERVAL_MS,
   DEFAULT_SESSION_BUFFER_LIMIT,
   DEFAULT_SESSION_IDLE_TIMEOUT_MS,
+  DEFAULT_SQLITE_BUSY_TIMEOUT_MS,
+  DEFAULT_SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES,
+  DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES,
+  DEFAULT_SQLITE_INIT_RETRY_COOLDOWN_MS,
   DEFAULT_WS_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WS_HOST,
+  DEFAULT_WS_MAX_PAYLOAD_BYTES,
   DEFAULT_WS_PORT,
 } from "./constants";
 
@@ -27,6 +32,7 @@ const envSchema = z.object({
   SESSION_IDLE_TIMEOUT_MS: z.string().optional(),
   SESSION_BUFFER_LIMIT: z.string().optional(),
   WS_HEARTBEAT_INTERVAL_MS: z.string().optional(),
+  WS_MAX_PAYLOAD_BYTES: z.string().optional(),
   WS_PORT: z.string().optional(),
   WS_HOST: z.string().optional(),
   AGENT_TIMEOUT_MS: z.string().optional(),
@@ -59,6 +65,11 @@ const envSchema = z.object({
   BACKGROUND_TASK_TIMEOUT_MS: z.string().optional(),
   BACKGROUND_SESSION_CLEANUP_INTERVAL_MS: z.string().optional(),
   BACKGROUND_CACHE_PRUNE_INTERVAL_MS: z.string().optional(),
+  SQLITE_BUSY_TIMEOUT_MS: z.string().optional(),
+  SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES: z.string().optional(),
+  SQLITE_INCREMENTAL_VACUUM_STEP_PAGES: z.string().optional(),
+  SQLITE_MIGRATIONS_DIR: z.string().optional(),
+  SQLITE_INIT_RETRY_COOLDOWN_MS: z.string().optional(),
   NODE_ENV: z.string().optional(),
   BUN_ENV: z.string().optional(),
 });
@@ -96,6 +107,20 @@ function toOptionalNumber(value: string | undefined) {
     return undefined;
   }
   return parsed;
+}
+
+/**
+ * Converts a string environment variable to a positive integer with fallback
+ */
+function toPositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.trunc(parsed);
 }
 
 /**
@@ -188,6 +213,11 @@ export const ENV = {
     env.WS_HEARTBEAT_INTERVAL_MS,
     DEFAULT_WS_HEARTBEAT_INTERVAL_MS
   ),
+  /** Maximum accepted payload per WebSocket message/frame in bytes */
+  wsMaxPayloadBytes: toNumber(
+    env.WS_MAX_PAYLOAD_BYTES,
+    DEFAULT_WS_MAX_PAYLOAD_BYTES
+  ),
   /** WebSocket server port */
   wsPort,
   /** WebSocket server host */
@@ -270,4 +300,26 @@ export const ENV = {
     env.BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
     DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS
   ),
+  /** Cooldown before retrying a failed SQLite init */
+  sqliteInitRetryCooldownMs: toNumber(
+    env.SQLITE_INIT_RETRY_COOLDOWN_MS,
+    DEFAULT_SQLITE_INIT_RETRY_COOLDOWN_MS
+  ),
+  /** SQLite busy timeout in milliseconds */
+  sqliteBusyTimeoutMs: toPositiveInt(
+    env.SQLITE_BUSY_TIMEOUT_MS,
+    DEFAULT_SQLITE_BUSY_TIMEOUT_MS
+  ),
+  /** Minimum free pages before incremental vacuum kicks in */
+  sqliteIncrementalVacuumMinFreePages: toPositiveInt(
+    env.SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES,
+    DEFAULT_SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES
+  ),
+  /** Maximum pages reclaimed per incremental vacuum pass */
+  sqliteIncrementalVacuumStepPages: toPositiveInt(
+    env.SQLITE_INCREMENTAL_VACUUM_STEP_PAGES,
+    DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES
+  ),
+  /** Optional override path for SQLite drizzle migrations directory */
+  sqliteMigrationsDir: env.SQLITE_MIGRATIONS_DIR?.trim() || undefined,
 };

@@ -8,7 +8,6 @@
  */
 
 import { getContainer } from "../../bootstrap/container";
-import type { WebSocketConnectionParams } from "./types";
 
 interface RequestLike {
   headers: Headers | Record<string, string | string[] | undefined>;
@@ -34,41 +33,11 @@ export interface AuthContext {
  * const projects = context.container.getProjects().findAll();
  * ```
  */
-export async function createTrpcContext(opts?: {
-  req?: RequestLike;
-  connectionParams?: WebSocketConnectionParams | null;
-}) {
+export async function createTrpcContext(opts?: { req?: RequestLike }) {
   const container = getContainer();
-  const auth = container.getAuth();
-  const apiKey = opts?.connectionParams?.apiKey;
-
-  let authContext: AuthContext | null = null;
-
-  if (apiKey) {
-    const session = await auth.api.getSession({
-      headers: new Headers({ "x-api-key": apiKey }),
-    });
-    if (session) {
-      authContext = {
-        type: "apiKey",
-        userId: session.user.id,
-        user: session.user,
-        session: session.session,
-      };
-    } else {
-      const result = await auth.api.verifyApiKey({
-        body: { key: apiKey },
-      });
-      if (result?.valid && result.key?.userId) {
-        authContext = {
-          type: "apiKey",
-          userId: result.key.userId,
-        };
-      }
-    }
-  } else if (opts?.req) {
-    authContext = await container.getAuthContext(opts.req);
-  }
+  const authContext = opts?.req
+    ? await container.getAuthContext(opts.req)
+    : null;
 
   return {
     container,

@@ -15,7 +15,7 @@ export class StopSessionService {
     this.sessionRuntime = sessionRuntime;
   }
 
-  execute(chatId: string): { ok: true } {
+  async execute(chatId: string): Promise<{ ok: true }> {
     const session = this.sessionRuntime.get(chatId);
     if (session) {
       console.log(`[tRPC] Stopping session ${chatId}`);
@@ -30,7 +30,7 @@ export class StopSessionService {
       // Remove from runtime so getSessionState returns "stopped"
       this.sessionRuntime.delete(chatId);
     }
-    this.sessionRepo.updateStatus(chatId, "stopped");
+    await this.sessionRepo.updateStatus(chatId, "stopped");
     return { ok: true };
   }
 }

@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { getMigrations } from "better-auth/db";
 import { ENV } from "../../config/environment";
-import { auth, authConfig, authDb, authState } from "./auth";
+import { auth, authDb, authMigrationConfig, authState } from "./auth";
 import { getOrCreateAdminCredentials } from "./credentials";
 import { getAuthStorageFile } from "./paths";
 
@@ -19,7 +19,7 @@ function getTableCount(table: string): number {
 
 async function ensureMigrations(): Promise<void> {
   const { toBeAdded, toBeCreated, runMigrations } =
-    await getMigrations(authConfig);
+    await getMigrations(authMigrationConfig);
 
   if (toBeAdded.length === 0 && toBeCreated.length === 0) {
     return;

@@ -111,7 +111,7 @@ normalize JSON. Live terminal output vẫn stream qua event `terminal_output`.
 
 - UI chỉ tạo nhiều reasoning part khi có phần xen kẽ `tool-*`/`text`, không tạo
   nhiều reasoning part liên tiếp từ cùng một stream.
-- `.eragear/sessions.json` lưu reasoning gộp đúng theo `reasoningBlocks`.
+- SQLite (`sessions` + `session_messages`) lưu reasoning gộp đúng theo `reasoningBlocks`.
 - `ui_message` luôn chứa `parts` theo đúng thứ tự stream, không có raw ACP.
 
 ## Lưu ý

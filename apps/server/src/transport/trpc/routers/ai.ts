@@ -14,15 +14,13 @@ import { SetModeService } from "@/modules/ai/application/set-mode.service";
 import { SetModelService } from "@/modules/ai/application/set-model.service";
 import { protectedProcedure, router } from "../base";
 
-const MAX_TEXT_PREVIEW_CHARS = 200;
-
-function toTextPreview(text: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= MAX_TEXT_PREVIEW_CHARS) {
-    return normalized;
-  }
-  return `${normalized.slice(0, MAX_TEXT_PREVIEW_CHARS)}...`;
-}
+const MAX_MESSAGE_TEXT_CHARS = 100_000;
+const MAX_INLINE_MEDIA_ITEMS = 8;
+const MAX_BASE64_CHARS = 6 * 1024 * 1024;
+const MAX_RESOURCE_ITEMS = 16;
+const MAX_RESOURCE_TEXT_CHARS = 200_000;
+const MAX_RESOURCE_LINK_ITEMS = 32;
+const MAX_RESOURCE_LINK_SIZE = Number.MAX_SAFE_INTEGER;
 
 export const aiRouter = router({
   /** Send a message to an agent session */
@@ -30,35 +28,37 @@ export const aiRouter = router({
     .input(
       z.object({
         chatId: z.string(),
-        text: z.string(),
+        text: z.string().max(MAX_MESSAGE_TEXT_CHARS),
         textAnnotations: z.record(z.string(), z.unknown()).optional(),
         images: z
           .array(
             z.object({
-              base64: z.string(),
-              mimeType: z.string(),
-              uri: z.string().optional(),
+              base64: z.string().min(1).max(MAX_BASE64_CHARS),
+              mimeType: z.string().min(1).max(255),
+              uri: z.string().max(4096).optional(),
               annotations: z.record(z.string(), z.unknown()).optional(),
             })
           )
+          .max(MAX_INLINE_MEDIA_ITEMS)
           .optional(),
         audio: z
           .array(
             z.object({
-              base64: z.string(),
-              mimeType: z.string(),
+              base64: z.string().min(1).max(MAX_BASE64_CHARS),
+              mimeType: z.string().min(1).max(255),
               annotations: z.record(z.string(), z.unknown()).optional(),
             })
           )
+          .max(MAX_INLINE_MEDIA_ITEMS)
           .optional(),
         resources: z
           .array(
             z
               .object({
-                uri: z.string(),
-                text: z.string().optional(),
-                blob: z.string().optional(),
-                mimeType: z.string().optional(),
+                uri: z.string().min(1).max(4096),
+                text: z.string().max(MAX_RESOURCE_TEXT_CHARS).optional(),
+                blob: z.string().max(MAX_BASE64_CHARS).optional(),
+                mimeType: z.string().min(1).max(255).optional(),
                 annotations: z.record(z.string(), z.unknown()).optional(),
               })
               .superRefine((value, ctx) => {
@@ -73,19 +73,26 @@ export const aiRouter = router({
                 }
               })
           )
+          .max(MAX_RESOURCE_ITEMS)
           .optional(),
         resourceLinks: z
           .array(
             z.object({
-              uri: z.string(),
-              name: z.string(),
-              mimeType: z.string().optional(),
-              title: z.string().optional(),
-              description: z.string().optional(),
-              size: z.union([z.number(), z.bigint()]).optional(),
+              uri: z.string().min(1).max(4096),
+              name: z.string().min(1).max(255),
+              mimeType: z.string().min(1).max(255).optional(),
+              title: z.string().max(255).optional(),
+              description: z.string().max(2000).optional(),
+              size: z
+                .number()
+                .int()
+                .nonnegative()
+                .max(MAX_RESOURCE_LINK_SIZE)
+                .optional(),
               annotations: z.record(z.string(), z.unknown()).optional(),
             })
           )
+          .max(MAX_RESOURCE_LINK_ITEMS)
           .optional(),
       })
     )
@@ -93,7 +100,6 @@ export const aiRouter = router({
       console.info("[tRPC] User message received", {
         chatId: input.chatId,
         textLength: input.text.length,
-        textPreview: toTextPreview(input.text),
         images: input.images?.length ?? 0,
         audio: input.audio?.length ?? 0,
         resources: input.resources?.length ?? 0,

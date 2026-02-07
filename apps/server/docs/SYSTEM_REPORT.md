@@ -8,7 +8,7 @@
 - Spawn và quản lý agent process (stdio).
 - Bridge Agent Client Protocol (ACP).
 - Chuẩn hóa stream thành `UIMessage` để client render thống nhất.
-- Persist session/project/agent/settings vào JSON store.
+- Persist session/project/agent/settings vào SQLite (`eragear.sqlite`) qua Drizzle.
 
 Mục tiêu kiến trúc là ổn định production cho local-first workflows, nơi server
 chạy trên máy người dùng và có quyền filesystem/terminal.
@@ -64,6 +64,11 @@ Route groups được đăng ký tại `src/transport/http/routes/index.ts`:
 
 Dashboard UI routes được mount qua `registerDashboardUiRoutes`.
 
+Dashboard UI canonical path:
+
+- `/_/dashboard` (protected UI entry)
+- `/dashboard` và `/` chỉ là legacy redirect về `/_/dashboard`
+
 ### 3.2 tRPC over WebSocket
 
 tRPC router: `src/transport/trpc/router.ts`
@@ -108,7 +113,7 @@ Auth cho tRPC:
 4. Server tạo ACP connection (`createAcpConnectionAdapter`).
 5. Gắn ACP handlers (update, permission, tool calls).
 6. Runtime session lưu ở `SessionRuntimeStore`.
-7. Metadata persist vào `sessions.json`.
+7. Metadata persist vào bảng `sessions` trong SQLite.
 
 ### 4.2 Send Prompt and Streaming
 
@@ -129,14 +134,20 @@ Auth cho tRPC:
 
 ## 5. Persistence
 
-JSON storage primitive: `src/infra/storage/json-store.ts`
+SQLite storage bootstrap + migration: `src/infra/storage/sqlite-store.ts`
+Storage path source-of-truth: `src/infra/storage/storage-path.ts`
+Drizzle schema/db: `src/infra/storage/sqlite-schema.ts`, `src/infra/storage/sqlite-db.ts`
 
-Mặc định lưu ở `.eragear/` trong working directory với các file:
+Application data mặc định lưu theo storage policy:
 
-- `sessions.json`
-- `projects.json`
-- `agents.json`
-- `settings.json`
+- `ERAGEAR_STORAGE_DIR` (nếu set, path phải writable).
+- Nếu không set: chọn giữa platform config dir `Eragear` và legacy `.eragear/`
+  dựa trên nơi đã có dữ liệu; nếu cả hai chưa có dữ liệu, chọn candidate
+  writable đầu tiên.
+
+File chính:
+
+- `eragear.sqlite`
 
 Auth data (SQLite + bootstrap credentials/API key) lưu theo platform config dir
 hoặc `AUTH_DB_PATH`:
@@ -144,6 +155,13 @@ hoặc `AUTH_DB_PATH`:
 - Linux: `${XDG_CONFIG_HOME:-~/.config}/Eragear/`
 - macOS: `~/Library/Application Support/Eragear/`
 - Windows: `%APPDATA%/Eragear/`
+
+Auth startup invariants:
+
+- Auth DB path phải writable; nếu không writable server fail-fast khi bootstrap
+  auth runtime.
+- Better Auth Drizzle adapter phải nhận schema rõ ràng
+  (`user/session/account/verification/apikey`).
 
 ## 6. Security Posture
 
@@ -196,6 +214,8 @@ Trong `apps/server/package.json`:
 
 - `bun run dev`
 - `bun run check-types`
+- `bun run test:auth-dashboard`
+- `bun run smoke:auth-dashboard`
 - `bun run build`
 - `bun run ui:build`
 - `bun run compile`
@@ -207,3 +227,7 @@ Trong `apps/server/package.json`:
   implementation contract của riêng codebase này.
 - Monitoring hiện tại là logs-first hardening; chưa export metrics/tracing qua
   external observability backend (OTLP/Prometheus).
+
+Auth/dashboard release gate chi tiết:
+
+- `docs/auth-dashboard-validation.md`

@@ -11,18 +11,31 @@ import type {
   ProjectInput,
   ProjectUpdateInput,
 } from "../../../shared/types/project.types";
+import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
+import type { SessionRepositoryPort } from "../../session/application/ports/session-repository.port";
+import type { SessionRuntimePort } from "../../session/application/ports/session-runtime.port";
 import type { ProjectRepositoryPort } from "./ports/project-repository.port";
 
 export class ProjectService {
   /** Repository for project persistence operations */
   private readonly projectRepo: ProjectRepositoryPort;
+  /** Repository for session persistence operations */
+  private readonly sessionRepo: SessionRepositoryPort;
+  /** Runtime store for active sessions */
+  private readonly sessionRuntime: SessionRuntimePort;
 
   /**
    * Creates a ProjectService with the given repository
    * @param projectRepo - The project repository implementation
    */
-  constructor(projectRepo: ProjectRepositoryPort) {
+  constructor(
+    projectRepo: ProjectRepositoryPort,
+    sessionRepo: SessionRepositoryPort,
+    sessionRuntime: SessionRuntimePort
+  ) {
     this.projectRepo = projectRepo;
+    this.sessionRepo = sessionRepo;
+    this.sessionRuntime = sessionRuntime;
   }
 
   /**
@@ -30,10 +43,10 @@ export class ProjectService {
    *
    * @returns Object containing projects array and active project ID
    */
-  listProjects() {
+  async listProjects() {
     return {
-      projects: this.projectRepo.findAll(),
-      activeProjectId: this.projectRepo.getActiveId(),
+      projects: await this.projectRepo.findAll(),
+      activeProjectId: await this.projectRepo.getActiveId(),
     };
   }
 
@@ -43,8 +56,8 @@ export class ProjectService {
    * @param input - Project creation input
    * @returns The created project
    */
-  createProject(input: ProjectInput) {
-    return this.projectRepo.create(input);
+  async createProject(input: ProjectInput) {
+    return await this.projectRepo.create(input);
   }
 
   /**
@@ -53,8 +66,8 @@ export class ProjectService {
    * @param input - Project update input
    * @returns The updated project
    */
-  updateProject(input: ProjectUpdateInput) {
-    return this.projectRepo.update(input);
+  async updateProject(input: ProjectUpdateInput) {
+    return await this.projectRepo.update(input);
   }
 
   /**
@@ -63,8 +76,30 @@ export class ProjectService {
    * @param id - Project ID to delete
    * @returns Success status
    */
-  deleteProject(id: string) {
-    this.projectRepo.delete(id);
+  async deleteProject(id: string) {
+    const project = await this.projectRepo.findById(id);
+    if (project) {
+      const sessions = await this.sessionRepo.findAll();
+      const linkedSessions = sessions.filter(
+        (session) =>
+          session.projectId === project.id ||
+          session.projectRoot === project.path
+      );
+
+      for (const session of linkedSessions) {
+        const runtimeSession = this.sessionRuntime.get(session.id);
+        if (runtimeSession) {
+          terminateSessionTerminals(runtimeSession);
+          if (!runtimeSession.proc.killed) {
+            runtimeSession.proc.kill("SIGTERM");
+          }
+          this.sessionRuntime.delete(session.id);
+        }
+        await this.sessionRepo.delete(session.id);
+      }
+    }
+
+    await this.projectRepo.delete(id);
     return { ok: true };
   }
 
@@ -74,7 +109,8 @@ export class ProjectService {
    * @param id - Project ID to set as active, or null for none
    * @returns The active project ID
    */
-  setActiveProject(id: string | null) {
-    return this.projectRepo.setActive(id);
+  async setActiveProject(id: string | null) {
+    await this.projectRepo.setActive(id);
+    return { activeProjectId: id };
   }
 }

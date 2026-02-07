@@ -9,6 +9,8 @@
 
 import type { EventBusPort } from "../ports/event-bus.port";
 
+const MAX_EVENT_BUS_LISTENERS = 10_000;
+
 /**
  * Base event structure for the bus
  */
@@ -34,18 +36,45 @@ export interface BusEvent {
  */
 export class EventBus implements EventBusPort {
   /** Registered event listeners */
-  private listeners: Array<(event: BusEvent) => void> = [];
+  private readonly listeners = new Map<number, (event: BusEvent) => void>();
+  private nextListenerId = 1;
 
   /**
    * Subscribe to events on the bus
    * @param listener - Callback function for events
    * @returns Unsubscribe function to remove the listener
    */
-  subscribe(listener: (event: BusEvent) => void): () => void {
-    this.listeners.push(listener);
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== listener);
+  subscribe(
+    listener: (event: BusEvent) => void,
+    options?: { signal?: AbortSignal }
+  ): () => void {
+    if (this.listeners.size >= MAX_EVENT_BUS_LISTENERS) {
+      throw new Error(
+        `[EventBus] Listener limit exceeded (${MAX_EVENT_BUS_LISTENERS})`
+      );
+    }
+
+    const signal = options?.signal;
+    if (signal?.aborted) {
+      return () => undefined;
+    }
+
+    const listenerId = this.nextListenerId;
+    this.nextListenerId += 1;
+    this.listeners.set(listenerId, listener);
+
+    const unsubscribe = () => {
+      this.listeners.delete(listenerId);
+      if (signal) {
+        signal.removeEventListener("abort", unsubscribe);
+      }
     };
+
+    if (signal) {
+      signal.addEventListener("abort", unsubscribe, { once: true });
+    }
+
+    return unsubscribe;
   }
 
   /**
@@ -53,7 +82,8 @@ export class EventBus implements EventBusPort {
    * @param event - The event to publish
    */
   publish(event: BusEvent): void {
-    for (const listener of this.listeners) {
+    const listeners = [...this.listeners.values()];
+    for (const listener of listeners) {
       try {
         listener(event);
       } catch (err) {

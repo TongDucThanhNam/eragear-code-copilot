@@ -1,30 +1,19 @@
 /**
  * tRPC Type Definitions
  *
- * Type definitions for tRPC context, WebSocket connection params, and related types.
+ * Type definitions for tRPC WebSocket handler metadata and related types.
  * Ensures type safety throughout the tRPC layer.
  *
  * @module transport/trpc/types
  */
 
 /**
- * WebSocket connection parameters passed from client to server
- *
- * Used during tRPC WebSocket connection initialization to pass API keys
- * or other authentication data.
- */
-export interface WebSocketConnectionParams {
-  /** API key for header-based authentication */
-  apiKey?: string;
-}
-
-/**
  * WebSocket handler info object passed by tRPC
  *
- * Contains connection parameters and other metadata from the WebSocket connection.
+ * Carries adapter metadata only. Authentication must come from headers/cookies,
+ * not from ad-hoc connection params.
  */
 export interface WebSocketHandlerInfo {
-  connectionParams?: WebSocketConnectionParams | null;
   isInternal?: boolean;
 }
 

@@ -297,6 +297,8 @@ export interface StoredSession {
   modelId?: string;
   /** Message history */
   messages: StoredMessage[];
+  /** Precomputed message count for summary views */
+  messageCount?: number;
   /** Current plan */
   plan?: Plan;
   /** Available commands */

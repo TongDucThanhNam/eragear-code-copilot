@@ -33,10 +33,10 @@ export class AgentService {
    * @param projectId - Optional project ID to filter agents by
    * @returns Array of agent configurations
    */
-  listAgents(projectId?: string | null) {
+  async listAgents(projectId?: string | null) {
     return {
-      agents: this.agentRepo.listByProject(projectId),
-      activeAgentId: this.agentRepo.getActiveId(),
+      agents: await this.agentRepo.listByProject(projectId),
+      activeAgentId: await this.agentRepo.getActiveId(),
     };
   }
 
@@ -46,9 +46,9 @@ export class AgentService {
    * @param input - Agent creation input
    * @returns The created agent configuration
    */
-  createAgent(input: AgentInput) {
+  async createAgent(input: AgentInput) {
     const normalized = this.normalizeAgentInput(input);
-    return this.agentRepo.create(normalized);
+    return await this.agentRepo.create(normalized);
   }
 
   /**
@@ -57,9 +57,9 @@ export class AgentService {
    * @param input - Agent update input containing id and fields to update
    * @returns The updated agent configuration
    */
-  updateAgent(input: AgentUpdateInput) {
+  async updateAgent(input: AgentUpdateInput) {
     const normalized = this.normalizeAgentUpdateInput(input);
-    return this.agentRepo.update(normalized);
+    return await this.agentRepo.update(normalized);
   }
 
   /**
@@ -68,8 +68,8 @@ export class AgentService {
    * @param id - The agent ID to delete
    * @returns Success status object
    */
-  deleteAgent(id: string) {
-    this.agentRepo.delete(id);
+  async deleteAgent(id: string) {
+    await this.agentRepo.delete(id);
     return { success: true };
   }
 
@@ -79,8 +79,9 @@ export class AgentService {
    * @param id - The agent ID to set as active, or null to deactivate
    * @returns The updated active agent ID
    */
-  setActive(id: string | null) {
-    return this.agentRepo.setActive(id);
+  async setActive(id: string | null) {
+    await this.agentRepo.setActive(id);
+    return { activeAgentId: id };
   }
 
   private normalizeAgentInput(input: AgentInput): AgentInput {

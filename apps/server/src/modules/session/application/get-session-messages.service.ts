@@ -40,8 +40,8 @@ export class GetSessionMessagesService {
    * messages.forEach(msg => console.log(msg.role, msg.content));
    * ```
    */
-  execute(chatId: string) {
-    const stored = this.sessionRepo.getMessages(chatId);
+  async execute(chatId: string) {
+    const stored = await this.sessionRepo.getMessages(chatId);
     return stored.map((message) => {
       if (message.parts && message.parts.length > 0) {
         return {

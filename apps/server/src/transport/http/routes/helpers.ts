@@ -14,13 +14,19 @@ import type {
 } from "@/presentation/dashboard/dashboard-data";
 import {
   DEFAULT_LOG_QUERY_LIMIT,
+  DEFAULT_SESSION_LIST_PAGE_LIMIT,
   MAX_LOG_QUERY_LIMIT,
+  MAX_SESSION_LIST_PAGE_LIMIT,
 } from "../../../config/constants";
 import type { LogLevel, LogQuery } from "../../../shared/types/log.types";
 import { LOG_LEVELS } from "../../../shared/types/log.types";
 
 export type LogQueryResult =
   | { ok: true; query: LogQuery }
+  | { ok: false; error: string };
+
+export type SessionPaginationResult =
+  | { ok: true; pagination: { limit: number; offset: number } }
   | { ok: false; error: string };
 
 /**
@@ -191,4 +197,34 @@ export function parseLogQueryParams(
       order: (order as LogQuery["order"]) ?? "desc",
     },
   };
+}
+
+/**
+ * Parses pagination parameters for session list endpoints.
+ */
+export function parseSessionPaginationParams(
+  params: Record<string, string | undefined>
+): SessionPaginationResult {
+  const limitRaw = params.limit;
+  const offsetRaw = params.offset;
+
+  let limit = DEFAULT_SESSION_LIST_PAGE_LIMIT;
+  if (limitRaw !== undefined) {
+    const parsedLimit = Number(limitRaw);
+    if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
+      return { ok: false, error: "limit must be a positive number" };
+    }
+    limit = Math.min(Math.trunc(parsedLimit), MAX_SESSION_LIST_PAGE_LIMIT);
+  }
+
+  let offset = 0;
+  if (offsetRaw !== undefined) {
+    const parsedOffset = Number(offsetRaw);
+    if (!Number.isFinite(parsedOffset) || parsedOffset < 0) {
+      return { ok: false, error: "offset must be a non-negative number" };
+    }
+    offset = Math.trunc(parsedOffset);
+  }
+
+  return { ok: true, pagination: { limit, offset } };
 }

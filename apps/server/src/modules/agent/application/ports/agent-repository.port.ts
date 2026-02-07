@@ -9,19 +9,19 @@ import type {
  */
 export interface AgentRepositoryPort {
   /** Find an agent by ID */
-  findById(id: string): AgentConfig | undefined;
+  findById(id: string): Promise<AgentConfig | undefined>;
   /** Find all agents */
-  findAll(): AgentConfig[];
+  findAll(): Promise<AgentConfig[]>;
   /** Get the currently active agent ID */
-  getActiveId(): string | null;
+  getActiveId(): Promise<string | null>;
   /** List agents by project */
-  listByProject(projectId?: string | null): AgentConfig[];
+  listByProject(projectId?: string | null): Promise<AgentConfig[]>;
   /** Create a new agent */
-  create(input: AgentInput): AgentConfig;
+  create(input: AgentInput): Promise<AgentConfig>;
   /** Update an existing agent */
-  update(input: AgentUpdateInput): AgentConfig;
+  update(input: AgentUpdateInput): Promise<AgentConfig>;
   /** Delete an agent */
-  delete(id: string): void;
+  delete(id: string): Promise<void>;
   /** Set the active agent */
-  setActive(id: string | null): void;
+  setActive(id: string | null): Promise<void>;
 }

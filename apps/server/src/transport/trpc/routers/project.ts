@@ -25,40 +25,60 @@ const ProjectUpdateSchema = ProjectInputSchema.partial().extend({
 
 export const projectRouter = router({
   /** List all projects */
-  listProjects: protectedProcedure.query(({ ctx }) => {
-    const service = new ProjectService(ctx.container.getProjects());
-    return service.listProjects();
+  listProjects: protectedProcedure.query(async ({ ctx }) => {
+    const service = new ProjectService(
+      ctx.container.getProjects(),
+      ctx.container.getSessions(),
+      ctx.container.getSessionRuntime()
+    );
+    return await service.listProjects();
   }),
 
   /** Create a new project */
   createProject: protectedProcedure
     .input(ProjectInputSchema)
-    .mutation(({ input, ctx }) => {
-      const service = new ProjectService(ctx.container.getProjects());
-      return service.createProject(input);
+    .mutation(async ({ input, ctx }) => {
+      const service = new ProjectService(
+        ctx.container.getProjects(),
+        ctx.container.getSessions(),
+        ctx.container.getSessionRuntime()
+      );
+      return await service.createProject(input);
     }),
 
   /** Update an existing project */
   updateProject: protectedProcedure
     .input(ProjectUpdateSchema)
-    .mutation(({ input, ctx }) => {
-      const service = new ProjectService(ctx.container.getProjects());
-      return service.updateProject(input);
+    .mutation(async ({ input, ctx }) => {
+      const service = new ProjectService(
+        ctx.container.getProjects(),
+        ctx.container.getSessions(),
+        ctx.container.getSessionRuntime()
+      );
+      return await service.updateProject(input);
     }),
 
   /** Delete a project */
   deleteProject: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(({ input, ctx }) => {
-      const service = new ProjectService(ctx.container.getProjects());
-      return service.deleteProject(input.id);
+    .mutation(async ({ input, ctx }) => {
+      const service = new ProjectService(
+        ctx.container.getProjects(),
+        ctx.container.getSessions(),
+        ctx.container.getSessionRuntime()
+      );
+      return await service.deleteProject(input.id);
     }),
 
   /** Set the active project (for UI state) */
   setActiveProject: protectedProcedure
     .input(z.object({ id: z.string().nullable() }))
-    .mutation(({ input, ctx }) => {
-      const service = new ProjectService(ctx.container.getProjects());
-      return service.setActiveProject(input.id);
+    .mutation(async ({ input, ctx }) => {
+      const service = new ProjectService(
+        ctx.container.getProjects(),
+        ctx.container.getSessions(),
+        ctx.container.getSessionRuntime()
+      );
+      return await service.setActiveProject(input.id);
     }),
 });

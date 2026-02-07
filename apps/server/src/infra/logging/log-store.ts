@@ -2,7 +2,10 @@ import { existsSync, mkdirSync } from "node:fs";
 import { appendFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { ENV } from "@/config/environment";
-import { ensureStorageDir } from "@/infra/storage/json-store";
+import {
+  ensureStorageDirSync,
+  getStorageDirPathSync,
+} from "@/infra/storage/storage-path";
 import type {
   LogListResult,
   LogStorePort,
@@ -47,8 +50,8 @@ function formatDate(value: Date): string {
 }
 
 function ensureLogDir(): string {
-  ensureStorageDir();
-  const logDir = path.join(process.cwd(), ".eragear", LOG_DIR_NAME);
+  ensureStorageDirSync();
+  const logDir = path.join(getStorageDirPathSync(), LOG_DIR_NAME);
   if (!existsSync(logDir)) {
     mkdirSync(logDir, { recursive: true });
   }

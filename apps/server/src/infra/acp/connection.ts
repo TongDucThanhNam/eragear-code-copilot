@@ -41,28 +41,6 @@ export function createAcpConnectionAdapter(
     throw new Error("Child process stdin/stdout are not available");
   }
 
-  let chunkCount = 0;
-  proc.stdout.on("data", (chunk) => {
-    chunkCount += 1;
-    const text = chunk.toString("utf8");
-    const trimmed = text.trimStart();
-    const logSample = chunkCount <= 20 || chunkCount % 50 === 0;
-    if (!logSample) {
-      return;
-    }
-    logger.debug("ACP stdout chunk", {
-      pid: proc.pid,
-      chunkCount,
-      bytes: chunk.length,
-      looksLikeJson: trimmed.startsWith("{") || trimmed.startsWith("["),
-      hasSessionUpdate:
-        text.includes("sessionUpdate") || text.includes("session_update"),
-      hasError:
-        text.includes('"error"') ||
-        text.includes('"Error"') ||
-        text.includes("error"),
-    });
-  });
   proc.stdout.on("error", (error) => {
     logger.error("ACP stdout error", error);
   });

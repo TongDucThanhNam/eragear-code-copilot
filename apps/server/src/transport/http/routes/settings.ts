@@ -28,8 +28,8 @@ export function registerSettingsRoutes(api: Hono): void {
   /**
    * GET /api/ui-settings - Get current UI settings
    */
-  api.get("/ui-settings", (c: Context) => {
-    const settings = container.getSettings().get();
+  api.get("/ui-settings", async (c: Context) => {
+    const settings = await container.getSettings().get();
     return c.json(settings);
   });
 
@@ -39,7 +39,7 @@ export function registerSettingsRoutes(api: Hono): void {
   const handleApiUpdate = async (c: Context) => {
     try {
       const body = await c.req.parseBody();
-      const currentSettings = container.getSettings().get();
+      const currentSettings = await container.getSettings().get();
       const formData = body as Record<string, string | File | undefined>;
 
       const { ui, projectRoots } = parseUiSettingsForm(
@@ -49,8 +49,8 @@ export function registerSettingsRoutes(api: Hono): void {
       if (projectRoots.length < 1) {
         return c.json({ error: "At least one project root is required." }, 400);
       }
-      const next = container.getSettings().update({ ui, projectRoots });
-      const applied = container.applySettings(next);
+      const next = await container.getSettings().update({ ui, projectRoots });
+      const applied = await container.applySettings(next);
       container.getEventBus().publish({
         type: "settings_updated",
         changedKeys: applied.changedKeys,

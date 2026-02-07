@@ -8,7 +8,10 @@
  */
 
 import type { ProjectRepositoryPort } from "@/modules/project/application/ports/project-repository.port";
-import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import type {
+  SessionListQuery,
+  SessionRepositoryPort,
+} from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 /**
@@ -56,56 +59,59 @@ export class ListSessionsService {
    * - Timestamps (createdAt, lastActiveAt)
    * - Session flags (pinned, archived)
    */
-  execute() {
-    const projects = this.projectRepo.findAll();
-    const storedSessions = this.sessionRepo.findAll();
+  async execute(query?: SessionListQuery) {
+    const projects = await this.projectRepo.findAll();
+    const storedSessions = await this.sessionRepo.findAll(query);
+    const output = await Promise.all(
+      storedSessions.map(async (session) => {
+        const activeSession = this.sessionRuntime.get(session.id);
+        const isActive = Boolean(activeSession);
+        const loadSessionSupported =
+          activeSession?.loadSessionSupported ?? session.loadSessionSupported;
+        const agentInfo = activeSession?.agentInfo ?? session.agentInfo;
+        const agentName = agentInfo?.title ?? agentInfo?.name;
+        const plan = activeSession?.plan ?? session.plan ?? null;
+        const agentCapabilities =
+          activeSession?.agentCapabilities ?? session.agentCapabilities;
+        const authMethods = activeSession?.authMethods ?? session.authMethods;
+        const supportsModelSwitching =
+          activeSession?.supportsModelSwitching ??
+          session.supportsModelSwitching ??
+          false;
+        const derivedProjectId =
+          session.projectId ??
+          projects.find((project) => project.path === session.projectRoot)?.id;
 
-    return storedSessions.map((session) => {
-      const activeSession = this.sessionRuntime.get(session.id);
-      const isActive = Boolean(activeSession);
-      const loadSessionSupported =
-        activeSession?.loadSessionSupported ?? session.loadSessionSupported;
-      const agentInfo = activeSession?.agentInfo ?? session.agentInfo;
-      const agentName = agentInfo?.title ?? agentInfo?.name;
-      const plan = activeSession?.plan ?? session.plan ?? null;
-      const agentCapabilities =
-        activeSession?.agentCapabilities ?? session.agentCapabilities;
-      const authMethods = activeSession?.authMethods ?? session.authMethods;
-      const supportsModelSwitching =
-        activeSession?.supportsModelSwitching ??
-        session.supportsModelSwitching ??
-        false;
-      const derivedProjectId =
-        session.projectId ??
-        projects.find((project) => project.path === session.projectRoot)?.id;
+        if (!session.projectId && derivedProjectId) {
+          await this.sessionRepo.updateMetadata(session.id, {
+            projectId: derivedProjectId,
+          });
+        }
 
-      if (!session.projectId && derivedProjectId) {
-        this.sessionRepo.updateMetadata(session.id, {
-          projectId: derivedProjectId,
-        });
-      }
+        return {
+          id: session.id,
+          name: session.name,
+          sessionId: activeSession?.sessionId ?? session.sessionId,
+          projectId: derivedProjectId ?? session.projectId ?? null,
+          projectRoot: session.projectRoot,
+          modeId: session.modeId,
+          status: session.status,
+          isActive,
+          createdAt: session.createdAt,
+          lastActiveAt: session.lastActiveAt,
+          loadSessionSupported,
+          supportsModelSwitching,
+          agentInfo,
+          agentName,
+          agentCapabilities,
+          authMethods,
+          plan,
+          pinned: session.pinned ?? false,
+          archived: session.archived ?? false,
+        };
+      })
+    );
 
-      return {
-        id: session.id,
-        name: session.name,
-        sessionId: activeSession?.sessionId ?? session.sessionId,
-        projectId: derivedProjectId ?? session.projectId ?? null,
-        projectRoot: session.projectRoot,
-        modeId: session.modeId,
-        status: session.status,
-        isActive,
-        createdAt: session.createdAt,
-        lastActiveAt: session.lastActiveAt,
-        loadSessionSupported,
-        supportsModelSwitching,
-        agentInfo,
-        agentName,
-        agentCapabilities,
-        authMethods,
-        plan,
-        pinned: session.pinned ?? false,
-        archived: session.archived ?? false,
-      };
-    });
+    return output;
   }
 }

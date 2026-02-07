@@ -88,7 +88,7 @@ export class SetModeService {
       throw new Error("Session connection is closed");
     }
 
-    const markStopped = (reason: string) => {
+    const markStopped = async (reason: string) => {
       this.sessionRuntime.broadcast(chatId, {
         type: "error",
         error: reason,
@@ -99,7 +99,7 @@ export class SetModeService {
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
         status: "error",
       });
-      this.sessionRepo.updateStatus(chatId, "stopped");
+      await this.sessionRepo.updateStatus(chatId, "stopped");
       if (!session.proc.killed) {
         session.proc.kill();
       }
@@ -131,7 +131,7 @@ export class SetModeService {
             continue;
           }
           if (isProcessExited(errorText)) {
-            markStopped(errorText || "Agent process exited");
+            await markStopped(errorText || "Agent process exited");
             throw new Error(errorText || "Agent process exited");
           }
           throw error;

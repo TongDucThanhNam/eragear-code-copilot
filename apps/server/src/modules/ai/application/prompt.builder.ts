@@ -66,7 +66,7 @@ export interface PromptResourceLinkInput {
   /** Description of the linked resource */
   description?: string;
   /** Size of the linked resource in bytes */
-  size?: number | bigint;
+  size?: number;
   /** Optional annotations for the link */
   annotations?: Annotations;
 }
@@ -198,16 +198,16 @@ export function buildPrompt(params: {
   return prompt;
 }
 
-function normalizeResourceLinkSize(size?: number | bigint): number | undefined {
+function normalizeResourceLinkSize(size?: number): number | undefined {
   if (size === undefined) {
     return undefined;
   }
-  if (typeof size === "bigint") {
-    const asNumber = Number(size);
-    return Number.isSafeInteger(asNumber) ? asNumber : undefined;
-  }
   if (typeof size === "number") {
-    return Number.isFinite(size) ? size : undefined;
+    if (!Number.isFinite(size)) {
+      return undefined;
+    }
+    const normalized = Math.floor(size);
+    return normalized >= 0 ? normalized : undefined;
   }
   return undefined;
 }

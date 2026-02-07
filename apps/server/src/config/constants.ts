@@ -20,6 +20,8 @@ export const DEFAULT_WS_HOST = "0.0.0.0";
 export const DEFAULT_SESSION_BUFFER_LIMIT = 500;
 /** Default WebSocket heartbeat interval: 30 seconds in milliseconds */
 export const DEFAULT_WS_HEARTBEAT_INTERVAL_MS = 30_000;
+/** Default maximum WebSocket payload size: 16 MiB */
+export const DEFAULT_WS_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
 /** Default in-memory log buffer size */
 export const DEFAULT_LOG_BUFFER_LIMIT = 2000;
 /** Default log query limit for UI requests */
@@ -36,3 +38,15 @@ export const DEFAULT_BACKGROUND_TASK_TIMEOUT_MS = 30_000;
 export const DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS = 15_000;
 /** Default interval for cache prune task in milliseconds */
 export const DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
+/** Default cooldown before retrying a failed SQLite initialization */
+export const DEFAULT_SQLITE_INIT_RETRY_COOLDOWN_MS = 60_000;
+/** Default SQLite busy timeout in milliseconds */
+export const DEFAULT_SQLITE_BUSY_TIMEOUT_MS = 10_000;
+/** Minimum free pages before running incremental vacuum */
+export const DEFAULT_SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES = 1024;
+/** Number of pages reclaimed per incremental vacuum pass */
+export const DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES = 512;
+/** Default page size for session list endpoints */
+export const DEFAULT_SESSION_LIST_PAGE_LIMIT = 200;
+/** Maximum page size for session list endpoints */
+export const MAX_SESSION_LIST_PAGE_LIMIT = 500;

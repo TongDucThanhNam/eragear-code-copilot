@@ -7,13 +7,13 @@ export class UpdateSessionMetaService {
     this.sessionRepo = sessionRepo;
   }
 
-  execute(input: {
+  async execute(input: {
     chatId: string;
     name?: string | null;
     pinned?: boolean;
     archived?: boolean;
-  }) {
-    this.sessionRepo.updateMetadata(input.chatId, {
+  }): Promise<{ ok: true }> {
+    await this.sessionRepo.updateMetadata(input.chatId, {
       name: input.name ?? undefined,
       pinned: input.pinned,
       archived: input.archived,

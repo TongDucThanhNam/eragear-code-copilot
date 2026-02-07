@@ -47,7 +47,7 @@ export class GetSessionStateService {
    * console.log(state.modes); // Available modes if running
    * ```
    */
-  execute(chatId: string) {
+  async execute(chatId: string) {
     const session = this.sessionRuntime.get(chatId);
     if (session) {
       return {
@@ -64,7 +64,7 @@ export class GetSessionStateService {
       };
     }
 
-    const stored = this.sessionRepo.findById(chatId);
+    const stored = await this.sessionRepo.findById(chatId);
     if (stored) {
       return {
         status: "stopped" as const,

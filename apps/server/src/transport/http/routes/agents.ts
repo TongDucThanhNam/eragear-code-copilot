@@ -41,8 +41,8 @@ export function registerAgentRoutes(api: Hono): void {
   /**
    * GET /api/agents - List all agent configurations
    */
-  api.get("/agents", (c: Context) => {
-    const agents = container.getAgents().findAll();
+  api.get("/agents", async (c: Context) => {
+    const agents = await container.getAgents().findAll();
     return c.json({ agents });
   });
 
@@ -83,7 +83,7 @@ export function registerAgentRoutes(api: Hono): void {
       }
 
       const service = new AgentService(container.getAgents());
-      const agent = service.createAgent({
+      const agent = await service.createAgent({
         name,
         type,
         command,
@@ -130,7 +130,7 @@ export function registerAgentRoutes(api: Hono): void {
         return c.json({ error: "id is required" }, 400);
       }
 
-      const existing = container.getAgents().findById(id);
+      const existing = await container.getAgents().findById(id);
       if (!existing) {
         return c.json({ error: "Agent not found" }, 404);
       }
@@ -152,7 +152,7 @@ export function registerAgentRoutes(api: Hono): void {
       }
 
       const service = new AgentService(container.getAgents());
-      const agent = service.updateAgent({
+      const agent = await service.updateAgent({
         id,
         name,
         type,
@@ -190,7 +190,7 @@ export function registerAgentRoutes(api: Hono): void {
         return c.json({ error: "agentId is required" }, 400);
       }
 
-      container.getAgents().delete(agentId);
+      await container.getAgents().delete(agentId);
       container.getEventBus().publish({
         type: "dashboard_refresh",
         reason: "agent_deleted",

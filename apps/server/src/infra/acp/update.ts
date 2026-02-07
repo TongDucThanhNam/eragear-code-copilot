@@ -329,12 +329,12 @@ export class SessionBuffering implements SessionBufferingPort {
  * @param sessionRepo - The session repository port
  * @returns True if handled, false otherwise
  */
-function handleModeUpdate(
+async function handleModeUpdate(
   chatId: string,
   update: SessionUpdateWithLegacy,
   sessionRuntime: SessionRuntimePort,
   sessionRepo: SessionRepositoryPort
-) {
+): Promise<boolean> {
   if (update.sessionUpdate !== "current_mode_update") {
     return false;
   }
@@ -343,7 +343,7 @@ function handleModeUpdate(
   if (session?.modes) {
     session.modes.currentModeId = update.currentModeId;
   }
-  sessionRepo.updateMetadata(chatId, { modeId: update.currentModeId });
+  await sessionRepo.updateMetadata(chatId, { modeId: update.currentModeId });
   console.log(`[Server] Received mode update: ${update.currentModeId}`);
   sessionRuntime.broadcast(chatId, {
     type: "current_mode_update",
@@ -361,12 +361,12 @@ function handleModeUpdate(
  * @param sessionRepo - The session repository port
  * @returns True if handled, false otherwise
  */
-function handleCommandsUpdate(
+async function handleCommandsUpdate(
   chatId: string,
   update: SessionUpdateWithLegacy,
   sessionRuntime: SessionRuntimePort,
   sessionRepo: SessionRepositoryPort
-) {
+): Promise<boolean> {
   if (update.sessionUpdate !== "available_commands_update") {
     return false;
   }
@@ -375,7 +375,7 @@ function handleCommandsUpdate(
   if (session) {
     session.commands = update.availableCommands;
   }
-  sessionRepo.updateMetadata(chatId, {
+  await sessionRepo.updateMetadata(chatId, {
     commands: update.availableCommands,
   });
   console.log("[Server] Received commands update", update.availableCommands);
@@ -395,12 +395,12 @@ function handleCommandsUpdate(
  * @param sessionRepo - The session repository port
  * @returns True if handled, false otherwise
  */
-function handlePlanUpdate(
+async function handlePlanUpdate(
   chatId: string,
   update: SessionUpdateWithLegacy,
   sessionRuntime: SessionRuntimePort,
   sessionRepo: SessionRepositoryPort
-) {
+): Promise<boolean> {
   if (update.sessionUpdate !== "plan") {
     return false;
   }
@@ -415,7 +415,7 @@ function handlePlanUpdate(
   if (session) {
     session.plan = plan;
   }
-  sessionRepo.updateMetadata(chatId, { plan });
+  await sessionRepo.updateMetadata(chatId, { plan });
   console.log("[Server] Received plan update", plan);
   if (session) {
     const planTool = buildPlanToolPart(plan, getPlanToolCallId(chatId));
@@ -591,14 +591,14 @@ function resolveToolCallUpdateContent(
  * @param update - The session update
  * @param sessionRepo - The session repository port
  */
-function handleBufferedMessage(
+async function handleBufferedMessage(
   chatId: string,
   buffer: SessionBufferingPort,
   isReplayingHistory: boolean,
   update: SessionUpdateWithLegacy,
   sessionRepo: SessionRepositoryPort,
   sessionRuntime: SessionRuntimePort
-) {
+): Promise<void> {
   const session = sessionRuntime.get(chatId);
   const preferredMessageId = session?.uiState.currentAssistantId;
   appendAgentChunksToBuffer(
@@ -620,7 +620,7 @@ function handleBufferedMessage(
 
   if (isTurnBoundaryUpdate(update)) {
     const turnBoundary = update.sessionUpdate;
-    flushAndFinalizeTurn({
+    await flushAndFinalizeTurn({
       chatId,
       session,
       buffer,
@@ -785,7 +785,7 @@ function isTurnBoundaryUpdate(
   );
 }
 
-function flushAndFinalizeTurn(params: {
+async function flushAndFinalizeTurn(params: {
   chatId: string;
   session: ReturnType<SessionRuntimePort["get"]>;
   buffer: SessionBufferingPort;
@@ -793,7 +793,7 @@ function flushAndFinalizeTurn(params: {
   sessionRepo: SessionRepositoryPort;
   sessionRuntime: SessionRuntimePort;
   sessionUpdate: "turn_end" | "prompt_end";
-}) {
+}): Promise<void> {
   const {
     chatId,
     session,
@@ -823,7 +823,7 @@ function flushAndFinalizeTurn(params: {
     shouldPersist,
   });
 
-  persistBufferedAssistantMessage({
+  await persistBufferedAssistantMessage({
     chatId,
     isReplayingHistory,
     messageId,
@@ -840,7 +840,7 @@ function flushAndFinalizeTurn(params: {
   });
 }
 
-function persistBufferedAssistantMessage(params: {
+async function persistBufferedAssistantMessage(params: {
   chatId: string;
   isReplayingHistory: boolean;
   messageId: string | null;
@@ -848,7 +848,7 @@ function persistBufferedAssistantMessage(params: {
   currentMessage: UIMessage | undefined;
   bufferedMessage: ReturnType<SessionBufferingPort["flush"]>;
   sessionRepo: SessionRepositoryPort;
-}) {
+}): Promise<void> {
   const {
     chatId,
     isReplayingHistory,
@@ -864,7 +864,7 @@ function persistBufferedAssistantMessage(params: {
   if (currentMessage) {
     finalizeStreamingParts(currentMessage);
   }
-  sessionRepo.appendMessage(chatId, {
+  await sessionRepo.appendMessage(chatId, {
     id: messageId,
     role: "assistant",
     content: bufferedMessage?.content ?? "",
@@ -939,7 +939,7 @@ export function createSessionUpdateHandler(
   sessionRuntime: SessionRuntimePort,
   sessionRepo: SessionRepositoryPort
 ) {
-  return function handleSessionUpdate(params: {
+  return async function handleSessionUpdate(params: {
     chatId: string;
     buffer: SessionBufferingPort;
     isReplayingHistory: boolean;
@@ -966,7 +966,7 @@ export function createSessionUpdateHandler(
     maybeMarkStreaming(chatId, isReplayingHistory, update, sessionRuntime);
 
     // Handle buffered message content
-    handleBufferedMessage(
+    await handleBufferedMessage(
       chatId,
       buffer,
       isReplayingHistory,
@@ -975,14 +975,21 @@ export function createSessionUpdateHandler(
       sessionRuntime
     );
 
-    const handled = [
-      () => handleModeUpdate(chatId, update, sessionRuntime, sessionRepo),
-      () => handleCommandsUpdate(chatId, update, sessionRuntime, sessionRepo),
-      () => handlePlanUpdate(chatId, update, sessionRuntime, sessionRepo),
-      () => handleToolCallCreate(chatId, update, sessionRuntime),
-      () => handleToolCallUpdate(chatId, update, sessionRuntime),
-    ].some((handler) => handler());
-    if (handled) {
+    if (await handleModeUpdate(chatId, update, sessionRuntime, sessionRepo)) {
+      return;
+    }
+    if (
+      await handleCommandsUpdate(chatId, update, sessionRuntime, sessionRepo)
+    ) {
+      return;
+    }
+    if (await handlePlanUpdate(chatId, update, sessionRuntime, sessionRepo)) {
+      return;
+    }
+    if (handleToolCallCreate(chatId, update, sessionRuntime)) {
+      return;
+    }
+    if (handleToolCallUpdate(chatId, update, sessionRuntime)) {
       return;
     }
 

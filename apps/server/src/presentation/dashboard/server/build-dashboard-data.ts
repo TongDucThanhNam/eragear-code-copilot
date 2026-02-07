@@ -61,7 +61,7 @@ export function buildDashboardData({
       lastActiveAt: session.lastActiveAt,
       agentInfo,
       agentName,
-      messageCount: session.messages?.length ?? 0,
+      messageCount: session.messageCount ?? session.messages.length,
     };
   });
 

@@ -40,7 +40,7 @@ export function registerSessionRoutes(api: Hono): void {
       container.getSessions(),
       container.getSessionRuntime()
     );
-    service.execute(chatId);
+    await service.execute(chatId);
     container.getEventBus().publish({
       type: "dashboard_refresh",
       reason: "session_stopped",
@@ -65,7 +65,7 @@ export function registerSessionRoutes(api: Hono): void {
       container.getSessions(),
       container.getSessionRuntime()
     );
-    service.execute(chatId);
+    await service.execute(chatId);
     container.getEventBus().publish({
       type: "dashboard_refresh",
       reason: "session_deleted",

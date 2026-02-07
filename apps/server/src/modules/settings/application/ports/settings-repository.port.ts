@@ -5,7 +5,7 @@ import type { Settings } from "@/shared/types/settings.types";
  */
 export interface SettingsRepositoryPort {
   /** Get current settings */
-  get(): Settings;
+  get(): Promise<Settings>;
   /** Update settings with a partial patch */
-  update(patch: Partial<Settings>): Settings;
+  update(patch: Partial<Settings>): Promise<Settings>;
 }

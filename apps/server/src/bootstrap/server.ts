@@ -29,17 +29,18 @@ import {
 import { installConsoleLogger } from "../infra/logging/logger";
 import { createRequestLogger } from "../infra/logging/request-logger";
 import { createLogger } from "../infra/logging/structured-logger";
+import { closeSqliteStorage } from "../infra/storage/sqlite-db";
 import { ReconcileSessionStatusService } from "../modules/session/application/reconcile-session-status.service";
-import { normalizeOrigin } from "../transport/http/cors";
+import { terminateSessionTerminals } from "../shared/utils/session-cleanup.util";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
 import { requestIdMiddleware } from "../transport/http/request-id";
 import { registerHttpRoutes } from "../transport/http/routes";
 import { registerDashboardUiRoutes } from "../transport/http/routes/dashboard";
+import { applyFetchHeadersToNodeResponse } from "../transport/http/utils/response-headers";
 import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
-import type { WebSocketHandlerInfo } from "../transport/trpc/types";
-import { getContainer, initializeContainer } from "./container";
+import { getContainer, initializeContainerFromSettings } from "./container";
 
 const logger = createLogger("Server");
 
@@ -84,32 +85,15 @@ async function pipeResponseBody(
   }
 }
 
-function ensureTrustedOrigin(origin: string) {
-  const trusted = authConfig.trustedOrigins;
-  if (
-    Array.isArray(trusted) &&
-    trusted[0] !== "*" &&
-    !trusted.includes(origin)
-  ) {
-    trusted.push(origin);
-  }
-
-  if (authConfig.baseURL !== origin) {
-    authConfig.baseURL = origin;
-  }
-}
-
 /**
  * Creates the Hono application with all middleware and routes
  *
  * @returns Configured Hono application instance
  */
-export function createApp() {
+export async function createApp() {
   // Initialize DI container with allowed roots from settings
-  const initialContainer = initializeContainer();
-  const settings = initialContainer.getSettings().get();
-  const container = initializeContainer(settings.projectRoots);
-  new ReconcileSessionStatusService(
+  const container = await initializeContainerFromSettings();
+  await new ReconcileSessionStatusService(
     container.getSessions(),
     container.getSessionRuntime()
   ).execute();
@@ -146,15 +130,7 @@ export function createApp() {
   // Apply API CORS defaults (auth/health override below)
   app.use("/api/*", corsMiddleware.api);
 
-  // Auth CORS + handler
-  app.use("/api/auth/*", (c, next) => {
-    const origin = normalizeOrigin(c.req.raw.headers.get("origin"));
-    if (origin) {
-      ensureTrustedOrigin(origin);
-    }
-    return next();
-  });
-
+  // Auth CORS
   app.use("/api/auth/*", corsMiddleware.auth);
 
   app.use("/api/health", corsMiddleware.health);
@@ -241,7 +217,7 @@ export function createApp() {
 export async function startServer() {
   installConsoleLogger();
   await ensureAuthSetup();
-  const app = createApp();
+  const app = await createApp();
   const container = getContainer();
   const backgroundRunner = new BackgroundRunner();
   backgroundRunner.register(
@@ -278,9 +254,7 @@ export async function startServer() {
 
     const response = await app.fetch(request);
     res.statusCode = response.status;
-    response.headers.forEach((value, key) => {
-      res.setHeader(key, value);
-    });
+    applyFetchHeadersToNodeResponse(res, response.headers);
 
     if (req.method === "HEAD" || response.status === 204) {
       res.end();
@@ -290,7 +264,10 @@ export async function startServer() {
     await pipeResponseBody(res, response);
   });
 
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: ENV.wsMaxPayloadBytes,
+  });
   server.on("upgrade", (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
@@ -300,10 +277,9 @@ export async function startServer() {
   const wsHandler = applyWSSHandler({
     wss,
     router: appRouter,
-    createContext: ({ req, info }) =>
+    createContext: ({ req }) =>
       createTrpcContext({
         req,
-        connectionParams: (info as WebSocketHandlerInfo)?.connectionParams,
       }),
   });
 
@@ -314,13 +290,46 @@ export async function startServer() {
     port: ENV.wsPort,
   });
 
-  // Graceful shutdown
-  process.on("SIGTERM", () => {
-    logger.info("SIGTERM received, gracefully shutting down");
+  let shuttingDown = false;
+  const gracefulShutdown = async (signal: "SIGTERM" | "SIGINT") => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+
+    logger.info(`${signal} received, gracefully shutting down`);
     backgroundRunner.stop();
     wsHandler.broadcastReconnectNotification();
-    wss.close();
-    server.close();
+
+    const sessionRuntime = container.getSessionRuntime();
+    const sessionRepo = container.getSessions();
+    for (const session of sessionRuntime.getAll()) {
+      terminateSessionTerminals(session);
+      if (!session.proc.killed) {
+        session.proc.kill("SIGTERM");
+      }
+      sessionRuntime.delete(session.id);
+      await sessionRepo.updateStatus(session.id, "stopped");
+    }
+
+    await new Promise<void>((resolve) => {
+      wss.close(() => resolve());
+    });
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+    await closeSqliteStorage();
+  };
+
+  process.on("SIGTERM", () => {
+    gracefulShutdown("SIGTERM").catch((error) => {
+      logger.error("Graceful shutdown failed after SIGTERM", error as Error);
+    });
+  });
+  process.on("SIGINT", () => {
+    gracefulShutdown("SIGINT").catch((error) => {
+      logger.error("Graceful shutdown failed after SIGINT", error as Error);
+    });
   });
 
   return { server, wsHandler };

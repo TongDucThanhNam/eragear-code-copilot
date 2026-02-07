@@ -7,6 +7,7 @@
  * @module modules/project/domain/project.entity
  */
 
+import { randomUUID } from "node:crypto";
 import type {
   ProjectInput,
   Project as ProjectType,
@@ -65,7 +66,7 @@ export class Project {
    */
   static create(input: ProjectInput): Project {
     return new Project({
-      id: crypto.randomUUID?.() || `project-${Date.now()}`,
+      id: randomUUID(),
       name: input.name.trim(),
       path: input.path,
       description: input.description ?? null,

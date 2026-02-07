@@ -45,12 +45,12 @@ Session module không xử lý prompt send/cancel/model/mode trực tiếp:
 ### Infra
 
 - `src/modules/session/infra/runtime-store.ts` (active sessions in RAM)
-- `src/modules/session/infra/session.repository.json.ts` (JSON persistence)
+- `src/modules/session/infra/session.repository.sqlite.ts` (SQLite persistence)
 
 ## Key Data
 
 - Runtime session: `SessionRuntime` trong RAM.
-- Persisted session: metadata + messages trong `.eragear/sessions.json`.
+- Persisted session: metadata + messages trong SQLite (`sessions`, `session_messages`).
 - Runtime event stream: `BroadcastEvent` qua emitter/subscription.
 
 ## Core Flow: Create Session

@@ -10,6 +10,10 @@
 
 import { observable } from "@trpc/server/observable";
 import { z } from "zod";
+import {
+  DEFAULT_SESSION_LIST_PAGE_LIMIT,
+  MAX_SESSION_LIST_PAGE_LIMIT,
+} from "@/config/constants";
 import { CreateSessionService } from "@/modules/session/application/create-session.service";
 import { DeleteSessionService } from "@/modules/session/application/delete-session.service";
 import { GetSessionMessagesService } from "@/modules/session/application/get-session-messages.service";
@@ -39,7 +43,9 @@ export const sessionRouter = router({
         JSON.stringify(input, null, 2)
       );
 
-      const project = ctx.container.getProjects().findById(input.projectId);
+      const project = await ctx.container
+        .getProjects()
+        .findById(input.projectId);
       if (!project) {
         throw new Error("Project not found");
       }
@@ -72,12 +78,12 @@ export const sessionRouter = router({
   /** Stop a running session */
   stopSession: protectedProcedure
     .input(z.object({ chatId: z.string() }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const service = new StopSessionService(
         ctx.container.getSessions(),
         ctx.container.getSessionRuntime()
       );
-      return service.execute(input.chatId);
+      return await service.execute(input.chatId);
     }),
 
   /** Resume a stopped session */
@@ -97,34 +103,51 @@ export const sessionRouter = router({
   /** Delete a session */
   deleteSession: protectedProcedure
     .input(z.object({ chatId: z.string() }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const service = new DeleteSessionService(
         ctx.container.getSessions(),
         ctx.container.getSessionRuntime()
       );
-      return service.execute(input.chatId);
+      return await service.execute(input.chatId);
     }),
 
   /** Get current session state */
   getSessionState: protectedProcedure
     .input(z.object({ chatId: z.string() }))
-    .query(({ input, ctx }) => {
+    .query(async ({ input, ctx }) => {
       const service = new GetSessionStateService(
         ctx.container.getSessions(),
         ctx.container.getSessionRuntime()
       );
-      return service.execute(input.chatId);
+      return await service.execute(input.chatId);
     }),
 
-  /** List all sessions */
-  getSessions: protectedProcedure.query(({ ctx }) => {
-    const service = new ListSessionsService(
-      ctx.container.getSessions(),
-      ctx.container.getSessionRuntime(),
-      ctx.container.getProjects()
-    );
-    return service.execute();
-  }),
+  /** List sessions (paginated) */
+  getSessions: protectedProcedure
+    .input(
+      z
+        .object({
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(MAX_SESSION_LIST_PAGE_LIMIT)
+            .optional(),
+          offset: z.number().int().min(0).optional(),
+        })
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? DEFAULT_SESSION_LIST_PAGE_LIMIT;
+      const offset = input?.offset ?? 0;
+
+      const service = new ListSessionsService(
+        ctx.container.getSessions(),
+        ctx.container.getSessionRuntime(),
+        ctx.container.getProjects()
+      );
+      return await service.execute({ limit, offset });
+    }),
 
   /** Update session metadata (name, pinned, archived) */
   updateSessionMeta: protectedProcedure
@@ -136,19 +159,19 @@ export const sessionRouter = router({
         archived: z.boolean().optional(),
       })
     )
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const service = new UpdateSessionMetaService(ctx.container.getSessions());
-      return service.execute(input);
+      return await service.execute(input);
     }),
 
   /** Get session message history */
   getSessionMessages: protectedProcedure
     .input(z.object({ chatId: z.string() }))
-    .query(({ input, ctx }) => {
+    .query(async ({ input, ctx }) => {
       const service = new GetSessionMessagesService(
         ctx.container.getSessions()
       );
-      return service.execute(input.chatId);
+      return await service.execute(input.chatId);
     }),
 
   /** Subscribe to real-time session events */

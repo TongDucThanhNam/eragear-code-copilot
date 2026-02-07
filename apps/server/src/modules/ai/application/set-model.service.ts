@@ -167,7 +167,7 @@ export class SetModelService {
         }
         if (isProcessExited(errorText)) {
           const reason = errorText || "Agent process exited";
-          this.markSessionStopped(chatId, session, reason);
+          await this.markSessionStopped(chatId, session, reason);
           throw new Error(reason);
         }
         throw error;
@@ -184,11 +184,11 @@ export class SetModelService {
     });
   }
 
-  private markSessionStopped(
+  private async markSessionStopped(
     chatId: string,
     session: ChatSession,
     reason: string
-  ) {
+  ): Promise<void> {
     this.sessionRuntime.broadcast(chatId, {
       type: "error",
       error: reason,
@@ -199,7 +199,7 @@ export class SetModelService {
       broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
       status: "error",
     });
-    this.sessionRepo.updateStatus(chatId, "stopped");
+    await this.sessionRepo.updateStatus(chatId, "stopped");
     if (!session.proc.killed) {
       session.proc.kill();
     }

@@ -1,3 +1,4 @@
+import { formatUtcDateLabel } from "./date-format";
 import { LOGIN_SCRIPT, LOGIN_STYLES } from "./login-assets";
 
 interface LoginPageProps {
@@ -30,12 +31,7 @@ export function LoginHead({ error, username }: LoginHeadProps) {
 }
 
 export function LoginPage({ username }: LoginPageProps) {
-  const currentDate = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const currentDate = formatUtcDateLabel();
 
   return (
     <>
@@ -246,12 +242,12 @@ export function LoginPage({ username }: LoginPageProps) {
                         aria-required="true"
                         autoComplete="username"
                         className="input-underline w-full"
+                        defaultValue={username ?? ""}
                         id="username"
                         name="username"
                         placeholder="Enter your username..."
                         required
                         type="text"
-                        value={username ?? ""}
                       />
                     </div>
                     <p

@@ -106,7 +106,7 @@ export class SendMessageService {
       mimeType?: string;
       title?: string;
       description?: string;
-      size?: number | bigint;
+      size?: number;
       annotations?: Record<string, unknown>;
     }[];
   }): Promise<{
@@ -200,7 +200,7 @@ export class SendMessageService {
       messageId: msgId,
       contentBlocks: storedPromptBlocks,
     });
-    this.sessionRepo.appendMessage(input.chatId, {
+    await this.sessionRepo.appendMessage(input.chatId, {
       id: msgId,
       role: "user",
       content: input.text,
@@ -286,7 +286,7 @@ export class SendMessageService {
   }> {
     const { chatId, session, prompt, broadcast } = params;
 
-    const markStopped = (reason: string) => {
+    const markStopped = async (reason: string) => {
       logger.warn("SendMessageService mark stopped", {
         chatId,
         reason,
@@ -301,7 +301,7 @@ export class SendMessageService {
         broadcast,
         status: "error",
       });
-      this.sessionRepo.updateStatus(chatId, "stopped");
+      await this.sessionRepo.updateStatus(chatId, "stopped");
       if (!session.proc.killed) {
         session.proc.kill();
       }
@@ -312,7 +312,7 @@ export class SendMessageService {
     const maxAttempts = 3;
     const sessionId = session.sessionId;
     if (!sessionId) {
-      markStopped("Session is missing ACP session id");
+      await markStopped("Session is missing ACP session id");
       throw new Error("Session is missing ACP session id");
     }
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -350,7 +350,7 @@ export class SendMessageService {
           continue;
         }
         if (isProcessExited(errorText)) {
-          markStopped(errorText || "Agent process exited");
+          await markStopped(errorText || "Agent process exited");
           throw new Error(errorText || "Agent process exited");
         }
         updateChatStatus({
@@ -385,7 +385,7 @@ export class SendMessageService {
           contentBlocks: message.contentBlocks.length,
           reasoningBlocks: message.reasoningBlocks?.length ?? 0,
         });
-        this.sessionRepo.appendMessage(chatId, {
+        await this.sessionRepo.appendMessage(chatId, {
           id: message.id,
           role: "assistant",
           content: message.content,

@@ -1,12 +1,16 @@
 import { Database } from "bun:sqlite";
 import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { apiKey, multiSession, username } from "better-auth/plugins";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { ENV } from "../../config/environment";
-import { getAuthDbPath } from "./paths";
+import { authSchema } from "./drizzle-schema";
+import { ensureAuthDbWritable } from "./paths";
 import { getAuthSecret } from "./secret";
 
-const authDbPath = getAuthDbPath();
+const authDbPath = ensureAuthDbWritable();
 const authDb = new Database(authDbPath);
+const authOrm = drizzle({ client: authDb, schema: authSchema });
 
 interface AuthState {
   hasUsers: boolean;
@@ -23,7 +27,10 @@ export const authState: AuthState = {
 };
 
 export const authConfig = {
-  database: authDb,
+  database: drizzleAdapter(authOrm, {
+    provider: "sqlite",
+    schema: authSchema,
+  }),
   baseURL: ENV.authBaseUrl,
   secret: getAuthSecret(),
   trustedOrigins: ENV.authTrustedOrigins,
@@ -46,5 +53,10 @@ export const authConfig = {
   ],
 };
 
+export const authMigrationConfig = {
+  ...authConfig,
+  database: authDb,
+};
+
 export const auth = betterAuth(authConfig);
-export { authDb, authDbPath };
+export { authDb, authDbPath, authOrm };

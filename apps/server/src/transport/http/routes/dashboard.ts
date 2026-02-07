@@ -22,6 +22,7 @@ import { DashboardPage } from "@/presentation/dashboard/server/dashboard-page";
 import { renderDocument } from "@/presentation/dashboard/server/render-document";
 import { normalizeTab } from "@/presentation/dashboard/utils";
 import { getContainer } from "../../../bootstrap/container";
+import { DEFAULT_SESSION_LIST_PAGE_LIMIT } from "../../../config/constants";
 import { ENV } from "../../../config/environment";
 import {
   DASHBOARD_ASSET_PATH,
@@ -104,11 +105,14 @@ export function registerDashboardUiRoutes(app: Hono): void {
       return c.redirect("/login");
     }
     const container = getContainer();
-    const settings = container.getSettings().get();
-    const projects = container.getProjects().findAll();
-    const storedSessions = container.getSessions().findAll();
+    const settings = await container.getSettings().get();
+    const projects = await container.getProjects().findAll();
+    const storedSessions = await container.getSessions().findAll({
+      limit: DEFAULT_SESSION_LIST_PAGE_LIMIT,
+      offset: 0,
+    });
     const runtimeSessions = container.getSessionRuntime();
-    const agents = container.getAgents().findAll();
+    const agents = await container.getAgents().findAll();
 
     let apiKeys: unknown[] = [];
     let deviceSessions: unknown[] = [];

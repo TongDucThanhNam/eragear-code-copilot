@@ -26,11 +26,11 @@ import type { CacheStats } from "../infra/caching/types";
 import { GitAdapter } from "../infra/git";
 import { getLogStore } from "../infra/logging/log-store";
 import { AgentRuntimeAdapter } from "../infra/process";
-import { AgentJsonRepository } from "../modules/agent/infra/agent.repository.json";
-import { ProjectJsonRepository } from "../modules/project/infra/project.repository.json";
+import { AgentSqliteRepository } from "../modules/agent/infra/agent.repository.sqlite";
+import { ProjectSqliteRepository } from "../modules/project/infra/project.repository.sqlite";
 import { SessionRuntimeStore } from "../modules/session/infra/runtime-store";
-import { SessionJsonRepository } from "../modules/session/infra/session.repository.json";
-import { SettingsJsonRepository } from "../modules/settings/infra/ui-settings.repository.json";
+import { SessionSqliteRepository } from "../modules/session/infra/session.repository.sqlite";
+import { SettingsSqliteRepository } from "../modules/settings/infra/settings.repository.sqlite";
 import type { Settings } from "../shared/types/settings.types";
 import { EventBus } from "../shared/utils/event-bus";
 
@@ -79,10 +79,10 @@ export class Container {
     this.logStore = getLogStore();
 
     // Initialize repositories
-    this.sessionRepo = new SessionJsonRepository();
-    this.projectRepo = new ProjectJsonRepository(allowedRoots);
-    this.agentRepo = new AgentJsonRepository();
-    this.settingsRepo = new SettingsJsonRepository();
+    this.sessionRepo = new SessionSqliteRepository();
+    this.projectRepo = new ProjectSqliteRepository(allowedRoots);
+    this.agentRepo = new AgentSqliteRepository();
+    this.settingsRepo = new SettingsSqliteRepository();
 
     // Initialize adapters
     this.gitAdapter = new GitAdapter();
@@ -164,11 +164,11 @@ export class Container {
    * @param next - The new settings to apply
    * @returns Object containing lists of changed keys and settings requiring restart
    */
-  applySettings(next: Settings): {
+  async applySettings(next: Settings): Promise<{
     requiresRestart: string[];
     changedKeys: string[];
-  } {
-    const current = this.settingsRepo.get();
+  }> {
+    const current = await this.settingsRepo.get();
     const changedKeys: string[] = [];
     const requiresRestart: string[] = [];
 
@@ -271,6 +271,11 @@ let containerInstance: Container | null = null;
 export function initializeContainer(allowedRoots?: string[]): Container {
   containerInstance = new Container(allowedRoots);
   return containerInstance;
+}
+
+export async function initializeContainerFromSettings(): Promise<Container> {
+  const settings = await new SettingsSqliteRepository().get();
+  return initializeContainer(settings.projectRoots);
 }
 
 /**

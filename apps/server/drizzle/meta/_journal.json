@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1738886400000,
+      "tag": "0000_sqlite_core",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1762347600000,
+      "tag": "0001_session_messages_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770453157000,
+      "tag": "0002_sqlite_runtime_maintenance",
+      "breakpoints": true
+    }
+  ]
+}

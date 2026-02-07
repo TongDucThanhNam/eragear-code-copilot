@@ -1,3 +1,4 @@
+import { formatUtcDateLabel } from "../date-format";
 import { DashboardNav } from "./dashboard-nav";
 
 type TabKey = "sessions" | "projects" | "agents" | "auth" | "settings" | "logs";
@@ -18,12 +19,7 @@ export function DashboardHeader({
           Eragear Server Dashboard
         </p>
         <p className="hidden font-mono text-[10px] text-muted uppercase tracking-[0.2em] sm:block">
-          {new Date().toLocaleDateString("en-US", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
+          {formatUtcDateLabel()}
         </p>
       </div>
       <DashboardNav activeTab={activeTab} onTabChange={onTabChange} />

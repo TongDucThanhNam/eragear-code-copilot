@@ -66,7 +66,7 @@ export class ResumeSessionService {
    * ```
    */
   async execute(chatId: string) {
-    const stored = this.sessionRepo.findById(chatId);
+    const stored = await this.sessionRepo.findById(chatId);
     if (!stored) {
       throw new Error("Session not found in store");
     }

@@ -349,7 +349,7 @@ export class CreateSessionService {
         });
       }
 
-      this.broadcastPromptEnd(chatId, buffer);
+      await this.broadcastPromptEnd(chatId, buffer);
     } catch (err) {
       this.sessionRuntime.delete(chatId);
       chatSession.proc.kill();
@@ -393,12 +393,15 @@ export class CreateSessionService {
    * @param chatId - The chat session identifier
    * @param buffer - Session buffering state
    */
-  private broadcastPromptEnd(chatId: string, buffer: SessionBufferingPort) {
+  private async broadcastPromptEnd(
+    chatId: string,
+    buffer: SessionBufferingPort
+  ) {
     const session = this.sessionRuntime.get(chatId);
     const shouldReplayStored =
       buffer.replayEventCount === 0 && !session?.suppressReplayBroadcast;
     if (shouldReplayStored) {
-      this.replayStoredMessages(chatId);
+      await this.replayStoredMessages(chatId);
     }
     const currentMessageId = session?.uiState.currentAssistantId;
     if (session && currentMessageId) {
@@ -425,7 +428,7 @@ export class CreateSessionService {
    * @param agentEnv - Agent environment variables
    * @param projectRoot - Project root directory
    */
-  private saveSessionMetadata(
+  private async saveSessionMetadata(
     chatId: string,
     params: CreateSessionParams,
     chatSession: ChatSession,
@@ -453,12 +456,12 @@ export class CreateSessionService {
     };
 
     if (params.sessionIdToLoad) {
-      this.sessionRepo.updateMetadata(chatId, {
+      await this.sessionRepo.updateMetadata(chatId, {
         sessionId: chatSession.sessionId,
         ...commonSessionData,
       });
     } else {
-      this.sessionRepo.save({
+      await this.sessionRepo.save({
         id: chatId,
         sessionId: chatSession.sessionId,
         ...commonSessionData,
@@ -489,7 +492,7 @@ export class CreateSessionService {
     const agentCmd = params.command ?? "opencode";
     const agentArgs = params.args ?? this.resolveDefaultAgentArgs(agentCmd);
     const agentEnv = params.env ?? {};
-    const projectRoot = this.resolveProjectRoot(params.projectRoot);
+    const projectRoot = await this.resolveProjectRoot(params.projectRoot);
 
     console.log(
       `[DEBUG] Using agent: command="${agentCmd}", args=${JSON.stringify(agentArgs)}`
@@ -503,12 +506,12 @@ export class CreateSessionService {
 
     const buffer = this.sessionAcp.createBuffer();
     const storedSession = params.chatId
-      ? this.sessionRepo.findById(chatId)
+      ? await this.sessionRepo.findById(chatId)
       : undefined;
     const storedPlan = storedSession?.plan;
     const hasStoredMessages =
       Boolean(params.sessionIdToLoad) &&
-      this.sessionRepo.getMessages(chatId).length > 0;
+      (await this.sessionRepo.getMessages(chatId)).length > 0;
 
     // Create runtime session
     const chatSession: ChatSession = {
@@ -584,7 +587,7 @@ export class CreateSessionService {
       throw new Error("Agent does not support session/load");
     }
 
-    const mcpServers = this.resolveMcpServers(agentCapabilities);
+    const mcpServers = await this.resolveMcpServers(agentCapabilities);
 
     if (params.sessionIdToLoad) {
       await this.handleSessionLoad(
@@ -607,7 +610,7 @@ export class CreateSessionService {
     });
 
     this.attachProcessHandlers(proc, chatId);
-    this.saveSessionMetadata(
+    await this.saveSessionMetadata(
       chatId,
       params,
       chatSession,
@@ -633,8 +636,8 @@ export class CreateSessionService {
    * @param projectRoot - The requested project root
    * @returns The validated project root
    */
-  private resolveProjectRoot(projectRoot: string): string {
-    const { projectRoots } = this.settingsRepo.get();
+  private async resolveProjectRoot(projectRoot: string): Promise<string> {
+    const { projectRoots } = await this.settingsRepo.get();
     if (!projectRoots || projectRoots.length === 0) {
       return projectRoot;
     }
@@ -648,11 +651,11 @@ export class CreateSessionService {
    * @returns Array of MCP servers compatible with the agent
    * @throws Error if agent doesn't support required MCP transports
    */
-  private resolveMcpServers(agentCapabilities?: {
+  private async resolveMcpServers(agentCapabilities?: {
     mcpCapabilities?: { http?: boolean; sse?: boolean };
     mcp?: { http?: boolean; sse?: boolean };
-  }): McpServerConfig[] {
-    const { mcpServers } = this.settingsRepo.get();
+  }): Promise<McpServerConfig[]> {
+    const { mcpServers } = await this.settingsRepo.get();
     if (!mcpServers || mcpServers.length === 0) {
       return [];
     }
@@ -691,7 +694,7 @@ export class CreateSessionService {
     proc: ReturnType<typeof this.agentRuntime.spawn>,
     chatId: string
   ) {
-    proc.on("error", (err: Error) => {
+    proc.on("error", async (err: Error) => {
       console.error(`[Server] Agent process error for ${chatId}:`, err);
       this.sessionRuntime.broadcast(chatId, {
         type: "error",
@@ -704,53 +707,56 @@ export class CreateSessionService {
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
         status: "error",
       });
-      this.sessionRepo.updateStatus(chatId, "stopped");
+      await this.sessionRepo.updateStatus(chatId, "stopped");
       if (session) {
         terminateSessionTerminals(session);
       }
     });
 
-    proc.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
-      console.log(
-        `[Server] Agent process for ${chatId} exited with code ${code}${signal ? ` signal ${signal}` : ""}`
-      );
-      const isExpectedSignal = signal === "SIGTERM" || signal === "SIGINT";
-      const isCleanExit = code === 0 || (code === null && isExpectedSignal);
+    proc.on(
+      "exit",
+      async (code: number | null, signal: NodeJS.Signals | null) => {
+        console.log(
+          `[Server] Agent process for ${chatId} exited with code ${code}${signal ? ` signal ${signal}` : ""}`
+        );
+        const isExpectedSignal = signal === "SIGTERM" || signal === "SIGINT";
+        const isCleanExit = code === 0 || (code === null && isExpectedSignal);
 
-      if (isCleanExit) {
-        const session = this.sessionRuntime.get(chatId);
-        updateChatStatus({
-          chatId,
-          session,
-          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-          status: "inactive",
-        });
-      } else {
-        const reason = signal
-          ? `signal ${signal}`
-          : `code ${code ?? "unknown"}`;
-        this.sessionRuntime.broadcast(chatId, {
-          type: "error",
-          error: `Agent process exited with ${reason}`,
-        });
-        const session = this.sessionRuntime.get(chatId);
-        updateChatStatus({
-          chatId,
-          session,
-          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-          status: "error",
-        });
-      }
+        if (isCleanExit) {
+          const session = this.sessionRuntime.get(chatId);
+          updateChatStatus({
+            chatId,
+            session,
+            broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+            status: "inactive",
+          });
+        } else {
+          const reason = signal
+            ? `signal ${signal}`
+            : `code ${code ?? "unknown"}`;
+          this.sessionRuntime.broadcast(chatId, {
+            type: "error",
+            error: `Agent process exited with ${reason}`,
+          });
+          const session = this.sessionRuntime.get(chatId);
+          updateChatStatus({
+            chatId,
+            session,
+            broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+            status: "error",
+          });
+        }
 
-      this.sessionRepo.updateStatus(chatId, "stopped");
-      const session = this.sessionRuntime.get(chatId);
-      if (session) {
-        terminateSessionTerminals(session);
+        await this.sessionRepo.updateStatus(chatId, "stopped");
+        const session = this.sessionRuntime.get(chatId);
+        if (session) {
+          terminateSessionTerminals(session);
+        }
+        if (this.sessionRuntime.has(chatId)) {
+          this.sessionRuntime.delete(chatId);
+        }
       }
-      if (this.sessionRuntime.has(chatId)) {
-        this.sessionRuntime.delete(chatId);
-      }
-    });
+    );
   }
 
   /**
@@ -758,8 +764,8 @@ export class CreateSessionService {
    *
    * @param chatId - The chat session identifier
    */
-  private replayStoredMessages(chatId: string) {
-    const storedMessages = this.sessionRepo.getMessages(chatId);
+  private async replayStoredMessages(chatId: string) {
+    const storedMessages = await this.sessionRepo.getMessages(chatId);
     if (storedMessages.length === 0) {
       console.warn(
         `[Server] Agent did not replay history for ${chatId}, and no stored messages were found.`

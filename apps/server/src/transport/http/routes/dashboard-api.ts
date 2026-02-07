@@ -19,7 +19,33 @@ import { GetObservabilitySnapshotService } from "@/modules/ops/application/get-o
 import { getContainer } from "../../../bootstrap/container";
 import type { Project } from "../../../shared/types/project.types";
 import type { StoredSession } from "../../../shared/types/session.types";
-import { parseLogQueryParams } from "./helpers";
+import { parseLogQueryParams, parseSessionPaginationParams } from "./helpers";
+
+const DASHBOARD_AGGREGATION_PAGE_SIZE = 500;
+
+async function forEachSessionPage(
+  handler: (sessions: StoredSession[]) => void | Promise<void>
+): Promise<void> {
+  const sessionsRepo = getContainer().getSessions();
+  let offset = 0;
+
+  while (true) {
+    const sessions = await sessionsRepo.findAll({
+      limit: DASHBOARD_AGGREGATION_PAGE_SIZE,
+      offset,
+    });
+    if (sessions.length === 0) {
+      break;
+    }
+
+    await handler(sessions);
+
+    if (sessions.length < DASHBOARD_AGGREGATION_PAGE_SIZE) {
+      break;
+    }
+    offset += sessions.length;
+  }
+}
 
 /**
  * Registers dashboard-related API routes
@@ -34,22 +60,44 @@ export function registerDashboardApiRoutes(api: Hono): void {
   /**
    * GET /api/dashboard/projects - Get all projects with session statistics
    */
-  api.get("/dashboard/projects", (c: Context) => {
-    const projects = container.getProjects().findAll();
-    const sessions = container.getSessions().findAll();
+  api.get("/dashboard/projects", async (c: Context) => {
+    const projects = await container.getProjects().findAll();
+    const projectPathMap = new Map(
+      projects.map((project) => [project.path, project.id] as const)
+    );
+    const statsByProjectId = new Map<
+      string,
+      { total: number; running: number }
+    >(projects.map((project) => [project.id, { total: 0, running: 0 }]));
+
+    await forEachSessionPage((sessions) => {
+      for (const session of sessions) {
+        const resolvedProjectId =
+          session.projectId ?? projectPathMap.get(session.projectRoot);
+        if (!resolvedProjectId) {
+          continue;
+        }
+
+        const stat = statsByProjectId.get(resolvedProjectId);
+        if (!stat) {
+          continue;
+        }
+        stat.total += 1;
+        if (session.status === "running") {
+          stat.running += 1;
+        }
+      }
+    });
 
     const projectsWithStats = projects.map((project: Project) => {
-      const projectSessions = sessions.filter(
-        (s: StoredSession) =>
-          s.projectId === project.id || s.projectRoot === project.path
-      );
-      const runningSessions = projectSessions.filter(
-        (s: StoredSession) => s.status === "running"
-      );
+      const stat = statsByProjectId.get(project.id) ?? {
+        total: 0,
+        running: 0,
+      };
       return {
         ...project,
-        sessionCount: projectSessions.length,
-        runningCount: runningSessions.length,
+        sessionCount: stat.total,
+        runningCount: stat.running,
         lastOpenedAt: project.lastOpenedAt,
       };
     });
@@ -60,9 +108,18 @@ export function registerDashboardApiRoutes(api: Hono): void {
   /**
    * GET /api/dashboard/sessions - Get all sessions with details
    */
-  api.get("/dashboard/sessions", (c: Context) => {
-    const projects = container.getProjects().findAll();
-    const storedSessions = container.getSessions().findAll();
+  api.get("/dashboard/sessions", async (c: Context) => {
+    const parsedPagination = parseSessionPaginationParams(c.req.query());
+    if (!parsedPagination.ok) {
+      return c.json({ error: parsedPagination.error }, 400);
+    }
+    const { limit, offset } = parsedPagination.pagination;
+
+    const projects = await container.getProjects().findAll();
+    const [storedSessions, totalSessions] = await Promise.all([
+      container.getSessions().findAll({ limit, offset }),
+      container.getSessions().countAll(),
+    ]);
     const runtime = container.getSessionRuntime();
 
     const sessions = storedSessions.map((session: StoredSession) => {
@@ -86,56 +143,71 @@ export function registerDashboardApiRoutes(api: Hono): void {
         lastActiveAt: session.lastActiveAt,
         agentInfo,
         agentName,
-        messageCount: session.messages?.length ?? 0,
+        messageCount: session.messageCount ?? session.messages.length,
       };
     });
 
     const sortedSessions = [...sessions];
     sortedSessions.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-    return c.json({ sessions: sortedSessions });
+    return c.json({
+      sessions: sortedSessions,
+      pagination: {
+        limit,
+        offset,
+        total: totalSessions,
+        hasMore: offset + sortedSessions.length < totalSessions,
+      },
+    });
   });
 
   /**
    * GET /api/dashboard/stats - Get dashboard statistics
    */
-  api.get("/dashboard/stats", (c: Context) => {
-    const projects = container.getProjects().findAll();
-    const sessions = container.getSessions().findAll();
+  api.get("/dashboard/stats", async (c: Context) => {
+    const projects = await container.getProjects().findAll();
 
     const now = Date.now();
     const oneDayAgo = now - 24 * 60 * 60 * 1000;
     const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
 
-    const recentSessions = sessions.filter(
-      (s: StoredSession) => s.lastActiveAt > oneDayAgo
-    );
-    const weeklySessions = sessions.filter(
-      (s: StoredSession) => s.lastActiveAt > oneWeekAgo
-    );
-    const runningSessions = sessions.filter(
-      (s: StoredSession) => s.status === "running"
-    );
-
     const agentStats: Record<string, { count: number; running: number }> = {};
-    for (const session of sessions) {
-      const agentName =
-        session.agentInfo?.title ?? session.agentInfo?.name ?? "Unknown";
-      if (!agentStats[agentName]) {
-        agentStats[agentName] = { count: 0, running: 0 };
+    let totalSessions = 0;
+    let activeSessions = 0;
+    let recentSessions24h = 0;
+    let weeklySessions = 0;
+
+    await forEachSessionPage((sessions) => {
+      for (const session of sessions) {
+        totalSessions += 1;
+        if (session.status === "running") {
+          activeSessions += 1;
+        }
+        if (session.lastActiveAt > oneDayAgo) {
+          recentSessions24h += 1;
+        }
+        if (session.lastActiveAt > oneWeekAgo) {
+          weeklySessions += 1;
+        }
+
+        const agentName =
+          session.agentInfo?.title ?? session.agentInfo?.name ?? "Unknown";
+        if (!agentStats[agentName]) {
+          agentStats[agentName] = { count: 0, running: 0 };
+        }
+        agentStats[agentName].count++;
+        if (session.status === "running") {
+          agentStats[agentName].running++;
+        }
       }
-      agentStats[agentName].count++;
-      if (session.status === "running") {
-        agentStats[agentName].running++;
-      }
-    }
+    });
 
     return c.json({
       stats: {
         totalProjects: projects.length,
-        totalSessions: sessions.length,
-        activeSessions: runningSessions.length,
-        recentSessions24h: recentSessions.length,
-        weeklySessions: weeklySessions.length,
+        totalSessions,
+        activeSessions,
+        recentSessions24h,
+        weeklySessions,
         agentStats,
         serverUptime: process.uptime(),
       },
@@ -266,18 +338,32 @@ export function registerDashboardApiRoutes(api: Hono): void {
 
         send("connected", { ok: true, ts: Date.now() });
 
-        unsubscribe = eventBus.subscribe((event) => {
-          if (event && typeof event === "object" && "type" in event) {
-            const eventType = (event as { type: string }).type;
-            send(eventType, { ts: Date.now(), event });
-            return;
-          }
-          send("refresh", { ts: Date.now(), event });
-        });
+        unsubscribe = eventBus.subscribe(
+          (event) => {
+            if (event && typeof event === "object" && "type" in event) {
+              const eventType = (event as { type: string }).type;
+              send(eventType, { ts: Date.now(), event });
+              return;
+            }
+            send("refresh", { ts: Date.now(), event });
+          },
+          { signal: c.req.raw.signal }
+        );
 
         heartbeat = setInterval(() => {
           send("ping", { ts: Date.now() });
         }, 15_000);
+
+        c.req.raw.signal?.addEventListener("abort", () => {
+          if (heartbeat) {
+            clearInterval(heartbeat);
+            heartbeat = null;
+          }
+          if (unsubscribe) {
+            unsubscribe();
+            unsubscribe = null;
+          }
+        });
       },
       cancel() {
         if (heartbeat) {

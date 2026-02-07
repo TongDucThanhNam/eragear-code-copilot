@@ -7,6 +7,7 @@
  * @module modules/agent/domain/agent.entity
  */
 
+import { randomUUID } from "node:crypto";
 import type {
   AgentConfig,
   AgentInput,
@@ -65,7 +66,7 @@ export class Agent {
    */
   static create(input: AgentInput): Agent {
     return new Agent({
-      id: crypto.randomUUID?.() || `agent-${Date.now()}`,
+      id: randomUUID(),
       name: input.name,
       type: input.type,
       command: input.command,

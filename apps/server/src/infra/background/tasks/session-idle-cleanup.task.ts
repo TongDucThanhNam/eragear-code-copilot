@@ -7,10 +7,13 @@
  */
 
 import { ENV } from "@/config/environment";
+import { createLogger } from "@/infra/logging/structured-logger";
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type { BackgroundTaskSpec } from "@/shared/types/background.types";
 import { terminateSessionTerminals } from "@/shared/utils/session-cleanup.util";
+
+const logger = createLogger("Server");
 
 export function createSessionIdleCleanupTask(params: {
   sessionRuntime: SessionRuntimePort;
@@ -21,7 +24,7 @@ export function createSessionIdleCleanupTask(params: {
   return {
     name: "session-idle-cleanup",
     intervalMs: ENV.backgroundSessionCleanupIntervalMs,
-    run: () => {
+    run: async () => {
       const now = Date.now();
       let checked = 0;
       let cleaned = 0;
@@ -45,11 +48,21 @@ export function createSessionIdleCleanupTask(params: {
 
         terminateSessionTerminals(session);
         if (!session.proc.killed) {
-          session.proc.kill();
+          session.proc.kill("SIGTERM");
         }
-        sessionRuntime.delete(session.id);
-        sessionRepo.updateStatus(session.id, "stopped");
-        cleaned += 1;
+        try {
+          await sessionRepo.updateStatus(session.id, "stopped");
+          sessionRuntime.delete(session.id);
+          cleaned += 1;
+        } catch (error) {
+          logger.error(
+            "Failed to persist stopped session during idle cleanup",
+            error as Error,
+            {
+              chatId: session.id,
+            }
+          );
+        }
       }
 
       return { checked, cleaned };

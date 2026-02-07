@@ -1,4 +1,11 @@
-import { mkdirSync } from "node:fs";
+import {
+  accessSync,
+  closeSync,
+  existsSync,
+  constants as fsConstants,
+  mkdirSync,
+  openSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ENV } from "../../config/environment";
@@ -32,6 +39,8 @@ function resolveAuthStorageDir(): string {
 export function ensureAuthStorageDir(): string {
   const dir = resolveAuthStorageDir();
   mkdirSync(dir, { recursive: true });
+  accessSync(dir, fsConstants.R_OK);
+  accessSync(dir, fsConstants.W_OK);
   return dir;
 }
 
@@ -47,4 +56,21 @@ export function getAuthDbPath(): string {
   }
 
   return getAuthStorageFile("auth.sqlite");
+}
+
+export function ensureAuthDbWritable(): string {
+  const dbPath = getAuthDbPath();
+  const dir = path.dirname(dbPath);
+  mkdirSync(dir, { recursive: true });
+  accessSync(dir, fsConstants.R_OK);
+  accessSync(dir, fsConstants.W_OK);
+
+  if (!existsSync(dbPath)) {
+    const fd = openSync(dbPath, "a");
+    closeSync(fd);
+  }
+
+  accessSync(dbPath, fsConstants.R_OK);
+  accessSync(dbPath, fsConstants.W_OK);
+  return dbPath;
 }
