@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type {
   ApiKeyCreateResponse,
   DashboardData,
@@ -88,6 +89,15 @@ export function DashboardView({
   onSaveSettings,
 }: DashboardViewProps) {
   const data = dashboardData ?? EMPTY_DASHBOARD_DATA;
+  const mainRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    // Reposition when tab changes so each section starts at the top.
+    if (!activeTab) {
+      return;
+    }
+    mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeTab]);
 
   return (
     <>
@@ -125,7 +135,7 @@ export function DashboardView({
         )}
 
         {/* Main Content - Takes remaining space and scrolls when overflow */}
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        <main className="min-h-0 flex-1 overflow-y-auto" ref={mainRef}>
           {/* Main Grid Layout */}
           <div className="dashboard-grid grid min-h-0 gap-6 lg:grid-cols-12">
             {/* Left Column - Tabs & Content */}

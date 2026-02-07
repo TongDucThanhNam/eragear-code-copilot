@@ -13,6 +13,7 @@
 
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
+import { isAppError } from "../../../shared/errors";
 import { parseUiSettingsForm } from "../../../shared/utils/ui-settings.util";
 
 /**
@@ -29,7 +30,8 @@ export function registerSettingsRoutes(api: Hono): void {
    * GET /api/ui-settings - Get current UI settings
    */
   api.get("/ui-settings", async (c: Context) => {
-    const settings = await container.getSettings().get();
+    const service = container.getSettingsServices().getSettings();
+    const settings = await service.execute();
     return c.json(settings);
   });
 
@@ -39,25 +41,25 @@ export function registerSettingsRoutes(api: Hono): void {
   const handleApiUpdate = async (c: Context) => {
     try {
       const body = await c.req.parseBody();
-      const currentSettings = await container.getSettings().get();
+      const getSettings = container.getSettingsServices().getSettings();
+      const currentSettings = await getSettings.execute();
       const formData = body as Record<string, string | File | undefined>;
 
       const { ui, projectRoots } = parseUiSettingsForm(
         formData,
         currentSettings
       );
-      if (projectRoots.length < 1) {
-        return c.json({ error: "At least one project root is required." }, 400);
-      }
-      const next = await container.getSettings().update({ ui, projectRoots });
-      const applied = await container.applySettings(next);
-      container.getEventBus().publish({
-        type: "settings_updated",
-        changedKeys: applied.changedKeys,
-        requiresRestart: applied.requiresRestart,
+      const updateSettings = container.getSettingsServices().updateSettings();
+      const result = await updateSettings.execute({ ui, projectRoots });
+      return c.json({
+        ...result.settings,
+        changedKeys: result.changedKeys,
+        requiresRestart: result.requiresRestart,
       });
-      return c.json({ ...next, ...applied });
     } catch (error) {
+      if (isAppError(error)) {
+        return c.json({ error: error.message }, error.statusCode as 400 | 404);
+      }
       console.error("Settings parse error:", error);
       return c.json({ error: "Failed to parse settings" }, 400);
     }

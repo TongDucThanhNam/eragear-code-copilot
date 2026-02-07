@@ -7,19 +7,10 @@
  * @module shared/utils/event-bus
  */
 
-import type { EventBusPort } from "../ports/event-bus.port";
+import type { EventBusListener, EventBusPort } from "../ports/event-bus.port";
+import type { DomainEvent } from "../types/domain-events.types";
 
 const MAX_EVENT_BUS_LISTENERS = 10_000;
-
-/**
- * Base event structure for the bus
- */
-export interface BusEvent {
-  /** Event type identifier */
-  type: string;
-  /** Additional event properties */
-  [key: string]: unknown;
-}
 
 /**
  * Event bus implementation for pub/sub pattern
@@ -36,7 +27,7 @@ export interface BusEvent {
  */
 export class EventBus implements EventBusPort {
   /** Registered event listeners */
-  private readonly listeners = new Map<number, (event: BusEvent) => void>();
+  private readonly listeners = new Map<number, EventBusListener>();
   private nextListenerId = 1;
 
   /**
@@ -45,7 +36,7 @@ export class EventBus implements EventBusPort {
    * @returns Unsubscribe function to remove the listener
    */
   subscribe(
-    listener: (event: BusEvent) => void,
+    listener: EventBusListener,
     options?: { signal?: AbortSignal }
   ): () => void {
     if (this.listeners.size >= MAX_EVENT_BUS_LISTENERS) {
@@ -81,13 +72,14 @@ export class EventBus implements EventBusPort {
    * Publish an event to all subscribers
    * @param event - The event to publish
    */
-  publish(event: BusEvent): void {
+  async publish(event: DomainEvent): Promise<void> {
     const listeners = [...this.listeners.values()];
     for (const listener of listeners) {
       try {
-        listener(event);
+        await listener(event);
       } catch (err) {
         console.error("[EventBus] Listener error:", err);
+        throw err;
       }
     }
   }

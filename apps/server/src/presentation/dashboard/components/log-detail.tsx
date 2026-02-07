@@ -16,7 +16,10 @@ export function LogDetail({ entry, onClose }: LogDetailProps) {
         <div className="log-detail-title">
           <span>{entry?.request?.method ?? "--"}</span>
           <span>
-            {entry?.request?.path ?? entry?.message ?? "Pick a request"}
+            {entry?.request?.path ??
+              entry?.source ??
+              entry?.message ??
+              "Pick a log entry"}
           </span>
         </div>
         <div className="log-detail-actions">
@@ -43,8 +46,16 @@ export function LogDetail({ entry, onClose }: LogDetailProps) {
           </span>
         </div>
         <div className="log-detail-row">
-          <span className="log-detail-label">Request ID</span>
+          <span className="log-detail-label">Log ID</span>
           <span className="log-detail-value">{entry?.id ?? "--"}</span>
+        </div>
+        <div className="log-detail-row">
+          <span className="log-detail-label">Request ID</span>
+          <span className="log-detail-value">{entry?.requestId ?? "--"}</span>
+        </div>
+        <div className="log-detail-row">
+          <span className="log-detail-label">Trace ID</span>
+          <span className="log-detail-value">{entry?.traceId ?? "--"}</span>
         </div>
         <div className="log-detail-row">
           <span className="log-detail-label">Host</span>

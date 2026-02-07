@@ -21,39 +21,39 @@ export const agentsRouter = router({
   list: protectedProcedure
     .input(ListAgentsInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.container.getAgentServices().agent();
-      return await service.listAgents(input?.projectId ?? undefined);
+      const service = ctx.container.getAgentServices().listAgents();
+      return await service.execute(input?.projectId ?? undefined);
     }),
 
   /** Create a new agent configuration */
   create: protectedProcedure
     .input(CreateAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getAgentServices().agent();
-      return await service.createAgent(input);
+      const service = ctx.container.getAgentServices().createAgent();
+      return await service.execute(input);
     }),
 
   /** Update an existing agent configuration */
   update: protectedProcedure
     .input(UpdateAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getAgentServices().agent();
-      return await service.updateAgent(input);
+      const service = ctx.container.getAgentServices().updateAgent();
+      return await service.execute(input);
     }),
 
   /** Delete an agent configuration */
   delete: protectedProcedure
     .input(DeleteAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getAgentServices().agent();
-      return await service.deleteAgent(input.id);
+      const service = ctx.container.getAgentServices().deleteAgent();
+      return await service.execute(input.id);
     }),
 
   /** Set the active agent (for UI state) */
   setActive: protectedProcedure
     .input(SetActiveAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getAgentServices().agent();
-      return await service.setActive(input.id);
+      const service = ctx.container.getAgentServices().setActiveAgent();
+      return await service.execute(input.id);
     }),
 });

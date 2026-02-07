@@ -10,5 +10,9 @@ export {
   SetActiveProjectInputSchema,
   UpdateProjectInputSchema,
 } from "./application/contracts/project.contract";
+export { CreateProjectService } from "./application/create-project.service";
+export { DeleteProjectService } from "./application/delete-project.service";
+export { ListProjectsService } from "./application/list-projects.service";
 export type { ProjectRepositoryPort } from "./application/ports/project-repository.port";
-export { ProjectService } from "./application/project.service";
+export { SetActiveProjectService } from "./application/set-active-project.service";
+export { UpdateProjectService } from "./application/update-project.service";

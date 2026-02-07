@@ -1,4 +1,4 @@
-type TabKey = "sessions" | "projects" | "agents" | "auth" | "settings" | "logs";
+import type { TabKey } from "@/presentation/dashboard/dashboard-data";
 
 interface TabButtonProps {
   tab: TabKey;
@@ -18,9 +18,11 @@ export function TabButton({ tab, label, activeTab, onClick }: TabButtonProps) {
       aria-controls={`tab-${tab}`}
       aria-selected={isActive ? "true" : "false"}
       className={`${baseClass} ${borderClass} ${isActive ? "active" : ""}`}
+      data-tab={tab}
       id={`tab-btn-${tab}`}
       onClick={() => onClick(tab)}
       role="tab"
+      tabIndex={isActive ? 0 : -1}
       type="button"
     >
       <span className="relative z-10">{label}</span>

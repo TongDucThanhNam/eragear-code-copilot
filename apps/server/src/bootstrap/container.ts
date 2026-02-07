@@ -8,7 +8,14 @@
  * @module bootstrap/container
  */
 
-import { type AgentRepositoryPort, AgentService } from "@/modules/agent";
+import {
+  type AgentRepositoryPort,
+  CreateAgentService,
+  DeleteAgentService,
+  ListAgentsService,
+  SetActiveAgentService,
+  UpdateAgentService,
+} from "@/modules/agent";
 import {
   AgentSqliteRepository,
   AgentSqliteWorkerRepository,
@@ -19,18 +26,33 @@ import {
   SetModelService,
   SetModeService,
 } from "@/modules/ai";
-import { GetObservabilitySnapshotService } from "@/modules/ops";
-import { type ProjectRepositoryPort, ProjectService } from "@/modules/project";
+import {
+  GetDashboardPageDataService,
+  GetDashboardStatsService,
+  GetObservabilitySnapshotService,
+  ListDashboardProjectsService,
+  ListDashboardSessionsService,
+} from "@/modules/ops";
+import {
+  CreateProjectService,
+  DeleteProjectService,
+  ListProjectsService,
+  type ProjectRepositoryPort,
+  SetActiveProjectService,
+  UpdateProjectService,
+} from "@/modules/project";
 import {
   ProjectSqliteRepository,
   ProjectSqliteWorkerRepository,
 } from "@/modules/project/di";
 import {
   type AgentRuntimePort,
+  CleanupProjectSessionsService,
   CreateSessionService,
   DeleteSessionService,
   GetSessionMessagesService,
   GetSessionStateService,
+  GetSessionStorageStatsService,
   ListSessionsService,
   ReconcileSessionStatusService,
   ResumeSessionService,
@@ -38,6 +60,7 @@ import {
   type SessionRepositoryPort,
   type SessionRuntimePort,
   StopSessionService,
+  SubscribeSessionEventsService,
   UpdateSessionMetaService,
 } from "@/modules/session";
 import {
@@ -46,7 +69,11 @@ import {
   SessionSqliteRepository,
   SessionSqliteWorkerRepository,
 } from "@/modules/session/di";
-import type { SettingsRepositoryPort } from "@/modules/settings";
+import {
+  GetSettingsService,
+  type SettingsRepositoryPort,
+  UpdateSettingsService,
+} from "@/modules/settings";
 import {
   SettingsSqliteRepository,
   SettingsSqliteWorkerRepository,
@@ -69,7 +96,6 @@ import { getLogStore } from "../platform/logging/log-store";
 import { createAppLogger } from "../platform/logging/logger-adapter";
 import { AgentRuntimeAdapter } from "../platform/process";
 import { initializeSqliteWorker } from "../platform/storage/sqlite-worker-client";
-import type { Settings } from "../shared/types/settings.types";
 import { EventBus } from "../shared/utils/event-bus";
 
 export interface SessionServiceFactory {
@@ -81,6 +107,9 @@ export interface SessionServiceFactory {
   listSessions(): ListSessionsService;
   updateSessionMeta(): UpdateSessionMetaService;
   getSessionMessages(): GetSessionMessagesService;
+  getSessionStorageStats(): GetSessionStorageStatsService;
+  subscribeSessionEvents(): SubscribeSessionEventsService;
+  cleanupProjectSessions(): CleanupProjectSessionsService;
   reconcileSessionStatus(): ReconcileSessionStatusService;
 }
 
@@ -92,11 +121,24 @@ export interface AiServiceFactory {
 }
 
 export interface ProjectServiceFactory {
-  project(): ProjectService;
+  listProjects(): ListProjectsService;
+  createProject(): CreateProjectService;
+  updateProject(): UpdateProjectService;
+  deleteProject(): DeleteProjectService;
+  setActiveProject(): SetActiveProjectService;
 }
 
 export interface AgentServiceFactory {
-  agent(): AgentService;
+  listAgents(): ListAgentsService;
+  createAgent(): CreateAgentService;
+  updateAgent(): UpdateAgentService;
+  deleteAgent(): DeleteAgentService;
+  setActiveAgent(): SetActiveAgentService;
+}
+
+export interface SettingsServiceFactory {
+  getSettings(): GetSettingsService;
+  updateSettings(): UpdateSettingsService;
 }
 
 export interface ToolingServiceFactory {
@@ -106,6 +148,10 @@ export interface ToolingServiceFactory {
 
 export interface OpsServiceFactory {
   observabilitySnapshot(): GetObservabilitySnapshotService;
+  dashboardProjects(): ListDashboardProjectsService;
+  dashboardSessions(): ListDashboardSessionsService;
+  dashboardStats(): GetDashboardStatsService;
+  dashboardPageData(): GetDashboardPageDataService;
 }
 
 /**
@@ -133,6 +179,8 @@ export class Container {
   private projectServices: ProjectServiceFactory | undefined;
   /** Agent service factory */
   private agentServices: AgentServiceFactory | undefined;
+  /** Settings service factory */
+  private settingsServices: SettingsServiceFactory | undefined;
   /** Tooling service factory */
   private toolingServices: ToolingServiceFactory | undefined;
   /** Operations service factory */
@@ -187,6 +235,22 @@ export class Container {
     this.gitAdapter = new GitAdapter();
     this.agentRuntimeAdapter = new AgentRuntimeAdapter();
     this.sessionAcpAdapter = new SessionAcpAdapter();
+
+    this.registerDomainEventHandlers();
+  }
+
+  private registerDomainEventHandlers(): void {
+    this.eventBus.subscribe(async (event) => {
+      if (event.type !== "project_deleting") {
+        return;
+      }
+
+      const service = this.getSessionServices().cleanupProjectSessions();
+      await service.execute({
+        projectId: event.projectId,
+        projectPath: event.projectPath,
+      });
+    });
   }
 
   /**
@@ -267,41 +331,6 @@ export class Container {
   }
 
   /**
-   * Applies new settings and returns which settings changed
-   * @param next - The new settings to apply
-   * @returns Object containing lists of changed keys and settings requiring restart
-   */
-  async applySettings(next: Settings): Promise<{
-    requiresRestart: string[];
-    changedKeys: string[];
-  }> {
-    const current = await this.settingsRepo.get();
-    const changedKeys: string[] = [];
-    const requiresRestart: string[] = [];
-
-    if (
-      JSON.stringify(current.projectRoots) !== JSON.stringify(next.projectRoots)
-    ) {
-      changedKeys.push("projectRoots");
-      await this.projectRepo.setAllowedRoots(next.projectRoots);
-    }
-
-    if (JSON.stringify(current.ui) !== JSON.stringify(next.ui)) {
-      changedKeys.push("ui");
-    }
-
-    if (
-      JSON.stringify(current.mcpServers ?? []) !==
-      JSON.stringify(next.mcpServers ?? [])
-    ) {
-      changedKeys.push("mcpServers");
-      requiresRestart.push("mcpServers");
-    }
-
-    return { requiresRestart, changedKeys };
-  }
-
-  /**
    * Gets the agent repository
    * @returns The agent repository for agent management
    */
@@ -345,20 +374,30 @@ export class Container {
             this.sessionRuntime,
             this.agentRuntimeAdapter,
             this.settingsRepo,
+            this.projectRepo,
             this.sessionAcpAdapter
           ),
         stopSession: () =>
-          new StopSessionService(this.sessionRepo, this.sessionRuntime),
+          new StopSessionService(
+            this.sessionRepo,
+            this.sessionRuntime,
+            this.eventBus
+          ),
         resumeSession: () =>
           new ResumeSessionService(
             this.sessionRepo,
             this.sessionRuntime,
             this.agentRuntimeAdapter,
             this.settingsRepo,
+            this.projectRepo,
             this.sessionAcpAdapter
           ),
         deleteSession: () =>
-          new DeleteSessionService(this.sessionRepo, this.sessionRuntime),
+          new DeleteSessionService(
+            this.sessionRepo,
+            this.sessionRuntime,
+            this.eventBus
+          ),
         getSessionState: () =>
           new GetSessionStateService(this.sessionRepo, this.sessionRuntime),
         listSessions: () =>
@@ -370,6 +409,15 @@ export class Container {
         updateSessionMeta: () => new UpdateSessionMetaService(this.sessionRepo),
         getSessionMessages: () =>
           new GetSessionMessagesService(this.sessionRepo),
+        getSessionStorageStats: () =>
+          new GetSessionStorageStatsService(this.sessionRepo),
+        subscribeSessionEvents: () =>
+          new SubscribeSessionEventsService(this.sessionRuntime),
+        cleanupProjectSessions: () =>
+          new CleanupProjectSessionsService(
+            this.sessionRepo,
+            this.sessionRuntime
+          ),
         reconcileSessionStatus: () =>
           new ReconcileSessionStatusService(
             this.sessionRepo,
@@ -410,12 +458,15 @@ export class Container {
   getProjectServices(): ProjectServiceFactory {
     if (!this.projectServices) {
       this.projectServices = {
-        project: () =>
-          new ProjectService(
-            this.projectRepo,
-            this.sessionRepo,
-            this.sessionRuntime
-          ),
+        listProjects: () => new ListProjectsService(this.projectRepo),
+        createProject: () =>
+          new CreateProjectService(this.projectRepo, this.eventBus),
+        updateProject: () =>
+          new UpdateProjectService(this.projectRepo, this.eventBus),
+        deleteProject: () =>
+          new DeleteProjectService(this.projectRepo, this.eventBus),
+        setActiveProject: () =>
+          new SetActiveProjectService(this.projectRepo, this.eventBus),
       };
     }
 
@@ -428,11 +479,37 @@ export class Container {
   getAgentServices(): AgentServiceFactory {
     if (!this.agentServices) {
       this.agentServices = {
-        agent: () => new AgentService(this.agentRepo),
+        listAgents: () => new ListAgentsService(this.agentRepo),
+        createAgent: () =>
+          new CreateAgentService(this.agentRepo, this.eventBus),
+        updateAgent: () =>
+          new UpdateAgentService(this.agentRepo, this.eventBus),
+        deleteAgent: () =>
+          new DeleteAgentService(this.agentRepo, this.eventBus),
+        setActiveAgent: () => new SetActiveAgentService(this.agentRepo),
       };
     }
 
     return this.agentServices;
+  }
+
+  /**
+   * Gets settings use-case factories.
+   */
+  getSettingsServices(): SettingsServiceFactory {
+    if (!this.settingsServices) {
+      this.settingsServices = {
+        getSettings: () => new GetSettingsService(this.settingsRepo),
+        updateSettings: () =>
+          new UpdateSettingsService(
+            this.settingsRepo,
+            this.projectRepo,
+            this.eventBus
+          ),
+      };
+    }
+
+    return this.settingsServices;
   }
 
   /**
@@ -456,6 +533,19 @@ export class Container {
    */
   getOpsServices(): OpsServiceFactory {
     if (!this.opsServices) {
+      const dashboardProjects = new ListDashboardProjectsService(
+        this.projectRepo,
+        this.sessionRepo
+      );
+      const dashboardSessions = new ListDashboardSessionsService(
+        this.projectRepo,
+        this.sessionRepo,
+        this.sessionRuntime
+      );
+      const dashboardStats = new GetDashboardStatsService(
+        this.projectRepo,
+        this.sessionRepo
+      );
       this.opsServices = {
         observabilitySnapshot: () =>
           new GetObservabilitySnapshotService({
@@ -463,6 +553,16 @@ export class Container {
             logStore: this.logStore,
             getCacheStats: () => this.getCacheStats(),
             getBackgroundRunnerState: () => this.getBackgroundRunnerState(),
+          }),
+        dashboardProjects: () => dashboardProjects,
+        dashboardSessions: () => dashboardSessions,
+        dashboardStats: () => dashboardStats,
+        dashboardPageData: () =>
+          new GetDashboardPageDataService({
+            listDashboardProjects: dashboardProjects,
+            listDashboardSessions: dashboardSessions,
+            getDashboardStats: dashboardStats,
+            agentRepo: this.agentRepo,
           }),
       };
     }

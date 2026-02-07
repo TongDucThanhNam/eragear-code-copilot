@@ -36,11 +36,6 @@ export function registerSessionRoutes(api: Hono): void {
 
     const service = container.getSessionServices().stopSession();
     await service.execute(chatId);
-    container.getEventBus().publish({
-      type: "dashboard_refresh",
-      reason: "session_stopped",
-      chatId,
-    });
 
     return c.json({ ok: true });
   });
@@ -58,11 +53,6 @@ export function registerSessionRoutes(api: Hono): void {
 
     const service = container.getSessionServices().deleteSession();
     await service.execute(chatId);
-    container.getEventBus().publish({
-      type: "dashboard_refresh",
-      reason: "session_deleted",
-      chatId,
-    });
     return c.json({ ok: true });
   });
 }

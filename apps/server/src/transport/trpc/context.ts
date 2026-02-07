@@ -30,7 +30,7 @@ export interface AuthContext {
  * @example
  * ```typescript
  * const context = createTrpcContext();
- * const projects = context.container.getProjects().findAll();
+ * const projects = context.container.getProjectServices().listProjects().execute();
  * ```
  */
 export async function createTrpcContext(opts?: { req?: RequestLike }) {

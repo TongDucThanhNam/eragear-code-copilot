@@ -225,7 +225,7 @@ export function AuthTab({
                 </span>
                 <div className="flex items-baseline gap-1">
                   <span className="font-bold font-serif text-3xl leading-none">
-                    {deviceSessions.length}
+                    {activeDeviceSessions.length}
                   </span>
                   <span className="font-mono text-[#737373] text-xs">
                     sessions

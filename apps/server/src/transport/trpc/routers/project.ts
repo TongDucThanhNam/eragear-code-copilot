@@ -18,39 +18,39 @@ import { protectedProcedure, router } from "../base";
 export const projectRouter = router({
   /** List all projects */
   listProjects: protectedProcedure.query(async ({ ctx }) => {
-    const service = ctx.container.getProjectServices().project();
-    return await service.listProjects();
+    const service = ctx.container.getProjectServices().listProjects();
+    return await service.execute();
   }),
 
   /** Create a new project */
   createProject: protectedProcedure
     .input(CreateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getProjectServices().project();
-      return await service.createProject(input);
+      const service = ctx.container.getProjectServices().createProject();
+      return await service.execute(input);
     }),
 
   /** Update an existing project */
   updateProject: protectedProcedure
     .input(UpdateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getProjectServices().project();
-      return await service.updateProject(input);
+      const service = ctx.container.getProjectServices().updateProject();
+      return await service.execute(input);
     }),
 
   /** Delete a project */
   deleteProject: protectedProcedure
     .input(DeleteProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getProjectServices().project();
-      return await service.deleteProject(input.id);
+      const service = ctx.container.getProjectServices().deleteProject();
+      return await service.execute(input.id);
     }),
 
   /** Set the active project (for UI state) */
   setActiveProject: protectedProcedure
     .input(SetActiveProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getProjectServices().project();
-      return await service.setActiveProject(input.id);
+      const service = ctx.container.getProjectServices().setActiveProject();
+      return await service.execute(input.id);
     }),
 });

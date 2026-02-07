@@ -30,6 +30,7 @@ export const UpdateAgentInputSchema = z.object({
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  projectId: z.string().nullable().optional(),
 });
 
 export const DeleteAgentInputSchema = z.object({

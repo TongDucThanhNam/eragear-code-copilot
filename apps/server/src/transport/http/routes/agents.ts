@@ -14,7 +14,7 @@
 
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
-import { ValidationError } from "../../../shared/errors";
+import { isAppError } from "../../../shared/errors";
 import { parseArgsInput } from "../../../shared/utils/cli-args.util";
 
 /** Valid agent types */
@@ -41,8 +41,9 @@ export function registerAgentRoutes(api: Hono): void {
    * GET /api/agents - List all agent configurations
    */
   api.get("/agents", async (c: Context) => {
-    const agents = await container.getAgents().findAll();
-    return c.json({ agents });
+    const service = container.getAgentServices().listAgents();
+    const result = await service.execute();
+    return c.json({ agents: result.agents });
   });
 
   /**
@@ -81,8 +82,8 @@ export function registerAgentRoutes(api: Hono): void {
         resolvedArgs = parsed.args;
       }
 
-      const service = container.getAgentServices().agent();
-      const agent = await service.createAgent({
+      const service = container.getAgentServices().createAgent();
+      const agent = await service.execute({
         name,
         type,
         command,
@@ -91,15 +92,9 @@ export function registerAgentRoutes(api: Hono): void {
         projectId,
       });
 
-      container.getEventBus().publish({
-        type: "dashboard_refresh",
-        reason: "agent_created",
-        agentId: agent.id,
-      });
-
       return c.json({ ok: true, agent });
     } catch (error) {
-      if (error instanceof ValidationError) {
+      if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
       console.error("Failed to create agent:", error);
@@ -129,11 +124,6 @@ export function registerAgentRoutes(api: Hono): void {
         return c.json({ error: "id is required" }, 400);
       }
 
-      const existing = await container.getAgents().findById(id);
-      if (!existing) {
-        return c.json({ error: "Agent not found" }, 404);
-      }
-
       if (type && !VALID_AGENT_TYPES.includes(type)) {
         return c.json(
           { error: `type must be one of: ${VALID_AGENT_TYPES.join(", ")}` },
@@ -150,8 +140,8 @@ export function registerAgentRoutes(api: Hono): void {
         resolvedArgs = parsed.args;
       }
 
-      const service = container.getAgentServices().agent();
-      const agent = await service.updateAgent({
+      const service = container.getAgentServices().updateAgent();
+      const agent = await service.execute({
         id,
         name,
         type,
@@ -161,15 +151,9 @@ export function registerAgentRoutes(api: Hono): void {
         projectId,
       });
 
-      container.getEventBus().publish({
-        type: "dashboard_refresh",
-        reason: "agent_updated",
-        agentId: agent.id,
-      });
-
       return c.json({ ok: true, agent });
     } catch (error) {
-      if (error instanceof ValidationError) {
+      if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
       console.error("Failed to update agent:", error);
@@ -189,16 +173,14 @@ export function registerAgentRoutes(api: Hono): void {
         return c.json({ error: "agentId is required" }, 400);
       }
 
-      const service = container.getAgentServices().agent();
-      await service.deleteAgent(agentId);
-      container.getEventBus().publish({
-        type: "dashboard_refresh",
-        reason: "agent_deleted",
-        agentId,
-      });
+      const service = container.getAgentServices().deleteAgent();
+      await service.execute(agentId);
 
       return c.json({ ok: true });
     } catch (error) {
+      if (isAppError(error)) {
+        return c.json({ error: error.message }, error.statusCode as 400 | 404);
+      }
       console.error("Failed to delete agent:", error);
       return c.json({ error: "Failed to delete agent" }, 500);
     }

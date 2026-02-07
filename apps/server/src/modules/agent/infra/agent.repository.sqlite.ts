@@ -285,6 +285,8 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         command: input.command || current.command,
         args: input.args !== undefined ? input.args : current.args,
         env: input.env !== undefined ? input.env : current.env,
+        projectId:
+          input.projectId !== undefined ? input.projectId : current.projectId,
         updatedAt: Date.now(),
       };
 
@@ -295,6 +297,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
           command: updated.command,
           argsJson: toSqliteJson(updated.args),
           envJson: toSqliteJson(updated.env),
+          projectId: updated.projectId ?? null,
           updatedAt: updated.updatedAt,
         })
         .where(eq(sqliteSchema.agents.id, updated.id))

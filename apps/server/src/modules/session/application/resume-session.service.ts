@@ -7,6 +7,7 @@
  * @module modules/session/application/resume-session.service
  */
 
+import type { ProjectRepositoryPort } from "@/modules/project";
 import type { SettingsRepositoryPort } from "@/modules/settings";
 import { NotFoundError, ValidationError } from "@/shared/errors";
 import { CreateSessionService } from "./create-session.service";
@@ -33,6 +34,8 @@ export class ResumeSessionService {
   private readonly agentRuntime: AgentRuntimePort;
   /** Repository for application settings */
   private readonly settingsRepo: SettingsRepositoryPort;
+  /** Repository for project metadata */
+  private readonly projectRepo: ProjectRepositoryPort;
   /** ACP session adapter */
   private readonly sessionAcp: SessionAcpPort;
 
@@ -44,12 +47,14 @@ export class ResumeSessionService {
     sessionRuntime: SessionRuntimePort,
     agentRuntime: AgentRuntimePort,
     settingsRepo: SettingsRepositoryPort,
+    projectRepo: ProjectRepositoryPort,
     sessionAcp: SessionAcpPort
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
     this.agentRuntime = agentRuntime;
     this.settingsRepo = settingsRepo;
+    this.projectRepo = projectRepo;
     this.sessionAcp = sessionAcp;
   }
 
@@ -104,6 +109,7 @@ export class ResumeSessionService {
       this.sessionRuntime,
       this.agentRuntime,
       this.settingsRepo,
+      this.projectRepo,
       this.sessionAcp
     ).execute({
       projectId: stored.projectId,

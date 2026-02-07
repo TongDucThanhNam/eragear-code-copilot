@@ -12,7 +12,8 @@ const LOG_LIMIT = 200;
 const LOGS_ENDPOINT = "/api/logs";
 const LOGS_STREAM_ENDPOINT = "/api/logs/stream";
 
-const DEFAULT_LEVELS: LogLevel[] = ["info", "warn", "error"];
+const DEFAULT_RANGE = "all";
+const DEFAULT_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 const DEFAULT_STATUSES = ["2xx", "3xx", "4xx", "5xx", "system"] as const;
 
 type StatusBucket = (typeof DEFAULT_STATUSES)[number];
@@ -42,6 +43,10 @@ function entrySearchText(entry: LogEntry): string {
     entry.request?.host ?? "",
     entry.request?.status?.toString() ?? "",
     entry.error?.message ?? "",
+    entry.requestId ?? "",
+    entry.traceId ?? "",
+    entry.chatId ?? "",
+    entry.id,
   ]
     .join(" ")
     .toLowerCase();
@@ -74,7 +79,7 @@ function statusBucketLabel(bucket: StatusBucket): string {
 export function LogsTab({ activeTab }: LogsTabProps) {
   const [rawEntries, setRawEntries] = useState<LogEntry[]>([]);
   const [search, setSearch] = useState("");
-  const [range, setRange] = useState("30m");
+  const [range, setRange] = useState(DEFAULT_RANGE);
   const [levels, setLevels] = useState<Set<LogLevel>>(
     () => new Set(DEFAULT_LEVELS)
   );
@@ -184,10 +189,12 @@ export function LogsTab({ activeTab }: LogsTabProps) {
 
   const handleReset = () => {
     setSearch("");
-    setRange("30m");
+    setRange(DEFAULT_RANGE);
     setLevels(new Set(DEFAULT_LEVELS));
     setStatuses(new Set(DEFAULT_STATUSES));
-    fetchLogs();
+    if (range === DEFAULT_RANGE) {
+      fetchLogs();
+    }
   };
 
   const handleLiveToggle = () => {
@@ -255,12 +262,24 @@ export function LogsTab({ activeTab }: LogsTabProps) {
     setSelectedId(entryId);
   };
 
+  useEffect(() => {
+    if (!selectedId) {
+      return;
+    }
+    const stillVisible = filteredEntries.some(
+      (entry) => entry.id === selectedId
+    );
+    if (!stillVisible) {
+      setSelectedId(null);
+    }
+  }, [filteredEntries, selectedId]);
+
   return (
     <TabPanel activeTab={activeTab} className="flex-1" tab="logs">
       <section className="border-2 border-ink bg-paper shadow-news">
         {/* Header Section */}
         <div className="border-ink border-b-4 p-6">
-          <div className="items-starts flex flex-wrap justify-between gap-6">
+          <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
               <div className="mb-2 font-mono text-ink-muted text-xs uppercase tracking-[0.2em]">
                 Edition Vol. 1
@@ -275,10 +294,10 @@ export function LogsTab({ activeTab }: LogsTabProps) {
             </div>
             <div className="flex flex-col items-end gap-3">
               <span className="log-status-pill font-mono text-xs uppercase tracking-widest">
-                Log Stream
+                Saved Log Format
               </span>
               <span className="border border-ink px-3 py-1 font-mono text-xs tracking-widest">
-                Filtered Stream
+                Showing {filteredEntries.length}/{rawEntries.length} buffered
               </span>
             </div>
           </div>
@@ -298,11 +317,11 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                     onChange={(event) => setRange(event.target.value)}
                     value={range}
                   >
+                    <option value={DEFAULT_RANGE}>All time</option>
                     <option value="30m">Last 30 minutes</option>
                     <option value="2h">Last 2 hours</option>
                     <option value="24h">Last 24 hours</option>
                     <option value="7d">Last 7 days</option>
-                    <option value="all">All time</option>
                   </select>
                 </div>
                 <div className="log-control log-search">
@@ -312,7 +331,7 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                   <input
                     id="log-search-input"
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search logs..."
+                    placeholder="Search message, route, request ID..."
                     type="search"
                     value={search}
                   />
@@ -354,21 +373,19 @@ export function LogsTab({ activeTab }: LogsTabProps) {
               <aside className="log-filters">
                 <div className="log-filter-group">
                   <div className="log-filter-title">Contains level</div>
-                  {(["info", "warn", "error", "debug"] as LogLevel[]).map(
-                    (level) => (
-                      <label className="log-filter-item" key={level}>
-                        <input
-                          checked={levels.has(level)}
-                          onChange={() => handleLevelToggle(level)}
-                          type="checkbox"
-                        />
-                        <span>{level === "warn" ? "Warning" : level}</span>
-                        <span className="log-count">
-                          {counts.levelCounts[level]}
-                        </span>
-                      </label>
-                    )
-                  )}
+                  {DEFAULT_LEVELS.map((level) => (
+                    <label className="log-filter-item" key={level}>
+                      <input
+                        checked={levels.has(level)}
+                        onChange={() => handleLevelToggle(level)}
+                        type="checkbox"
+                      />
+                      <span>{level === "warn" ? "Warning" : level}</span>
+                      <span className="log-count">
+                        {counts.levelCounts[level]}
+                      </span>
+                    </label>
+                  ))}
                 </div>
 
                 <div className="log-filter-group">
@@ -416,6 +433,7 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                         const isSelected = entry.id === selectedId;
                         return (
                           <button
+                            aria-pressed={isSelected}
                             className={`log-entry log-entry--${entry.level} ${
                               isSelected ? "is-selected" : ""
                             }`}
@@ -438,14 +456,15 @@ export function LogsTab({ activeTab }: LogsTabProps) {
                             </div>
                             <div className="log-cell log-request">
                               {entry.request
-                                ? `${entry.request.method} ${entry.request.path}`
+                                ? `${entry.request.method} ${entry.request.path}${
+                                    entry.request.durationMs
+                                      ? ` (${entry.request.durationMs}ms)`
+                                      : ""
+                                  }`
                                 : (entry.source ?? "--")}
                             </div>
                             <div className="log-cell log-message">
-                              {entry.error?.message ??
-                                (entry.request?.durationMs
-                                  ? `${entry.request.durationMs}ms`
-                                  : entry.message)}
+                              {entry.error?.message ?? entry.message}
                             </div>
                           </button>
                         );

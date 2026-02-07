@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull, ne, or } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
 import {
@@ -210,7 +210,6 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
         const project = tx
           .select({
             id: sqliteSchema.projects.id,
-            path: sqliteSchema.projects.path,
           })
           .from(sqliteSchema.projects)
           .where(eq(sqliteSchema.projects.id, id))
@@ -218,19 +217,6 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
         if (!project) {
           return;
         }
-
-        // Clean up sessions that only reference the deleted project path.
-        tx.delete(sqliteSchema.sessions)
-          .where(
-            or(
-              eq(sqliteSchema.sessions.projectId, id),
-              and(
-                isNull(sqliteSchema.sessions.projectId),
-                eq(sqliteSchema.sessions.projectRoot, project.path)
-              )
-            )
-          )
-          .run();
 
         tx.delete(sqliteSchema.projects)
           .where(eq(sqliteSchema.projects.id, id))

@@ -12,7 +12,7 @@
 
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
-import { isPathWithinRoots } from "../../../shared/utils/project-roots.util";
+import { isAppError } from "../../../shared/errors";
 
 /**
  * Registers project-related HTTP routes
@@ -41,21 +41,8 @@ export function registerProjectRoutes(api: Hono): void {
         return c.json({ error: "name and path are required" }, 400);
       }
 
-      // Validate path is within allowed project roots
-      const settings = await container.getSettings().get();
-      const isAllowed = isPathWithinRoots(path, settings.projectRoots);
-
-      if (!isAllowed) {
-        return c.json(
-          {
-            error: `Path must be within allowed project roots: ${settings.projectRoots.join(", ")}`,
-          },
-          400
-        );
-      }
-
-      const service = container.getProjectServices().project();
-      const project = await service.createProject({
+      const service = container.getProjectServices().createProject();
+      const project = await service.execute({
         name,
         path,
         description: description || null,
@@ -63,14 +50,11 @@ export function registerProjectRoutes(api: Hono): void {
         favorite: false,
       });
 
-      container.getEventBus().publish({
-        type: "dashboard_refresh",
-        reason: "project_created",
-        projectId: project.id,
-      });
-
       return c.json({ ok: true, project });
     } catch (error) {
+      if (isAppError(error)) {
+        return c.json({ error: error.message }, error.statusCode as 400 | 404);
+      }
       console.error("Failed to create project:", error);
       return c.json({ error: "Failed to create project" }, 500);
     }
@@ -88,16 +72,14 @@ export function registerProjectRoutes(api: Hono): void {
         return c.json({ error: "projectId is required" }, 400);
       }
 
-      const service = container.getProjectServices().project();
-      await service.deleteProject(projectId);
-      container.getEventBus().publish({
-        type: "dashboard_refresh",
-        reason: "project_deleted",
-        projectId,
-      });
+      const service = container.getProjectServices().deleteProject();
+      await service.execute(projectId);
 
       return c.json({ ok: true });
     } catch (error) {
+      if (isAppError(error)) {
+        return c.json({ error: error.message }, error.statusCode as 400 | 404);
+      }
       console.error("Failed to delete project:", error);
       return c.json({ error: "Failed to delete project" }, 500);
     }

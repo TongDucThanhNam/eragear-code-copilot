@@ -21,7 +21,6 @@ import {
   SessionMessagesPageInputSchema,
   UpdateSessionMetaInputSchema,
 } from "@/modules/session";
-import { NotFoundError } from "@/shared/errors";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
 import { protectedProcedure, router } from "../base";
 
@@ -36,20 +35,9 @@ export const sessionRouter = router({
         JSON.stringify(input, null, 2)
       );
 
-      const project = await ctx.container
-        .getProjects()
-        .findById(input.projectId);
-      if (!project) {
-        throw new NotFoundError("Project not found", {
-          module: "session",
-          op: "session.lifecycle.create",
-          details: { projectId: input.projectId },
-        });
-      }
       const service = ctx.container.getSessionServices().createSession();
       const res = await service.execute({
         projectId: input.projectId,
-        projectRoot: project.path,
         command: input.command,
         args: input.args,
         env: input.env,
@@ -157,43 +145,48 @@ export const sessionRouter = router({
     }),
 
   /** Get current SQLite storage statistics */
-  getStorageStats: protectedProcedure.query(({ ctx }) => {
-    return ctx.container.getSessions().getStorageStats();
+  getStorageStats: protectedProcedure.query(async ({ ctx }) => {
+    const service = ctx.container.getSessionServices().getSessionStorageStats();
+    return await service.execute();
   }),
 
   /** Subscribe to real-time session events */
   onSessionEvents: protectedProcedure
     .input(SessionChatIdInputSchema)
     .subscription(({ input, ctx }) => {
+      const service = ctx.container
+        .getSessionServices()
+        .subscribeSessionEvents();
       return observable<BroadcastEvent>((emit) => {
-        const session = ctx.container.getSessionRuntime().get(input.chatId);
-        if (!session) {
+        let subscription: ReturnType<typeof service.execute> | undefined;
+        try {
+          subscription = service.execute(input.chatId);
+        } catch (error) {
+          emit.error(
+            error instanceof Error ? error : new Error("Chat not found")
+          );
+          return;
+        }
+
+        if (!subscription) {
           emit.error(new Error("Chat not found"));
           return;
         }
 
-        session.idleSinceAt = undefined;
-        session.subscriberCount++;
         emit.next({ type: "connected" });
-        emit.next({ type: "chat_status", status: session.chatStatus });
+        emit.next({ type: "chat_status", status: subscription.chatStatus });
 
-        for (const event of session.messageBuffer) {
+        for (const event of subscription.bufferedEvents) {
           emit.next(event);
         }
 
-        const onData = (data: BroadcastEvent) => {
-          emit.next(data);
-        };
-
-        session.emitter.on("data", onData);
+        const unsubscribe = subscription.subscribe((event) => {
+          emit.next(event);
+        });
 
         return () => {
-          session.subscriberCount = Math.max(0, session.subscriberCount - 1);
-          session.emitter.off("data", onData);
-
-          if (session.subscriberCount <= 0) {
-            session.idleSinceAt = Date.now();
-          }
+          unsubscribe();
+          subscription.release();
         };
       });
     }),

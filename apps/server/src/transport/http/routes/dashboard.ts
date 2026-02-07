@@ -17,12 +17,10 @@ import type { Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { createElement } from "react";
 import { LoginHead, LoginPage } from "@/presentation/dashboard/login";
-import { buildDashboardData } from "@/presentation/dashboard/server/build-dashboard-data";
 import { DashboardPage } from "@/presentation/dashboard/server/dashboard-page";
 import { renderDocument } from "@/presentation/dashboard/server/render-document";
 import { normalizeTab } from "@/presentation/dashboard/utils";
 import { getContainer } from "../../../bootstrap/container";
-import { DEFAULT_SESSION_LIST_PAGE_LIMIT } from "../../../config/constants";
 import { ENV } from "../../../config/environment";
 import {
   DASHBOARD_ASSET_PATH,
@@ -105,14 +103,12 @@ export function registerDashboardUiRoutes(app: Hono): void {
       return c.redirect("/login");
     }
     const container = getContainer();
-    const settings = await container.getSettings().get();
-    const projects = await container.getProjects().findAll();
-    const storedSessions = await container.getSessions().findAll({
-      limit: DEFAULT_SESSION_LIST_PAGE_LIMIT,
-      offset: 0,
-    });
-    const runtimeSessions = container.getSessionRuntime();
-    const agents = await container.getAgents().findAll();
+    const getSettings = container.getSettingsServices().getSettings();
+    const dashboardPageData = container.getOpsServices().dashboardPageData();
+    const [settings, baseDashboardData] = await Promise.all([
+      getSettings.execute(),
+      dashboardPageData.execute(),
+    ]);
 
     let apiKeys: unknown[] = [];
     let deviceSessions: unknown[] = [];
@@ -136,14 +132,11 @@ export function registerDashboardUiRoutes(app: Hono): void {
       normalizeDeviceSessionItem(item as never)
     );
 
-    const dashboardData = buildDashboardData({
-      projects,
-      sessions: storedSessions,
-      runtimeSessions,
-      agents,
+    const dashboardData = {
+      ...baseDashboardData,
       apiKeys: normalizedApiKeys,
       deviceSessions: normalizedDeviceSessions,
-    });
+    };
 
     const { tab, success, error, notice, restart } = c.req.query();
     const normalizedTab = normalizeTab(tab);

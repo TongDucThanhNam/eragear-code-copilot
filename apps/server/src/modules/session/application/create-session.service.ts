@@ -11,8 +11,9 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import type * as acp from "@agentclientprotocol/sdk";
+import type { ProjectRepositoryPort } from "@/modules/project";
 import type { SettingsRepositoryPort } from "@/modules/settings";
-import { AppError, ValidationError } from "@/shared/errors";
+import { AppError, NotFoundError, ValidationError } from "@/shared/errors";
 import { CLIENT_INFO } from "../../../config/constants";
 import type {
   ChatSession,
@@ -53,8 +54,8 @@ const OP = "session.lifecycle.create";
 export interface CreateSessionParams {
   /** Optional project ID this session belongs to */
   projectId?: string;
-  /** File system path to the project root directory */
-  projectRoot: string;
+  /** Optional file system path to the project root directory */
+  projectRoot?: string;
   /** Command to spawn the agent process (defaults to "opencode") */
   command?: string;
   /** Arguments to pass to the agent command */
@@ -89,6 +90,8 @@ export class CreateSessionService {
   private readonly agentRuntime: AgentRuntimePort;
   /** Repository for application settings including MCP servers */
   private readonly settingsRepo: SettingsRepositoryPort;
+  /** Repository for project metadata */
+  private readonly projectRepo: ProjectRepositoryPort;
   /** ACP session adapter */
   private readonly sessionAcp: SessionAcpPort;
 
@@ -100,12 +103,14 @@ export class CreateSessionService {
     sessionRuntime: SessionRuntimePort,
     agentRuntime: AgentRuntimePort,
     settingsRepo: SettingsRepositoryPort,
+    projectRepo: ProjectRepositoryPort,
     sessionAcp: SessionAcpPort
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
     this.agentRuntime = agentRuntime;
     this.settingsRepo = settingsRepo;
+    this.projectRepo = projectRepo;
     this.sessionAcp = sessionAcp;
   }
 
@@ -450,7 +455,7 @@ export class CreateSessionService {
     projectRoot: string
   ) {
     const commonSessionData = {
-      projectId: params.projectId,
+      projectId: params.projectId ?? chatSession.projectId,
       projectRoot,
       command: agentCmd,
       args: agentArgs,
@@ -504,7 +509,8 @@ export class CreateSessionService {
     const agentCmd = params.command ?? "opencode";
     const agentArgs = params.args ?? this.resolveDefaultAgentArgs(agentCmd);
     const agentEnv = params.env ?? {};
-    const projectRoot = await this.resolveProjectRoot(params.projectRoot);
+    const projectContext = await this.resolveProjectContext(params);
+    const projectRoot = projectContext.projectRoot;
 
     console.log(
       `[DEBUG] Using agent: command="${agentCmd}", args=${JSON.stringify(agentArgs)}`
@@ -535,7 +541,7 @@ export class CreateSessionService {
       id: chatId,
       proc,
       conn: null as unknown as ChatSession["conn"],
-      projectId: params.projectId,
+      projectId: projectContext.projectId,
       projectRoot,
       sessionId: params.sessionIdToLoad,
       plan: storedPlan,
@@ -651,18 +657,41 @@ export class CreateSessionService {
     return [];
   }
 
-  /**
-   * Resolves the project root, validating against allowed roots
-   *
-   * @param projectRoot - The requested project root
-   * @returns The validated project root
-   */
-  private async resolveProjectRoot(projectRoot: string): Promise<string> {
+  private async resolveProjectContext(params: CreateSessionParams): Promise<{
+    projectId?: string;
+    projectRoot: string;
+  }> {
+    if (params.projectId) {
+      const project = await this.projectRepo.findById(params.projectId);
+      if (!project) {
+        throw new NotFoundError("Project not found", {
+          module: "session",
+          op: OP,
+          details: { projectId: params.projectId },
+        });
+      }
+      return {
+        projectId: project.id,
+        projectRoot: project.path,
+      };
+    }
+
+    if (!params.projectRoot) {
+      throw new ValidationError(
+        "projectRoot is required when projectId is not provided",
+        {
+          module: "session",
+          op: OP,
+        }
+      );
+    }
+
+    const projectRoot = params.projectRoot;
     const { projectRoots } = await this.settingsRepo.get();
     if (!projectRoots || projectRoots.length === 0) {
-      return projectRoot;
+      return { projectRoot };
     }
-    return projectRoot;
+    return { projectRoot };
   }
 
   /**

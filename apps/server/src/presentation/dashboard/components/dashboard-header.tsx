@@ -1,7 +1,6 @@
+import type { TabKey } from "@/presentation/dashboard/dashboard-data";
 import { formatUtcDateLabel } from "../date-format";
 import { DashboardNav } from "./dashboard-nav";
-
-type TabKey = "sessions" | "projects" | "agents" | "auth" | "settings" | "logs";
 
 interface DashboardHeaderProps {
   activeTab: TabKey;

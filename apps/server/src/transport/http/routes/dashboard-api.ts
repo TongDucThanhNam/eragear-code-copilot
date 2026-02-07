@@ -16,35 +16,7 @@
 
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
-import type { Project } from "../../../shared/types/project.types";
-import type { StoredSession } from "../../../shared/types/session.types";
 import { parseLogQueryParams, parseSessionPaginationParams } from "./helpers";
-
-const DASHBOARD_AGGREGATION_PAGE_SIZE = 500;
-
-async function forEachSessionPage(
-  handler: (sessions: StoredSession[]) => void | Promise<void>
-): Promise<void> {
-  const sessionsRepo = getContainer().getSessions();
-  let offset = 0;
-
-  while (true) {
-    const sessions = await sessionsRepo.findAll({
-      limit: DASHBOARD_AGGREGATION_PAGE_SIZE,
-      offset,
-    });
-    if (sessions.length === 0) {
-      break;
-    }
-
-    await handler(sessions);
-
-    if (sessions.length < DASHBOARD_AGGREGATION_PAGE_SIZE) {
-      break;
-    }
-    offset += sessions.length;
-  }
-}
 
 /**
  * Registers dashboard-related API routes
@@ -60,48 +32,8 @@ export function registerDashboardApiRoutes(api: Hono): void {
    * GET /api/dashboard/projects - Get all projects with session statistics
    */
   api.get("/dashboard/projects", async (c: Context) => {
-    const projects = await container.getProjects().findAll();
-    const projectPathMap = new Map(
-      projects.map((project) => [project.path, project.id] as const)
-    );
-    const statsByProjectId = new Map<
-      string,
-      { total: number; running: number }
-    >(projects.map((project) => [project.id, { total: 0, running: 0 }]));
-
-    await forEachSessionPage((sessions) => {
-      for (const session of sessions) {
-        const resolvedProjectId =
-          session.projectId ?? projectPathMap.get(session.projectRoot);
-        if (!resolvedProjectId) {
-          continue;
-        }
-
-        const stat = statsByProjectId.get(resolvedProjectId);
-        if (!stat) {
-          continue;
-        }
-        stat.total += 1;
-        if (session.status === "running") {
-          stat.running += 1;
-        }
-      }
-    });
-
-    const projectsWithStats = projects.map((project: Project) => {
-      const stat = statsByProjectId.get(project.id) ?? {
-        total: 0,
-        running: 0,
-      };
-      return {
-        ...project,
-        sessionCount: stat.total,
-        runningCount: stat.running,
-        lastOpenedAt: project.lastOpenedAt,
-      };
-    });
-
-    return c.json({ projects: projectsWithStats });
+    const service = container.getOpsServices().dashboardProjects();
+    return c.json(await service.execute());
   });
 
   /**
@@ -114,103 +46,16 @@ export function registerDashboardApiRoutes(api: Hono): void {
     }
     const { limit, offset } = parsedPagination.pagination;
 
-    const projects = await container.getProjects().findAll();
-    const [storedSessions, totalSessions] = await Promise.all([
-      container.getSessions().findAll({ limit, offset }),
-      container.getSessions().countAll(),
-    ]);
-    const runtime = container.getSessionRuntime();
-
-    const sessions = storedSessions.map((session: StoredSession) => {
-      const activeSession = runtime.get(session.id);
-      const isActive = Boolean(activeSession);
-      const agentInfo = activeSession?.agentInfo ?? session.agentInfo;
-      const agentName = agentInfo?.title ?? agentInfo?.name ?? "Unknown Agent";
-
-      return {
-        id: session.id,
-        sessionId: session.sessionId,
-        projectId: session.projectId ?? null,
-        projectRoot: session.projectRoot,
-        projectName: session.projectId
-          ? projects.find((p) => p.id === session.projectId)?.name
-          : session.projectRoot.split("/").pop(),
-        modeId: session.modeId,
-        status: session.status,
-        isActive,
-        createdAt: session.createdAt,
-        lastActiveAt: session.lastActiveAt,
-        agentInfo,
-        agentName,
-        messageCount: session.messageCount ?? session.messages.length,
-      };
-    });
-
-    const sortedSessions = [...sessions];
-    sortedSessions.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-    return c.json({
-      sessions: sortedSessions,
-      pagination: {
-        limit,
-        offset,
-        total: totalSessions,
-        hasMore: offset + sortedSessions.length < totalSessions,
-      },
-    });
+    const service = container.getOpsServices().dashboardSessions();
+    return c.json(await service.execute({ limit, offset }));
   });
 
   /**
    * GET /api/dashboard/stats - Get dashboard statistics
    */
   api.get("/dashboard/stats", async (c: Context) => {
-    const projects = await container.getProjects().findAll();
-
-    const now = Date.now();
-    const oneDayAgo = now - 24 * 60 * 60 * 1000;
-    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
-
-    const agentStats: Record<string, { count: number; running: number }> = {};
-    let totalSessions = 0;
-    let activeSessions = 0;
-    let recentSessions24h = 0;
-    let weeklySessions = 0;
-
-    await forEachSessionPage((sessions) => {
-      for (const session of sessions) {
-        totalSessions += 1;
-        if (session.status === "running") {
-          activeSessions += 1;
-        }
-        if (session.lastActiveAt > oneDayAgo) {
-          recentSessions24h += 1;
-        }
-        if (session.lastActiveAt > oneWeekAgo) {
-          weeklySessions += 1;
-        }
-
-        const agentName =
-          session.agentInfo?.title ?? session.agentInfo?.name ?? "Unknown";
-        if (!agentStats[agentName]) {
-          agentStats[agentName] = { count: 0, running: 0 };
-        }
-        agentStats[agentName].count++;
-        if (session.status === "running") {
-          agentStats[agentName].running++;
-        }
-      }
-    });
-
-    return c.json({
-      stats: {
-        totalProjects: projects.length,
-        totalSessions,
-        activeSessions,
-        recentSessions24h,
-        weeklySessions,
-        agentStats,
-        serverUptime: process.uptime(),
-      },
-    });
+    const service = container.getOpsServices().dashboardStats();
+    return c.json(await service.execute());
   });
 
   /**
