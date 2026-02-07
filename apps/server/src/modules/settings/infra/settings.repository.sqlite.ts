@@ -4,13 +4,13 @@
 
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { getSqliteOrm, sqliteSchema } from "@/infra/storage/sqlite-db";
+import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
 import {
   fromSqliteJson,
   SQLITE_SETTING_KEYS,
   toSqliteJson,
-} from "@/infra/storage/sqlite-store";
-import { enqueueSqliteWrite } from "@/infra/storage/sqlite-write-queue";
+} from "@/platform/storage/sqlite-store";
+import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
 import type { McpServerConfig, Settings } from "@/shared/types/settings.types";
 import type { SettingsRepositoryPort } from "../application/ports/settings-repository.port";
 

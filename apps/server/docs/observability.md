@@ -8,9 +8,9 @@ Tài liệu này mô tả lớp quan sát runtime hiện tại của `apps/serve
   - `src/shared/utils/observability-context.util.ts`
   - Dùng `AsyncLocalStorage` để gắn `requestId`, `traceId`, `source`, `taskName`, `taskRunId`.
 - Logging pipeline:
-  - `src/infra/logging/logger.ts`
-  - `src/infra/logging/log-store.ts`
-  - `src/infra/logging/request-logger.ts`
+  - `src/platform/logging/logger.ts`
+  - `src/platform/logging/log-store.ts`
+  - `src/platform/logging/request-logger.ts`
 - Snapshot API:
   - `GET /api/dashboard/observability`
   - `src/transport/http/routes/dashboard-api.ts`

@@ -6,7 +6,7 @@
     "ultracite/biome/remix"
   ],
   "files": {
-    "includes": ["!/node_modules", "!/dist", "!/public/dashboard", "!/.eragear"]
+    "includes": ["!!**/dist", "!!**/public/dashboard", "!!**/.eragear"]
   },
   "linter": {
     "enabled": true,
@@ -32,11 +32,12 @@
                   {
                     "group": [
                       "**/infra/**",
+                      "**/platform/**",
                       "**/transport/**",
-                      "@/infra/**",
+                      "@/platform/**",
                       "@/transport/**"
                     ],
-                    "message": "Domain must not import from transport or infra."
+                    "message": "Domain must not import from transport or platform."
                   }
                 ]
               }
@@ -55,8 +56,42 @@
               "options": {
                 "patterns": [
                   {
-                    "group": ["**/transport/**", "@/transport/**"],
-                    "message": "Application must not import from transport."
+                    "group": [
+                      "**/transport/**",
+                      "@/transport/**",
+                      "**/platform/**",
+                      "@/platform/**"
+                    ],
+                    "message": "Application must not import from transport or platform."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/shared/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/modules/**",
+                      "@/modules/**",
+                      "**/platform/**",
+                      "@/platform/**",
+                      "**/transport/**",
+                      "@/transport/**",
+                      "**/presentation/**",
+                      "@/presentation/**"
+                    ],
+                    "message": "Shared must not depend on modules, platform, transport, or presentation."
                   }
                 ]
               }
@@ -78,10 +113,19 @@
                     "group": [
                       "**/domain/**",
                       "**/infra/**",
+                      "**/platform/**",
+                      "**/modules/*/application/**",
+                      "**/modules/*/di",
+                      "**/modules/*/domain/**",
+                      "**/modules/*/infra/**",
+                      "@/modules/*/application/**",
+                      "@/modules/*/di",
+                      "@/modules/*/domain/**",
+                      "@/modules/*/infra/**",
                       "@/domain/**",
-                      "@/infra/**"
+                      "@/platform/**"
                     ],
-                    "message": "Transport should not import from domain or infra."
+                    "message": "Transport should only consume module public APIs."
                   }
                 ]
               }
@@ -91,7 +135,7 @@
       }
     },
     {
-      "includes": ["src/infra/**/*.ts"],
+      "includes": ["src/platform/**/*.ts"],
       "linter": {
         "rules": {
           "style": {
@@ -101,11 +145,71 @@
                 "patterns": [
                   {
                     "group": ["**/transport/**", "@/transport/**"],
-                    "message": "Infra must not import from transport."
+                    "message": "Platform must not import from transport."
                   }
                 ]
               }
             }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/bootstrap/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/modules/*/application/**",
+                      "**/modules/*/domain/**",
+                      "**/modules/*/infra/**",
+                      "@/modules/*/application/**",
+                      "@/modules/*/domain/**",
+                      "@/modules/*/infra/**"
+                    ],
+                    "message": "Bootstrap should import module public APIs only."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/modules/*/index.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**/infra/**", "@/modules/*/infra/**"],
+                    "message": "Module public API (index.ts) must not import or export infra. Use modules/<module>/di.ts for DI wiring."
+                  }
+                ]
+              }
+            }
+          },
+          "performance": {
+            "noBarrelFile": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/modules/*/di.ts"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noBarrelFile": "off"
           }
         }
       }

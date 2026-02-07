@@ -1,4 +1,4 @@
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { SessionRuntimePort } from "@/modules/session";
 import type {
   ApiKeyItem,
   DashboardData,

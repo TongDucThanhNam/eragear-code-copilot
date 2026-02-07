@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { CodeContextService } from "@/modules/tooling/application/code-context.service";
+import { CodeContextService } from "@/modules/tooling";
 import { protectedProcedure, router } from "../base";
 
 export const codeRouter = router({

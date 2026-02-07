@@ -8,15 +8,50 @@
  */
 
 import type { Context } from "hono";
+import { isAppError } from "@/shared/errors";
 import { getObservabilityContext } from "@/shared/utils/observability-context.util";
 
 export interface ErrorResponse {
   error: string;
   code?: string;
+  module?: string;
+  op?: string;
   message?: string;
   path?: string;
   requestId?: string;
   timestamp?: string;
+}
+
+function isStatusCode(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 400 &&
+    value <= 599
+  );
+}
+
+function resolveFallbackErrorShape(err: unknown): {
+  code: string;
+  statusCode: number;
+  module?: string;
+  op?: string;
+} {
+  if (err && typeof err === "object") {
+    const candidate = err as Record<string, unknown>;
+    const statusCode = isStatusCode(candidate.statusCode)
+      ? candidate.statusCode
+      : 500;
+    const code =
+      typeof candidate.code === "string" && candidate.code.length > 0
+        ? candidate.code
+        : "INTERNAL_SERVER_ERROR";
+    const module =
+      typeof candidate.module === "string" ? candidate.module : undefined;
+    const op = typeof candidate.op === "string" ? candidate.op : undefined;
+    return { code, statusCode, module, op };
+  }
+  return { code: "INTERNAL_SERVER_ERROR", statusCode: 500 };
 }
 
 /**
@@ -27,7 +62,7 @@ export interface ErrorResponse {
  * @returns Error handler middleware
  */
 export function createErrorHandler() {
-  return async (err: Error, c: Context) => {
+  return (err: Error, c: Context) => {
     const context = getObservabilityContext();
     const requestId =
       context?.requestId ||
@@ -37,40 +72,44 @@ export function createErrorHandler() {
     const path = c.req.path;
     const method = c.req.method;
 
-    // Log error with context
-    console.error("[Server] Unhandled error", {
+    const { code, statusCode, module, op } = isAppError(err)
+      ? {
+          code: err.code,
+          statusCode: err.statusCode,
+          module: err.module,
+          op: err.op,
+        }
+      : resolveFallbackErrorShape(err);
+
+    console.error("[HTTP] request failed", {
+      requestId,
       method,
       path,
-      requestId,
+      statusCode,
+      code,
+      module: module ?? "unknown",
+      op: op ?? "unknown",
       message: err.message,
       stack: err.stack,
     });
 
-    // Determine status code based on error type
-    let statusCode: 500 | 404 | 401 | 403 = 500;
-    let errorCode = "INTERNAL_SERVER_ERROR";
-
-    if (err.message.includes("not found")) {
-      statusCode = 404;
-      errorCode = "NOT_FOUND";
-    } else if (err.message.includes("unauthorized")) {
-      statusCode = 401;
-      errorCode = "UNAUTHORIZED";
-    } else if (err.message.includes("forbidden")) {
-      statusCode = 403;
-      errorCode = "FORBIDDEN";
-    }
-
     // Return consistent error response
     const response: ErrorResponse = {
       error: err.message || "An unexpected error occurred",
-      code: errorCode,
+      code,
+      module,
+      op,
       path,
       requestId,
       timestamp: new Date().toISOString(),
     };
 
-    return await c.json(response, statusCode);
+    return new Response(JSON.stringify(response), {
+      status: statusCode,
+      headers: {
+        "content-type": "application/json; charset=UTF-8",
+      },
+    });
   };
 }
 

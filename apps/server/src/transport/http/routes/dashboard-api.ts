@@ -15,7 +15,7 @@
  */
 
 import type { Context, Hono } from "hono";
-import { GetObservabilitySnapshotService } from "@/modules/ops/application/get-observability-snapshot.service";
+import { GetObservabilitySnapshotService } from "@/modules/ops";
 import { getContainer } from "../../../bootstrap/container";
 import type { Project } from "../../../shared/types/project.types";
 import type { StoredSession } from "../../../shared/types/session.types";

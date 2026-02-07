@@ -8,6 +8,7 @@
  */
 
 import type { Annotations, ContentBlock } from "@agentclientprotocol/sdk";
+import { ValidationError } from "@/shared/errors";
 
 /**
  * Input for an image in a prompt
@@ -110,6 +111,7 @@ export function buildPrompt(params: {
   /** Optional resource links to include in the prompt */
   resourceLinks?: PromptResourceLinkInput[];
 }): ContentBlock[] {
+  const op = "ai.prompt.send";
   const prompt: ContentBlock[] = [
     {
       type: "text",
@@ -151,7 +153,14 @@ export function buildPrompt(params: {
         const hasText = res.text !== undefined;
         const hasBlob = res.blob !== undefined;
         if (hasText === hasBlob) {
-          throw new Error("Resource must include exactly one of text or blob.");
+          throw new ValidationError(
+            "Resource must include exactly one of text or blob.",
+            {
+              module: "ai",
+              op,
+              details: { uri: res.uri },
+            }
+          );
         }
         if (hasText) {
           return {

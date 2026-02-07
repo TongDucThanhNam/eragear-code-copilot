@@ -5,14 +5,14 @@ Tài liệu mô tả cơ chế chạy tác vụ bất đồng bộ định kỳ 
 ## 1. Kiến trúc runtime
 
 - Runner trung tâm:
-  - `src/infra/background/runner.ts`
+  - `src/platform/background/runner.ts`
 - Task contracts:
   - `src/shared/types/background.types.ts`
 - Task hiện có:
   - `session-idle-cleanup`:
-    `src/infra/background/tasks/session-idle-cleanup.task.ts`
+    `src/platform/background/tasks/session-idle-cleanup.task.ts`
   - `cache-prune`:
-    `src/infra/background/tasks/cache-prune.task.ts`
+    `src/platform/background/tasks/cache-prune.task.ts`
 
 Runner được start/stop cùng vòng đời server tại `src/bootstrap/server.ts`.
 

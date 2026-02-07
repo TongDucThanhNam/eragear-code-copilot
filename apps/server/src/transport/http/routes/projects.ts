@@ -11,7 +11,7 @@
  */
 
 import type { Context, Hono } from "hono";
-import { ProjectService } from "@/modules/project/application/project.service";
+import { ProjectService } from "@/modules/project";
 import { getContainer } from "../../../bootstrap/container";
 import { isPathWithinRoots } from "../../../shared/utils/project-roots.util";
 

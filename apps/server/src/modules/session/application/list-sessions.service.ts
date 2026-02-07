@@ -7,7 +7,7 @@
  * @module modules/session/application/list-sessions.service
  */
 
-import type { ProjectRepositoryPort } from "@/modules/project/application/ports/project-repository.port";
+import type { ProjectRepositoryPort } from "@/modules/project";
 import type {
   SessionListQuery,
   SessionRepositoryPort,

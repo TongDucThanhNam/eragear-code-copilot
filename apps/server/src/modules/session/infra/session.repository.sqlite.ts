@@ -5,7 +5,7 @@
 import { and, asc, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { ENV } from "@/config/environment";
-import { getSqliteOrm, sqliteSchema } from "@/infra/storage/sqlite-db";
+import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
 import {
   fromSqliteBoolean,
   fromSqliteJson,
@@ -15,8 +15,8 @@ import {
   runInSqliteTransaction,
   toSqliteBoolean,
   toSqliteJson,
-} from "@/infra/storage/sqlite-store";
-import { enqueueSqliteWrite } from "@/infra/storage/sqlite-write-queue";
+} from "@/platform/storage/sqlite-store";
+import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
 import type {
   StoredMessage,
   StoredSession,

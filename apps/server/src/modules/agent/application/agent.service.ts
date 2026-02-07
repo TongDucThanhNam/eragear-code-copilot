@@ -15,6 +15,10 @@ import type {
 import { parseCommandInput } from "../../../shared/utils/cli-args.util";
 import type { AgentRepositoryPort } from "./ports/agent-repository.port";
 
+const MODULE = "agent";
+const OP_CREATE = "agent.config.create";
+const OP_UPDATE = "agent.config.update";
+
 export class AgentService {
   /** Repository for agent persistence operations */
   private readonly agentRepo: AgentRepositoryPort;
@@ -47,7 +51,7 @@ export class AgentService {
    * @returns The created agent configuration
    */
   async createAgent(input: AgentInput) {
-    const normalized = this.normalizeAgentInput(input);
+    const normalized = this.normalizeAgentInput(input, OP_CREATE);
     return await this.agentRepo.create(normalized);
   }
 
@@ -58,7 +62,7 @@ export class AgentService {
    * @returns The updated agent configuration
    */
   async updateAgent(input: AgentUpdateInput) {
-    const normalized = this.normalizeAgentUpdateInput(input);
+    const normalized = this.normalizeAgentUpdateInput(input, OP_UPDATE);
     return await this.agentRepo.update(normalized);
   }
 
@@ -84,8 +88,12 @@ export class AgentService {
     return { activeAgentId: id };
   }
 
-  private normalizeAgentInput(input: AgentInput): AgentInput {
-    const normalized = this.normalizeCommandAndArgs(input.command, input.args);
+  private normalizeAgentInput(input: AgentInput, op: string): AgentInput {
+    const normalized = this.normalizeCommandAndArgs(
+      input.command,
+      op,
+      input.args
+    );
     return {
       ...input,
       command: normalized.command,
@@ -93,11 +101,18 @@ export class AgentService {
     };
   }
 
-  private normalizeAgentUpdateInput(input: AgentUpdateInput): AgentUpdateInput {
+  private normalizeAgentUpdateInput(
+    input: AgentUpdateInput,
+    op: string
+  ): AgentUpdateInput {
     if (!input.command) {
       return input;
     }
-    const normalized = this.normalizeCommandAndArgs(input.command, input.args);
+    const normalized = this.normalizeCommandAndArgs(
+      input.command,
+      op,
+      input.args
+    );
     return {
       ...input,
       command: normalized.command,
@@ -105,19 +120,26 @@ export class AgentService {
     };
   }
 
-  private normalizeCommandAndArgs(command: string, args?: string[]) {
+  private normalizeCommandAndArgs(
+    command: string,
+    op: string,
+    args?: string[]
+  ) {
     const parsed = parseCommandInput(command);
     if (parsed.error || !parsed.command) {
-      throw new ValidationError(parsed.error ?? "Command is required.");
+      throw new ValidationError(parsed.error ?? "Command is required.", {
+        module: MODULE,
+        op,
+        details: { command },
+      });
     }
     const mergedArgs = [...(parsed.args ?? [])];
-    if (args !== undefined) {
+    if (args?.length) {
       mergedArgs.push(...args);
     }
     return {
       command: parsed.command,
-      args:
-        mergedArgs.length > 0 || args !== undefined ? mergedArgs : undefined,
+      args: mergedArgs.length > 0 ? mergedArgs : undefined,
     };
   }
 }

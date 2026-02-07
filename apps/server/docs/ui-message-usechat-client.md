@@ -8,7 +8,10 @@ tự xử lý event, và cách render hiệu quả.
 
 Các API chính để build `useChat`:
 
-- `getSessionMessages({ chatId })` → trả `UIMessage[]` (history).
+- `getSessionMessagesPage({ chatId, cursor?, limit?, includeCompacted? })` →
+  trả `{ messages, nextCursor?, hasMore }` (history, paginated).
+- `getSessionMessages({ chatId })` → **deprecated compatibility endpoint**,
+  chỉ dùng tạm cho client cũ.
 - `onSessionEvents({ chatId })` → stream `BroadcastEvent` realtime.
 
 Event types quan trọng:
@@ -25,7 +28,7 @@ Event types quan trọng:
 - Không tự parse raw ACP ở client.
 - Message có thể được gửi lặp lại nhiều lần trong streaming. Upsert là idempotent.
 - Thứ tự hiển thị:
-  - History lấy từ `getSessionMessages` theo thứ tự trả về.
+  - History lấy từ `getSessionMessagesPage` và merge theo thứ tự page.
   - Event realtime nếu `message.id` chưa tồn tại thì append vào `messageOrder`.
   - Nếu đã tồn tại thì update nội dung nhưng giữ vị trí.
 
@@ -104,7 +107,8 @@ const chatStatus = useStore(chatStore, (s) => s.chatStatus);
 ## useChat Flow (React)
 
 1. Mount chat:
-   - `getSessionMessages(chatId)` → init store + messageOrder.
+   - `getSessionMessagesPage(chatId, cursor)` loop đến hết page →
+     init store + messageOrder.
    - `onSessionEvents(chatId)` → subscribe stream.
 2. On `ui_message`:
    - Nếu `message.id` chưa có → append vào `messageOrder`.
@@ -140,7 +144,19 @@ function useChat(chatId: string) {
   useEffect(() => {
     let unsub: (() => void) | undefined;
     (async () => {
-      const history = await trpc.session.getSessionMessages.query({ chatId });
+      const history: UIMessage[] = [];
+      let cursor: number | undefined;
+      while (true) {
+        const page = await trpc.session.getSessionMessagesPage.query({
+          chatId,
+          cursor,
+        });
+        history.push(...page.messages);
+        if (!page.hasMore || page.nextCursor === undefined) {
+          break;
+        }
+        cursor = page.nextCursor;
+      }
       store.init(history);
       unsub = trpc.session.onSessionEvents.subscribe(
         { chatId },

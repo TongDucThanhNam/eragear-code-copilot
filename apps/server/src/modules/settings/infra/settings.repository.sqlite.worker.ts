@@ -1,4 +1,4 @@
-import { callSqliteWorker } from "@/infra/storage/sqlite-worker-client";
+import { callSqliteWorker } from "@/platform/storage/sqlite-worker-client";
 import type { Settings } from "@/shared/types/settings.types";
 import type { SettingsRepositoryPort } from "../application/ports/settings-repository.port";
 

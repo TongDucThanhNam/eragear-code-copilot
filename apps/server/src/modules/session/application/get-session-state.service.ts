@@ -7,8 +7,11 @@
  * @module modules/session/application/get-session-state.service
  */
 
+import { NotFoundError } from "@/shared/errors";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+
+const OP = "session.state.get";
 
 /**
  * GetSessionStateService
@@ -80,6 +83,10 @@ export class GetSessionStateService {
       };
     }
 
-    throw new Error("Chat not found");
+    throw new NotFoundError("Chat not found", {
+      module: "session",
+      op: OP,
+      details: { chatId },
+    });
   }
 }

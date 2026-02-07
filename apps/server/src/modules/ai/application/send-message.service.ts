@@ -8,9 +8,12 @@
  */
 
 import { ENV } from "@/config/environment";
-import { createLogger } from "@/infra/logging/structured-logger";
-import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type {
+  SessionRepositoryPort,
+  SessionRuntimePort,
+} from "@/modules/session";
+import { AppError, NotFoundError, ValidationError } from "@/shared/errors";
+import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
   mapStopReasonToFinishReason,
@@ -30,7 +33,7 @@ import {
 } from "./acp-error.util";
 import { buildPrompt } from "./prompt.builder";
 
-const logger = createLogger("Debug");
+const OP = "ai.prompt.send";
 
 /**
  * SendMessageService
@@ -40,7 +43,7 @@ const logger = createLogger("Debug");
  *
  * @example
  * ```typescript
- * const service = new SendMessageService(sessionRepo, sessionRuntime);
+ * const service = new SendMessageService(sessionRepo, sessionRuntime, logger);
  * const result = await service.execute({
  *   chatId: "chat-123",
  *   text: "Hello, agent!"
@@ -53,16 +56,20 @@ export class SendMessageService {
   private readonly sessionRepo: SessionRepositoryPort;
   /** Runtime store for active sessions */
   private readonly sessionRuntime: SessionRuntimePort;
+  /** Application logger */
+  private readonly logger: LoggerPort;
 
   /**
    * Creates a SendMessageService with required dependencies
    */
   constructor(
     sessionRepo: SessionRepositoryPort,
-    sessionRuntime: SessionRuntimePort
+    sessionRuntime: SessionRuntimePort,
+    logger: LoggerPort
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
+    this.logger = logger;
   }
 
   /**
@@ -118,7 +125,7 @@ export class SendMessageService {
     userMessageId: string;
     submittedAt: number;
   }> {
-    logger.debug("SendMessageService.execute start", {
+    this.logger.debug("SendMessageService.execute start", {
       chatId: input.chatId,
       textLength: input.text.length,
       images: input.images?.length ?? 0,
@@ -128,12 +135,17 @@ export class SendMessageService {
     });
     const textBytes = Buffer.byteLength(input.text, "utf8");
     if (textBytes > ENV.messageContentMaxBytes) {
-      throw new Error(
-        `Prompt text exceeds max size: ${textBytes} bytes > ${ENV.messageContentMaxBytes}`
+      throw new ValidationError(
+        `Prompt text exceeds max size: ${textBytes} bytes > ${ENV.messageContentMaxBytes}`,
+        {
+          module: "ai",
+          op: OP,
+          details: { chatId: input.chatId, textBytes },
+        }
       );
     }
     const session = this.sessionRuntime.get(input.chatId);
-    logger.debug("SendMessageService session lookup", {
+    this.logger.debug("SendMessageService session lookup", {
       chatId: input.chatId,
       hasSession: Boolean(session),
       sessionId: session?.sessionId,
@@ -143,7 +155,11 @@ export class SendMessageService {
       connAborted: session?.conn.signal.aborted,
     });
     if (!session?.sessionId) {
-      throw new Error("Chat not found");
+      throw new NotFoundError("Chat not found", {
+        module: "ai",
+        op: OP,
+        details: { chatId: input.chatId },
+      });
     }
     const stdin = session.proc.stdin;
     if (
@@ -153,27 +169,53 @@ export class SendMessageService {
       session.proc.killed ||
       session.proc.exitCode !== null
     ) {
-      throw new Error("Session is not running");
+      throw new AppError({
+        message: "Session is not running",
+        code: "SESSION_NOT_RUNNING",
+        statusCode: 409,
+        module: "ai",
+        op: OP,
+        details: { chatId: input.chatId },
+      });
     }
     if (session.conn.signal.aborted) {
-      throw new Error("Session connection is closed");
+      throw new AppError({
+        message: "Session connection is closed",
+        code: "SESSION_CONNECTION_CLOSED",
+        statusCode: 409,
+        module: "ai",
+        op: OP,
+        details: { chatId: input.chatId },
+      });
     }
 
     const capabilities = session.promptCapabilities ?? {};
-    logger.debug("SendMessageService prompt capabilities", {
+    this.logger.debug("SendMessageService prompt capabilities", {
       chatId: input.chatId,
       image: Boolean(capabilities.image),
       audio: Boolean(capabilities.audio),
       embeddedContext: Boolean(capabilities.embeddedContext),
     });
     if (input.images?.length && !capabilities.image) {
-      throw new Error("Agent does not support image content");
+      throw new ValidationError("Agent does not support image content", {
+        module: "ai",
+        op: OP,
+        details: { chatId: input.chatId },
+      });
     }
     if (input.audio?.length && !capabilities.audio) {
-      throw new Error("Agent does not support audio content");
+      throw new ValidationError("Agent does not support audio content", {
+        module: "ai",
+        op: OP,
+        details: { chatId: input.chatId },
+      });
     }
     if (input.resources?.length && !capabilities.embeddedContext) {
-      throw new Error("Agent does not support embedded context");
+      throw new ValidationError("Agent does not support embedded context", {
+        module: "ai",
+        op: OP,
+        details: { chatId: input.chatId },
+      });
     }
 
     const broadcast = this.sessionRuntime.broadcast.bind(this.sessionRuntime);
@@ -185,7 +227,7 @@ export class SendMessageService {
     });
     session.chatFinish = undefined;
     session.uiState.lastAssistantId = undefined;
-    logger.debug("SendMessageService chat status submitted", {
+    this.logger.debug("SendMessageService chat status submitted", {
       chatId: input.chatId,
       sessionId: session.sessionId,
     });
@@ -215,7 +257,7 @@ export class SendMessageService {
       parts: uiMessage.parts,
       timestamp: msgTimestamp,
     });
-    logger.debug("SendMessageService user message persisted", {
+    this.logger.debug("SendMessageService user message persisted", {
       chatId: input.chatId,
       messageId: msgId,
       contentBlocks: storedPromptBlocks.length,
@@ -227,7 +269,7 @@ export class SendMessageService {
       type: "ui_message",
       message: uiMessage,
     });
-    logger.debug("SendMessageService user message broadcast", {
+    this.logger.debug("SendMessageService user message broadcast", {
       chatId: input.chatId,
       messageId: msgId,
     });
@@ -248,7 +290,7 @@ export class SendMessageService {
     ]);
 
     if (outcome.type === "result") {
-      logger.debug("SendMessageService prompt completed inline", {
+      this.logger.debug("SendMessageService prompt completed inline", {
         chatId: input.chatId,
         stopReason: outcome.result.stopReason,
       });
@@ -262,7 +304,7 @@ export class SendMessageService {
 
     // Prompt is still running; return an acknowledgement and rely on chat_finish
     // for the final stopReason.
-    logger.debug("SendMessageService prompt still running", {
+    this.logger.debug("SendMessageService prompt still running", {
       chatId: input.chatId,
       ackTimeoutMs,
     });
@@ -294,7 +336,7 @@ export class SendMessageService {
     const { chatId, session, prompt, broadcast } = params;
 
     const markStopped = async (reason: string) => {
-      logger.warn("SendMessageService mark stopped", {
+      this.logger.warn("SendMessageService mark stopped", {
         chatId,
         reason,
       });
@@ -320,11 +362,18 @@ export class SendMessageService {
     const sessionId = session.sessionId;
     if (!sessionId) {
       await markStopped("Session is missing ACP session id");
-      throw new Error("Session is missing ACP session id");
+      throw new AppError({
+        message: "Session is missing ACP session id",
+        code: "SESSION_MISSING_ID",
+        statusCode: 500,
+        module: "ai",
+        op: OP,
+        details: { chatId },
+      });
     }
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        logger.debug("SendMessageService sending prompt", {
+        this.logger.debug("SendMessageService sending prompt", {
           chatId,
           sessionId,
           attempt: attempt + 1,
@@ -334,14 +383,14 @@ export class SendMessageService {
           sessionId,
           prompt,
         });
-        logger.debug("SendMessageService prompt response", {
+        this.logger.debug("SendMessageService prompt response", {
           chatId,
           stopReason: res.stopReason,
         });
         break;
       } catch (error) {
         const errorText = getAcpErrorText(error);
-        logger.warn("SendMessageService prompt error", {
+        this.logger.warn("SendMessageService prompt error", {
           chatId,
           attempt: attempt + 1,
           maxAttempts,
@@ -358,7 +407,14 @@ export class SendMessageService {
         }
         if (isProcessExited(errorText)) {
           await markStopped(errorText || "Agent process exited");
-          throw new Error(errorText || "Agent process exited");
+          throw new AppError({
+            message: errorText || "Agent process exited",
+            code: "AGENT_PROCESS_EXITED",
+            statusCode: 503,
+            module: "ai",
+            op: OP,
+            details: { chatId },
+          });
         }
         updateChatStatus({
           chatId,
@@ -366,11 +422,19 @@ export class SendMessageService {
           broadcast,
           status: "error",
         });
-        throw new Error(errorText || "Failed to send message");
+        throw new AppError({
+          message: errorText || "Failed to send message",
+          code: "SEND_MESSAGE_FAILED",
+          statusCode: 502,
+          module: "ai",
+          op: OP,
+          cause: error,
+          details: { chatId },
+        });
       }
     }
     if (!res) {
-      logger.warn("SendMessageService failed to get prompt response", {
+      this.logger.warn("SendMessageService failed to get prompt response", {
         chatId,
         attempts: maxAttempts,
       });
@@ -380,13 +444,20 @@ export class SendMessageService {
         broadcast,
         status: "error",
       });
-      throw new Error("Failed to send message");
+      throw new AppError({
+        message: "Failed to send message",
+        code: "SEND_MESSAGE_FAILED",
+        statusCode: 502,
+        module: "ai",
+        op: OP,
+        details: { chatId },
+      });
     }
 
     if (session.buffer) {
       const message = session.buffer.flush();
       if (message) {
-        logger.debug("SendMessageService flushed assistant buffer", {
+        this.logger.debug("SendMessageService flushed assistant buffer", {
           chatId,
           messageId: message.id,
           contentBlocks: message.contentBlocks.length,
@@ -413,7 +484,7 @@ export class SendMessageService {
         type: "ui_message",
         message: current,
       });
-      logger.debug("SendMessageService finalized streaming message", {
+      this.logger.debug("SendMessageService finalized streaming message", {
         chatId,
         messageId: current.id,
         parts: current.parts.length,
@@ -427,7 +498,7 @@ export class SendMessageService {
       session,
       broadcast,
     });
-    logger.debug("SendMessageService chat finish broadcast", {
+    this.logger.debug("SendMessageService chat finish broadcast", {
       chatId,
       stopReason: res.stopReason,
     });
@@ -439,7 +510,7 @@ export class SendMessageService {
         broadcast,
         status: "ready",
       });
-      logger.debug("SendMessageService chat status ready", {
+      this.logger.debug("SendMessageService chat status ready", {
         chatId,
       });
     }

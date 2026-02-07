@@ -55,7 +55,7 @@ process.env.LOG_FILE_ENABLED = "false";
 
 const stamp = Date.now().toString();
 const authBootstrap = await import(
-  `../src/infra/auth/bootstrap.ts?smoke=${stamp}`
+  `../src/platform/auth/bootstrap.ts?smoke=${stamp}`
 );
 const serverBootstrap = await import(
   `../src/bootstrap/server.ts?smoke=${stamp}`

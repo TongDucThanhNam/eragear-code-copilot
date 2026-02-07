@@ -6,7 +6,7 @@ Mục tiêu của file này là ngắn gọn. Chỉ giữ quy tắc cốt lõi v
 
 - Kiến trúc: `Clean Architecture` + `Ports/Adapters` + `vertical slices`.
 - Layer chính: `transport -> application -> domain`.
-- `infra` chỉ triển khai IO/policy qua ports, không chứa business rules.
+- `platform` chỉ triển khai IO/policy qua ports, không chứa business rules.
 - Tài liệu chính:
   - `src/ARCHITECTURE.md`
   - `docs/INDEX.md`
@@ -29,10 +29,10 @@ Mục tiêu của file này là ngắn gọn. Chỉ giữ quy tắc cốt lõi v
 
 ## 4. Coding Boundaries
 
-- Domain must not import transport/infra.
+- Domain must not import transport/platform.
 - Application must not import transport.
-- Transport must not import domain/infra.
-- Infra must not import transport.
+- Transport must not import domain/platform.
+- Platform must not import transport.
 - Lint policy is enforced by `biome.json`.
 
 ## 5. Where to Read by Task

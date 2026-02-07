@@ -8,10 +8,12 @@
  */
 
 import { z } from "zod";
-import { CancelPromptService } from "@/modules/ai/application/cancel-prompt.service";
-import { SendMessageService } from "@/modules/ai/application/send-message.service";
-import { SetModeService } from "@/modules/ai/application/set-mode.service";
-import { SetModelService } from "@/modules/ai/application/set-model.service";
+import {
+  CancelPromptService,
+  SendMessageService,
+  SetModelService,
+  SetModeService,
+} from "@/modules/ai";
 import { protectedProcedure, router } from "../base";
 
 const MAX_MESSAGE_TEXT_CHARS = 100_000;
@@ -107,7 +109,8 @@ export const aiRouter = router({
       });
       const service = new SendMessageService(
         ctx.container.getSessions(),
-        ctx.container.getSessionRuntime()
+        ctx.container.getSessionRuntime(),
+        ctx.container.getAppLogger()
       );
       return await service.execute(input);
     }),

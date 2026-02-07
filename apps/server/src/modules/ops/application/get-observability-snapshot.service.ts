@@ -6,7 +6,7 @@
  * @module modules/ops/application/get-observability-snapshot.service
  */
 
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { SessionRuntimePort } from "@/modules/session";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import type { LogEntry } from "@/shared/types/log.types";

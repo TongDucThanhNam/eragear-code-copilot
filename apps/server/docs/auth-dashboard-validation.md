@@ -54,8 +54,8 @@ Pass condition:
 ### 4.2 `The model "session" was not found in the schema object`
 
 - Better Auth Drizzle adapter phải được cấu hình với schema đầy đủ.
-- Kiểm tra `src/infra/auth/auth.ts` có dùng `drizzleAdapter(..., { schema })`.
-- Kiểm tra `src/infra/auth/drizzle-schema.ts` có đủ models:
+- Kiểm tra `src/platform/auth/auth.ts` có dùng `drizzleAdapter(..., { schema })`.
+- Kiểm tra `src/platform/auth/drizzle-schema.ts` có đủ models:
   `user/session/account/verification/apikey`.
 
 ### 4.3 Login thành công nhưng vẫn quay lại `/login`

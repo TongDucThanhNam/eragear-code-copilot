@@ -7,8 +7,11 @@
  * @module modules/ai/application/set-mode.service
  */
 
-import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type {
+  SessionRepositoryPort,
+  SessionRuntimePort,
+} from "@/modules/session";
+import { AppError, NotFoundError, ValidationError } from "@/shared/errors";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
   getAcpErrorText,
@@ -16,6 +19,8 @@ import {
   isProcessExited,
   isProcessTransportNotReady,
 } from "./acp-error.util";
+
+const OP = "ai.session.mode.set";
 
 /**
  * SetModeService
@@ -57,18 +62,30 @@ export class SetModeService {
   async execute(chatId: string, modeId: string) {
     const session = this.sessionRuntime.get(chatId);
     if (!session?.sessionId) {
-      throw new Error("Chat not found");
+      throw new NotFoundError("Chat not found", {
+        module: "ai",
+        op: OP,
+        details: { chatId, modeId },
+      });
     }
     // Check if agent supports mode switching
     if (!session.modes || session.modes.availableModes.length === 0) {
-      throw new Error("Agent does not support mode switching");
+      throw new ValidationError("Agent does not support mode switching", {
+        module: "ai",
+        op: OP,
+        details: { chatId, modeId },
+      });
     }
     // Check if the requested mode is available
     const isAvailableMode = session.modes.availableModes.some(
       (mode) => mode.id === modeId
     );
     if (!isAvailableMode) {
-      throw new Error("Mode is not available for this session");
+      throw new ValidationError("Mode is not available for this session", {
+        module: "ai",
+        op: OP,
+        details: { chatId, modeId },
+      });
     }
     // Skip if already on this mode
     if (session.modes.currentModeId === modeId) {
@@ -82,10 +99,24 @@ export class SetModeService {
       session.proc.killed ||
       session.proc.exitCode !== null
     ) {
-      throw new Error("Session is not running");
+      throw new AppError({
+        message: "Session is not running",
+        code: "SESSION_NOT_RUNNING",
+        statusCode: 409,
+        module: "ai",
+        op: OP,
+        details: { chatId, modeId },
+      });
     }
     if (session.conn.signal.aborted) {
-      throw new Error("Session connection is closed");
+      throw new AppError({
+        message: "Session connection is closed",
+        code: "SESSION_CONNECTION_CLOSED",
+        statusCode: 409,
+        module: "ai",
+        op: OP,
+        details: { chatId, modeId },
+      });
     }
 
     const markStopped = async (reason: string) => {
@@ -132,7 +163,14 @@ export class SetModeService {
           }
           if (isProcessExited(errorText)) {
             await markStopped(errorText || "Agent process exited");
-            throw new Error(errorText || "Agent process exited");
+            throw new AppError({
+              message: errorText || "Agent process exited",
+              code: "AGENT_PROCESS_EXITED",
+              statusCode: 503,
+              module: "ai",
+              op: OP,
+              details: { chatId, modeId },
+            });
           }
           throw error;
         }
@@ -140,9 +178,21 @@ export class SetModeService {
     } catch (error) {
       const errorText = getAcpErrorText(error);
       if (isMethodNotFound(errorText)) {
-        throw new Error("Agent does not support mode switching");
+        throw new ValidationError("Agent does not support mode switching", {
+          module: "ai",
+          op: OP,
+          details: { chatId, modeId },
+        });
       }
-      throw new Error(errorText || "Failed to set mode");
+      throw new AppError({
+        message: errorText || "Failed to set mode",
+        code: "SET_MODE_FAILED",
+        statusCode: 502,
+        module: "ai",
+        op: OP,
+        cause: error,
+        details: { chatId, modeId },
+      });
     }
 
     if (session.modes) {

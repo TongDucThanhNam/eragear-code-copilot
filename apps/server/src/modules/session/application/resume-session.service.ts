@@ -7,12 +7,15 @@
  * @module modules/session/application/resume-session.service
  */
 
-import type { SettingsRepositoryPort } from "@/modules/settings/application/ports/settings-repository.port";
+import type { SettingsRepositoryPort } from "@/modules/settings";
+import { NotFoundError, ValidationError } from "@/shared/errors";
 import { CreateSessionService } from "./create-session.service";
 import type { AgentRuntimePort } from "./ports/agent-runtime.port";
 import type { SessionAcpPort } from "./ports/session-acp.port";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+
+const OP = "session.lifecycle.resume";
 
 /**
  * ResumeSessionService
@@ -68,10 +71,18 @@ export class ResumeSessionService {
   async execute(chatId: string) {
     const stored = await this.sessionRepo.findById(chatId);
     if (!stored) {
-      throw new Error("Session not found in store");
+      throw new NotFoundError("Session not found in store", {
+        module: "session",
+        op: OP,
+        details: { chatId },
+      });
     }
     if (!stored.sessionId) {
-      throw new Error("Session is missing ACP sessionId");
+      throw new ValidationError("Session is missing ACP sessionId", {
+        module: "session",
+        op: OP,
+        details: { chatId },
+      });
     }
 
     const existing = this.sessionRuntime.get(chatId);

@@ -10,11 +10,11 @@
     "dev": "bun run ./scripts/dev.ts",
     "smoke:auth-dashboard": "bun run ./scripts/smoke-auth-dashboard.ts",
     "start": "bun run dist/index.js",
-    "test:auth-dashboard": "bun test ./src/infra/auth/auth-dashboard.integration.test.ts ./src/transport/http/utils/response-headers.test.ts",
+    "test:auth-dashboard": "bun test ./src/platform/auth/auth-dashboard.integration.test.ts ./src/transport/http/utils/response-headers.test.ts",
     "ui": "bun run ui:watch",
     "ui:build": "mkdir -p ./public/dashboard && bun build ./src/presentation/dashboard/client/index.tsx --outfile ./public/dashboard/client.js --target browser --format esm --minify && cp ./src/presentation/dashboard/styles.css ./public/dashboard/styles.css",
     "ui:watch": "bun run ./scripts/watch-dashboard-assets.ts",
-    "test": "bun test src/infra/storage/sqlite-store.test.ts src/infra/storage/sqlite-write-queue.test.ts src/infra/storage/storage-path.test.ts && bun test src/infra/auth/auth-dashboard.integration.test.ts src/transport/http/utils/response-headers.test.ts"
+    "test": "bun test src/platform/storage/sqlite-store.test.ts src/platform/storage/sqlite-write-queue.test.ts src/platform/storage/storage-path.test.ts && bun test src/platform/auth/auth-dashboard.integration.test.ts src/transport/http/utils/response-headers.test.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.13.1",

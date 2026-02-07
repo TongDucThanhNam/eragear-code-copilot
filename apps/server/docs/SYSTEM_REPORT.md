@@ -20,7 +20,7 @@ Server theo Clean Architecture + Ports/Adapters:
 - `transport`: HTTP/tRPC boundary, validate input và gọi services.
 - `application`: orchestration use-cases.
 - `domain`: entities/invariants.
-- `infra`: IO/policy adapters (ACP, process, storage, auth, git, filesystem).
+- `platform`: IO/policy adapters (ACP, process, storage, auth, git, filesystem).
 
 Vertical modules chính:
 
@@ -119,7 +119,7 @@ Auth cho tRPC:
 
 1. Client gọi `ai.sendMessage`.
 2. `SendMessageService` gửi prompt qua ACP.
-3. Updates đi vào `infra/acp/update.ts`.
+3. Updates đi vào `platform/acp/update.ts`.
 4. `SessionBuffering` gom stream chunks.
 5. Server build `UIMessage` và broadcast realtime (`ui_message`).
 6. `turn_end`/`prompt_end` flush + persist.
@@ -127,16 +127,16 @@ Auth cho tRPC:
 ### 4.3 Tool Permission
 
 1. Agent yêu cầu permission.
-2. `infra/acp/permission.ts` tạo pending request trong runtime session.
+2. `platform/acp/permission.ts` tạo pending request trong runtime session.
 3. Client gọi `tool.respondToPermissionRequest`.
 4. `RespondPermissionService` map decision -> optionId và resolve promise.
 5. Kết quả gửi ngược về agent.
 
 ## 5. Persistence
 
-SQLite storage bootstrap + migration: `src/infra/storage/sqlite-store.ts`
-Storage path source-of-truth: `src/infra/storage/storage-path.ts`
-Drizzle schema/db: `src/infra/storage/sqlite-schema.ts`, `src/infra/storage/sqlite-db.ts`
+SQLite storage bootstrap + migration: `src/platform/storage/sqlite-store.ts`
+Storage path source-of-truth: `src/platform/storage/storage-path.ts`
+Drizzle schema/db: `src/platform/storage/sqlite-schema.ts`, `src/platform/storage/sqlite-db.ts`
 
 Application data mặc định lưu theo storage policy:
 

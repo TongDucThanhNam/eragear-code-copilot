@@ -25,7 +25,7 @@ Response format cho `requestPermission` handler không đúng theo ACP spec.
 ### Sai (trước đây)
 
 ```typescript
-// infra/acp/permission.ts - fallback khi session không tồn tại
+// platform/acp/permission.ts - fallback khi session không tồn tại
 resolve({ outcome: "reject" });
 
 // tooling/application/respond-permission.service.ts - resolve permission
@@ -59,7 +59,7 @@ Nên response phải là:
 
 ## Cách sửa
 
-### 1. `apps/server/src/infra/acp/permission.ts`
+### 1. `apps/server/src/platform/acp/permission.ts`
 
 ```typescript
 async requestPermission(p: any) {

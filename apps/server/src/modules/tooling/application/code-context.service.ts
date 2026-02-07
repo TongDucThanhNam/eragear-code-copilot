@@ -7,8 +7,14 @@
  * @module modules/tooling/application/code-context.service
  */
 
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { SessionRuntimePort } from "@/modules/session";
+import { NotFoundError } from "@/shared/errors";
 import type { GitPort } from "./ports/git.port";
+
+const MODULE = "tooling";
+const OP_PROJECT_CONTEXT = "tooling.code-context.project-context";
+const OP_GIT_DIFF = "tooling.code-context.git-diff";
+const OP_FILE_CONTENT = "tooling.code-context.file-content";
 
 /**
  * CodeContextService
@@ -48,7 +54,11 @@ export class CodeContextService {
   async getProjectContext(chatId: string) {
     const session = this.sessionRuntime.get(chatId);
     if (!session) {
-      throw new Error("Chat not found");
+      throw new NotFoundError("Chat not found", {
+        module: MODULE,
+        op: OP_PROJECT_CONTEXT,
+        details: { chatId },
+      });
     }
     const scanRoot = session.cwd || session.projectRoot;
     return await this.git.getProjectContext(scanRoot);
@@ -64,7 +74,11 @@ export class CodeContextService {
   async getGitDiff(chatId: string) {
     const session = this.sessionRuntime.get(chatId);
     if (!session) {
-      throw new Error("Chat not found");
+      throw new NotFoundError("Chat not found", {
+        module: MODULE,
+        op: OP_GIT_DIFF,
+        details: { chatId },
+      });
     }
     return await this.git.getDiff(session.projectRoot);
   }
@@ -80,7 +94,11 @@ export class CodeContextService {
   async getFileContent(chatId: string, path: string) {
     const session = this.sessionRuntime.get(chatId);
     if (!session) {
-      throw new Error("Chat not found");
+      throw new NotFoundError("Chat not found", {
+        module: MODULE,
+        op: OP_FILE_CONTENT,
+        details: { chatId, path },
+      });
     }
     const content = await this.git.readFileWithinRoot(
       session.projectRoot,

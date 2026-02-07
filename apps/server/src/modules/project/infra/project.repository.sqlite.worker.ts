@@ -1,4 +1,4 @@
-import { callSqliteWorker } from "@/infra/storage/sqlite-worker-client";
+import { callSqliteWorker } from "@/platform/storage/sqlite-worker-client";
 import type {
   Project,
   ProjectInput,

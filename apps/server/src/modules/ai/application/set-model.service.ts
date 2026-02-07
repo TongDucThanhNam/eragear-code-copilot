@@ -7,8 +7,11 @@
  * @module modules/ai/application/set-model.service
  */
 
-import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type {
+  SessionRepositoryPort,
+  SessionRuntimePort,
+} from "@/modules/session";
+import { AppError, NotFoundError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
@@ -17,6 +20,8 @@ import {
   isProcessExited,
   isProcessTransportNotReady,
 } from "./acp-error.util";
+
+const OP = "ai.session.model.set";
 
 /**
  * Connection interface for the unstable setSessionModel method
@@ -92,9 +97,21 @@ export class SetModelService {
         error: errorText || "Failed to set model",
       });
       if (isMethodNotFound(errorText)) {
-        throw new Error("Agent does not support model switching");
+        throw new ValidationError("Agent does not support model switching", {
+          module: "ai",
+          op: OP,
+          details: { chatId, modelId },
+        });
       }
-      throw new Error(errorText || "Failed to set model");
+      throw new AppError({
+        message: errorText || "Failed to set model",
+        code: "SET_MODEL_FAILED",
+        statusCode: 502,
+        module: "ai",
+        op: OP,
+        cause: error,
+        details: { chatId, modelId },
+      });
     }
 
     if (session.models) {
@@ -110,10 +127,18 @@ export class SetModelService {
   private getSessionForModelSwitch(chatId: string): ChatSession {
     const session = this.sessionRuntime.get(chatId);
     if (!session?.sessionId) {
-      throw new Error("Chat not found");
+      throw new NotFoundError("Chat not found", {
+        module: "ai",
+        op: OP,
+        details: { chatId },
+      });
     }
     if (!session.models || session.models.availableModels.length === 0) {
-      throw new Error("Agent does not support model switching");
+      throw new ValidationError("Agent does not support model switching", {
+        module: "ai",
+        op: OP,
+        details: { chatId },
+      });
     }
     return session;
   }
@@ -123,7 +148,11 @@ export class SetModelService {
       (model) => model.modelId === modelId
     );
     if (!isAvailableModel) {
-      throw new Error("Model is not available for this session");
+      throw new ValidationError("Model is not available for this session", {
+        module: "ai",
+        op: OP,
+        details: { chatId: session.id, modelId },
+      });
     }
     return session.models?.currentModelId === modelId;
   }
@@ -137,10 +166,24 @@ export class SetModelService {
       session.proc.killed ||
       session.proc.exitCode !== null
     ) {
-      throw new Error("Session is not running");
+      throw new AppError({
+        message: "Session is not running",
+        code: "SESSION_NOT_RUNNING",
+        statusCode: 409,
+        module: "ai",
+        op: OP,
+        details: { chatId: session.id },
+      });
     }
     if (session.conn.signal.aborted) {
-      throw new Error("Session connection is closed");
+      throw new AppError({
+        message: "Session connection is closed",
+        code: "SESSION_CONNECTION_CLOSED",
+        statusCode: 409,
+        module: "ai",
+        op: OP,
+        details: { chatId: session.id },
+      });
     }
   }
 
@@ -168,7 +211,14 @@ export class SetModelService {
         if (isProcessExited(errorText)) {
           const reason = errorText || "Agent process exited";
           await this.markSessionStopped(chatId, session, reason);
-          throw new Error(reason);
+          throw new AppError({
+            message: reason,
+            code: "AGENT_PROCESS_EXITED",
+            statusCode: 503,
+            module: "ai",
+            op: OP,
+            details: { chatId, modelId },
+          });
         }
         throw error;
       }

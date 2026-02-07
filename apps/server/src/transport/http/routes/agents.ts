@@ -14,7 +14,7 @@
 
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
-import { AgentService } from "../../../modules/agent/application/agent.service";
+import { AgentService } from "../../../modules/agent";
 import { ValidationError } from "../../../shared/errors";
 import { parseArgsInput } from "../../../shared/utils/cli-args.util";
 

@@ -13,7 +13,7 @@ liệu, không phải tự parse raw ACP.
 ## Luồng dữ liệu
 
 1. ACP gửi update/permission
-2. `infra/acp/update.ts` + `infra/acp/permission.ts` xử lý
+2. `platform/acp/update.ts` + `platform/acp/permission.ts` xử lý
 3. `shared/utils/ui-message.util.ts` map sang UIMessagePart
 4. `SessionRuntimeStore.broadcast` phát `ui_message`
 
@@ -91,8 +91,8 @@ normalize JSON. Live terminal output vẫn stream qua event `terminal_output`.
 ## Điểm chỉnh sửa chính
 
 - `apps/server/src/shared/utils/ui-message.util.ts`
-- `apps/server/src/infra/acp/update.ts`
-- `apps/server/src/infra/acp/permission.ts`
+- `apps/server/src/platform/acp/update.ts`
+- `apps/server/src/platform/acp/permission.ts`
 - `apps/server/src/modules/ai/application/send-message.service.ts`
 - `apps/server/src/modules/session/application/create-session.service.ts`
 

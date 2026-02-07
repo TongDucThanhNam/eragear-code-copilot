@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { RespondPermissionService } from "@/modules/tooling/application/respond-permission.service";
+import { RespondPermissionService } from "@/modules/tooling";
 import { protectedProcedure, router } from "../base";
 
 export const toolRouter = router({

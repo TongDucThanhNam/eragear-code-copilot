@@ -8,12 +8,15 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { SessionRuntimePort } from "@/modules/session";
+import { NotFoundError, ValidationError } from "@/shared/errors";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
   buildToolApprovalResponsePart,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
+
+const OP = "tooling.permission.respond";
 
 /**
  * RespondPermissionService
@@ -60,12 +63,23 @@ export class RespondPermissionService {
   }): acp.RequestPermissionResponse {
     const session = this.sessionRuntime.get(input.chatId);
     if (!session) {
-      throw new Error("Chat not found");
+      throw new NotFoundError("Chat not found", {
+        module: "tooling",
+        op: OP,
+        details: { chatId: input.chatId, requestId: input.requestId },
+      });
     }
 
     const pending = session.pendingPermissions.get(input.requestId);
     if (!pending) {
-      throw new Error("Permission request not found or already handled");
+      throw new NotFoundError(
+        "Permission request not found or already handled",
+        {
+          module: "tooling",
+          op: OP,
+          details: { chatId: input.chatId, requestId: input.requestId },
+        }
+      );
     }
 
     // Determine the option ID based on user decision
@@ -114,7 +128,11 @@ export class RespondPermissionService {
     }
 
     if (typeof pending.resolve !== "function") {
-      throw new Error("Invalid permission resolver");
+      throw new ValidationError("Invalid permission resolver", {
+        module: "tooling",
+        op: OP,
+        details: { chatId: input.chatId, requestId: input.requestId },
+      });
     }
 
     const response: acp.RequestPermissionResponse = {

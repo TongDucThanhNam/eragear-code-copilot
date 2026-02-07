@@ -12,8 +12,10 @@
 
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
-import { DeleteSessionService } from "../../../modules/session/application/delete-session.service";
-import { StopSessionService } from "../../../modules/session/application/stop-session.service";
+import {
+  DeleteSessionService,
+  StopSessionService,
+} from "../../../modules/session";
 
 /**
  * Registers session-related HTTP routes

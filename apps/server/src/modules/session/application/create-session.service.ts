@@ -11,7 +11,8 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import type * as acp from "@agentclientprotocol/sdk";
-import type { SettingsRepositoryPort } from "@/modules/settings/application/ports/settings-repository.port";
+import type { SettingsRepositoryPort } from "@/modules/settings";
+import { AppError, ValidationError } from "@/shared/errors";
 import { CLIENT_INFO } from "../../../config/constants";
 import type {
   ChatSession,
@@ -44,6 +45,7 @@ import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 const STORED_REPLAY_PAGE_LIMIT = 200;
+const OP = "session.lifecycle.create";
 
 /**
  * Parameters for creating a new session
@@ -197,9 +199,17 @@ export class CreateSessionService {
     if (initResult.protocolVersion !== 1) {
       this.sessionRuntime.delete(chatId);
       chatSession.proc.kill();
-      throw new Error(
-        `Agent protocol version mismatch: ${initResult.protocolVersion}`
-      );
+      throw new AppError({
+        code: "AGENT_PROTOCOL_MISMATCH",
+        statusCode: 500,
+        module: "session",
+        op: OP,
+        message: `Agent protocol version mismatch: ${initResult.protocolVersion}`,
+        details: {
+          protocolVersion: initResult.protocolVersion,
+          chatId,
+        },
+      });
     }
 
     const agentCapabilities = initResult?.agentCapabilities;
@@ -591,7 +601,11 @@ export class CreateSessionService {
       );
       this.sessionRuntime.delete(chatId);
       proc.kill();
-      throw new Error("Agent does not support session/load");
+      throw new ValidationError("Agent does not support session/load", {
+        module: "session",
+        op: OP,
+        details: { chatId },
+      });
     }
 
     const mcpServers = await this.resolveMcpServers(agentCapabilities);
@@ -683,8 +697,13 @@ export class CreateSessionService {
 
     if (blocked.length > 0) {
       const blockedNames = blocked.map((server) => server.name).join(", ");
-      throw new Error(
-        `Agent does not support MCP transports for: ${blockedNames}`
+      throw new ValidationError(
+        `Agent does not support MCP transports for: ${blockedNames}`,
+        {
+          module: "session",
+          op: OP,
+          details: { blockedNames },
+        }
       );
     }
 

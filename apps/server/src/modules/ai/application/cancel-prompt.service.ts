@@ -7,8 +7,11 @@
  * @module modules/ai/application/cancel-prompt.service
  */
 
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { SessionRuntimePort } from "@/modules/session";
+import { NotFoundError } from "@/shared/errors";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
+
+const OP = "ai.prompt.cancel";
 
 /**
  * CancelPromptService
@@ -45,7 +48,11 @@ export class CancelPromptService {
   async execute(chatId: string) {
     const session = this.sessionRuntime.get(chatId);
     if (!session?.sessionId) {
-      throw new Error("Chat not found");
+      throw new NotFoundError("Chat not found", {
+        module: "ai",
+        op: OP,
+        details: { chatId },
+      });
     }
 
     updateChatStatus({

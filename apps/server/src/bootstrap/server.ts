@@ -18,21 +18,21 @@ import { compress } from "hono/compress";
 import { createElement, Fragment } from "react";
 import { WebSocketServer } from "ws";
 import { ENV } from "../config/environment";
-import { auth, authConfig, authState } from "../infra/auth/auth";
-import { ensureAuthSetup } from "../infra/auth/bootstrap";
-import { getAuthContext } from "../infra/auth/guards";
+import { ReconcileSessionStatusService } from "../modules/session";
+import { auth, authConfig, authState } from "../platform/auth/auth";
+import { ensureAuthSetup } from "../platform/auth/bootstrap";
+import { getAuthContext } from "../platform/auth/guards";
 import {
   BackgroundRunner,
   createCachePruneTask,
   createSessionIdleCleanupTask,
   createSqliteStorageMaintenanceTask,
-} from "../infra/background";
-import { installConsoleLogger } from "../infra/logging/logger";
-import { createRequestLogger } from "../infra/logging/request-logger";
-import { createLogger } from "../infra/logging/structured-logger";
-import { closeSqliteStorage } from "../infra/storage/sqlite-db";
-import { runSqliteRuntimeMaintenance } from "../infra/storage/sqlite-store";
-import { ReconcileSessionStatusService } from "../modules/session/application/reconcile-session-status.service";
+} from "../platform/background";
+import { installConsoleLogger } from "../platform/logging/logger";
+import { createRequestLogger } from "../platform/logging/request-logger";
+import { createLogger } from "../platform/logging/structured-logger";
+import { closeSqliteStorage } from "../platform/storage/sqlite-db";
+import { runSqliteRuntimeMaintenance } from "../platform/storage/sqlite-store";
 import { terminateSessionTerminals } from "../shared/utils/session-cleanup.util";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";

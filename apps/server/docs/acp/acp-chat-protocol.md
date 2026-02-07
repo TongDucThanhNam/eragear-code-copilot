@@ -90,7 +90,10 @@ Client có thể fallback bằng cách lookup `messageId` trong state nếu `mes
 - `deleteSession({ chatId })` → remove stored session
 - `getSessionState({ chatId })` → current status, modes, models, commands,
   promptCapabilities, loadSessionSupported, supportsModelSwitching, agentInfo, plan
-- `getSessionMessages({ chatId })` → `UIMessage[]` (read-only history)
+- `getSessionMessagesPage({ chatId, cursor?, limit?, includeCompacted? })` →
+  `{ messages: UIMessage[], nextCursor?, hasMore }` (**primary history API**)
+- `getSessionMessages({ chatId })` → `UIMessage[]` (**deprecated compatibility**,
+  dùng tạm cho client legacy)
 - `onSessionEvents({ chatId })` → stream `BroadcastEvent`
 
 ### 4.2 Prompt / Mode / Model
@@ -166,7 +169,7 @@ Notes:
 
 - `resumeSession` dùng stored `chatId` để load ACP session.
 - Server sẽ replay stored history nếu agent không replay.
-- Client nên gọi `getSessionMessages` cho read-only view hoặc seed UI.
+- Client nên gọi `getSessionMessagesPage` cho read-only view hoặc seed UI.
 
 ## 8) Invariants (Must hold)
 
@@ -191,7 +194,8 @@ với `apps/server`.
 
 - [ ] Subscribe `onSessionEvents({ chatId })` và xử lý `connected` + replay buffer.
 - [ ] Upsert `UIMessage` theo `message.id` (không append thẳng).
-- [ ] `getSessionMessages({ chatId })` trả về `UIMessage[]` để seed read-only.
+- [ ] `getSessionMessagesPage({ chatId, cursor? })` loop tới khi `hasMore=false`
+      để seed read-only.
 - [ ] Bỏ qua `data-*` parts an toàn (metadata).
 
 ### 10.2 Chat Status & Finish

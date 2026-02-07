@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { ProjectService } from "@/modules/project/application/project.service";
+import { ProjectService } from "@/modules/project";
 import { protectedProcedure, router } from "../base";
 
 const ProjectInputSchema = z.object({

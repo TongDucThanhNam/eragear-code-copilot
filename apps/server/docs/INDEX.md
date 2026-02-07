@@ -6,6 +6,10 @@ Tài liệu điều hướng nhanh cho `apps/server`.
 
 - `src/ARCHITECTURE.md`
   - Kiến trúc hiện tại theo layers + module boundaries.
+- `docs/CODEMAP.md`
+  - Bản đồ thêm chức năng: use-case/ports/adapters/routes/migrations.
+- `docs/DEBUGGING.md`
+  - Quy trình truy vết lỗi theo requestId/module/op.
 - `docs/SYSTEM_REPORT.md`
   - Báo cáo vận hành hệ thống theo code hiện tại.
 - `AGENTS.md`
@@ -43,13 +47,13 @@ Các file sau là nguồn chuẩn khi docs và thực tế có khác biệt:
 - Config env: `src/config/environment.ts`
 - HTTP/WS bootstrap: `src/bootstrap/server.ts`
 - tRPC auth context: `src/transport/trpc/context.ts`
-- Session events and buffering: `src/infra/acp/update.ts`
-- Permission pipeline: `src/infra/acp/permission.ts`, `src/modules/tooling/application/respond-permission.service.ts`
-- Storage path policy: `src/infra/storage/storage-path.ts`
-- SQLite boot/migration: `src/infra/storage/sqlite-store.ts`
-- Drizzle schema/db: `src/infra/storage/sqlite-schema.ts`, `src/infra/storage/sqlite-db.ts`
+- Session events and buffering: `src/platform/acp/update.ts`
+- Permission pipeline: `src/platform/acp/permission.ts`, `src/modules/tooling/application/respond-permission.service.ts`
+- Storage path policy: `src/platform/storage/storage-path.ts`
+- SQLite boot/migration: `src/platform/storage/sqlite-store.ts`
+- Drizzle schema/db: `src/platform/storage/sqlite-schema.ts`, `src/platform/storage/sqlite-db.ts`
 - Observability snapshot: `src/modules/ops/application/get-observability-snapshot.service.ts`, `src/transport/http/routes/dashboard-api.ts`
-- Background runner: `src/infra/background/runner.ts`, `src/infra/background/tasks/*`
+- Background runner: `src/platform/background/runner.ts`, `src/platform/background/tasks/*`
 
 ## 5. Security Notes
 

@@ -8,35 +8,47 @@
  * @module bootstrap/container
  */
 
-import type { AgentRepositoryPort } from "@/modules/agent/application/ports/agent-repository.port";
-import type { ProjectRepositoryPort } from "@/modules/project/application/ports/project-repository.port";
-import type { AgentRuntimePort } from "@/modules/session/application/ports/agent-runtime.port";
-import type { SessionAcpPort } from "@/modules/session/application/ports/session-acp.port";
-import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
-import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
-import type { SettingsRepositoryPort } from "@/modules/settings/application/ports/settings-repository.port";
+import type { AgentRepositoryPort } from "@/modules/agent";
+import {
+  AgentSqliteRepository,
+  AgentSqliteWorkerRepository,
+} from "@/modules/agent/di";
+import type { ProjectRepositoryPort } from "@/modules/project";
+import {
+  ProjectSqliteRepository,
+  ProjectSqliteWorkerRepository,
+} from "@/modules/project/di";
+import type {
+  AgentRuntimePort,
+  SessionAcpPort,
+  SessionRepositoryPort,
+  SessionRuntimePort,
+} from "@/modules/session";
+import {
+  SessionAcpAdapter,
+  SessionRuntimeStore,
+  SessionSqliteRepository,
+  SessionSqliteWorkerRepository,
+} from "@/modules/session/di";
+import type { SettingsRepositoryPort } from "@/modules/settings";
+import {
+  SettingsSqliteRepository,
+  SettingsSqliteWorkerRepository,
+} from "@/modules/settings/di";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
+import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import { ENV } from "../config/environment";
-import { SessionAcpAdapter } from "../infra/acp/session-acp.adapter";
-import { auth, authDb } from "../infra/auth/auth";
-import { getAuthContext } from "../infra/auth/guards";
-import { getResponseCache } from "../infra/caching/response-cache";
-import type { CacheStats } from "../infra/caching/types";
-import { GitAdapter } from "../infra/git";
-import { getLogStore } from "../infra/logging/log-store";
-import { AgentRuntimeAdapter } from "../infra/process";
-import { initializeSqliteWorker } from "../infra/storage/sqlite-worker-client";
-import { AgentSqliteRepository } from "../modules/agent/infra/agent.repository.sqlite";
-import { AgentSqliteWorkerRepository } from "../modules/agent/infra/agent.repository.sqlite.worker";
-import { ProjectSqliteRepository } from "../modules/project/infra/project.repository.sqlite";
-import { ProjectSqliteWorkerRepository } from "../modules/project/infra/project.repository.sqlite.worker";
-import { SessionRuntimeStore } from "../modules/session/infra/runtime-store";
-import { SessionSqliteRepository } from "../modules/session/infra/session.repository.sqlite";
-import { SessionSqliteWorkerRepository } from "../modules/session/infra/session.repository.sqlite.worker";
-import { SettingsSqliteRepository } from "../modules/settings/infra/settings.repository.sqlite";
-import { SettingsSqliteWorkerRepository } from "../modules/settings/infra/settings.repository.sqlite.worker";
+import { auth, authDb } from "../platform/auth/auth";
+import { getAuthContext } from "../platform/auth/guards";
+import { getResponseCache } from "../platform/caching/response-cache";
+import type { CacheStats } from "../platform/caching/types";
+import { GitAdapter } from "../platform/git";
+import { getLogStore } from "../platform/logging/log-store";
+import { createAppLogger } from "../platform/logging/logger-adapter";
+import { AgentRuntimeAdapter } from "../platform/process";
+import { initializeSqliteWorker } from "../platform/storage/sqlite-worker-client";
 import type { Settings } from "../shared/types/settings.types";
 import { EventBus } from "../shared/utils/event-bus";
 
@@ -51,6 +63,8 @@ export class Container {
   private readonly sessionRuntime: SessionRuntimePort;
   /** Log store for server and request logs */
   private readonly logStore: LogStorePort;
+  /** Application logger port for use-cases */
+  private readonly appLogger: LoggerPort;
   /** Background runner state provider */
   private backgroundRunnerStateProvider:
     | (() => BackgroundRunnerState)
@@ -83,6 +97,7 @@ export class Container {
     this.eventBus = new EventBus();
     this.sessionRuntime = new SessionRuntimeStore(this.eventBus);
     this.logStore = getLogStore();
+    this.appLogger = createAppLogger("Debug");
 
     if (ENV.sqliteWorkerEnabled) {
       initializeSqliteWorker(allowedRoots);
@@ -128,6 +143,14 @@ export class Container {
    */
   getLogStore(): LogStorePort {
     return this.logStore;
+  }
+
+  /**
+   * Gets the shared application logger
+   * @returns Logger port implementation
+   */
+  getAppLogger(): LoggerPort {
+    return this.appLogger;
   }
 
   /**

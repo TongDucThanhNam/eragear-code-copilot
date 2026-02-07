@@ -16,14 +16,17 @@ import {
   MAX_SESSION_LIST_PAGE_LIMIT,
   MAX_SESSION_MESSAGES_PAGE_LIMIT,
 } from "@/config/constants";
-import { CreateSessionService } from "@/modules/session/application/create-session.service";
-import { DeleteSessionService } from "@/modules/session/application/delete-session.service";
-import { GetSessionMessagesService } from "@/modules/session/application/get-session-messages.service";
-import { GetSessionStateService } from "@/modules/session/application/get-session-state.service";
-import { ListSessionsService } from "@/modules/session/application/list-sessions.service";
-import { ResumeSessionService } from "@/modules/session/application/resume-session.service";
-import { StopSessionService } from "@/modules/session/application/stop-session.service";
-import { UpdateSessionMetaService } from "@/modules/session/application/update-session-meta.service";
+import {
+  CreateSessionService,
+  DeleteSessionService,
+  GetSessionMessagesService,
+  GetSessionStateService,
+  ListSessionsService,
+  ResumeSessionService,
+  StopSessionService,
+  UpdateSessionMetaService,
+} from "@/modules/session";
+import { NotFoundError } from "@/shared/errors";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
 import { protectedProcedure, router } from "../base";
 
@@ -49,7 +52,11 @@ export const sessionRouter = router({
         .getProjects()
         .findById(input.projectId);
       if (!project) {
-        throw new Error("Project not found");
+        throw new NotFoundError("Project not found", {
+          module: "session",
+          op: "session.lifecycle.create",
+          details: { projectId: input.projectId },
+        });
       }
       const service = new CreateSessionService(
         ctx.container.getSessions(),
