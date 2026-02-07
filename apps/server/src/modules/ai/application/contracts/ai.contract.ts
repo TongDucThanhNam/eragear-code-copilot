@@ -1,0 +1,86 @@
+import { z } from "zod";
+
+const MAX_MESSAGE_TEXT_CHARS = 100_000;
+const MAX_INLINE_MEDIA_ITEMS = 8;
+const MAX_BASE64_CHARS = 6 * 1024 * 1024;
+const MAX_RESOURCE_ITEMS = 16;
+const MAX_RESOURCE_TEXT_CHARS = 200_000;
+const MAX_RESOURCE_LINK_ITEMS = 32;
+const MAX_RESOURCE_LINK_SIZE = Number.MAX_SAFE_INTEGER;
+
+const InlineImageInputSchema = z.object({
+  base64: z.string().min(1).max(MAX_BASE64_CHARS),
+  mimeType: z.string().min(1).max(255),
+  uri: z.string().max(4096).optional(),
+  annotations: z.record(z.string(), z.unknown()).optional(),
+});
+
+const InlineAudioInputSchema = z.object({
+  base64: z.string().min(1).max(MAX_BASE64_CHARS),
+  mimeType: z.string().min(1).max(255),
+  annotations: z.record(z.string(), z.unknown()).optional(),
+});
+
+const ResourceInputSchema = z
+  .object({
+    uri: z.string().min(1).max(4096),
+    text: z.string().max(MAX_RESOURCE_TEXT_CHARS).optional(),
+    blob: z.string().max(MAX_BASE64_CHARS).optional(),
+    mimeType: z.string().min(1).max(255).optional(),
+    annotations: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasText = value.text !== undefined;
+    const hasBlob = value.blob !== undefined;
+    if (hasText === hasBlob) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Resource must include exactly one of text or blob",
+      });
+    }
+  });
+
+const ResourceLinkInputSchema = z.object({
+  uri: z.string().min(1).max(4096),
+  name: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(255).optional(),
+  title: z.string().max(255).optional(),
+  description: z.string().max(2000).optional(),
+  size: z.number().int().nonnegative().max(MAX_RESOURCE_LINK_SIZE).optional(),
+  annotations: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const SendMessageInputSchema = z.object({
+  chatId: z.string(),
+  text: z.string().max(MAX_MESSAGE_TEXT_CHARS),
+  textAnnotations: z.record(z.string(), z.unknown()).optional(),
+  images: z
+    .array(InlineImageInputSchema)
+    .max(MAX_INLINE_MEDIA_ITEMS)
+    .optional(),
+  audio: z.array(InlineAudioInputSchema).max(MAX_INLINE_MEDIA_ITEMS).optional(),
+  resources: z.array(ResourceInputSchema).max(MAX_RESOURCE_ITEMS).optional(),
+  resourceLinks: z
+    .array(ResourceLinkInputSchema)
+    .max(MAX_RESOURCE_LINK_ITEMS)
+    .optional(),
+});
+
+export const SetModelInputSchema = z.object({
+  chatId: z.string(),
+  modelId: z.string(),
+});
+
+export const SetModeInputSchema = z.object({
+  chatId: z.string(),
+  modeId: z.string(),
+});
+
+export const CancelPromptInputSchema = z.object({
+  chatId: z.string(),
+});
+
+export type SendMessageInput = z.infer<typeof SendMessageInputSchema>;
+export type SetModelInput = z.infer<typeof SetModelInputSchema>;
+export type SetModeInput = z.infer<typeof SetModeInputSchema>;
+export type CancelPromptInput = z.infer<typeof CancelPromptInputSchema>;

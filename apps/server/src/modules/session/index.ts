@@ -1,3 +1,17 @@
+export type {
+  CreateSessionInput,
+  ListSessionsInput,
+  SessionChatIdInput,
+  SessionMessagesPageInput,
+  UpdateSessionMetaInput,
+} from "./application/contracts/session.contract";
+export {
+  CreateSessionInputSchema,
+  ListSessionsInputSchema,
+  SessionChatIdInputSchema,
+  SessionMessagesPageInputSchema,
+  UpdateSessionMetaInputSchema,
+} from "./application/contracts/session.contract";
 export { CreateSessionService } from "./application/create-session.service";
 export { DeleteSessionService } from "./application/delete-session.service";
 export { GetSessionMessagesService } from "./application/get-session-messages.service";

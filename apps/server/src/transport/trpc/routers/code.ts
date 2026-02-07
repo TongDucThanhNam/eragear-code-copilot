@@ -7,41 +7,34 @@
  * @module transport/trpc/routers/code
  */
 
-import { z } from "zod";
-import { CodeContextService } from "@/modules/tooling";
+import {
+  CodeChatIdInputSchema,
+  CodeFileContentInputSchema,
+} from "@/modules/tooling";
 import { protectedProcedure, router } from "../base";
 
 export const codeRouter = router({
   /** Get project context (rules, tabs, files) */
   getProjectContext: protectedProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(CodeChatIdInputSchema)
     .query(({ input, ctx }) => {
-      const service = new CodeContextService(
-        ctx.container.getGit(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getToolingServices().codeContext();
       return service.getProjectContext(input.chatId);
     }),
 
   /** Get git diff for the project's working directory */
   getGitDiff: protectedProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(CodeChatIdInputSchema)
     .query(({ input, ctx }) => {
-      const service = new CodeContextService(
-        ctx.container.getGit(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getToolingServices().codeContext();
       return service.getGitDiff(input.chatId);
     }),
 
   /** Get file content from the project */
   getFileContent: protectedProcedure
-    .input(z.object({ chatId: z.string(), path: z.string() }))
+    .input(CodeFileContentInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = new CodeContextService(
-        ctx.container.getGit(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getToolingServices().codeContext();
       return await service.getFileContent(input.chatId, input.path);
     }),
 });

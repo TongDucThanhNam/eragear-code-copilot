@@ -52,6 +52,7 @@ modules/<feature>/
 ├── di.ts                   # composition-only exports (infra implementations)
 ├── domain/
 ├── application/
+│   ├── contracts/          # input contracts (zod schemas)
 │   └── ports/
 └── infra/                  # module-scoped adapters
 ```
@@ -59,6 +60,8 @@ modules/<feature>/
 Invariant quan trọng:
 - `modules/<feature>/index.ts` chỉ export public application API (services/ports/types), không export `infra/*`.
 - `modules/<feature>/di.ts` là entrypoint dành cho composition/wiring của concrete adapters.
+- `transport` không `new Service(...)` trực tiếp; luôn gọi qua
+  `Container` factories (`getSessionServices()`, `getAiServices()`, ...).
 
 ## Runtime Components
 

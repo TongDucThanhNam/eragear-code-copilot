@@ -12,10 +12,6 @@
 
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
-import {
-  DeleteSessionService,
-  StopSessionService,
-} from "../../../modules/session";
 
 /**
  * Registers session-related HTTP routes
@@ -38,10 +34,7 @@ export function registerSessionRoutes(api: Hono): void {
       return c.json({ error: "chatId is required" }, 400);
     }
 
-    const service = new StopSessionService(
-      container.getSessions(),
-      container.getSessionRuntime()
-    );
+    const service = container.getSessionServices().stopSession();
     await service.execute(chatId);
     container.getEventBus().publish({
       type: "dashboard_refresh",
@@ -63,10 +56,7 @@ export function registerSessionRoutes(api: Hono): void {
       return c.json({ error: "chatId is required" }, 400);
     }
 
-    const service = new DeleteSessionService(
-      container.getSessions(),
-      container.getSessionRuntime()
-    );
+    const service = container.getSessionServices().deleteSession();
     await service.execute(chatId);
     container.getEventBus().publish({
       type: "dashboard_refresh",

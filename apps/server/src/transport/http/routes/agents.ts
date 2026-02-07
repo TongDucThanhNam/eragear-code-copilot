@@ -14,7 +14,6 @@
 
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
-import { AgentService } from "../../../modules/agent";
 import { ValidationError } from "../../../shared/errors";
 import { parseArgsInput } from "../../../shared/utils/cli-args.util";
 
@@ -82,7 +81,7 @@ export function registerAgentRoutes(api: Hono): void {
         resolvedArgs = parsed.args;
       }
 
-      const service = new AgentService(container.getAgents());
+      const service = container.getAgentServices().agent();
       const agent = await service.createAgent({
         name,
         type,
@@ -151,7 +150,7 @@ export function registerAgentRoutes(api: Hono): void {
         resolvedArgs = parsed.args;
       }
 
-      const service = new AgentService(container.getAgents());
+      const service = container.getAgentServices().agent();
       const agent = await service.updateAgent({
         id,
         name,
@@ -190,7 +189,8 @@ export function registerAgentRoutes(api: Hono): void {
         return c.json({ error: "agentId is required" }, 400);
       }
 
-      await container.getAgents().delete(agentId);
+      const service = container.getAgentServices().agent();
+      await service.deleteAgent(agentId);
       container.getEventBus().publish({
         type: "dashboard_refresh",
         reason: "agent_deleted",

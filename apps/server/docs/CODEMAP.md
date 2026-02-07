@@ -25,6 +25,8 @@ Rule bổ sung:
 - `transport` không import `@/modules/<module>/di`
 - `bootstrap`/composition wiring được phép import `@/modules/<module>/di`
 - `src/modules/<module>/index.ts` không import/re-export `infra/*`
+- `transport` dùng container service factories (`ctx.container.get*Services()`)
+  thay vì `new Service(...)` trực tiếp.
 
 ## 3. Add Feature Checklist
 
@@ -45,16 +47,19 @@ Rule bổ sung:
 ### 3.2 New HTTP endpoint
 
 1. Thêm route trong `src/transport/http/routes/*.ts`
-2. Validate input tại route
-3. Gọi use-case qua module public API
-4. Không đặt business logic ở route
+2. Import schema từ `src/modules/<module>/application/contracts/*.ts`
+   thông qua `src/modules/<module>/index.ts`
+3. Validate input tại route bằng contract schema
+4. Gọi use-case qua `container.get*Services()`
+5. Không đặt business logic ở route
 
 ### 3.3 New tRPC procedure
 
 1. Thêm procedure trong `src/transport/trpc/routers/*.ts`
-2. Validate bằng Zod ở router
-3. Gọi use-case qua module public API
-4. Để `base.ts` xử lý error mapping tập trung
+2. Import schema từ module contracts (qua `@/modules/<module>`)
+3. Validate bằng contract schema
+4. Gọi use-case qua `ctx.container.get*Services()`
+5. Để `base.ts` xử lý error mapping tập trung
 
 ### 3.4 New background task
 

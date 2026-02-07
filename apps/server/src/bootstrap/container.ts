@@ -8,21 +8,37 @@
  * @module bootstrap/container
  */
 
-import type { AgentRepositoryPort } from "@/modules/agent";
+import { type AgentRepositoryPort, AgentService } from "@/modules/agent";
 import {
   AgentSqliteRepository,
   AgentSqliteWorkerRepository,
 } from "@/modules/agent/di";
-import type { ProjectRepositoryPort } from "@/modules/project";
+import {
+  CancelPromptService,
+  SendMessageService,
+  SetModelService,
+  SetModeService,
+} from "@/modules/ai";
+import { GetObservabilitySnapshotService } from "@/modules/ops";
+import { type ProjectRepositoryPort, ProjectService } from "@/modules/project";
 import {
   ProjectSqliteRepository,
   ProjectSqliteWorkerRepository,
 } from "@/modules/project/di";
-import type {
-  AgentRuntimePort,
-  SessionAcpPort,
-  SessionRepositoryPort,
-  SessionRuntimePort,
+import {
+  type AgentRuntimePort,
+  CreateSessionService,
+  DeleteSessionService,
+  GetSessionMessagesService,
+  GetSessionStateService,
+  ListSessionsService,
+  ReconcileSessionStatusService,
+  ResumeSessionService,
+  type SessionAcpPort,
+  type SessionRepositoryPort,
+  type SessionRuntimePort,
+  StopSessionService,
+  UpdateSessionMetaService,
 } from "@/modules/session";
 import {
   SessionAcpAdapter,
@@ -35,6 +51,10 @@ import {
   SettingsSqliteRepository,
   SettingsSqliteWorkerRepository,
 } from "@/modules/settings/di";
+import {
+  CodeContextService,
+  RespondPermissionService,
+} from "@/modules/tooling";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
@@ -51,6 +71,42 @@ import { AgentRuntimeAdapter } from "../platform/process";
 import { initializeSqliteWorker } from "../platform/storage/sqlite-worker-client";
 import type { Settings } from "../shared/types/settings.types";
 import { EventBus } from "../shared/utils/event-bus";
+
+export interface SessionServiceFactory {
+  createSession(): CreateSessionService;
+  stopSession(): StopSessionService;
+  resumeSession(): ResumeSessionService;
+  deleteSession(): DeleteSessionService;
+  getSessionState(): GetSessionStateService;
+  listSessions(): ListSessionsService;
+  updateSessionMeta(): UpdateSessionMetaService;
+  getSessionMessages(): GetSessionMessagesService;
+  reconcileSessionStatus(): ReconcileSessionStatusService;
+}
+
+export interface AiServiceFactory {
+  sendMessage(): SendMessageService;
+  setModel(): SetModelService;
+  setMode(): SetModeService;
+  cancelPrompt(): CancelPromptService;
+}
+
+export interface ProjectServiceFactory {
+  project(): ProjectService;
+}
+
+export interface AgentServiceFactory {
+  agent(): AgentService;
+}
+
+export interface ToolingServiceFactory {
+  codeContext(): CodeContextService;
+  respondPermission(): RespondPermissionService;
+}
+
+export interface OpsServiceFactory {
+  observabilitySnapshot(): GetObservabilitySnapshotService;
+}
 
 /**
  * Main dependency injection container
@@ -69,6 +125,18 @@ export class Container {
   private backgroundRunnerStateProvider:
     | (() => BackgroundRunnerState)
     | undefined;
+  /** Session service factory */
+  private sessionServices: SessionServiceFactory | undefined;
+  /** AI service factory */
+  private aiServices: AiServiceFactory | undefined;
+  /** Project service factory */
+  private projectServices: ProjectServiceFactory | undefined;
+  /** Agent service factory */
+  private agentServices: AgentServiceFactory | undefined;
+  /** Tooling service factory */
+  private toolingServices: ToolingServiceFactory | undefined;
+  /** Operations service factory */
+  private opsServices: OpsServiceFactory | undefined;
 
   // Repositories
   /** Session repository for persisting session metadata and messages */
@@ -263,6 +331,143 @@ export class Container {
    */
   getSessionAcp(): SessionAcpPort {
     return this.sessionAcpAdapter;
+  }
+
+  /**
+   * Gets session use-case factories.
+   */
+  getSessionServices(): SessionServiceFactory {
+    if (!this.sessionServices) {
+      this.sessionServices = {
+        createSession: () =>
+          new CreateSessionService(
+            this.sessionRepo,
+            this.sessionRuntime,
+            this.agentRuntimeAdapter,
+            this.settingsRepo,
+            this.sessionAcpAdapter
+          ),
+        stopSession: () =>
+          new StopSessionService(this.sessionRepo, this.sessionRuntime),
+        resumeSession: () =>
+          new ResumeSessionService(
+            this.sessionRepo,
+            this.sessionRuntime,
+            this.agentRuntimeAdapter,
+            this.settingsRepo,
+            this.sessionAcpAdapter
+          ),
+        deleteSession: () =>
+          new DeleteSessionService(this.sessionRepo, this.sessionRuntime),
+        getSessionState: () =>
+          new GetSessionStateService(this.sessionRepo, this.sessionRuntime),
+        listSessions: () =>
+          new ListSessionsService(
+            this.sessionRepo,
+            this.sessionRuntime,
+            this.projectRepo
+          ),
+        updateSessionMeta: () => new UpdateSessionMetaService(this.sessionRepo),
+        getSessionMessages: () =>
+          new GetSessionMessagesService(this.sessionRepo),
+        reconcileSessionStatus: () =>
+          new ReconcileSessionStatusService(
+            this.sessionRepo,
+            this.sessionRuntime
+          ),
+      };
+    }
+
+    return this.sessionServices;
+  }
+
+  /**
+   * Gets AI use-case factories.
+   */
+  getAiServices(): AiServiceFactory {
+    if (!this.aiServices) {
+      this.aiServices = {
+        sendMessage: () =>
+          new SendMessageService(
+            this.sessionRepo,
+            this.sessionRuntime,
+            this.appLogger
+          ),
+        setModel: () =>
+          new SetModelService(this.sessionRuntime, this.sessionRepo),
+        setMode: () =>
+          new SetModeService(this.sessionRuntime, this.sessionRepo),
+        cancelPrompt: () => new CancelPromptService(this.sessionRuntime),
+      };
+    }
+
+    return this.aiServices;
+  }
+
+  /**
+   * Gets project use-case factories.
+   */
+  getProjectServices(): ProjectServiceFactory {
+    if (!this.projectServices) {
+      this.projectServices = {
+        project: () =>
+          new ProjectService(
+            this.projectRepo,
+            this.sessionRepo,
+            this.sessionRuntime
+          ),
+      };
+    }
+
+    return this.projectServices;
+  }
+
+  /**
+   * Gets agent use-case factories.
+   */
+  getAgentServices(): AgentServiceFactory {
+    if (!this.agentServices) {
+      this.agentServices = {
+        agent: () => new AgentService(this.agentRepo),
+      };
+    }
+
+    return this.agentServices;
+  }
+
+  /**
+   * Gets tooling use-case factories.
+   */
+  getToolingServices(): ToolingServiceFactory {
+    if (!this.toolingServices) {
+      this.toolingServices = {
+        codeContext: () =>
+          new CodeContextService(this.gitAdapter, this.sessionRuntime),
+        respondPermission: () =>
+          new RespondPermissionService(this.sessionRuntime),
+      };
+    }
+
+    return this.toolingServices;
+  }
+
+  /**
+   * Gets operational use-case factories.
+   */
+  getOpsServices(): OpsServiceFactory {
+    if (!this.opsServices) {
+      this.opsServices = {
+        observabilitySnapshot: () =>
+          new GetObservabilitySnapshotService({
+            sessionRuntime: this.sessionRuntime,
+            logStore: this.logStore,
+            getCacheStats: () => this.getCacheStats(),
+            getBackgroundRunnerState: () => this.getBackgroundRunnerState(),
+          }),
+      };
+    }
+
+    return this.opsServices;
   }
 
   /**

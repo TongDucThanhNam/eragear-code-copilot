@@ -7,78 +7,50 @@
  * @module transport/trpc/routers/project
  */
 
-import { z } from "zod";
-import { ProjectService } from "@/modules/project";
+import {
+  CreateProjectInputSchema,
+  DeleteProjectInputSchema,
+  SetActiveProjectInputSchema,
+  UpdateProjectInputSchema,
+} from "@/modules/project";
 import { protectedProcedure, router } from "../base";
-
-const ProjectInputSchema = z.object({
-  name: z.string().min(1),
-  path: z.string().min(1),
-  description: z.string().optional().nullable(),
-  tags: z.array(z.string()).optional(),
-  favorite: z.boolean().optional(),
-});
-
-const ProjectUpdateSchema = ProjectInputSchema.partial().extend({
-  id: z.string(),
-});
 
 export const projectRouter = router({
   /** List all projects */
   listProjects: protectedProcedure.query(async ({ ctx }) => {
-    const service = new ProjectService(
-      ctx.container.getProjects(),
-      ctx.container.getSessions(),
-      ctx.container.getSessionRuntime()
-    );
+    const service = ctx.container.getProjectServices().project();
     return await service.listProjects();
   }),
 
   /** Create a new project */
   createProject: protectedProcedure
-    .input(ProjectInputSchema)
+    .input(CreateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = new ProjectService(
-        ctx.container.getProjects(),
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getProjectServices().project();
       return await service.createProject(input);
     }),
 
   /** Update an existing project */
   updateProject: protectedProcedure
-    .input(ProjectUpdateSchema)
+    .input(UpdateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = new ProjectService(
-        ctx.container.getProjects(),
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getProjectServices().project();
       return await service.updateProject(input);
     }),
 
   /** Delete a project */
   deleteProject: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(DeleteProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = new ProjectService(
-        ctx.container.getProjects(),
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getProjectServices().project();
       return await service.deleteProject(input.id);
     }),
 
   /** Set the active project (for UI state) */
   setActiveProject: protectedProcedure
-    .input(z.object({ id: z.string().nullable() }))
+    .input(SetActiveProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = new ProjectService(
-        ctx.container.getProjects(),
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getProjectServices().project();
       return await service.setActiveProject(input.id);
     }),
 });

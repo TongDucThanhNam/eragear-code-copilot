@@ -11,7 +11,6 @@
  */
 
 import type { Context, Hono } from "hono";
-import { ProjectService } from "@/modules/project";
 import { getContainer } from "../../../bootstrap/container";
 import { isPathWithinRoots } from "../../../shared/utils/project-roots.util";
 
@@ -20,11 +19,6 @@ import { isPathWithinRoots } from "../../../shared/utils/project-roots.util";
  */
 export function registerProjectRoutes(api: Hono): void {
   const container = getContainer();
-  const service = new ProjectService(
-    container.getProjects(),
-    container.getSessions(),
-    container.getSessionRuntime()
-  );
 
   // =========================================================================
   // API Routes
@@ -60,6 +54,7 @@ export function registerProjectRoutes(api: Hono): void {
         );
       }
 
+      const service = container.getProjectServices().project();
       const project = await service.createProject({
         name,
         path,
@@ -93,6 +88,7 @@ export function registerProjectRoutes(api: Hono): void {
         return c.json({ error: "projectId is required" }, 400);
       }
 
+      const service = container.getProjectServices().project();
       await service.deleteProject(projectId);
       container.getEventBus().publish({
         type: "dashboard_refresh",

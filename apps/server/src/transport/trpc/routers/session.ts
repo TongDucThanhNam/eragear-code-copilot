@@ -9,22 +9,17 @@
  */
 
 import { observable } from "@trpc/server/observable";
-import { z } from "zod";
 import {
   DEFAULT_SESSION_LIST_PAGE_LIMIT,
   DEFAULT_SESSION_MESSAGES_PAGE_LIMIT,
-  MAX_SESSION_LIST_PAGE_LIMIT,
   MAX_SESSION_MESSAGES_PAGE_LIMIT,
 } from "@/config/constants";
 import {
-  CreateSessionService,
-  DeleteSessionService,
-  GetSessionMessagesService,
-  GetSessionStateService,
-  ListSessionsService,
-  ResumeSessionService,
-  StopSessionService,
-  UpdateSessionMetaService,
+  CreateSessionInputSchema,
+  ListSessionsInputSchema,
+  SessionChatIdInputSchema,
+  SessionMessagesPageInputSchema,
+  UpdateSessionMetaInputSchema,
 } from "@/modules/session";
 import { NotFoundError } from "@/shared/errors";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
@@ -33,14 +28,7 @@ import { protectedProcedure, router } from "../base";
 export const sessionRouter = router({
   /** Create a new session for a project */
   createSession: protectedProcedure
-    .input(
-      z.object({
-        projectId: z.string().min(1),
-        command: z.string().optional(),
-        args: z.array(z.string()).optional(),
-        env: z.record(z.string(), z.string()).optional(),
-      })
-    )
+    .input(CreateSessionInputSchema)
     .mutation(async ({ input, ctx }) => {
       // DEBUG: Log tRPC input
       console.log(
@@ -58,13 +46,7 @@ export const sessionRouter = router({
           details: { projectId: input.projectId },
         });
       }
-      const service = new CreateSessionService(
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime(),
-        ctx.container.getAgentRuntime(),
-        ctx.container.getSettings(),
-        ctx.container.getSessionAcp()
-      );
+      const service = ctx.container.getSessionServices().createSession();
       const res = await service.execute({
         projectId: input.projectId,
         projectRoot: project.path,
@@ -86,103 +68,62 @@ export const sessionRouter = router({
 
   /** Stop a running session */
   stopSession: protectedProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = new StopSessionService(
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getSessionServices().stopSession();
       return await service.execute(input.chatId);
     }),
 
   /** Resume a stopped session */
   resumeSession: protectedProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = new ResumeSessionService(
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime(),
-        ctx.container.getAgentRuntime(),
-        ctx.container.getSettings(),
-        ctx.container.getSessionAcp()
-      );
+      const service = ctx.container.getSessionServices().resumeSession();
       return await service.execute(input.chatId);
     }),
 
   /** Delete a session */
   deleteSession: protectedProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = new DeleteSessionService(
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getSessionServices().deleteSession();
       return await service.execute(input.chatId);
     }),
 
   /** Get current session state */
   getSessionState: protectedProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(SessionChatIdInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = new GetSessionStateService(
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getSessionServices().getSessionState();
       return await service.execute(input.chatId);
     }),
 
   /** List sessions (paginated) */
   getSessions: protectedProcedure
-    .input(
-      z
-        .object({
-          limit: z
-            .number()
-            .int()
-            .min(1)
-            .max(MAX_SESSION_LIST_PAGE_LIMIT)
-            .optional(),
-          offset: z.number().int().min(0).optional(),
-        })
-        .optional()
-    )
+    .input(ListSessionsInputSchema)
     .query(async ({ ctx, input }) => {
       const limit = input?.limit ?? DEFAULT_SESSION_LIST_PAGE_LIMIT;
       const offset = input?.offset ?? 0;
 
-      const service = new ListSessionsService(
-        ctx.container.getSessions(),
-        ctx.container.getSessionRuntime(),
-        ctx.container.getProjects()
-      );
+      const service = ctx.container.getSessionServices().listSessions();
       return await service.execute({ limit, offset });
     }),
 
   /** Update session metadata (name, pinned, archived) */
   updateSessionMeta: protectedProcedure
-    .input(
-      z.object({
-        chatId: z.string(),
-        name: z.string().nullable().optional(),
-        pinned: z.boolean().optional(),
-        archived: z.boolean().optional(),
-      })
-    )
+    .input(UpdateSessionMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = new UpdateSessionMetaService(ctx.container.getSessions());
+      const service = ctx.container.getSessionServices().updateSessionMeta();
       return await service.execute(input);
     }),
 
   /** @deprecated Use getSessionMessagesPage for paginated history retrieval. */
   getSessionMessages: protectedProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(SessionChatIdInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = new GetSessionMessagesService(
-        ctx.container.getSessions()
-      );
-      const messages: Awaited<
-        ReturnType<GetSessionMessagesService["execute"]>
-      >["messages"] = [];
+      const service = ctx.container.getSessionServices().getSessionMessages();
+      const messages: Awaited<ReturnType<typeof service.execute>>["messages"] =
+        [];
       let cursor: number | undefined;
 
       while (true) {
@@ -204,23 +145,9 @@ export const sessionRouter = router({
 
   /** Get paginated session message history */
   getSessionMessagesPage: protectedProcedure
-    .input(
-      z.object({
-        chatId: z.string(),
-        cursor: z.number().int().min(0).optional(),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(MAX_SESSION_MESSAGES_PAGE_LIMIT)
-          .optional(),
-        includeCompacted: z.boolean().optional(),
-      })
-    )
+    .input(SessionMessagesPageInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = new GetSessionMessagesService(
-        ctx.container.getSessions()
-      );
+      const service = ctx.container.getSessionServices().getSessionMessages();
       return await service.execute({
         chatId: input.chatId,
         cursor: input.cursor,
@@ -236,7 +163,7 @@ export const sessionRouter = router({
 
   /** Subscribe to real-time session events */
   onSessionEvents: protectedProcedure
-    .input(z.object({ chatId: z.string() }))
+    .input(SessionChatIdInputSchema)
     .subscription(({ input, ctx }) => {
       return observable<BroadcastEvent>((emit) => {
         const session = ctx.container.getSessionRuntime().get(input.chatId);

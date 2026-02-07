@@ -18,7 +18,6 @@ import { compress } from "hono/compress";
 import { createElement, Fragment } from "react";
 import { WebSocketServer } from "ws";
 import { ENV } from "../config/environment";
-import { ReconcileSessionStatusService } from "../modules/session";
 import { auth, authConfig, authState } from "../platform/auth/auth";
 import { ensureAuthSetup } from "../platform/auth/bootstrap";
 import { getAuthContext } from "../platform/auth/guards";
@@ -97,10 +96,7 @@ async function pipeResponseBody(
 export async function createApp() {
   // Initialize DI container with allowed roots from settings
   const container = await initializeContainerFromSettings();
-  await new ReconcileSessionStatusService(
-    container.getSessions(),
-    container.getSessionRuntime()
-  ).execute();
+  await container.getSessionServices().reconcileSessionStatus().execute();
 
   const app = new Hono();
   app.use(

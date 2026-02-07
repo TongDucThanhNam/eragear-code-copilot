@@ -7,24 +7,15 @@
  * @module transport/trpc/routers/tool
  */
 
-import { z } from "zod";
-import { RespondPermissionService } from "@/modules/tooling";
+import { RespondPermissionInputSchema } from "@/modules/tooling";
 import { protectedProcedure, router } from "../base";
 
 export const toolRouter = router({
   /** Respond to a permission request from an agent */
   respondToPermissionRequest: protectedProcedure
-    .input(
-      z.object({
-        chatId: z.string(),
-        requestId: z.string(),
-        decision: z.string(),
-      })
-    )
+    .input(RespondPermissionInputSchema)
     .mutation(({ input, ctx }) => {
-      const service = new RespondPermissionService(
-        ctx.container.getSessionRuntime()
-      );
+      const service = ctx.container.getToolingServices().respondPermission();
       return service.execute(input);
     }),
 });
