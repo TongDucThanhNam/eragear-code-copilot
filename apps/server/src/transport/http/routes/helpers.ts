@@ -16,8 +16,8 @@ import {
   DEFAULT_LOG_QUERY_LIMIT,
   DEFAULT_SESSION_LIST_PAGE_LIMIT,
   MAX_LOG_QUERY_LIMIT,
-  MAX_SESSION_LIST_PAGE_LIMIT,
 } from "../../../config/constants";
+import { ENV } from "../../../config/environment";
 import type { LogLevel, LogQuery } from "../../../shared/types/log.types";
 import { LOG_LEVELS } from "../../../shared/types/log.types";
 
@@ -214,7 +214,7 @@ export function parseSessionPaginationParams(
     if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
       return { ok: false, error: "limit must be a positive number" };
     }
-    limit = Math.min(Math.trunc(parsedLimit), MAX_SESSION_LIST_PAGE_LIMIT);
+    limit = Math.min(Math.trunc(parsedLimit), ENV.sessionListPageMaxLimit);
   }
 
   let offset = 0;

@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  MAX_SESSION_LIST_PAGE_LIMIT,
-  MAX_SESSION_MESSAGES_PAGE_LIMIT,
-} from "@/config/constants";
+import { ENV } from "@/config/environment";
 
 export const SessionChatIdInputSchema = z.object({
   chatId: z.string(),
@@ -17,7 +14,7 @@ export const CreateSessionInputSchema = z.object({
 
 export const ListSessionsInputSchema = z
   .object({
-    limit: z.number().int().min(1).max(MAX_SESSION_LIST_PAGE_LIMIT).optional(),
+    limit: z.number().int().min(1).max(ENV.sessionListPageMaxLimit).optional(),
     offset: z.number().int().min(0).optional(),
   })
   .optional();
@@ -36,7 +33,7 @@ export const SessionMessagesPageInputSchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(MAX_SESSION_MESSAGES_PAGE_LIMIT)
+    .max(ENV.sessionMessagesPageMaxLimit)
     .optional(),
   includeCompacted: z.boolean().optional(),
 });

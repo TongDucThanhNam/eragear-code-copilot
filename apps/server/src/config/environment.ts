@@ -20,6 +20,8 @@ import {
   DEFAULT_MESSAGE_PARTS_MAX_BYTES,
   DEFAULT_SESSION_BUFFER_LIMIT,
   DEFAULT_SESSION_IDLE_TIMEOUT_MS,
+  DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
+  DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
   DEFAULT_SQLITE_BUSY_MAX_RETRIES,
   DEFAULT_SQLITE_BUSY_RETRY_BASE_DELAY_MS,
   DEFAULT_SQLITE_BUSY_TIMEOUT_MS,
@@ -32,10 +34,13 @@ import {
   DEFAULT_SQLITE_WAL_CHECKPOINT_INTERVAL_MS,
   DEFAULT_SQLITE_WORKER_ENABLED,
   DEFAULT_SQLITE_WORKER_REQUEST_TIMEOUT_MS,
+  DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES,
   DEFAULT_WS_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WS_HOST,
   DEFAULT_WS_MAX_PAYLOAD_BYTES,
   DEFAULT_WS_PORT,
+  HARD_MAX_SESSION_LIST_PAGE_LIMIT,
+  HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
 } from "./constants";
 
 /** Zod schema for environment variable validation */
@@ -48,9 +53,12 @@ const envSchema = z.object({
   WS_HOST: z.string().optional(),
   AGENT_TIMEOUT_MS: z.string().optional(),
   TERMINAL_TIMEOUT_MS: z.string().optional(),
+  TERMINAL_OUTPUT_HARD_CAP_BYTES: z.string().optional(),
   ALLOWED_AGENT_COMMANDS: z.string().optional(),
   ALLOWED_TERMINAL_COMMANDS: z.string().optional(),
   ALLOWED_ENV_KEYS: z.string().optional(),
+  SESSION_LIST_PAGE_MAX_LIMIT: z.string().optional(),
+  SESSION_MESSAGES_PAGE_MAX_LIMIT: z.string().optional(),
   AUTH_SECRET: z.string().optional(),
   BETTER_AUTH_SECRET: z.string().optional(),
   AUTH_BASE_URL: z.string().optional(),
@@ -146,6 +154,19 @@ function toPositiveInt(value: string | undefined, fallback: number): number {
 }
 
 /**
+ * Converts a string environment variable to a bounded positive integer
+ */
+function toBoundedPositiveInt(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  const parsed = toPositiveInt(value, fallback);
+  return Math.max(min, Math.min(max, parsed));
+}
+
+/**
  * Converts a comma-separated list into a string array
  *
  * @param value - The string list value to convert
@@ -178,6 +199,36 @@ function toBoolean(value: string | undefined, fallback: boolean) {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+function parseRequiredAllowlist(
+  name: string,
+  value: string | undefined,
+  errors: string[]
+): string[] {
+  if (!value || value.trim().length === 0) {
+    errors.push(`${name} must be a non-empty comma-separated allowlist.`);
+    return [];
+  }
+
+  const entries = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (entries.length === 0) {
+    errors.push(`${name} must contain at least one explicit entry.`);
+    return [];
+  }
+
+  if (entries.includes("*")) {
+    errors.push(
+      `${name} does not support wildcard '*'; list entries explicitly.`
+    );
+    return [];
+  }
+
+  return [...new Set(entries)];
+}
+
 const wsPort = toNumber(env.WS_PORT, DEFAULT_WS_PORT);
 const wsHost = env.WS_HOST ?? DEFAULT_WS_HOST;
 const normalizedAuthHost = wsHost === "0.0.0.0" ? "localhost" : wsHost;
@@ -190,6 +241,31 @@ const authBaseUrl =
   env.AUTH_BASE_URL ??
   env.BETTER_AUTH_URL ??
   `http://${normalizedAuthHost}:${wsPort}`;
+const allowlistErrors: string[] = [];
+const allowedAgentCommands = parseRequiredAllowlist(
+  "ALLOWED_AGENT_COMMANDS",
+  env.ALLOWED_AGENT_COMMANDS,
+  allowlistErrors
+);
+const allowedTerminalCommands = parseRequiredAllowlist(
+  "ALLOWED_TERMINAL_COMMANDS",
+  env.ALLOWED_TERMINAL_COMMANDS,
+  allowlistErrors
+);
+const allowedEnvKeys = parseRequiredAllowlist(
+  "ALLOWED_ENV_KEYS",
+  env.ALLOWED_ENV_KEYS,
+  allowlistErrors
+);
+if (allowlistErrors.length > 0) {
+  throw new Error(
+    [
+      "[Config] Invalid required allowlist configuration:",
+      ...allowlistErrors.map((error) => `- ${error}`),
+      "Expected format: NAME=item1,item2,item3",
+    ].join("\n")
+  );
+}
 const authTrustedOrigins = toList(env.AUTH_TRUSTED_ORIGINS);
 if (authTrustedOrigins[0] !== "*") {
   const defaultDevOrigins = [
@@ -248,12 +324,31 @@ export const ENV = {
   agentTimeoutMs: toOptionalNumber(env.AGENT_TIMEOUT_MS),
   /** Optional maximum terminal runtime duration in milliseconds */
   terminalTimeoutMs: toOptionalNumber(env.TERMINAL_TIMEOUT_MS),
-  /** Optional allowlist of agent commands (empty = allow all) */
-  allowedAgentCommands: toList(env.ALLOWED_AGENT_COMMANDS),
-  /** Optional allowlist of terminal commands (empty = allow all) */
-  allowedTerminalCommands: toList(env.ALLOWED_TERMINAL_COMMANDS),
-  /** Optional allowlist of environment variable keys (empty = allow all) */
-  allowedEnvKeys: toList(env.ALLOWED_ENV_KEYS),
+  /** Hard cap for retained terminal output bytes */
+  terminalOutputHardCapBytes: toPositiveInt(
+    env.TERMINAL_OUTPUT_HARD_CAP_BYTES,
+    DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES
+  ),
+  /** Required allowlist of agent commands */
+  allowedAgentCommands,
+  /** Required allowlist of terminal commands */
+  allowedTerminalCommands,
+  /** Required allowlist of environment variable keys */
+  allowedEnvKeys,
+  /** Runtime-configurable max page size for session list endpoints */
+  sessionListPageMaxLimit: toBoundedPositiveInt(
+    env.SESSION_LIST_PAGE_MAX_LIMIT,
+    DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
+    1,
+    HARD_MAX_SESSION_LIST_PAGE_LIMIT
+  ),
+  /** Runtime-configurable max page size for session messages endpoints */
+  sessionMessagesPageMaxLimit: toBoundedPositiveInt(
+    env.SESSION_MESSAGES_PAGE_MAX_LIMIT,
+    DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
+    1,
+    HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT
+  ),
   /** Better Auth secret (persisted or env) */
   authSecret: env.AUTH_SECRET ?? env.BETTER_AUTH_SECRET,
   /** Better Auth base URL */

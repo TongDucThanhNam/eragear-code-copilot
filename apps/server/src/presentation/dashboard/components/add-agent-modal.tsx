@@ -1,15 +1,11 @@
 import type { FormEvent } from "react";
+import { useDashboardActions } from "@/presentation/dashboard/dashboard-view.context";
 
-interface AddAgentModalProps {
-  onCreateAgent: (input: {
-    name: string;
-    type: string;
-    command: string;
-    argsInput?: string;
-  }) => Promise<void>;
-}
+export function AddAgentModal() {
+  const {
+    agents: { onCreateAgent },
+  } = useDashboardActions();
 
-export function AddAgentModal({ onCreateAgent }: AddAgentModalProps) {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;

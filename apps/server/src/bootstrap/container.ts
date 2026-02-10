@@ -62,6 +62,7 @@ import {
   SessionMcpConfigService,
   SessionMessageMapper,
   SessionMetadataPersistenceService,
+  SessionOrchestratorService,
   SessionProcessLifecycleService,
   SessionProjectContextResolverService,
   type SessionRepositoryPort,
@@ -411,16 +412,19 @@ export class Container {
         const metadataPersistence = new SessionMetadataPersistenceService(
           this.sessionRepo
         );
-
-        return new CreateSessionService(
+        const sessionOrchestrator = new SessionOrchestratorService(
           this.sessionRepo,
           this.sessionRuntime,
           this.agentRuntimeAdapter,
-          projectContextResolver,
           runtimeBootstrap,
           acpBootstrap,
           processLifecycle,
-          metadataPersistence,
+          metadataPersistence
+        );
+
+        return new CreateSessionService(
+          projectContextResolver,
+          sessionOrchestrator,
           this.appLogger
         );
       };

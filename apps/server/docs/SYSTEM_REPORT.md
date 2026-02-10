@@ -173,12 +173,15 @@ phải xem như high-risk surface (RCE potential nếu auth yếu).
 ### 6.2 Controls in Code
 
 - project-root boundary checks cho filesystem/tool-calls.
-- command/env allowlists (`ALLOWED_*`).
+- command/env allowlists (`ALLOWED_*`) fail-closed và bắt buộc explicit.
+- wildcard `*` không được hỗ trợ cho `ALLOWED_*`.
 - session auth/API key verification.
 - strict CORS allowlist (fail-closed ở production).
 - API key query-string bị từ chối (chỉ chấp nhận header hoặc WS `connectionParams`).
 - API key rate limiting mặc định bật.
 - permission flow cho tool calls cần approve.
+- terminal output retention luôn có hard cap (`TERMINAL_OUTPUT_HARD_CAP_BYTES`,
+  mặc định 4 MiB).
 
 ### 6.3 Cloudflare Tunnel Guidance
 
@@ -198,7 +201,7 @@ Nhóm biến chính:
 
 - Networking: `WS_HOST`, `WS_PORT`, `WS_HEARTBEAT_INTERVAL_MS`
 - Timeouts: `SESSION_IDLE_TIMEOUT_MS`, `AGENT_TIMEOUT_MS`, `TERMINAL_TIMEOUT_MS`
-- Policy: `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`, `CORS_STRICT_ORIGIN`
+- Policy: `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`, `CORS_STRICT_ORIGIN`, `TERMINAL_OUTPUT_HARD_CAP_BYTES`, `SESSION_LIST_PAGE_MAX_LIMIT`, `SESSION_MESSAGES_PAGE_MAX_LIMIT`
 - Auth: `AUTH_SECRET`, `AUTH_BASE_URL`, `AUTH_TRUSTED_ORIGINS`, `AUTH_ALLOW_SIGNUP`, `AUTH_BOOTSTRAP_API_KEY`, `AUTH_API_KEY_PREFIX`, `AUTH_API_KEY_RATE_LIMIT_*`
 - Logging: `LOG_*`
 - Background: `BACKGROUND_*`
@@ -207,6 +210,12 @@ Khuyến nghị remote tunnel:
 
 - đặt `WS_HOST=127.0.0.1`.
 - buộc Cloudflare Access policy cho hostname public.
+
+Migration note:
+
+- Server sẽ fail-fast khi thiếu hoặc để trống `ALLOWED_AGENT_COMMANDS`,
+  `ALLOWED_TERMINAL_COMMANDS`, hoặc `ALLOWED_ENV_KEYS`.
+- Giá trị `ALLOWED_*="*"` không hợp lệ; phải liệt kê explicit từng command/env key.
 
 ## 8. Ops Commands
 

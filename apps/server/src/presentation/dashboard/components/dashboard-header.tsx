@@ -1,17 +1,15 @@
-import type { TabKey } from "@/presentation/dashboard/dashboard-data";
+import {
+  useDashboardActions,
+  useDashboardState,
+} from "@/presentation/dashboard/dashboard-view.context";
 import { DashboardNav } from "./dashboard-nav";
 
-interface DashboardHeaderProps {
-  activeTab: TabKey;
-  isLoading?: boolean;
-  onTabChange: (tab: TabKey) => void;
-}
+export function DashboardHeader() {
+  const { activeTab, isLoading } = useDashboardState();
+  const {
+    navigation: { onTabChange },
+  } = useDashboardActions();
 
-export function DashboardHeader({
-  activeTab,
-  isLoading,
-  onTabChange,
-}: DashboardHeaderProps) {
   return (
     <header className="flex-shrink-0 border-ink border-b-4 pb-0">
       <div className="flex items-center justify-between border-ink border-b py-2">

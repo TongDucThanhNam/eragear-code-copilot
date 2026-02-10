@@ -20,7 +20,7 @@ export function isCommandAllowed(
   allowlist: string[]
 ): boolean {
   if (allowlist.length === 0) {
-    return true;
+    return false;
   }
 
   const normalizedCommand = normalizeAllowlistValue(command);
@@ -44,14 +44,18 @@ export function filterEnvAllowlist(
   env: Record<string, string | undefined>,
   allowlist: string[]
 ): Record<string, string> {
+  if (allowlist.length === 0) {
+    return {};
+  }
+
   const filtered: Record<string, string> = {};
-  const allowed = allowlist.length > 0 ? new Set(allowlist) : null;
+  const allowed = new Set(allowlist);
 
   for (const [key, value] of Object.entries(env)) {
     if (typeof value !== "string") {
       continue;
     }
-    if (allowed && !allowed.has(key)) {
+    if (!allowed.has(key)) {
       continue;
     }
     filtered[key] = value;

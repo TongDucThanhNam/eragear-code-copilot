@@ -1,22 +1,19 @@
-import type { SessionSummary } from "@/presentation/dashboard/dashboard-data";
+import {
+  useDashboardActions,
+  useDashboardState,
+} from "@/presentation/dashboard/dashboard-view.context";
 import { SessionRow } from "./session-row";
 import { TabPanel } from "./tab-panel";
 
-interface SessionsTabProps {
-  sessions: SessionSummary[];
-  activeTab: string;
-  onRefreshSessions: () => void;
-  onStopSession: (chatId: string) => void;
-  onDeleteSession: (chatId: string) => void;
-}
+export function SessionsTab() {
+  const {
+    activeTab,
+    dashboardData: { sessions },
+  } = useDashboardState();
+  const {
+    sessions: { onRefreshSessions, onStopSession, onDeleteSession },
+  } = useDashboardActions();
 
-export function SessionsTab({
-  sessions,
-  activeTab,
-  onRefreshSessions,
-  onStopSession,
-  onDeleteSession,
-}: SessionsTabProps) {
   const sorted = [...sessions].sort((a, b) => {
     if (a.status === "running" && b.status !== "running") {
       return -1;

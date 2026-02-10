@@ -12,8 +12,8 @@ import { observable } from "@trpc/server/observable";
 import {
   DEFAULT_SESSION_LIST_PAGE_LIMIT,
   DEFAULT_SESSION_MESSAGES_PAGE_LIMIT,
-  MAX_SESSION_MESSAGES_PAGE_LIMIT,
 } from "@/config/constants";
+import { ENV } from "@/config/environment";
 import {
   CreateSessionInputSchema,
   ListSessionsInputSchema,
@@ -23,6 +23,14 @@ import {
 } from "@/modules/session";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
 import { protectedProcedure, router } from "../base";
+
+function requireUserId(ctx: { auth?: { userId?: string } | null }): string {
+  const userId = ctx.auth?.userId;
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+  return userId;
+}
 
 export const sessionRouter = router({
   /** Create a new session for a project */
@@ -37,7 +45,7 @@ export const sessionRouter = router({
 
       const service = ctx.container.getSessionServices().createSession();
       const res = await service.execute({
-        userId: ctx.auth!.userId,
+        userId: requireUserId(ctx),
         projectId: input.projectId,
         command: input.command,
         args: input.args,
@@ -60,7 +68,7 @@ export const sessionRouter = router({
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getSessionServices().stopSession();
-      return await service.execute(ctx.auth!.userId, input.chatId);
+      return await service.execute(requireUserId(ctx), input.chatId);
     }),
 
   /** Resume a stopped session */
@@ -68,7 +76,7 @@ export const sessionRouter = router({
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getSessionServices().resumeSession();
-      return await service.execute(ctx.auth!.userId, input.chatId);
+      return await service.execute(requireUserId(ctx), input.chatId);
     }),
 
   /** Delete a session */
@@ -76,7 +84,7 @@ export const sessionRouter = router({
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getSessionServices().deleteSession();
-      return await service.execute(ctx.auth!.userId, input.chatId);
+      return await service.execute(requireUserId(ctx), input.chatId);
     }),
 
   /** Get current session state */
@@ -84,7 +92,7 @@ export const sessionRouter = router({
     .input(SessionChatIdInputSchema)
     .query(async ({ input, ctx }) => {
       const service = ctx.container.getSessionServices().getSessionState();
-      return await service.execute(ctx.auth!.userId, input.chatId);
+      return await service.execute(requireUserId(ctx), input.chatId);
     }),
 
   /** List sessions (paginated) */
@@ -95,7 +103,10 @@ export const sessionRouter = router({
       const offset = input?.offset ?? 0;
 
       const service = ctx.container.getSessionServices().listSessions();
-      return await service.execute(ctx.auth!.userId, { limit, offset });
+      return await service.execute(requireUserId(ctx), {
+        limit: Math.min(limit, ENV.sessionListPageMaxLimit),
+        offset,
+      });
     }),
 
   /** Update session metadata (name, pinned, archived) */
@@ -103,7 +114,7 @@ export const sessionRouter = router({
     .input(UpdateSessionMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getSessionServices().updateSessionMeta();
-      return await service.execute({ ...input, userId: ctx.auth!.userId });
+      return await service.execute({ ...input, userId: requireUserId(ctx) });
     }),
 
   /** @deprecated Use getSessionMessagesPage for paginated history retrieval. */
@@ -117,10 +128,10 @@ export const sessionRouter = router({
 
       while (true) {
         const page = await service.execute({
-          userId: ctx.auth!.userId,
+          userId: requireUserId(ctx),
           chatId: input.chatId,
           cursor,
-          limit: MAX_SESSION_MESSAGES_PAGE_LIMIT,
+          limit: ENV.sessionMessagesPageMaxLimit,
           includeCompacted: true,
         });
         messages.push(...page.messages);
@@ -139,10 +150,13 @@ export const sessionRouter = router({
     .query(async ({ input, ctx }) => {
       const service = ctx.container.getSessionServices().getSessionMessages();
       return await service.execute({
-        userId: ctx.auth!.userId,
+        userId: requireUserId(ctx),
         chatId: input.chatId,
         cursor: input.cursor,
-        limit: input.limit ?? DEFAULT_SESSION_MESSAGES_PAGE_LIMIT,
+        limit: Math.min(
+          input.limit ?? DEFAULT_SESSION_MESSAGES_PAGE_LIMIT,
+          ENV.sessionMessagesPageMaxLimit
+        ),
         includeCompacted: input.includeCompacted ?? true,
       });
     }),
@@ -163,7 +177,7 @@ export const sessionRouter = router({
       return observable<BroadcastEvent>((emit) => {
         let subscription: ReturnType<typeof service.execute> | undefined;
         try {
-          subscription = service.execute(ctx.auth!.userId, input.chatId);
+          subscription = service.execute(requireUserId(ctx), input.chatId);
         } catch (error) {
           emit.error(
             error instanceof Error ? error : new Error("Chat not found")

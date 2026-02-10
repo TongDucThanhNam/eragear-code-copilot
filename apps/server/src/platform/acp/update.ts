@@ -1,49 +1,28 @@
 /**
  * ACP Session Update Handler
  *
- * Handles session updates from agent processes including messages, tool calls,
- * plans, modes, and commands. Manages buffering for streaming message content
- * and persists updates to the session repository.
+ * Orchestrates session updates from agent processes while delegating
+ * streaming, plan, and tool-call logic to focused handlers.
  *
  * @module infra/acp/update
  */
 
-import type * as acp from "@agentclientprotocol/sdk";
-import type { UIMessage } from "@repo/shared";
 import type {
   SessionBufferingPort,
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
 import { createLogger } from "@/platform/logging/structured-logger";
-import {
-  maybeBroadcastChatFinish,
-  setChatFinishMessage,
-  updateChatStatus,
-} from "@/shared/utils/chat-events.util";
-import {
-  toStoredContentBlock,
-  toStoredToolCallContent,
-} from "@/shared/utils/content-block.util";
-import { createId } from "@/shared/utils/id.util";
-import {
-  appendContentBlock,
-  appendReasoningBlock,
-  buildPlanToolPart,
-  buildProviderMetadataFromMeta,
-  buildToolPartForUpdate,
-  buildToolPartFromCall,
-  finalizeStreamingParts,
-  getOrCreateAssistantMessage,
-  getOrCreateUserMessage,
-  getPlanToolCallId,
-  upsertToolLocationsPart,
-  upsertToolPart,
-} from "@/shared/utils/ui-message.util";
-import type {
-  Plan,
-  StoredContentBlock,
-} from "../../shared/types/session.types";
+import { updateChatStatus } from "@/shared/utils/chat-events.util";
+import { finalizeStreamingParts } from "@/shared/utils/ui-message.util";
+import { SessionBuffering as SessionBufferingImpl } from "./update-buffer";
+import { handlePlanUpdate } from "./update-plan";
+import { handleBufferedMessage, isStreamingUpdate } from "./update-stream";
+import { handleToolCallCreate, handleToolCallUpdate } from "./update-tool";
+import type { SessionUpdateWithLegacy } from "./update-types";
+import { isReplayChunk } from "./update-types";
+
+export const SessionBuffering = SessionBufferingImpl;
 
 const logger = createLogger("Debug");
 
@@ -71,51 +50,6 @@ function finalizeStreamingForCurrentAssistant(
   }
   finalizeStreamingParts(message);
   sessionRuntime.broadcast(chatId, { type: "ui_message", message });
-}
-
-/**
- * Type guard to check if an update is a tool call update
- *
- * @param update - The session update to check
- * @returns True if the update is a tool call update
- */
-function isToolCallUpdate(
-  update: SessionUpdateWithLegacy
-): update is acp.ToolCallUpdate & { sessionUpdate: "tool_call_update" } {
-  return update.sessionUpdate === "tool_call_update";
-}
-
-/**
- * Type guard to check if an update is a tool call creation
- *
- * @param update - The session update to check
- * @returns True if the update is a tool call creation
- */
-function isToolCallCreate(
-  update: SessionUpdateWithLegacy
-): update is acp.ToolCall & { sessionUpdate: "tool_call" } {
-  return update.sessionUpdate === "tool_call";
-}
-
-/** Legacy session update types for backward compatibility */
-export interface LegacySessionUpdate {
-  sessionUpdate: "turn_end" | "prompt_end";
-}
-
-/** Combined session update type including legacy updates */
-export type SessionUpdateWithLegacy = acp.SessionUpdate | LegacySessionUpdate;
-
-/**
- * Extracts text content from a content block
- *
- * @param content - The content block to extract from
- * @returns The text content or empty string for non-text blocks
- */
-function contentBlockToText(content: StoredContentBlock) {
-  if (content.type !== "text") {
-    return "";
-  }
-  return content.text;
 }
 
 function summarizeUpdate(update: SessionUpdateWithLegacy) {
@@ -158,179 +92,6 @@ function summarizeUpdate(update: SessionUpdateWithLegacy) {
   return summary;
 }
 
-/**
- * Checks if an update is a replay chunk (user/agent message or thought chunks)
- *
- * @param update - The session update to check
- * @returns True if the update is a replay chunk
- */
-function isReplayChunk(update: SessionUpdateWithLegacy) {
-  return (
-    update.sessionUpdate === "user_message_chunk" ||
-    update.sessionUpdate === "agent_message_chunk" ||
-    update.sessionUpdate === "agent_thought_chunk"
-  );
-}
-
-/**
- * Extracts a plan from a session update
- *
- * @param update - The session update to extract from
- * @returns The extracted plan or null if not a plan update
- */
-function extractPlan(update: SessionUpdateWithLegacy): Plan | null {
-  if (update.sessionUpdate !== "plan") {
-    return null;
-  }
-
-  return {
-    _meta: "_meta" in update ? (update._meta ?? null) : null,
-    entries: update.entries,
-  };
-}
-
-/**
- * SessionBuffering - Buffers streaming message content for aggregation
- *
- * Accumulates content and reasoning chunks from streaming updates and
- * provides a flush method to produce complete messages.
- *
- * @example
- * ```typescript
- * const buffer = new SessionBuffering();
- * buffer.appendContent({ type: "text", text: "Hello" });
- * buffer.appendReasoning({ type: "text", text: "Let me think..." });
- * const message = buffer.flush(); // Returns complete message or null
- * ```
- */
-export class SessionBuffering implements SessionBufferingPort {
-  private content = "";
-  private reasoning = "";
-  private contentBlocks: StoredContentBlock[] = [];
-  private reasoningBlocks: StoredContentBlock[] = [];
-  private messageId: string | null = null;
-  /** Count of replay events processed during history replay */
-  replayEventCount = 0;
-
-  /**
-   * Appends content text to the buffer
-   *
-   * @param text - The text content to append
-   */
-  appendContent(block: StoredContentBlock) {
-    this.appendBlock("content", block);
-  }
-
-  /**
-   * Appends reasoning text to the buffer
-   *
-   * @param text - The reasoning text to append
-   */
-  appendReasoning(block: StoredContentBlock) {
-    this.appendBlock("reasoning", block);
-  }
-
-  /**
-   * Flushes the buffer and returns a complete message
-   *
-   * @returns Complete message object or null if buffer is empty
-   */
-  flush(): ReturnType<SessionBufferingPort["flush"]> {
-    if (!this.hasContent()) {
-      this.reset();
-      return null;
-    }
-
-    const messageId = this.messageId ?? createId("msg");
-    const content = this.content;
-    const reasoning = this.reasoning || undefined;
-    const contentBlocks = [...this.contentBlocks];
-    const reasoningBlocks =
-      this.reasoningBlocks.length > 0 ? [...this.reasoningBlocks] : undefined;
-    this.reset();
-
-    return {
-      id: messageId,
-      content,
-      contentBlocks,
-      reasoning,
-      reasoningBlocks,
-    };
-  }
-
-  /**
-   * Checks if the buffer has any content
-   *
-   * @returns True if buffer has content
-   */
-  hasContent() {
-    return this.contentBlocks.length > 0 || this.reasoningBlocks.length > 0;
-  }
-
-  /**
-   * Resets the buffer to empty state
-   */
-  reset() {
-    this.content = "";
-    this.reasoning = "";
-    this.contentBlocks = [];
-    this.reasoningBlocks = [];
-    this.messageId = null;
-  }
-
-  /**
-   * Returns the current message ID if one has been assigned
-   */
-  getMessageId() {
-    return this.messageId;
-  }
-
-  /**
-   * Ensures a message ID exists and returns it
-   */
-  ensureMessageId(preferredId?: string) {
-    if (!this.messageId) {
-      this.messageId = preferredId ?? createId("msg");
-    }
-    return this.messageId;
-  }
-
-  /**
-   * Internal method to append text to a target field
-   *
-   * @param target - The field to append to ("content" or "reasoning")
-   * @param text - The text to append
-   */
-  private appendBlock(
-    target: "content" | "reasoning",
-    block: StoredContentBlock
-  ) {
-    if (target === "content") {
-      this.contentBlocks.push(block);
-    } else {
-      this.reasoningBlocks.push(block);
-    }
-
-    const text = contentBlockToText(block);
-    if (text) {
-      this[target] += text;
-    }
-
-    if (!this.messageId) {
-      this.messageId = createId("msg");
-    }
-  }
-}
-
-/**
- * Handles mode update events
- *
- * @param chatId - The session identifier
- * @param update - The session update
- * @param sessionRuntime - The session runtime port
- * @param sessionRepo - The session repository port
- * @returns True if handled, false otherwise
- */
 async function handleModeUpdate(
   chatId: string,
   update: SessionUpdateWithLegacy,
@@ -358,15 +119,6 @@ async function handleModeUpdate(
   return true;
 }
 
-/**
- * Handles available commands update events
- *
- * @param chatId - The session identifier
- * @param update - The session update
- * @param sessionRuntime - The session runtime port
- * @param sessionRepo - The session repository port
- * @returns True if handled, false otherwise
- */
 async function handleCommandsUpdate(
   chatId: string,
   update: SessionUpdateWithLegacy,
@@ -395,616 +147,7 @@ async function handleCommandsUpdate(
 }
 
 /**
- * Handles plan update events
- *
- * @param chatId - The session identifier
- * @param update - The session update
- * @param sessionRuntime - The session runtime port
- * @param sessionRepo - The session repository port
- * @returns True if handled, false otherwise
- */
-async function handlePlanUpdate(
-  chatId: string,
-  update: SessionUpdateWithLegacy,
-  sessionRuntime: SessionRuntimePort,
-  sessionRepo: SessionRepositoryPort
-): Promise<boolean> {
-  if (update.sessionUpdate !== "plan") {
-    return false;
-  }
-
-  finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
-
-  const plan = extractPlan(update);
-  if (!plan) {
-    return true;
-  }
-  const session = sessionRuntime.get(chatId);
-
-  // Detect if we should broadcast (Structure/Status change vs Content-only change)
-  let shouldBroadcast = true;
-  if (session?.plan) {
-    const oldEntries = session.plan.entries;
-    const newEntries = plan.entries;
-
-    // If counts match, check for status/priority changes
-    if (oldEntries && oldEntries.length === newEntries.length) {
-      const hasSignificantChange = newEntries.some((entry, i) => {
-        const old = oldEntries[i];
-        if (!old) {
-          return true; // Should not happen given length check, but safe fallback
-        }
-        return old.status !== entry.status || old.priority !== entry.priority;
-      });
-      // If no significant change (only text changed), suppress broadcast
-      if (!hasSignificantChange) {
-        shouldBroadcast = false;
-      }
-    }
-  }
-
-  if (session) {
-    session.plan = plan;
-  }
-  if (session?.userId) {
-    await sessionRepo.updateMetadata(chatId, session.userId, { plan });
-  }
-
-  if (session) {
-    const planTool = buildPlanToolPart(plan, getPlanToolCallId(chatId));
-    // Always update the UI state so it's ready for the next flush
-    const { message } = upsertToolPart({
-      state: session.uiState,
-      part: planTool,
-    });
-
-    // Only push to client if significant change occurred
-    if (shouldBroadcast) {
-      console.log("[Server] Broadcasting plan update (significant change)", {
-        entries: plan.entries.length,
-      });
-      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
-    } else {
-      // Debug log for suppressed update
-      // console.debug("[Server] Suppressed plan text-only update");
-    }
-  }
-  return true;
-}
-
-/**
- * Handles tool call creation events
- *
- * @param chatId - The session identifier
- * @param update - The session update
- * @param sessionRuntime - The session runtime port
- * @returns True if handled, false otherwise
- */
-function handleToolCallCreate(
-  chatId: string,
-  update: SessionUpdateWithLegacy,
-  sessionRuntime: SessionRuntimePort
-) {
-  if (!isToolCallCreate(update)) {
-    return false;
-  }
-
-  finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
-
-  const { sessionUpdate: _sessionUpdate, ...toolCall } = update;
-  const sanitizedToolCall: acp.ToolCall = {
-    ...toolCall,
-    content: toStoredToolCallContent(toolCall.content),
-  };
-  const session = sessionRuntime.get(chatId);
-  if (session) {
-    session.toolCalls.set(update.toolCallId, sanitizedToolCall);
-  }
-  if (session) {
-    const toolPart = buildToolPartFromCall(sanitizedToolCall);
-    const { message } = upsertToolPart({
-      state: session.uiState,
-      messageId: session.uiState.currentAssistantId,
-      part: toolPart,
-    });
-    const messageWithLocations = sanitizedToolCall.locations?.length
-      ? upsertToolLocationsPart({
-          state: session.uiState,
-          toolCallId: sanitizedToolCall.toolCallId,
-          locations: sanitizedToolCall.locations,
-          messageId: message.id,
-        })
-      : message;
-    sessionRuntime.broadcast(chatId, {
-      type: "ui_message",
-      message: messageWithLocations ?? message,
-    });
-  }
-  return true;
-}
-
-/**
- * Handles tool call update events (status changes, output, etc.)
- *
- * @param chatId - The session identifier
- * @param update - The session update
- * @param sessionRuntime - The session runtime port
- * @returns True if handled, false otherwise
- */
-function handleToolCallUpdate(
-  chatId: string,
-  update: SessionUpdateWithLegacy,
-  sessionRuntime: SessionRuntimePort
-) {
-  if (!isToolCallUpdate(update)) {
-    return false;
-  }
-
-  const hasLocationsUpdate = Object.hasOwn(update, "locations");
-  const session = sessionRuntime.get(chatId);
-  const merged = mergeToolCallUpdate(
-    session?.toolCalls.get(update.toolCallId),
-    update
-  );
-
-  if (session) {
-    session.toolCalls.set(update.toolCallId, merged);
-  }
-
-  // Only skip updates that carry no UI-visible changes. Keep suppressing
-  // rawInput-only churn, but preserve streaming output/status/location updates.
-  const hasStatusUpdate = Object.hasOwn(update, "status");
-  const hasLocationUpdate = Object.hasOwn(update, "locations");
-  const hasContentUpdate = Object.hasOwn(update, "content");
-  const hasRawOutputUpdate = Object.hasOwn(update, "rawOutput");
-  const hasTitleUpdate = Object.hasOwn(update, "title");
-  const hasKindUpdate = Object.hasOwn(update, "kind");
-
-  if (
-    !hasStatusUpdate &&
-    !hasLocationUpdate &&
-    !hasContentUpdate &&
-    !hasRawOutputUpdate &&
-    !hasTitleUpdate &&
-    !hasKindUpdate
-  ) {
-    return true;
-  }
-
-  if (session) {
-    const toolPart = buildToolPartForUpdate({
-      toolCallId: update.toolCallId,
-      toolName: merged.kind ?? merged.title,
-      title: merged.title ?? update.title ?? undefined,
-      input: merged.rawInput,
-      rawInput: merged.rawInput,
-      status: merged.status ?? update.status ?? undefined,
-      content: resolveToolCallUpdateContent(update, merged),
-      rawOutput: merged.rawOutput,
-      meta: update._meta,
-    });
-    const { message } = upsertToolPart({
-      state: session.uiState,
-      part: toolPart,
-    });
-    const messageWithLocations = hasLocationsUpdate
-      ? upsertToolLocationsPart({
-          state: session.uiState,
-          toolCallId: update.toolCallId,
-          locations: update.locations ?? null,
-        })
-      : message;
-    sessionRuntime.broadcast(chatId, {
-      type: "ui_message",
-      message: messageWithLocations ?? message,
-    });
-  }
-  return true;
-}
-
-function mergeToolCallUpdate(
-  existing: acp.ToolCall | undefined,
-  update: acp.ToolCallUpdate & { sessionUpdate: "tool_call_update" }
-): acp.ToolCall {
-  const merged = existing
-    ? { ...existing }
-    : ({
-        toolCallId: update.toolCallId,
-        title: update.title ?? "Tool Call",
-      } as acp.ToolCall);
-
-  if ("title" in update && update.title) {
-    merged.title = update.title;
-  }
-  if ("status" in update) {
-    merged.status = update.status ?? undefined;
-  }
-  if ("kind" in update) {
-    merged.kind = update.kind ?? undefined;
-  }
-  if ("rawInput" in update) {
-    merged.rawInput = update.rawInput ?? undefined;
-  }
-  if ("rawOutput" in update) {
-    merged.rawOutput = update.rawOutput ?? undefined;
-  }
-  if ("content" in update) {
-    merged.content = toStoredToolCallContent(update.content) ?? undefined;
-  }
-  if ("locations" in update) {
-    merged.locations = update.locations ?? undefined;
-  }
-  return merged;
-}
-
-function resolveToolCallUpdateContent(
-  update: acp.ToolCallUpdate & { sessionUpdate: "tool_call_update" },
-  merged: acp.ToolCall
-) {
-  if (!("content" in update)) {
-    return merged.content;
-  }
-  return toStoredToolCallContent(update.content) ?? undefined;
-}
-
-/**
- * Handles buffered message content (content/reasoning chunks and turn ends)
- *
- * @param chatId - The session identifier
- * @param buffer - The session buffering instance
- * @param isReplayingHistory - Whether replaying history
- * @param update - The session update
- * @param sessionRepo - The session repository port
- */
-async function handleBufferedMessage(
-  chatId: string,
-  buffer: SessionBufferingPort,
-  isReplayingHistory: boolean,
-  update: SessionUpdateWithLegacy,
-  sessionRepo: SessionRepositoryPort,
-  sessionRuntime: SessionRuntimePort
-): Promise<void> {
-  const session = sessionRuntime.get(chatId);
-  const preferredMessageId = session?.uiState.currentAssistantId;
-  appendAgentChunksToBuffer(
-    buffer,
-    preferredMessageId,
-    isReplayingHistory,
-    update
-  );
-
-  handleUiChunkUpdate({
-    chatId,
-    session,
-    buffer,
-    preferredMessageId,
-    isReplayingHistory,
-    update,
-    sessionRuntime,
-  });
-
-  if (isTurnBoundaryUpdate(update)) {
-    const turnBoundary = update.sessionUpdate;
-    await flushAndFinalizeTurn({
-      chatId,
-      session,
-      buffer,
-      isReplayingHistory,
-      sessionRepo,
-      sessionRuntime,
-      sessionUpdate: turnBoundary,
-    });
-  }
-}
-
-function appendAgentChunksToBuffer(
-  buffer: SessionBufferingPort,
-  preferredMessageId: string | undefined,
-  isReplayingHistory: boolean,
-  update: SessionUpdateWithLegacy
-) {
-  if (isReplayingHistory) {
-    return;
-  }
-  if (update.sessionUpdate === "agent_message_chunk") {
-    buffer.ensureMessageId(preferredMessageId);
-    buffer.appendContent(toStoredContentBlock(update.content));
-    return;
-  }
-  if (update.sessionUpdate === "agent_thought_chunk") {
-    buffer.ensureMessageId(preferredMessageId);
-    buffer.appendReasoning(toStoredContentBlock(update.content));
-  }
-}
-
-function handleUiChunkUpdate(params: {
-  chatId: string;
-  session: ReturnType<SessionRuntimePort["get"]>;
-  buffer: SessionBufferingPort;
-  preferredMessageId: string | undefined;
-  isReplayingHistory: boolean;
-  update: SessionUpdateWithLegacy;
-  sessionRuntime: SessionRuntimePort;
-}) {
-  const {
-    chatId,
-    session,
-    buffer,
-    preferredMessageId,
-    isReplayingHistory,
-    update,
-    sessionRuntime,
-  } = params;
-  if (!session) {
-    return;
-  }
-
-  const partState = isReplayingHistory ? "done" : "streaming";
-  const providerMetadata =
-    "_meta" in update ? buildProviderMetadataFromMeta(update._meta) : undefined;
-
-  if (update.sessionUpdate === "user_message_chunk") {
-    const message = getOrCreateUserMessage(session.uiState);
-    appendContentBlock(
-      message,
-      toStoredContentBlock(update.content),
-      partState,
-      providerMetadata
-    );
-    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
-    return;
-  }
-
-  updateAssistantChunkType(chatId, session, update, sessionRuntime);
-  appendAssistantChunk({
-    chatId,
-    session,
-    buffer,
-    preferredMessageId,
-    isReplayingHistory,
-    update,
-    partState,
-    providerMetadata,
-    sessionRuntime,
-  });
-}
-
-function updateAssistantChunkType(
-  chatId: string,
-  session: NonNullable<ReturnType<SessionRuntimePort["get"]>>,
-  update: SessionUpdateWithLegacy,
-  sessionRuntime: SessionRuntimePort
-) {
-  if (
-    update.sessionUpdate !== "agent_message_chunk" &&
-    update.sessionUpdate !== "agent_thought_chunk"
-  ) {
-    return;
-  }
-  const nextChunkType =
-    update.sessionUpdate === "agent_message_chunk" ? "message" : "reasoning";
-  if (
-    session.lastAssistantChunkType &&
-    session.lastAssistantChunkType !== nextChunkType
-  ) {
-    finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
-  }
-  session.lastAssistantChunkType = nextChunkType;
-}
-
-function appendAssistantChunk(params: {
-  chatId: string;
-  session: NonNullable<ReturnType<SessionRuntimePort["get"]>>;
-  buffer: SessionBufferingPort;
-  preferredMessageId: string | undefined;
-  isReplayingHistory: boolean;
-  update: SessionUpdateWithLegacy;
-  partState: "done" | "streaming";
-  providerMetadata:
-    | ReturnType<typeof buildProviderMetadataFromMeta>
-    | undefined;
-  sessionRuntime: SessionRuntimePort;
-}) {
-  const {
-    chatId,
-    session,
-    buffer,
-    preferredMessageId,
-    isReplayingHistory,
-    update,
-    partState,
-    providerMetadata,
-    sessionRuntime,
-  } = params;
-  if (update.sessionUpdate === "agent_message_chunk") {
-    const messageId = buffer.ensureMessageId(preferredMessageId);
-    const message = getOrCreateAssistantMessage(session.uiState, messageId);
-    const block = toStoredContentBlock(update.content);
-    appendContentBlock(message, block, partState, providerMetadata);
-
-    if (!isReplayingHistory) {
-      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
-    }
-    return;
-  }
-  if (update.sessionUpdate !== "agent_thought_chunk") {
-    return;
-  }
-  const messageId = buffer.ensureMessageId(preferredMessageId);
-  const message = getOrCreateAssistantMessage(session.uiState, messageId);
-  const block = toStoredContentBlock(update.content);
-  if (block.type !== "text") {
-    return;
-  }
-  appendReasoningBlock(message, block, partState, providerMetadata);
-  // Optimization: Do NOT broadcast reasoning chunks in real-time.
-  // Reasoning updates are buffered and sent only when:
-  // 1. The agent switches to text generation (updateAssistantChunkType)
-  // 2. The agent calls a tool (handleToolCallCreate)
-  // 3. The turn ends (flushAndFinalizeTurn)
-  // This reduces UI jitter/lag on mobile clients.
-}
-
-function isTurnBoundaryUpdate(
-  update: SessionUpdateWithLegacy
-): update is LegacySessionUpdate {
-  return (
-    update.sessionUpdate === "turn_end" || update.sessionUpdate === "prompt_end"
-  );
-}
-
-async function flushAndFinalizeTurn(params: {
-  chatId: string;
-  session: ReturnType<SessionRuntimePort["get"]>;
-  buffer: SessionBufferingPort;
-  isReplayingHistory: boolean;
-  sessionRepo: SessionRepositoryPort;
-  sessionRuntime: SessionRuntimePort;
-  sessionUpdate: "turn_end" | "prompt_end";
-}): Promise<void> {
-  const {
-    chatId,
-    session,
-    buffer,
-    isReplayingHistory,
-    sessionRepo,
-    sessionRuntime,
-    sessionUpdate,
-  } = params;
-  const bufferedMessage = buffer.flush();
-  const currentAssistantId = session?.uiState.currentAssistantId;
-  const messageId = bufferedMessage?.id ?? currentAssistantId ?? null;
-  const currentMessage = messageId
-    ? session?.uiState.messages.get(messageId)
-    : undefined;
-  const hasParts = Boolean(currentMessage?.parts.length);
-  const shouldPersist = Boolean(bufferedMessage) || hasParts;
-
-  logger.debug("ACP buffered flush", {
-    chatId,
-    sessionUpdate,
-    buffered: Boolean(bufferedMessage),
-    bufferedContentLength: bufferedMessage?.content.length ?? 0,
-    bufferedReasoningLength: bufferedMessage?.reasoning?.length ?? 0,
-    currentAssistantId: currentAssistantId ?? undefined,
-    hasParts,
-    shouldPersist,
-  });
-
-  await persistBufferedAssistantMessage({
-    chatId,
-    isReplayingHistory,
-    userId: session?.userId,
-    messageId,
-    shouldPersist,
-    currentMessage,
-    bufferedMessage,
-    sessionRepo,
-  });
-  finalizeAssistantTurn({
-    chatId,
-    session,
-    isReplayingHistory,
-    sessionRuntime,
-  });
-}
-
-async function persistBufferedAssistantMessage(params: {
-  chatId: string;
-  isReplayingHistory: boolean;
-  userId?: string;
-  messageId: string | null;
-  shouldPersist: boolean;
-  currentMessage: UIMessage | undefined;
-  bufferedMessage: ReturnType<SessionBufferingPort["flush"]>;
-  sessionRepo: SessionRepositoryPort;
-}): Promise<void> {
-  const {
-    chatId,
-    isReplayingHistory,
-    userId,
-    messageId,
-    shouldPersist,
-    currentMessage,
-    bufferedMessage,
-    sessionRepo,
-  } = params;
-  if (isReplayingHistory || !messageId || !shouldPersist || !userId) {
-    return;
-  }
-  if (currentMessage) {
-    finalizeStreamingParts(currentMessage);
-  }
-  await sessionRepo.appendMessage(chatId, userId, {
-    id: messageId,
-    role: "assistant",
-    content: bufferedMessage?.content ?? "",
-    contentBlocks: bufferedMessage?.contentBlocks ?? [],
-    reasoning: bufferedMessage?.reasoning,
-    reasoningBlocks: bufferedMessage?.reasoningBlocks,
-    parts: currentMessage?.parts,
-    timestamp: Date.now(),
-  });
-}
-
-function finalizeAssistantTurn(params: {
-  chatId: string;
-  session: ReturnType<SessionRuntimePort["get"]>;
-  isReplayingHistory: boolean;
-  sessionRuntime: SessionRuntimePort;
-}) {
-  const { chatId, session, isReplayingHistory, sessionRuntime } = params;
-  if (session?.uiState.currentAssistantId) {
-    const completedId = session.uiState.currentAssistantId;
-    if (!isReplayingHistory) {
-      session.uiState.lastAssistantId = completedId;
-      setChatFinishMessage(session, completedId, session.activeTurnId);
-    }
-    const current = session.uiState.messages.get(completedId);
-    if (current) {
-      finalizeStreamingParts(current);
-      sessionRuntime.broadcast(chatId, {
-        type: "ui_message",
-        message: current,
-      });
-    }
-    session.uiState.currentAssistantId = undefined;
-    session.lastAssistantChunkType = undefined;
-  }
-  if (!session) {
-    return;
-  }
-  session.uiState.currentUserId = undefined;
-  if (isReplayingHistory) {
-    return;
-  }
-  const broadcast = sessionRuntime.broadcast.bind(sessionRuntime);
-  updateChatStatus({
-    chatId,
-    session,
-    broadcast,
-    status: "ready",
-  });
-  maybeBroadcastChatFinish({ chatId, session, broadcast });
-}
-
-/**
- * Creates a session update handler for processing updates from agent processes
- *
- * @param sessionRuntime - The session runtime port for broadcasting and session access
- * @param sessionRepo - The session repository port for persistence
- * @returns Handler function for processing session updates
- *
- * @example
- * ```typescript
- * const handleUpdate = createSessionUpdateHandler(sessionRuntime, sessionRepo);
- * await handleUpdate({
- *   chatId: "session-123",
- *   buffer: new SessionBuffering(),
- *   isReplayingHistory: false,
- *   update: { sessionUpdate: "agent_message_chunk", content: {...} },
- * });
- * ```
+ * Creates a session update handler for processing updates from agent processes.
  */
 export function createSessionUpdateHandler(
   sessionRuntime: SessionRuntimePort,
@@ -1036,14 +179,14 @@ export function createSessionUpdateHandler(
 
     maybeMarkStreaming(chatId, isReplayingHistory, update, sessionRuntime);
 
-    // Handle buffered message content
     await handleBufferedMessage(
       chatId,
       buffer,
       isReplayingHistory,
       update,
       sessionRepo,
-      sessionRuntime
+      sessionRuntime,
+      finalizeStreamingForCurrentAssistant
     );
 
     if (await handleModeUpdate(chatId, update, sessionRuntime, sessionRepo)) {
@@ -1054,17 +197,31 @@ export function createSessionUpdateHandler(
     ) {
       return;
     }
-    if (await handlePlanUpdate(chatId, update, sessionRuntime, sessionRepo)) {
+    if (
+      await handlePlanUpdate({
+        chatId,
+        update,
+        sessionRuntime,
+        sessionRepo,
+        finalizeStreamingForCurrentAssistant,
+      })
+    ) {
       return;
     }
-    if (handleToolCallCreate(chatId, update, sessionRuntime)) {
+    if (
+      handleToolCallCreate({
+        chatId,
+        update,
+        sessionRuntime,
+        finalizeStreamingForCurrentAssistant,
+      })
+    ) {
       return;
     }
-    if (handleToolCallUpdate(chatId, update, sessionRuntime)) {
+    if (handleToolCallUpdate({ chatId, update, sessionRuntime })) {
       return;
     }
 
-    // Log unknown update types (excluding common streaming chunks)
     if (update.sessionUpdate !== "agent_message_chunk") {
       console.log(
         `[Server] Received session update: ${update.sessionUpdate}`,
@@ -1103,14 +260,4 @@ function maybeMarkStreaming(
     broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
     status: "streaming",
   });
-}
-
-function isStreamingUpdate(update: SessionUpdateWithLegacy) {
-  return (
-    update.sessionUpdate === "agent_message_chunk" ||
-    update.sessionUpdate === "agent_thought_chunk" ||
-    update.sessionUpdate === "tool_call" ||
-    update.sessionUpdate === "tool_call_update" ||
-    update.sessionUpdate === "plan"
-  );
 }

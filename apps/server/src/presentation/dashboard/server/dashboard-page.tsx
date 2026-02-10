@@ -2,8 +2,13 @@ import {
   type ApiKeyCreateResponse,
   type DashboardData,
   EMPTY_DASHBOARD_DATA,
+  type TabKey,
 } from "@/presentation/dashboard/dashboard-data";
 import type { DashboardBootstrap } from "@/presentation/dashboard/dashboard-types";
+import type {
+  DashboardViewActions,
+  DashboardViewState,
+} from "@/presentation/dashboard/dashboard-view.contract";
 import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import type { Settings } from "@/shared/types/settings.types";
 import { normalizeTab } from "../utils";
@@ -21,6 +26,7 @@ interface DashboardPageProps {
 }
 
 const noop = (): void => undefined;
+const noopTab = (_tab: TabKey): void => undefined;
 const noopAsync = (): Promise<void> => Promise.resolve();
 
 function serializeBootstrap(bootstrap: DashboardBootstrap): string {
@@ -51,33 +57,48 @@ export function DashboardPage({
     requiresRestart,
     createdApiKey,
   };
+  const state: DashboardViewState = {
+    settings,
+    dashboardData: data,
+    activeTab: tab,
+    errors,
+    success,
+    notice,
+    requiresRestart,
+    createdApiKey,
+  };
+  const actions: DashboardViewActions = {
+    navigation: {
+      onTabChange: noopTab,
+    },
+    sessions: {
+      onRefreshSessions: noop,
+      onStopSession: noopAsync,
+      onDeleteSession: noopAsync,
+    },
+    projects: {
+      onCreateProject: noopAsync,
+    },
+    agents: {
+      onCreateAgent: noopAsync,
+      onUpdateAgent: noopAsync,
+      onDeleteAgent: noopAsync,
+    },
+    auth: {
+      onCreateApiKey: noopAsync,
+      onDeleteApiKey: noopAsync,
+      onActivateDeviceSession: noopAsync,
+      onRevokeDeviceSession: noopAsync,
+    },
+    settings: {
+      onSaveSettings: noopAsync,
+    },
+  };
 
   return (
     <>
       <div data-active-tab={tab} id="client-root">
-        <DashboardView
-          activeTab={tab}
-          createdApiKey={createdApiKey}
-          dashboardData={data}
-          errors={errors}
-          notice={notice}
-          onActivateDeviceSession={noopAsync}
-          onCreateAgent={noopAsync}
-          onCreateApiKey={noopAsync}
-          onCreateProject={noopAsync}
-          onDeleteAgent={noopAsync}
-          onDeleteApiKey={noopAsync}
-          onDeleteSession={noopAsync}
-          onRefreshSessions={noop}
-          onRevokeDeviceSession={noopAsync}
-          onSaveSettings={noopAsync}
-          onStopSession={noopAsync}
-          onTabChange={noop}
-          onUpdateAgent={noopAsync}
-          requiresRestart={requiresRestart}
-          settings={settings}
-          success={success}
-        />
+        <DashboardView actions={actions} state={state} />
       </div>
       <script id="dashboard-bootstrap" type="application/json">
         {serializeBootstrap(bootstrap)}

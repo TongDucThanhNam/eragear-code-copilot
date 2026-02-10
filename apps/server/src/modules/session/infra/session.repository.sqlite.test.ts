@@ -2,18 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { eq, sql } from "drizzle-orm";
-import {
-  closeSqliteStorage,
-  getSqliteOrm,
-  sqliteSchema,
-} from "@/platform/storage/sqlite-db";
+import { closeSqliteStorage } from "@/platform/storage/sqlite-db";
 import { resetStoragePathCacheForTests } from "@/platform/storage/storage-path";
 import type {
   StoredMessage,
   StoredSession,
 } from "@/shared/types/session.types";
 import { SessionSqliteRepository } from "./session.repository.sqlite";
+
+const APPEND_MESSAGE_REGEX = /appendMessage/i;
 
 function createMessage(
   id: string,
@@ -75,86 +72,61 @@ describe("SessionSqliteRepository.save", () => {
     }
   });
 
-  test("deletes all persisted messages when saving an existing session with empty messages", async () => {
+  test("creates initial session metadata with empty messages", async () => {
     const repo = new SessionSqliteRepository();
-    const chatId = "chat-save-delete";
+    const chatId = "chat-save-initial-empty";
     const base = Date.now();
 
-    await repo.save(
-      createSession(
-        chatId,
-        [
-          createMessage("m-1", "user", "hello", base),
-          createMessage("m-2", "assistant", "world", base + 1),
-        ],
-        base
-      )
-    );
-
-    const initialPage = await repo.getMessagesPage(chatId, "user-1", {
-      limit: 50,
-      includeCompacted: true,
-    });
-    expect(initialPage.messages.map((message) => message.id)).toEqual([
-      "m-1",
-      "m-2",
-    ]);
-
-    await repo.save(createSession(chatId, [], base + 10));
+    await repo.save(createSession(chatId, [], base));
 
     const pageAfterClear = await repo.getMessagesPage(chatId, "user-1", {
       limit: 50,
       includeCompacted: true,
     });
     expect(pageAfterClear.messages).toHaveLength(0);
-
-    const orm = await getSqliteOrm();
-    const countRow = orm
-      .select({ count: sql<number>`count(*)` })
-      .from(sqliteSchema.sessionMessages)
-      .where(eq(sqliteSchema.sessionMessages.sessionId, chatId))
-      .get();
-    expect(Number(countRow?.count ?? 0)).toBe(0);
   });
 
-  test("removes stale messages while keeping updated ones on snapshot save", async () => {
+  test("rejects message snapshots when saving existing sessions", async () => {
     const repo = new SessionSqliteRepository();
-    const chatId = "chat-save-prune";
+    const chatId = "chat-save-existing-rejects-snapshot";
     const base = Date.now();
 
-    await repo.save(
-      createSession(
-        chatId,
-        [
-          createMessage("m-1", "user", "one", base),
-          createMessage("m-2", "assistant", "two", base + 1),
-          createMessage("m-3", "assistant", "three", base + 2),
-        ],
-        base
-      )
-    );
+    await repo.save(createSession(chatId, [], base));
 
-    await repo.save(
-      createSession(
-        chatId,
-        [
-          createMessage("m-1", "user", "one-updated", base + 10),
-          createMessage("m-3", "assistant", "three", base + 11),
-        ],
-        base + 10
+    await expect(
+      repo.save(
+        createSession(
+          chatId,
+          [createMessage("m-1", "assistant", "snapshot", base + 10)],
+          base + 10
+        )
       )
+    ).rejects.toThrow(APPEND_MESSAGE_REGEX);
+
+    const page = await repo.getMessagesPage(chatId, "user-1", {
+      limit: 50,
+      includeCompacted: true,
+    });
+    expect(page.messages).toHaveLength(0);
+  });
+
+  test("persists messages through appendMessage after initial save", async () => {
+    const repo = new SessionSqliteRepository();
+    const chatId = "chat-save-append-message";
+    const base = Date.now();
+
+    await repo.save(createSession(chatId, [], base));
+    await repo.appendMessage(
+      chatId,
+      "user-1",
+      createMessage("m-1", "assistant", "hello", base + 1)
     );
 
     const page = await repo.getMessagesPage(chatId, "user-1", {
       limit: 50,
       includeCompacted: true,
     });
-    expect(page.messages.map((message) => message.id)).toEqual(["m-1", "m-3"]);
-    expect(page.messages.find((message) => message.id === "m-1")?.content).toBe(
-      "one-updated"
-    );
-    expect(page.messages.find((message) => message.id === "m-2")).toBe(
-      undefined
-    );
+    expect(page.messages.map((message) => message.id)).toEqual(["m-1"]);
+    expect(page.messages[0]?.content).toBe("hello");
   });
 });

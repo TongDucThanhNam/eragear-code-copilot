@@ -1,14 +1,11 @@
 import type { FormEvent } from "react";
+import { useDashboardActions } from "@/presentation/dashboard/dashboard-view.context";
 
-interface AddProjectModalProps {
-  onCreateProject: (input: {
-    name: string;
-    path: string;
-    description?: string;
-  }) => Promise<void>;
-}
+export function AddProjectModal() {
+  const {
+    projects: { onCreateProject },
+  } = useDashboardActions();
 
-export function AddProjectModal({ onCreateProject }: AddProjectModalProps) {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;

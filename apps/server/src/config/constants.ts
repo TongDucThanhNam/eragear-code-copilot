@@ -64,12 +64,18 @@ export const DEFAULT_SQLITE_WORKER_ENABLED = true;
 export const DEFAULT_SQLITE_WORKER_REQUEST_TIMEOUT_MS = 30_000;
 /** Default page size for session list endpoints */
 export const DEFAULT_SESSION_LIST_PAGE_LIMIT = 200;
-/** Maximum page size for session list endpoints */
-export const MAX_SESSION_LIST_PAGE_LIMIT = 500;
+/** Default max page size for session list endpoints */
+export const DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT = 500;
+/** Hard cap for max page size of session list endpoints */
+export const HARD_MAX_SESSION_LIST_PAGE_LIMIT = 5000;
 /** Default page size for session messages endpoints */
 export const DEFAULT_SESSION_MESSAGES_PAGE_LIMIT = 100;
-/** Maximum page size for session messages endpoints */
-export const MAX_SESSION_MESSAGES_PAGE_LIMIT = 200;
+/** Default max page size for session messages endpoints */
+export const DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT = 200;
+/** Hard cap for max page size of session messages endpoints */
+export const HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT = 2000;
+/** Hard cap for retained terminal output when no request limit is provided */
+export const DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES = 4 * 1024 * 1024;
 /** Maximum allowed bytes for message content payload */
 export const DEFAULT_MESSAGE_CONTENT_MAX_BYTES = 2 * 1024 * 1024;
 /** Maximum allowed bytes for serialized message parts payload */

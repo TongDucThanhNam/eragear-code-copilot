@@ -1,11 +1,11 @@
-import type { DashboardStats } from "@/presentation/dashboard/dashboard-data";
+import { useDashboardState } from "@/presentation/dashboard/dashboard-view.context";
 import { formatUptime } from "../utils";
 
-interface OverviewStatsProps {
-  stats: DashboardStats;
-}
+export function OverviewStats() {
+  const {
+    dashboardData: { stats },
+  } = useDashboardState();
 
-export function OverviewStats({ stats }: OverviewStatsProps) {
   return (
     <section className="sticky top-0 border-2 border-ink bg-ink p-6 text-paper shadow-news">
       <div className="mb-4 flex items-center gap-2">

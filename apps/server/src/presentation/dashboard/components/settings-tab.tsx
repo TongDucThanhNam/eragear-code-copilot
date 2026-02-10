@@ -1,23 +1,16 @@
 import type { FormEvent } from "react";
-import type { Settings } from "@/shared/types/settings.types";
+import {
+  useDashboardActions,
+  useDashboardState,
+} from "@/presentation/dashboard/dashboard-view.context";
 import { TabPanel } from "./tab-panel";
 
-interface SettingsTabProps {
-  settings: Settings;
-  errors?: {
-    projectRoots?: string;
-    general?: string;
-  };
-  activeTab: string;
-  onSaveSettings: (formData: FormData) => Promise<void>;
-}
+export function SettingsTab() {
+  const { settings, errors, activeTab } = useDashboardState();
+  const {
+    settings: { onSaveSettings },
+  } = useDashboardActions();
 
-export function SettingsTab({
-  settings,
-  errors,
-  activeTab,
-  onSaveSettings,
-}: SettingsTabProps) {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);

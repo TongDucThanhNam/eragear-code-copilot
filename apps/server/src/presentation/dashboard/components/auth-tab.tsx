@@ -1,39 +1,28 @@
 import type { FormEvent } from "react";
-import type {
-  ApiKeyCreateResponse,
-  ApiKeyItem,
-  DeviceSessionItem,
-} from "@/presentation/dashboard/dashboard-data";
+import {
+  useDashboardActions,
+  useDashboardState,
+} from "@/presentation/dashboard/dashboard-view.context";
 import { isDeviceSessionActive } from "../utils";
 import { ApiKeyRow } from "./api-key-row";
 import { DeviceSessionRow } from "./device-session-row";
 import { TabPanel } from "./tab-panel";
 
-interface AuthTabProps {
-  apiKeys: ApiKeyItem[];
-  createdApiKey?: ApiKeyCreateResponse;
-  deviceSessions: DeviceSessionItem[];
-  activeTab: string;
-  onCreateApiKey: (input: {
-    name?: string;
-    prefix?: string;
-    expiresInDays?: number;
-  }) => Promise<void>;
-  onDeleteApiKey: (keyId: string) => Promise<void>;
-  onActivateDeviceSession: (token: string) => Promise<void>;
-  onRevokeDeviceSession: (token: string) => Promise<void>;
-}
+export function AuthTab() {
+  const {
+    activeTab,
+    createdApiKey,
+    dashboardData: { apiKeys, deviceSessions },
+  } = useDashboardState();
+  const {
+    auth: {
+      onCreateApiKey,
+      onDeleteApiKey,
+      onActivateDeviceSession,
+      onRevokeDeviceSession,
+    },
+  } = useDashboardActions();
 
-export function AuthTab({
-  apiKeys,
-  createdApiKey,
-  deviceSessions,
-  activeTab,
-  onCreateApiKey,
-  onDeleteApiKey,
-  onActivateDeviceSession,
-  onRevokeDeviceSession,
-}: AuthTabProps) {
   const activeDeviceSessions = deviceSessions.filter(isDeviceSessionActive);
   const expiredDeviceSessions =
     deviceSessions.length - activeDeviceSessions.length;

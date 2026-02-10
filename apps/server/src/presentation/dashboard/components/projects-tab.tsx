@@ -1,13 +1,13 @@
-import type { ProjectSummary } from "@/presentation/dashboard/dashboard-data";
+import { useDashboardState } from "@/presentation/dashboard/dashboard-view.context";
 import { ProjectCard } from "./project-card";
 import { TabPanel } from "./tab-panel";
 
-interface ProjectsTabProps {
-  projects: ProjectSummary[];
-  activeTab: string;
-}
+export function ProjectsTab() {
+  const {
+    activeTab,
+    dashboardData: { projects },
+  } = useDashboardState();
 
-export function ProjectsTab({ projects, activeTab }: ProjectsTabProps) {
   return (
     <TabPanel activeTab={activeTab} tab="projects">
       <section className="border-2 border-ink bg-paper shadow-news">

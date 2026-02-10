@@ -1,11 +1,10 @@
-import type { DashboardStats } from "@/presentation/dashboard/dashboard-data";
+import { useDashboardState } from "@/presentation/dashboard/dashboard-view.context";
 import { formatUptime } from "../utils";
 
-interface MarqueeTickerProps {
-  stats: DashboardStats;
-}
-
-export function MarqueeTicker({ stats }: MarqueeTickerProps) {
+export function MarqueeTicker() {
+  const {
+    dashboardData: { stats },
+  } = useDashboardState();
   const uptime = formatUptime(stats.serverUptime);
 
   const items = [

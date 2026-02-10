@@ -46,7 +46,7 @@ export interface SessionRepositoryPort {
   findAllForMaintenance(query?: SessionListQuery): Promise<StoredSession[]>;
   /** Count all sessions */
   countAll(userId: string): Promise<number>;
-  /** Save or update a session */
+  /** Save session metadata (existing sessions must mutate messages via appendMessage/compactMessages) */
   save(session: StoredSession): Promise<void>;
   /** Update session status */
   updateStatus(
@@ -64,7 +64,11 @@ export interface SessionRepositoryPort {
   /** Delete a session */
   delete(id: string, userId: string): Promise<void>;
   /** Append a message to a session */
-  appendMessage(id: string, userId: string, message: StoredMessage): Promise<void>;
+  appendMessage(
+    id: string,
+    userId: string,
+    message: StoredMessage
+  ): Promise<void>;
   /** Get a paginated page of messages for a session */
   getMessagesPage(
     id: string,

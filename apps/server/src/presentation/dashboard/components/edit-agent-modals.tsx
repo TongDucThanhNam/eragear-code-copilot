@@ -1,21 +1,17 @@
 import type { FormEvent } from "react";
-import type { AgentConfig } from "@/shared/types/agent.types";
+import {
+  useDashboardActions,
+  useDashboardState,
+} from "@/presentation/dashboard/dashboard-view.context";
 
-interface EditAgentModalsProps {
-  agents: AgentConfig[];
-  onUpdateAgent: (input: {
-    id: string;
-    name: string;
-    type: string;
-    command: string;
-    argsInput?: string;
-  }) => Promise<void>;
-}
+export function EditAgentModals() {
+  const {
+    dashboardData: { agents },
+  } = useDashboardState();
+  const {
+    agents: { onUpdateAgent },
+  } = useDashboardActions();
 
-export function EditAgentModals({
-  agents,
-  onUpdateAgent,
-}: EditAgentModalsProps) {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;

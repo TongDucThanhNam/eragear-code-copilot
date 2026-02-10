@@ -141,8 +141,18 @@ Config đọc từ `src/config/environment.ts`:
 
 - Network: `WS_HOST`, `WS_PORT`, `WS_HEARTBEAT_INTERVAL_MS`.
 - Security/auth: `AUTH_*`.
-- Process/tool policy: `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`.
+- Process/tool policy:
+  `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`,
+  `TERMINAL_OUTPUT_HARD_CAP_BYTES`.
+- Pagination policy:
+  `SESSION_LIST_PAGE_MAX_LIMIT`, `SESSION_MESSAGES_PAGE_MAX_LIMIT`.
 - Timeout: `SESSION_IDLE_TIMEOUT_MS`, `AGENT_TIMEOUT_MS`, `TERMINAL_TIMEOUT_MS`.
+
+Policy invariants:
+
+- `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS` là
+  required và fail-fast nếu thiếu/rỗng.
+- `ALLOWED_*="*"` không hợp lệ, phải khai báo explicit.
 
 ## Operational Commands
 

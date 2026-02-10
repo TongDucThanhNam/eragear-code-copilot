@@ -33,6 +33,7 @@ export { SessionHistoryReplayService } from "./application/session-history-repla
 export { SessionMcpConfigService } from "./application/session-mcp-config.service";
 export { SessionMessageMapper } from "./application/session-message.mapper";
 export { SessionMetadataPersistenceService } from "./application/session-metadata-persistence.service";
+export { SessionOrchestratorService } from "./application/session-orchestrator.service";
 export { SessionProcessLifecycleService } from "./application/session-process-lifecycle.service";
 export { SessionProjectContextResolverService } from "./application/session-project-context-resolver.service";
 export { SessionRuntimeBootstrapService } from "./application/session-runtime-bootstrap.service";

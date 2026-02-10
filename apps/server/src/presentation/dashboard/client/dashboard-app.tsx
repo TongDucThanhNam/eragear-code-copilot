@@ -6,6 +6,10 @@ import {
   type TabKey,
 } from "@/presentation/dashboard/dashboard-data";
 import type { DashboardBootstrap } from "@/presentation/dashboard/dashboard-types";
+import type {
+  DashboardViewActions,
+  DashboardViewState,
+} from "@/presentation/dashboard/dashboard-view.contract";
 import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import { normalizeTab } from "@/presentation/dashboard/utils";
 import type { Settings } from "@/shared/types/settings.types";
@@ -501,32 +505,44 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
     [showError, showSuccess]
   );
 
-  return (
-    <DashboardView
-      activeTab={activeTab}
-      createdApiKey={createdApiKey}
-      dashboardData={dashboardData}
-      errors={errors}
-      isLoading={isRefreshing}
-      notice={notice}
-      onActivateDeviceSession={handleActivateDeviceSession}
-      onCreateAgent={handleCreateAgent}
-      onCreateApiKey={handleCreateApiKey}
-      onCreateProject={handleCreateProject}
-      onDeleteAgent={handleDeleteAgent}
-      onDeleteApiKey={handleDeleteApiKey}
-      onDeleteSession={handleDeleteSession}
-      onRefreshSessions={() => {
-        refreshAll();
-      }}
-      onRevokeDeviceSession={handleRevokeDeviceSession}
-      onSaveSettings={handleSaveSettings}
-      onStopSession={handleStopSession}
-      onTabChange={setActiveTab}
-      onUpdateAgent={handleUpdateAgent}
-      requiresRestart={requiresRestart}
-      settings={settings}
-      success={success}
-    />
-  );
+  const state: DashboardViewState = {
+    settings,
+    dashboardData,
+    activeTab,
+    errors,
+    success,
+    notice,
+    isLoading: isRefreshing,
+    requiresRestart,
+    createdApiKey,
+  };
+  const actions: DashboardViewActions = {
+    navigation: {
+      onTabChange: setActiveTab,
+    },
+    sessions: {
+      onRefreshSessions: refreshAll,
+      onStopSession: handleStopSession,
+      onDeleteSession: handleDeleteSession,
+    },
+    projects: {
+      onCreateProject: handleCreateProject,
+    },
+    agents: {
+      onCreateAgent: handleCreateAgent,
+      onUpdateAgent: handleUpdateAgent,
+      onDeleteAgent: handleDeleteAgent,
+    },
+    auth: {
+      onCreateApiKey: handleCreateApiKey,
+      onDeleteApiKey: handleDeleteApiKey,
+      onActivateDeviceSession: handleActivateDeviceSession,
+      onRevokeDeviceSession: handleRevokeDeviceSession,
+    },
+    settings: {
+      onSaveSettings: handleSaveSettings,
+    },
+  };
+
+  return <DashboardView actions={actions} state={state} />;
 }

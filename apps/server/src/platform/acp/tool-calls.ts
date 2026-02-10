@@ -30,27 +30,39 @@ import type {
 const LINE_SPLITTER_REGEX = /\r?\n/;
 const logger = createLogger("Debug");
 
-/**
- * Normalizes the output limit value, handling bigint, number, and null/undefined cases
- *
- * @param limit - The limit value from the request
- * @returns Normalized limit as a number or undefined
- */
-function normalizeOutputLimit(limit?: bigint | number | null) {
+function resolveOutputLimit(limit: bigint | number | null | undefined): number {
   if (limit === null || limit === undefined) {
-    return undefined;
+    return ENV.terminalOutputHardCapBytes;
   }
+
+  let normalized = 0;
   if (typeof limit === "bigint") {
     if (limit <= 0n) {
-      return undefined;
+      throw RequestError.invalidParams(
+        { outputByteLimit: limit },
+        "outputByteLimit must be a positive number"
+      );
     }
     const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);
-    return Number(limit > maxSafe ? maxSafe : limit);
+    normalized = Number(limit > maxSafe ? maxSafe : limit);
+  } else {
+    if (!Number.isFinite(limit) || limit <= 0) {
+      throw RequestError.invalidParams(
+        { outputByteLimit: limit },
+        "outputByteLimit must be a positive finite number"
+      );
+    }
+    normalized = Math.trunc(limit);
   }
-  if (!Number.isFinite(limit) || limit <= 0) {
-    return undefined;
+
+  if (normalized <= 0) {
+    throw RequestError.invalidParams(
+      { outputByteLimit: limit },
+      "outputByteLimit must be a positive number"
+    );
   }
-  return Math.min(limit, Number.MAX_SAFE_INTEGER);
+
+  return Math.min(normalized, ENV.terminalOutputHardCapBytes);
 }
 
 function requireString(
@@ -138,29 +150,74 @@ async function resolvePathInSession(
   inputPath: string
 ): Promise<string> {
   const rawPath = fileUriToPath(inputPath);
-  const baseRoot = path.resolve(session.projectRoot);
-  const resolvedPath = path.isAbsolute(rawPath)
-    ? path.resolve(rawPath)
-    : path.resolve(baseRoot, rawPath);
-
-  let canonicalPath = resolvedPath;
+  const configuredRoot = path.resolve(session.projectRoot);
+  let canonicalRoot = configuredRoot;
   try {
-    canonicalPath = await realpath(resolvedPath);
+    canonicalRoot = await realpath(configuredRoot);
   } catch {
-    // File may not exist yet; fall back to resolved path
+    throw new Error(`Invalid project root: ${configuredRoot}`);
   }
 
-  const normalizedRoot = baseRoot.endsWith(path.sep)
-    ? baseRoot
-    : `${baseRoot}${path.sep}`;
+  const resolvedPath = path.isAbsolute(rawPath)
+    ? path.resolve(rawPath)
+    : path.resolve(canonicalRoot, rawPath);
+  const canonicalPath = await canonicalizeTargetPath(resolvedPath);
 
-  if (canonicalPath !== baseRoot && !canonicalPath.startsWith(normalizedRoot)) {
+  if (isPathOutsideRoot(canonicalRoot, canonicalPath)) {
     throw new Error(
-      `Access denied (outside project root): ${canonicalPath} (root: ${baseRoot})`
+      `Access denied (outside project root): ${canonicalPath} (root: ${canonicalRoot})`
     );
   }
 
   return canonicalPath;
+}
+
+function isPathOutsideRoot(rootPath: string, targetPath: string): boolean {
+  const relative = path.relative(rootPath, targetPath);
+  return (
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  );
+}
+
+function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
+  if (!error || typeof error !== "object" || !("code" in error)) {
+    return false;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+async function canonicalizeTargetPath(resolvedPath: string): Promise<string> {
+  try {
+    return await realpath(resolvedPath);
+  } catch (error) {
+    if (!isMissingPathError(error)) {
+      throw error;
+    }
+  }
+
+  const pathSuffix: string[] = [];
+  let cursor = resolvedPath;
+
+  while (true) {
+    try {
+      const canonicalAncestor = await realpath(cursor);
+      return path.resolve(canonicalAncestor, ...pathSuffix);
+    } catch (error) {
+      if (!isMissingPathError(error)) {
+        throw error;
+      }
+
+      const parent = path.dirname(cursor);
+      if (parent === cursor) {
+        throw error;
+      }
+      pathSuffix.unshift(path.basename(cursor));
+      cursor = parent;
+    }
+  }
 }
 
 /**
@@ -253,9 +310,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       ? path.resolve(sessionCwd, params.cwd)
       : sessionCwd;
     const allowedCwd = await resolvePathInSession(session, targetCwd);
-    const outputByteLimit = normalizeOutputLimit(
-      params.outputByteLimit ?? null
-    );
+    const outputByteLimit = resolveOutputLimit(params.outputByteLimit ?? null);
 
     if (!isCommandAllowed(params.command, ENV.allowedTerminalCommands)) {
       throw RequestError.invalidParams(
@@ -278,34 +333,52 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     });
 
     // Store terminal state
+    let resolveExit:
+      | ((status: acp.WaitForTerminalExitResponse) => void)
+      | undefined;
+    const exitPromise = new Promise<acp.WaitForTerminalExitResponse>(
+      (resolve) => {
+        resolveExit = resolve;
+      }
+    );
+
     const termState: TerminalState = {
       id: termId,
       process: termProc,
       outputBuffer: "",
-      outputBufferBytes: outputByteLimit ? Buffer.alloc(0) : undefined,
+      outputBufferBytes: Buffer.alloc(0),
       outputByteLimit,
       truncated: false,
-      resolveExit: [],
+      exitPromise,
+      resolveExit,
     };
 
     session.terminals.set(termId, termState);
 
+    const finalizeTerminal = (status: acp.WaitForTerminalExitResponse) => {
+      if (termState.exitStatus) {
+        return;
+      }
+      termState.exitStatus = status;
+      termState.resolveExit?.(status);
+      termState.resolveExit = undefined;
+      if (termState.killTimer) {
+        clearTimeout(termState.killTimer);
+        termState.killTimer = undefined;
+      }
+    };
+
     // Handle output streaming
     const handleOutput = (chunk: Buffer) => {
       const text = chunk.toString("utf8");
-      if (outputByteLimit === undefined) {
-        termState.outputBuffer += text;
-      } else {
-        const current = termState.outputBufferBytes ?? Buffer.alloc(0);
-        let next =
-          current.length === 0 ? chunk : Buffer.concat([current, chunk]);
-        if (next.length > outputByteLimit) {
-          next = next.subarray(next.length - outputByteLimit);
-          termState.truncated = true;
-        }
-        termState.outputBufferBytes = next;
-        termState.outputBuffer = next.toString("utf8");
+      const current = termState.outputBufferBytes ?? Buffer.alloc(0);
+      let next = current.length === 0 ? chunk : Buffer.concat([current, chunk]);
+      if (next.length > outputByteLimit) {
+        next = next.subarray(next.length - outputByteLimit);
+        termState.truncated = true;
       }
+      termState.outputBufferBytes = next;
+      termState.outputBuffer = next.toString("utf8");
 
       sessionRuntime.broadcast(chatId, {
         type: "terminal_output",
@@ -319,23 +392,12 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
 
     // Handle process exit
     termProc.on("exit", (code, signal) => {
-      termState.exitStatus = { exitCode: code, signal };
-      for (const resolve of termState.resolveExit) {
-        resolve({ exitCode: code, signal });
-      }
-      termState.resolveExit = [];
-      if (termState.killTimer) {
-        clearTimeout(termState.killTimer);
-        termState.killTimer = undefined;
-      }
+      finalizeTerminal({ exitCode: code, signal });
     });
 
     termProc.on("error", (err) => {
       console.error(`[Server] Terminal ${termId} error:`, err);
-      if (termState.killTimer) {
-        clearTimeout(termState.killTimer);
-        termState.killTimer = undefined;
-      }
+      finalizeTerminal({ exitCode: null, signal: null });
     });
 
     const terminalTimeoutMs = ENV.terminalTimeoutMs;
@@ -353,37 +415,30 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
   /**
    * Waits for a terminal to exit
    */
-  async function waitForTerminalExit(
+  function waitForTerminalExit(
     chatId: string,
     params: acp.WaitForTerminalExitRequest
   ): Promise<acp.WaitForTerminalExitResponse> {
     const session = getSessionOrThrow(sessionRuntime, chatId);
     const term = getTerminalOrThrow(session, params.terminalId);
-
-    if (term.exitStatus) {
-      return await term.exitStatus;
-    }
-
-    return new Promise<acp.WaitForTerminalExitResponse>((resolve) => {
-      term.resolveExit.push(resolve);
-    });
+    return term.exitPromise;
   }
 
   /**
    * Retrieves terminal output
    */
-  async function terminalOutput(
+  function terminalOutput(
     chatId: string,
     params: acp.TerminalOutputRequest
   ): Promise<acp.TerminalOutputResponse> {
     const session = getSessionOrThrow(sessionRuntime, chatId);
     const term = getTerminalOrThrow(session, params.terminalId);
 
-    return await {
+    return Promise.resolve({
       output: term.outputBuffer,
       truncated: term.truncated ?? false,
       exitStatus: term.exitStatus ?? null,
-    };
+    });
   }
 
   /**

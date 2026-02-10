@@ -1,22 +1,23 @@
-import type { AgentConfig } from "@/shared/types/agent.types";
-import type { DashboardStats } from "../dashboard-data";
+import {
+  useDashboardActions,
+  useDashboardState,
+} from "@/presentation/dashboard/dashboard-view.context";
 import { AgentCard } from "./agent-card";
 import { AgentStats } from "./agent-stats";
 import { TabPanel } from "./tab-panel";
 
-interface AgentsTabProps {
-  agents: AgentConfig[];
-  agentStats: DashboardStats["agentStats"];
-  activeTab: string;
-  onDeleteAgent: (agentId: string) => void;
-}
+export function AgentsTab() {
+  const {
+    activeTab,
+    dashboardData: {
+      agents,
+      stats: { agentStats },
+    },
+  } = useDashboardState();
+  const {
+    agents: { onDeleteAgent },
+  } = useDashboardActions();
 
-export function AgentsTab({
-  agents,
-  agentStats,
-  activeTab,
-  onDeleteAgent,
-}: AgentsTabProps) {
   return (
     <TabPanel activeTab={activeTab} scrollable tab="agents">
       <section className="border-2 border-ink bg-paper shadow-news">

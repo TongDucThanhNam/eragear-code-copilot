@@ -17,6 +17,7 @@ import type {
   ResourceLink,
   TextContent,
   ToolCall,
+  WaitForTerminalExitResponse,
 } from "@agentclientprotocol/sdk";
 import type { UIMessage, UIMessagePart } from "@repo/shared";
 import type { AgentInfo as DomainAgentInfo } from "./agent.types";
@@ -427,12 +428,11 @@ export interface TerminalState {
   /** Whether output was truncated */
   truncated?: boolean;
   /** Exit status, if available */
-  exitStatus?: { exitCode: number | null; signal: string | null };
+  exitStatus?: WaitForTerminalExitResponse;
   /** Optional kill timer for enforcing terminal timeouts */
   killTimer?: ReturnType<typeof setTimeout>;
-  /** Promise resolvers for exit status */
-  resolveExit: ((status: {
-    exitCode: number | null;
-    signal: string | null;
-  }) => void)[];
+  /** Promise resolving when terminal exits or fails to start */
+  exitPromise: Promise<WaitForTerminalExitResponse>;
+  /** Internal resolver for exitPromise */
+  resolveExit?: (status: WaitForTerminalExitResponse) => void;
 }

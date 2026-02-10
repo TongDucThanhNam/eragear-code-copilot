@@ -3,6 +3,7 @@
  */
 
 import { and, asc, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
+import { ENV } from "@/config/environment";
 import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
 import {
   getSqliteDb,
@@ -28,15 +29,14 @@ import {
   SessionSqliteMapper,
 } from "./session-sqlite.mapper";
 
-const MAX_SESSION_PAGE_LIMIT = 500;
-const MAX_MESSAGE_PAGE_LIMIT = 200;
-const MAX_MESSAGE_DELETE_CHUNK_SIZE = 200;
-
 export class SessionSqliteRepository
   extends SessionSqliteMapper
   implements SessionRepositoryPort
 {
-  async findById(id: string, userId: string): Promise<StoredSession | undefined> {
+  async findById(
+    id: string,
+    userId: string
+  ): Promise<StoredSession | undefined> {
     const db = await getSqliteOrm();
     const row = db
       .select()
@@ -54,14 +54,20 @@ export class SessionSqliteRepository
     return this.mapSessionRow(row);
   }
 
-  async findAll(userId: string, query?: SessionListQuery): Promise<StoredSession[]> {
+  async findAll(
+    userId: string,
+    query?: SessionListQuery
+  ): Promise<StoredSession[]> {
     const db = await getSqliteOrm();
     const offset = Math.max(0, Math.trunc(query?.offset ?? 0));
     const rawLimit = query?.limit;
     const limit =
       rawLimit === undefined
         ? undefined
-        : Math.max(1, Math.min(MAX_SESSION_PAGE_LIMIT, Math.trunc(rawLimit)));
+        : Math.max(
+            1,
+            Math.min(ENV.sessionListPageMaxLimit, Math.trunc(rawLimit))
+          );
 
     let select = db
       .select({
@@ -112,7 +118,10 @@ export class SessionSqliteRepository
     const limit =
       rawLimit === undefined
         ? undefined
-        : Math.max(1, Math.min(MAX_SESSION_PAGE_LIMIT, Math.trunc(rawLimit)));
+        : Math.max(
+            1,
+            Math.min(ENV.sessionListPageMaxLimit, Math.trunc(rawLimit))
+          );
 
     let select = db
       .select({
@@ -166,16 +175,21 @@ export class SessionSqliteRepository
   async save(session: StoredSession): Promise<void> {
     await enqueueSqliteWrite("session.save", async () => {
       const orm = await getSqliteOrm();
+      const existing = orm
+        .select({ id: sqliteSchema.sessions.id })
+        .from(sqliteSchema.sessions)
+        .where(eq(sqliteSchema.sessions.id, session.id))
+        .get();
+      const hasExisting = Boolean(existing);
+      if (hasExisting && session.messages.length > 0) {
+        throw new Error(
+          "Session save does not support message snapshots for existing sessions; use appendMessage instead."
+        );
+      }
+
       const sqliteDb = await getSqliteDb();
 
       runInSqliteTransaction(sqliteDb, () => {
-        const existing = orm
-          .select({ id: sqliteSchema.sessions.id })
-          .from(sqliteSchema.sessions)
-          .where(eq(sqliteSchema.sessions.id, session.id))
-          .get();
-        const hasExisting = Boolean(existing);
-
         orm
           .insert(sqliteSchema.sessions)
           .values(this.toSessionInsert(session))
@@ -185,84 +199,40 @@ export class SessionSqliteRepository
           })
           .run();
 
-        const dedupedMessageById = new Map<string, MessageInsert>();
-        for (const message of session.messages) {
-          dedupedMessageById.set(
-            message.id,
-            this.toMessageInsert(session.id, message)
-          );
-        }
-        const dedupedMessages = [...dedupedMessageById.values()];
-
-        if (dedupedMessages.length === 0) {
-          if (hasExisting) {
+        if (!hasExisting && session.messages.length > 0) {
+          const dedupedMessageById = new Map<string, MessageInsert>();
+          for (const message of session.messages) {
+            dedupedMessageById.set(
+              message.id,
+              this.toMessageInsert(session.id, message)
+            );
+          }
+          const dedupedMessages = [...dedupedMessageById.values()];
+          if (dedupedMessages.length > 0) {
             orm
-              .delete(sqliteSchema.sessionMessages)
-              .where(eq(sqliteSchema.sessionMessages.sessionId, session.id))
+              .insert(sqliteSchema.sessionMessages)
+              .values(dedupedMessages)
+              .onConflictDoUpdate({
+                target: [
+                  sqliteSchema.sessionMessages.sessionId,
+                  sqliteSchema.sessionMessages.messageId,
+                ],
+                set: {
+                  role: sql`excluded.role`,
+                  content: sql`excluded.content`,
+                  contentBlocksJson: sql`excluded.content_blocks_json`,
+                  timestamp: sql`excluded.timestamp`,
+                  toolCallsJson: sql`excluded.tool_calls_json`,
+                  reasoning: sql`excluded.reasoning`,
+                  reasoningBlocksJson: sql`excluded.reasoning_blocks_json`,
+                  partsJson: sql`excluded.parts_json`,
+                  storageTier: sql`excluded.storage_tier`,
+                  retainedPayload: sql`excluded.retained_payload`,
+                  compactedAt: sql`excluded.compacted_at`,
+                },
+              })
               .run();
           }
-          return;
-        }
-
-        orm
-          .insert(sqliteSchema.sessionMessages)
-          .values(dedupedMessages)
-          .onConflictDoUpdate({
-            target: [
-              sqliteSchema.sessionMessages.sessionId,
-              sqliteSchema.sessionMessages.messageId,
-            ],
-            set: {
-              role: sql`excluded.role`,
-              content: sql`excluded.content`,
-              contentBlocksJson: sql`excluded.content_blocks_json`,
-              timestamp: sql`excluded.timestamp`,
-              toolCallsJson: sql`excluded.tool_calls_json`,
-              reasoning: sql`excluded.reasoning`,
-              reasoningBlocksJson: sql`excluded.reasoning_blocks_json`,
-              partsJson: sql`excluded.parts_json`,
-              storageTier: sql`excluded.storage_tier`,
-              retainedPayload: sql`excluded.retained_payload`,
-              compactedAt: sql`excluded.compacted_at`,
-            },
-          })
-          .run();
-
-        if (!hasExisting) {
-          return;
-        }
-
-        const incomingMessageIds = new Set(
-          dedupedMessages.map((message) => message.messageId)
-        );
-        const existingMessageIds = orm
-          .select({ messageId: sqliteSchema.sessionMessages.messageId })
-          .from(sqliteSchema.sessionMessages)
-          .where(eq(sqliteSchema.sessionMessages.sessionId, session.id))
-          .all()
-          .map((message) => message.messageId);
-        const staleMessageIds = existingMessageIds.filter(
-          (messageId) => !incomingMessageIds.has(messageId)
-        );
-
-        for (
-          let start = 0;
-          start < staleMessageIds.length;
-          start += MAX_MESSAGE_DELETE_CHUNK_SIZE
-        ) {
-          const chunk = staleMessageIds.slice(
-            start,
-            start + MAX_MESSAGE_DELETE_CHUNK_SIZE
-          );
-          orm
-            .delete(sqliteSchema.sessionMessages)
-            .where(
-              and(
-                eq(sqliteSchema.sessionMessages.sessionId, session.id),
-                inArray(sqliteSchema.sessionMessages.messageId, chunk)
-              )
-            )
-            .run();
         }
       });
     });
@@ -413,8 +383,8 @@ export class SessionSqliteRepository
     const limit = Math.max(
       1,
       Math.min(
-        MAX_MESSAGE_PAGE_LIMIT,
-        Math.trunc(query.limit ?? MAX_MESSAGE_PAGE_LIMIT)
+        ENV.sessionMessagesPageMaxLimit,
+        Math.trunc(query.limit ?? ENV.sessionMessagesPageMaxLimit)
       )
     );
     const cursor =

@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDashboardState } from "@/presentation/dashboard/dashboard-view.context";
 import type { LogEntry, LogLevel } from "@/shared/types/log.types";
 import { LogDetail } from "./log-detail";
 import { formatTimestamp, statusClass } from "./logs-utils";
 import { TabPanel } from "./tab-panel";
-
-interface LogsTabProps {
-  activeTab: string;
-}
 
 const LOG_LIMIT = 200;
 const LOGS_ENDPOINT = "/api/logs";
@@ -76,7 +73,8 @@ function statusBucketLabel(bucket: StatusBucket): string {
   return `${bucket} Server`;
 }
 
-export function LogsTab({ activeTab }: LogsTabProps) {
+export function LogsTab() {
+  const { activeTab } = useDashboardState();
   const [rawEntries, setRawEntries] = useState<LogEntry[]>([]);
   const [search, setSearch] = useState("");
   const [range, setRange] = useState(DEFAULT_RANGE);
