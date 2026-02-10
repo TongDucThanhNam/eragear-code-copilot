@@ -13,6 +13,7 @@
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
 import { isAppError } from "../../../shared/errors";
+import { getAuthContextFromRequest } from "../utils/auth";
 
 /**
  * Registers project-related HTTP routes
@@ -29,6 +30,13 @@ export function registerProjectRoutes(api: Hono): void {
    */
   api.post("/projects", async (c: Context) => {
     try {
+      const auth = await getAuthContextFromRequest({
+        headers: c.req.raw.headers,
+        url: c.req.raw.url,
+      });
+      if (!auth) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
       const body = await c.req.json();
       const { name, path, description, tags } = body as {
         name: string;
@@ -42,7 +50,7 @@ export function registerProjectRoutes(api: Hono): void {
       }
 
       const service = container.getProjectServices().createProject();
-      const project = await service.execute({
+      const project = await service.execute(auth.userId, {
         name,
         path,
         description: description || null,
@@ -65,6 +73,13 @@ export function registerProjectRoutes(api: Hono): void {
    */
   api.delete("/projects", async (c: Context) => {
     try {
+      const auth = await getAuthContextFromRequest({
+        headers: c.req.raw.headers,
+        url: c.req.raw.url,
+      });
+      if (!auth) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
       const body = await c.req.parseBody();
       const projectId = body.projectId as string;
 
@@ -73,7 +88,7 @@ export function registerProjectRoutes(api: Hono): void {
       }
 
       const service = container.getProjectServices().deleteProject();
-      await service.execute(projectId);
+      await service.execute(auth.userId, projectId);
 
       return c.json({ ok: true });
     } catch (error) {

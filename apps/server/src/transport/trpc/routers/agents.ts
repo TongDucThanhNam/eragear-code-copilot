@@ -22,7 +22,10 @@ export const agentsRouter = router({
     .input(ListAgentsInputSchema)
     .query(async ({ input, ctx }) => {
       const service = ctx.container.getAgentServices().listAgents();
-      return await service.execute(input?.projectId ?? undefined);
+      return await service.execute(
+        ctx.auth!.userId,
+        input?.projectId ?? undefined
+      );
     }),
 
   /** Create a new agent configuration */
@@ -30,7 +33,7 @@ export const agentsRouter = router({
     .input(CreateAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getAgentServices().createAgent();
-      return await service.execute(input);
+      return await service.execute(ctx.auth!.userId, input);
     }),
 
   /** Update an existing agent configuration */
@@ -38,7 +41,7 @@ export const agentsRouter = router({
     .input(UpdateAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getAgentServices().updateAgent();
-      return await service.execute(input);
+      return await service.execute(ctx.auth!.userId, input);
     }),
 
   /** Delete an agent configuration */
@@ -46,7 +49,7 @@ export const agentsRouter = router({
     .input(DeleteAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getAgentServices().deleteAgent();
-      return await service.execute(input.id);
+      return await service.execute(ctx.auth!.userId, input.id);
     }),
 
   /** Set the active agent (for UI state) */
@@ -54,6 +57,6 @@ export const agentsRouter = router({
     .input(SetActiveAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getAgentServices().setActiveAgent();
-      return await service.execute(input.id);
+      return await service.execute(ctx.auth!.userId, input.id);
     }),
 });

@@ -281,16 +281,22 @@ export function LogsTab({ activeTab }: LogsTabProps) {
         <div className="border-ink border-b-4 p-6">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
-              <div className="mb-2 font-mono text-ink-muted text-xs uppercase tracking-[0.2em]">
-                Edition Vol. 1
+              <div className="mb-2 font-mono text-ink-muted text-[10px] uppercase tracking-[0.3em]">
+                Edition Vol. I • Record of Events
               </div>
               <h2 className="font-black font-display text-4xl leading-none tracking-tight">
                 Logs
               </h2>
-              <p className="mt-3 max-w-lg font-body text-ink-muted text-sm leading-relaxed">
-                Real-time request and system logs with live tailing and
-                filtering capabilities.
-              </p>
+              <div className="mt-4 max-w-lg font-body text-ink-muted text-sm leading-relaxed text-justify">
+                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+                  R
+                </span>
+                eal-time request and system logs with live tailing and filtering
+                capabilities. This ledger serves as the definitive chronicle of
+                server activity, capturing every interaction and system event
+                for meticulous audit and debugging. Monitor the pulse of your
+                infrastructure as it happens.
+              </div>
             </div>
             <div className="flex flex-col items-end gap-3">
               <span className="log-status-pill font-mono text-xs uppercase tracking-widest">

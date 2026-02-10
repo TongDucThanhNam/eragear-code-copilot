@@ -24,6 +24,8 @@ export interface AgentInfo {
 export interface AgentConfig {
   /** Unique identifier for the agent */
   id: string;
+  /** Owning user identifier */
+  userId: string;
   /** Display name of the agent */
   name: string;
   /** Agent type/brand identifier */
@@ -46,6 +48,8 @@ export interface AgentConfig {
  * Input data for creating a new agent
  */
 export interface AgentInput {
+  /** Owning user identifier */
+  userId: string;
   /** Display name of the agent */
   name: string;
   /** Agent type/brand identifier */
@@ -66,4 +70,6 @@ export interface AgentInput {
 export interface AgentUpdateInput extends Partial<AgentInput> {
   /** Unique identifier of the agent to update */
   id: string;
+  /** Owning user identifier */
+  userId: string;
 }

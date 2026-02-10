@@ -37,8 +37,12 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
   }
 
   private mapRow(row: ProjectRow): Project {
+    if (!row.userId) {
+      throw new Error(`Project ${row.id} is missing owner`);
+    }
     return {
       id: row.id,
+      userId: row.userId,
       name: row.name,
       path: row.path,
       description: row.description ?? null,
@@ -53,12 +57,17 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
     };
   }
 
-  async findById(id: string): Promise<Project | undefined> {
+  async findById(id: string, userId: string): Promise<Project | undefined> {
     const db = await getSqliteOrm();
     const row = db
       .select()
       .from(sqliteSchema.projects)
-      .where(eq(sqliteSchema.projects.id, id))
+      .where(
+        and(
+          eq(sqliteSchema.projects.id, id),
+          eq(sqliteSchema.projects.userId, userId)
+        )
+      )
       .get();
     if (!row) {
       return undefined;
@@ -66,30 +75,52 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
     return this.mapRow(row);
   }
 
-  async findAll(): Promise<Project[]> {
+  async findAll(userId: string): Promise<Project[]> {
     const db = await getSqliteOrm();
-    const rows = db.select().from(sqliteSchema.projects).all();
+    const rows = db
+      .select()
+      .from(sqliteSchema.projects)
+      .where(eq(sqliteSchema.projects.userId, userId))
+      .all();
     return rows.map((row) => this.mapRow(row));
   }
 
-  async getActiveId(): Promise<string | null> {
+  async getActiveId(userId: string): Promise<string | null> {
     const db = await getSqliteOrm();
     const row = db
-      .select({ valueJson: sqliteSchema.appSettings.valueJson })
-      .from(sqliteSchema.appSettings)
+      .select({ valueJson: sqliteSchema.userSettings.valueJson })
+      .from(sqliteSchema.userSettings)
       .where(
-        eq(sqliteSchema.appSettings.key, SQLITE_SETTING_KEYS.activeProjectId)
+        and(
+          eq(sqliteSchema.userSettings.userId, userId),
+          eq(sqliteSchema.userSettings.key, SQLITE_SETTING_KEYS.activeProjectId)
+        )
       )
       .get();
-    return fromSqliteJsonWithSchema(
+    const activeId = fromSqliteJsonWithSchema(
       row?.valueJson,
       null,
       NullableStringSchema,
       {
-        table: "app_settings",
+        table: "user_settings",
         column: "value_json",
       }
     );
+    if (!activeId) {
+      return null;
+    }
+
+    const activeProject = db
+      .select({ id: sqliteSchema.projects.id })
+      .from(sqliteSchema.projects)
+      .where(
+        and(
+          eq(sqliteSchema.projects.id, activeId),
+          eq(sqliteSchema.projects.userId, userId)
+        )
+      )
+      .get();
+    return activeProject ? activeId : null;
   }
 
   create(input: ProjectInput): Promise<Project> {
@@ -114,6 +145,7 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
       const now = Date.now();
       const created: Project = {
         id: randomUUID(),
+        userId: input.userId,
         name,
         path: resolvedPath,
         description: input.description ?? null,
@@ -127,6 +159,7 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
       db.insert(sqliteSchema.projects)
         .values({
           id: created.id,
+          userId: created.userId,
           name: created.name,
           path: created.path,
           description: created.description,
@@ -148,7 +181,12 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
       const currentRow = db
         .select()
         .from(sqliteSchema.projects)
-        .where(eq(sqliteSchema.projects.id, input.id))
+        .where(
+          and(
+            eq(sqliteSchema.projects.id, input.id),
+            eq(sqliteSchema.projects.userId, input.userId)
+          )
+        )
         .get();
       if (!currentRow) {
         throw new Error("Project not found");
@@ -196,14 +234,19 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
           favorite: updated.favorite ? 1 : 0,
           updatedAt: updated.updatedAt,
         })
-        .where(eq(sqliteSchema.projects.id, input.id))
+        .where(
+          and(
+            eq(sqliteSchema.projects.id, input.id),
+            eq(sqliteSchema.projects.userId, input.userId)
+          )
+        )
         .run();
 
       return updated;
     });
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, userId: string): Promise<void> {
     await enqueueSqliteWrite("project.delete", async () => {
       const db = await getSqliteOrm();
       db.transaction((tx) => {
@@ -212,23 +255,36 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
             id: sqliteSchema.projects.id,
           })
           .from(sqliteSchema.projects)
-          .where(eq(sqliteSchema.projects.id, id))
+          .where(
+            and(
+              eq(sqliteSchema.projects.id, id),
+              eq(sqliteSchema.projects.userId, userId)
+            )
+          )
           .get();
         if (!project) {
           return;
         }
 
         tx.delete(sqliteSchema.projects)
-          .where(eq(sqliteSchema.projects.id, id))
+          .where(
+            and(
+              eq(sqliteSchema.projects.id, id),
+              eq(sqliteSchema.projects.userId, userId)
+            )
+          )
           .run();
 
         const activeProjectRow = tx
-          .select({ valueJson: sqliteSchema.appSettings.valueJson })
-          .from(sqliteSchema.appSettings)
+          .select({ valueJson: sqliteSchema.userSettings.valueJson })
+          .from(sqliteSchema.userSettings)
           .where(
-            eq(
-              sqliteSchema.appSettings.key,
-              SQLITE_SETTING_KEYS.activeProjectId
+            and(
+              eq(sqliteSchema.userSettings.userId, userId),
+              eq(
+                sqliteSchema.userSettings.key,
+                SQLITE_SETTING_KEYS.activeProjectId
+              )
             )
           )
           .get();
@@ -237,18 +293,22 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
           null,
           NullableStringSchema,
           {
-            table: "app_settings",
+            table: "user_settings",
             column: "value_json",
           }
         );
         if (activeProjectId === id) {
-          tx.insert(sqliteSchema.appSettings)
+          tx.insert(sqliteSchema.userSettings)
             .values({
+              userId,
               key: SQLITE_SETTING_KEYS.activeProjectId,
               valueJson: "null",
             })
             .onConflictDoUpdate({
-              target: sqliteSchema.appSettings.key,
+              target: [
+                sqliteSchema.userSettings.userId,
+                sqliteSchema.userSettings.key,
+              ],
               set: {
                 valueJson: "null",
               },
@@ -259,7 +319,7 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
     });
   }
 
-  async setActive(id: string | null): Promise<void> {
+  async setActive(id: string | null, userId: string): Promise<void> {
     await enqueueSqliteWrite("project.set_active", async () => {
       const db = await getSqliteOrm();
       db.transaction((tx) => {
@@ -267,7 +327,12 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
           const project = tx
             .select({ id: sqliteSchema.projects.id })
             .from(sqliteSchema.projects)
-            .where(eq(sqliteSchema.projects.id, id))
+            .where(
+              and(
+                eq(sqliteSchema.projects.id, id),
+                eq(sqliteSchema.projects.userId, userId)
+              )
+            )
             .get();
           if (!project) {
             throw new Error("Project not found");
@@ -278,16 +343,25 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
               lastOpenedAt: Date.now(),
               updatedAt: Date.now(),
             })
-            .where(eq(sqliteSchema.projects.id, id))
+            .where(
+              and(
+                eq(sqliteSchema.projects.id, id),
+                eq(sqliteSchema.projects.userId, userId)
+              )
+            )
             .run();
         }
-        tx.insert(sqliteSchema.appSettings)
+        tx.insert(sqliteSchema.userSettings)
           .values({
+            userId,
             key: SQLITE_SETTING_KEYS.activeProjectId,
             valueJson: toSqliteJson(id) ?? "null",
           })
           .onConflictDoUpdate({
-            target: sqliteSchema.appSettings.key,
+            target: [
+              sqliteSchema.userSettings.userId,
+              sqliteSchema.userSettings.key,
+            ],
             set: {
               valueJson: toSqliteJson(id) ?? "null",
             },

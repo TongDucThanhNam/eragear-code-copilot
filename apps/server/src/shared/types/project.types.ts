@@ -12,6 +12,8 @@
 export interface Project {
   /** Unique identifier for the project */
   id: string;
+  /** Owning user identifier */
+  userId: string;
   /** Display name of the project */
   name: string;
   /** File system path to the project root */
@@ -34,6 +36,8 @@ export interface Project {
  * Input data for creating a new project
  */
 export interface ProjectInput {
+  /** Owning user identifier */
+  userId: string;
   /** Display name of the project */
   name: string;
   /** File system path to the project root */
@@ -52,4 +56,6 @@ export interface ProjectInput {
 export interface ProjectUpdateInput extends Partial<ProjectInput> {
   /** Unique identifier of the project to update */
   id: string;
+  /** Owning user identifier */
+  userId: string;
 }

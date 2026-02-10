@@ -74,10 +74,15 @@ export function AuthTab({
               <h2 className="font-black font-serif text-4xl leading-[0.9] tracking-tighter md:text-5xl">
                 API Keys
               </h2>
-              <p className="mt-3 max-w-xl font-body text-[#737373] text-sm leading-relaxed md:text-base">
-                Generate and manage authentication credentials for client
-                connections
-              </p>
+              <div className="mt-4 max-w-xl font-body text-[#737373] text-sm leading-relaxed text-justify md:text-base">
+                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+                  G
+                </span>
+                enerate and manage authentication credentials for client
+                connections. These keys are the primary means of securing your
+                server's API, ensuring that only authorized agents and users
+                can access sensitive data and perform critical operations.
+              </div>
             </div>
             <div className="flex min-h-[44px] flex-col items-center gap-2 md:items-end">
               <div className="border-2 border-[#111111] bg-[#F9F9F7] px-4 py-2">
@@ -214,9 +219,15 @@ export function AuthTab({
               <h2 className="font-black font-serif text-4xl leading-[0.9] tracking-tighter md:text-5xl">
                 Device Sessions
               </h2>
-              <p className="mt-3 max-w-xl font-body text-[#737373] text-sm leading-relaxed md:text-base">
-                Monitor and manage active login sessions across all devices
-              </p>
+              <div className="mt-4 max-w-xl font-body text-[#737373] text-sm leading-relaxed text-justify md:text-base">
+                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+                  M
+                </span>
+                onitor and manage active login sessions across all devices. This
+                section provides a comprehensive view of all current points of
+                access to your dashboard, allowing you to audit activity and
+                revoke access to any suspicious or unused device sessions.
+              </div>
             </div>
             <div className="flex min-h-[44px] flex-col items-center gap-2 md:items-end">
               <div className="border-2 border-[#111111] bg-[#F9F9F7] px-4 py-2">

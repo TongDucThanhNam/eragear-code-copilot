@@ -13,16 +13,20 @@ import type {
 } from "../application/ports/session-repository.port";
 
 export class SessionSqliteWorkerRepository implements SessionRepositoryPort {
-  findById(id: string): Promise<StoredSession | undefined> {
-    return callSqliteWorker("session", "findById", [id]);
+  findById(id: string, userId: string): Promise<StoredSession | undefined> {
+    return callSqliteWorker("session", "findById", [id, userId]);
   }
 
-  findAll(query?: SessionListQuery): Promise<StoredSession[]> {
-    return callSqliteWorker("session", "findAll", [query]);
+  findAll(userId: string, query?: SessionListQuery): Promise<StoredSession[]> {
+    return callSqliteWorker("session", "findAll", [userId, query]);
   }
 
-  countAll(): Promise<number> {
-    return callSqliteWorker("session", "countAll", []);
+  findAllForMaintenance(query?: SessionListQuery): Promise<StoredSession[]> {
+    return callSqliteWorker("session", "findAllForMaintenance", [query]);
+  }
+
+  countAll(userId: string): Promise<number> {
+    return callSqliteWorker("session", "countAll", [userId]);
   }
 
   save(session: StoredSession): Promise<void> {
@@ -31,29 +35,44 @@ export class SessionSqliteWorkerRepository implements SessionRepositoryPort {
 
   updateStatus(
     id: string,
+    userId: string,
     status: "running" | "stopped",
     options?: { touchLastActiveAt?: boolean }
   ): Promise<void> {
-    return callSqliteWorker("session", "updateStatus", [id, status, options]);
+    return callSqliteWorker("session", "updateStatus", [
+      id,
+      userId,
+      status,
+      options,
+    ]);
   }
 
-  updateMetadata(id: string, updates: Partial<StoredSession>): Promise<void> {
-    return callSqliteWorker("session", "updateMetadata", [id, updates]);
+  updateMetadata(
+    id: string,
+    userId: string,
+    updates: Partial<StoredSession>
+  ): Promise<void> {
+    return callSqliteWorker("session", "updateMetadata", [id, userId, updates]);
   }
 
-  delete(id: string): Promise<void> {
-    return callSqliteWorker("session", "delete", [id]);
+  delete(id: string, userId: string): Promise<void> {
+    return callSqliteWorker("session", "delete", [id, userId]);
   }
 
-  appendMessage(id: string, message: StoredMessage): Promise<void> {
-    return callSqliteWorker("session", "appendMessage", [id, message]);
+  appendMessage(
+    id: string,
+    userId: string,
+    message: StoredMessage
+  ): Promise<void> {
+    return callSqliteWorker("session", "appendMessage", [id, userId, message]);
   }
 
   getMessagesPage(
     id: string,
+    userId: string,
     query: SessionMessagesPageQuery
   ): Promise<SessionMessagesPageResult> {
-    return callSqliteWorker("session", "getMessagesPage", [id, query]);
+    return callSqliteWorker("session", "getMessagesPage", [id, userId, query]);
   }
 
   compactMessages(

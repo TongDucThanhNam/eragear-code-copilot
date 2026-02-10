@@ -96,6 +96,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
   const [createdApiKey, setCreatedApiKey] = useState<
     ApiKeyCreateResponse | undefined
   >(bootstrap?.createdApiKey);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshInFlight = useRef(false);
   const refreshQueued = useRef(false);
 
@@ -117,12 +118,24 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
     setNotice(message);
   }, []);
 
+  // Auto-dismiss notices and success messages
+  useEffect(() => {
+    if (notice || success) {
+      const timer = setTimeout(() => {
+        setNotice(undefined);
+        setSuccess(undefined);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notice, success]);
+
   const refreshAll = useCallback(async () => {
     if (refreshInFlight.current) {
       refreshQueued.current = true;
       return;
     }
     refreshInFlight.current = true;
+    setIsRefreshing(true);
     try {
       const [
         settingsResponse,
@@ -157,6 +170,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
       showError(error instanceof Error ? error.message : "Failed to refresh");
     } finally {
       refreshInFlight.current = false;
+      setIsRefreshing(false);
       if (refreshQueued.current) {
         refreshQueued.current = false;
         refreshAll();
@@ -208,6 +222,14 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
 
   const handleStopSession = useCallback(
     async (chatId: string) => {
+      // Optimistic update
+      setDashboardData((prev) => ({
+        ...prev,
+        sessions: prev.sessions.map((s) =>
+          s.id === chatId ? { ...s, status: "stopped", isActive: false } : s
+        ),
+      }));
+
       try {
         await fetchJson("/api/sessions/stop", {
           method: "POST",
@@ -219,6 +241,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
         showError(
           error instanceof Error ? error.message : "Failed to stop session"
         );
+        refreshAll(); // Revert/Sync state
       }
     },
     [refreshAll, showError, showNotice]
@@ -226,6 +249,12 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
 
   const handleDeleteSession = useCallback(
     async (chatId: string) => {
+      // Optimistic update
+      setDashboardData((prev) => ({
+        ...prev,
+        sessions: prev.sessions.filter((s) => s.id !== chatId),
+      }));
+
       try {
         await fetchJson("/api/sessions", {
           method: "DELETE",
@@ -237,6 +266,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
         showError(
           error instanceof Error ? error.message : "Failed to delete session"
         );
+        refreshAll(); // Revert/Sync state
       }
     },
     [refreshAll, showError, showNotice]
@@ -312,6 +342,12 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
 
   const handleDeleteAgent = useCallback(
     async (agentId: string) => {
+      // Optimistic update
+      setDashboardData((prev) => ({
+        ...prev,
+        agents: prev.agents.filter((a) => a.id !== agentId),
+      }));
+
       try {
         await fetchJson("/api/agents", {
           method: "DELETE",
@@ -323,6 +359,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
         showError(
           error instanceof Error ? error.message : "Failed to delete agent"
         );
+        refreshAll(); // Revert/Sync state
       }
     },
     [refreshAll, showError, showNotice]
@@ -366,6 +403,12 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
 
   const handleDeleteApiKey = useCallback(
     async (keyId: string) => {
+      // Optimistic update
+      setDashboardData((prev) => ({
+        ...prev,
+        apiKeys: prev.apiKeys.filter((k) => k.id !== keyId),
+      }));
+
       try {
         await fetchJson("/api/admin/api-keys", {
           method: "DELETE",
@@ -378,6 +421,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
         showError(
           error instanceof Error ? error.message : "Failed to revoke API key"
         );
+        refreshAll();
       }
     },
     [refreshAll, showError, showNotice]
@@ -406,6 +450,12 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
 
   const handleRevokeDeviceSession = useCallback(
     async (token: string) => {
+       // Optimistic update
+       setDashboardData((prev) => ({
+        ...prev,
+        deviceSessions: prev.deviceSessions.filter((s) => s.session.token !== token),
+      }));
+
       try {
         await fetchJson("/api/admin/device-sessions/revoke", {
           method: "POST",
@@ -420,6 +470,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
             ? error.message
             : "Failed to revoke device session"
         );
+        refreshAll();
       }
     },
     [refreshAll, showError, showNotice]
@@ -456,6 +507,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
       createdApiKey={createdApiKey}
       dashboardData={dashboardData}
       errors={errors}
+      isLoading={isRefreshing}
       notice={notice}
       onActivateDeviceSession={handleActivateDeviceSession}
       onCreateAgent={handleCreateAgent}

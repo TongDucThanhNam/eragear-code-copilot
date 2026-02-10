@@ -1,5 +1,7 @@
 import { formatUtcDateLabel } from "./date-format";
-import { LOGIN_SCRIPT, LOGIN_STYLES } from "./login-assets";
+
+const LOGIN_STYLES_HREF = "/_/dashboard/assets/login.css";
+const LOGIN_SCRIPT_SRC = "/_/dashboard/assets/login.js";
 
 interface LoginPageProps {
   username?: string;
@@ -18,7 +20,7 @@ export function LoginHead({ error, username }: LoginHeadProps) {
 
   return (
     <>
-      <style>{LOGIN_STYLES}</style>
+      <link href={LOGIN_STYLES_HREF} rel="stylesheet" />
 
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: Data is server-rendered
@@ -461,12 +463,7 @@ export function LoginPage({ username }: LoginPageProps) {
         </div>
       </footer>
 
-      <script
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: Inline logic for small form
-        dangerouslySetInnerHTML={{
-          __html: LOGIN_SCRIPT,
-        }}
-      />
+      <script defer src={LOGIN_SCRIPT_SRC} />
     </>
   );
 }

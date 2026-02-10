@@ -7,6 +7,7 @@ import {
   projects,
   sessionMessages,
   sessions,
+  userSettings,
 } from "./sqlite-schema";
 import { closeSqliteDb, getSqliteDb } from "./sqlite-store";
 import { stopSqliteWorker } from "./sqlite-worker-client";
@@ -14,6 +15,7 @@ import { stopSqliteWorker } from "./sqlite-worker-client";
 const sqliteSchema = {
   appMeta,
   appSettings,
+  userSettings,
   projects,
   agents,
   sessions,

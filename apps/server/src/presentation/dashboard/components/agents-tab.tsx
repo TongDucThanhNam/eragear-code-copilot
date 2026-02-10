@@ -26,9 +26,15 @@ export function AgentsTab({
               <h2 className="font-black font-display text-4xl tracking-tight">
                 Agent Configs
               </h2>
-              <p className="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
-                Registered agent presets for spawning sessions
-              </p>
+              <div className="mt-4 max-w-md font-body text-muted text-sm leading-relaxed text-justify">
+                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+                  R
+                </span>
+                egistered agent presets for spawning sessions. These
+                configurations define the behavior and capabilities of your AI
+                operatives, allowing for consistent and repeatable interactions
+                across various projects and session types.
+              </div>
             </div>
             <div className="flex flex-col items-end gap-2">
               <span className="border border-ink px-3 py-1 font-mono text-xs">
@@ -67,9 +73,15 @@ export function AgentsTab({
             <h2 className="font-black font-display text-3xl tracking-tight">
               Usage Statistics
             </h2>
-            <p className="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
-              Session distribution by agent type
-            </p>
+            <div className="mt-4 max-w-md font-body text-muted text-sm leading-relaxed text-justify">
+              <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+                S
+              </span>
+              ession distribution by agent type. This report provides insights
+              into which agent configurations are most utilized within your
+              environment, helping you optimize resource allocation and agent
+              specialization strategies.
+            </div>
           </div>
         </div>
 

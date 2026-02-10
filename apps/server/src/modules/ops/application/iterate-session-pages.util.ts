@@ -5,12 +5,13 @@ const DASHBOARD_AGGREGATION_PAGE_SIZE = 500;
 
 export async function forEachSessionPage(
   sessionRepo: SessionRepositoryPort,
+  userId: string,
   handler: (sessions: StoredSession[]) => void | Promise<void>
 ): Promise<void> {
   let offset = 0;
 
   while (true) {
-    const sessions = await sessionRepo.findAll({
+    const sessions = await sessionRepo.findAll(userId, {
       limit: DASHBOARD_AGGREGATION_PAGE_SIZE,
       offset,
     });

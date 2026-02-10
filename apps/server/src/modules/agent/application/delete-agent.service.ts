@@ -13,8 +13,8 @@ export class DeleteAgentService {
     this.eventBus = eventBus;
   }
 
-  async execute(id: string) {
-    const existing = await this.agentRepo.findById(id);
+  async execute(userId: string, id: string) {
+    const existing = await this.agentRepo.findById(id, userId);
     if (!existing) {
       throw new NotFoundError("Agent not found", {
         module: "agent",
@@ -22,10 +22,11 @@ export class DeleteAgentService {
         details: { id },
       });
     }
-    await this.agentRepo.delete(id);
+    await this.agentRepo.delete(id, userId);
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "agent_deleted",
+      userId,
       agentId: id,
     });
     return { success: true };

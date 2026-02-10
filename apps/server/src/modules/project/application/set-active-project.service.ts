@@ -11,9 +11,9 @@ export class SetActiveProjectService {
     this.eventBus = eventBus;
   }
 
-  async execute(id: string | null) {
+  async execute(userId: string, id: string | null) {
     try {
-      await this.projectRepo.setActive(id);
+      await this.projectRepo.setActive(id, userId);
     } catch (error) {
       if (error instanceof Error && error.message === "Project not found") {
         throw new NotFoundError(error.message, {
@@ -27,6 +27,7 @@ export class SetActiveProjectService {
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "project_set_active",
+      userId,
       projectId: id ?? undefined,
     });
     return { activeProjectId: id };

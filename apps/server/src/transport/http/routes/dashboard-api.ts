@@ -17,12 +17,29 @@
 import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
 import { parseLogQueryParams, parseSessionPaginationParams } from "./helpers";
+import { getAuthContextFromRequest } from "../utils/auth";
 
 /**
  * Registers dashboard-related API routes
  */
 export function registerDashboardApiRoutes(api: Hono): void {
   const container = getContainer();
+
+  const resolveUserId = async (c: Context): Promise<string | null> => {
+    const auth = await getAuthContextFromRequest({
+      headers: c.req.raw.headers,
+      url: c.req.raw.url,
+    });
+    return auth?.userId ?? null;
+  };
+
+  const isEventVisibleToUser = (event: unknown, userId: string): boolean => {
+    if (!event || typeof event !== "object" || !("userId" in event)) {
+      return true;
+    }
+    const eventUserId = (event as { userId?: unknown }).userId;
+    return typeof eventUserId === "string" && eventUserId === userId;
+  };
 
   // =========================================================================
   // Dashboard Data Endpoints
@@ -32,14 +49,22 @@ export function registerDashboardApiRoutes(api: Hono): void {
    * GET /api/dashboard/projects - Get all projects with session statistics
    */
   api.get("/dashboard/projects", async (c: Context) => {
+    const userId = await resolveUserId(c);
+    if (!userId) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
     const service = container.getOpsServices().dashboardProjects();
-    return c.json(await service.execute());
+    return c.json(await service.execute(userId));
   });
 
   /**
    * GET /api/dashboard/sessions - Get all sessions with details
    */
   api.get("/dashboard/sessions", async (c: Context) => {
+    const userId = await resolveUserId(c);
+    if (!userId) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
     const parsedPagination = parseSessionPaginationParams(c.req.query());
     if (!parsedPagination.ok) {
       return c.json({ error: parsedPagination.error }, 400);
@@ -47,15 +72,19 @@ export function registerDashboardApiRoutes(api: Hono): void {
     const { limit, offset } = parsedPagination.pagination;
 
     const service = container.getOpsServices().dashboardSessions();
-    return c.json(await service.execute({ limit, offset }));
+    return c.json(await service.execute({ userId, limit, offset }));
   });
 
   /**
    * GET /api/dashboard/stats - Get dashboard statistics
    */
   api.get("/dashboard/stats", async (c: Context) => {
+    const userId = await resolveUserId(c);
+    if (!userId) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
     const service = container.getOpsServices().dashboardStats();
-    return c.json(await service.execute());
+    return c.json(await service.execute(userId));
   });
 
   /**
@@ -160,7 +189,11 @@ export function registerDashboardApiRoutes(api: Hono): void {
   /**
    * GET /api/dashboard/stream - Real-time dashboard updates (SSE)
    */
-  api.get("/dashboard/stream", (c: Context) => {
+  api.get("/dashboard/stream", async (c: Context) => {
+    const userId = await resolveUserId(c);
+    if (!userId) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
     const eventBus = container.getEventBus();
     const encoder = new TextEncoder();
 
@@ -179,6 +212,9 @@ export function registerDashboardApiRoutes(api: Hono): void {
 
         unsubscribe = eventBus.subscribe(
           (event) => {
+            if (!isEventVisibleToUser(event, userId)) {
+              return;
+            }
             if (event && typeof event === "object" && "type" in event) {
               const eventType = (event as { type: string }).type;
               send(eventType, { ts: Date.now(), event });

@@ -59,9 +59,9 @@ export class ListSessionsService {
    * - Timestamps (createdAt, lastActiveAt)
    * - Session flags (pinned, archived)
    */
-  async execute(query?: SessionListQuery) {
-    const projects = await this.projectRepo.findAll();
-    const storedSessions = await this.sessionRepo.findAll(query);
+  async execute(userId: string, query?: SessionListQuery) {
+    const projects = await this.projectRepo.findAll(userId);
+    const storedSessions = await this.sessionRepo.findAll(userId, query);
     const output = await Promise.all(
       storedSessions.map(async (session) => {
         const activeSession = this.sessionRuntime.get(session.id);
@@ -83,7 +83,7 @@ export class ListSessionsService {
           projects.find((project) => project.path === session.projectRoot)?.id;
 
         if (!session.projectId && derivedProjectId) {
-          await this.sessionRepo.updateMetadata(session.id, {
+          await this.sessionRepo.updateMetadata(session.id, userId, {
             projectId: derivedProjectId,
           });
         }

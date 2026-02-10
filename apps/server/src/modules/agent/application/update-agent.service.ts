@@ -15,8 +15,8 @@ export class UpdateAgentService {
     this.eventBus = eventBus;
   }
 
-  async execute(input: AgentUpdateInput) {
-    const existing = await this.agentRepo.findById(input.id);
+  async execute(userId: string, input: Omit<AgentUpdateInput, "userId">) {
+    const existing = await this.agentRepo.findById(input.id, userId);
     if (!existing) {
       throw new NotFoundError("Agent not found", {
         module: "agent",
@@ -24,11 +24,12 @@ export class UpdateAgentService {
         details: { id: input.id },
       });
     }
-    const normalized = normalizeAgentUpdateInput(input, OP);
+    const normalized = normalizeAgentUpdateInput({ ...input, userId }, OP);
     const agent = await this.agentRepo.update(normalized);
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "agent_updated",
+      userId,
       agentId: agent.id,
     });
     return agent;

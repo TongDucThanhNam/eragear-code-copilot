@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
 import {
@@ -28,8 +28,12 @@ const NullableStringSchema = z.string().nullable();
 
 export class AgentSqliteRepository implements AgentRepositoryPort {
   private mapRow(row: AgentRow): AgentConfig {
+    if (!row.userId) {
+      throw new Error(`Agent ${row.id} is missing owner`);
+    }
     return {
       id: row.id,
+      userId: row.userId,
       name: row.name,
       type: row.type as AgentConfig["type"],
       command: row.command,
@@ -48,11 +52,13 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
   }
 
   private ensureDefaultAgent(
-    db: Awaited<ReturnType<typeof getSqliteOrm>>
+    db: Awaited<ReturnType<typeof getSqliteOrm>>,
+    userId: string
   ): void {
     const existing = db
       .select({ id: sqliteSchema.agents.id })
       .from(sqliteSchema.agents)
+      .where(eq(sqliteSchema.agents.userId, userId))
       .limit(1)
       .get();
     if (existing) {
@@ -62,7 +68,8 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     const now = Date.now();
     db.insert(sqliteSchema.agents)
       .values({
-        id: DEFAULT_AGENT_ID,
+        id: `${DEFAULT_AGENT_ID}-${userId}`,
+        userId,
         name: "Default (Opencode)",
         type: "opencode",
         command: "opencode",
@@ -73,27 +80,36 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         updatedAt: now,
       })
       .run();
-    db.insert(sqliteSchema.appSettings)
+    db.insert(sqliteSchema.userSettings)
       .values({
+        userId,
         key: SQLITE_SETTING_KEYS.activeAgentId,
-        valueJson: toSqliteJson(DEFAULT_AGENT_ID) ?? "null",
+        valueJson: toSqliteJson(`${DEFAULT_AGENT_ID}-${userId}`) ?? "null",
       })
       .onConflictDoUpdate({
-        target: sqliteSchema.appSettings.key,
+        target: [
+          sqliteSchema.userSettings.userId,
+          sqliteSchema.userSettings.key,
+        ],
         set: {
-          valueJson: toSqliteJson(DEFAULT_AGENT_ID) ?? "null",
+          valueJson: toSqliteJson(`${DEFAULT_AGENT_ID}-${userId}`) ?? "null",
         },
       })
       .run();
   }
 
-  async findById(id: string): Promise<AgentConfig | undefined> {
+  async findById(id: string, userId: string): Promise<AgentConfig | undefined> {
     const db = await getSqliteOrm();
-    this.ensureDefaultAgent(db);
+    this.ensureDefaultAgent(db, userId);
     const row = db
       .select()
       .from(sqliteSchema.agents)
-      .where(eq(sqliteSchema.agents.id, id))
+      .where(
+        and(
+          eq(sqliteSchema.agents.id, id),
+          eq(sqliteSchema.agents.userId, userId)
+        )
+      )
       .get();
     if (!row) {
       return undefined;
@@ -101,21 +117,28 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     return this.mapRow(row);
   }
 
-  async findAll(): Promise<AgentConfig[]> {
+  async findAll(userId: string): Promise<AgentConfig[]> {
     const db = await getSqliteOrm();
-    this.ensureDefaultAgent(db);
-    const rows = db.select().from(sqliteSchema.agents).all();
+    this.ensureDefaultAgent(db, userId);
+    const rows = db
+      .select()
+      .from(sqliteSchema.agents)
+      .where(eq(sqliteSchema.agents.userId, userId))
+      .all();
     return rows.map((row) => this.mapRow(row));
   }
 
-  async getActiveId(): Promise<string | null> {
+  async getActiveId(userId: string): Promise<string | null> {
     const db = await getSqliteOrm();
-    this.ensureDefaultAgent(db);
+    this.ensureDefaultAgent(db, userId);
     const row = db
-      .select({ valueJson: sqliteSchema.appSettings.valueJson })
-      .from(sqliteSchema.appSettings)
+      .select({ valueJson: sqliteSchema.userSettings.valueJson })
+      .from(sqliteSchema.userSettings)
       .where(
-        eq(sqliteSchema.appSettings.key, SQLITE_SETTING_KEYS.activeAgentId)
+        and(
+          eq(sqliteSchema.userSettings.userId, userId),
+          eq(sqliteSchema.userSettings.key, SQLITE_SETTING_KEYS.activeAgentId)
+        )
       )
       .get();
     const activeId = fromSqliteJsonWithSchema(
@@ -123,7 +146,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       null,
       NullableStringSchema,
       {
-        table: "app_settings",
+        table: "user_settings",
         column: "value_json",
       }
     );
@@ -131,7 +154,12 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       const activeExists = db
         .select({ id: sqliteSchema.agents.id })
         .from(sqliteSchema.agents)
-        .where(eq(sqliteSchema.agents.id, activeId))
+        .where(
+          and(
+            eq(sqliteSchema.agents.id, activeId),
+            eq(sqliteSchema.agents.userId, userId)
+          )
+        )
         .get();
       if (activeExists) {
         return activeId;
@@ -141,6 +169,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     const fallback = db
       .select({ id: sqliteSchema.agents.id })
       .from(sqliteSchema.agents)
+      .where(eq(sqliteSchema.agents.userId, userId))
       .limit(1)
       .get();
     const fallbackId = fallback?.id ?? null;
@@ -148,13 +177,17 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     await enqueueSqliteWrite("agent.repair_active_id", async () => {
       const writeDb = await getSqliteOrm();
       writeDb
-        .insert(sqliteSchema.appSettings)
+        .insert(sqliteSchema.userSettings)
         .values({
+          userId,
           key: SQLITE_SETTING_KEYS.activeAgentId,
           valueJson: toSqliteJson(fallbackId) ?? "null",
         })
         .onConflictDoUpdate({
-          target: sqliteSchema.appSettings.key,
+          target: [
+            sqliteSchema.userSettings.userId,
+            sqliteSchema.userSettings.key,
+          ],
           set: {
             valueJson: toSqliteJson(fallbackId) ?? "null",
           },
@@ -165,18 +198,30 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     return fallbackId;
   }
 
-  async listByProject(projectId?: string | null): Promise<AgentConfig[]> {
+  async listByProject(
+    projectId: string | null | undefined,
+    userId: string
+  ): Promise<AgentConfig[]> {
     const db = await getSqliteOrm();
-    this.ensureDefaultAgent(db);
+    this.ensureDefaultAgent(db, userId);
     if (projectId === undefined) {
-      const rows = db.select().from(sqliteSchema.agents).all();
+      const rows = db
+        .select()
+        .from(sqliteSchema.agents)
+        .where(eq(sqliteSchema.agents.userId, userId))
+        .all();
       return rows.map((row) => this.mapRow(row));
     }
     if (projectId === null) {
       const rows = db
         .select()
         .from(sqliteSchema.agents)
-        .where(isNull(sqliteSchema.agents.projectId))
+        .where(
+          and(
+            eq(sqliteSchema.agents.userId, userId),
+            isNull(sqliteSchema.agents.projectId)
+          )
+        )
         .all();
       return rows.map((row) => this.mapRow(row));
     }
@@ -184,9 +229,12 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       .select()
       .from(sqliteSchema.agents)
       .where(
-        or(
-          isNull(sqliteSchema.agents.projectId),
-          eq(sqliteSchema.agents.projectId, projectId)
+        and(
+          eq(sqliteSchema.agents.userId, userId),
+          or(
+            isNull(sqliteSchema.agents.projectId),
+            eq(sqliteSchema.agents.projectId, projectId)
+          )
         )
       )
       .all();
@@ -196,7 +244,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
   create(input: AgentInput): Promise<AgentConfig> {
     return enqueueSqliteWrite("agent.create", async () => {
       const db = await getSqliteOrm();
-      this.ensureDefaultAgent(db);
+      this.ensureDefaultAgent(db, input.userId);
       const name = input.name.trim();
       if (!name) {
         throw new Error("Agent name is required");
@@ -205,6 +253,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       const now = Date.now();
       const created: AgentConfig = {
         id: randomUUID(),
+        userId: input.userId,
         name,
         type: input.type,
         command: input.command,
@@ -218,6 +267,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       db.insert(sqliteSchema.agents)
         .values({
           id: created.id,
+          userId: created.userId,
           name: created.name,
           type: created.type,
           command: created.command,
@@ -230,10 +280,13 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         .run();
 
       const activeRow = db
-        .select({ valueJson: sqliteSchema.appSettings.valueJson })
-        .from(sqliteSchema.appSettings)
+        .select({ valueJson: sqliteSchema.userSettings.valueJson })
+        .from(sqliteSchema.userSettings)
         .where(
-          eq(sqliteSchema.appSettings.key, SQLITE_SETTING_KEYS.activeAgentId)
+          and(
+            eq(sqliteSchema.userSettings.userId, input.userId),
+            eq(sqliteSchema.userSettings.key, SQLITE_SETTING_KEYS.activeAgentId)
+          )
         )
         .get();
       const currentActive = fromSqliteJsonWithSchema(
@@ -241,18 +294,22 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         null,
         NullableStringSchema,
         {
-          table: "app_settings",
+          table: "user_settings",
           column: "value_json",
         }
       );
       if (!currentActive) {
-        db.insert(sqliteSchema.appSettings)
+        db.insert(sqliteSchema.userSettings)
           .values({
+            userId: input.userId,
             key: SQLITE_SETTING_KEYS.activeAgentId,
             valueJson: toSqliteJson(created.id) ?? "null",
           })
           .onConflictDoUpdate({
-            target: sqliteSchema.appSettings.key,
+            target: [
+              sqliteSchema.userSettings.userId,
+              sqliteSchema.userSettings.key,
+            ],
             set: {
               valueJson: toSqliteJson(created.id) ?? "null",
             },
@@ -267,11 +324,16 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
   update(input: AgentUpdateInput): Promise<AgentConfig> {
     return enqueueSqliteWrite("agent.update", async () => {
       const db = await getSqliteOrm();
-      this.ensureDefaultAgent(db);
+      this.ensureDefaultAgent(db, input.userId);
       const row = db
         .select()
         .from(sqliteSchema.agents)
-        .where(eq(sqliteSchema.agents.id, input.id))
+        .where(
+          and(
+            eq(sqliteSchema.agents.id, input.id),
+            eq(sqliteSchema.agents.userId, input.userId)
+          )
+        )
         .get();
       if (!row) {
         throw new Error("Agent not found");
@@ -300,26 +362,39 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
           projectId: updated.projectId ?? null,
           updatedAt: updated.updatedAt,
         })
-        .where(eq(sqliteSchema.agents.id, updated.id))
+        .where(
+          and(
+            eq(sqliteSchema.agents.id, updated.id),
+            eq(sqliteSchema.agents.userId, input.userId)
+          )
+        )
         .run();
 
       return updated;
     });
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, userId: string): Promise<void> {
     await enqueueSqliteWrite("agent.delete", async () => {
       const db = await getSqliteOrm();
       db.transaction((tx) => {
         tx.delete(sqliteSchema.agents)
-          .where(eq(sqliteSchema.agents.id, id))
+          .where(
+            and(
+              eq(sqliteSchema.agents.id, id),
+              eq(sqliteSchema.agents.userId, userId)
+            )
+          )
           .run();
 
         const activeRow = tx
-          .select({ valueJson: sqliteSchema.appSettings.valueJson })
-          .from(sqliteSchema.appSettings)
+          .select({ valueJson: sqliteSchema.userSettings.valueJson })
+          .from(sqliteSchema.userSettings)
           .where(
-            eq(sqliteSchema.appSettings.key, SQLITE_SETTING_KEYS.activeAgentId)
+            and(
+              eq(sqliteSchema.userSettings.userId, userId),
+              eq(sqliteSchema.userSettings.key, SQLITE_SETTING_KEYS.activeAgentId)
+            )
           )
           .get();
         const activeAgentId = fromSqliteJsonWithSchema(
@@ -327,7 +402,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
           null,
           NullableStringSchema,
           {
-            table: "app_settings",
+            table: "user_settings",
             column: "value_json",
           }
         );
@@ -338,15 +413,20 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         const nextActive = tx
           .select({ id: sqliteSchema.agents.id })
           .from(sqliteSchema.agents)
+          .where(eq(sqliteSchema.agents.userId, userId))
           .limit(1)
           .get();
-        tx.insert(sqliteSchema.appSettings)
+        tx.insert(sqliteSchema.userSettings)
           .values({
+            userId,
             key: SQLITE_SETTING_KEYS.activeAgentId,
             valueJson: toSqliteJson(nextActive?.id ?? null) ?? "null",
           })
           .onConflictDoUpdate({
-            target: sqliteSchema.appSettings.key,
+            target: [
+              sqliteSchema.userSettings.userId,
+              sqliteSchema.userSettings.key,
+            ],
             set: {
               valueJson: toSqliteJson(nextActive?.id ?? null) ?? "null",
             },
@@ -356,27 +436,36 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     });
   }
 
-  async setActive(id: string | null): Promise<void> {
+  async setActive(id: string | null, userId: string): Promise<void> {
     await enqueueSqliteWrite("agent.set_active", async () => {
       const db = await getSqliteOrm();
-      this.ensureDefaultAgent(db);
+      this.ensureDefaultAgent(db, userId);
       if (id) {
         const exists = db
           .select({ id: sqliteSchema.agents.id })
           .from(sqliteSchema.agents)
-          .where(eq(sqliteSchema.agents.id, id))
+          .where(
+            and(
+              eq(sqliteSchema.agents.id, id),
+              eq(sqliteSchema.agents.userId, userId)
+            )
+          )
           .get();
         if (!exists) {
           throw new Error("Agent not found");
         }
       }
-      db.insert(sqliteSchema.appSettings)
+      db.insert(sqliteSchema.userSettings)
         .values({
+          userId,
           key: SQLITE_SETTING_KEYS.activeAgentId,
           valueJson: toSqliteJson(id) ?? "null",
         })
         .onConflictDoUpdate({
-          target: sqliteSchema.appSettings.key,
+          target: [
+            sqliteSchema.userSettings.userId,
+            sqliteSchema.userSettings.key,
+          ],
           set: {
             valueJson: toSqliteJson(id) ?? "null",
           },

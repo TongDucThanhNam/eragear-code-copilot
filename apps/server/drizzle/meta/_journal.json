@@ -29,6 +29,13 @@
       "when": 1770476400000,
       "tag": "0003_sqlite_storage_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770691199000,
+      "tag": "0004_tenant_ownership",
+      "breakpoints": true
     }
   ]
 }

@@ -29,7 +29,7 @@ export const aiRouter = router({
         resourceLinks: input.resourceLinks?.length ?? 0,
       });
       const service = ctx.container.getAiServices().sendMessage();
-      return await service.execute(input);
+      return await service.execute({ ...input, userId: ctx.auth!.userId });
     }),
 
   /** Set the active model for a session */
@@ -37,7 +37,11 @@ export const aiRouter = router({
     .input(SetModelInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getAiServices().setModel();
-      return await service.execute(input.chatId, input.modelId);
+      return await service.execute(
+        ctx.auth!.userId,
+        input.chatId,
+        input.modelId
+      );
     }),
 
   /** Set the active mode for a session */
@@ -45,7 +49,11 @@ export const aiRouter = router({
     .input(SetModeInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getAiServices().setMode();
-      return await service.execute(input.chatId, input.modeId);
+      return await service.execute(
+        ctx.auth!.userId,
+        input.chatId,
+        input.modeId
+      );
     }),
 
   /** Cancel an ongoing prompt in a session */
@@ -53,6 +61,6 @@ export const aiRouter = router({
     .input(CancelPromptInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getAiServices().cancelPrompt();
-      return await service.execute(input.chatId);
+      return await service.execute(ctx.auth!.userId, input.chatId);
     }),
 });

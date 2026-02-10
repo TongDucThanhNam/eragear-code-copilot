@@ -12,19 +12,23 @@ export class UpdateProjectService {
     this.eventBus = eventBus;
   }
 
-  async execute(input: ProjectUpdateInput) {
-    const updated = await this.updateProject(input);
+  async execute(userId: string, input: Omit<ProjectUpdateInput, "userId">) {
+    const updated = await this.updateProject(userId, input);
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "project_updated",
+      userId,
       projectId: updated.id,
     });
     return updated;
   }
 
-  private async updateProject(input: ProjectUpdateInput): Promise<Project> {
+  private async updateProject(
+    userId: string,
+    input: Omit<ProjectUpdateInput, "userId">
+  ): Promise<Project> {
     try {
-      return await this.projectRepo.update(input);
+      return await this.projectRepo.update({ ...input, userId });
     } catch (error) {
       if (error instanceof Error && error.message === "Project not found") {
         throw new NotFoundError(error.message, {

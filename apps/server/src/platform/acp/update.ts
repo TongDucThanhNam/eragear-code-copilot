@@ -345,7 +345,11 @@ async function handleModeUpdate(
   if (session?.modes) {
     session.modes.currentModeId = update.currentModeId;
   }
-  await sessionRepo.updateMetadata(chatId, { modeId: update.currentModeId });
+  if (session?.userId) {
+    await sessionRepo.updateMetadata(chatId, session.userId, {
+      modeId: update.currentModeId,
+    });
+  }
   console.log(`[Server] Received mode update: ${update.currentModeId}`);
   sessionRuntime.broadcast(chatId, {
     type: "current_mode_update",
@@ -377,9 +381,11 @@ async function handleCommandsUpdate(
   if (session) {
     session.commands = update.availableCommands;
   }
-  await sessionRepo.updateMetadata(chatId, {
-    commands: update.availableCommands,
-  });
+  if (session?.userId) {
+    await sessionRepo.updateMetadata(chatId, session.userId, {
+      commands: update.availableCommands,
+    });
+  }
   console.log("[Server] Received commands update", update.availableCommands);
   sessionRuntime.broadcast(chatId, {
     type: "available_commands_update",
@@ -414,18 +420,54 @@ async function handlePlanUpdate(
     return true;
   }
   const session = sessionRuntime.get(chatId);
+
+  // Detect if we should broadcast (Structure/Status change vs Content-only change)
+  let shouldBroadcast = true;
+  if (session?.plan) {
+    const oldEntries = session.plan.entries;
+    const newEntries = plan.entries;
+
+    // If counts match, check for status/priority changes
+    if (oldEntries && oldEntries.length === newEntries.length) {
+      const hasSignificantChange = newEntries.some((entry, i) => {
+        const old = oldEntries[i];
+        if (!old) {
+          return true; // Should not happen given length check, but safe fallback
+        }
+        return old.status !== entry.status || old.priority !== entry.priority;
+      });
+      // If no significant change (only text changed), suppress broadcast
+      if (!hasSignificantChange) {
+        shouldBroadcast = false;
+      }
+    }
+  }
+
   if (session) {
     session.plan = plan;
   }
-  await sessionRepo.updateMetadata(chatId, { plan });
-  console.log("[Server] Received plan update", plan);
+  if (session?.userId) {
+    await sessionRepo.updateMetadata(chatId, session.userId, { plan });
+  }
+
   if (session) {
     const planTool = buildPlanToolPart(plan, getPlanToolCallId(chatId));
+    // Always update the UI state so it's ready for the next flush
     const { message } = upsertToolPart({
       state: session.uiState,
       part: planTool,
     });
-    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+
+    // Only push to client if significant change occurred
+    if (shouldBroadcast) {
+      console.log("[Server] Broadcasting plan update (significant change)", {
+        entries: plan.entries.length,
+      });
+      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    } else {
+      // Debug log for suppressed update
+      // console.debug("[Server] Suppressed plan text-only update");
+    }
   }
   return true;
 }
@@ -508,6 +550,27 @@ function handleToolCallUpdate(
   if (session) {
     session.toolCalls.set(update.toolCallId, merged);
   }
+
+  // Only skip updates that carry no UI-visible changes. Keep suppressing
+  // rawInput-only churn, but preserve streaming output/status/location updates.
+  const hasStatusUpdate = Object.hasOwn(update, "status");
+  const hasLocationUpdate = Object.hasOwn(update, "locations");
+  const hasContentUpdate = Object.hasOwn(update, "content");
+  const hasRawOutputUpdate = Object.hasOwn(update, "rawOutput");
+  const hasTitleUpdate = Object.hasOwn(update, "title");
+  const hasKindUpdate = Object.hasOwn(update, "kind");
+
+  if (
+    !hasStatusUpdate &&
+    !hasLocationUpdate &&
+    !hasContentUpdate &&
+    !hasRawOutputUpdate &&
+    !hasTitleUpdate &&
+    !hasKindUpdate
+  ) {
+    return true;
+  }
+
   if (session) {
     const toolPart = buildToolPartForUpdate({
       toolCallId: update.toolCallId,
@@ -756,12 +819,12 @@ function appendAssistantChunk(params: {
   if (update.sessionUpdate === "agent_message_chunk") {
     const messageId = buffer.ensureMessageId(preferredMessageId);
     const message = getOrCreateAssistantMessage(session.uiState, messageId);
-    appendContentBlock(
-      message,
-      toStoredContentBlock(update.content),
-      partState,
-      providerMetadata
-    );
+    const block = toStoredContentBlock(update.content);
+    appendContentBlock(message, block, partState, providerMetadata);
+
+    if (!isReplayingHistory) {
+      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    }
     return;
   }
   if (update.sessionUpdate !== "agent_thought_chunk") {
@@ -774,9 +837,12 @@ function appendAssistantChunk(params: {
     return;
   }
   appendReasoningBlock(message, block, partState, providerMetadata);
-  if (!isReplayingHistory) {
-    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
-  }
+  // Optimization: Do NOT broadcast reasoning chunks in real-time.
+  // Reasoning updates are buffered and sent only when:
+  // 1. The agent switches to text generation (updateAssistantChunkType)
+  // 2. The agent calls a tool (handleToolCallCreate)
+  // 3. The turn ends (flushAndFinalizeTurn)
+  // This reduces UI jitter/lag on mobile clients.
 }
 
 function isTurnBoundaryUpdate(
@@ -828,6 +894,7 @@ async function flushAndFinalizeTurn(params: {
   await persistBufferedAssistantMessage({
     chatId,
     isReplayingHistory,
+    userId: session?.userId,
     messageId,
     shouldPersist,
     currentMessage,
@@ -845,6 +912,7 @@ async function flushAndFinalizeTurn(params: {
 async function persistBufferedAssistantMessage(params: {
   chatId: string;
   isReplayingHistory: boolean;
+  userId?: string;
   messageId: string | null;
   shouldPersist: boolean;
   currentMessage: UIMessage | undefined;
@@ -854,19 +922,20 @@ async function persistBufferedAssistantMessage(params: {
   const {
     chatId,
     isReplayingHistory,
+    userId,
     messageId,
     shouldPersist,
     currentMessage,
     bufferedMessage,
     sessionRepo,
   } = params;
-  if (isReplayingHistory || !messageId || !shouldPersist) {
+  if (isReplayingHistory || !messageId || !shouldPersist || !userId) {
     return;
   }
   if (currentMessage) {
     finalizeStreamingParts(currentMessage);
   }
-  await sessionRepo.appendMessage(chatId, {
+  await sessionRepo.appendMessage(chatId, userId, {
     id: messageId,
     role: "assistant",
     content: bufferedMessage?.content ?? "",
@@ -889,7 +958,7 @@ function finalizeAssistantTurn(params: {
     const completedId = session.uiState.currentAssistantId;
     if (!isReplayingHistory) {
       session.uiState.lastAssistantId = completedId;
-      setChatFinishMessage(session, completedId);
+      setChatFinishMessage(session, completedId, session.activeTurnId);
     }
     const current = session.uiState.messages.get(completedId);
     if (current) {

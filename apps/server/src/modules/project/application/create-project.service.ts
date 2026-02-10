@@ -12,19 +12,23 @@ export class CreateProjectService {
     this.eventBus = eventBus;
   }
 
-  async execute(input: ProjectInput) {
-    const project = await this.createProject(input);
+  async execute(userId: string, input: Omit<ProjectInput, "userId">) {
+    const project = await this.createProject(userId, input);
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "project_created",
+      userId,
       projectId: project.id,
     });
     return project;
   }
 
-  private async createProject(input: ProjectInput): Promise<Project> {
+  private async createProject(
+    userId: string,
+    input: Omit<ProjectInput, "userId">
+  ): Promise<Project> {
     try {
-      return await this.projectRepo.create(input);
+      return await this.projectRepo.create({ ...input, userId });
     } catch (error) {
       throw new ValidationError(
         error instanceof Error ? error.message : "Invalid project input",

@@ -15,6 +15,7 @@ export type DashboardRefreshReason =
 export interface DashboardRefreshEvent {
   type: "dashboard_refresh";
   reason: DashboardRefreshReason;
+  userId?: string;
   projectId?: string;
   chatId?: string;
   agentId?: string;
@@ -22,12 +23,14 @@ export interface DashboardRefreshEvent {
 
 export interface ProjectDeletingEvent {
   type: "project_deleting";
+  userId: string;
   projectId: string;
   projectPath: string;
 }
 
 export interface ProjectDeletedEvent {
   type: "project_deleted";
+  userId: string;
   projectId: string;
   projectPath: string;
 }
@@ -40,6 +43,7 @@ export interface SettingsUpdatedEvent {
 
 export interface SessionBroadcastEvent {
   type: "session_broadcast";
+  userId: string;
   chatId: string;
   event: BroadcastEvent;
 }

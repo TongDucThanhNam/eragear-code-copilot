@@ -13,8 +13,8 @@ export class DeleteProjectService {
     this.eventBus = eventBus;
   }
 
-  async execute(id: string) {
-    const project = await this.projectRepo.findById(id);
+  async execute(userId: string, id: string) {
+    const project = await this.projectRepo.findById(id, userId);
     if (!project) {
       throw new NotFoundError("Project not found", {
         module: "project",
@@ -25,20 +25,23 @@ export class DeleteProjectService {
 
     await this.eventBus.publish({
       type: "project_deleting",
+      userId,
       projectId: project.id,
       projectPath: project.path,
     });
 
-    await this.projectRepo.delete(id);
+    await this.projectRepo.delete(id, userId);
 
     await this.eventBus.publish({
       type: "project_deleted",
+      userId,
       projectId: project.id,
       projectPath: project.path,
     });
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "project_deleted",
+      userId,
       projectId: project.id,
     });
 

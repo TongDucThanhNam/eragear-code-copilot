@@ -107,7 +107,7 @@ export function registerDashboardUiRoutes(app: Hono): void {
     const dashboardPageData = container.getOpsServices().dashboardPageData();
     const [settings, baseDashboardData] = await Promise.all([
       getSettings.execute(),
-      dashboardPageData.execute(),
+      dashboardPageData.execute({ userId: session.user.id }),
     ]);
 
     let apiKeys: unknown[] = [];

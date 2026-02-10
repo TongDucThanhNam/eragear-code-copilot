@@ -10,7 +10,10 @@ import {
   buildAssistantMessageFromBlocks,
   buildUserMessageFromBlocks,
 } from "@/shared/utils/ui-message.util";
+import { NotFoundError } from "@/shared/errors";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
+
+const OP = "session.messages.get";
 
 /**
  * GetSessionMessagesService
@@ -34,16 +37,29 @@ export class GetSessionMessagesService {
    * @returns Paginated messages in chronological order
    */
   async execute(input: {
+    userId: string;
     chatId: string;
     cursor?: number;
     limit?: number;
     includeCompacted?: boolean;
   }) {
-    const page = await this.sessionRepo.getMessagesPage(input.chatId, {
-      cursor: input.cursor,
-      limit: input.limit,
-      includeCompacted: input.includeCompacted,
-    });
+    const stored = await this.sessionRepo.findById(input.chatId, input.userId);
+    if (!stored) {
+      throw new NotFoundError("Chat not found", {
+        module: "session",
+        op: OP,
+        details: { chatId: input.chatId },
+      });
+    }
+    const page = await this.sessionRepo.getMessagesPage(
+      input.chatId,
+      input.userId,
+      {
+        cursor: input.cursor,
+        limit: input.limit,
+        includeCompacted: input.includeCompacted,
+      }
+    );
 
     const messages = page.messages.map((message) => {
       if (message.parts && message.parts.length > 0) {

@@ -3,6 +3,7 @@ import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 export interface CleanupProjectSessionsInput {
+  userId: string;
   projectId: string;
   projectPath: string;
 }
@@ -23,7 +24,7 @@ export class CleanupProjectSessionsService {
     deletedSessionIds: string[];
     terminatedRuntimeCount: number;
   }> {
-    const sessions = await this.sessionRepo.findAll();
+    const sessions = await this.sessionRepo.findAll(input.userId);
     const linkedSessions = sessions.filter(
       (session) =>
         session.projectId === input.projectId ||
@@ -44,7 +45,7 @@ export class CleanupProjectSessionsService {
         terminatedRuntimeCount += 1;
       }
 
-      await this.sessionRepo.delete(session.id);
+      await this.sessionRepo.delete(session.id, input.userId);
       deletedSessionIds.push(session.id);
     }
 

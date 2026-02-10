@@ -15,8 +15,8 @@ export class ListDashboardProjectsService {
     this.sessionRepo = sessionRepo;
   }
 
-  async execute() {
-    const projects = await this.projectRepo.findAll();
+  async execute(userId: string) {
+    const projects = await this.projectRepo.findAll(userId);
     const projectPathMap = new Map(
       projects.map((project) => [project.path, project.id] as const)
     );
@@ -25,7 +25,7 @@ export class ListDashboardProjectsService {
       { total: number; running: number }
     >(projects.map((project) => [project.id, { total: 0, running: 0 }]));
 
-    await forEachSessionPage(this.sessionRepo, (sessions) => {
+    await forEachSessionPage(this.sessionRepo, userId, (sessions) => {
       for (const session of sessions) {
         const resolvedProjectId =
           session.projectId ?? projectPathMap.get(session.projectRoot);

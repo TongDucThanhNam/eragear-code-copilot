@@ -1,8 +1,11 @@
+import { NotFoundError } from "@/shared/errors";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import { updateChatStatus } from "../../../shared/utils/chat-events.util";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+
+const OP = "session.lifecycle.stop";
 
 export class StopSessionService {
   private readonly sessionRepo: SessionRepositoryPort;
@@ -19,9 +22,9 @@ export class StopSessionService {
     this.eventBus = eventBus;
   }
 
-  async execute(chatId: string): Promise<{ ok: true }> {
+  async execute(userId: string, chatId: string): Promise<{ ok: true }> {
     const session = this.sessionRuntime.get(chatId);
-    if (session) {
+    if (session?.userId === userId) {
       console.log(`[tRPC] Stopping session ${chatId}`);
       terminateSessionTerminals(session);
       updateChatStatus({
@@ -34,10 +37,19 @@ export class StopSessionService {
       // Remove from runtime so getSessionState returns "stopped"
       this.sessionRuntime.delete(chatId);
     }
-    await this.sessionRepo.updateStatus(chatId, "stopped");
+    const stored = await this.sessionRepo.findById(chatId, userId);
+    if (!stored) {
+      throw new NotFoundError("Chat not found", {
+        module: "session",
+        op: OP,
+        details: { chatId },
+      });
+    }
+    await this.sessionRepo.updateStatus(chatId, userId, "stopped");
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "session_stopped",
+      userId,
       chatId,
     });
     return { ok: true };

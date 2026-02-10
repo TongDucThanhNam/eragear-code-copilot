@@ -17,8 +17,8 @@ Các API chính để build `useChat`:
 Event types quan trọng:
 
 - `ui_message` → UIMessage đã chuẩn hóa (snapshot).
-- `chat_status` → `submitted` | `streaming` | `ready` | `error` (và các trạng thái khác).
-- `chat_finish` → stopReason/finishReason/isAbort (kết thúc turn).
+- `chat_status` → `submitted` | `streaming` | `ready` | `error` (và các trạng thái khác), có thể kèm `turnId`.
+- `chat_finish` → stopReason/finishReason/isAbort (kết thúc turn), có thể kèm `turnId`.
 - `terminal_output` → output realtime theo `terminalId`.
 - `current_mode_update`, `available_commands_update`, `connected`, `heartbeat`, `error`.
 
@@ -27,6 +27,7 @@ Event types quan trọng:
 - `ui_message` là **snapshot đầy đủ** cho `message.id`, client phải **upsert theo id**.
 - Không tự parse raw ACP ở client.
 - Message có thể được gửi lặp lại nhiều lần trong streaming. Upsert là idempotent.
+- `sendMessage` mutation trả `turnId`; client nên dùng `turnId` để correlate HTTP ack với `chat_status`/`chat_finish` cho cùng turn.
 - Thứ tự hiển thị:
   - History lấy từ `getSessionMessagesPage` và merge theo thứ tự page.
   - Event realtime nếu `message.id` chưa tồn tại thì append vào `messageOrder`.

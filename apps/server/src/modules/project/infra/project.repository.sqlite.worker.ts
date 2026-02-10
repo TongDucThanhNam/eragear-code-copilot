@@ -11,16 +11,16 @@ export class ProjectSqliteWorkerRepository implements ProjectRepositoryPort {
     await callSqliteWorker("storage", "setAllowedRoots", [roots]);
   }
 
-  findById(id: string): Promise<Project | undefined> {
-    return callSqliteWorker("project", "findById", [id]);
+  findById(id: string, userId: string): Promise<Project | undefined> {
+    return callSqliteWorker("project", "findById", [id, userId]);
   }
 
-  findAll(): Promise<Project[]> {
-    return callSqliteWorker("project", "findAll", []);
+  findAll(userId: string): Promise<Project[]> {
+    return callSqliteWorker("project", "findAll", [userId]);
   }
 
-  getActiveId(): Promise<string | null> {
-    return callSqliteWorker("project", "getActiveId", []);
+  getActiveId(userId: string): Promise<string | null> {
+    return callSqliteWorker("project", "getActiveId", [userId]);
   }
 
   create(input: ProjectInput): Promise<Project> {
@@ -31,11 +31,11 @@ export class ProjectSqliteWorkerRepository implements ProjectRepositoryPort {
     return callSqliteWorker("project", "update", [input]);
   }
 
-  delete(id: string): Promise<void> {
-    return callSqliteWorker("project", "delete", [id]);
+  delete(id: string, userId: string): Promise<void> {
+    return callSqliteWorker("project", "delete", [id, userId]);
   }
 
-  setActive(id: string | null): Promise<void> {
-    return callSqliteWorker("project", "setActive", [id]);
+  setActive(id: string | null, userId: string): Promise<void> {
+    return callSqliteWorker("project", "setActive", [id, userId]);
   }
 }

@@ -45,9 +45,9 @@ export class CancelPromptService {
    * @returns Success status object
    * @throws Error if session is not found or not running
    */
-  async execute(chatId: string) {
+  async execute(userId: string, chatId: string) {
     const session = this.sessionRuntime.get(chatId);
-    if (!session?.sessionId) {
+    if (!session?.sessionId || session.userId !== userId) {
       throw new NotFoundError("Chat not found", {
         module: "ai",
         op: OP,

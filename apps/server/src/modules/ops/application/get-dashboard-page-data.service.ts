@@ -22,16 +22,20 @@ export class GetDashboardPageDataService {
     this.agentRepo = params.agentRepo;
   }
 
-  async execute(input?: { limit?: number; offset?: number }) {
+  async execute(input: { userId: string; limit?: number; offset?: number }) {
     const limit = input?.limit ?? DEFAULT_SESSION_LIST_PAGE_LIMIT;
     const offset = input?.offset ?? 0;
 
     const [projectsResult, sessionsResult, statsResult, agents] =
       await Promise.all([
-        this.listDashboardProjects.execute(),
-        this.listDashboardSessions.execute({ limit, offset }),
-        this.getDashboardStats.execute(),
-        this.agentRepo.findAll(),
+        this.listDashboardProjects.execute(input.userId),
+        this.listDashboardSessions.execute({
+          userId: input.userId,
+          limit,
+          offset,
+        }),
+        this.getDashboardStats.execute(input.userId),
+        this.agentRepo.findAll(input.userId),
       ]);
 
     return {

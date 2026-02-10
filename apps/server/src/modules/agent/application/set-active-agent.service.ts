@@ -10,9 +10,9 @@ export class SetActiveAgentService {
     this.agentRepo = agentRepo;
   }
 
-  async execute(id: string | null) {
+  async execute(userId: string, id: string | null) {
     if (id) {
-      const existing = await this.agentRepo.findById(id);
+      const existing = await this.agentRepo.findById(id, userId);
       if (!existing) {
         throw new NotFoundError("Agent not found", {
           module: "agent",
@@ -21,7 +21,7 @@ export class SetActiveAgentService {
         });
       }
     }
-    await this.agentRepo.setActive(id);
+    await this.agentRepo.setActive(id, userId);
     return { activeAgentId: id };
   }
 }

@@ -4,27 +4,40 @@ import { copyFile, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const outDir = resolve(process.cwd(), "public/dashboard");
-const cssSource = resolve(
-  process.cwd(),
-  "src/presentation/dashboard/styles.css"
-);
-const cssOut = resolve(outDir, "styles.css");
 const jsEntry = resolve(
   process.cwd(),
   "src/presentation/dashboard/client/index.tsx"
 );
 const jsOut = resolve(outDir, "client.js");
 
-const copyStyles = async () => {
+const staticAssets = [
+  {
+    source: resolve(process.cwd(), "src/presentation/dashboard/styles.css"),
+    out: resolve(outDir, "styles.css"),
+    label: "styles.css",
+  },
+  {
+    source: resolve(process.cwd(), "src/presentation/dashboard/login.css"),
+    out: resolve(outDir, "login.css"),
+    label: "login.css",
+  },
+  {
+    source: resolve(process.cwd(), "src/presentation/dashboard/login.js"),
+    out: resolve(outDir, "login.js"),
+    label: "login.js",
+  },
+] as const;
+
+const copyStaticAsset = async (asset: (typeof staticAssets)[number]) => {
   try {
-    await copyFile(cssSource, cssOut);
+    await copyFile(asset.source, asset.out);
   } catch (error) {
-    console.error("[dashboard:watch] Failed to copy styles.css", error);
+    console.error(`[dashboard:watch] Failed to copy ${asset.label}`, error);
   }
 };
 
 await mkdir(outDir, { recursive: true });
-await copyStyles();
+await Promise.all(staticAssets.map((asset) => copyStaticAsset(asset)));
 
 const build = spawn(
   "bun",
@@ -43,12 +56,16 @@ const build = spawn(
   { stdio: "inherit" }
 );
 
-const cssWatcher = watch(cssSource, { persistent: true }, () => {
-  copyStyles();
-});
+const staticWatchers = staticAssets.map((asset) =>
+  watch(asset.source, { persistent: true }, () => {
+    copyStaticAsset(asset);
+  })
+);
 
 const shutdown = (signal: NodeJS.Signals) => {
-  cssWatcher.close();
+  for (const watcher of staticWatchers) {
+    watcher.close();
+  }
   build.kill(signal);
 };
 
@@ -63,6 +80,8 @@ process.on("SIGTERM", () => {
 });
 
 build.on("exit", (code) => {
-  cssWatcher.close();
+  for (const watcher of staticWatchers) {
+    watcher.close();
+  }
   process.exit(code ?? 0);
 });

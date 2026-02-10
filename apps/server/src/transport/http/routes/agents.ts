@@ -16,6 +16,7 @@ import type { Context, Hono } from "hono";
 import { getContainer } from "../../../bootstrap/container";
 import { isAppError } from "../../../shared/errors";
 import { parseArgsInput } from "../../../shared/utils/cli-args.util";
+import { getAuthContextFromRequest } from "../utils/auth";
 
 /** Valid agent types */
 const VALID_AGENT_TYPES = [
@@ -41,8 +42,15 @@ export function registerAgentRoutes(api: Hono): void {
    * GET /api/agents - List all agent configurations
    */
   api.get("/agents", async (c: Context) => {
+    const auth = await getAuthContextFromRequest({
+      headers: c.req.raw.headers,
+      url: c.req.raw.url,
+    });
+    if (!auth) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
     const service = container.getAgentServices().listAgents();
-    const result = await service.execute();
+    const result = await service.execute(auth.userId);
     return c.json({ agents: result.agents });
   });
 
@@ -51,6 +59,13 @@ export function registerAgentRoutes(api: Hono): void {
    */
   api.post("/agents", async (c: Context) => {
     try {
+      const auth = await getAuthContextFromRequest({
+        headers: c.req.raw.headers,
+        url: c.req.raw.url,
+      });
+      if (!auth) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
       const body = await c.req.json();
       const { name, type, command, args, argsInput, env, projectId } = body as {
         name: string;
@@ -83,7 +98,7 @@ export function registerAgentRoutes(api: Hono): void {
       }
 
       const service = container.getAgentServices().createAgent();
-      const agent = await service.execute({
+      const agent = await service.execute(auth.userId, {
         name,
         type,
         command,
@@ -107,6 +122,13 @@ export function registerAgentRoutes(api: Hono): void {
    */
   api.put("/agents", async (c: Context) => {
     try {
+      const auth = await getAuthContextFromRequest({
+        headers: c.req.raw.headers,
+        url: c.req.raw.url,
+      });
+      if (!auth) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
       const body = await c.req.json();
       const { id, name, type, command, args, argsInput, env, projectId } =
         body as {
@@ -141,7 +163,7 @@ export function registerAgentRoutes(api: Hono): void {
       }
 
       const service = container.getAgentServices().updateAgent();
-      const agent = await service.execute({
+      const agent = await service.execute(auth.userId, {
         id,
         name,
         type,
@@ -166,6 +188,13 @@ export function registerAgentRoutes(api: Hono): void {
    */
   api.delete("/agents", async (c: Context) => {
     try {
+      const auth = await getAuthContextFromRequest({
+        headers: c.req.raw.headers,
+        url: c.req.raw.url,
+      });
+      if (!auth) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
       const body = await c.req.parseBody();
       const agentId = body.agentId as string;
 
@@ -174,7 +203,7 @@ export function registerAgentRoutes(api: Hono): void {
       }
 
       const service = container.getAgentServices().deleteAgent();
-      await service.execute(agentId);
+      await service.execute(auth.userId, agentId);
 
       return c.json({ ok: true });
     } catch (error) {

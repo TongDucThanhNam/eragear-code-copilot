@@ -38,6 +38,8 @@ import type {
 export class Session {
   /** Unique identifier for the session */
   id: string;
+  /** Owning user identifier */
+  userId: string;
   /** Optional project ID this session belongs to */
   projectId?: string;
   /** File system path to the project root directory */
@@ -72,6 +74,7 @@ export class Session {
    */
   constructor(params: {
     id: string;
+    userId: string;
     projectId?: string;
     projectRoot: string;
     sessionId?: string;
@@ -79,6 +82,7 @@ export class Session {
     agentInfo?: AgentInfo;
   }) {
     this.id = params.id;
+    this.userId = params.userId;
     this.projectId = params.projectId;
     this.projectRoot = params.projectRoot;
     this.sessionId = params.sessionId;

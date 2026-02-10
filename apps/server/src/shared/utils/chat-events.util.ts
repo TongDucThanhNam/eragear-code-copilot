@@ -27,27 +27,43 @@ export function updateChatStatus(params: {
   session: ChatSession | undefined;
   broadcast: (chatId: string, event: BroadcastEvent) => void;
   status: ChatStatus;
+  turnId?: string;
 }): void {
   const { chatId, session, broadcast, status } = params;
   if (!session || session.chatStatus === status) {
     return;
   }
   session.chatStatus = status;
-  broadcast(chatId, { type: "chat_status", status });
+  const turnId = params.turnId ?? session.activeTurnId;
+  broadcast(chatId, {
+    type: "chat_status",
+    status,
+    ...(turnId ? { turnId } : {}),
+  });
 }
 
 export function setChatFinishStopReason(
   session: ChatSession,
-  stopReason: string
+  stopReason: string,
+  turnId?: string
 ): void {
-  session.chatFinish = { ...session.chatFinish, stopReason };
+  session.chatFinish = {
+    ...session.chatFinish,
+    stopReason,
+    ...(turnId ? { turnId } : {}),
+  };
 }
 
 export function setChatFinishMessage(
   session: ChatSession,
-  messageId: string
+  messageId: string,
+  turnId?: string
 ): void {
-  session.chatFinish = { ...session.chatFinish, messageId };
+  session.chatFinish = {
+    ...session.chatFinish,
+    messageId,
+    ...(turnId ? { turnId } : {}),
+  };
 }
 
 export function maybeBroadcastChatFinish(params: {
@@ -58,6 +74,7 @@ export function maybeBroadcastChatFinish(params: {
   const { chatId, session, broadcast } = params;
   const stopReason = session.chatFinish?.stopReason;
   const messageId = session.chatFinish?.messageId;
+  const turnId = session.chatFinish?.turnId;
   const isAssistantActive = Boolean(session.uiState.currentAssistantId);
 
   if (!stopReason || (!messageId && isAssistantActive)) {
@@ -77,6 +94,7 @@ export function maybeBroadcastChatFinish(params: {
     messageId: resolvedMessageId,
     ...(message ? { message } : {}),
     isAbort: stopReason === "cancelled",
+    ...(turnId ? { turnId } : {}),
   });
 
   session.chatFinish = undefined;

@@ -12,6 +12,10 @@ import { auth, authState } from "../../../platform/auth/auth";
 // biome-ignore lint/style/noRestrictedImports: transport auth helpers intentionally bridge to Better Auth runtime.
 import type { SessionUser } from "../../../platform/auth/guards";
 // biome-ignore lint/style/noRestrictedImports: transport auth helpers intentionally bridge to Better Auth runtime.
+import type { AuthContext } from "../../../platform/auth/guards";
+// biome-ignore lint/style/noRestrictedImports: transport auth helpers intentionally bridge to Better Auth runtime.
+import { getAuthContext as infraGetAuthContext } from "../../../platform/auth/guards";
+// biome-ignore lint/style/noRestrictedImports: transport auth helpers intentionally bridge to Better Auth runtime.
 import { getSessionFromRequest as infraGetSessionFromRequest } from "../../../platform/auth/guards";
 
 type HeaderRecord = Record<string, string | string[] | undefined>;
@@ -30,6 +34,12 @@ export async function getSessionFromRequest(
   req: RequestLike
 ): Promise<{ user: SessionUser; session: unknown } | null> {
   return await infraGetSessionFromRequest(req);
+}
+
+export async function getAuthContextFromRequest(
+  req: RequestLike
+): Promise<AuthContext | null> {
+  return await infraGetAuthContext(req);
 }
 
 export function resolveAdminUsername(defaultUsername: string): string {

@@ -120,7 +120,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
 
     // Publish to event bus
     this.eventBus
-      .publish({ type: "session_broadcast", chatId, event })
+      .publish({ type: "session_broadcast", userId: session.userId, chatId, event })
       .catch((error) => {
         console.error("[SessionRuntimeStore] Failed to publish event", error);
       });

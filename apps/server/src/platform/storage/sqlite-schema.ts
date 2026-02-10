@@ -1,6 +1,7 @@
 import {
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -16,8 +17,21 @@ export const appSettings = sqliteTable("app_settings", {
   valueJson: text("value_json").notNull(),
 });
 
+export const userSettings = sqliteTable(
+  "user_settings",
+  {
+    userId: text("user_id").notNull(),
+    key: text("key").notNull(),
+    valueJson: text("value_json").notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.key] }),
+  })
+);
+
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
+  userId: text("user_id"),
   name: text("name").notNull(),
   path: text("path").notNull().unique(),
   description: text("description"),
@@ -32,6 +46,7 @@ export const agents = sqliteTable(
   "agents",
   {
     id: text("id").primaryKey(),
+    userId: text("user_id"),
     name: text("name").notNull(),
     type: text("type").notNull(),
     command: text("command").notNull(),
@@ -44,7 +59,12 @@ export const agents = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => ({
+    userIdIdx: index("idx_agents_user_id").on(table.userId),
     projectIdIdx: index("idx_agents_project_id").on(table.projectId),
+    userIdProjectIdIdx: index("idx_agents_user_project_id").on(
+      table.userId,
+      table.projectId
+    ),
   })
 );
 
@@ -52,6 +72,7 @@ export const sessions = sqliteTable(
   "sessions",
   {
     id: text("id").primaryKey(),
+    userId: text("user_id"),
     name: text("name"),
     sessionId: text("session_id"),
     projectId: text("project_id").references(() => projects.id, {
@@ -80,7 +101,12 @@ export const sessions = sqliteTable(
     messageCount: integer("message_count").notNull().default(0),
   },
   (table) => ({
+    userIdIdx: index("idx_sessions_user_id").on(table.userId),
     projectIdIdx: index("idx_sessions_project_id").on(table.projectId),
+    userIdProjectIdIdx: index("idx_sessions_user_project_id").on(
+      table.userId,
+      table.projectId
+    ),
     lastActiveAtIdx: index("idx_sessions_last_active_at").on(
       table.lastActiveAt
     ),
@@ -94,6 +120,10 @@ export const sessions = sqliteTable(
     archivedPinnedLastActiveAtIdx: index(
       "idx_sessions_archived_pinned_last_active_at"
     ).on(table.archived, table.pinned, table.lastActiveAt),
+    userIdLastActiveAtIdx: index("idx_sessions_user_last_active_at").on(
+      table.userId,
+      table.lastActiveAt
+    ),
   })
 );
 

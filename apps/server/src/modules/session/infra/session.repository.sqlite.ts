@@ -31,18 +31,22 @@ import {
 const MAX_SESSION_PAGE_LIMIT = 500;
 const MAX_MESSAGE_PAGE_LIMIT = 200;
 const MAX_MESSAGE_DELETE_CHUNK_SIZE = 200;
-const SESSIONS_COUNT_META_KEY = "sessions_count";
 
 export class SessionSqliteRepository
   extends SessionSqliteMapper
   implements SessionRepositoryPort
 {
-  async findById(id: string): Promise<StoredSession | undefined> {
+  async findById(id: string, userId: string): Promise<StoredSession | undefined> {
     const db = await getSqliteOrm();
     const row = db
       .select()
       .from(sqliteSchema.sessions)
-      .where(eq(sqliteSchema.sessions.id, id))
+      .where(
+        and(
+          eq(sqliteSchema.sessions.id, id),
+          eq(sqliteSchema.sessions.userId, userId)
+        )
+      )
       .get();
     if (!row) {
       return undefined;
@@ -50,7 +54,7 @@ export class SessionSqliteRepository
     return this.mapSessionRow(row);
   }
 
-  async findAll(query?: SessionListQuery): Promise<StoredSession[]> {
+  async findAll(userId: string, query?: SessionListQuery): Promise<StoredSession[]> {
     const db = await getSqliteOrm();
     const offset = Math.max(0, Math.trunc(query?.offset ?? 0));
     const rawLimit = query?.limit;
@@ -62,6 +66,58 @@ export class SessionSqliteRepository
     let select = db
       .select({
         id: sqliteSchema.sessions.id,
+        userId: sqliteSchema.sessions.userId,
+        name: sqliteSchema.sessions.name,
+        sessionId: sqliteSchema.sessions.sessionId,
+        projectId: sqliteSchema.sessions.projectId,
+        projectRoot: sqliteSchema.sessions.projectRoot,
+        loadSessionSupported: sqliteSchema.sessions.loadSessionSupported,
+        useUnstableResume: sqliteSchema.sessions.useUnstableResume,
+        supportsModelSwitching: sqliteSchema.sessions.supportsModelSwitching,
+        agentInfoJson: sqliteSchema.sessions.agentInfoJson,
+        status: sqliteSchema.sessions.status,
+        pinned: sqliteSchema.sessions.pinned,
+        archived: sqliteSchema.sessions.archived,
+        createdAt: sqliteSchema.sessions.createdAt,
+        lastActiveAt: sqliteSchema.sessions.lastActiveAt,
+        modeId: sqliteSchema.sessions.modeId,
+        modelId: sqliteSchema.sessions.modelId,
+        messageCount: sqliteSchema.sessions.messageCount,
+        planJson: sqliteSchema.sessions.planJson,
+        agentCapabilitiesJson: sqliteSchema.sessions.agentCapabilitiesJson,
+        authMethodsJson: sqliteSchema.sessions.authMethodsJson,
+      })
+      .from(sqliteSchema.sessions)
+      .where(eq(sqliteSchema.sessions.userId, userId))
+      .orderBy(desc(sqliteSchema.sessions.lastActiveAt))
+      .$dynamic();
+
+    if (limit !== undefined) {
+      select = select.limit(limit);
+    }
+    if (offset > 0) {
+      select = select.offset(offset);
+    }
+
+    const rows = select.all();
+    return rows.map((row) => this.mapSessionListRow(row));
+  }
+
+  async findAllForMaintenance(
+    query?: SessionListQuery
+  ): Promise<StoredSession[]> {
+    const db = await getSqliteOrm();
+    const offset = Math.max(0, Math.trunc(query?.offset ?? 0));
+    const rawLimit = query?.limit;
+    const limit =
+      rawLimit === undefined
+        ? undefined
+        : Math.max(1, Math.min(MAX_SESSION_PAGE_LIMIT, Math.trunc(rawLimit)));
+
+    let select = db
+      .select({
+        id: sqliteSchema.sessions.id,
+        userId: sqliteSchema.sessions.userId,
         name: sqliteSchema.sessions.name,
         sessionId: sqliteSchema.sessions.sessionId,
         projectId: sqliteSchema.sessions.projectId,
@@ -97,21 +153,12 @@ export class SessionSqliteRepository
     return rows.map((row) => this.mapSessionListRow(row));
   }
 
-  async countAll(): Promise<number> {
+  async countAll(userId: string): Promise<number> {
     const db = await getSqliteOrm();
-    const countMeta = db
-      .select({ value: sqliteSchema.appMeta.value })
-      .from(sqliteSchema.appMeta)
-      .where(eq(sqliteSchema.appMeta.key, SESSIONS_COUNT_META_KEY))
-      .get();
-    const parsed = Number(countMeta?.value ?? Number.NaN);
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return Math.trunc(parsed);
-    }
-
     const row = db
       .select({ count: sql<number>`count(*)` })
       .from(sqliteSchema.sessions)
+      .where(eq(sqliteSchema.sessions.userId, userId))
       .get();
     return Math.max(0, Number(row?.count ?? 0));
   }
@@ -128,8 +175,6 @@ export class SessionSqliteRepository
           .where(eq(sqliteSchema.sessions.id, session.id))
           .get();
         const hasExisting = Boolean(existing);
-        const shouldReplaceMessages =
-          session.messages.length > 0 || !hasExisting;
 
         orm
           .insert(sqliteSchema.sessions)
@@ -140,10 +185,6 @@ export class SessionSqliteRepository
           })
           .run();
 
-        if (!shouldReplaceMessages) {
-          return;
-        }
-
         const dedupedMessageById = new Map<string, MessageInsert>();
         for (const message of session.messages) {
           dedupedMessageById.set(
@@ -153,33 +194,41 @@ export class SessionSqliteRepository
         }
         const dedupedMessages = [...dedupedMessageById.values()];
 
-        if (dedupedMessages.length > 0) {
-          orm
-            .insert(sqliteSchema.sessionMessages)
-            .values(dedupedMessages)
-            .onConflictDoUpdate({
-              target: [
-                sqliteSchema.sessionMessages.sessionId,
-                sqliteSchema.sessionMessages.messageId,
-              ],
-              set: {
-                role: sql`excluded.role`,
-                content: sql`excluded.content`,
-                contentBlocksJson: sql`excluded.content_blocks_json`,
-                timestamp: sql`excluded.timestamp`,
-                toolCallsJson: sql`excluded.tool_calls_json`,
-                reasoning: sql`excluded.reasoning`,
-                reasoningBlocksJson: sql`excluded.reasoning_blocks_json`,
-                partsJson: sql`excluded.parts_json`,
-                storageTier: sql`excluded.storage_tier`,
-                retainedPayload: sql`excluded.retained_payload`,
-                compactedAt: sql`excluded.compacted_at`,
-              },
-            })
-            .run();
+        if (dedupedMessages.length === 0) {
+          if (hasExisting) {
+            orm
+              .delete(sqliteSchema.sessionMessages)
+              .where(eq(sqliteSchema.sessionMessages.sessionId, session.id))
+              .run();
+          }
+          return;
         }
 
-        if (!hasExisting || dedupedMessages.length === 0) {
+        orm
+          .insert(sqliteSchema.sessionMessages)
+          .values(dedupedMessages)
+          .onConflictDoUpdate({
+            target: [
+              sqliteSchema.sessionMessages.sessionId,
+              sqliteSchema.sessionMessages.messageId,
+            ],
+            set: {
+              role: sql`excluded.role`,
+              content: sql`excluded.content`,
+              contentBlocksJson: sql`excluded.content_blocks_json`,
+              timestamp: sql`excluded.timestamp`,
+              toolCallsJson: sql`excluded.tool_calls_json`,
+              reasoning: sql`excluded.reasoning`,
+              reasoningBlocksJson: sql`excluded.reasoning_blocks_json`,
+              partsJson: sql`excluded.parts_json`,
+              storageTier: sql`excluded.storage_tier`,
+              retainedPayload: sql`excluded.retained_payload`,
+              compactedAt: sql`excluded.compacted_at`,
+            },
+          })
+          .run();
+
+        if (!hasExisting) {
           return;
         }
 
@@ -221,6 +270,7 @@ export class SessionSqliteRepository
 
   async updateStatus(
     id: string,
+    userId: string,
     status: "running" | "stopped",
     options?: { touchLastActiveAt?: boolean }
   ): Promise<void> {
@@ -229,20 +279,31 @@ export class SessionSqliteRepository
       if (options?.touchLastActiveAt === true) {
         db.update(sqliteSchema.sessions)
           .set({ status, lastActiveAt: Date.now() })
-          .where(eq(sqliteSchema.sessions.id, id))
+          .where(
+            and(
+              eq(sqliteSchema.sessions.id, id),
+              eq(sqliteSchema.sessions.userId, userId)
+            )
+          )
           .run();
         return;
       }
 
       db.update(sqliteSchema.sessions)
         .set({ status })
-        .where(eq(sqliteSchema.sessions.id, id))
+        .where(
+          and(
+            eq(sqliteSchema.sessions.id, id),
+            eq(sqliteSchema.sessions.userId, userId)
+          )
+        )
         .run();
     });
   }
 
   async updateMetadata(
     id: string,
+    userId: string,
     updates: Partial<StoredSession>
   ): Promise<void> {
     await enqueueSqliteWrite("session.update_metadata", async () => {
@@ -254,21 +315,35 @@ export class SessionSqliteRepository
 
       db.update(sqliteSchema.sessions)
         .set(setValues)
-        .where(eq(sqliteSchema.sessions.id, id))
+        .where(
+          and(
+            eq(sqliteSchema.sessions.id, id),
+            eq(sqliteSchema.sessions.userId, userId)
+          )
+        )
         .run();
     });
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, userId: string): Promise<void> {
     await enqueueSqliteWrite("session.delete", async () => {
       const db = await getSqliteOrm();
       db.delete(sqliteSchema.sessions)
-        .where(eq(sqliteSchema.sessions.id, id))
+        .where(
+          and(
+            eq(sqliteSchema.sessions.id, id),
+            eq(sqliteSchema.sessions.userId, userId)
+          )
+        )
         .run();
     });
   }
 
-  async appendMessage(id: string, message: StoredMessage): Promise<void> {
+  async appendMessage(
+    id: string,
+    userId: string,
+    message: StoredMessage
+  ): Promise<void> {
     await enqueueSqliteWrite("session.append_message", async () => {
       const orm = await getSqliteOrm();
       const sqliteDb = await getSqliteDb();
@@ -277,7 +352,12 @@ export class SessionSqliteRepository
         const row = orm
           .select({ id: sqliteSchema.sessions.id })
           .from(sqliteSchema.sessions)
-          .where(eq(sqliteSchema.sessions.id, id))
+          .where(
+            and(
+              eq(sqliteSchema.sessions.id, id),
+              eq(sqliteSchema.sessions.userId, userId)
+            )
+          )
           .get();
         if (!row) {
           return;
@@ -313,7 +393,12 @@ export class SessionSqliteRepository
           .set({
             lastActiveAt: Date.now(),
           })
-          .where(eq(sqliteSchema.sessions.id, id))
+          .where(
+            and(
+              eq(sqliteSchema.sessions.id, id),
+              eq(sqliteSchema.sessions.userId, userId)
+            )
+          )
           .run();
       });
     });
@@ -321,6 +406,7 @@ export class SessionSqliteRepository
 
   async getMessagesPage(
     id: string,
+    userId: string,
     query: SessionMessagesPageQuery
   ): Promise<SessionMessagesPageResult> {
     const db = await getSqliteOrm();
@@ -337,7 +423,10 @@ export class SessionSqliteRepository
         : Math.max(0, Math.trunc(query.cursor));
     const includeCompacted = query.includeCompacted ?? true;
 
-    let whereClause = eq(sqliteSchema.sessionMessages.sessionId, id);
+    let whereClause = and(
+      eq(sqliteSchema.sessionMessages.sessionId, id),
+      eq(sqliteSchema.sessions.userId, userId)
+    );
     if (cursor !== undefined) {
       whereClause = and(
         whereClause,
@@ -354,6 +443,10 @@ export class SessionSqliteRepository
     const rows = db
       .select()
       .from(sqliteSchema.sessionMessages)
+      .innerJoin(
+        sqliteSchema.sessions,
+        eq(sqliteSchema.sessionMessages.sessionId, sqliteSchema.sessions.id)
+      )
       .where(whereClause)
       .orderBy(asc(sqliteSchema.sessionMessages.seq))
       .limit(limit + 1)
@@ -361,10 +454,10 @@ export class SessionSqliteRepository
     const hasMore = rows.length > limit;
     const pageRows = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore
-      ? Number(pageRows.at(-1)?.seq ?? cursor ?? 0)
+      ? Number(pageRows.at(-1)?.session_messages.seq ?? cursor ?? 0)
       : undefined;
     return {
-      messages: pageRows.map((row) => this.mapMessageRow(row)),
+      messages: pageRows.map((row) => this.mapMessageRow(row.session_messages)),
       nextCursor,
       hasMore,
     };

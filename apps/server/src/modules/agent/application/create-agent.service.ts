@@ -14,12 +14,13 @@ export class CreateAgentService {
     this.eventBus = eventBus;
   }
 
-  async execute(input: AgentInput) {
-    const normalized = normalizeAgentInput(input, OP);
+  async execute(userId: string, input: Omit<AgentInput, "userId">) {
+    const normalized = normalizeAgentInput({ ...input, userId }, OP);
     const agent = await this.agentRepo.create(normalized);
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "agent_created",
+      userId,
       agentId: agent.id,
     });
     return agent;

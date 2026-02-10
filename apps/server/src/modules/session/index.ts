@@ -28,6 +28,14 @@ export type { SessionRepositoryPort } from "./application/ports/session-reposito
 export type { SessionRuntimePort } from "./application/ports/session-runtime.port";
 export { ReconcileSessionStatusService } from "./application/reconcile-session-status.service";
 export { ResumeSessionService } from "./application/resume-session.service";
+export { SessionAcpBootstrapService } from "./application/session-acp-bootstrap.service";
+export { SessionHistoryReplayService } from "./application/session-history-replay.service";
+export { SessionMcpConfigService } from "./application/session-mcp-config.service";
+export { SessionMessageMapper } from "./application/session-message.mapper";
+export { SessionMetadataPersistenceService } from "./application/session-metadata-persistence.service";
+export { SessionProcessLifecycleService } from "./application/session-process-lifecycle.service";
+export { SessionProjectContextResolverService } from "./application/session-project-context-resolver.service";
+export { SessionRuntimeBootstrapService } from "./application/session-runtime-bootstrap.service";
 export { StopSessionService } from "./application/stop-session.service";
 export { SubscribeSessionEventsService } from "./application/subscribe-session-events.service";
 export { UpdateSessionMetaService } from "./application/update-session-meta.service";

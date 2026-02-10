@@ -75,8 +75,8 @@ export class SetModelService {
    * @returns Success status object
    * @throws Error if session is not found or not running
    */
-  async execute(chatId: string, modelId: string) {
-    const session = this.getSessionForModelSwitch(chatId);
+  async execute(userId: string, chatId: string, modelId: string) {
+    const session = this.getSessionForModelSwitch(userId, chatId);
     if (this.isCurrentModel(session, modelId)) {
       return { ok: true };
     }
@@ -124,9 +124,9 @@ export class SetModelService {
     return { ok: true };
   }
 
-  private getSessionForModelSwitch(chatId: string): ChatSession {
+  private getSessionForModelSwitch(userId: string, chatId: string): ChatSession {
     const session = this.sessionRuntime.get(chatId);
-    if (!session?.sessionId) {
+    if (!session?.sessionId || session.userId !== userId) {
       throw new NotFoundError("Chat not found", {
         module: "ai",
         op: OP,
@@ -249,7 +249,7 @@ export class SetModelService {
       broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
       status: "error",
     });
-    await this.sessionRepo.updateStatus(chatId, "stopped");
+    await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
     if (!session.proc.killed) {
       session.proc.kill();
     }

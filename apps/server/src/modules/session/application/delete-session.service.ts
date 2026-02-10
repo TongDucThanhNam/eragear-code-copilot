@@ -8,9 +8,12 @@
  */
 
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
+import { NotFoundError } from "../../../shared/errors";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+
+const OP = "session.lifecycle.delete";
 
 /**
  * DeleteSessionService
@@ -57,17 +60,26 @@ export class DeleteSessionService {
    * }
    * ```
    */
-  async execute(chatId: string): Promise<{ ok: true }> {
+  async execute(userId: string, chatId: string): Promise<{ ok: true }> {
     const session = this.sessionRuntime.get(chatId);
-    if (session) {
+    if (session?.userId === userId) {
       terminateSessionTerminals(session);
       session.proc.kill();
       this.sessionRuntime.delete(chatId);
     }
-    await this.sessionRepo.delete(chatId);
+    const stored = await this.sessionRepo.findById(chatId, userId);
+    if (!stored) {
+      throw new NotFoundError("Chat not found", {
+        module: "session",
+        op: OP,
+        details: { chatId },
+      });
+    }
+    await this.sessionRepo.delete(chatId, userId);
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "session_deleted",
+      userId,
       chatId,
     });
     return { ok: true };

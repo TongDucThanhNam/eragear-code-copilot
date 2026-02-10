@@ -56,8 +56,16 @@ import {
   ListSessionsService,
   ReconcileSessionStatusService,
   ResumeSessionService,
+  SessionAcpBootstrapService,
   type SessionAcpPort,
+  SessionHistoryReplayService,
+  SessionMcpConfigService,
+  SessionMessageMapper,
+  SessionMetadataPersistenceService,
+  SessionProcessLifecycleService,
+  SessionProjectContextResolverService,
   type SessionRepositoryPort,
+  SessionRuntimeBootstrapService,
   type SessionRuntimePort,
   StopSessionService,
   SubscribeSessionEventsService,
@@ -247,6 +255,7 @@ export class Container {
 
       const service = this.getSessionServices().cleanupProjectSessions();
       await service.execute({
+        userId: event.userId,
         projectId: event.projectId,
         projectPath: event.projectPath,
       });
@@ -367,16 +376,57 @@ export class Container {
    */
   getSessionServices(): SessionServiceFactory {
     if (!this.sessionServices) {
+      const buildCreateSessionService = () => {
+        const projectContextResolver = new SessionProjectContextResolverService(
+          this.projectRepo,
+          this.settingsRepo
+        );
+        const runtimeBootstrap = new SessionRuntimeBootstrapService(
+          this.sessionRepo,
+          this.sessionRuntime,
+          this.sessionAcpAdapter
+        );
+        const messageMapper = new SessionMessageMapper(this.sessionRuntime);
+        const historyReplay = new SessionHistoryReplayService(
+          this.sessionRepo,
+          this.sessionRuntime,
+          messageMapper,
+          this.appLogger
+        );
+        const mcpConfig = new SessionMcpConfigService(this.settingsRepo);
+        const acpBootstrap = new SessionAcpBootstrapService(
+          this.sessionRuntime,
+          this.sessionRepo,
+          this.sessionAcpAdapter,
+          this.agentRuntimeAdapter,
+          mcpConfig,
+          historyReplay,
+          this.appLogger
+        );
+        const processLifecycle = new SessionProcessLifecycleService(
+          this.sessionRuntime,
+          this.sessionRepo,
+          this.appLogger
+        );
+        const metadataPersistence = new SessionMetadataPersistenceService(
+          this.sessionRepo
+        );
+
+        return new CreateSessionService(
+          this.sessionRepo,
+          this.sessionRuntime,
+          this.agentRuntimeAdapter,
+          projectContextResolver,
+          runtimeBootstrap,
+          acpBootstrap,
+          processLifecycle,
+          metadataPersistence,
+          this.appLogger
+        );
+      };
+
       this.sessionServices = {
-        createSession: () =>
-          new CreateSessionService(
-            this.sessionRepo,
-            this.sessionRuntime,
-            this.agentRuntimeAdapter,
-            this.settingsRepo,
-            this.projectRepo,
-            this.sessionAcpAdapter
-          ),
+        createSession: () => buildCreateSessionService(),
         stopSession: () =>
           new StopSessionService(
             this.sessionRepo,
@@ -387,10 +437,7 @@ export class Container {
           new ResumeSessionService(
             this.sessionRepo,
             this.sessionRuntime,
-            this.agentRuntimeAdapter,
-            this.settingsRepo,
-            this.projectRepo,
-            this.sessionAcpAdapter
+            buildCreateSessionService()
           ),
         deleteSession: () =>
           new DeleteSessionService(

@@ -17,9 +17,15 @@ export function ProjectsTab({ projects, activeTab }: ProjectsTabProps) {
               <h2 className="font-black font-display text-4xl tracking-tight">
                 Projects
               </h2>
-              <p className="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
-                Registered workspaces with session statistics and quick access
-              </p>
+              <div className="mt-4 max-w-md font-body text-muted text-sm leading-relaxed text-justify">
+                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+                  R
+                </span>
+                egistered workspaces with session statistics and quick access.
+                Each project represents a distinct context where your AI agents
+                operate, providing a secure and organized environment for your
+                development workflows and data management.
+              </div>
             </div>
             <div className="flex flex-col items-end gap-2">
               <span className="border border-ink px-3 py-1 font-mono text-xs">

@@ -36,9 +36,15 @@ export function SessionsTab({
               <h2 className="font-black font-display text-4xl tracking-tight">
                 Sessions
               </h2>
-              <p className="mt-2 max-w-md font-body text-muted text-sm leading-relaxed">
-                Active and recent chat sessions across all registered projects
-              </p>
+              <div className="mt-4 max-w-md font-body text-muted text-sm leading-relaxed text-justify">
+                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+                  A
+                </span>
+                ctive and recent chat sessions across all registered projects.
+                Monitor real-time interactions and manage the lifecycle of your
+                connected AI agents from this central editorial desk. All
+                communications are logged for archival purposes.
+              </div>
             </div>
             <div className="flex flex-col items-end gap-2">
               <span className="border border-ink px-3 py-1 font-mono text-xs">

@@ -53,7 +53,7 @@ export function createSessionIdleCleanupTask(params: {
           session.proc.kill("SIGTERM");
         }
         try {
-          await sessionRepo.updateStatus(session.id, "stopped");
+          await sessionRepo.updateStatus(session.id, session.userId, "stopped");
           sessionRuntime.delete(session.id);
           cleaned += 1;
         } catch (error) {

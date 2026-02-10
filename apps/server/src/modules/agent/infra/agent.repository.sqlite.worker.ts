@@ -7,20 +7,23 @@ import type {
 import type { AgentRepositoryPort } from "../application/ports/agent-repository.port";
 
 export class AgentSqliteWorkerRepository implements AgentRepositoryPort {
-  findById(id: string): Promise<AgentConfig | undefined> {
-    return callSqliteWorker("agent", "findById", [id]);
+  findById(id: string, userId: string): Promise<AgentConfig | undefined> {
+    return callSqliteWorker("agent", "findById", [id, userId]);
   }
 
-  findAll(): Promise<AgentConfig[]> {
-    return callSqliteWorker("agent", "findAll", []);
+  findAll(userId: string): Promise<AgentConfig[]> {
+    return callSqliteWorker("agent", "findAll", [userId]);
   }
 
-  getActiveId(): Promise<string | null> {
-    return callSqliteWorker("agent", "getActiveId", []);
+  getActiveId(userId: string): Promise<string | null> {
+    return callSqliteWorker("agent", "getActiveId", [userId]);
   }
 
-  listByProject(projectId?: string | null): Promise<AgentConfig[]> {
-    return callSqliteWorker("agent", "listByProject", [projectId]);
+  listByProject(
+    projectId: string | null | undefined,
+    userId: string
+  ): Promise<AgentConfig[]> {
+    return callSqliteWorker("agent", "listByProject", [projectId, userId]);
   }
 
   create(input: AgentInput): Promise<AgentConfig> {
@@ -31,11 +34,11 @@ export class AgentSqliteWorkerRepository implements AgentRepositoryPort {
     return callSqliteWorker("agent", "update", [input]);
   }
 
-  delete(id: string): Promise<void> {
-    return callSqliteWorker("agent", "delete", [id]);
+  delete(id: string, userId: string): Promise<void> {
+    return callSqliteWorker("agent", "delete", [id, userId]);
   }
 
-  setActive(id: string | null): Promise<void> {
-    return callSqliteWorker("agent", "setActive", [id]);
+  setActive(id: string | null, userId: string): Promise<void> {
+    return callSqliteWorker("agent", "setActive", [id, userId]);
   }
 }

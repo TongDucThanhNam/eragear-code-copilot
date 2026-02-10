@@ -18,7 +18,7 @@ import { compress } from "hono/compress";
 import { createElement, Fragment } from "react";
 import { WebSocketServer } from "ws";
 import { ENV } from "../config/environment";
-import { auth, authConfig, authState } from "../platform/auth/auth";
+import { auth, authConfig, authDb, authState } from "../platform/auth/auth";
 import { ensureAuthSetup } from "../platform/auth/bootstrap";
 import { getAuthContext } from "../platform/auth/guards";
 import {
@@ -32,6 +32,7 @@ import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
 import { closeSqliteStorage } from "../platform/storage/sqlite-db";
 import { runSqliteRuntimeMaintenance } from "../platform/storage/sqlite-store";
+import { ensureTenantOwnershipBackfill } from "../platform/storage/tenant-ownership";
 import { terminateSessionTerminals } from "../shared/utils/session-cleanup.util";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
@@ -46,6 +47,21 @@ import { getContainer, initializeContainerFromSettings } from "./container";
 const logger = createLogger("Server");
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const SHUTDOWN_COMPACTION_MAX_BUDGET_MS = 5000;
+
+function resolvePrimaryAuthUserId(): string | null {
+  try {
+    const row = authDb
+      .prepare('SELECT id FROM "user" ORDER BY createdAt ASC LIMIT 1')
+      .get() as { id?: string } | undefined;
+    if (typeof row?.id !== "string") {
+      return null;
+    }
+    const normalized = row.id.trim();
+    return normalized.length > 0 ? normalized : null;
+  } catch {
+    return null;
+  }
+}
 
 async function pipeResponseBody(
   res: ServerResponse,
@@ -217,6 +233,11 @@ export async function createApp() {
 export async function startServer() {
   installConsoleLogger();
   await ensureAuthSetup();
+  const primaryUserId = resolvePrimaryAuthUserId();
+  if (!primaryUserId) {
+    throw new Error("Cannot start server: no auth user available");
+  }
+  await ensureTenantOwnershipBackfill(primaryUserId);
   const app = await createApp();
   const container = getContainer();
   const backgroundRunner = new BackgroundRunner();
@@ -315,7 +336,7 @@ export async function startServer() {
         session.proc.kill("SIGTERM");
       }
       sessionRuntime.delete(session.id);
-      await sessionRepo.updateStatus(session.id, "stopped");
+      await sessionRepo.updateStatus(session.id, session.userId, "stopped");
     }
 
     const compactBeforeTs =

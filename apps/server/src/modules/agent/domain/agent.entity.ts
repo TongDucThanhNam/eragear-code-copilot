@@ -16,6 +16,8 @@ import type {
 export class Agent {
   /** Unique identifier for the agent */
   id: string;
+  /** Owning user identifier */
+  userId: string;
   /** Display name for the agent */
   name: string;
   /** Type of AI model/provider (claude, codex, opencode, gemini, other) */
@@ -39,6 +41,7 @@ export class Agent {
    */
   constructor(config: AgentConfig) {
     this.id = config.id;
+    this.userId = config.userId;
     this.name = config.name;
     this.type = config.type;
     this.command = config.command;
@@ -67,6 +70,7 @@ export class Agent {
   static create(input: AgentInput): Agent {
     return new Agent({
       id: randomUUID(),
+      userId: input.userId,
       name: input.name,
       type: input.type,
       command: input.command,
@@ -86,6 +90,7 @@ export class Agent {
   toDTO(): AgentConfig {
     return {
       id: this.id,
+      userId: this.userId,
       name: this.name,
       type: this.type,
       command: this.command,

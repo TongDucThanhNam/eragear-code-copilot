@@ -18,9 +18,9 @@ export class SubscribeSessionEventsService {
     this.sessionRuntime = sessionRuntime;
   }
 
-  execute(chatId: string): SessionEventSubscription {
+  execute(userId: string, chatId: string): SessionEventSubscription {
     const session = this.sessionRuntime.get(chatId);
-    if (!session) {
+    if (!session || session.userId !== userId) {
       throw new NotFoundError("Chat not found", {
         module: "session",
         op: OP,

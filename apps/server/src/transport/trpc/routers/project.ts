@@ -19,7 +19,7 @@ export const projectRouter = router({
   /** List all projects */
   listProjects: protectedProcedure.query(async ({ ctx }) => {
     const service = ctx.container.getProjectServices().listProjects();
-    return await service.execute();
+    return await service.execute(ctx.auth!.userId);
   }),
 
   /** Create a new project */
@@ -27,7 +27,7 @@ export const projectRouter = router({
     .input(CreateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getProjectServices().createProject();
-      return await service.execute(input);
+      return await service.execute(ctx.auth!.userId, input);
     }),
 
   /** Update an existing project */
@@ -35,7 +35,7 @@ export const projectRouter = router({
     .input(UpdateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getProjectServices().updateProject();
-      return await service.execute(input);
+      return await service.execute(ctx.auth!.userId, input);
     }),
 
   /** Delete a project */
@@ -43,7 +43,7 @@ export const projectRouter = router({
     .input(DeleteProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getProjectServices().deleteProject();
-      return await service.execute(input.id);
+      return await service.execute(ctx.auth!.userId, input.id);
     }),
 
   /** Set the active project (for UI state) */
@@ -51,6 +51,6 @@ export const projectRouter = router({
     .input(SetActiveProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.container.getProjectServices().setActiveProject();
-      return await service.execute(input.id);
+      return await service.execute(ctx.auth!.userId, input.id);
     }),
 });

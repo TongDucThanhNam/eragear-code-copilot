@@ -16,6 +16,8 @@ import type {
 export class Project {
   /** Unique identifier for the project */
   id: string;
+  /** Owning user identifier */
+  userId: string;
   /** Display name of the project */
   name: string;
   /** File system path to the project root */
@@ -39,6 +41,7 @@ export class Project {
    */
   constructor(config: ProjectType) {
     this.id = config.id;
+    this.userId = config.userId;
     this.name = config.name;
     this.path = config.path;
     this.description = config.description;
@@ -67,6 +70,7 @@ export class Project {
   static create(input: ProjectInput): Project {
     return new Project({
       id: randomUUID(),
+      userId: input.userId,
       name: input.name.trim(),
       path: input.path,
       description: input.description ?? null,
@@ -100,6 +104,7 @@ export class Project {
   toDTO(): ProjectType {
     return {
       id: this.id,
+      userId: this.userId,
       name: this.name,
       path: this.path,
       description: this.description,

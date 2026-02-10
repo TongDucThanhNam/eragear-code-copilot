@@ -7,10 +7,10 @@ export class ListAgentsService {
     this.agentRepo = agentRepo;
   }
 
-  async execute(projectId?: string | null) {
+  async execute(userId: string, projectId?: string | null) {
     return {
-      agents: await this.agentRepo.listByProject(projectId),
-      activeAgentId: await this.agentRepo.getActiveId(),
+      agents: await this.agentRepo.listByProject(projectId, userId),
+      activeAgentId: await this.agentRepo.getActiveId(userId),
     };
   }
 }

@@ -20,11 +20,14 @@ export class ListDashboardSessionsService {
     this.sessionRuntime = sessionRuntime;
   }
 
-  async execute(input: { limit: number; offset: number }) {
-    const projects = await this.projectRepo.findAll();
+  async execute(input: { userId: string; limit: number; offset: number }) {
+    const projects = await this.projectRepo.findAll(input.userId);
     const [storedSessions, totalSessions] = await Promise.all([
-      this.sessionRepo.findAll({ limit: input.limit, offset: input.offset }),
-      this.sessionRepo.countAll(),
+      this.sessionRepo.findAll(input.userId, {
+        limit: input.limit,
+        offset: input.offset,
+      }),
+      this.sessionRepo.countAll(input.userId),
     ]);
 
     const sessions = storedSessions.map((session: StoredSession) => {

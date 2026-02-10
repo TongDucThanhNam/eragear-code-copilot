@@ -1,0 +1,71 @@
+import type { ChatSession } from "@/shared/types/session.types";
+import type { CreateSessionParams } from "./create-session.types";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
+
+export interface PersistSessionMetadataInput {
+  chatId: string;
+  params: CreateSessionParams;
+  chatSession: ChatSession;
+  agentCommand: string;
+  agentArgs: string[];
+  agentEnv: Record<string, string>;
+  projectRoot: string;
+}
+
+export class SessionMetadataPersistenceService {
+  private readonly sessionRepo: SessionRepositoryPort;
+
+  constructor(sessionRepo: SessionRepositoryPort) {
+    this.sessionRepo = sessionRepo;
+  }
+
+  async persist(input: PersistSessionMetadataInput): Promise<void> {
+    const {
+      chatId,
+      params,
+      chatSession,
+      agentCommand,
+      agentArgs,
+      agentEnv,
+      projectRoot,
+    } = input;
+
+    const commonSessionData = {
+      projectId: params.projectId ?? chatSession.projectId,
+      projectRoot,
+      command: agentCommand,
+      args: agentArgs,
+      env: agentEnv,
+      cwd: projectRoot,
+      agentInfo: chatSession.agentInfo,
+      loadSessionSupported: chatSession.loadSessionSupported,
+      useUnstableResume: chatSession.useUnstableResume,
+      supportsModelSwitching: chatSession.supportsModelSwitching,
+      agentCapabilities: chatSession.agentCapabilities,
+      authMethods: chatSession.authMethods,
+      status: "running" as const,
+      modeId: chatSession.modes?.currentModeId,
+      modelId: chatSession.models?.currentModelId,
+    };
+
+    if (params.sessionIdToLoad) {
+      await this.sessionRepo.updateMetadata(chatId, params.userId, {
+        sessionId: chatSession.sessionId,
+        ...commonSessionData,
+      });
+      return;
+    }
+
+    await this.sessionRepo.save({
+      id: chatId,
+      userId: params.userId,
+      sessionId: chatSession.sessionId,
+      ...commonSessionData,
+      pinned: false,
+      archived: false,
+      createdAt: Date.now(),
+      lastActiveAt: Date.now(),
+      messages: [],
+    });
+  }
+}

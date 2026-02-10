@@ -29,7 +29,7 @@ export class ReconcileSessionStatusService {
 
     let offset = 0;
     while (true) {
-      const storedSessions = await this.sessionRepo.findAll({
+      const storedSessions = await this.sessionRepo.findAllForMaintenance({
         limit: RECONCILE_PAGE_SIZE,
         offset,
       });
@@ -44,7 +44,10 @@ export class ReconcileSessionStatusService {
         if (this.sessionRuntime.has(session.id)) {
           continue;
         }
-        await this.sessionRepo.updateStatus(session.id, "stopped", {
+        if (!session.userId) {
+          continue;
+        }
+        await this.sessionRepo.updateStatus(session.id, session.userId, "stopped", {
           touchLastActiveAt: false,
         });
         updated += 1;

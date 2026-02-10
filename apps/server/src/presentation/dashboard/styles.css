@@ -174,6 +174,9 @@ body {
 .bg-paper {
   background-color: var(--paper);
 }
+.bg-ink {
+  background-color: var(--ink);
+}
 .bg-muted {
   background-color: var(--muted);
 }

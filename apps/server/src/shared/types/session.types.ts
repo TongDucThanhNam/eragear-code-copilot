@@ -227,6 +227,7 @@ export type ChatFinishReason =
 export interface ChatFinishState {
   stopReason?: string;
   messageId?: string;
+  turnId?: string;
 }
 
 /**
@@ -234,7 +235,7 @@ export interface ChatFinishState {
  */
 export type BroadcastEvent =
   | { type: "connected" }
-  | { type: "chat_status"; status: ChatStatus }
+  | { type: "chat_status"; status: ChatStatus; turnId?: string }
   | {
       type: "chat_finish";
       stopReason: string;
@@ -242,8 +243,15 @@ export type BroadcastEvent =
       messageId?: string;
       message?: UIMessage;
       isAbort: boolean;
+      turnId?: string;
     }
   | { type: "ui_message"; message: UIMessage }
+  | {
+      type: "ui_message_delta";
+      messageId: string;
+      delta: string;
+      partType: "text" | "reasoning";
+    }
   | { type: "current_mode_update"; modeId: string }
   | {
       type: "available_commands_update";
@@ -259,6 +267,8 @@ export type BroadcastEvent =
 export interface StoredSession {
   /** Unique identifier */
   id: string;
+  /** Owning user identifier */
+  userId: string;
   /** Optional display name */
   name?: string;
   /** Active session ID from the agent process */
@@ -321,6 +331,8 @@ export interface StoredSession {
 export interface ChatSession {
   /** Session identifier */
   id: string;
+  /** Owning user identifier */
+  userId: string;
   /** Child process for the agent */
   proc: ChildProcess;
   /** ACP connection to the agent */
@@ -388,6 +400,8 @@ export interface ChatSession {
   lastAssistantChunkType?: "message" | "reasoning";
   /** Current chat status for UI */
   chatStatus: ChatStatus;
+  /** Active prompt turn identifier used to correlate HTTP + WS events */
+  activeTurnId?: string;
   /** Pending finish data for the active prompt */
   chatFinish?: ChatFinishState;
   /** Full agent capabilities from initialize response */

@@ -7,12 +7,8 @@
  * @module modules/session/application/resume-session.service
  */
 
-import type { ProjectRepositoryPort } from "@/modules/project";
-import type { SettingsRepositoryPort } from "@/modules/settings";
 import { NotFoundError, ValidationError } from "@/shared/errors";
-import { CreateSessionService } from "./create-session.service";
-import type { AgentRuntimePort } from "./ports/agent-runtime.port";
-import type { SessionAcpPort } from "./ports/session-acp.port";
+import type { CreateSessionService } from "./create-session.service";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
@@ -30,14 +26,8 @@ export class ResumeSessionService {
   private readonly sessionRepo: SessionRepositoryPort;
   /** Runtime store for active sessions */
   private readonly sessionRuntime: SessionRuntimePort;
-  /** Agent process runtime for spawning new processes */
-  private readonly agentRuntime: AgentRuntimePort;
-  /** Repository for application settings */
-  private readonly settingsRepo: SettingsRepositoryPort;
-  /** Repository for project metadata */
-  private readonly projectRepo: ProjectRepositoryPort;
-  /** ACP session adapter */
-  private readonly sessionAcp: SessionAcpPort;
+  /** Create session orchestration service */
+  private readonly createSession: CreateSessionService;
 
   /**
    * Creates a ResumeSessionService with required dependencies
@@ -45,17 +35,11 @@ export class ResumeSessionService {
   constructor(
     sessionRepo: SessionRepositoryPort,
     sessionRuntime: SessionRuntimePort,
-    agentRuntime: AgentRuntimePort,
-    settingsRepo: SettingsRepositoryPort,
-    projectRepo: ProjectRepositoryPort,
-    sessionAcp: SessionAcpPort
+    createSession: CreateSessionService
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
-    this.agentRuntime = agentRuntime;
-    this.settingsRepo = settingsRepo;
-    this.projectRepo = projectRepo;
-    this.sessionAcp = sessionAcp;
+    this.createSession = createSession;
   }
 
   /**
@@ -73,8 +57,8 @@ export class ResumeSessionService {
    * }
    * ```
    */
-  async execute(chatId: string) {
-    const stored = await this.sessionRepo.findById(chatId);
+  async execute(userId: string, chatId: string) {
+    const stored = await this.sessionRepo.findById(chatId, userId);
     if (!stored) {
       throw new NotFoundError("Session not found in store", {
         module: "session",
@@ -104,14 +88,8 @@ export class ResumeSessionService {
       };
     }
 
-    const res = await new CreateSessionService(
-      this.sessionRepo,
-      this.sessionRuntime,
-      this.agentRuntime,
-      this.settingsRepo,
-      this.projectRepo,
-      this.sessionAcp
-    ).execute({
+    const res = await this.createSession.execute({
+      userId,
       projectId: stored.projectId,
       projectRoot: stored.projectRoot,
       command: stored.command,

@@ -14,8 +14,8 @@ export class GetDashboardStatsService {
     this.sessionRepo = sessionRepo;
   }
 
-  async execute() {
-    const projects = await this.projectRepo.findAll();
+  async execute(userId: string) {
+    const projects = await this.projectRepo.findAll(userId);
     const now = Date.now();
     const oneDayAgo = now - 24 * 60 * 60 * 1000;
     const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -26,7 +26,7 @@ export class GetDashboardStatsService {
     let recentSessions24h = 0;
     let weeklySessions = 0;
 
-    await forEachSessionPage(this.sessionRepo, (sessions) => {
+    await forEachSessionPage(this.sessionRepo, userId, (sessions) => {
       for (const session of sessions) {
         totalSessions += 1;
         if (session.status === "running") {

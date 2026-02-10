@@ -33,9 +33,15 @@ export function SettingsTab({
               <h2 className="font-black font-display text-3xl tracking-tight">
                 Project Roots
               </h2>
-              <p className="mt-2 font-body text-muted text-sm">
-                Sessions can only be opened within these directories
-              </p>
+              <div className="mt-4 font-body text-muted text-sm leading-relaxed text-justify">
+                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+                  S
+                </span>
+                essions can only be opened within these registered directories.
+                By defining explicit root paths, you establish a secure boundary
+                for your AI agents, preventing unauthorized access to sensitive
+                areas of your filesystem.
+              </div>
             </div>
             <span className="border border-ink px-3 py-1 font-mono text-xs">
               {settings.projectRoots.length} roots

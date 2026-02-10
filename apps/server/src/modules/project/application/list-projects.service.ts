@@ -7,10 +7,10 @@ export class ListProjectsService {
     this.projectRepo = projectRepo;
   }
 
-  async execute() {
+  async execute(userId: string) {
     return {
-      projects: await this.projectRepo.findAll(),
-      activeProjectId: await this.projectRepo.getActiveId(),
+      projects: await this.projectRepo.findAll(userId),
+      activeProjectId: await this.projectRepo.getActiveId(userId),
     };
   }
 }
