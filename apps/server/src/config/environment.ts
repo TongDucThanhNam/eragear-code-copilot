@@ -9,6 +9,8 @@
 
 import { z } from "zod";
 import {
+  DEFAULT_ACP_REQUEST_MAX_ATTEMPTS,
+  DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS,
   DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
   DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
   DEFAULT_BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS,
@@ -41,6 +43,7 @@ import {
   DEFAULT_WS_PORT,
   HARD_MAX_SESSION_LIST_PAGE_LIMIT,
   HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
+  HARD_MAX_SQLITE_RETENTION_COMPACTION_BATCH_SIZE,
 } from "./constants";
 
 /** Zod schema for environment variable validation */
@@ -100,6 +103,8 @@ const envSchema = z.object({
   SQLITE_WORKER_REQUEST_TIMEOUT_MS: z.string().optional(),
   MESSAGE_CONTENT_MAX_BYTES: z.string().optional(),
   MESSAGE_PARTS_MAX_BYTES: z.string().optional(),
+  ACP_REQUEST_MAX_ATTEMPTS: z.string().optional(),
+  ACP_REQUEST_RETRY_BASE_DELAY_MS: z.string().optional(),
   NODE_ENV: z.string().optional(),
   BUN_ENV: z.string().optional(),
 });
@@ -235,6 +240,15 @@ const normalizedAuthHost = wsHost === "0.0.0.0" ? "localhost" : wsHost;
 const runtimeEnv = env.NODE_ENV ?? env.BUN_ENV ?? "production";
 const isProd = runtimeEnv === "production";
 const isDev = !isProd;
+const sqliteWorkerEnabled = toBoolean(
+  env.SQLITE_WORKER_ENABLED,
+  DEFAULT_SQLITE_WORKER_ENABLED
+);
+if (isProd && !sqliteWorkerEnabled) {
+  throw new Error(
+    "[Config] SQLITE_WORKER_ENABLED must be true in production runtime."
+  );
+}
 const defaultApiKeyRateLimitWindowMs = 60_000;
 const defaultApiKeyRateLimitMaxRequests = 3000;
 const authBaseUrl =
@@ -463,9 +477,11 @@ export const ENV = {
     DEFAULT_SQLITE_RETENTION_HOT_DAYS
   ),
   /** Maximum compacted rows per maintenance batch */
-  sqliteRetentionCompactionBatchSize: toPositiveInt(
+  sqliteRetentionCompactionBatchSize: toBoundedPositiveInt(
     env.SQLITE_RETENTION_COMPACTION_BATCH_SIZE,
-    DEFAULT_SQLITE_RETENTION_COMPACTION_BATCH_SIZE
+    DEFAULT_SQLITE_RETENTION_COMPACTION_BATCH_SIZE,
+    1,
+    HARD_MAX_SQLITE_RETENTION_COMPACTION_BATCH_SIZE
   ),
   /** Soft alert threshold for SQLite DB size */
   sqliteMaxDbSizeMb: toPositiveInt(
@@ -473,10 +489,7 @@ export const ENV = {
     DEFAULT_SQLITE_MAX_DB_SIZE_MB
   ),
   /** Enable SQLite worker-thread request offloading */
-  sqliteWorkerEnabled: toBoolean(
-    env.SQLITE_WORKER_ENABLED,
-    DEFAULT_SQLITE_WORKER_ENABLED
-  ),
+  sqliteWorkerEnabled,
   /** Timeout for one SQLite worker request in milliseconds */
   sqliteWorkerRequestTimeoutMs: toPositiveInt(
     env.SQLITE_WORKER_REQUEST_TIMEOUT_MS,
@@ -491,6 +504,16 @@ export const ENV = {
   messagePartsMaxBytes: toPositiveInt(
     env.MESSAGE_PARTS_MAX_BYTES,
     DEFAULT_MESSAGE_PARTS_MAX_BYTES
+  ),
+  /** Max attempts for ACP requests on transient transport-not-ready errors */
+  acpRequestMaxAttempts: toPositiveInt(
+    env.ACP_REQUEST_MAX_ATTEMPTS,
+    DEFAULT_ACP_REQUEST_MAX_ATTEMPTS
+  ),
+  /** Base delay in milliseconds for ACP retry backoff */
+  acpRequestRetryBaseDelayMs: toPositiveInt(
+    env.ACP_REQUEST_RETRY_BASE_DELAY_MS,
+    DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS
   ),
   /** Optional override path for SQLite drizzle migrations directory */
   sqliteMigrationsDir: env.SQLITE_MIGRATIONS_DIR?.trim() || undefined,

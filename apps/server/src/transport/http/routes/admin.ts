@@ -15,7 +15,7 @@
  */
 
 import type { Context, Hono } from "hono";
-import { getContainer } from "../../../bootstrap/container";
+import type { HttpRouteDependencies } from "./deps";
 import {
   normalizeApiKeyCreateResponse,
   normalizeApiKeyItem,
@@ -25,9 +25,11 @@ import {
 /**
  * Registers admin-related HTTP routes
  */
-export function registerAdminRoutes(api: Hono): void {
-  const container = getContainer();
-  const auth = container.getAuth();
+export function registerAdminRoutes(
+  api: Hono,
+  deps: Pick<HttpRouteDependencies, "auth" | "logger">
+): void {
+  const { auth, logger } = deps;
 
   // =========================================================================
   // API Routes - API Keys
@@ -46,7 +48,9 @@ export function registerAdminRoutes(api: Hono): void {
         : [];
       return c.json({ keys: normalized });
     } catch (error) {
-      console.error("Failed to list API keys:", error);
+      logger.error("Failed to list API keys", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to list API keys" }, 500);
     }
   });
@@ -92,7 +96,9 @@ export function registerAdminRoutes(api: Hono): void {
 
       return c.json({ apiKey });
     } catch (error) {
-      console.error("Failed to create API key:", error);
+      logger.error("Failed to create API key", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to create API key" }, 500);
     }
   });
@@ -115,7 +121,9 @@ export function registerAdminRoutes(api: Hono): void {
       });
       return c.json({ result });
     } catch (error) {
-      console.error("Failed to delete API key:", error);
+      logger.error("Failed to delete API key", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to delete API key" }, 500);
     }
   });
@@ -137,7 +145,9 @@ export function registerAdminRoutes(api: Hono): void {
         : [];
       return c.json({ sessions: normalized });
     } catch (error) {
-      console.error("Failed to list device sessions:", error);
+      logger.error("Failed to list device sessions", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to list device sessions" }, 500);
     }
   });
@@ -159,7 +169,9 @@ export function registerAdminRoutes(api: Hono): void {
       });
       return c.json({ result });
     } catch (error) {
-      console.error("Failed to revoke device session:", error);
+      logger.error("Failed to revoke device session", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to revoke device session" }, 500);
     }
   });
@@ -181,7 +193,9 @@ export function registerAdminRoutes(api: Hono): void {
       });
       return c.json({ session: result });
     } catch (error) {
-      console.error("Failed to set active session:", error);
+      logger.error("Failed to set active session", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to set active session" }, 500);
     }
   });

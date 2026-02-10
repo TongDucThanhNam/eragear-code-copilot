@@ -37,13 +37,7 @@ export const sessionRouter = router({
   createSession: protectedProcedure
     .input(CreateSessionInputSchema)
     .mutation(async ({ input, ctx }) => {
-      // DEBUG: Log tRPC input
-      console.log(
-        "[DEBUG] createSession tRPC input:",
-        JSON.stringify(input, null, 2)
-      );
-
-      const service = ctx.container.getSessionServices().createSession();
+      const service = ctx.sessionServices.createSession();
       const res = await service.execute({
         userId: requireUserId(ctx),
         projectId: input.projectId,
@@ -67,7 +61,7 @@ export const sessionRouter = router({
   stopSession: protectedProcedure
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getSessionServices().stopSession();
+      const service = ctx.sessionServices.stopSession();
       return await service.execute(requireUserId(ctx), input.chatId);
     }),
 
@@ -75,7 +69,7 @@ export const sessionRouter = router({
   resumeSession: protectedProcedure
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getSessionServices().resumeSession();
+      const service = ctx.sessionServices.resumeSession();
       return await service.execute(requireUserId(ctx), input.chatId);
     }),
 
@@ -83,7 +77,7 @@ export const sessionRouter = router({
   deleteSession: protectedProcedure
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getSessionServices().deleteSession();
+      const service = ctx.sessionServices.deleteSession();
       return await service.execute(requireUserId(ctx), input.chatId);
     }),
 
@@ -91,7 +85,7 @@ export const sessionRouter = router({
   getSessionState: protectedProcedure
     .input(SessionChatIdInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.container.getSessionServices().getSessionState();
+      const service = ctx.sessionServices.getSessionState();
       return await service.execute(requireUserId(ctx), input.chatId);
     }),
 
@@ -102,7 +96,7 @@ export const sessionRouter = router({
       const limit = input?.limit ?? DEFAULT_SESSION_LIST_PAGE_LIMIT;
       const offset = input?.offset ?? 0;
 
-      const service = ctx.container.getSessionServices().listSessions();
+      const service = ctx.sessionServices.listSessions();
       return await service.execute(requireUserId(ctx), {
         limit: Math.min(limit, ENV.sessionListPageMaxLimit),
         offset,
@@ -113,7 +107,7 @@ export const sessionRouter = router({
   updateSessionMeta: protectedProcedure
     .input(UpdateSessionMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getSessionServices().updateSessionMeta();
+      const service = ctx.sessionServices.updateSessionMeta();
       return await service.execute({ ...input, userId: requireUserId(ctx) });
     }),
 
@@ -121,7 +115,7 @@ export const sessionRouter = router({
   getSessionMessages: protectedProcedure
     .input(SessionChatIdInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.container.getSessionServices().getSessionMessages();
+      const service = ctx.sessionServices.getSessionMessages();
       const messages: Awaited<ReturnType<typeof service.execute>>["messages"] =
         [];
       let cursor: number | undefined;
@@ -148,7 +142,7 @@ export const sessionRouter = router({
   getSessionMessagesPage: protectedProcedure
     .input(SessionMessagesPageInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.container.getSessionServices().getSessionMessages();
+      const service = ctx.sessionServices.getSessionMessages();
       return await service.execute({
         userId: requireUserId(ctx),
         chatId: input.chatId,
@@ -163,7 +157,7 @@ export const sessionRouter = router({
 
   /** Get current SQLite storage statistics */
   getStorageStats: protectedProcedure.query(async ({ ctx }) => {
-    const service = ctx.container.getSessionServices().getSessionStorageStats();
+    const service = ctx.sessionServices.getSessionStorageStats();
     return await service.execute();
   }),
 
@@ -171,9 +165,7 @@ export const sessionRouter = router({
   onSessionEvents: protectedProcedure
     .input(SessionChatIdInputSchema)
     .subscription(({ input, ctx }) => {
-      const service = ctx.container
-        .getSessionServices()
-        .subscribeSessionEvents();
+      const service = ctx.sessionServices.subscribeSessionEvents();
       return observable<BroadcastEvent>((emit) => {
         let subscription: ReturnType<typeof service.execute> | undefined;
         try {

@@ -18,7 +18,7 @@ export const codeRouter = router({
   getProjectContext: protectedProcedure
     .input(CodeChatIdInputSchema)
     .query(({ input, ctx }) => {
-      const service = ctx.container.getToolingServices().codeContext();
+      const service = ctx.toolingServices.codeContext();
       return service.getProjectContext(input.chatId);
     }),
 
@@ -26,7 +26,7 @@ export const codeRouter = router({
   getGitDiff: protectedProcedure
     .input(CodeChatIdInputSchema)
     .query(({ input, ctx }) => {
-      const service = ctx.container.getToolingServices().codeContext();
+      const service = ctx.toolingServices.codeContext();
       return service.getGitDiff(input.chatId);
     }),
 
@@ -34,7 +34,7 @@ export const codeRouter = router({
   getFileContent: protectedProcedure
     .input(CodeFileContentInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.container.getToolingServices().codeContext();
+      const service = ctx.toolingServices.codeContext();
       return await service.getFileContent(input.chatId, input.path);
     }),
 });

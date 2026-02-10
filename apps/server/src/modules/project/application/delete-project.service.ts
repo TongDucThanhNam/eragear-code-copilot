@@ -22,6 +22,10 @@ export class DeleteProjectService {
         details: { projectId: id },
       });
     }
+    const activeProjectId = await this.projectRepo.getActiveId(userId);
+    if (activeProjectId === id) {
+      await this.projectRepo.setActive(null, userId);
+    }
 
     await this.eventBus.publish({
       type: "project_deleting",

@@ -7,12 +7,12 @@ import type {
 import type { ProjectRepositoryPort } from "../application/ports/project-repository.port";
 
 export class ProjectSqliteWorkerRepository implements ProjectRepositoryPort {
-  async setAllowedRoots(roots: string[]): Promise<void> {
-    await callSqliteWorker("storage", "setAllowedRoots", [roots]);
-  }
-
   findById(id: string, userId: string): Promise<Project | undefined> {
     return callSqliteWorker("project", "findById", [id, userId]);
+  }
+
+  findByPath(path: string): Promise<Project | undefined> {
+    return callSqliteWorker("project", "findByPath", [path]);
   }
 
   findAll(userId: string): Promise<Project[]> {

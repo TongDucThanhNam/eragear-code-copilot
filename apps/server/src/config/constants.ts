@@ -58,6 +58,12 @@ export const DEFAULT_SQLITE_MAX_DB_SIZE_MB = 2048;
 export const DEFAULT_SQLITE_BUSY_MAX_RETRIES = 5;
 /** Base delay for SQLITE_BUSY retry backoff */
 export const DEFAULT_SQLITE_BUSY_RETRY_BASE_DELAY_MS = 25;
+/** Default max ACP request attempts for transient transport errors */
+export const DEFAULT_ACP_REQUEST_MAX_ATTEMPTS = 3;
+/** Default base retry delay for ACP request retries */
+export const DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS = 150;
+/** Hard cap for compaction batch size per run */
+export const HARD_MAX_SQLITE_RETENTION_COMPACTION_BATCH_SIZE = 500;
 /** Enable SQLite worker-thread offloading by default */
 export const DEFAULT_SQLITE_WORKER_ENABLED = true;
 /** Default timeout for one SQLite worker request */

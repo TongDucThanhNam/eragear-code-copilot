@@ -10,6 +10,8 @@ import type {
 export interface ProjectRepositoryPort {
   /** Find a project by ID */
   findById(id: string, userId: string): Promise<Project | undefined>;
+  /** Find a project by path */
+  findByPath(path: string): Promise<Project | undefined>;
   /** Find all projects */
   findAll(userId: string): Promise<Project[]>;
   /** Get the currently active project ID */
@@ -22,6 +24,4 @@ export interface ProjectRepositoryPort {
   delete(id: string, userId: string): Promise<void>;
   /** Set the active project */
   setActive(id: string | null, userId: string): Promise<void>;
-  /** Set allowed project roots */
-  setAllowedRoots(roots: string[]): Promise<void>;
 }

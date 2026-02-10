@@ -7,6 +7,7 @@ import {
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createLogger } from "@/platform/logging/structured-logger";
 
 const APP_DIR_NAME = "Eragear";
 const SQLITE_FILE_NAME = "eragear.sqlite";
@@ -33,6 +34,7 @@ let storageResolution: {
   rejectedPath?: string;
   reason?: string;
 } | null = null;
+const logger = createLogger("Storage");
 
 function getPlatformConfigDir(): string {
   if (process.platform === "win32") {
@@ -168,9 +170,12 @@ export function getStorageDirPathSync(): string {
       );
     }
 
-    console.warn(
-      `[Storage] ${STORAGE_DIR_ENV_KEY} points to a risky path (${riskReason}); falling back to local storage: ${fallback}`
-    );
+    logger.warn("Configured storage path rejected due risk; falling back", {
+      envKey: STORAGE_DIR_ENV_KEY,
+      rejectedPath: resolved,
+      fallbackPath: fallback,
+      reason: riskReason,
+    });
     storageDir = fallback;
     storageResolution = {
       path: fallback,

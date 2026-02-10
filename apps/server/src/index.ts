@@ -11,9 +11,12 @@
  */
 
 import { startServer } from "./bootstrap/server";
+import { createLogger } from "./platform/logging/structured-logger";
+
+const logger = createLogger("Server");
 
 // Start the server and handle any initialization errors
 startServer().catch((err) => {
-  console.error("[Server] Failed to start:", err);
+  logger.error("Failed to start server", err as Error);
   process.exit(1);
 });

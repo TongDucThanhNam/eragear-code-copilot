@@ -22,7 +22,12 @@ export class DeleteAgentService {
         details: { id },
       });
     }
+    const activeAgentId = await this.agentRepo.getActiveId(userId);
     await this.agentRepo.delete(id, userId);
+    if (activeAgentId === id) {
+      const remainingAgents = await this.agentRepo.findAll(userId);
+      await this.agentRepo.setActive(remainingAgents[0]?.id ?? null, userId);
+    }
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "agent_deleted",

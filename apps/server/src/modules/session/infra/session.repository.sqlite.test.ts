@@ -129,4 +129,58 @@ describe("SessionSqliteRepository.save", () => {
     expect(page.messages.map((message) => message.id)).toEqual(["m-1"]);
     expect(page.messages[0]?.content).toBe("hello");
   });
+
+  test("compacts only explicitly targeted session IDs", async () => {
+    const repo = new SessionSqliteRepository();
+    const targetChatId = "chat-compact-target";
+    const untouchedChatId = "chat-compact-untouched";
+    const base = Date.now();
+
+    await repo.save(createSession(targetChatId, [], base));
+    await repo.save(createSession(untouchedChatId, [], base));
+    await repo.updateStatus(targetChatId, "user-1", "running");
+
+    await repo.appendMessage(
+      targetChatId,
+      "user-1",
+      createMessage("m-target", "assistant", "target-content", base - 1000)
+    );
+    await repo.appendMessage(
+      untouchedChatId,
+      "user-1",
+      createMessage(
+        "m-untouched",
+        "assistant",
+        "untouched-content",
+        base - 1000
+      )
+    );
+
+    const result = await repo.compactMessages({
+      beforeTimestamp: base,
+      batchSize: 10,
+      sessionIds: [targetChatId],
+    });
+    expect(result.compacted).toBe(1);
+
+    const targetPage = await repo.getMessagesPage(targetChatId, "user-1", {
+      limit: 10,
+      includeCompacted: true,
+    });
+    expect(targetPage.messages).toHaveLength(1);
+    expect(targetPage.messages[0]?.isCompacted).toBe(true);
+    expect(targetPage.messages[0]?.content).toBe("");
+
+    const untouchedPage = await repo.getMessagesPage(
+      untouchedChatId,
+      "user-1",
+      {
+        limit: 10,
+        includeCompacted: true,
+      }
+    );
+    expect(untouchedPage.messages).toHaveLength(1);
+    expect(untouchedPage.messages[0]?.isCompacted).toBe(false);
+    expect(untouchedPage.messages[0]?.content).toBe("untouched-content");
+  });
 });

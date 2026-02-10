@@ -12,6 +12,7 @@ import type {
   SessionRuntimePort,
 } from "@/modules/session";
 import { AppError, NotFoundError, ValidationError } from "@/shared/errors";
+import type { ChatSession } from "@/shared/types/session.types";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
   getAcpErrorText,
@@ -19,6 +20,7 @@ import {
   isProcessExited,
   isProcessTransportNotReady,
 } from "./acp-error.util";
+import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 
 const OP = "ai.session.mode.set";
 
@@ -60,6 +62,47 @@ export class SetModeService {
    * @throws Error if session is not found or not running
    */
   async execute(userId: string, chatId: string, modeId: string) {
+    const session = this.getSessionForModeSwitch(userId, chatId, modeId);
+
+    if (session.modes?.currentModeId === modeId) {
+      return { ok: true };
+    }
+
+    this.ensureSessionRunning(session, chatId, modeId);
+
+    try {
+      await this.sendModeSwitchWithRetry(chatId, modeId, session);
+    } catch (error) {
+      const errorText = getAcpErrorText(error);
+      if (isMethodNotFound(errorText)) {
+        throw new ValidationError("Agent does not support mode switching", {
+          module: "ai",
+          op: OP,
+          details: { chatId, modeId },
+        });
+      }
+      throw new AppError({
+        message: errorText || "Failed to set mode",
+        code: "SET_MODE_FAILED",
+        statusCode: 502,
+        module: "ai",
+        op: OP,
+        cause: error,
+        details: { chatId, modeId },
+      });
+    }
+
+    if (session.modes) {
+      session.modes.currentModeId = modeId;
+    }
+    return { ok: true };
+  }
+
+  private getSessionForModeSwitch(
+    userId: string,
+    chatId: string,
+    modeId: string
+  ): ChatSession {
     const session = this.sessionRuntime.get(chatId);
     if (!session?.sessionId || session.userId !== userId) {
       throw new NotFoundError("Chat not found", {
@@ -68,7 +111,7 @@ export class SetModeService {
         details: { chatId, modeId },
       });
     }
-    // Check if agent supports mode switching
+
     if (!session.modes || session.modes.availableModes.length === 0) {
       throw new ValidationError("Agent does not support mode switching", {
         module: "ai",
@@ -76,7 +119,7 @@ export class SetModeService {
         details: { chatId, modeId },
       });
     }
-    // Check if the requested mode is available
+
     const isAvailableMode = session.modes.availableModes.some(
       (mode) => mode.id === modeId
     );
@@ -87,10 +130,15 @@ export class SetModeService {
         details: { chatId, modeId },
       });
     }
-    // Skip if already on this mode
-    if (session.modes.currentModeId === modeId) {
-      return { ok: true };
-    }
+
+    return session;
+  }
+
+  private ensureSessionRunning(
+    session: ChatSession,
+    chatId: string,
+    modeId: string
+  ): void {
     const stdin = session.proc.stdin;
     if (
       !stdin ||
@@ -118,86 +166,73 @@ export class SetModeService {
         details: { chatId, modeId },
       });
     }
+  }
 
-    const markStopped = async (reason: string) => {
-      this.sessionRuntime.broadcast(chatId, {
-        type: "error",
-        error: reason,
-      });
-      updateChatStatus({
-        chatId,
-        session,
-        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-        status: "error",
-      });
-      await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
-      if (!session.proc.killed) {
-        session.proc.kill();
-      }
-      this.sessionRuntime.delete(chatId);
-    };
+  private async sendModeSwitchWithRetry(
+    chatId: string,
+    modeId: string,
+    session: ChatSession
+  ): Promise<void> {
+    const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy();
 
-    const sendRequest = async () => {
-      await session.conn.setSessionMode({
-        sessionId: session.sessionId ?? "",
-        modeId,
-      });
-    };
-
-    try {
-      const maxAttempts = 3;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        try {
-          await sendRequest();
-          break;
-        } catch (error) {
-          const errorText = getAcpErrorText(error);
-          if (
-            isProcessTransportNotReady(errorText) &&
-            attempt < maxAttempts - 1
-          ) {
-            await new Promise((resolve) =>
-              setTimeout(resolve, 150 * (attempt + 1))
-            );
-            continue;
-          }
-          if (isProcessExited(errorText)) {
-            await markStopped(errorText || "Agent process exited");
-            throw new AppError({
-              message: errorText || "Agent process exited",
-              code: "AGENT_PROCESS_EXITED",
-              statusCode: 503,
-              module: "ai",
-              op: OP,
-              details: { chatId, modeId },
-            });
-          }
-          throw error;
-        }
-      }
-    } catch (error) {
-      const errorText = getAcpErrorText(error);
-      if (isMethodNotFound(errorText)) {
-        throw new ValidationError("Agent does not support mode switching", {
-          module: "ai",
-          op: OP,
-          details: { chatId, modeId },
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        await session.conn.setSessionMode({
+          sessionId: session.sessionId ?? "",
+          modeId,
         });
-      }
-      throw new AppError({
-        message: errorText || "Failed to set mode",
-        code: "SET_MODE_FAILED",
-        statusCode: 502,
-        module: "ai",
-        op: OP,
-        cause: error,
-        details: { chatId, modeId },
-      });
-    }
+        return;
+      } catch (error) {
+        const errorText = getAcpErrorText(error);
+        if (
+          isProcessTransportNotReady(errorText) &&
+          attempt < maxAttempts - 1
+        ) {
+          await new Promise((resolve) => {
+            setTimeout(
+              resolve,
+              getAcpRetryDelayMs(attempt + 1, retryBaseDelayMs)
+            );
+          });
+          continue;
+        }
 
-    if (session.modes) {
-      session.modes.currentModeId = modeId;
+        if (isProcessExited(errorText)) {
+          const reason = errorText || "Agent process exited";
+          await this.markSessionStopped(chatId, session, reason);
+          throw new AppError({
+            message: reason,
+            code: "AGENT_PROCESS_EXITED",
+            statusCode: 503,
+            module: "ai",
+            op: OP,
+            details: { chatId, modeId },
+          });
+        }
+        throw error;
+      }
     }
-    return { ok: true };
+  }
+
+  private async markSessionStopped(
+    chatId: string,
+    session: ChatSession,
+    reason: string
+  ): Promise<void> {
+    this.sessionRuntime.broadcast(chatId, {
+      type: "error",
+      error: reason,
+    });
+    updateChatStatus({
+      chatId,
+      session,
+      broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+      status: "error",
+    });
+    await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
+    if (!session.proc.killed) {
+      session.proc.kill();
+    }
+    this.sessionRuntime.delete(chatId);
   }
 }

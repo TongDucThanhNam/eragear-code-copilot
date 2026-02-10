@@ -1,9 +1,8 @@
 /**
  * Dependency Injection Container
  *
- * Creates and wires all adapters, repositories, and services for the application.
- * Implements the dependency inversion principle by injecting ports (interfaces)
- * with concrete implementations (adapters).
+ * Holds pre-built dependencies and lazily exposes service factories.
+ * Composition lives in bootstrap/composition.ts.
  *
  * @module bootstrap/container
  */
@@ -12,14 +11,11 @@ import {
   type AgentRepositoryPort,
   CreateAgentService,
   DeleteAgentService,
+  EnsureAgentDefaultsService,
   ListAgentsService,
   SetActiveAgentService,
   UpdateAgentService,
 } from "@/modules/agent";
-import {
-  AgentSqliteRepository,
-  AgentSqliteWorkerRepository,
-} from "@/modules/agent/di";
 import {
   CancelPromptService,
   SendMessageService,
@@ -41,13 +37,19 @@ import {
   SetActiveProjectService,
   UpdateProjectService,
 } from "@/modules/project";
-import {
-  ProjectSqliteRepository,
-  ProjectSqliteWorkerRepository,
-} from "@/modules/project/di";
+import type {
+  AgentServiceFactory,
+  AiServiceFactory,
+  OpsServiceFactory,
+  ProjectServiceFactory,
+  SessionServiceFactory,
+  SettingsServiceFactory,
+  ToolingServiceFactory,
+} from "@/modules/service-factories";
 import {
   type AgentRuntimePort,
   CleanupProjectSessionsService,
+  CompactSessionMessagesService,
   CreateSessionService,
   DeleteSessionService,
   GetSessionMessagesService,
@@ -73,20 +75,10 @@ import {
   UpdateSessionMetaService,
 } from "@/modules/session";
 import {
-  SessionAcpAdapter,
-  SessionRuntimeStore,
-  SessionSqliteRepository,
-  SessionSqliteWorkerRepository,
-} from "@/modules/session/di";
-import {
   GetSettingsService,
   type SettingsRepositoryPort,
   UpdateSettingsService,
 } from "@/modules/settings";
-import {
-  SettingsSqliteRepository,
-  SettingsSqliteWorkerRepository,
-} from "@/modules/settings/di";
 import {
   CodeContextService,
   RespondPermissionService,
@@ -95,72 +87,43 @@ import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
-import { ENV } from "../config/environment";
-import { auth, authDb } from "../platform/auth/auth";
-import { getAuthContext } from "../platform/auth/guards";
+import type {
+  authDb as authDbType,
+  auth as authServiceType,
+} from "../platform/auth/auth";
+import type { AuthContext } from "../platform/auth/guards";
 import { getResponseCache } from "../platform/caching/response-cache";
 import type { CacheStats } from "../platform/caching/types";
-import { GitAdapter } from "../platform/git";
-import { getLogStore } from "../platform/logging/log-store";
-import { createAppLogger } from "../platform/logging/logger-adapter";
-import { AgentRuntimeAdapter } from "../platform/process";
-import { initializeSqliteWorker } from "../platform/storage/sqlite-worker-client";
-import { EventBus } from "../shared/utils/event-bus";
+import type { GitAdapter } from "../platform/git";
 
-export interface SessionServiceFactory {
-  createSession(): CreateSessionService;
-  stopSession(): StopSessionService;
-  resumeSession(): ResumeSessionService;
-  deleteSession(): DeleteSessionService;
-  getSessionState(): GetSessionStateService;
-  listSessions(): ListSessionsService;
-  updateSessionMeta(): UpdateSessionMetaService;
-  getSessionMessages(): GetSessionMessagesService;
-  getSessionStorageStats(): GetSessionStorageStatsService;
-  subscribeSessionEvents(): SubscribeSessionEventsService;
-  cleanupProjectSessions(): CleanupProjectSessionsService;
-  reconcileSessionStatus(): ReconcileSessionStatusService;
-}
+export type {
+  AgentServiceFactory,
+  AiServiceFactory,
+  OpsServiceFactory,
+  ProjectServiceFactory,
+  SessionServiceFactory,
+  SettingsServiceFactory,
+  ToolingServiceFactory,
+} from "@/modules/service-factories";
 
-export interface AiServiceFactory {
-  sendMessage(): SendMessageService;
-  setModel(): SetModelService;
-  setMode(): SetModeService;
-  cancelPrompt(): CancelPromptService;
-}
-
-export interface ProjectServiceFactory {
-  listProjects(): ListProjectsService;
-  createProject(): CreateProjectService;
-  updateProject(): UpdateProjectService;
-  deleteProject(): DeleteProjectService;
-  setActiveProject(): SetActiveProjectService;
-}
-
-export interface AgentServiceFactory {
-  listAgents(): ListAgentsService;
-  createAgent(): CreateAgentService;
-  updateAgent(): UpdateAgentService;
-  deleteAgent(): DeleteAgentService;
-  setActiveAgent(): SetActiveAgentService;
-}
-
-export interface SettingsServiceFactory {
-  getSettings(): GetSettingsService;
-  updateSettings(): UpdateSettingsService;
-}
-
-export interface ToolingServiceFactory {
-  codeContext(): CodeContextService;
-  respondPermission(): RespondPermissionService;
-}
-
-export interface OpsServiceFactory {
-  observabilitySnapshot(): GetObservabilitySnapshotService;
-  dashboardProjects(): ListDashboardProjectsService;
-  dashboardSessions(): ListDashboardSessionsService;
-  dashboardStats(): GetDashboardStatsService;
-  dashboardPageData(): GetDashboardPageDataService;
+export interface ContainerDependencies {
+  eventBus: EventBusPort;
+  sessionRuntime: SessionRuntimePort;
+  logStore: LogStorePort;
+  appLogger: LoggerPort;
+  sessionRepo: SessionRepositoryPort;
+  projectRepo: ProjectRepositoryPort;
+  agentRepo: AgentRepositoryPort;
+  settingsRepo: SettingsRepositoryPort;
+  gitAdapter: GitAdapter;
+  agentRuntimeAdapter: AgentRuntimePort;
+  sessionAcpAdapter: SessionAcpPort;
+  authService: typeof authServiceType;
+  authDb: typeof authDbType;
+  resolveAuthContext: (req?: {
+    headers: Headers | Record<string, string | string[] | undefined>;
+    url?: string;
+  }) => Promise<AuthContext | null>;
 }
 
 /**
@@ -176,6 +139,12 @@ export class Container {
   private readonly logStore: LogStorePort;
   /** Application logger port for use-cases */
   private readonly appLogger: LoggerPort;
+  /** Auth service runtime */
+  private readonly authService: typeof authServiceType;
+  /** Auth database runtime */
+  private readonly authDbInstance: typeof authDbType;
+  /** Auth context resolver */
+  private readonly authContextResolver: ContainerDependencies["resolveAuthContext"];
   /** Background runner state provider */
   private backgroundRunnerStateProvider:
     | (() => BackgroundRunnerState)
@@ -213,110 +182,52 @@ export class Container {
   /** ACP session adapter for ACP handlers and buffering */
   sessionAcpAdapter: SessionAcpPort;
 
-  /**
-   * Creates a new Container instance
-   * @param allowedRoots - Array of allowed project root paths
-   */
-  constructor(allowedRoots: string[] = [process.cwd()]) {
-    // Core services
-    this.eventBus = new EventBus();
-    this.sessionRuntime = new SessionRuntimeStore(this.eventBus);
-    this.logStore = getLogStore();
-    this.appLogger = createAppLogger("Debug");
+  constructor(deps: ContainerDependencies) {
+    this.eventBus = deps.eventBus;
+    this.sessionRuntime = deps.sessionRuntime;
+    this.logStore = deps.logStore;
+    this.appLogger = deps.appLogger;
 
-    if (ENV.sqliteWorkerEnabled) {
-      initializeSqliteWorker(allowedRoots);
+    this.sessionRepo = deps.sessionRepo;
+    this.projectRepo = deps.projectRepo;
+    this.agentRepo = deps.agentRepo;
+    this.settingsRepo = deps.settingsRepo;
 
-      // SQLite IO runs in dedicated worker thread.
-      this.sessionRepo = new SessionSqliteWorkerRepository();
-      this.projectRepo = new ProjectSqliteWorkerRepository();
-      this.agentRepo = new AgentSqliteWorkerRepository();
-      this.settingsRepo = new SettingsSqliteWorkerRepository();
-    } else {
-      // Initialize repositories
-      this.sessionRepo = new SessionSqliteRepository();
-      this.projectRepo = new ProjectSqliteRepository(allowedRoots);
-      this.agentRepo = new AgentSqliteRepository();
-      this.settingsRepo = new SettingsSqliteRepository();
-    }
+    this.gitAdapter = deps.gitAdapter;
+    this.agentRuntimeAdapter = deps.agentRuntimeAdapter;
+    this.sessionAcpAdapter = deps.sessionAcpAdapter;
 
-    // Initialize adapters
-    this.gitAdapter = new GitAdapter();
-    this.agentRuntimeAdapter = new AgentRuntimeAdapter();
-    this.sessionAcpAdapter = new SessionAcpAdapter();
-
-    this.registerDomainEventHandlers();
+    this.authService = deps.authService;
+    this.authDbInstance = deps.authDb;
+    this.authContextResolver = deps.resolveAuthContext;
   }
 
-  private registerDomainEventHandlers(): void {
-    this.eventBus.subscribe(async (event) => {
-      if (event.type !== "project_deleting") {
-        return;
-      }
-
-      const service = this.getSessionServices().cleanupProjectSessions();
-      await service.execute({
-        userId: event.userId,
-        projectId: event.projectId,
-        projectPath: event.projectPath,
-      });
-    });
-  }
-
-  /**
-   * Gets the event bus instance
-   * @returns The event bus for publishing and subscribing to events
-   */
   getEventBus(): EventBusPort {
     return this.eventBus;
   }
 
-  /**
-   * Gets the session runtime store
-   * @returns The session runtime port for managing active sessions
-   */
   getSessionRuntime(): SessionRuntimePort {
     return this.sessionRuntime;
   }
 
-  /**
-   * Gets the log store instance
-   * @returns The log store for log retrieval
-   */
   getLogStore(): LogStorePort {
     return this.logStore;
   }
 
-  /**
-   * Gets the shared application logger
-   * @returns Logger port implementation
-   */
   getAppLogger(): LoggerPort {
     return this.appLogger;
   }
 
-  /**
-   * Gets response cache statistics
-   * @returns Cache stats snapshot
-   */
   getCacheStats(): CacheStats {
     return getResponseCache().getStats();
   }
 
-  /**
-   * Registers background runner state provider
-   * @param provider - Function returning current background runner state
-   */
   setBackgroundRunnerStateProvider(
     provider: () => BackgroundRunnerState
   ): void {
     this.backgroundRunnerStateProvider = provider;
   }
 
-  /**
-   * Gets background runner state snapshot
-   * @returns Background runner state or null when runner is not configured
-   */
   getBackgroundRunnerState(): BackgroundRunnerState | null {
     if (!this.backgroundRunnerStateProvider) {
       return null;
@@ -324,57 +235,30 @@ export class Container {
     return this.backgroundRunnerStateProvider();
   }
 
-  /**
-   * Gets the session repository
-   * @returns The session repository for session persistence
-   */
   getSessions(): SessionRepositoryPort {
     return this.sessionRepo;
   }
 
-  /**
-   * Gets the project repository
-   * @returns The project repository for project management
-   */
   getProjects(): ProjectRepositoryPort {
     return this.projectRepo;
   }
 
-  /**
-   * Gets the agent repository
-   * @returns The agent repository for agent management
-   */
   getAgents(): AgentRepositoryPort {
     return this.agentRepo;
   }
 
-  /**
-   * Gets the settings repository
-   * @returns The settings repository for accessing settings
-   */
   getSettings(): SettingsRepositoryPort {
     return this.settingsRepo;
   }
 
-  /**
-   * Gets the agent runtime adapter
-   * @returns The agent runtime port for spawning agent processes
-   */
   getAgentRuntime(): AgentRuntimePort {
     return this.agentRuntimeAdapter;
   }
 
-  /**
-   * Gets the ACP session adapter
-   * @returns The ACP session adapter
-   */
   getSessionAcp(): SessionAcpPort {
     return this.sessionAcpAdapter;
   }
 
-  /**
-   * Gets session use-case factories.
-   */
   getSessionServices(): SessionServiceFactory {
     if (!this.sessionServices) {
       const buildCreateSessionService = () => {
@@ -474,15 +358,14 @@ export class Container {
             this.sessionRepo,
             this.sessionRuntime
           ),
+        compactSessionMessages: () =>
+          new CompactSessionMessagesService(this.sessionRepo),
       };
     }
 
     return this.sessionServices;
   }
 
-  /**
-   * Gets AI use-case factories.
-   */
   getAiServices(): AiServiceFactory {
     if (!this.aiServices) {
       this.aiServices = {
@@ -503,17 +386,22 @@ export class Container {
     return this.aiServices;
   }
 
-  /**
-   * Gets project use-case factories.
-   */
   getProjectServices(): ProjectServiceFactory {
     if (!this.projectServices) {
       this.projectServices = {
         listProjects: () => new ListProjectsService(this.projectRepo),
         createProject: () =>
-          new CreateProjectService(this.projectRepo, this.eventBus),
+          new CreateProjectService(
+            this.projectRepo,
+            this.settingsRepo,
+            this.eventBus
+          ),
         updateProject: () =>
-          new UpdateProjectService(this.projectRepo, this.eventBus),
+          new UpdateProjectService(
+            this.projectRepo,
+            this.settingsRepo,
+            this.eventBus
+          ),
         deleteProject: () =>
           new DeleteProjectService(this.projectRepo, this.eventBus),
         setActiveProject: () =>
@@ -524,12 +412,11 @@ export class Container {
     return this.projectServices;
   }
 
-  /**
-   * Gets agent use-case factories.
-   */
   getAgentServices(): AgentServiceFactory {
     if (!this.agentServices) {
       this.agentServices = {
+        ensureAgentDefaults: () =>
+          new EnsureAgentDefaultsService(this.agentRepo),
         listAgents: () => new ListAgentsService(this.agentRepo),
         createAgent: () =>
           new CreateAgentService(this.agentRepo, this.eventBus),
@@ -544,28 +431,18 @@ export class Container {
     return this.agentServices;
   }
 
-  /**
-   * Gets settings use-case factories.
-   */
   getSettingsServices(): SettingsServiceFactory {
     if (!this.settingsServices) {
       this.settingsServices = {
         getSettings: () => new GetSettingsService(this.settingsRepo),
         updateSettings: () =>
-          new UpdateSettingsService(
-            this.settingsRepo,
-            this.projectRepo,
-            this.eventBus
-          ),
+          new UpdateSettingsService(this.settingsRepo, this.eventBus),
       };
     }
 
     return this.settingsServices;
   }
 
-  /**
-   * Gets tooling use-case factories.
-   */
   getToolingServices(): ToolingServiceFactory {
     if (!this.toolingServices) {
       this.toolingServices = {
@@ -579,9 +456,6 @@ export class Container {
     return this.toolingServices;
   }
 
-  /**
-   * Gets operational use-case factories.
-   */
   getOpsServices(): OpsServiceFactory {
     if (!this.opsServices) {
       const dashboardProjects = new ListDashboardProjectsService(
@@ -621,66 +495,21 @@ export class Container {
     return this.opsServices;
   }
 
-  /**
-   * Gets the git adapter
-   * @returns The git adapter for git operations
-   */
   getGit(): GitAdapter {
     return this.gitAdapter;
   }
 
-  /**
-   * Gets the auth service instance
-   * @returns The auth service for authentication operations
-   */
   getAuth() {
-    return auth;
+    return this.authService;
   }
 
-  /**
-   * Gets the auth database instance
-   * @returns The database for auth queries
-   */
   getAuthDb() {
-    return authDb;
+    return this.authDbInstance;
   }
 
-  /**
-   * Resolves auth context from a request-like object
-   * @param req - Request-like object containing headers and URL
-   * @returns The resolved auth context or null
-   */
-  getAuthContext(req?: Parameters<typeof getAuthContext>[0]) {
-    return getAuthContext(req);
+  getAuthContext(
+    req?: Parameters<ContainerDependencies["resolveAuthContext"]>[0]
+  ) {
+    return this.authContextResolver(req);
   }
-}
-
-/** Singleton container instance */
-let containerInstance: Container | null = null;
-
-/**
- * Initializes the container with optional allowed roots
- * @param allowedRoots - Optional array of allowed project root paths
- * @returns The initialized container instance
- */
-export function initializeContainer(allowedRoots?: string[]): Container {
-  containerInstance = new Container(allowedRoots);
-  return containerInstance;
-}
-
-export async function initializeContainerFromSettings(): Promise<Container> {
-  const settings = await new SettingsSqliteRepository().get();
-  return initializeContainer(settings.projectRoots);
-}
-
-/**
- * Gets the singleton container instance
- * Creates a new instance if one doesn't exist
- * @returns The container instance
- */
-export function getContainer(): Container {
-  if (!containerInstance) {
-    containerInstance = new Container();
-  }
-  return containerInstance;
 }

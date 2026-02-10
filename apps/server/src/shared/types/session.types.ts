@@ -405,6 +405,11 @@ export interface ChatSession {
   activeTurnId?: string;
   /** Pending finish data for the active prompt */
   chatFinish?: ChatFinishState;
+  /** Active async prompt task lifecycle (turn-correlated) */
+  activePromptTask?: {
+    turnId: string;
+    promise: Promise<void>;
+  };
   /** Full agent capabilities from initialize response */
   agentCapabilities?: Record<string, unknown>;
   /** Authentication methods supported by the agent */

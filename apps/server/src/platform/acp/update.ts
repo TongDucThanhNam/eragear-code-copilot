@@ -19,7 +19,7 @@ import { SessionBuffering as SessionBufferingImpl } from "./update-buffer";
 import { handlePlanUpdate } from "./update-plan";
 import { handleBufferedMessage, isStreamingUpdate } from "./update-stream";
 import { handleToolCallCreate, handleToolCallUpdate } from "./update-tool";
-import type { SessionUpdateWithLegacy } from "./update-types";
+import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 import { isReplayChunk } from "./update-types";
 
 export const SessionBuffering = SessionBufferingImpl;
@@ -29,7 +29,7 @@ const logger = createLogger("Debug");
 function finalizeStreamingForCurrentAssistant(
   chatId: string,
   sessionRuntime: SessionRuntimePort
-) {
+): void {
   const session = sessionRuntime.get(chatId);
   if (!session?.uiState.currentAssistantId) {
     return;
@@ -52,52 +52,85 @@ function finalizeStreamingForCurrentAssistant(
   sessionRuntime.broadcast(chatId, { type: "ui_message", message });
 }
 
-function summarizeUpdate(update: SessionUpdateWithLegacy) {
-  const summary: Record<string, unknown> = {
-    sessionUpdate: update.sessionUpdate,
-  };
-  if ("_meta" in update) {
-    summary.hasMeta = Boolean(update._meta);
-  }
-  if ("toolCallId" in update) {
-    summary.toolCallId = update.toolCallId;
-  }
-  if ("currentModeId" in update) {
-    summary.currentModeId = update.currentModeId;
-  }
-  if (
-    "availableCommands" in update &&
-    Array.isArray(update.availableCommands)
-  ) {
-    summary.availableCommandsCount = update.availableCommands.length;
-  }
-  if ("entries" in update && Array.isArray(update.entries)) {
-    summary.planEntries = update.entries.length;
-  }
-  if ("content" in update) {
-    const content = (update as { content?: unknown }).content;
-    if (Array.isArray(content)) {
-      summary.contentLength = content.length;
-    } else if (content && typeof content === "object") {
-      const contentType = (content as { type?: string }).type;
-      if (contentType) {
-        summary.contentType = contentType;
+function summarizeUpdate(update: SessionUpdate) {
+  switch (update.sessionUpdate) {
+    case "user_message_chunk":
+    case "agent_message_chunk":
+    case "agent_thought_chunk": {
+      const content = update.content;
+      if (content.type === "text") {
+        return {
+          sessionUpdate: update.sessionUpdate,
+          hasMeta: Boolean(update._meta),
+          contentType: content.type,
+          contentTextLength: content.text.length,
+        };
       }
-      const text = (content as { text?: string }).text;
-      if (typeof text === "string") {
-        summary.contentTextLength = text.length;
-      }
+      return {
+        sessionUpdate: update.sessionUpdate,
+        hasMeta: Boolean(update._meta),
+        contentType: content.type,
+      };
     }
+    case "tool_call":
+      return {
+        sessionUpdate: update.sessionUpdate,
+        toolCallId: update.toolCallId,
+        toolKind: update.kind,
+        toolStatus: update.status,
+        hasMeta: Boolean(update._meta),
+      };
+    case "tool_call_update":
+      return {
+        sessionUpdate: update.sessionUpdate,
+        toolCallId: update.toolCallId,
+        toolStatus: update.status,
+        hasMeta: Boolean(update._meta),
+      };
+    case "plan":
+      return {
+        sessionUpdate: update.sessionUpdate,
+        planEntries: update.entries.length,
+        hasMeta: Boolean(update._meta),
+      };
+    case "available_commands_update":
+      return {
+        sessionUpdate: update.sessionUpdate,
+        availableCommandsCount: update.availableCommands.length,
+        hasMeta: Boolean(update._meta),
+      };
+    case "current_mode_update":
+      return {
+        sessionUpdate: update.sessionUpdate,
+        currentModeId: update.currentModeId,
+        hasMeta: Boolean(update._meta),
+      };
+    case "config_option_update":
+      return {
+        sessionUpdate: update.sessionUpdate,
+        configOptionsCount: update.configOptions.length,
+        hasMeta: Boolean(update._meta),
+      };
+    case "session_info_update":
+      return {
+        sessionUpdate: update.sessionUpdate,
+        hasMeta: Boolean(update._meta),
+      };
+    default:
+      return {
+        sessionUpdate: update.sessionUpdate,
+        hasMeta: "_meta" in update ? Boolean(update._meta) : false,
+      };
   }
-  return summary;
 }
 
 async function handleModeUpdate(
-  chatId: string,
-  update: SessionUpdateWithLegacy,
-  sessionRuntime: SessionRuntimePort,
-  sessionRepo: SessionRepositoryPort
+  context: Pick<
+    SessionUpdateContext,
+    "chatId" | "update" | "sessionRuntime" | "sessionRepo"
+  >
 ): Promise<boolean> {
+  const { chatId, update, sessionRuntime, sessionRepo } = context;
   if (update.sessionUpdate !== "current_mode_update") {
     return false;
   }
@@ -111,7 +144,10 @@ async function handleModeUpdate(
       modeId: update.currentModeId,
     });
   }
-  console.log(`[Server] Received mode update: ${update.currentModeId}`);
+  logger.debug("ACP current mode update", {
+    chatId,
+    modeId: update.currentModeId,
+  });
   sessionRuntime.broadcast(chatId, {
     type: "current_mode_update",
     modeId: update.currentModeId,
@@ -120,11 +156,12 @@ async function handleModeUpdate(
 }
 
 async function handleCommandsUpdate(
-  chatId: string,
-  update: SessionUpdateWithLegacy,
-  sessionRuntime: SessionRuntimePort,
-  sessionRepo: SessionRepositoryPort
+  context: Pick<
+    SessionUpdateContext,
+    "chatId" | "update" | "sessionRuntime" | "sessionRepo"
+  >
 ): Promise<boolean> {
+  const { chatId, update, sessionRuntime, sessionRepo } = context;
   if (update.sessionUpdate !== "available_commands_update") {
     return false;
   }
@@ -138,7 +175,10 @@ async function handleCommandsUpdate(
       commands: update.availableCommands,
     });
   }
-  console.log("[Server] Received commands update", update.availableCommands);
+  logger.debug("ACP available commands update", {
+    chatId,
+    availableCommandsCount: update.availableCommands.length,
+  });
   sessionRuntime.broadcast(chatId, {
     type: "available_commands_update",
     availableCommands: update.availableCommands,
@@ -157,7 +197,7 @@ export function createSessionUpdateHandler(
     chatId: string;
     buffer: SessionBufferingPort;
     isReplayingHistory: boolean;
-    update: SessionUpdateWithLegacy;
+    update: SessionUpdate;
   }) {
     const { chatId, buffer, isReplayingHistory, update } = params;
 
@@ -179,63 +219,46 @@ export function createSessionUpdateHandler(
 
     maybeMarkStreaming(chatId, isReplayingHistory, update, sessionRuntime);
 
-    await handleBufferedMessage(
+    const context: SessionUpdateContext = {
       chatId,
       buffer,
       isReplayingHistory,
       update,
-      sessionRepo,
       sessionRuntime,
-      finalizeStreamingForCurrentAssistant
-    );
+      sessionRepo,
+      finalizeStreamingForCurrentAssistant,
+    };
 
-    if (await handleModeUpdate(chatId, update, sessionRuntime, sessionRepo)) {
+    handleBufferedMessage(context);
+
+    if (await handleModeUpdate(context)) {
       return;
     }
-    if (
-      await handleCommandsUpdate(chatId, update, sessionRuntime, sessionRepo)
-    ) {
+    if (await handleCommandsUpdate(context)) {
       return;
     }
-    if (
-      await handlePlanUpdate({
-        chatId,
-        update,
-        sessionRuntime,
-        sessionRepo,
-        finalizeStreamingForCurrentAssistant,
-      })
-    ) {
+    if (await handlePlanUpdate(context)) {
       return;
     }
-    if (
-      handleToolCallCreate({
-        chatId,
-        update,
-        sessionRuntime,
-        finalizeStreamingForCurrentAssistant,
-      })
-    ) {
+    if (handleToolCallCreate(context)) {
       return;
     }
-    if (handleToolCallUpdate({ chatId, update, sessionRuntime })) {
+    if (handleToolCallUpdate(context)) {
       return;
     }
 
-    if (update.sessionUpdate !== "agent_message_chunk") {
-      console.log(
-        `[Server] Received session update: ${update.sessionUpdate}`,
-        JSON.stringify(update, null, 2)
-      );
-    }
+    logger.debug("ACP session update ignored by pipeline", {
+      chatId,
+      ...summary,
+    });
   };
 }
 
 function trackReplayEvents(
   buffer: SessionBufferingPort,
   isReplayingHistory: boolean,
-  update: SessionUpdateWithLegacy
-) {
+  update: SessionUpdate
+): void {
   if (isReplayingHistory && isReplayChunk(update)) {
     buffer.replayEventCount += 1;
   }
@@ -244,9 +267,9 @@ function trackReplayEvents(
 function maybeMarkStreaming(
   chatId: string,
   isReplayingHistory: boolean,
-  update: SessionUpdateWithLegacy,
+  update: SessionUpdate,
   sessionRuntime: SessionRuntimePort
-) {
+): void {
   if (isReplayingHistory || !isStreamingUpdate(update)) {
     return;
   }

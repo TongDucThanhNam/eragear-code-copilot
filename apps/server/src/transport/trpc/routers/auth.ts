@@ -25,7 +25,7 @@ export const authRouter = router({
       };
     }
 
-    const authDb = ctx.container.getAuthDb();
+    const authDb = ctx.authDb;
     const row = authDb
       .prepare(
         'SELECT id, email, username, name, image FROM "user" WHERE id = ? LIMIT 1'

@@ -20,7 +20,6 @@ import { LoginHead, LoginPage } from "@/presentation/dashboard/login";
 import { DashboardPage } from "@/presentation/dashboard/server/dashboard-page";
 import { renderDocument } from "@/presentation/dashboard/server/render-document";
 import { normalizeTab } from "@/presentation/dashboard/utils";
-import { getContainer } from "../../../bootstrap/container";
 import { ENV } from "../../../config/environment";
 import {
   DASHBOARD_ASSET_PATH,
@@ -35,12 +34,20 @@ import {
   listDeviceSessions,
   resolveAdminUsername,
 } from "../utils/auth";
+import type { HttpRouteDependencies } from "./deps";
 import { normalizeApiKeyItem, normalizeDeviceSessionItem } from "./helpers";
 
 /**
  * Registers dashboard-related UI routes
  */
-export function registerDashboardUiRoutes(app: Hono): void {
+export function registerDashboardUiRoutes(
+  app: Hono,
+  deps: Pick<
+    HttpRouteDependencies,
+    "settingsServices" | "opsServices" | "logger"
+  >
+): void {
+  const { settingsServices, opsServices, logger } = deps;
   // Static assets (long-term cache)
   const assetCacheControl = ENV.isDev
     ? "no-cache"
@@ -102,9 +109,8 @@ export function registerDashboardUiRoutes(app: Hono): void {
     if (!session) {
       return c.redirect("/login");
     }
-    const container = getContainer();
-    const getSettings = container.getSettingsServices().getSettings();
-    const dashboardPageData = container.getOpsServices().dashboardPageData();
+    const getSettings = settingsServices.getSettings();
+    const dashboardPageData = opsServices.dashboardPageData();
     const [settings, baseDashboardData] = await Promise.all([
       getSettings.execute(),
       dashboardPageData.execute({ userId: session.user.id }),
@@ -116,13 +122,17 @@ export function registerDashboardUiRoutes(app: Hono): void {
     try {
       apiKeys = await listApiKeys(c.req.raw.headers);
     } catch (error) {
-      console.error("[Server] Failed to load API keys", error);
+      logger.error("Failed to load API keys for dashboard", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     try {
       deviceSessions = await listDeviceSessions(c.req.raw.headers);
     } catch (error) {
-      console.error("[Server] Failed to load device sessions", error);
+      logger.error("Failed to load device sessions for dashboard", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     const normalizedApiKeys = apiKeys.map((item: unknown) =>

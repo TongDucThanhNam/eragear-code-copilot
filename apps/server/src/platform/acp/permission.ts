@@ -10,6 +10,7 @@
 
 import type * as acp from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session";
+import { createLogger } from "@/platform/logging/structured-logger";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { createId } from "@/shared/utils/id.util";
 import {
@@ -17,6 +18,8 @@ import {
   getToolNameFromCall,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
+
+const logger = createLogger("Debug");
 
 /**
  * Creates a permission request handler for a session runtime
@@ -45,23 +48,31 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
 
     // Skip permission requests during history replay
     if (isReplayingHistory) {
-      console.log(
-        `[Server] Ignoring permission request during history replay for ${chatId}`
-      );
+      logger.debug("Ignoring permission request during history replay", {
+        chatId,
+        toolCallId: toolCall.toolCallId,
+      });
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     }
 
     const requestId = createId("req");
-    console.log(`[Server] Requesting permission: ${requestId}`, toolCall);
-    console.log(
-      "[Server] Permission options:",
-      JSON.stringify(options, null, 2)
-    );
+    logger.debug("ACP permission request received", {
+      chatId,
+      requestId,
+      toolCallId: toolCall.toolCallId,
+      toolKind: toolCall.kind,
+      toolTitle: toolCall.title ?? undefined,
+      optionCount: options.length,
+    });
 
     return new Promise<acp.RequestPermissionResponse>((resolve) => {
       const session = sessionRuntime.get(chatId);
       if (!session) {
-        console.log("[Server] Session not found, rejecting permission");
+        logger.warn("Session not found while handling permission request", {
+          chatId,
+          requestId,
+          toolCallId: toolCall.toolCallId,
+        });
         resolve({ outcome: { outcome: "cancelled" } });
         return;
       }

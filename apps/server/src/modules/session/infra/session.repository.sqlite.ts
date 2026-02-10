@@ -437,54 +437,60 @@ export class SessionSqliteRepository
     input: SessionMessageCompactionInput
   ): Promise<{ compacted: number }> {
     const cutoff = Math.max(0, Math.trunc(input.beforeTimestamp));
-    const batchSize = Math.max(1, Math.min(500, Math.trunc(input.batchSize)));
+    const batchSize = Math.max(1, Math.trunc(input.batchSize));
+    const sessionIds = [...new Set(input.sessionIds)]
+      .map((sessionId) => sessionId.trim())
+      .filter((sessionId) => sessionId.length > 0);
+    if (sessionIds.length === 0) {
+      return Promise.resolve({ compacted: 0 });
+    }
 
-    return enqueueSqliteWrite("session.compact_messages", async () => {
-      const db = await getSqliteOrm();
-      const rows = db
-        .select({
-          seq: sqliteSchema.sessionMessages.seq,
-        })
-        .from(sqliteSchema.sessionMessages)
-        .innerJoin(
-          sqliteSchema.sessions,
-          eq(sqliteSchema.sessionMessages.sessionId, sqliteSchema.sessions.id)
-        )
-        .where(
-          and(
-            lte(sqliteSchema.sessionMessages.timestamp, cutoff),
-            eq(sqliteSchema.sessionMessages.retainedPayload, 1),
-            eq(sqliteSchema.sessions.status, "stopped")
+    return enqueueSqliteWrite(
+      "session.compact_messages",
+      async () => {
+        const db = await getSqliteOrm();
+        const rows = db
+          .select({
+            seq: sqliteSchema.sessionMessages.seq,
+          })
+          .from(sqliteSchema.sessionMessages)
+          .where(
+            and(
+              inArray(sqliteSchema.sessionMessages.sessionId, sessionIds),
+              lte(sqliteSchema.sessionMessages.timestamp, cutoff),
+              eq(sqliteSchema.sessionMessages.retainedPayload, 1)
+            )
           )
-        )
-        .orderBy(
-          asc(sqliteSchema.sessionMessages.timestamp),
-          asc(sqliteSchema.sessionMessages.seq)
-        )
-        .limit(batchSize)
-        .all();
+          .orderBy(
+            asc(sqliteSchema.sessionMessages.timestamp),
+            asc(sqliteSchema.sessionMessages.seq)
+          )
+          .limit(batchSize)
+          .all();
 
-      if (rows.length === 0) {
-        return { compacted: 0 };
-      }
+        if (rows.length === 0) {
+          return { compacted: 0 };
+        }
 
-      const seqList = rows.map((row) => row.seq);
-      db.update(sqliteSchema.sessionMessages)
-        .set({
-          content: "",
-          contentBlocksJson: null,
-          toolCallsJson: null,
-          reasoning: null,
-          reasoningBlocksJson: null,
-          partsJson: null,
-          storageTier: "cold_stub",
-          retainedPayload: 0,
-          compactedAt: Date.now(),
-        })
-        .where(inArray(sqliteSchema.sessionMessages.seq, seqList))
-        .run();
-      return { compacted: rows.length };
-    });
+        const seqList = rows.map((row) => row.seq);
+        db.update(sqliteSchema.sessionMessages)
+          .set({
+            content: "",
+            contentBlocksJson: null,
+            toolCallsJson: null,
+            reasoning: null,
+            reasoningBlocksJson: null,
+            partsJson: null,
+            storageTier: "cold_stub",
+            retainedPayload: 0,
+            compactedAt: Date.now(),
+          })
+          .where(inArray(sqliteSchema.sessionMessages.seq, seqList))
+          .run();
+        return { compacted: rows.length };
+      },
+      { priority: "low" }
+    );
   }
 
   async getStorageStats(): Promise<SessionStorageStats> {
@@ -496,6 +502,14 @@ export class SessionSqliteRepository
       sessionCount: stats.sessionCount,
       messageCount: stats.messageCount,
       writeQueueDepth: stats.writeQueueDepth,
+      pendingWriteQueueTotal: stats.pendingWriteQueueTotal,
+      pendingWriteQueueHigh: stats.pendingWriteQueueHigh,
+      pendingWriteQueueLow: stats.pendingWriteQueueLow,
+      writeQueueFailures: stats.writeQueueFailures,
+      workerRecycleCount: stats.workerRecycleCount,
+      workerTimeoutCount: stats.workerTimeoutCount,
+      workerLastRecycleReason: stats.workerLastRecycleReason,
+      workerLastRecycleAt: stats.workerLastRecycleAt,
     };
   }
 }

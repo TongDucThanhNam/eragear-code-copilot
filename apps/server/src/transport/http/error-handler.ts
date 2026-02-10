@@ -8,6 +8,8 @@
  */
 
 import type { Context } from "hono";
+// biome-ignore lint/style/noRestrictedImports: transport error boundary needs server logger sink.
+import { createLogger } from "@/platform/logging/structured-logger";
 import { isAppError } from "@/shared/errors";
 import { getObservabilityContext } from "@/shared/utils/observability-context.util";
 
@@ -54,6 +56,8 @@ function resolveFallbackErrorShape(err: unknown): {
   return { code: "INTERNAL_SERVER_ERROR", statusCode: 500 };
 }
 
+const logger = createLogger("Server");
+
 /**
  * Creates an error handler middleware for Hono
  *
@@ -81,7 +85,7 @@ export function createErrorHandler() {
         }
       : resolveFallbackErrorShape(err);
 
-    console.error("[HTTP] request failed", {
+    logger.error("HTTP request failed", err, {
       requestId,
       method,
       path,

@@ -139,7 +139,7 @@ describe("createToolCallHandlers", () => {
         "-lc",
         "i=0; while [ $i -lt 1024 ]; do printf x; i=$((i+1)); done",
       ],
-      outputByteLimit: 10_000n,
+      outputByteLimit: 10_000,
     });
     await withTimeout(
       handlers.waitForTerminalExit(session.id, {

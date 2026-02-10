@@ -13,10 +13,10 @@
  */
 
 import type { Context, Hono } from "hono";
-import { getContainer } from "../../../bootstrap/container";
 import { isAppError } from "../../../shared/errors";
 import { parseArgsInput } from "../../../shared/utils/cli-args.util";
 import { getAuthContextFromRequest } from "../utils/auth";
+import type { HttpRouteDependencies } from "./deps";
 
 /** Valid agent types */
 const VALID_AGENT_TYPES = [
@@ -31,8 +31,11 @@ type AgentType = (typeof VALID_AGENT_TYPES)[number];
 /**
  * Registers agent-related HTTP routes
  */
-export function registerAgentRoutes(api: Hono): void {
-  const container = getContainer();
+export function registerAgentRoutes(
+  api: Hono,
+  deps: Pick<HttpRouteDependencies, "agentServices" | "logger">
+): void {
+  const { agentServices, logger } = deps;
 
   // =========================================================================
   // API Routes
@@ -49,7 +52,7 @@ export function registerAgentRoutes(api: Hono): void {
     if (!auth) {
       return c.json({ error: "Unauthorized" }, 401);
     }
-    const service = container.getAgentServices().listAgents();
+    const service = agentServices.listAgents();
     const result = await service.execute(auth.userId);
     return c.json({ agents: result.agents });
   });
@@ -97,7 +100,7 @@ export function registerAgentRoutes(api: Hono): void {
         resolvedArgs = parsed.args;
       }
 
-      const service = container.getAgentServices().createAgent();
+      const service = agentServices.createAgent();
       const agent = await service.execute(auth.userId, {
         name,
         type,
@@ -112,7 +115,9 @@ export function registerAgentRoutes(api: Hono): void {
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
-      console.error("Failed to create agent:", error);
+      logger.error("Failed to create agent", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to create agent" }, 500);
     }
   });
@@ -162,7 +167,7 @@ export function registerAgentRoutes(api: Hono): void {
         resolvedArgs = parsed.args;
       }
 
-      const service = container.getAgentServices().updateAgent();
+      const service = agentServices.updateAgent();
       const agent = await service.execute(auth.userId, {
         id,
         name,
@@ -178,7 +183,9 @@ export function registerAgentRoutes(api: Hono): void {
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
-      console.error("Failed to update agent:", error);
+      logger.error("Failed to update agent", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to update agent" }, 500);
     }
   });
@@ -202,7 +209,7 @@ export function registerAgentRoutes(api: Hono): void {
         return c.json({ error: "agentId is required" }, 400);
       }
 
-      const service = container.getAgentServices().deleteAgent();
+      const service = agentServices.deleteAgent();
       await service.execute(auth.userId, agentId);
 
       return c.json({ ok: true });
@@ -210,7 +217,9 @@ export function registerAgentRoutes(api: Hono): void {
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
-      console.error("Failed to delete agent:", error);
+      logger.error("Failed to delete agent", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to delete agent" }, 500);
     }
   });

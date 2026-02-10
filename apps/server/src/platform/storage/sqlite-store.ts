@@ -21,6 +21,7 @@ import type { Settings } from "@/shared/types/settings.types";
 import { stringifyJson } from "@/shared/utils/json.util";
 import {
   callSqliteWorker,
+  getSqliteWorkerStats,
   isSqliteWorkerEnabled,
 } from "./sqlite-worker-client";
 import { isSqliteWorkerThread } from "./sqlite-worker-flags";
@@ -107,6 +108,14 @@ export interface SqliteStorageStatsSnapshot {
   sessionCount: number;
   messageCount: number;
   writeQueueDepth: number;
+  pendingWriteQueueTotal?: number;
+  pendingWriteQueueHigh?: number;
+  pendingWriteQueueLow?: number;
+  writeQueueFailures?: number;
+  workerRecycleCount?: number;
+  workerTimeoutCount?: number;
+  workerLastRecycleReason?: string | null;
+  workerLastRecycleAt?: number | null;
 }
 
 export interface SqliteRuntimeMaintenanceResult {
@@ -1031,6 +1040,8 @@ export async function getSqliteStorageStatsLocal(): Promise<SqliteStorageStatsSn
   const normalizedSessionCount = Number.isFinite(sessionCount)
     ? Math.max(0, sessionCount)
     : Math.max(0, Number(fallbackSessionCountRow?.count ?? 0));
+  const queueStats = getSqliteWriteQueueStats();
+  const workerStats = getSqliteWorkerStats();
 
   return {
     dbSizeBytes: await readOptionalFileSize(dbPath),
@@ -1038,49 +1049,74 @@ export async function getSqliteStorageStatsLocal(): Promise<SqliteStorageStatsSn
     freePages,
     sessionCount: normalizedSessionCount,
     messageCount: Math.max(0, Number(messageCountRow?.total ?? 0)),
-    writeQueueDepth: getSqliteWriteQueueStats().pending,
+    writeQueueDepth: queueStats.pending,
+    pendingWriteQueueTotal: queueStats.pendingTotal,
+    pendingWriteQueueHigh: queueStats.pendingHigh,
+    pendingWriteQueueLow: queueStats.pendingLow,
+    writeQueueFailures: queueStats.totalFailed,
+    workerRecycleCount: workerStats.recycleCount,
+    workerTimeoutCount: workerStats.timeoutCount,
+    workerLastRecycleReason: workerStats.lastRecycleReason,
+    workerLastRecycleAt: workerStats.lastRecycleAt,
   };
 }
 
 export function getSqliteStorageStats(): Promise<SqliteStorageStatsSnapshot> {
   if (isSqliteWorkerEnabled() && !isSqliteWorkerThread()) {
-    return callSqliteWorker("storage", "getStorageStats", []);
+    return callSqliteWorker<SqliteStorageStatsSnapshot>(
+      "storage",
+      "getStorageStats",
+      []
+    ).then((stats) => {
+      const workerStats = getSqliteWorkerStats();
+      return {
+        ...stats,
+        workerRecycleCount: workerStats.recycleCount,
+        workerTimeoutCount: workerStats.timeoutCount,
+        workerLastRecycleReason: workerStats.lastRecycleReason,
+        workerLastRecycleAt: workerStats.lastRecycleAt,
+      };
+    });
   }
   return getSqliteStorageStatsLocal();
 }
 
 export function runSqliteRuntimeMaintenanceLocal(): Promise<SqliteRuntimeMaintenanceResult> {
-  return enqueueSqliteWrite("sqlite.runtime_maintenance", async () => {
-    const db = await getSqliteDb();
-    const now = Date.now();
-    let checkpointRan = false;
-    let checkpointBusy = 0;
-    let checkpointLogFrames = 0;
-    let checkpointedFrames = 0;
+  return enqueueSqliteWrite(
+    "sqlite.runtime_maintenance",
+    async () => {
+      const db = await getSqliteDb();
+      const now = Date.now();
+      let checkpointRan = false;
+      let checkpointBusy = 0;
+      let checkpointLogFrames = 0;
+      let checkpointedFrames = 0;
 
-    if (
-      sqliteLastCheckpointAt === 0 ||
-      now - sqliteLastCheckpointAt >= ENV.sqliteWalCheckpointIntervalMs
-    ) {
-      const checkpointResult = runWalCheckpoint(db);
-      checkpointRan = true;
-      checkpointBusy = checkpointResult.busy;
-      checkpointLogFrames = checkpointResult.logFrames;
-      checkpointedFrames = checkpointResult.checkpointedFrames;
-      sqliteLastCheckpointAt = now;
-    }
+      if (
+        sqliteLastCheckpointAt === 0 ||
+        now - sqliteLastCheckpointAt >= ENV.sqliteWalCheckpointIntervalMs
+      ) {
+        const checkpointResult = runWalCheckpoint(db);
+        checkpointRan = true;
+        checkpointBusy = checkpointResult.busy;
+        checkpointLogFrames = checkpointResult.logFrames;
+        checkpointedFrames = checkpointResult.checkpointedFrames;
+        sqliteLastCheckpointAt = now;
+      }
 
-    const vacuumResult = maybeRunIncrementalVacuum(db);
+      const vacuumResult = maybeRunIncrementalVacuum(db);
 
-    return {
-      checkpointRan,
-      checkpointBusy,
-      checkpointLogFrames,
-      checkpointedFrames,
-      freePages: vacuumResult.freePages,
-      pagesToVacuum: vacuumResult.pagesToVacuum,
-    };
-  });
+      return {
+        checkpointRan,
+        checkpointBusy,
+        checkpointLogFrames,
+        checkpointedFrames,
+        freePages: vacuumResult.freePages,
+        pagesToVacuum: vacuumResult.pagesToVacuum,
+      };
+    },
+    { priority: "low" }
+  );
 }
 
 export function runSqliteRuntimeMaintenance(): Promise<SqliteRuntimeMaintenanceResult> {

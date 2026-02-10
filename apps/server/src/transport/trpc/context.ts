@@ -1,17 +1,30 @@
 /**
  * tRPC Context
  *
- * Creates the tRPC context by extracting the DI container.
+ * Creates the tRPC context from explicit service dependencies.
  * This context is passed to all tRPC procedures and routers.
  *
  * @module transport/trpc/context
  */
 
-import { getContainer } from "../../bootstrap/container";
+import type {
+  AgentServiceFactory,
+  AiServiceFactory,
+  ProjectServiceFactory,
+  SessionServiceFactory,
+  SettingsServiceFactory,
+  ToolingServiceFactory,
+} from "@/modules/service-factories";
 
-interface RequestLike {
+export interface RequestLike {
   headers: Headers | Record<string, string | string[] | undefined>;
   url?: string;
+}
+
+export interface AuthDbPort {
+  prepare(query: string): {
+    get(...args: unknown[]): unknown;
+  };
 }
 
 export interface AuthContext {
@@ -21,26 +34,50 @@ export interface AuthContext {
   session?: unknown;
 }
 
+export interface TrpcContextDependencies {
+  sessionServices: SessionServiceFactory;
+  aiServices: AiServiceFactory;
+  projectServices: ProjectServiceFactory;
+  agentServices: AgentServiceFactory;
+  toolingServices: ToolingServiceFactory;
+  settingsServices: SettingsServiceFactory;
+  authDb: AuthDbPort;
+  resolveAuthContext: (req: RequestLike) => Promise<AuthContext | null>;
+  ensureUserDefaults?: (userId: string) => Promise<void>;
+}
+
 /**
- * Creates a tRPC context containing the DI container
+ * Creates a tRPC context containing explicit service dependencies.
  *
+ * @param deps - App-level service dependencies
  * @param opts - Optional request and connection parameters
- * @returns Context object with container for dependency access
+ * @returns Context object with service factories
  *
  * @example
  * ```typescript
- * const context = createTrpcContext();
- * const projects = context.container.getProjectServices().listProjects().execute();
+ * const context = createTrpcContext(deps);
+ * const projects = context.projectServices.listProjects().execute();
  * ```
  */
-export async function createTrpcContext(opts?: { req?: RequestLike }) {
-  const container = getContainer();
+export async function createTrpcContext(
+  deps: TrpcContextDependencies,
+  opts?: { req?: RequestLike }
+) {
   const authContext = opts?.req
-    ? await container.getAuthContext(opts.req)
+    ? await deps.resolveAuthContext(opts.req)
     : null;
+  if (authContext) {
+    await deps.ensureUserDefaults?.(authContext.userId);
+  }
 
   return {
-    container,
+    sessionServices: deps.sessionServices,
+    aiServices: deps.aiServices,
+    projectServices: deps.projectServices,
+    agentServices: deps.agentServices,
+    toolingServices: deps.toolingServices,
+    settingsServices: deps.settingsServices,
+    authDb: deps.authDb,
     auth: authContext,
   };
 }

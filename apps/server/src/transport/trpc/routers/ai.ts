@@ -15,30 +15,30 @@ import {
 } from "@/modules/ai";
 import { protectedProcedure, router } from "../base";
 
+function requireUserId(ctx: { auth?: { userId?: string } | null }): string {
+  const userId = ctx.auth?.userId;
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+  return userId;
+}
+
 export const aiRouter = router({
   /** Send a message to an agent session */
   sendMessage: protectedProcedure
     .input(SendMessageInputSchema)
     .mutation(async ({ input, ctx }) => {
-      console.info("[tRPC] User message received", {
-        chatId: input.chatId,
-        textLength: input.text.length,
-        images: input.images?.length ?? 0,
-        audio: input.audio?.length ?? 0,
-        resources: input.resources?.length ?? 0,
-        resourceLinks: input.resourceLinks?.length ?? 0,
-      });
-      const service = ctx.container.getAiServices().sendMessage();
-      return await service.execute({ ...input, userId: ctx.auth!.userId });
+      const service = ctx.aiServices.sendMessage();
+      return await service.execute({ ...input, userId: requireUserId(ctx) });
     }),
 
   /** Set the active model for a session */
   setModel: protectedProcedure
     .input(SetModelInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getAiServices().setModel();
+      const service = ctx.aiServices.setModel();
       return await service.execute(
-        ctx.auth!.userId,
+        requireUserId(ctx),
         input.chatId,
         input.modelId
       );
@@ -48,9 +48,9 @@ export const aiRouter = router({
   setMode: protectedProcedure
     .input(SetModeInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getAiServices().setMode();
+      const service = ctx.aiServices.setMode();
       return await service.execute(
-        ctx.auth!.userId,
+        requireUserId(ctx),
         input.chatId,
         input.modeId
       );
@@ -60,7 +60,7 @@ export const aiRouter = router({
   cancelPrompt: protectedProcedure
     .input(CancelPromptInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.container.getAiServices().cancelPrompt();
-      return await service.execute(ctx.auth!.userId, input.chatId);
+      const service = ctx.aiServices.cancelPrompt();
+      return await service.execute(requireUserId(ctx), input.chatId);
     }),
 });

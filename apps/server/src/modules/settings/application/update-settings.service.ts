@@ -1,4 +1,3 @@
-import type { ProjectRepositoryPort } from "@/modules/project";
 import { ValidationError } from "@/shared/errors";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { Settings } from "@/shared/types/settings.types";
@@ -12,16 +11,10 @@ export interface UpdateSettingsResult {
 
 export class UpdateSettingsService {
   private readonly settingsRepo: SettingsRepositoryPort;
-  private readonly projectRepo: ProjectRepositoryPort;
   private readonly eventBus: EventBusPort;
 
-  constructor(
-    settingsRepo: SettingsRepositoryPort,
-    projectRepo: ProjectRepositoryPort,
-    eventBus: EventBusPort
-  ) {
+  constructor(settingsRepo: SettingsRepositoryPort, eventBus: EventBusPort) {
     this.settingsRepo = settingsRepo;
-    this.projectRepo = projectRepo;
     this.eventBus = eventBus;
   }
 
@@ -46,7 +39,6 @@ export class UpdateSettingsService {
       JSON.stringify(settings.projectRoots)
     ) {
       changedKeys.push("projectRoots");
-      await this.projectRepo.setAllowedRoots(settings.projectRoots);
     }
 
     if (JSON.stringify(current.ui) !== JSON.stringify(settings.ui)) {

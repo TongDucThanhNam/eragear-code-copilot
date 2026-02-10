@@ -15,6 +15,7 @@ export {
 } from "./application/contracts/agent.contract";
 export { CreateAgentService } from "./application/create-agent.service";
 export { DeleteAgentService } from "./application/delete-agent.service";
+export { EnsureAgentDefaultsService } from "./application/ensure-agent-defaults.service";
 export { ListAgentsService } from "./application/list-agents.service";
 export type { AgentRepositoryPort } from "./application/ports/agent-repository.port";
 export { SetActiveAgentService } from "./application/set-active-agent.service";

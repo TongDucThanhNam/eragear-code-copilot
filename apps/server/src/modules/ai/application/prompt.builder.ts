@@ -197,7 +197,7 @@ export function buildPrompt(params: {
           mimeType: link.mimeType,
           title: link.title,
           description: link.description,
-          ...(size !== undefined ? { size: size as unknown as bigint } : {}),
+          ...(size !== undefined ? { size } : {}),
           annotations: link.annotations,
         };
       })

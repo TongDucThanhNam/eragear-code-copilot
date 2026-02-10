@@ -9,8 +9,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe("sqlite-write-queue", () => {
-  test("serializes writes in enqueue order", async () => {
+  test("serializes high-priority writes in enqueue order", async () => {
     const order: string[] = [];
 
     const first = enqueueSqliteWrite("test.serial.1", async () => {
@@ -35,6 +43,62 @@ describe("sqlite-write-queue", () => {
       "second-end",
     ]);
     expect(getSqliteWriteQueueStats().pending).toBe(0);
+  });
+
+  test("prioritizes high-priority writes before low-priority writes", async () => {
+    const order: string[] = [];
+
+    const low = enqueueSqliteWrite(
+      "test.priority.low",
+      () => {
+        order.push("low");
+        return "low";
+      },
+      { priority: "low" }
+    );
+
+    const high = enqueueSqliteWrite(
+      "test.priority.high",
+      () => {
+        order.push("high");
+        return "high";
+      },
+      { priority: "high" }
+    );
+
+    const [lowResult, highResult] = await Promise.all([low, high]);
+    expect(lowResult).toBe("low");
+    expect(highResult).toBe("high");
+    expect(order).toEqual(["high", "low"]);
+  });
+
+  test("exposes lane-aware pending queue stats", async () => {
+    const gate = createDeferred();
+
+    const high = enqueueSqliteWrite("test.stats.high", async () => {
+      await gate.promise;
+      return "high";
+    });
+
+    const low = enqueueSqliteWrite("test.stats.low", async () => "low", {
+      priority: "low",
+    });
+
+    await sleep(5);
+    const pendingStats = getSqliteWriteQueueStats();
+    expect(pendingStats.pending).toBe(2);
+    expect(pendingStats.writeQueueDepth).toBe(2);
+    expect(pendingStats.pendingTotal).toBe(2);
+    expect(pendingStats.pendingHigh).toBe(1);
+    expect(pendingStats.pendingLow).toBe(1);
+
+    gate.resolve();
+    await Promise.all([high, low]);
+
+    const settledStats = getSqliteWriteQueueStats();
+    expect(settledStats.pending).toBe(0);
+    expect(settledStats.pendingHigh).toBe(0);
+    expect(settledStats.pendingLow).toBe(0);
   });
 
   test("retries SQLITE_BUSY failures", async () => {

@@ -12,15 +12,18 @@
  */
 
 import type { Context, Hono } from "hono";
-import { getContainer } from "../../../bootstrap/container";
 import { isAppError } from "../../../shared/errors";
 import { parseUiSettingsForm } from "../../../shared/utils/ui-settings.util";
+import type { HttpRouteDependencies } from "./deps";
 
 /**
  * Registers settings-related HTTP routes
  */
-export function registerSettingsRoutes(api: Hono): void {
-  const container = getContainer();
+export function registerSettingsRoutes(
+  api: Hono,
+  deps: Pick<HttpRouteDependencies, "settingsServices" | "logger">
+): void {
+  const { settingsServices, logger } = deps;
 
   // =========================================================================
   // API Routes
@@ -30,7 +33,7 @@ export function registerSettingsRoutes(api: Hono): void {
    * GET /api/ui-settings - Get current UI settings
    */
   api.get("/ui-settings", async (c: Context) => {
-    const service = container.getSettingsServices().getSettings();
+    const service = settingsServices.getSettings();
     const settings = await service.execute();
     return c.json(settings);
   });
@@ -41,7 +44,7 @@ export function registerSettingsRoutes(api: Hono): void {
   const handleApiUpdate = async (c: Context) => {
     try {
       const body = await c.req.parseBody();
-      const getSettings = container.getSettingsServices().getSettings();
+      const getSettings = settingsServices.getSettings();
       const currentSettings = await getSettings.execute();
       const formData = body as Record<string, string | File | undefined>;
 
@@ -49,7 +52,7 @@ export function registerSettingsRoutes(api: Hono): void {
         formData,
         currentSettings
       );
-      const updateSettings = container.getSettingsServices().updateSettings();
+      const updateSettings = settingsServices.updateSettings();
       const result = await updateSettings.execute({ ui, projectRoots });
       return c.json({
         ...result.settings,
@@ -60,7 +63,9 @@ export function registerSettingsRoutes(api: Hono): void {
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
-      console.error("Settings parse error:", error);
+      logger.error("Failed to parse settings update payload", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to parse settings" }, 400);
     }
   };

@@ -20,7 +20,6 @@ import { WebSocketServer } from "ws";
 import { ENV } from "../config/environment";
 import { auth, authConfig, authDb, authState } from "../platform/auth/auth";
 import { ensureAuthSetup } from "../platform/auth/bootstrap";
-import { getAuthContext } from "../platform/auth/guards";
 import {
   BackgroundRunner,
   createCachePruneTask,
@@ -39,14 +38,56 @@ import { createErrorHandler } from "../transport/http/error-handler";
 import { requestIdMiddleware } from "../transport/http/request-id";
 import { registerHttpRoutes } from "../transport/http/routes";
 import { registerDashboardUiRoutes } from "../transport/http/routes/dashboard";
+import type { HttpRouteDependencies } from "../transport/http/routes/deps";
 import { applyFetchHeadersToNodeResponse } from "../transport/http/utils/response-headers";
-import { createTrpcContext } from "../transport/trpc/context";
+import {
+  createTrpcContext,
+  type TrpcContextDependencies,
+} from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
-import { getContainer, initializeContainerFromSettings } from "./container";
+import {
+  type AppComposition,
+  type AppDependencies,
+  createAppCompositionFromSettings,
+} from "./composition";
 
 const logger = createLogger("Server");
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const SHUTDOWN_COMPACTION_MAX_BUDGET_MS = 5000;
+
+function createHttpRouteDependencies(
+  deps: AppDependencies
+): HttpRouteDependencies {
+  return {
+    sessionServices: deps.sessionServices,
+    projectServices: deps.projectServices,
+    agentServices: deps.agentServices,
+    settingsServices: deps.settingsServices,
+    opsServices: deps.opsServices,
+    eventBus: deps.eventBus,
+    logStore: deps.logStore,
+    logger: deps.appLogger,
+    auth: deps.auth as HttpRouteDependencies["auth"],
+  };
+}
+
+function createTrpcContextDependencies(
+  deps: AppDependencies
+): TrpcContextDependencies {
+  return {
+    sessionServices: deps.sessionServices,
+    aiServices: deps.aiServices,
+    projectServices: deps.projectServices,
+    agentServices: deps.agentServices,
+    toolingServices: deps.toolingServices,
+    settingsServices: deps.settingsServices,
+    authDb: deps.authDb as TrpcContextDependencies["authDb"],
+    resolveAuthContext: deps.resolveAuthContext,
+    ensureUserDefaults: async (userId) => {
+      await deps.agentServices.ensureAgentDefaults().execute(userId);
+    },
+  };
+}
 
 function resolvePrimaryAuthUserId(): string | null {
   try {
@@ -109,10 +150,12 @@ async function pipeResponseBody(
  *
  * @returns Configured Hono application instance
  */
-export async function createApp() {
-  // Initialize DI container with allowed roots from settings
-  const container = await initializeContainerFromSettings();
-  await container.getSessionServices().reconcileSessionStatus().execute();
+export async function createApp(composition?: AppComposition) {
+  const resolvedComposition =
+    composition ?? (await createAppCompositionFromSettings());
+  const deps = resolvedComposition.deps;
+  const httpDeps = createHttpRouteDependencies(deps);
+  await deps.sessionServices.reconcileSessionStatus().execute();
 
   const app = new Hono();
   app.use(
@@ -200,21 +243,22 @@ export async function createApp() {
     ) {
       return next();
     }
-    const authContext = await getAuthContext({
+    const authContext = await deps.resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
     });
     if (!authContext) {
       return c.json({ error: "Unauthorized" }, 401);
     }
+    await deps.agentServices.ensureAgentDefaults().execute(authContext.userId);
     return next();
   });
 
   // Register HTTP routes
   const api = new Hono();
-  registerHttpRoutes(api);
+  registerHttpRoutes(api, httpDeps);
   app.route("/api", api);
-  registerDashboardUiRoutes(app);
+  registerDashboardUiRoutes(app, httpDeps);
 
   // Explicit 404 handler for better UX
   app.notFound((c) => c.json({ error: "Not found", path: c.req.path }, 404));
@@ -238,23 +282,26 @@ export async function startServer() {
     throw new Error("Cannot start server: no auth user available");
   }
   await ensureTenantOwnershipBackfill(primaryUserId);
-  const app = await createApp();
-  const container = getContainer();
+  const composition = await createAppCompositionFromSettings();
+  const deps = composition.deps;
+  const trpcDeps = createTrpcContextDependencies(deps);
+  const app = await createApp(composition);
   const backgroundRunner = new BackgroundRunner();
   backgroundRunner.register(
     createSessionIdleCleanupTask({
-      sessionRuntime: container.getSessionRuntime(),
-      sessionRepo: container.getSessions(),
+      sessionRuntime: deps.sessionRuntime,
+      sessionRepo: deps.sessionRepo,
     })
   );
   backgroundRunner.register(
     createSqliteStorageMaintenanceTask({
-      sessionRepo: container.getSessions(),
-      sessionRuntime: container.getSessionRuntime(),
+      sessionRepo: deps.sessionRepo,
+      sessionRuntime: deps.sessionRuntime,
+      compactSessionMessages: deps.sessionServices.compactSessionMessages(),
     })
   );
   backgroundRunner.register(createCachePruneTask());
-  container.setBackgroundRunnerStateProvider(() => backgroundRunner.getState());
+  deps.setBackgroundRunnerStateProvider(() => backgroundRunner.getState());
   backgroundRunner.start();
 
   const server = createServer(async (req, res) => {
@@ -305,7 +352,7 @@ export async function startServer() {
     wss,
     router: appRouter,
     createContext: ({ req }) =>
-      createTrpcContext({
+      createTrpcContext(trpcDeps, {
         req,
       }),
   });
@@ -328,8 +375,10 @@ export async function startServer() {
     backgroundRunner.stop();
     wsHandler.broadcastReconnectNotification();
 
-    const sessionRuntime = container.getSessionRuntime();
-    const sessionRepo = container.getSessions();
+    const sessionRuntime = deps.sessionRuntime;
+    const sessionRepo = deps.sessionRepo;
+    const compactSessionMessagesService =
+      deps.sessionServices.compactSessionMessages();
     for (const session of sessionRuntime.getAll()) {
       terminateSessionTerminals(session);
       if (!session.proc.killed) {
@@ -348,7 +397,7 @@ export async function startServer() {
     const shutdownDeadline = Date.now() + shutdownBudgetMs;
     let compactedTotal = 0;
     while (Date.now() < shutdownDeadline) {
-      const result = await sessionRepo.compactMessages({
+      const result = await compactSessionMessagesService.execute({
         beforeTimestamp: compactBeforeTs,
         batchSize: ENV.sqliteRetentionCompactionBatchSize,
       });

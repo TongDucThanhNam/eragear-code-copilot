@@ -12,6 +12,10 @@ import type { DomainEvent } from "../types/domain-events.types";
 
 const MAX_EVENT_BUS_LISTENERS = 10_000;
 
+interface EventBusLogger {
+  error(message: string, context?: Record<string, unknown>): void;
+}
+
 /**
  * Event bus implementation for pub/sub pattern
  *
@@ -28,7 +32,12 @@ const MAX_EVENT_BUS_LISTENERS = 10_000;
 export class EventBus implements EventBusPort {
   /** Registered event listeners */
   private readonly listeners = new Map<number, EventBusListener>();
+  private readonly logger?: EventBusLogger;
   private nextListenerId = 1;
+
+  constructor(logger?: EventBusLogger) {
+    this.logger = logger;
+  }
 
   /**
    * Subscribe to events on the bus
@@ -78,7 +87,10 @@ export class EventBus implements EventBusPort {
       try {
         await listener(event);
       } catch (err) {
-        console.error("[EventBus] Listener error:", err);
+        this.logger?.error("[EventBus] Listener error", {
+          eventType: event.type,
+          error: err instanceof Error ? err.message : String(err),
+        });
         throw err;
       }
     }

@@ -1,37 +1,41 @@
 import type * as acp from "@agentclientprotocol/sdk";
+import type {
+  SessionBufferingPort,
+  SessionRepositoryPort,
+  SessionRuntimePort,
+} from "@/modules/session";
 
-/** Legacy session update types for backward compatibility */
-export interface LegacySessionUpdate {
-  sessionUpdate: "turn_end" | "prompt_end";
+export type SessionUpdate = acp.SessionUpdate;
+
+export interface SessionUpdateContext {
+  chatId: string;
+  buffer: SessionBufferingPort;
+  isReplayingHistory: boolean;
+  update: SessionUpdate;
+  sessionRuntime: SessionRuntimePort;
+  sessionRepo: SessionRepositoryPort;
+  finalizeStreamingForCurrentAssistant: (
+    chatId: string,
+    sessionRuntime: SessionRuntimePort
+  ) => void;
 }
 
-/** Combined session update type including legacy updates */
-export type SessionUpdateWithLegacy = acp.SessionUpdate | LegacySessionUpdate;
-
 export function isToolCallUpdate(
-  update: SessionUpdateWithLegacy
+  update: SessionUpdate
 ): update is acp.ToolCallUpdate & { sessionUpdate: "tool_call_update" } {
   return update.sessionUpdate === "tool_call_update";
 }
 
 export function isToolCallCreate(
-  update: SessionUpdateWithLegacy
+  update: SessionUpdate
 ): update is acp.ToolCall & { sessionUpdate: "tool_call" } {
   return update.sessionUpdate === "tool_call";
 }
 
-export function isReplayChunk(update: SessionUpdateWithLegacy) {
+export function isReplayChunk(update: SessionUpdate) {
   return (
     update.sessionUpdate === "user_message_chunk" ||
     update.sessionUpdate === "agent_message_chunk" ||
     update.sessionUpdate === "agent_thought_chunk"
-  );
-}
-
-export function isTurnBoundaryUpdate(
-  update: SessionUpdateWithLegacy
-): update is LegacySessionUpdate {
-  return (
-    update.sessionUpdate === "turn_end" || update.sessionUpdate === "prompt_end"
   );
 }

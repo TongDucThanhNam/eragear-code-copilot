@@ -23,6 +23,7 @@ export interface SessionMessagesPageResult {
 export interface SessionMessageCompactionInput {
   beforeTimestamp: number;
   batchSize: number;
+  sessionIds: string[];
 }
 
 export interface SessionStorageStats {
@@ -32,6 +33,14 @@ export interface SessionStorageStats {
   sessionCount: number;
   messageCount: number;
   writeQueueDepth: number;
+  pendingWriteQueueTotal?: number;
+  pendingWriteQueueHigh?: number;
+  pendingWriteQueueLow?: number;
+  writeQueueFailures?: number;
+  workerRecycleCount?: number;
+  workerTimeoutCount?: number;
+  workerLastRecycleReason?: string | null;
+  workerLastRecycleAt?: number | null;
 }
 
 /**

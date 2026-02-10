@@ -17,6 +17,10 @@ export class CreateAgentService {
   async execute(userId: string, input: Omit<AgentInput, "userId">) {
     const normalized = normalizeAgentInput({ ...input, userId }, OP);
     const agent = await this.agentRepo.create(normalized);
+    const activeAgentId = await this.agentRepo.getActiveId(userId);
+    if (!activeAgentId) {
+      await this.agentRepo.setActive(agent.id, userId);
+    }
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "agent_created",

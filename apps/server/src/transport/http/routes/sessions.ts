@@ -11,14 +11,17 @@
  */
 
 import type { Context, Hono } from "hono";
-import { getContainer } from "../../../bootstrap/container";
 import { getAuthContextFromRequest } from "../utils/auth";
+import type { HttpRouteDependencies } from "./deps";
 
 /**
  * Registers session-related HTTP routes
  */
-export function registerSessionRoutes(api: Hono): void {
-  const container = getContainer();
+export function registerSessionRoutes(
+  api: Hono,
+  deps: Pick<HttpRouteDependencies, "sessionServices">
+): void {
+  const { sessionServices } = deps;
 
   // =========================================================================
   // API Routes
@@ -42,7 +45,7 @@ export function registerSessionRoutes(api: Hono): void {
       return c.json({ error: "chatId is required" }, 400);
     }
 
-    const service = container.getSessionServices().stopSession();
+    const service = sessionServices.stopSession();
     await service.execute(auth.userId, chatId);
 
     return c.json({ ok: true });
@@ -66,7 +69,7 @@ export function registerSessionRoutes(api: Hono): void {
       return c.json({ error: "chatId is required" }, 400);
     }
 
-    const service = container.getSessionServices().deleteSession();
+    const service = sessionServices.deleteSession();
     await service.execute(auth.userId, chatId);
     return c.json({ ok: true });
   });

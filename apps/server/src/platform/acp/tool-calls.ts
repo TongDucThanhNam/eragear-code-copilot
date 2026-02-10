@@ -300,9 +300,13 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     params: acp.CreateTerminalRequest
   ): Promise<acp.CreateTerminalResponse> {
     const termId = createId("term");
-    console.log(
-      `[Server] Creating terminal ${termId}: ${params.command} ${params.args?.join(" ")}`
-    );
+    logger.debug("Creating terminal for ACP tool call", {
+      chatId,
+      terminalId: termId,
+      command: params.command,
+      argsCount: params.args?.length ?? 0,
+      hasCwd: Boolean(params.cwd),
+    });
 
     const session = getSessionOrThrow(sessionRuntime, chatId);
     const sessionCwd = session.projectRoot;
@@ -396,7 +400,10 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     });
 
     termProc.on("error", (err) => {
-      console.error(`[Server] Terminal ${termId} error:`, err);
+      logger.error("Terminal process emitted runtime error", err as Error, {
+        chatId,
+        terminalId: termId,
+      });
       finalizeTerminal({ exitCode: null, signal: null });
     });
 

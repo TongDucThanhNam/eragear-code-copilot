@@ -18,6 +18,7 @@ import { createLogger } from "@/platform/logging/structured-logger";
 import { createPermissionHandler } from "./permission";
 import { createToolCallHandlers } from "./tool-calls";
 import { createSessionUpdateHandler } from "./update";
+import { parseSessionUpdatePayload } from "./update-schema";
 
 const logger = createLogger("Debug");
 
@@ -61,16 +62,23 @@ export function createSessionHandlers(params: {
   return {
     /** Handles session updates (messages, tool calls, plans, etc.) */
     async sessionUpdate(params: acp.SessionNotification) {
+      const validatedUpdate = parseSessionUpdatePayload(params?.update);
+      if (!validatedUpdate) {
+        logger.warn("Dropped invalid ACP session update payload", {
+          chatId,
+        });
+        return;
+      }
       logger.debug("ACP handler sessionUpdate", {
         chatId,
-        hasUpdate: Boolean(params?.update),
-        updateType: params?.update?.sessionUpdate,
+        hasUpdate: true,
+        updateType: validatedUpdate.sessionUpdate,
       });
       await handleSessionUpdate({
         chatId,
         buffer,
         isReplayingHistory: getIsReplaying(),
-        update: params.update,
+        update: validatedUpdate,
       });
     },
 

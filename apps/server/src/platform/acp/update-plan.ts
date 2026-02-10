@@ -1,17 +1,13 @@
 import { isDeepStrictEqual } from "node:util";
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "@/modules/session";
 import {
   buildPlanToolPart,
   getPlanToolCallId,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
 import type { Plan } from "../../shared/types/session.types";
-import type { SessionUpdateWithLegacy } from "./update-types";
+import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 
-function extractPlan(update: SessionUpdateWithLegacy): Plan | null {
+function extractPlan(update: SessionUpdate): Plan | null {
   if (update.sessionUpdate !== "plan") {
     return null;
   }
@@ -37,23 +33,23 @@ function normalizePlanForComparison(
   };
 }
 
-export async function handlePlanUpdate(params: {
-  chatId: string;
-  update: SessionUpdateWithLegacy;
-  sessionRuntime: SessionRuntimePort;
-  sessionRepo: SessionRepositoryPort;
-  finalizeStreamingForCurrentAssistant: (
-    chatId: string,
-    sessionRuntime: SessionRuntimePort
-  ) => void;
-}): Promise<boolean> {
+export async function handlePlanUpdate(
+  context: Pick<
+    SessionUpdateContext,
+    | "chatId"
+    | "update"
+    | "sessionRuntime"
+    | "sessionRepo"
+    | "finalizeStreamingForCurrentAssistant"
+  >
+): Promise<boolean> {
   const {
     chatId,
     update,
     sessionRuntime,
     sessionRepo,
     finalizeStreamingForCurrentAssistant,
-  } = params;
+  } = context;
   if (update.sessionUpdate !== "plan") {
     return false;
   }

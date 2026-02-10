@@ -1,9 +1,12 @@
 import { writeFileSync } from "node:fs";
 import { getMigrations } from "better-auth/db";
 import { ENV } from "../../config/environment";
+import { createLogger } from "../logging/structured-logger";
 import { auth, authDb, authMigrationConfig, authState } from "./auth";
 import { getOrCreateAdminCredentials } from "./credentials";
 import { getAuthStorageFile } from "./paths";
+
+const logger = createLogger("Auth");
 
 function getTableCount(table: string): number {
   try {
@@ -25,9 +28,10 @@ async function ensureMigrations(): Promise<void> {
     return;
   }
 
-  console.log(
-    `[Auth] Running migrations (create=${toBeCreated.length}, add=${toBeAdded.length})`
-  );
+  logger.info("Running auth migrations", {
+    createCount: toBeCreated.length,
+    addCount: toBeAdded.length,
+  });
   await runMigrations();
 }
 
@@ -57,15 +61,16 @@ async function ensureAdminUser(): Promise<void> {
 
     if (credentials.source === "generated") {
       const credentialsPath = getAuthStorageFile("admin.credentials.json");
-      console.log(
-        `[Auth] Admin credentials generated at ${credentialsPath} (username: ${credentials.username}).`
-      );
+      logger.info("Admin credentials generated", {
+        credentialsPath,
+        username: credentials.username,
+      });
     }
   } catch (error) {
     const fallbackCount = getTableCount("user");
     authState.hasUsers = fallbackCount > 0;
     if (!authState.hasUsers) {
-      console.error("[Auth] Failed to bootstrap admin user:", error);
+      logger.error("Failed to bootstrap admin user", error as Error);
     }
   }
 }
@@ -127,10 +132,12 @@ async function ensureBootstrapApiKey(): Promise<void> {
         createdAt: new Date().toISOString(),
       };
       writeFileSync(apiKeyPath, JSON.stringify(payload, null, 2), "utf-8");
-      console.log(`[Auth] API key generated at ${apiKeyPath}.`);
+      logger.info("Bootstrap API key generated", { apiKeyPath });
     }
   } catch (error) {
-    console.warn("[Auth] Failed to bootstrap API key:", error);
+    logger.warn("Failed to bootstrap API key", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

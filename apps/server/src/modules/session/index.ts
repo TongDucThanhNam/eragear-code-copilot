@@ -1,4 +1,5 @@
 export { CleanupProjectSessionsService } from "./application/cleanup-project-sessions.service";
+export { CompactSessionMessagesService } from "./application/compact-session-messages.service";
 export type {
   CreateSessionInput,
   ListSessionsInput,

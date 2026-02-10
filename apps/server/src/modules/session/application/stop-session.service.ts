@@ -25,7 +25,6 @@ export class StopSessionService {
   async execute(userId: string, chatId: string): Promise<{ ok: true }> {
     const session = this.sessionRuntime.get(chatId);
     if (session?.userId === userId) {
-      console.log(`[tRPC] Stopping session ${chatId}`);
       terminateSessionTerminals(session);
       updateChatStatus({
         chatId,

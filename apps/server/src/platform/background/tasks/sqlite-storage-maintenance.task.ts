@@ -8,6 +8,7 @@
 
 import { ENV } from "@/config/environment";
 import type {
+  CompactSessionMessagesService,
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
@@ -21,8 +22,9 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export function createSqliteStorageMaintenanceTask(params: {
   sessionRepo: SessionRepositoryPort;
   sessionRuntime: SessionRuntimePort;
+  compactSessionMessages: CompactSessionMessagesService;
 }): BackgroundTaskSpec {
-  const { sessionRepo, sessionRuntime } = params;
+  const { sessionRepo, sessionRuntime, compactSessionMessages } = params;
 
   return {
     name: "sqlite-storage-maintenance",
@@ -42,7 +44,7 @@ export function createSqliteStorageMaintenanceTask(params: {
 
       const compactBeforeTs =
         Date.now() - Math.max(1, ENV.sqliteRetentionHotDays) * MS_PER_DAY;
-      const compaction = await sessionRepo.compactMessages({
+      const compaction = await compactSessionMessages.execute({
         beforeTimestamp: compactBeforeTs,
         batchSize: ENV.sqliteRetentionCompactionBatchSize,
       });

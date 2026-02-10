@@ -48,7 +48,10 @@ class InMemorySessionRepo implements SessionRepositoryPort {
     return Promise.resolve(undefined);
   }
 
-  findAll(_userId: string, _query?: SessionListQuery): Promise<StoredSession[]> {
+  findAll(
+    _userId: string,
+    _query?: SessionListQuery
+  ): Promise<StoredSession[]> {
     return Promise.resolve([]);
   }
 
@@ -91,7 +94,11 @@ class InMemorySessionRepo implements SessionRepositoryPort {
     return Promise.resolve();
   }
 
-  appendMessage(id: string, userId: string, message: StoredMessage): Promise<void> {
+  appendMessage(
+    id: string,
+    userId: string,
+    message: StoredMessage
+  ): Promise<void> {
     this.appendedMessages.push({ chatId: id, userId, message });
     return Promise.resolve();
   }
@@ -111,6 +118,7 @@ class InMemorySessionRepo implements SessionRepositoryPort {
   compactMessages(_input: {
     beforeTimestamp: number;
     batchSize: number;
+    sessionIds: string[];
   }): Promise<{ compacted: number }> {
     return Promise.resolve({ compacted: 0 });
   }
@@ -349,6 +357,103 @@ describe("SendMessageService", () => {
     ).rejects.toMatchObject({
       name: "ValidationError",
     });
+  });
+
+  test("accepts whitespace-normalized valid base64 payloads", async () => {
+    ENV.messagePartsMaxBytes = 1024;
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const session = createChatSession({
+      prompt: async () => ({ stopReason: "end_turn" }),
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = new SendMessageService(repo, runtime, createLoggerStub());
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        text: "hello",
+        images: [
+          {
+            base64: " SGVs bG8=\n",
+            mimeType: "image/png",
+          },
+        ],
+      })
+    ).resolves.toMatchObject({
+      status: "submitted",
+    });
+  });
+
+  test("rejects malformed base64 payloads", async () => {
+    ENV.messagePartsMaxBytes = 1024;
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const session = createChatSession({
+      prompt: async () => ({ stopReason: "end_turn" }),
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = new SendMessageService(repo, runtime, createLoggerStub());
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        text: "hello",
+        images: [
+          {
+            base64: "###=",
+            mimeType: "image/png",
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      name: "ValidationError",
+    });
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        text: "hello",
+        images: [
+          {
+            base64: "SGVsbG8===",
+            mimeType: "image/png",
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      name: "ValidationError",
+    });
+  });
+
+  test("marks chat error when prompt task throws unexpectedly", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const session = createChatSession({
+      prompt: () => Promise.reject(new Error("unexpected prompt crash")),
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = new SendMessageService(repo, runtime, createLoggerStub());
+
+    const result = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "hello",
+    });
+    await flushAsync();
+
+    const errorStatusEvent = events.find(
+      (event) =>
+        event.type === "chat_status" &&
+        event.status === "error" &&
+        event.turnId === result.turnId
+    );
+    expect(errorStatusEvent).toBeDefined();
+    expect(session.activeTurnId).toBeUndefined();
+    expect(session.activePromptTask).toBeUndefined();
   });
 
   test("rejects message send for session owned by another user", async () => {

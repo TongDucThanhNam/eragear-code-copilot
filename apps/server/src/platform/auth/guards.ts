@@ -1,4 +1,7 @@
+import { createLogger } from "../logging/structured-logger";
 import { auth } from "./auth";
+
+const logger = createLogger("Auth");
 
 type HeaderRecord = Record<string, string | string[] | undefined>;
 
@@ -95,12 +98,12 @@ export async function getSessionFromRequest(
     session?: unknown;
   };
   if (!sessionData.user?.id) {
-    console.warn("[Auth] Session missing user id");
+    logger.warn("Session missing user id");
     return null;
   }
-  console.debug(
-    `[Auth] getSessionFromRequest: session found for user=${sessionData.user.username}`
-  );
+  logger.debug("Session resolved from request", {
+    username: sessionData.user.username,
+  });
   return { user: sessionData.user, session: sessionData.session };
 }
 
@@ -125,7 +128,7 @@ export async function getAuthContext(
   const apiKeyFromHeader = extractApiKeyFromHeaders(headers);
   if (!apiKeyFromHeader) {
     if (hasDeprecatedApiKeyQuery(req.url)) {
-      console.warn("[Auth] API key in query parameters is not allowed");
+      logger.warn("API key in query parameters is not allowed");
     }
     return null;
   }
@@ -143,7 +146,7 @@ export async function getAuthContextFromApiKey(
     }
     return { type: "apiKey", userId: result.key.userId };
   } catch (error) {
-    console.error("Failed to verify API key:", error);
+    logger.error("Failed to verify API key", error as Error);
     return null;
   }
 }

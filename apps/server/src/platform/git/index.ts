@@ -13,8 +13,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, normalize, relative } from "node:path";
 import { promisify } from "node:util";
 import type { GitPort } from "@/modules/tooling";
+import { createLogger } from "@/platform/logging/structured-logger";
 
 const execAsync = promisify(exec);
+const logger = createLogger("Storage");
 /** Regex to prevent path traversal attacks */
 const PATHTraversal_REGEX = /^(\.\.(\/|\\|$))+/;
 
@@ -61,7 +63,11 @@ async function scanDirRecursive(
       }
     }
   } catch (scanError) {
-    console.error(`Failed to scan ${dir}:`, scanError);
+    logger.error(
+      "Failed to scan directory recursively for project context",
+      scanError as Error,
+      { dir }
+    );
   }
 }
 
@@ -98,10 +104,10 @@ export class GitAdapter implements GitPort {
         }
       }
     } catch (error) {
-      console.warn(
-        "[GitAdapter] git ls-files failed, falling back to fs scan",
-        error
-      );
+      logger.warn("git ls-files failed; falling back to filesystem scan", {
+        scanRoot,
+        error: error instanceof Error ? error.message : String(error),
+      });
       // Fallback to filesystem scan if git is not available
       await scanDirRecursive(scanRoot, scanRoot, 0, files, projectRules);
     }
@@ -159,7 +165,7 @@ export class GitAdapter implements GitPort {
 
       return combinedPatch;
     } catch (error) {
-      console.error("Failed to get git diff", error);
+      logger.error("Failed to get git diff", error as Error, { projectRoot });
       throw new Error("Failed to get changes. Is this a git repository?");
     }
   }
@@ -186,7 +192,9 @@ export class GitAdapter implements GitPort {
     try {
       return await readFile(fullPath, "utf8");
     } catch (error) {
-      console.error(`Failed to read file ${fullPath}`, error);
+      logger.error("Failed to read file within project root", error as Error, {
+        fullPath,
+      });
       throw new Error(`Failed to read file: ${error}`);
     }
   }

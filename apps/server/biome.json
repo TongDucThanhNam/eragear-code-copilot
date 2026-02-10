@@ -21,6 +21,34 @@
   },
   "overrides": [
     {
+      "includes": [
+        "src/bootstrap/**/*.ts",
+        "src/platform/**/*.ts",
+        "src/transport/**/*.ts",
+        "src/modules/**/*.ts",
+        "src/shared/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": {
+              "level": "error"
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/platform/logging/**/*.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["src/modules/**/domain/**/*.ts"],
       "linter": {
         "rules": {
@@ -123,6 +151,8 @@
                       "@/modules/*/domain/**",
                       "@/modules/*/infra/**",
                       "@/domain/**",
+                      "**/bootstrap/container",
+                      "@/bootstrap/container",
                       "@/platform/**"
                     ],
                     "message": "Transport should only consume module public APIs."

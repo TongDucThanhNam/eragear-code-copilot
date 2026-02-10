@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { ENV } from "../../config/environment";
+import { createLogger } from "../logging/structured-logger";
 import { getAuthStorageFile } from "./paths";
 
 export interface AdminCredentials {
@@ -13,6 +14,7 @@ export interface AdminCredentials {
 
 const DEFAULT_USERNAME = "admin";
 const DEFAULT_EMAIL_DOMAIN = "localhost.local";
+const logger = createLogger("Auth");
 
 export function getOrCreateAdminCredentials(): AdminCredentials {
   const username = ENV.authAdminUsername ?? DEFAULT_USERNAME;
@@ -43,7 +45,9 @@ export function getOrCreateAdminCredentials(): AdminCredentials {
         };
       }
     } catch (error) {
-      console.warn("[Auth] Failed to read admin.credentials.json:", error);
+      logger.warn("Failed to read admin.credentials.json", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

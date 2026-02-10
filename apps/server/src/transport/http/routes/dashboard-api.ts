@@ -15,15 +15,18 @@
  */
 
 import type { Context, Hono } from "hono";
-import { getContainer } from "../../../bootstrap/container";
 import { parseLogQueryParams, parseSessionPaginationParams } from "./helpers";
 import { getAuthContextFromRequest } from "../utils/auth";
+import type { HttpRouteDependencies } from "./deps";
 
 /**
  * Registers dashboard-related API routes
  */
-export function registerDashboardApiRoutes(api: Hono): void {
-  const container = getContainer();
+export function registerDashboardApiRoutes(
+  api: Hono,
+  deps: Pick<HttpRouteDependencies, "eventBus" | "logStore" | "opsServices">
+): void {
+  const { eventBus, logStore, opsServices } = deps;
 
   const resolveUserId = async (c: Context): Promise<string | null> => {
     const auth = await getAuthContextFromRequest({
@@ -53,7 +56,7 @@ export function registerDashboardApiRoutes(api: Hono): void {
     if (!userId) {
       return c.json({ error: "Unauthorized" }, 401);
     }
-    const service = container.getOpsServices().dashboardProjects();
+    const service = opsServices.dashboardProjects();
     return c.json(await service.execute(userId));
   });
 
@@ -71,7 +74,7 @@ export function registerDashboardApiRoutes(api: Hono): void {
     }
     const { limit, offset } = parsedPagination.pagination;
 
-    const service = container.getOpsServices().dashboardSessions();
+    const service = opsServices.dashboardSessions();
     return c.json(await service.execute({ userId, limit, offset }));
   });
 
@@ -83,7 +86,7 @@ export function registerDashboardApiRoutes(api: Hono): void {
     if (!userId) {
       return c.json({ error: "Unauthorized" }, 401);
     }
-    const service = container.getOpsServices().dashboardStats();
+    const service = opsServices.dashboardStats();
     return c.json(await service.execute(userId));
   });
 
@@ -91,7 +94,7 @@ export function registerDashboardApiRoutes(api: Hono): void {
    * GET /api/dashboard/observability - Runtime observability snapshot
    */
   api.get("/dashboard/observability", (c: Context) => {
-    const service = container.getOpsServices().observabilitySnapshot();
+    const service = opsServices.observabilitySnapshot();
     return c.json({ observability: service.execute() });
   });
 
@@ -107,7 +110,6 @@ export function registerDashboardApiRoutes(api: Hono): void {
     if (!parsed.ok) {
       return c.json({ error: parsed.error }, 400);
     }
-    const logStore = container.getLogStore();
     return c.json(logStore.list(parsed.query));
   });
 
@@ -115,7 +117,6 @@ export function registerDashboardApiRoutes(api: Hono): void {
    * GET /api/logs/stream - Real-time log streaming (SSE)
    */
   api.get("/logs/stream", (c: Context) => {
-    const logStore = container.getLogStore();
     const encoder = new TextEncoder();
 
     let unsubscribe: (() => void) | null = null;
@@ -194,7 +195,6 @@ export function registerDashboardApiRoutes(api: Hono): void {
     if (!userId) {
       return c.json({ error: "Unauthorized" }, 401);
     }
-    const eventBus = container.getEventBus();
     const encoder = new TextEncoder();
 
     let unsubscribe: (() => void) | null = null;

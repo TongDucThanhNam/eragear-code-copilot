@@ -15,19 +15,6 @@ import type {
 } from "./sqlite-worker.protocol";
 import { SQLITE_WORKER_KIND } from "./sqlite-worker.protocol";
 
-function normalizeRoots(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [process.cwd()];
-  }
-  const roots = value
-    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-    .filter((entry) => entry.length > 0);
-  if (roots.length === 0) {
-    return [process.cwd()];
-  }
-  return [...new Set(roots)];
-}
-
 function toErrorPayload(error: unknown): SqliteWorkerResponse["error"] {
   if (error instanceof Error) {
     return {
@@ -62,17 +49,11 @@ if (!isMainThread && port) {
   }
 
   const sessionRepo = new SessionSqliteRepository();
-  const projectRepo = new ProjectSqliteRepository(
-    normalizeRoots(init.allowedRoots)
-  );
+  const projectRepo = new ProjectSqliteRepository();
   const agentRepo = new AgentSqliteRepository();
   const settingsRepo = new SettingsSqliteRepository();
 
-  const handleStorageMethod = async (method: string, args: unknown[]) => {
-    if (method === "setAllowedRoots") {
-      await projectRepo.setAllowedRoots(normalizeRoots(args[0]));
-      return null;
-    }
+  const handleStorageMethod = async (method: string) => {
     if (method === "runMaintenance") {
       return runSqliteRuntimeMaintenanceLocal();
     }
@@ -115,7 +96,7 @@ if (!isMainThread && port) {
           request.method
         )(...request.args);
       } else if (request.service === "storage") {
-        result = await handleStorageMethod(request.method, request.args);
+        result = await handleStorageMethod(request.method);
       } else {
         throw new Error(`Unknown SQLite worker service: ${request.service}`);
       }

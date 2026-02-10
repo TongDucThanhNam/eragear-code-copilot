@@ -15,7 +15,7 @@ export const toolRouter = router({
   respondToPermissionRequest: protectedProcedure
     .input(RespondPermissionInputSchema)
     .mutation(({ input, ctx }) => {
-      const service = ctx.container.getToolingServices().respondPermission();
+      const service = ctx.toolingServices.respondPermission();
       return service.execute(input);
     }),
 });

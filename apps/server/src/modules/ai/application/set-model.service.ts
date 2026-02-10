@@ -20,6 +20,7 @@ import {
   isProcessExited,
   isProcessTransportNotReady,
 } from "./acp-error.util";
+import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 
 const OP = "ai.session.model.set";
 
@@ -81,21 +82,12 @@ export class SetModelService {
       return { ok: true };
     }
 
-    console.log("[Server] setModel requested", {
-      chatId,
-      modelId,
-    });
     this.ensureSessionRunning(session);
 
     try {
       await this.sendModelSwitchWithRetry(chatId, session, modelId);
     } catch (error) {
       const errorText = getAcpErrorText(error);
-      console.error("[Server] setModel failed", {
-        chatId,
-        modelId,
-        error: errorText || "Failed to set model",
-      });
       if (isMethodNotFound(errorText)) {
         throw new ValidationError("Agent does not support model switching", {
           module: "ai",
@@ -117,14 +109,13 @@ export class SetModelService {
     if (session.models) {
       session.models.currentModelId = modelId;
     }
-    console.log("[Server] setModel succeeded", {
-      chatId,
-      modelId,
-    });
     return { ok: true };
   }
 
-  private getSessionForModelSwitch(userId: string, chatId: string): ChatSession {
+  private getSessionForModelSwitch(
+    userId: string,
+    chatId: string
+  ): ChatSession {
     const session = this.sessionRuntime.get(chatId);
     if (!session?.sessionId || session.userId !== userId) {
       throw new NotFoundError("Chat not found", {
@@ -192,7 +183,7 @@ export class SetModelService {
     session: ChatSession,
     modelId: string
   ) {
-    const maxAttempts = 3;
+    const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy();
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         await this.sendModelSwitchRequest(session, modelId);
@@ -203,9 +194,12 @@ export class SetModelService {
           isProcessTransportNotReady(errorText) &&
           attempt < maxAttempts - 1
         ) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, 150 * (attempt + 1))
-          );
+          await new Promise((resolve) => {
+            setTimeout(
+              resolve,
+              getAcpRetryDelayMs(attempt + 1, retryBaseDelayMs)
+            );
+          });
           continue;
         }
         if (isProcessExited(errorText)) {

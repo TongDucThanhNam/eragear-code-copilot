@@ -32,10 +32,10 @@ import {
   isProcessExited,
   isProcessTransportNotReady,
 } from "./acp-error.util";
+import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import { buildPrompt } from "./prompt.builder";
 
 const OP = "ai.prompt.send";
-const BASE64_CHARS_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 
 interface SendMessageExecuteInput {
   /** Owning user identifier */
@@ -234,6 +234,15 @@ export class SendMessageService {
     }
 
     const broadcast = this.sessionRuntime.broadcast.bind(this.sessionRuntime);
+    if (session.activePromptTask) {
+      this.logger.warn(
+        "SendMessageService replacing active prompt task with a new turn",
+        {
+          chatId: input.chatId,
+          previousTurnId: session.activePromptTask.turnId,
+        }
+      );
+    }
     const turnId = createId("turn");
     session.activeTurnId = turnId;
     session.chatFinish = { turnId };
@@ -292,17 +301,17 @@ export class SendMessageService {
       messageId: msgId,
     });
 
-    const promptTask = this.handlePrompt({
+    const promptTask = this.runPromptTask({
       chatId: input.chatId,
       session,
       prompt,
       broadcast,
       turnId,
     });
-
-    promptTask.catch(() => {
-      // Errors are handled via status updates/broadcasts inside handlePrompt.
-    });
+    session.activePromptTask = {
+      turnId,
+      promise: promptTask,
+    };
 
     return {
       status: "submitted",
@@ -367,6 +376,51 @@ export class SendMessageService {
     });
   }
 
+  private async runPromptTask(params: {
+    chatId: string;
+    session: ChatSession;
+    prompt: ReturnType<typeof buildPrompt>;
+    broadcast: SessionRuntimePort["broadcast"];
+    turnId: string;
+  }): Promise<void> {
+    const { chatId, session, turnId, broadcast } = params;
+    try {
+      await this.handlePrompt(params);
+    } catch (error) {
+      const errorText = getAcpErrorText(error);
+      const normalizedError =
+        errorText?.trim() ||
+        (error instanceof Error ? error.message : "Unexpected prompt failure");
+      const isCurrentTurn = session.activeTurnId === turnId;
+
+      this.logger.error("SendMessageService prompt task crashed", {
+        chatId,
+        turnId,
+        activeTurnId: session.activeTurnId,
+        error: normalizedError,
+      });
+
+      if (isCurrentTurn) {
+        updateChatStatus({
+          chatId,
+          session,
+          broadcast,
+          status: "error",
+          turnId,
+        });
+        session.activeTurnId = undefined;
+        this.sessionRuntime.broadcast(chatId, {
+          type: "error",
+          error: normalizedError,
+        });
+      }
+    } finally {
+      if (session.activePromptTask?.turnId === turnId) {
+        session.activePromptTask = undefined;
+      }
+    }
+  }
+
   private async requestPromptWithRetries(params: {
     chatId: string;
     session: ChatSession;
@@ -385,7 +439,7 @@ export class SendMessageService {
       turnId,
       isCurrentTurn,
     } = params;
-    const maxAttempts = 3;
+    const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy();
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         this.logger.debug("SendMessageService sending prompt", {
@@ -418,9 +472,12 @@ export class SendMessageService {
           isProcessTransportNotReady(errorText) &&
           attempt < maxAttempts - 1
         ) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, 150 * (attempt + 1))
-          );
+          await new Promise((resolve) => {
+            setTimeout(
+              resolve,
+              getAcpRetryDelayMs(attempt + 1, retryBaseDelayMs)
+            );
+          });
           continue;
         }
         if (isProcessExited(errorText)) {
@@ -603,6 +660,7 @@ export class SendMessageService {
     });
     await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
     session.activeTurnId = undefined;
+    session.activePromptTask = undefined;
     if (!session.proc.killed) {
       session.proc.kill();
     }
@@ -708,7 +766,26 @@ export class SendMessageService {
         details: { chatId, field, index },
       });
     }
-    if (normalized.length % 4 !== 0 || !BASE64_CHARS_RE.test(normalized)) {
+    let decoded: Buffer;
+    try {
+      decoded = Buffer.from(normalized, "base64");
+    } catch {
+      throw new ValidationError(
+        `${field}[${index}] has invalid base64 payload`,
+        {
+          module: "ai",
+          op: OP,
+          details: {
+            chatId,
+            field,
+            index,
+            base64Length: normalized.length,
+          },
+        }
+      );
+    }
+    const canonical = decoded.toString("base64");
+    if (!canonical || canonical !== normalized) {
       throw new ValidationError(
         `${field}[${index}] has invalid base64 payload`,
         {
@@ -724,13 +801,7 @@ export class SendMessageService {
       );
     }
 
-    let padding = 0;
-    if (normalized.endsWith("==")) {
-      padding = 2;
-    } else if (normalized.endsWith("=")) {
-      padding = 1;
-    }
-    const decodedBytes = (normalized.length / 4) * 3 - padding;
+    const decodedBytes = decoded.length;
     if (!Number.isFinite(decodedBytes) || decodedBytes < 0) {
       throw new ValidationError(
         `${field}[${index}] has invalid base64 payload size`,

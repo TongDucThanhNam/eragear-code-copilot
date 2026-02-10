@@ -7,6 +7,7 @@
  * @module modules/session/infra/runtime-store
  */
 
+import { createLogger } from "@/platform/logging/structured-logger";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import { ENV } from "../../../config/environment";
 import type {
@@ -14,6 +15,8 @@ import type {
   ChatSession,
 } from "../../../shared/types/session.types";
 import type { SessionRuntimePort } from "../application/ports/session-runtime.port";
+
+const logger = createLogger("Debug");
 
 /**
  * SessionRuntimeStore
@@ -120,9 +123,18 @@ export class SessionRuntimeStore implements SessionRuntimePort {
 
     // Publish to event bus
     this.eventBus
-      .publish({ type: "session_broadcast", userId: session.userId, chatId, event })
+      .publish({
+        type: "session_broadcast",
+        userId: session.userId,
+        chatId,
+        event,
+      })
       .catch((error) => {
-        console.error("[SessionRuntimeStore] Failed to publish event", error);
+        logger.error(
+          "Failed to publish session event to event bus",
+          error as Error,
+          { chatId, userId: session.userId }
+        );
       });
   }
 }

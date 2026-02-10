@@ -11,15 +11,18 @@
  */
 
 import type { Context, Hono } from "hono";
-import { getContainer } from "../../../bootstrap/container";
 import { isAppError } from "../../../shared/errors";
 import { getAuthContextFromRequest } from "../utils/auth";
+import type { HttpRouteDependencies } from "./deps";
 
 /**
  * Registers project-related HTTP routes
  */
-export function registerProjectRoutes(api: Hono): void {
-  const container = getContainer();
+export function registerProjectRoutes(
+  api: Hono,
+  deps: Pick<HttpRouteDependencies, "projectServices" | "logger">
+): void {
+  const { projectServices, logger } = deps;
 
   // =========================================================================
   // API Routes
@@ -49,7 +52,7 @@ export function registerProjectRoutes(api: Hono): void {
         return c.json({ error: "name and path are required" }, 400);
       }
 
-      const service = container.getProjectServices().createProject();
+      const service = projectServices.createProject();
       const project = await service.execute(auth.userId, {
         name,
         path,
@@ -63,7 +66,9 @@ export function registerProjectRoutes(api: Hono): void {
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
-      console.error("Failed to create project:", error);
+      logger.error("Failed to create project", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to create project" }, 500);
     }
   });
@@ -87,7 +92,7 @@ export function registerProjectRoutes(api: Hono): void {
         return c.json({ error: "projectId is required" }, 400);
       }
 
-      const service = container.getProjectServices().deleteProject();
+      const service = projectServices.deleteProject();
       await service.execute(auth.userId, projectId);
 
       return c.json({ ok: true });
@@ -95,7 +100,9 @@ export function registerProjectRoutes(api: Hono): void {
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
-      console.error("Failed to delete project:", error);
+      logger.error("Failed to delete project", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return c.json({ error: "Failed to delete project" }, 500);
     }
   });

@@ -1,5 +1,4 @@
 import type * as acp from "@agentclientprotocol/sdk";
-import type { SessionRuntimePort } from "@/modules/session";
 import { toStoredToolCallContent } from "@/shared/utils/content-block.util";
 import {
   buildToolPartForUpdate,
@@ -7,24 +6,12 @@ import {
   upsertToolLocationsPart,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
-import type { SessionUpdateWithLegacy } from "./update-types";
+import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 import { isToolCallCreate, isToolCallUpdate } from "./update-types";
 
-export function handleToolCallCreate(params: {
-  chatId: string;
-  update: SessionUpdateWithLegacy;
-  sessionRuntime: SessionRuntimePort;
-  finalizeStreamingForCurrentAssistant: (
-    chatId: string,
-    sessionRuntime: SessionRuntimePort
-  ) => void;
-}) {
-  const {
-    chatId,
-    update,
-    sessionRuntime,
-    finalizeStreamingForCurrentAssistant,
-  } = params;
+export function handleToolCallCreate(context: SessionUpdateContext) {
+  const { chatId, update, sessionRuntime, finalizeStreamingForCurrentAssistant } =
+    context;
   if (!isToolCallCreate(update)) {
     return false;
   }
@@ -63,12 +50,10 @@ export function handleToolCallCreate(params: {
   return true;
 }
 
-export function handleToolCallUpdate(params: {
-  chatId: string;
-  update: SessionUpdateWithLegacy;
-  sessionRuntime: SessionRuntimePort;
-}) {
-  const { chatId, update, sessionRuntime } = params;
+export function handleToolCallUpdate(
+  context: Pick<SessionUpdateContext, "chatId" | "update" | "sessionRuntime">
+) {
+  const { chatId, update, sessionRuntime } = context;
   if (!isToolCallUpdate(update)) {
     return false;
   }
@@ -124,7 +109,7 @@ export function handleToolCallUpdate(params: {
 
 function mergeToolCallUpdate(
   existing: acp.ToolCall,
-  update: acp.ToolCallUpdate
+  update: Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>
 ): acp.ToolCall {
   const mergedContent = resolveToolCallUpdateContent(
     existing.content,
