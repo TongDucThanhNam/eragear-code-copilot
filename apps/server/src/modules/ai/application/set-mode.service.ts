@@ -7,24 +7,17 @@
  * @module modules/ai/application/set-mode.service
  */
 
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "@/modules/session";
-import { AppError, NotFoundError, ValidationError } from "@/shared/errors";
+import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
-import { updateChatStatus } from "@/shared/utils/chat-events.util";
-import {
-  classifyAcpError,
-  getAcpErrorText,
-  isMethodNotFound,
-} from "./acp-error.util";
+import { AiChatSessionAggregate } from "../domain/ai-chat-session.aggregate";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import {
   AI_OP,
   DEFAULT_AI_ACP_RETRY_POLICY,
   HTTP_STATUS,
 } from "./ai.constants";
+import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
+import { AiSessionRuntimeError } from "./ports/ai-session-runtime.port";
 
 const OP = AI_OP.SESSION_MODE_SET;
 
@@ -33,52 +26,24 @@ interface ModeSwitchPolicy {
   acpRetryBaseDelayMs: number;
 }
 
-/**
- * SetModeService
- *
- * Provides functionality to change the agent's active mode within a session.
- *
- * @example
- * ```typescript
- * const service = new SetModeService(sessionRuntime);
- * const result = await service.execute("chat-123", "code-review");
- * console.log(result.ok); // true
- * ```
- */
 export class SetModeService {
-  /** Runtime store for accessing active sessions */
-  private readonly sessionRuntime: SessionRuntimePort;
-  /** Repository for session persistence */
-  private readonly sessionRepo: SessionRepositoryPort;
+  private readonly sessionGateway: AiSessionRuntimePort;
   private readonly policy: ModeSwitchPolicy;
 
-  /**
-   * Creates a SetModeService with required dependencies
-   */
   constructor(
-    sessionRuntime: SessionRuntimePort,
-    sessionRepo: SessionRepositoryPort,
+    sessionGateway: AiSessionRuntimePort,
     policy: ModeSwitchPolicy = {
       acpRetryMaxAttempts: DEFAULT_AI_ACP_RETRY_POLICY.maxAttempts,
       acpRetryBaseDelayMs: DEFAULT_AI_ACP_RETRY_POLICY.retryBaseDelayMs,
     }
   ) {
-    this.sessionRuntime = sessionRuntime;
-    this.sessionRepo = sessionRepo;
+    this.sessionGateway = sessionGateway;
     this.policy = {
       acpRetryMaxAttempts: Math.max(1, Math.trunc(policy.acpRetryMaxAttempts)),
       acpRetryBaseDelayMs: Math.max(1, Math.trunc(policy.acpRetryBaseDelayMs)),
     };
   }
 
-  /**
-   * Sets the active mode for a session
-   *
-   * @param chatId - The chat session identifier
-   * @param modeId - The mode identifier to activate
-   * @returns Success status object
-   * @throws Error if session is not found or not running
-   */
   async execute(userId: string, chatId: string, modeId: string) {
     const session = this.getSessionForModeSwitch(userId, chatId, modeId);
 
@@ -86,33 +51,18 @@ export class SetModeService {
       return { ok: true };
     }
 
-    this.ensureSessionRunning(session, chatId, modeId);
+    this.sessionGateway.assertSessionRunning({
+      chatId,
+      session,
+      module: "ai",
+      op: OP,
+      details: { modeId },
+    });
 
-    try {
-      await this.sendModeSwitchWithRetry(chatId, modeId, session);
-    } catch (error) {
-      const errorText = getAcpErrorText(error);
-      if (isMethodNotFound(errorText)) {
-        throw new ValidationError("Agent does not support mode switching", {
-          module: "ai",
-          op: OP,
-          details: { chatId, modeId },
-        });
-      }
-      throw new AppError({
-        message: errorText || "Failed to set mode",
-        code: "SET_MODE_FAILED",
-        statusCode: HTTP_STATUS.BAD_GATEWAY,
-        module: "ai",
-        op: OP,
-        cause: error,
-        details: { chatId, modeId },
-      });
-    }
+    await this.sendModeSwitchWithRetry(chatId, modeId, session);
 
-    if (session.modes) {
-      session.modes.currentModeId = modeId;
-    }
+    const aggregate = new AiChatSessionAggregate(session);
+    aggregate.setCurrentMode(modeId);
     return { ok: true };
   }
 
@@ -121,14 +71,13 @@ export class SetModeService {
     chatId: string,
     modeId: string
   ): ChatSession {
-    const session = this.sessionRuntime.get(chatId);
-    if (!session?.sessionId || session.userId !== userId) {
-      throw new NotFoundError("Chat not found", {
-        module: "ai",
-        op: OP,
-        details: { chatId, modeId },
-      });
-    }
+    const session = this.sessionGateway.requireAuthorizedSession({
+      userId,
+      chatId,
+      module: "ai",
+      op: OP,
+      details: { modeId },
+    });
 
     if (!session.modes || session.modes.availableModes.length === 0) {
       throw new ValidationError("Agent does not support mode switching", {
@@ -152,40 +101,6 @@ export class SetModeService {
     return session;
   }
 
-  private ensureSessionRunning(
-    session: ChatSession,
-    chatId: string,
-    modeId: string
-  ): void {
-    const stdin = session.proc.stdin;
-    if (
-      !stdin ||
-      stdin.destroyed ||
-      !stdin.writable ||
-      session.proc.killed ||
-      session.proc.exitCode !== null
-    ) {
-      throw new AppError({
-        message: "Session is not running",
-        code: "SESSION_NOT_RUNNING",
-        statusCode: HTTP_STATUS.CONFLICT,
-        module: "ai",
-        op: OP,
-        details: { chatId, modeId },
-      });
-    }
-    if (session.conn.signal.aborted) {
-      throw new AppError({
-        message: "Session connection is closed",
-        code: "SESSION_CONNECTION_CLOSED",
-        statusCode: HTTP_STATUS.CONFLICT,
-        module: "ai",
-        op: OP,
-        details: { chatId, modeId },
-      });
-    }
-  }
-
   private async sendModeSwitchWithRetry(
     chatId: string,
     modeId: string,
@@ -198,82 +113,125 @@ export class SetModeService {
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        await session.conn.setSessionMode({
-          sessionId: session.sessionId ?? "",
-          modeId,
-        });
+        await this.sessionGateway.setSessionMode(session, modeId);
         return;
       } catch (error) {
-        const classified = classifyAcpError(error);
-        const errorText = classified.text;
-        if (
-          classified.kind === "retryable_transport" &&
-          attempt < maxAttempts - 1
-        ) {
-          await new Promise((resolve) => {
-            setTimeout(
-              resolve,
-              getAcpRetryDelayMs(attempt + 1, retryBaseDelayMs)
-            );
-          });
-          continue;
-        }
-
-        if (
-          classified.kind === "fatal_process" ||
-          classified.kind === "fatal_session"
-        ) {
-          const reason =
-            errorText ||
-            (classified.kind === "fatal_process"
-              ? "Agent process exited"
-              : "Agent session is unavailable");
-          await this.markSessionStopped(
-            chatId,
-            session,
-            reason,
-            classified.kind === "fatal_process"
-          );
-          throw new AppError({
-            message: reason,
-            code:
-              classified.kind === "fatal_process"
-                ? "AGENT_PROCESS_EXITED"
-                : "SESSION_CONNECTION_CLOSED",
-            statusCode:
-              classified.kind === "fatal_process"
-                ? HTTP_STATUS.SERVICE_UNAVAILABLE
-                : HTTP_STATUS.CONFLICT,
-            module: "ai",
-            op: OP,
-            details: { chatId, modeId },
-          });
-        }
-        throw error;
+        await this.handleModeSwitchFailure({
+          error,
+          attempt,
+          maxAttempts,
+          retryBaseDelayMs,
+          chatId,
+          modeId,
+          session,
+        });
       }
     }
   }
 
-  private async markSessionStopped(
+  private async handleModeSwitchFailure(params: {
+    error: unknown;
+    attempt: number;
+    maxAttempts: number;
+    retryBaseDelayMs: number;
+    chatId: string;
+    modeId: string;
+    session: ChatSession;
+  }): Promise<void> {
+    const {
+      error,
+      attempt,
+      maxAttempts,
+      retryBaseDelayMs,
+      chatId,
+      modeId,
+      session,
+    } = params;
+
+    if (!(error instanceof AiSessionRuntimeError)) {
+      throw this.toSetModeFailedError(error, chatId, modeId);
+    }
+
+    if (error.kind === "retryable_transport" && attempt < maxAttempts - 1) {
+      await this.delayRetry(attempt, retryBaseDelayMs);
+      return;
+    }
+
+    if (error.kind === "method_not_supported") {
+      throw new ValidationError("Agent does not support mode switching", {
+        module: "ai",
+        op: OP,
+        details: { chatId, modeId },
+      });
+    }
+
+    if (
+      error.kind === "process_exited" ||
+      error.kind === "session_unavailable"
+    ) {
+      await this.stopSessionAndThrow(chatId, modeId, session, error);
+    }
+
+    throw this.toSetModeFailedError(error, chatId, modeId);
+  }
+
+  private async stopSessionAndThrow(
     chatId: string,
+    modeId: string,
     session: ChatSession,
-    reason: string,
-    killProcess: boolean
-  ): Promise<void> {
-    this.sessionRuntime.broadcast(chatId, {
-      type: "error",
-      error: reason,
-    });
-    updateChatStatus({
+    error: AiSessionRuntimeError
+  ): Promise<never> {
+    const reason =
+      error.message ||
+      (error.kind === "process_exited"
+        ? "Agent process exited"
+        : "Agent session is unavailable");
+
+    await this.sessionGateway.stopAndCleanup({
       chatId,
       session,
-      broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-      status: "error",
+      reason,
+      killProcess: error.kind === "process_exited",
     });
-    await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
-    if (killProcess && !session.proc.killed) {
-      session.proc.kill();
-    }
-    this.sessionRuntime.delete(chatId);
+
+    throw new AppError({
+      message: reason,
+      code:
+        error.kind === "process_exited"
+          ? "AGENT_PROCESS_EXITED"
+          : "SESSION_CONNECTION_CLOSED",
+      statusCode:
+        error.kind === "process_exited"
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.CONFLICT,
+      module: "ai",
+      op: OP,
+      details: { chatId, modeId },
+    });
+  }
+
+  private async delayRetry(
+    attempt: number,
+    retryBaseDelayMs: number
+  ): Promise<void> {
+    await new Promise((resolve) => {
+      setTimeout(resolve, getAcpRetryDelayMs(attempt + 1, retryBaseDelayMs));
+    });
+  }
+
+  private toSetModeFailedError(
+    error: unknown,
+    chatId: string,
+    modeId: string
+  ): AppError {
+    return new AppError({
+      message: error instanceof Error ? error.message : "Failed to set mode",
+      code: "SET_MODE_FAILED",
+      statusCode: HTTP_STATUS.BAD_GATEWAY,
+      module: "ai",
+      op: OP,
+      cause: error,
+      details: { chatId, modeId },
+    });
   }
 }

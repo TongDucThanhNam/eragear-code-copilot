@@ -42,10 +42,7 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
     };
   }
 
-  toMessageInsert(
-    sessionId: string,
-    message: StoredMessage
-  ): MessageInsert {
+  toMessageInsert(sessionId: string, message: StoredMessage): MessageInsert {
     this.assertMessagePayloadBudget(message);
     return {
       sessionId,
@@ -64,84 +61,7 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
     };
   }
 
-  toSessionSaveUpdateSet(
-    session: StoredSession
-  ): Partial<SessionInsert> {
-    const setValues: Partial<SessionInsert> = {
-      userId: session.userId,
-      projectRoot: session.projectRoot,
-      status: session.status === "running" ? "running" : "stopped",
-      lastActiveAt: session.lastActiveAt,
-    };
-
-    if (session.name !== undefined) {
-      setValues.name = session.name;
-    }
-    if (session.sessionId !== undefined) {
-      setValues.sessionId = session.sessionId;
-    }
-    if (session.projectId !== undefined) {
-      setValues.projectId = session.projectId;
-    }
-    if (session.command !== undefined) {
-      setValues.command = session.command;
-    }
-    if (session.args !== undefined) {
-      setValues.argsJson = toSqliteJson(session.args);
-    }
-    if (session.env !== undefined) {
-      setValues.envJson = toSqliteJson(session.env);
-    }
-    if (session.cwd !== undefined) {
-      setValues.cwd = session.cwd;
-    }
-    if (session.loadSessionSupported !== undefined) {
-      setValues.loadSessionSupported = toSqliteBoolean(
-        session.loadSessionSupported
-      );
-    }
-    if (session.useUnstableResume !== undefined) {
-      setValues.useUnstableResume = toSqliteBoolean(session.useUnstableResume);
-    }
-    if (session.supportsModelSwitching !== undefined) {
-      setValues.supportsModelSwitching = toSqliteBoolean(
-        session.supportsModelSwitching
-      );
-    }
-    if (session.agentInfo !== undefined) {
-      setValues.agentInfoJson = toSqliteJson(session.agentInfo);
-    }
-    if (session.pinned !== undefined) {
-      setValues.pinned = toSqliteBoolean(session.pinned);
-    }
-    if (session.archived !== undefined) {
-      setValues.archived = toSqliteBoolean(session.archived);
-    }
-    if (session.modeId !== undefined) {
-      setValues.modeId = session.modeId;
-    }
-    if (session.modelId !== undefined) {
-      setValues.modelId = session.modelId;
-    }
-    if (session.plan !== undefined) {
-      setValues.planJson = toSqliteJson(session.plan);
-    }
-    if (session.commands !== undefined) {
-      setValues.commandsJson = toSqliteJson(session.commands);
-    }
-    if (session.agentCapabilities !== undefined) {
-      setValues.agentCapabilitiesJson = toSqliteJson(session.agentCapabilities);
-    }
-    if (session.authMethods !== undefined) {
-      setValues.authMethodsJson = toSqliteJson(session.authMethods);
-    }
-
-    return setValues;
-  }
-
-  toMetadataUpdateSet(
-    updates: Partial<StoredSession>
-  ): Partial<SessionInsert> {
+  toMetadataUpdateSet(updates: Partial<StoredSession>): Partial<SessionInsert> {
     const setValues: Partial<SessionInsert> = {};
     this.applyIdentityMetadataUpdates(setValues, updates);
     this.applyCapabilityMetadataUpdates(setValues, updates);

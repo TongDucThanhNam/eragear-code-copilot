@@ -18,11 +18,13 @@ import {
 } from "@/modules/agent";
 import {
   CancelPromptService,
+  PromptTaskRunner,
   type SendMessagePolicy,
   SendMessageService,
   SetModelService,
   SetModeService,
 } from "@/modules/ai";
+import { AiSessionRuntimeAdapter } from "@/modules/ai/di";
 import {
   GetDashboardPageDataService,
   GetDashboardStatsService,
@@ -84,9 +86,9 @@ import {
   CodeContextService,
   RespondPermissionService,
 } from "@/modules/tooling";
+import type { ClockPort } from "@/shared/ports/clock.port";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
-import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import type {
@@ -378,26 +380,43 @@ export class Container {
 
   getAiServices(): AiServiceFactory {
     if (!this.aiServices) {
+      const buildSessionGateway = () =>
+        new AiSessionRuntimeAdapter(this.sessionRuntime, this.sessionRepo);
       this.aiServices = {
-        sendMessage: () =>
-          new SendMessageService(
-            this.sessionRepo,
-            this.sessionRuntime,
-            this.appLogger,
-            this.sendMessagePolicy,
-            this.clock
-          ),
+        sendMessage: () => {
+          const sessionGateway = buildSessionGateway();
+          const promptTaskRunner = new PromptTaskRunner({
+            sessionRepo: this.sessionRepo,
+            sessionGateway,
+            logger: this.appLogger,
+            clock: this.clock,
+            policy: {
+              acpRetryMaxAttempts: this.sendMessagePolicy.acpRetryMaxAttempts,
+              acpRetryBaseDelayMs: this.sendMessagePolicy.acpRetryBaseDelayMs,
+            },
+          });
+          return new SendMessageService({
+            sessionRepo: this.sessionRepo,
+            sessionRuntime: this.sessionRuntime,
+            sessionGateway,
+            promptTaskRunner,
+            logger: this.appLogger,
+            inputPolicy: this.sendMessagePolicy,
+            clock: this.clock,
+          });
+        },
         setModel: () =>
-          new SetModelService(this.sessionRuntime, this.sessionRepo, {
+          new SetModelService(buildSessionGateway(), {
             acpRetryMaxAttempts: this.sendMessagePolicy.acpRetryMaxAttempts,
             acpRetryBaseDelayMs: this.sendMessagePolicy.acpRetryBaseDelayMs,
           }),
         setMode: () =>
-          new SetModeService(this.sessionRuntime, this.sessionRepo, {
+          new SetModeService(buildSessionGateway(), {
             acpRetryMaxAttempts: this.sendMessagePolicy.acpRetryMaxAttempts,
             acpRetryBaseDelayMs: this.sendMessagePolicy.acpRetryBaseDelayMs,
           }),
-        cancelPrompt: () => new CancelPromptService(this.sessionRuntime),
+        cancelPrompt: () =>
+          new CancelPromptService(this.sessionRuntime, buildSessionGateway()),
       };
     }
 

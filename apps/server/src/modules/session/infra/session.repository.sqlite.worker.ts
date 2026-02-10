@@ -4,6 +4,8 @@ import type {
   StoredSession,
 } from "@/shared/types/session.types";
 import type {
+  SessionListPageQuery,
+  SessionListPageResult,
   SessionListQuery,
   SessionMessageCompactionInput,
   SessionMessagesPageQuery,
@@ -25,12 +27,25 @@ export class SessionSqliteWorkerRepository implements SessionRepositoryPort {
     return callSqliteWorker("session", "findAllForMaintenance", [query]);
   }
 
+  findPage(
+    userId: string,
+    query?: SessionListPageQuery
+  ): Promise<SessionListPageResult> {
+    return callSqliteWorker("session", "findPage", [userId, query]);
+  }
+
+  findPageForMaintenance(
+    query?: SessionListPageQuery
+  ): Promise<SessionListPageResult> {
+    return callSqliteWorker("session", "findPageForMaintenance", [query]);
+  }
+
   countAll(userId: string): Promise<number> {
     return callSqliteWorker("session", "countAll", [userId]);
   }
 
-  save(session: StoredSession): Promise<void> {
-    return callSqliteWorker("session", "save", [session]);
+  create(session: StoredSession): Promise<void> {
+    return callSqliteWorker("session", "create", [session]);
   }
 
   updateStatus(

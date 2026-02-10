@@ -26,18 +26,17 @@ export class ReconcileSessionStatusService {
 
   async execute(): Promise<{ updated: number }> {
     let updated = 0;
-
-    let offset = 0;
+    let cursor: string | undefined;
     while (true) {
-      const storedSessions = await this.sessionRepo.findAllForMaintenance({
+      const page = await this.sessionRepo.findPageForMaintenance({
         limit: RECONCILE_PAGE_SIZE,
-        offset,
+        cursor,
       });
-      if (storedSessions.length === 0) {
+      if (page.sessions.length === 0) {
         break;
       }
 
-      for (const session of storedSessions) {
+      for (const session of page.sessions) {
         if (session.status !== "running") {
           continue;
         }
@@ -47,16 +46,21 @@ export class ReconcileSessionStatusService {
         if (!session.userId) {
           continue;
         }
-        await this.sessionRepo.updateStatus(session.id, session.userId, "stopped", {
-          touchLastActiveAt: false,
-        });
+        await this.sessionRepo.updateStatus(
+          session.id,
+          session.userId,
+          "stopped",
+          {
+            touchLastActiveAt: false,
+          }
+        );
         updated += 1;
       }
 
-      if (storedSessions.length < RECONCILE_PAGE_SIZE) {
+      if (!(page.hasMore && page.nextCursor)) {
         break;
       }
-      offset += storedSessions.length;
+      cursor = page.nextCursor;
     }
 
     return { updated };

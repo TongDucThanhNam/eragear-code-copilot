@@ -8,33 +8,19 @@
  */
 
 import type { ProjectRepositoryPort } from "@/modules/project";
+import type { StoredSession } from "@/shared/types/session.types";
 import type {
+  SessionListPageQuery,
   SessionListQuery,
   SessionRepositoryPort,
 } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
-/**
- * ListSessionsService
- *
- * Provides a unified view of all sessions by combining:
- * - Active sessions from the runtime store
- * - Stored sessions from the repository
- * - Project information for context
- *
- * Enriches session data with derived fields like agent name, active status, and plan.
- */
 export class ListSessionsService {
-  /** Repository for session persistence */
   readonly sessionRepo: SessionRepositoryPort;
-  /** Runtime store for active sessions */
   readonly sessionRuntime: SessionRuntimePort;
-  /** Repository for project information */
   readonly projectRepo: ProjectRepositoryPort;
 
-  /**
-   * Creates a ListSessionsService with required dependencies
-   */
   constructor(
     sessionRepo: SessionRepositoryPort,
     sessionRuntime: SessionRuntimePort,
@@ -45,25 +31,31 @@ export class ListSessionsService {
     this.projectRepo = projectRepo;
   }
 
-  /**
-   * Retrieves and formats all sessions
-   *
-   * @returns Array of formatted session objects with enriched data
-   *
-   * Each session includes:
-   * - Basic info (id, name, sessionId)
-   * - Project context (projectId, projectRoot)
-   * - State info (status, isActive, modeId)
-   * - Agent metadata (agentInfo, agentName, loadSessionSupported)
-   * - Plan information
-   * - Timestamps (createdAt, lastActiveAt)
-   * - Session flags (pinned, archived)
-   */
   async execute(userId: string, query?: SessionListQuery) {
     const projects = await this.projectRepo.findAll(userId);
     const storedSessions = await this.sessionRepo.findAll(userId, query);
-    const output = await Promise.all(
-      storedSessions.map(async (session) => {
+    return await this.hydrateSessions(userId, storedSessions, projects);
+  }
+
+  async executePage(userId: string, query?: SessionListPageQuery) {
+    const projects = await this.projectRepo.findAll(userId);
+    const page = await this.sessionRepo.findPage(userId, query);
+    const items = await this.hydrateSessions(userId, page.sessions, projects);
+
+    return {
+      items,
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+    };
+  }
+
+  private async hydrateSessions(
+    userId: string,
+    sessions: StoredSession[],
+    projects: Array<{ id: string; path: string }>
+  ) {
+    return await Promise.all(
+      sessions.map(async (session) => {
         const activeSession = this.sessionRuntime.get(session.id);
         const isActive = Boolean(activeSession);
         const loadSessionSupported =
@@ -111,7 +103,5 @@ export class ListSessionsService {
         };
       })
     );
-
-    return output;
   }
 }

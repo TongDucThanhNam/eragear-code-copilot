@@ -1,5 +1,7 @@
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
+const COMPACTION_SESSION_PAGE_SIZE = 500;
+
 export interface CompactSessionMessagesInput {
   beforeTimestamp: number;
   batchSize: number;
@@ -21,15 +23,36 @@ export class CompactSessionMessagesService {
   async execute(
     input: CompactSessionMessagesInput
   ): Promise<CompactSessionMessagesResult> {
-    const sessions = await this.sessionRepo.findAllForMaintenance();
-    const stoppedSessionIds = sessions
-      .filter((session) => session.status === "stopped")
-      .map((session) => session.id);
+    let candidateCount = 0;
+    const stoppedSessionIds: string[] = [];
+    let cursor: string | undefined;
+
+    while (true) {
+      const page = await this.sessionRepo.findPageForMaintenance({
+        limit: COMPACTION_SESSION_PAGE_SIZE,
+        cursor,
+      });
+      if (page.sessions.length === 0) {
+        break;
+      }
+
+      candidateCount += page.sessions.length;
+      for (const session of page.sessions) {
+        if (session.status === "stopped") {
+          stoppedSessionIds.push(session.id);
+        }
+      }
+
+      if (!(page.hasMore && page.nextCursor)) {
+        break;
+      }
+      cursor = page.nextCursor;
+    }
 
     if (stoppedSessionIds.length === 0) {
       return {
         compacted: 0,
-        candidateCount: sessions.length,
+        candidateCount,
         stoppedSessionCount: 0,
       };
     }
@@ -42,7 +65,7 @@ export class CompactSessionMessagesService {
 
     return {
       compacted: result.compacted,
-      candidateCount: sessions.length,
+      candidateCount,
       stoppedSessionCount: stoppedSessionIds.length,
     };
   }

@@ -4,6 +4,7 @@ export type {
   CreateSessionInput,
   ListSessionsInput,
   SessionChatIdInput,
+  SessionListPageInput,
   SessionMessagesPageInput,
   UpdateSessionMetaInput,
 } from "./application/contracts/session.contract";
@@ -11,6 +12,7 @@ export {
   CreateSessionInputSchema,
   ListSessionsInputSchema,
   SessionChatIdInputSchema,
+  SessionListPageInputSchema,
   SessionMessagesPageInputSchema,
   UpdateSessionMetaInputSchema,
 } from "./application/contracts/session.contract";

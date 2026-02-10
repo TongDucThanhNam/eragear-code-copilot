@@ -8,22 +8,22 @@ export async function forEachSessionPage(
   userId: string,
   handler: (sessions: StoredSession[]) => void | Promise<void>
 ): Promise<void> {
-  let offset = 0;
+  let cursor: string | undefined;
 
   while (true) {
-    const sessions = await sessionRepo.findAll(userId, {
+    const page = await sessionRepo.findPage(userId, {
       limit: DASHBOARD_AGGREGATION_PAGE_SIZE,
-      offset,
+      cursor,
     });
-    if (sessions.length === 0) {
+    if (page.sessions.length === 0) {
       break;
     }
 
-    await handler(sessions);
+    await handler(page.sessions);
 
-    if (sessions.length < DASHBOARD_AGGREGATION_PAGE_SIZE) {
+    if (!(page.hasMore && page.nextCursor)) {
       break;
     }
-    offset += sessions.length;
+    cursor = page.nextCursor;
   }
 }

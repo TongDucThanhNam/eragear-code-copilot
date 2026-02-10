@@ -7,24 +7,17 @@
  * @module modules/ai/application/set-model.service
  */
 
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
-} from "@/modules/session";
-import { AppError, NotFoundError, ValidationError } from "@/shared/errors";
+import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
-import { updateChatStatus } from "@/shared/utils/chat-events.util";
-import {
-  classifyAcpError,
-  getAcpErrorText,
-  isMethodNotFound,
-} from "./acp-error.util";
+import { AiChatSessionAggregate } from "../domain/ai-chat-session.aggregate";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import {
   AI_OP,
   DEFAULT_AI_ACP_RETRY_POLICY,
   HTTP_STATUS,
 } from "./ai.constants";
+import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
+import { AiSessionRuntimeError } from "./ports/ai-session-runtime.port";
 
 const OP = AI_OP.SESSION_MODEL_SET;
 
@@ -33,100 +26,42 @@ interface ModelSwitchPolicy {
   acpRetryBaseDelayMs: number;
 }
 
-/**
- * Connection interface for the unstable setSessionModel method
- */
-interface ConnWithUnstableModel {
-  /**
-   * Unstable method to set the session model
-   * @param params - Parameters containing session ID and model ID
-   */
-  unstable_setSessionModel: (params: {
-    sessionId: string;
-    modelId: string;
-  }) => Promise<void>;
-}
-
-/**
- * SetModelService
- *
- * Provides functionality to change the agent's active model within a session.
- * Uses the unstable_setSessionModel ACP method.
- *
- * @example
- * ```typescript
- * const service = new SetModelService(sessionRuntime);
- * const result = await service.execute("chat-123", "gpt-4");
- * console.log(result.ok); // true
- * ```
- */
 export class SetModelService {
-  /** Runtime store for accessing active sessions */
-  private readonly sessionRuntime: SessionRuntimePort;
-  /** Repository for session persistence */
-  private readonly sessionRepo: SessionRepositoryPort;
+  private readonly sessionGateway: AiSessionRuntimePort;
   private readonly policy: ModelSwitchPolicy;
 
-  /**
-   * Creates a SetModelService with required dependencies
-   */
   constructor(
-    sessionRuntime: SessionRuntimePort,
-    sessionRepo: SessionRepositoryPort,
+    sessionGateway: AiSessionRuntimePort,
     policy: ModelSwitchPolicy = {
       acpRetryMaxAttempts: DEFAULT_AI_ACP_RETRY_POLICY.maxAttempts,
       acpRetryBaseDelayMs: DEFAULT_AI_ACP_RETRY_POLICY.retryBaseDelayMs,
     }
   ) {
-    this.sessionRuntime = sessionRuntime;
-    this.sessionRepo = sessionRepo;
+    this.sessionGateway = sessionGateway;
     this.policy = {
       acpRetryMaxAttempts: Math.max(1, Math.trunc(policy.acpRetryMaxAttempts)),
       acpRetryBaseDelayMs: Math.max(1, Math.trunc(policy.acpRetryBaseDelayMs)),
     };
   }
 
-  /**
-   * Sets the active model for a session
-   *
-   * @param chatId - The chat session identifier
-   * @param modelId - The model identifier to activate
-   * @returns Success status object
-   * @throws Error if session is not found or not running
-   */
   async execute(userId: string, chatId: string, modelId: string) {
     const session = this.getSessionForModelSwitch(userId, chatId);
     if (this.isCurrentModel(session, modelId)) {
       return { ok: true };
     }
 
-    this.ensureSessionRunning(session);
+    this.sessionGateway.assertSessionRunning({
+      chatId,
+      session,
+      module: "ai",
+      op: OP,
+      details: { modelId },
+    });
 
-    try {
-      await this.sendModelSwitchWithRetry(chatId, session, modelId);
-    } catch (error) {
-      const errorText = getAcpErrorText(error);
-      if (isMethodNotFound(errorText)) {
-        throw new ValidationError("Agent does not support model switching", {
-          module: "ai",
-          op: OP,
-          details: { chatId, modelId },
-        });
-      }
-      throw new AppError({
-        message: errorText || "Failed to set model",
-        code: "SET_MODEL_FAILED",
-        statusCode: HTTP_STATUS.BAD_GATEWAY,
-        module: "ai",
-        op: OP,
-        cause: error,
-        details: { chatId, modelId },
-      });
-    }
+    await this.sendModelSwitchWithRetry(chatId, session, modelId);
 
-    if (session.models) {
-      session.models.currentModelId = modelId;
-    }
+    const aggregate = new AiChatSessionAggregate(session);
+    aggregate.setCurrentModel(modelId);
     return { ok: true };
   }
 
@@ -134,14 +69,13 @@ export class SetModelService {
     userId: string,
     chatId: string
   ): ChatSession {
-    const session = this.sessionRuntime.get(chatId);
-    if (!session?.sessionId || session.userId !== userId) {
-      throw new NotFoundError("Chat not found", {
-        module: "ai",
-        op: OP,
-        details: { chatId },
-      });
-    }
+    const session = this.sessionGateway.requireAuthorizedSession({
+      userId,
+      chatId,
+      module: "ai",
+      op: OP,
+    });
+
     if (!session.models || session.models.availableModels.length === 0) {
       throw new ValidationError("Agent does not support model switching", {
         module: "ai",
@@ -149,10 +83,11 @@ export class SetModelService {
         details: { chatId },
       });
     }
+
     return session;
   }
 
-  private isCurrentModel(session: ChatSession, modelId: string) {
+  private isCurrentModel(session: ChatSession, modelId: string): boolean {
     const isAvailableModel = session.models?.availableModels.some(
       (model) => model.modelId === modelId
     );
@@ -166,128 +101,137 @@ export class SetModelService {
     return session.models?.currentModelId === modelId;
   }
 
-  private ensureSessionRunning(session: ChatSession) {
-    const stdin = session.proc.stdin;
-    if (
-      !stdin ||
-      stdin.destroyed ||
-      !stdin.writable ||
-      session.proc.killed ||
-      session.proc.exitCode !== null
-    ) {
-      throw new AppError({
-        message: "Session is not running",
-        code: "SESSION_NOT_RUNNING",
-        statusCode: HTTP_STATUS.CONFLICT,
-        module: "ai",
-        op: OP,
-        details: { chatId: session.id },
-      });
-    }
-    if (session.conn.signal.aborted) {
-      throw new AppError({
-        message: "Session connection is closed",
-        code: "SESSION_CONNECTION_CLOSED",
-        statusCode: HTTP_STATUS.CONFLICT,
-        module: "ai",
-        op: OP,
-        details: { chatId: session.id },
-      });
-    }
-  }
-
   private async sendModelSwitchWithRetry(
     chatId: string,
     session: ChatSession,
     modelId: string
-  ) {
+  ): Promise<void> {
     const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy({
       maxAttempts: this.policy.acpRetryMaxAttempts,
       retryBaseDelayMs: this.policy.acpRetryBaseDelayMs,
     });
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        await this.sendModelSwitchRequest(session, modelId);
+        await this.sessionGateway.setSessionModel(session, modelId);
         return;
       } catch (error) {
-        const classified = classifyAcpError(error);
-        const errorText = classified.text;
-        if (
-          classified.kind === "retryable_transport" &&
-          attempt < maxAttempts - 1
-        ) {
-          await new Promise((resolve) => {
-            setTimeout(
-              resolve,
-              getAcpRetryDelayMs(attempt + 1, retryBaseDelayMs)
-            );
-          });
-          continue;
-        }
-        if (
-          classified.kind === "fatal_process" ||
-          classified.kind === "fatal_session"
-        ) {
-          const reason =
-            errorText ||
-            (classified.kind === "fatal_process"
-              ? "Agent process exited"
-              : "Agent session is unavailable");
-          await this.markSessionStopped(
-            chatId,
-            session,
-            reason,
-            classified.kind === "fatal_process"
-          );
-          throw new AppError({
-            message: reason,
-            code:
-              classified.kind === "fatal_process"
-                ? "AGENT_PROCESS_EXITED"
-                : "SESSION_CONNECTION_CLOSED",
-            statusCode:
-              classified.kind === "fatal_process"
-                ? HTTP_STATUS.SERVICE_UNAVAILABLE
-                : HTTP_STATUS.CONFLICT,
-            module: "ai",
-            op: OP,
-            details: { chatId, modelId },
-          });
-        }
-        throw error;
+        await this.handleModelSwitchFailure({
+          error,
+          attempt,
+          maxAttempts,
+          retryBaseDelayMs,
+          chatId,
+          modelId,
+          session,
+        });
       }
     }
   }
 
-  private async sendModelSwitchRequest(session: ChatSession, modelId: string) {
-    await (
-      session.conn as unknown as ConnWithUnstableModel
-    ).unstable_setSessionModel({
-      sessionId: session.sessionId ?? "",
+  private async handleModelSwitchFailure(params: {
+    error: unknown;
+    attempt: number;
+    maxAttempts: number;
+    retryBaseDelayMs: number;
+    chatId: string;
+    modelId: string;
+    session: ChatSession;
+  }): Promise<void> {
+    const {
+      error,
+      attempt,
+      maxAttempts,
+      retryBaseDelayMs,
+      chatId,
       modelId,
+      session,
+    } = params;
+
+    if (!(error instanceof AiSessionRuntimeError)) {
+      throw this.toSetModelFailedError(error, chatId, modelId);
+    }
+
+    if (error.kind === "retryable_transport" && attempt < maxAttempts - 1) {
+      await this.delayRetry(attempt, retryBaseDelayMs);
+      return;
+    }
+
+    if (error.kind === "method_not_supported") {
+      throw new ValidationError("Agent does not support model switching", {
+        module: "ai",
+        op: OP,
+        details: { chatId, modelId },
+      });
+    }
+
+    if (
+      error.kind === "process_exited" ||
+      error.kind === "session_unavailable"
+    ) {
+      await this.stopSessionAndThrow(chatId, modelId, session, error);
+    }
+
+    throw this.toSetModelFailedError(error, chatId, modelId);
+  }
+
+  private async stopSessionAndThrow(
+    chatId: string,
+    modelId: string,
+    session: ChatSession,
+    error: AiSessionRuntimeError
+  ): Promise<never> {
+    const reason =
+      error.message ||
+      (error.kind === "process_exited"
+        ? "Agent process exited"
+        : "Agent session is unavailable");
+
+    await this.sessionGateway.stopAndCleanup({
+      chatId,
+      session,
+      reason,
+      killProcess: error.kind === "process_exited",
+    });
+
+    throw new AppError({
+      message: reason,
+      code:
+        error.kind === "process_exited"
+          ? "AGENT_PROCESS_EXITED"
+          : "SESSION_CONNECTION_CLOSED",
+      statusCode:
+        error.kind === "process_exited"
+          ? HTTP_STATUS.SERVICE_UNAVAILABLE
+          : HTTP_STATUS.CONFLICT,
+      module: "ai",
+      op: OP,
+      details: { chatId, modelId },
     });
   }
 
-  private async markSessionStopped(
-    chatId: string,
-    session: ChatSession,
-    reason: string,
-    killProcess: boolean
+  private async delayRetry(
+    attempt: number,
+    retryBaseDelayMs: number
   ): Promise<void> {
-    this.sessionRuntime.broadcast(chatId, {
-      type: "error",
-      error: reason,
+    await new Promise((resolve) => {
+      setTimeout(resolve, getAcpRetryDelayMs(attempt + 1, retryBaseDelayMs));
     });
-    updateChatStatus({
-      chatId,
-      session,
-      broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-      status: "error",
+  }
+
+  private toSetModelFailedError(
+    error: unknown,
+    chatId: string,
+    modelId: string
+  ): AppError {
+    return new AppError({
+      message: error instanceof Error ? error.message : "Failed to set model",
+      code: "SET_MODEL_FAILED",
+      statusCode: HTTP_STATUS.BAD_GATEWAY,
+      module: "ai",
+      op: OP,
+      cause: error,
+      details: { chatId, modelId },
     });
-    await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
-    if (killProcess && !session.proc.killed) {
-      session.proc.kill();
-    }
-    this.sessionRuntime.delete(chatId);
   }
 }

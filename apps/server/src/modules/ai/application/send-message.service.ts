@@ -10,21 +10,20 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
-import { AppError, NotFoundError, ValidationError } from "@/shared/errors";
+import { ValidationError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
-import {
-  mapStopReasonToFinishReason,
-  updateChatStatus,
-} from "@/shared/utils/chat-events.util";
+import { mapStopReasonToFinishReason } from "@/shared/utils/chat-events.util";
 import { toStoredContentBlocks } from "@/shared/utils/content-block.util";
 import { createId } from "@/shared/utils/id.util";
 import { buildUserMessageFromBlocks } from "@/shared/utils/ui-message.util";
-import { AI_OP, HTTP_STATUS } from "./ai.constants";
+import { AiChatSessionAggregate } from "../domain/ai-chat-session.aggregate";
+import { AI_OP } from "./ai.constants";
+import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { buildPrompt } from "./prompt.builder";
 import { PayloadBudgetGuard } from "./send-message/payload-budget.guard";
-import { PromptTaskRunner } from "./send-message/prompt-task-runner";
+import type { PromptTaskRunner } from "./send-message/prompt-task-runner";
 import {
   type NormalizedSendMessagePolicy,
   normalizeSendMessagePolicy,
@@ -37,40 +36,37 @@ const OP = AI_OP.PROMPT_SEND;
 
 export type { SendMessagePolicy } from "./send-message/send-message.types";
 
+export interface SendMessageServiceDeps {
+  sessionRepo: SessionRepositoryPort;
+  sessionRuntime: SessionRuntimePort;
+  sessionGateway: AiSessionRuntimePort;
+  promptTaskRunner: PromptTaskRunner;
+  logger: LoggerPort;
+  inputPolicy: SendMessagePolicy;
+  clock: ClockPort;
+}
+
 export class SendMessageService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;
+  private readonly sessionGateway: AiSessionRuntimePort;
   private readonly logger: LoggerPort;
   private readonly clock: ClockPort;
   private readonly policy: NormalizedSendMessagePolicy;
   private readonly payloadBudgetGuard: PayloadBudgetGuard;
   private readonly promptTaskRunner: PromptTaskRunner;
 
-  constructor(
-    sessionRepo: SessionRepositoryPort,
-    sessionRuntime: SessionRuntimePort,
-    logger: LoggerPort,
-    inputPolicy: SendMessagePolicy,
-    clock: ClockPort
-  ) {
-    this.sessionRepo = sessionRepo;
-    this.sessionRuntime = sessionRuntime;
-    this.logger = logger;
-    this.clock = clock;
-    this.policy = normalizeSendMessagePolicy(inputPolicy);
+  constructor(deps: SendMessageServiceDeps) {
+    this.sessionRepo = deps.sessionRepo;
+    this.sessionRuntime = deps.sessionRuntime;
+    this.sessionGateway = deps.sessionGateway;
+    this.promptTaskRunner = deps.promptTaskRunner;
+    this.logger = deps.logger;
+    this.clock = deps.clock;
+    this.policy = normalizeSendMessagePolicy(deps.inputPolicy);
     this.payloadBudgetGuard = new PayloadBudgetGuard(
       this.policy.messagePartsMaxBytes
     );
-    this.promptTaskRunner = new PromptTaskRunner({
-      sessionRepo: this.sessionRepo,
-      sessionRuntime: this.sessionRuntime,
-      logger: this.logger,
-      clock: this.clock,
-      policy: {
-        acpRetryMaxAttempts: this.policy.acpRetryMaxAttempts,
-        acpRetryBaseDelayMs: this.policy.acpRetryBaseDelayMs,
-      },
-    });
   }
 
   async execute(input: SendMessageExecuteInput): Promise<SendMessageResult> {
@@ -104,41 +100,59 @@ export class SendMessageService {
       });
 
       try {
-        const session = this.requireSession(input.userId, input.chatId);
-        this.assertSessionRunning(session, input.chatId);
+        const session = this.sessionGateway.requireAuthorizedSession({
+          userId: input.userId,
+          chatId: input.chatId,
+          module: "ai",
+          op: OP,
+        });
+        this.logger.debug("SendMessageService session lookup", {
+          chatId: input.chatId,
+          hasSession: true,
+          sessionId: session.sessionId,
+          chatStatus: session.chatStatus,
+        });
+
+        this.sessionGateway.assertSessionRunning({
+          chatId: input.chatId,
+          session,
+          module: "ai",
+          op: OP,
+        });
+
         this.assertPromptCapabilities(session, input.chatId, input);
+
+        const aggregate = new AiChatSessionAggregate(session);
         const broadcast = this.sessionRuntime.broadcast.bind(
           this.sessionRuntime
         );
 
-        if (session.activePromptTask) {
+        if (aggregate.activePromptTask) {
           this.logger.warn(
             "SendMessageService replacing active prompt task with a new turn",
             {
               chatId: input.chatId,
-              previousTurnId: session.activePromptTask.turnId,
+              previousTurnId: aggregate.activePromptTask.turnId,
             }
           );
         }
 
         const turnId = createId("turn");
-        session.activeTurnId = turnId;
-        session.chatFinish = { turnId };
+        aggregate.startTurn(turnId);
 
         await this.promptTaskRunner.cancelActivePrompt({
           chatId: input.chatId,
-          session,
+          aggregate,
           broadcast,
         });
 
-        updateChatStatus({
-          chatId: input.chatId,
-          session,
-          broadcast,
-          status: "submitted",
-          turnId,
-        });
-        session.uiState.lastAssistantId = undefined;
+        aggregate.markSubmitted(
+          {
+            chatId: input.chatId,
+            broadcast,
+          },
+          turnId
+        );
         this.logger.debug("SendMessageService chat status submitted", {
           chatId: input.chatId,
           sessionId: session.sessionId,
@@ -175,7 +189,7 @@ export class SendMessageService {
           parts: uiMessage.parts.length,
           timestamp: submittedAt,
         });
-        session.uiState.messages.set(uiMessage.id, uiMessage);
+        aggregate.raw.uiState.messages.set(uiMessage.id, uiMessage);
         this.sessionRuntime.broadcast(input.chatId, {
           type: "ui_message",
           message: uiMessage,
@@ -183,23 +197,18 @@ export class SendMessageService {
 
         const promptTask = this.promptTaskRunner.runPromptTask({
           chatId: input.chatId,
-          session,
+          aggregate,
           prompt,
           broadcast,
           turnId,
         });
-        session.activePromptTask = {
-          turnId,
-          promise: promptTask,
-        };
+        aggregate.setActivePromptTask(turnId, promptTask);
 
         return {
           status: "submitted",
           stopReason: "submitted",
           finishReason: mapStopReasonToFinishReason("submitted"),
-          assistantMessageId:
-            session.uiState.lastAssistantId ??
-            session.uiState.currentAssistantId,
+          assistantMessageId: aggregate.assistantMessageId,
           userMessageId: messageId,
           submittedAt,
           turnId,
@@ -211,57 +220,6 @@ export class SendMessageService {
         });
       }
     });
-  }
-
-  private requireSession(userId: string, chatId: string): ChatSession {
-    const session = this.sessionRuntime.get(chatId);
-    this.logger.debug("SendMessageService session lookup", {
-      chatId,
-      hasSession: Boolean(session),
-      sessionId: session?.sessionId,
-      procPid: session?.proc.pid,
-      procKilled: session?.proc.killed,
-      procExitCode: session?.proc.exitCode,
-      connAborted: session?.conn.signal.aborted,
-    });
-    if (!session?.sessionId || session.userId !== userId) {
-      throw new NotFoundError("Chat not found", {
-        module: "ai",
-        op: OP,
-        details: { chatId },
-      });
-    }
-    return session;
-  }
-
-  private assertSessionRunning(session: ChatSession, chatId: string): void {
-    const stdin = session.proc.stdin;
-    if (
-      !stdin ||
-      stdin.destroyed ||
-      !stdin.writable ||
-      session.proc.killed ||
-      session.proc.exitCode !== null
-    ) {
-      throw new AppError({
-        message: "Session is not running",
-        code: "SESSION_NOT_RUNNING",
-        statusCode: HTTP_STATUS.CONFLICT,
-        module: "ai",
-        op: OP,
-        details: { chatId },
-      });
-    }
-    if (session.conn.signal.aborted) {
-      throw new AppError({
-        message: "Session connection is closed",
-        code: "SESSION_CONNECTION_CLOSED",
-        statusCode: HTTP_STATUS.CONFLICT,
-        module: "ai",
-        op: OP,
-        details: { chatId },
-      });
-    }
   }
 
   private assertPromptCapabilities(

@@ -3,7 +3,7 @@
  */
 
 import type { SQL } from "drizzle-orm";
-import { and, asc, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
 import {
   DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
   DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
@@ -16,13 +16,15 @@ import {
 } from "@/platform/storage/sqlite-store";
 import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
 import { systemClock } from "@/platform/time/system-clock";
-import { NotFoundError } from "@/shared/errors";
+import { NotFoundError, ValidationError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type {
   StoredMessage,
   StoredSession,
 } from "@/shared/types/session.types";
 import type {
+  SessionListPageQuery,
+  SessionListPageResult,
   SessionListQuery,
   SessionMessageCompactionInput,
   SessionMessagesPageQuery,
@@ -53,13 +55,44 @@ const DEFAULT_POLICY: SessionSqliteRepositoryPolicy = {
 };
 
 const SQLITE_SESSION_OP = {
-  SAVE: "session.save",
+  CREATE: "session.create",
+  PAGE: "session.page",
   UPDATE_STATUS: "session.update_status",
   UPDATE_METADATA: "session.update_metadata",
   DELETE: "session.delete",
   APPEND_MESSAGE: "session.append_message",
   COMPACT_MESSAGES: "session.compact_messages",
 } as const;
+
+interface SessionListCursor {
+  lastActiveAt: number;
+  id: string;
+}
+
+function encodeSessionListCursor(cursor: SessionListCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeSessionListCursor(
+  raw: string | undefined
+): SessionListCursor | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  try {
+    const decoded = JSON.parse(
+      Buffer.from(raw, "base64url").toString("utf8")
+    ) as Partial<SessionListCursor>;
+    const lastActiveAt = Number(decoded.lastActiveAt);
+    const id = typeof decoded.id === "string" ? decoded.id : "";
+    if (!(Number.isFinite(lastActiveAt) && id)) {
+      return undefined;
+    }
+    return { lastActiveAt, id };
+  } catch {
+    return undefined;
+  }
+}
 
 function normalizePolicy(
   policy: SessionSqliteRepositoryPolicy
@@ -116,6 +149,22 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     return this.listSessions(query);
   }
 
+  findPage(
+    userId: string,
+    query?: SessionListPageQuery
+  ): Promise<SessionListPageResult> {
+    return this.listSessionsByCursor(
+      query,
+      eq(sqliteSchema.sessions.userId, userId)
+    );
+  }
+
+  findPageForMaintenance(
+    query?: SessionListPageQuery
+  ): Promise<SessionListPageResult> {
+    return this.listSessionsByCursor(query);
+  }
+
   private async listSessions(
     query?: SessionListQuery,
     whereClause?: SQL<unknown>
@@ -156,7 +205,10 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
         authMethodsJson: sqliteSchema.sessions.authMethodsJson,
       })
       .from(sqliteSchema.sessions)
-      .orderBy(desc(sqliteSchema.sessions.lastActiveAt))
+      .orderBy(
+        desc(sqliteSchema.sessions.lastActiveAt),
+        desc(sqliteSchema.sessions.id)
+      )
       .$dynamic();
     if (whereClause) {
       select = select.where(whereClause);
@@ -173,6 +225,98 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     return rows.map((row) => this.mapper.mapSessionListRow(row));
   }
 
+  private async listSessionsByCursor(
+    query?: SessionListPageQuery,
+    whereClause?: SQL<unknown>
+  ): Promise<SessionListPageResult> {
+    const db = await getSqliteOrm();
+    const rawLimit = query?.limit;
+    const limit =
+      rawLimit === undefined
+        ? this.policy.sessionListPageMaxLimit
+        : Math.max(
+            1,
+            Math.min(this.policy.sessionListPageMaxLimit, Math.trunc(rawLimit))
+          );
+    const cursor = decodeSessionListCursor(query?.cursor);
+    if (query?.cursor && !cursor) {
+      throw new ValidationError("Invalid session list cursor", {
+        module: "session",
+        op: SQLITE_SESSION_OP.PAGE,
+      });
+    }
+
+    const cursorClause = cursor
+      ? or(
+          lt(sqliteSchema.sessions.lastActiveAt, cursor.lastActiveAt),
+          and(
+            eq(sqliteSchema.sessions.lastActiveAt, cursor.lastActiveAt),
+            lt(sqliteSchema.sessions.id, cursor.id)
+          )
+        )
+      : undefined;
+
+    let combinedWhere = whereClause;
+    if (cursorClause) {
+      combinedWhere = combinedWhere
+        ? and(combinedWhere, cursorClause)
+        : cursorClause;
+    }
+
+    let select = db
+      .select({
+        id: sqliteSchema.sessions.id,
+        userId: sqliteSchema.sessions.userId,
+        name: sqliteSchema.sessions.name,
+        sessionId: sqliteSchema.sessions.sessionId,
+        projectId: sqliteSchema.sessions.projectId,
+        projectRoot: sqliteSchema.sessions.projectRoot,
+        loadSessionSupported: sqliteSchema.sessions.loadSessionSupported,
+        useUnstableResume: sqliteSchema.sessions.useUnstableResume,
+        supportsModelSwitching: sqliteSchema.sessions.supportsModelSwitching,
+        agentInfoJson: sqliteSchema.sessions.agentInfoJson,
+        status: sqliteSchema.sessions.status,
+        pinned: sqliteSchema.sessions.pinned,
+        archived: sqliteSchema.sessions.archived,
+        createdAt: sqliteSchema.sessions.createdAt,
+        lastActiveAt: sqliteSchema.sessions.lastActiveAt,
+        modeId: sqliteSchema.sessions.modeId,
+        modelId: sqliteSchema.sessions.modelId,
+        messageCount: sqliteSchema.sessions.messageCount,
+        planJson: sqliteSchema.sessions.planJson,
+        agentCapabilitiesJson: sqliteSchema.sessions.agentCapabilitiesJson,
+        authMethodsJson: sqliteSchema.sessions.authMethodsJson,
+      })
+      .from(sqliteSchema.sessions)
+      .orderBy(
+        desc(sqliteSchema.sessions.lastActiveAt),
+        desc(sqliteSchema.sessions.id)
+      )
+      .$dynamic();
+
+    if (combinedWhere) {
+      select = select.where(combinedWhere);
+    }
+
+    const rows = select.limit(limit + 1).all();
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursorRow = pageRows.at(-1);
+    const nextCursor =
+      hasMore && nextCursorRow
+        ? encodeSessionListCursor({
+            lastActiveAt: Number(nextCursorRow.lastActiveAt),
+            id: nextCursorRow.id,
+          })
+        : undefined;
+
+    return {
+      sessions: pageRows.map((row) => this.mapper.mapSessionListRow(row)),
+      nextCursor,
+      hasMore,
+    };
+  }
+
   async countAll(userId: string): Promise<number> {
     const db = await getSqliteOrm();
     const row = db
@@ -183,34 +327,18 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     return Math.max(0, Number(row?.count ?? 0));
   }
 
-  async save(session: StoredSession): Promise<void> {
-    await enqueueSqliteWrite(SQLITE_SESSION_OP.SAVE, async () => {
+  async create(session: StoredSession): Promise<void> {
+    await enqueueSqliteWrite(SQLITE_SESSION_OP.CREATE, async () => {
       const orm = await getSqliteOrm();
-      const existing = orm
-        .select({ id: sqliteSchema.sessions.id })
-        .from(sqliteSchema.sessions)
-        .where(eq(sqliteSchema.sessions.id, session.id))
-        .get();
-      const hasExisting = Boolean(existing);
-      if (hasExisting && session.messages.length > 0) {
-        throw new Error(
-          "Session save does not support message snapshots for existing sessions; use appendMessage instead."
-        );
-      }
-
       const sqliteDb = await getSqliteDb();
 
       runInSqliteTransaction(sqliteDb, () => {
         orm
           .insert(sqliteSchema.sessions)
           .values(this.mapper.toSessionInsert(session))
-          .onConflictDoUpdate({
-            target: sqliteSchema.sessions.id,
-            set: this.mapper.toSessionSaveUpdateSet(session),
-          })
           .run();
 
-        if (!hasExisting && session.messages.length > 0) {
+        if (session.messages.length > 0) {
           const dedupedMessageById = new Map<string, MessageInsert>();
           for (const message of session.messages) {
             dedupedMessageById.set(
@@ -223,25 +351,6 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
             orm
               .insert(sqliteSchema.sessionMessages)
               .values(dedupedMessages)
-              .onConflictDoUpdate({
-                target: [
-                  sqliteSchema.sessionMessages.sessionId,
-                  sqliteSchema.sessionMessages.messageId,
-                ],
-                set: {
-                  role: sql`excluded.role`,
-                  content: sql`excluded.content`,
-                  contentBlocksJson: sql`excluded.content_blocks_json`,
-                  timestamp: sql`excluded.timestamp`,
-                  toolCallsJson: sql`excluded.tool_calls_json`,
-                  reasoning: sql`excluded.reasoning`,
-                  reasoningBlocksJson: sql`excluded.reasoning_blocks_json`,
-                  partsJson: sql`excluded.parts_json`,
-                  storageTier: sql`excluded.storage_tier`,
-                  retainedPayload: sql`excluded.retained_payload`,
-                  compactedAt: sql`excluded.compacted_at`,
-                },
-              })
               .run();
           }
         }

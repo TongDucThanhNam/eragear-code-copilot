@@ -8,6 +8,17 @@ export interface SessionListQuery {
   offset?: number;
 }
 
+export interface SessionListPageQuery {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface SessionListPageResult {
+  sessions: StoredSession[];
+  nextCursor?: string;
+  hasMore: boolean;
+}
+
 export interface SessionMessagesPageQuery {
   cursor?: number;
   limit?: number;
@@ -49,14 +60,23 @@ export interface SessionStorageStats {
 export interface SessionRepositoryPort {
   /** Find a session by ID */
   findById(id: string, userId: string): Promise<StoredSession | undefined>;
-  /** Find all sessions */
+  /** Find all sessions (offset pagination, compatibility path). */
   findAll(userId: string, query?: SessionListQuery): Promise<StoredSession[]>;
-  /** Find all sessions across users for maintenance workflows */
+  /** Find all sessions across users for maintenance workflows (compatibility path). */
   findAllForMaintenance(query?: SessionListQuery): Promise<StoredSession[]>;
+  /** Find paginated sessions by cursor for primary list path. */
+  findPage(
+    userId: string,
+    query?: SessionListPageQuery
+  ): Promise<SessionListPageResult>;
+  /** Find maintenance sessions by cursor. */
+  findPageForMaintenance(
+    query?: SessionListPageQuery
+  ): Promise<SessionListPageResult>;
   /** Count all sessions */
   countAll(userId: string): Promise<number>;
-  /** Save session metadata (existing sessions must mutate messages via appendMessage/compactMessages) */
-  save(session: StoredSession): Promise<void>;
+  /** Create a new session row (insert-only). */
+  create(session: StoredSession): Promise<void>;
   /** Update session status */
   updateStatus(
     id: string,

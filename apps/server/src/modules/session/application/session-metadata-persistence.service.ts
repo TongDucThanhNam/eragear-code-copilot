@@ -56,7 +56,7 @@ export class SessionMetadataPersistenceService {
       return;
     }
 
-    await this.sessionRepo.save({
+    await this.sessionRepo.create({
       id: chatId,
       userId: params.userId,
       sessionId: chatSession.sessionId,

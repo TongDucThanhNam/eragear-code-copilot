@@ -19,6 +19,13 @@ export const ListSessionsInputSchema = z
   })
   .optional();
 
+export const SessionListPageInputSchema = z
+  .object({
+    limit: z.number().int().min(1).max(ENV.sessionListPageMaxLimit).optional(),
+    cursor: z.string().min(1).optional(),
+  })
+  .optional();
+
 export const UpdateSessionMetaInputSchema = z.object({
   chatId: z.string(),
   name: z.string().nullable().optional(),
@@ -41,6 +48,7 @@ export const SessionMessagesPageInputSchema = z.object({
 export type SessionChatIdInput = z.infer<typeof SessionChatIdInputSchema>;
 export type CreateSessionInput = z.infer<typeof CreateSessionInputSchema>;
 export type ListSessionsInput = z.infer<typeof ListSessionsInputSchema>;
+export type SessionListPageInput = z.infer<typeof SessionListPageInputSchema>;
 export type UpdateSessionMetaInput = z.infer<
   typeof UpdateSessionMetaInputSchema
 >;

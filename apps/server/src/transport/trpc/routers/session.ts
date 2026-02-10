@@ -18,6 +18,7 @@ import {
   CreateSessionInputSchema,
   ListSessionsInputSchema,
   SessionChatIdInputSchema,
+  SessionListPageInputSchema,
   SessionMessagesPageInputSchema,
   UpdateSessionMetaInputSchema,
 } from "@/modules/session";
@@ -100,6 +101,20 @@ export const sessionRouter = router({
       return await service.execute(requireUserId(ctx), {
         limit: Math.min(limit, ENV.sessionListPageMaxLimit),
         offset,
+      });
+    }),
+
+  /** List sessions with cursor pagination (preferred for large datasets). */
+  getSessionsPage: protectedProcedure
+    .input(SessionListPageInputSchema)
+    .query(async ({ ctx, input }) => {
+      const service = ctx.sessionServices.listSessions();
+      return await service.executePage(requireUserId(ctx), {
+        limit: Math.min(
+          input?.limit ?? DEFAULT_SESSION_LIST_PAGE_LIMIT,
+          ENV.sessionListPageMaxLimit
+        ),
+        cursor: input?.cursor,
       });
     }),
 

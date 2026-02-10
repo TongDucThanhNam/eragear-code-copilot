@@ -5,6 +5,8 @@ import type {
 } from "@/shared/types/session.types";
 import { CompactSessionMessagesService } from "./compact-session-messages.service";
 import type {
+  SessionListPageQuery,
+  SessionListPageResult,
   SessionListQuery,
   SessionMessageCompactionInput,
   SessionMessagesPageQuery,
@@ -32,11 +34,30 @@ class SessionRepoStub implements SessionRepositoryPort {
     return Promise.resolve(this.sessionsForMaintenance);
   }
 
+  findPage(
+    _userId: string,
+    _query?: SessionListPageQuery
+  ): Promise<SessionListPageResult> {
+    return Promise.resolve({
+      sessions: [],
+      hasMore: false,
+    });
+  }
+
+  findPageForMaintenance(
+    _query?: SessionListPageQuery
+  ): Promise<SessionListPageResult> {
+    return Promise.resolve({
+      sessions: this.sessionsForMaintenance,
+      hasMore: false,
+    });
+  }
+
   countAll(_userId: string): Promise<number> {
     return Promise.resolve(0);
   }
 
-  save(_session: StoredSession): Promise<void> {
+  create(_session: StoredSession): Promise<void> {
     return Promise.resolve();
   }
 

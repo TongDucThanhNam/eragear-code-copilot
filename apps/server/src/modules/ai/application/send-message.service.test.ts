@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type {
+  SessionListPageQuery,
+  SessionListPageResult,
   SessionListQuery,
   SessionMessagesPageQuery,
   SessionMessagesPageResult,
@@ -17,6 +19,8 @@ import type {
   StoredSession,
 } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
+import { AiSessionRuntimeAdapter } from "../infra/ai-session-runtime.adapter";
+import { PromptTaskRunner } from "./send-message/prompt-task-runner";
 import {
   type SendMessagePolicy,
   SendMessageService,
@@ -69,11 +73,30 @@ class InMemorySessionRepo implements SessionRepositoryPort {
     return Promise.resolve([]);
   }
 
+  findPage(
+    _userId: string,
+    _query?: SessionListPageQuery
+  ): Promise<SessionListPageResult> {
+    return Promise.resolve({
+      sessions: [],
+      hasMore: false,
+    });
+  }
+
+  findPageForMaintenance(
+    _query?: SessionListPageQuery
+  ): Promise<SessionListPageResult> {
+    return Promise.resolve({
+      sessions: [],
+      hasMore: false,
+    });
+  }
+
   countAll(_userId: string): Promise<number> {
     return Promise.resolve(0);
   }
 
-  save(_session: StoredSession): Promise<void> {
+  create(_session: StoredSession): Promise<void> {
     return Promise.resolve();
   }
 
@@ -233,13 +256,28 @@ function createService(
   const clock: ClockPort = {
     nowMs: () => Date.now(),
   };
-  return new SendMessageService(
-    repo,
-    runtime,
-    createLoggerStub(),
-    createPolicy(policyOverrides),
-    clock
-  );
+  const logger = createLoggerStub();
+  const policy = createPolicy(policyOverrides);
+  const sessionGateway = new AiSessionRuntimeAdapter(runtime, repo);
+  const promptTaskRunner = new PromptTaskRunner({
+    sessionRepo: repo,
+    sessionGateway,
+    logger,
+    clock,
+    policy: {
+      acpRetryMaxAttempts: policy.acpRetryMaxAttempts,
+      acpRetryBaseDelayMs: policy.acpRetryBaseDelayMs,
+    },
+  });
+  return new SendMessageService({
+    sessionRepo: repo,
+    sessionRuntime: runtime,
+    sessionGateway,
+    promptTaskRunner,
+    logger,
+    inputPolicy: policy,
+    clock,
+  });
 }
 
 function createChatSession(params: {
