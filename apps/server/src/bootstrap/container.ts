@@ -18,6 +18,7 @@ import {
 } from "@/modules/agent";
 import {
   CancelPromptService,
+  type SendMessagePolicy,
   SendMessageService,
   SetModelService,
   SetModeService,
@@ -124,6 +125,7 @@ export interface ContainerDependencies {
     headers: Headers | Record<string, string | string[] | undefined>;
     url?: string;
   }) => Promise<AuthContext | null>;
+  sendMessagePolicy: SendMessagePolicy;
 }
 
 /**
@@ -145,6 +147,8 @@ export class Container {
   private readonly authDbInstance: typeof authDbType;
   /** Auth context resolver */
   private readonly authContextResolver: ContainerDependencies["resolveAuthContext"];
+  /** Policy for send-message use-case */
+  private readonly sendMessagePolicy: SendMessagePolicy;
   /** Background runner state provider */
   private backgroundRunnerStateProvider:
     | (() => BackgroundRunnerState)
@@ -200,6 +204,7 @@ export class Container {
     this.authService = deps.authService;
     this.authDbInstance = deps.authDb;
     this.authContextResolver = deps.resolveAuthContext;
+    this.sendMessagePolicy = deps.sendMessagePolicy;
   }
 
   getEventBus(): EventBusPort {
@@ -373,7 +378,8 @@ export class Container {
           new SendMessageService(
             this.sessionRepo,
             this.sessionRuntime,
-            this.appLogger
+            this.appLogger,
+            this.sendMessagePolicy
           ),
         setModel: () =>
           new SetModelService(this.sessionRuntime, this.sessionRepo),

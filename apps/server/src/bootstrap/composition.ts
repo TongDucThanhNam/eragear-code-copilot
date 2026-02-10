@@ -3,6 +3,7 @@ import {
   AgentSqliteRepository,
   AgentSqliteWorkerRepository,
 } from "@/modules/agent/di";
+import type { SendMessagePolicy } from "@/modules/ai";
 import type { ProjectRepositoryPort } from "@/modules/project";
 import {
   ProjectSqliteRepository,
@@ -114,10 +115,21 @@ function createCoreDependencies(): {
   const eventBus = new EventBus(appLogger);
   return {
     eventBus,
-    sessionRuntime: new SessionRuntimeStore(eventBus),
+    sessionRuntime: new SessionRuntimeStore(eventBus, {
+      sessionBufferLimit: ENV.sessionBufferLimit,
+    }),
     logStore: getLogStore(),
     appLogger,
     sessionAcpAdapter: new SessionAcpAdapter(),
+  };
+}
+
+function createSendMessagePolicy(): SendMessagePolicy {
+  return {
+    messageContentMaxBytes: ENV.messageContentMaxBytes,
+    messagePartsMaxBytes: ENV.messagePartsMaxBytes,
+    acpRetryMaxAttempts: ENV.acpRequestMaxAttempts,
+    acpRetryBaseDelayMs: ENV.acpRequestRetryBaseDelayMs,
   };
 }
 
@@ -144,6 +156,7 @@ export function createAppComposition(allowedRoots: string[]): AppComposition {
     authService: auth,
     authDb,
     resolveAuthContext: getAuthContext,
+    sendMessagePolicy: createSendMessagePolicy(),
   };
   const container = new Container(dependencies);
   const sessionServices = container.getSessionServices();

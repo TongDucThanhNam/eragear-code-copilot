@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { ENV } from "@/config/environment";
 import type {
   SessionListQuery,
   SessionMessagesPageQuery,
@@ -17,7 +16,10 @@ import type {
   StoredSession,
 } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
-import { SendMessageService } from "./send-message.service";
+import {
+  type SendMessagePolicy,
+  SendMessageService,
+} from "./send-message.service";
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -43,6 +45,13 @@ class InMemorySessionRepo implements SessionRepositoryPort {
     status: "running" | "stopped";
     touchLastActiveAt?: boolean;
   }> = [];
+  onAppendMessage:
+    | ((args: {
+        chatId: string;
+        userId: string;
+        message: StoredMessage;
+      }) => Promise<void>)
+    | undefined;
 
   findById(_id: string, _userId: string): Promise<StoredSession | undefined> {
     return Promise.resolve(undefined);
@@ -100,6 +109,9 @@ class InMemorySessionRepo implements SessionRepositoryPort {
     message: StoredMessage
   ): Promise<void> {
     this.appendedMessages.push({ chatId: id, userId, message });
+    if (this.onAppendMessage) {
+      return this.onAppendMessage({ chatId: id, userId, message });
+    }
     return Promise.resolve();
   }
 
@@ -151,6 +163,7 @@ function createSessionRuntime(
   events: BroadcastEvent[]
 ): SessionRuntimePort {
   const sessions = new Map<string, ChatSession>([[chatId, session]]);
+  const lockTails = new Map<string, Promise<void>>();
   return {
     set(id, nextSession) {
       sessions.set(id, nextSession);
@@ -167,6 +180,27 @@ function createSessionRuntime(
     getAll() {
       return [...sessions.values()];
     },
+    async runExclusive<T>(id: string, work: () => Promise<T>): Promise<T> {
+      const previousTail = lockTails.get(id) ?? Promise.resolve();
+      let releaseLock: () => void = () => undefined;
+      const lockSignal = new Promise<void>((resolve) => {
+        releaseLock = resolve;
+      });
+      const nextTail = previousTail.then(
+        () => lockSignal,
+        () => lockSignal
+      );
+      lockTails.set(id, nextTail);
+      await previousTail.catch(() => undefined);
+      try {
+        return await work();
+      } finally {
+        releaseLock();
+        if (lockTails.get(id) === nextTail) {
+          lockTails.delete(id);
+        }
+      }
+    },
     broadcast(id, event) {
       if (!sessions.has(id)) {
         return;
@@ -174,6 +208,31 @@ function createSessionRuntime(
       events.push(event as BroadcastEvent);
     },
   };
+}
+
+function createPolicy(
+  overrides?: Partial<SendMessagePolicy>
+): SendMessagePolicy {
+  return {
+    messageContentMaxBytes: 1024 * 1024,
+    messagePartsMaxBytes: 1024 * 1024,
+    acpRetryMaxAttempts: 3,
+    acpRetryBaseDelayMs: 1,
+    ...overrides,
+  };
+}
+
+function createService(
+  repo: SessionRepositoryPort,
+  runtime: SessionRuntimePort,
+  policyOverrides?: Partial<SendMessagePolicy>
+): SendMessageService {
+  return new SendMessageService(
+    repo,
+    runtime,
+    createLoggerStub(),
+    createPolicy(policyOverrides)
+  );
 }
 
 function createChatSession(params: {
@@ -224,12 +283,6 @@ function createChatSession(params: {
 }
 
 describe("SendMessageService", () => {
-  const originalPartsLimit = ENV.messagePartsMaxBytes;
-
-  afterEach(() => {
-    ENV.messagePartsMaxBytes = originalPartsLimit;
-  });
-
   test("returns submitted and correlates status/finish events with turnId", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
@@ -237,7 +290,7 @@ describe("SendMessageService", () => {
       prompt: async () => ({ stopReason: "end_turn" }),
     });
     const runtime = createSessionRuntime("chat-1", session, events);
-    const service = new SendMessageService(repo, runtime, createLoggerStub());
+    const service = createService(repo, runtime);
 
     const result = await service.execute({
       userId: "user-1",
@@ -293,7 +346,7 @@ describe("SendMessageService", () => {
       },
     });
     const runtime = createSessionRuntime("chat-1", session, events);
-    const service = new SendMessageService(repo, runtime, createLoggerStub());
+    const service = createService(repo, runtime);
 
     const turn1 = await service.execute({
       userId: "user-1",
@@ -331,15 +384,103 @@ describe("SendMessageService", () => {
     expect(session.activeTurnId).toBeUndefined();
   });
 
-  test("rejects oversized inline media payloads by decoded bytes", async () => {
-    ENV.messagePartsMaxBytes = 10;
+  test("serializes same-chat concurrent submits and preserves turn ordering", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const firstPrompt = createDeferred<{ stopReason: string }>();
+    const secondPrompt = createDeferred<{ stopReason: string }>();
+    const firstAppendBlocked = createDeferred<void>();
+    const releaseFirstAppend = createDeferred<void>();
+    let promptCallCount = 0;
+    repo.onAppendMessage = async () => {
+      if (repo.appendedMessages.length === 1) {
+        firstAppendBlocked.resolve();
+        await releaseFirstAppend.promise;
+      }
+    };
+    const session = createChatSession({
+      prompt: () => {
+        promptCallCount += 1;
+        if (promptCallCount === 1) {
+          return firstPrompt.promise;
+        }
+        return secondPrompt.promise;
+      },
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime);
+
+    const firstSubmit = service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "first",
+    });
+    await firstAppendBlocked.promise;
+
+    const secondSubmit = service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "second",
+    });
+    await flushAsync();
+    expect(promptCallCount).toBe(0);
+
+    releaseFirstAppend.resolve();
+    const turn1 = await firstSubmit;
+    const turn2 = await secondSubmit;
+    expect(turn1.turnId).not.toBe(turn2.turnId);
+    expect(session.activeTurnId).toBe(turn2.turnId);
+
+    firstPrompt.resolve({ stopReason: "end_turn" });
+    await flushAsync();
+    secondPrompt.resolve({ stopReason: "end_turn" });
+    await flushAsync();
+
+    const finishTurns = events
+      .filter(
+        (event): event is Extract<BroadcastEvent, { type: "chat_finish" }> =>
+          event.type === "chat_finish"
+      )
+      .map((event) => event.turnId)
+      .filter(Boolean);
+    expect(finishTurns).toContain(turn2.turnId);
+  });
+
+  test("uses canonical msg IDs from createId utility", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
     const session = createChatSession({
       prompt: async () => ({ stopReason: "end_turn" }),
     });
     const runtime = createSessionRuntime("chat-1", session, events);
-    const service = new SendMessageService(repo, runtime, createLoggerStub());
+    const service = createService(repo, runtime);
+
+    const first = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "first",
+    });
+    const second = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "second",
+    });
+
+    expect(first.userMessageId).toStartWith("msg-");
+    expect(second.userMessageId).toStartWith("msg-");
+    expect(first.userMessageId).not.toBe(second.userMessageId);
+  });
+
+  test("rejects oversized inline media payloads by decoded bytes", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const session = createChatSession({
+      prompt: async () => ({ stopReason: "end_turn" }),
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime, {
+      messagePartsMaxBytes: 10,
+    });
 
     await expect(
       service.execute({
@@ -360,14 +501,15 @@ describe("SendMessageService", () => {
   });
 
   test("accepts whitespace-normalized valid base64 payloads", async () => {
-    ENV.messagePartsMaxBytes = 1024;
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
     const session = createChatSession({
       prompt: async () => ({ stopReason: "end_turn" }),
     });
     const runtime = createSessionRuntime("chat-1", session, events);
-    const service = new SendMessageService(repo, runtime, createLoggerStub());
+    const service = createService(repo, runtime, {
+      messagePartsMaxBytes: 1024,
+    });
 
     await expect(
       service.execute({
@@ -387,14 +529,15 @@ describe("SendMessageService", () => {
   });
 
   test("rejects malformed base64 payloads", async () => {
-    ENV.messagePartsMaxBytes = 1024;
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
     const session = createChatSession({
       prompt: async () => ({ stopReason: "end_turn" }),
     });
     const runtime = createSessionRuntime("chat-1", session, events);
-    const service = new SendMessageService(repo, runtime, createLoggerStub());
+    const service = createService(repo, runtime, {
+      messagePartsMaxBytes: 1024,
+    });
 
     await expect(
       service.execute({
@@ -436,7 +579,7 @@ describe("SendMessageService", () => {
       prompt: () => Promise.reject(new Error("unexpected prompt crash")),
     });
     const runtime = createSessionRuntime("chat-1", session, events);
-    const service = new SendMessageService(repo, runtime, createLoggerStub());
+    const service = createService(repo, runtime);
 
     const result = await service.execute({
       userId: "user-1",
@@ -463,7 +606,7 @@ describe("SendMessageService", () => {
       prompt: async () => ({ stopReason: "end_turn" }),
     });
     const runtime = createSessionRuntime("chat-1", session, events);
-    const service = new SendMessageService(repo, runtime, createLoggerStub());
+    const service = createService(repo, runtime);
 
     await expect(
       service.execute({

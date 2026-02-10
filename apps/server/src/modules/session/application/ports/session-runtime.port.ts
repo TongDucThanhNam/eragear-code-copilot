@@ -14,6 +14,8 @@ export interface SessionRuntimePort {
   has(chatId: string): boolean;
   /** Get all active sessions */
   getAll(): ChatSession[];
+  /** Execute work under a per-chat exclusive lock */
+  runExclusive<T>(chatId: string, work: () => Promise<T>): Promise<T>;
   /** Broadcast an event to a session's subscribers */
   broadcast(chatId: string, event: unknown): void;
 }

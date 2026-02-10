@@ -38,6 +38,7 @@ function createSession(chatId: string, projectRoot: string): ChatSession {
 
 function createRuntime(session: ChatSession): SessionRuntimePort {
   const sessions = new Map<string, ChatSession>([[session.id, session]]);
+  const lockTails = new Map<string, Promise<void>>();
   return {
     set(chatId, value) {
       sessions.set(chatId, value);
@@ -53,6 +54,27 @@ function createRuntime(session: ChatSession): SessionRuntimePort {
     },
     getAll() {
       return [...sessions.values()];
+    },
+    async runExclusive<T>(chatId: string, work: () => Promise<T>): Promise<T> {
+      const previousTail = lockTails.get(chatId) ?? Promise.resolve();
+      let releaseLock: () => void = () => undefined;
+      const lockSignal = new Promise<void>((resolve) => {
+        releaseLock = resolve;
+      });
+      const nextTail = previousTail.then(
+        () => lockSignal,
+        () => lockSignal
+      );
+      lockTails.set(chatId, nextTail);
+      await previousTail.catch(() => undefined);
+      try {
+        return await work();
+      } finally {
+        releaseLock();
+        if (lockTails.get(chatId) === nextTail) {
+          lockTails.delete(chatId);
+        }
+      }
     },
     broadcast() {
       // no-op

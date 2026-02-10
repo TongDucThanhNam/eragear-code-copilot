@@ -5,10 +5,18 @@ export interface AcpRetryPolicy {
   retryBaseDelayMs: number;
 }
 
-export function getAcpRetryPolicy(): AcpRetryPolicy {
+export interface AcpRetryPolicyInput {
+  maxAttempts: number;
+  retryBaseDelayMs: number;
+}
+
+export function getAcpRetryPolicy(input?: AcpRetryPolicyInput): AcpRetryPolicy {
+  const maxAttempts = input?.maxAttempts ?? ENV.acpRequestMaxAttempts;
+  const retryBaseDelayMs =
+    input?.retryBaseDelayMs ?? ENV.acpRequestRetryBaseDelayMs;
   return {
-    maxAttempts: Math.max(1, Math.trunc(ENV.acpRequestMaxAttempts)),
-    retryBaseDelayMs: Math.max(1, Math.trunc(ENV.acpRequestRetryBaseDelayMs)),
+    maxAttempts: Math.max(1, Math.trunc(maxAttempts)),
+    retryBaseDelayMs: Math.max(1, Math.trunc(retryBaseDelayMs)),
   };
 }
 

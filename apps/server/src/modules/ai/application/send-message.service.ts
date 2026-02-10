@@ -7,7 +7,6 @@
  * @module modules/ai/application/send-message.service
  */
 
-import { ENV } from "@/config/environment";
 import type {
   SessionRepositoryPort,
   SessionRuntimePort,
@@ -36,6 +35,34 @@ import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import { buildPrompt } from "./prompt.builder";
 
 const OP = "ai.prompt.send";
+
+export interface SendMessagePolicy {
+  messageContentMaxBytes: number;
+  messagePartsMaxBytes: number;
+  acpRetryMaxAttempts: number;
+  acpRetryBaseDelayMs: number;
+}
+
+interface NormalizedSendMessagePolicy {
+  messageContentMaxBytes: number;
+  messagePartsMaxBytes: number;
+  acpRetryMaxAttempts: number;
+  acpRetryBaseDelayMs: number;
+}
+
+function normalizePolicy(
+  policy: SendMessagePolicy
+): NormalizedSendMessagePolicy {
+  return {
+    messageContentMaxBytes: Math.max(
+      1,
+      Math.trunc(policy.messageContentMaxBytes)
+    ),
+    messagePartsMaxBytes: Math.max(1, Math.trunc(policy.messagePartsMaxBytes)),
+    acpRetryMaxAttempts: Math.max(1, Math.trunc(policy.acpRetryMaxAttempts)),
+    acpRetryBaseDelayMs: Math.max(1, Math.trunc(policy.acpRetryBaseDelayMs)),
+  };
+}
 
 interface SendMessageExecuteInput {
   /** Owning user identifier */
@@ -87,7 +114,12 @@ interface SendMessageExecuteInput {
  *
  * @example
  * ```typescript
- * const service = new SendMessageService(sessionRepo, sessionRuntime, logger);
+ * const service = new SendMessageService(sessionRepo, sessionRuntime, logger, {
+ *   messageContentMaxBytes: 1000000,
+ *   messagePartsMaxBytes: 1000000,
+ *   acpRetryMaxAttempts: 3,
+ *   acpRetryBaseDelayMs: 200,
+ * });
  * const result = await service.execute({
  *   chatId: "chat-123",
  *   text: "Hello, agent!"
@@ -102,6 +134,8 @@ export class SendMessageService {
   private readonly sessionRuntime: SessionRuntimePort;
   /** Application logger */
   private readonly logger: LoggerPort;
+  /** Runtime policy for validation and retry behavior */
+  private readonly policy: NormalizedSendMessagePolicy;
 
   /**
    * Creates a SendMessageService with required dependencies
@@ -109,11 +143,13 @@ export class SendMessageService {
   constructor(
     sessionRepo: SessionRepositoryPort,
     sessionRuntime: SessionRuntimePort,
-    logger: LoggerPort
+    logger: LoggerPort,
+    policy: SendMessagePolicy
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
     this.logger = logger;
+    this.policy = normalizePolicy(policy);
   }
 
   /**
@@ -141,9 +177,9 @@ export class SendMessageService {
       resourceLinks: input.resourceLinks?.length ?? 0,
     });
     const textBytes = Buffer.byteLength(input.text, "utf8");
-    if (textBytes > ENV.messageContentMaxBytes) {
+    if (textBytes > this.policy.messageContentMaxBytes) {
       throw new ValidationError(
-        `Prompt text exceeds max size: ${textBytes} bytes > ${ENV.messageContentMaxBytes}`,
+        `Prompt text exceeds max size: ${textBytes} bytes > ${this.policy.messageContentMaxBytes}`,
         {
           module: "ai",
           op: OP,
@@ -152,177 +188,195 @@ export class SendMessageService {
       );
     }
     this.assertInlineMediaPayloadBudget(input);
-    const session = this.sessionRuntime.get(input.chatId);
-    this.logger.debug("SendMessageService session lookup", {
-      chatId: input.chatId,
-      hasSession: Boolean(session),
-      sessionId: session?.sessionId,
-      procPid: session?.proc.pid,
-      procKilled: session?.proc.killed,
-      procExitCode: session?.proc.exitCode,
-      connAborted: session?.conn.signal.aborted,
-    });
-    if (!session?.sessionId) {
-      throw new NotFoundError("Chat not found", {
-        module: "ai",
-        op: OP,
-        details: { chatId: input.chatId },
+    const lockRequestedAt = Date.now();
+    return await this.sessionRuntime.runExclusive(input.chatId, async () => {
+      const lockAcquiredAt = Date.now();
+      this.logger.debug("SendMessageService execute lock acquired", {
+        chatId: input.chatId,
+        waitMs: lockAcquiredAt - lockRequestedAt,
       });
-    }
-    if (session.userId !== input.userId) {
-      throw new NotFoundError("Chat not found", {
-        module: "ai",
-        op: OP,
-        details: { chatId: input.chatId },
-      });
-    }
-    const stdin = session.proc.stdin;
-    if (
-      !stdin ||
-      stdin.destroyed ||
-      !stdin.writable ||
-      session.proc.killed ||
-      session.proc.exitCode !== null
-    ) {
-      throw new AppError({
-        message: "Session is not running",
-        code: "SESSION_NOT_RUNNING",
-        statusCode: 409,
-        module: "ai",
-        op: OP,
-        details: { chatId: input.chatId },
-      });
-    }
-    if (session.conn.signal.aborted) {
-      throw new AppError({
-        message: "Session connection is closed",
-        code: "SESSION_CONNECTION_CLOSED",
-        statusCode: 409,
-        module: "ai",
-        op: OP,
-        details: { chatId: input.chatId },
-      });
-    }
-
-    const capabilities = session.promptCapabilities ?? {};
-    this.logger.debug("SendMessageService prompt capabilities", {
-      chatId: input.chatId,
-      image: Boolean(capabilities.image),
-      audio: Boolean(capabilities.audio),
-      embeddedContext: Boolean(capabilities.embeddedContext),
-    });
-    if (input.images?.length && !capabilities.image) {
-      throw new ValidationError("Agent does not support image content", {
-        module: "ai",
-        op: OP,
-        details: { chatId: input.chatId },
-      });
-    }
-    if (input.audio?.length && !capabilities.audio) {
-      throw new ValidationError("Agent does not support audio content", {
-        module: "ai",
-        op: OP,
-        details: { chatId: input.chatId },
-      });
-    }
-    if (input.resources?.length && !capabilities.embeddedContext) {
-      throw new ValidationError("Agent does not support embedded context", {
-        module: "ai",
-        op: OP,
-        details: { chatId: input.chatId },
-      });
-    }
-
-    const broadcast = this.sessionRuntime.broadcast.bind(this.sessionRuntime);
-    if (session.activePromptTask) {
-      this.logger.warn(
-        "SendMessageService replacing active prompt task with a new turn",
-        {
+      try {
+        const session = this.sessionRuntime.get(input.chatId);
+        this.logger.debug("SendMessageService session lookup", {
           chatId: input.chatId,
-          previousTurnId: session.activePromptTask.turnId,
+          hasSession: Boolean(session),
+          sessionId: session?.sessionId,
+          procPid: session?.proc.pid,
+          procKilled: session?.proc.killed,
+          procExitCode: session?.proc.exitCode,
+          connAborted: session?.conn.signal.aborted,
+        });
+        if (!session?.sessionId) {
+          throw new NotFoundError("Chat not found", {
+            module: "ai",
+            op: OP,
+            details: { chatId: input.chatId },
+          });
         }
-      );
-    }
-    const turnId = createId("turn");
-    session.activeTurnId = turnId;
-    session.chatFinish = { turnId };
-    updateChatStatus({
-      chatId: input.chatId,
-      session,
-      broadcast,
-      status: "submitted",
-      turnId,
-    });
-    session.uiState.lastAssistantId = undefined;
-    this.logger.debug("SendMessageService chat status submitted", {
-      chatId: input.chatId,
-      sessionId: session.sessionId,
-    });
+        if (session.userId !== input.userId) {
+          throw new NotFoundError("Chat not found", {
+            module: "ai",
+            op: OP,
+            details: { chatId: input.chatId },
+          });
+        }
+        const stdin = session.proc.stdin;
+        if (
+          !stdin ||
+          stdin.destroyed ||
+          !stdin.writable ||
+          session.proc.killed ||
+          session.proc.exitCode !== null
+        ) {
+          throw new AppError({
+            message: "Session is not running",
+            code: "SESSION_NOT_RUNNING",
+            statusCode: 409,
+            module: "ai",
+            op: OP,
+            details: { chatId: input.chatId },
+          });
+        }
+        if (session.conn.signal.aborted) {
+          throw new AppError({
+            message: "Session connection is closed",
+            code: "SESSION_CONNECTION_CLOSED",
+            statusCode: 409,
+            module: "ai",
+            op: OP,
+            details: { chatId: input.chatId },
+          });
+        }
 
-    const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const msgTimestamp = Date.now();
+        const capabilities = session.promptCapabilities ?? {};
+        this.logger.debug("SendMessageService prompt capabilities", {
+          chatId: input.chatId,
+          image: Boolean(capabilities.image),
+          audio: Boolean(capabilities.audio),
+          embeddedContext: Boolean(capabilities.embeddedContext),
+        });
+        if (input.images?.length && !capabilities.image) {
+          throw new ValidationError("Agent does not support image content", {
+            module: "ai",
+            op: OP,
+            details: { chatId: input.chatId },
+          });
+        }
+        if (input.audio?.length && !capabilities.audio) {
+          throw new ValidationError("Agent does not support audio content", {
+            module: "ai",
+            op: OP,
+            details: { chatId: input.chatId },
+          });
+        }
+        if (input.resources?.length && !capabilities.embeddedContext) {
+          throw new ValidationError("Agent does not support embedded context", {
+            module: "ai",
+            op: OP,
+            details: { chatId: input.chatId },
+          });
+        }
 
-    const prompt = buildPrompt({
-      text: input.text,
-      textAnnotations: input.textAnnotations,
-      images: input.images,
-      audio: input.audio,
-      resources: input.resources,
-      resourceLinks: input.resourceLinks,
-    });
-    const storedPromptBlocks = toStoredContentBlocks(prompt);
+        const broadcast = this.sessionRuntime.broadcast.bind(
+          this.sessionRuntime
+        );
+        if (session.activePromptTask) {
+          this.logger.warn(
+            "SendMessageService replacing active prompt task with a new turn",
+            {
+              chatId: input.chatId,
+              previousTurnId: session.activePromptTask.turnId,
+            }
+          );
+        }
+        const turnId = createId("turn");
+        session.activeTurnId = turnId;
+        session.chatFinish = { turnId };
+        updateChatStatus({
+          chatId: input.chatId,
+          session,
+          broadcast,
+          status: "submitted",
+          turnId,
+        });
+        session.uiState.lastAssistantId = undefined;
+        this.logger.debug("SendMessageService chat status submitted", {
+          chatId: input.chatId,
+          sessionId: session.sessionId,
+        });
 
-    const uiMessage = buildUserMessageFromBlocks({
-      messageId: msgId,
-      contentBlocks: storedPromptBlocks,
-    });
-    await this.sessionRepo.appendMessage(input.chatId, input.userId, {
-      id: msgId,
-      role: "user",
-      content: input.text,
-      contentBlocks: storedPromptBlocks,
-      parts: uiMessage.parts,
-      timestamp: msgTimestamp,
-    });
-    this.logger.debug("SendMessageService user message persisted", {
-      chatId: input.chatId,
-      messageId: msgId,
-      contentBlocks: storedPromptBlocks.length,
-      parts: uiMessage.parts.length,
-      timestamp: msgTimestamp,
-    });
-    session.uiState.messages.set(uiMessage.id, uiMessage);
-    this.sessionRuntime.broadcast(input.chatId, {
-      type: "ui_message",
-      message: uiMessage,
-    });
-    this.logger.debug("SendMessageService user message broadcast", {
-      chatId: input.chatId,
-      messageId: msgId,
-    });
+        const msgId = createId("msg");
+        const msgTimestamp = Date.now();
 
-    const promptTask = this.runPromptTask({
-      chatId: input.chatId,
-      session,
-      prompt,
-      broadcast,
-      turnId,
-    });
-    session.activePromptTask = {
-      turnId,
-      promise: promptTask,
-    };
+        const prompt = buildPrompt({
+          text: input.text,
+          textAnnotations: input.textAnnotations,
+          images: input.images,
+          audio: input.audio,
+          resources: input.resources,
+          resourceLinks: input.resourceLinks,
+        });
+        const storedPromptBlocks = toStoredContentBlocks(prompt);
 
-    return {
-      status: "submitted",
-      stopReason: "submitted",
-      finishReason: mapStopReasonToFinishReason("submitted"),
-      assistantMessageId:
-        session.uiState.lastAssistantId ?? session.uiState.currentAssistantId,
-      userMessageId: msgId,
-      submittedAt: msgTimestamp,
-      turnId,
-    };
+        const uiMessage = buildUserMessageFromBlocks({
+          messageId: msgId,
+          contentBlocks: storedPromptBlocks,
+        });
+        await this.sessionRepo.appendMessage(input.chatId, input.userId, {
+          id: msgId,
+          role: "user",
+          content: input.text,
+          contentBlocks: storedPromptBlocks,
+          parts: uiMessage.parts,
+          timestamp: msgTimestamp,
+        });
+        this.logger.debug("SendMessageService user message persisted", {
+          chatId: input.chatId,
+          messageId: msgId,
+          contentBlocks: storedPromptBlocks.length,
+          parts: uiMessage.parts.length,
+          timestamp: msgTimestamp,
+        });
+        session.uiState.messages.set(uiMessage.id, uiMessage);
+        this.sessionRuntime.broadcast(input.chatId, {
+          type: "ui_message",
+          message: uiMessage,
+        });
+        this.logger.debug("SendMessageService user message broadcast", {
+          chatId: input.chatId,
+          messageId: msgId,
+        });
+
+        const promptTask = this.runPromptTask({
+          chatId: input.chatId,
+          session,
+          prompt,
+          broadcast,
+          turnId,
+        });
+        session.activePromptTask = {
+          turnId,
+          promise: promptTask,
+        };
+
+        return {
+          status: "submitted" as const,
+          stopReason: "submitted",
+          finishReason: mapStopReasonToFinishReason("submitted"),
+          assistantMessageId:
+            session.uiState.lastAssistantId ??
+            session.uiState.currentAssistantId,
+          userMessageId: msgId,
+          submittedAt: msgTimestamp,
+          turnId,
+        };
+      } finally {
+        this.logger.debug("SendMessageService execute lock released", {
+          chatId: input.chatId,
+          holdMs: Date.now() - lockAcquiredAt,
+        });
+      }
+    });
   }
 
   private async handlePrompt(params: {
@@ -439,7 +493,10 @@ export class SendMessageService {
       turnId,
       isCurrentTurn,
     } = params;
-    const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy();
+    const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy({
+      maxAttempts: this.policy.acpRetryMaxAttempts,
+      retryBaseDelayMs: this.policy.acpRetryBaseDelayMs,
+    });
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         this.logger.debug("SendMessageService sending prompt", {
@@ -668,7 +725,7 @@ export class SendMessageService {
   }
 
   private assertInlineMediaPayloadBudget(input: SendMessageExecuteInput): void {
-    const maxBytes = ENV.messagePartsMaxBytes;
+    const maxBytes = this.policy.messagePartsMaxBytes;
     let totalInlineMediaBytes = 0;
 
     const consume = (bytes: number, field: string, index: number) => {

@@ -28,6 +28,7 @@ function createRuntime(events: BroadcastEvent[]): SessionRuntimePort {
     delete: () => undefined,
     has: () => true,
     getAll: () => [session],
+    runExclusive: async (_chatId, work) => await work(),
     broadcast: (_chatId, event) => {
       events.push(event as BroadcastEvent);
     },
