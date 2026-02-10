@@ -77,7 +77,7 @@ export interface SessionRepositoryPort {
     id: string,
     userId: string,
     message: StoredMessage
-  ): Promise<void>;
+  ): Promise<{ appended: true }>;
   /** Get a paginated page of messages for a session */
   getMessagesPage(
     id: string,

@@ -36,6 +36,7 @@ import {
 } from "@/modules/settings/di";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
+import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import { EventBus } from "@/shared/utils/event-bus";
@@ -46,6 +47,7 @@ import { GitAdapter } from "../platform/git";
 import { getLogStore } from "../platform/logging/log-store";
 import { createAppLogger } from "../platform/logging/logger-adapter";
 import { AgentRuntimeAdapter } from "../platform/process";
+import { systemClock } from "../platform/time/system-clock";
 import { initializeSqliteWorker } from "../platform/storage/sqlite-worker-client";
 import { Container, type ContainerDependencies } from "./container";
 
@@ -97,7 +99,12 @@ function createPersistenceDependencies(
   }
 
   return {
-    sessionRepo: new SessionSqliteRepository(),
+    sessionRepo: new SessionSqliteRepository({
+      policy: {
+        sessionListPageMaxLimit: ENV.sessionListPageMaxLimit,
+        sessionMessagesPageMaxLimit: ENV.sessionMessagesPageMaxLimit,
+      },
+    }),
     projectRepo: new ProjectSqliteRepository(),
     agentRepo: new AgentSqliteRepository(),
     settingsRepo: new SettingsSqliteRepository(),
@@ -109,6 +116,7 @@ function createCoreDependencies(): {
   sessionRuntime: SessionRuntimePort;
   logStore: LogStorePort;
   appLogger: LoggerPort;
+  clock: ClockPort;
   sessionAcpAdapter: SessionAcpPort;
 } {
   const appLogger = createAppLogger("Debug");
@@ -120,6 +128,7 @@ function createCoreDependencies(): {
     }),
     logStore: getLogStore(),
     appLogger,
+    clock: systemClock,
     sessionAcpAdapter: new SessionAcpAdapter(),
   };
 }

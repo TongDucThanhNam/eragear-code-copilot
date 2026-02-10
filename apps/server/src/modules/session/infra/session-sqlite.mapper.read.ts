@@ -29,7 +29,7 @@ import {
 export class SessionSqliteReadMapper {
   private readonly listJsonDecodeCache = new Map<string, unknown>();
 
-  protected mapSessionListRow(row: SessionListRow): StoredSession {
+  mapSessionListRow(row: SessionListRow): StoredSession {
     if (!row.userId) {
       throw new Error(`Session ${row.id} is missing owner`);
     }
@@ -66,7 +66,7 @@ export class SessionSqliteReadMapper {
     };
   }
 
-  protected mapSessionRow(row: SessionRow): StoredSession {
+  mapSessionRow(row: SessionRow): StoredSession {
     if (!row.userId) {
       throw new Error(`Session ${row.id} is missing owner`);
     }
@@ -147,7 +147,7 @@ export class SessionSqliteReadMapper {
     };
   }
 
-  protected mapMessageRow(row: MessageRow): StoredMessage {
+  mapMessageRow(row: MessageRow): StoredMessage {
     return {
       id: row.messageId,
       role: row.role === "assistant" ? "assistant" : "user",

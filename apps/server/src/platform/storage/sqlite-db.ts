@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
 import {
   agents,
@@ -24,28 +23,18 @@ const sqliteSchema = {
 
 type SqliteOrmDb = BunSQLiteDatabase<typeof sqliteSchema>;
 
-let sqliteClient: Database | null = null;
-let sqliteOrm: SqliteOrmDb | null = null;
-
 export async function getSqliteOrm(): Promise<SqliteOrmDb> {
   const db = await getSqliteDb();
-  if (sqliteOrm && sqliteClient === db) {
-    return sqliteOrm;
-  }
-  sqliteClient = db;
-  sqliteOrm = drizzle({ client: db, schema: sqliteSchema });
-  return sqliteOrm;
+  return drizzle({ client: db, schema: sqliteSchema });
 }
 
 export function resetSqliteOrmCache(): void {
-  sqliteClient = null;
-  sqliteOrm = null;
+  // No-op: ORM instances are no longer cached globally.
 }
 
 export async function closeSqliteStorage(): Promise<void> {
   await stopSqliteWorker();
   await closeSqliteDb();
-  resetSqliteOrmCache();
 }
 
 export { sqliteSchema };

@@ -130,6 +130,21 @@ describe("SessionSqliteRepository.save", () => {
     expect(page.messages[0]?.content).toBe("hello");
   });
 
+  test("throws NotFoundError when appendMessage targets missing session", async () => {
+    const repo = new SessionSqliteRepository();
+
+    await expect(
+      repo.appendMessage(
+        "missing-chat",
+        "user-1",
+        createMessage("m-1", "assistant", "hello", Date.now())
+      )
+    ).rejects.toMatchObject({
+      name: "NotFoundError",
+      code: "NOT_FOUND",
+    });
+  });
+
   test("compacts only explicitly targeted session IDs", async () => {
     const repo = new SessionSqliteRepository();
     const targetChatId = "chat-compact-target";

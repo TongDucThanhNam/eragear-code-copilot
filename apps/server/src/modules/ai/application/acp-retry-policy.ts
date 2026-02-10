@@ -1,5 +1,3 @@
-import { ENV } from "@/config/environment";
-
 export interface AcpRetryPolicy {
   maxAttempts: number;
   retryBaseDelayMs: number;
@@ -10,10 +8,9 @@ export interface AcpRetryPolicyInput {
   retryBaseDelayMs: number;
 }
 
-export function getAcpRetryPolicy(input?: AcpRetryPolicyInput): AcpRetryPolicy {
-  const maxAttempts = input?.maxAttempts ?? ENV.acpRequestMaxAttempts;
-  const retryBaseDelayMs =
-    input?.retryBaseDelayMs ?? ENV.acpRequestRetryBaseDelayMs;
+export function getAcpRetryPolicy(input: AcpRetryPolicyInput): AcpRetryPolicy {
+  const maxAttempts = input.maxAttempts;
+  const retryBaseDelayMs = input.retryBaseDelayMs;
   return {
     maxAttempts: Math.max(1, Math.trunc(maxAttempts)),
     retryBaseDelayMs: Math.max(1, Math.trunc(retryBaseDelayMs)),

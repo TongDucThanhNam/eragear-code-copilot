@@ -1,4 +1,5 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
+import { ENV } from "@/config/environment";
 import { AgentSqliteRepository } from "@/modules/agent/di";
 import { ProjectSqliteRepository } from "@/modules/project/di";
 import { SessionSqliteRepository } from "@/modules/session/di";
@@ -48,7 +49,12 @@ if (!isMainThread && port) {
     throw new Error("Invalid sqlite worker initialization data");
   }
 
-  const sessionRepo = new SessionSqliteRepository();
+  const sessionRepo = new SessionSqliteRepository({
+    policy: {
+      sessionListPageMaxLimit: ENV.sessionListPageMaxLimit,
+      sessionMessagesPageMaxLimit: ENV.sessionMessagesPageMaxLimit,
+    },
+  });
   const projectRepo = new ProjectSqliteRepository();
   const agentRepo = new AgentSqliteRepository();
   const settingsRepo = new SettingsSqliteRepository();

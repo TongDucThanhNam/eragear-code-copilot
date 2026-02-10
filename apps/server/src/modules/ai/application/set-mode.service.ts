@@ -15,14 +15,23 @@ import { AppError, NotFoundError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
+  classifyAcpError,
   getAcpErrorText,
   isMethodNotFound,
-  isProcessExited,
-  isProcessTransportNotReady,
 } from "./acp-error.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
+import {
+  AI_OP,
+  DEFAULT_AI_ACP_RETRY_POLICY,
+  HTTP_STATUS,
+} from "./ai.constants";
 
-const OP = "ai.session.mode.set";
+const OP = AI_OP.SESSION_MODE_SET;
+
+interface ModeSwitchPolicy {
+  acpRetryMaxAttempts: number;
+  acpRetryBaseDelayMs: number;
+}
 
 /**
  * SetModeService
@@ -41,16 +50,25 @@ export class SetModeService {
   private readonly sessionRuntime: SessionRuntimePort;
   /** Repository for session persistence */
   private readonly sessionRepo: SessionRepositoryPort;
+  private readonly policy: ModeSwitchPolicy;
 
   /**
    * Creates a SetModeService with required dependencies
    */
   constructor(
     sessionRuntime: SessionRuntimePort,
-    sessionRepo: SessionRepositoryPort
+    sessionRepo: SessionRepositoryPort,
+    policy: ModeSwitchPolicy = {
+      acpRetryMaxAttempts: DEFAULT_AI_ACP_RETRY_POLICY.maxAttempts,
+      acpRetryBaseDelayMs: DEFAULT_AI_ACP_RETRY_POLICY.retryBaseDelayMs,
+    }
   ) {
     this.sessionRuntime = sessionRuntime;
     this.sessionRepo = sessionRepo;
+    this.policy = {
+      acpRetryMaxAttempts: Math.max(1, Math.trunc(policy.acpRetryMaxAttempts)),
+      acpRetryBaseDelayMs: Math.max(1, Math.trunc(policy.acpRetryBaseDelayMs)),
+    };
   }
 
   /**
@@ -84,7 +102,7 @@ export class SetModeService {
       throw new AppError({
         message: errorText || "Failed to set mode",
         code: "SET_MODE_FAILED",
-        statusCode: 502,
+        statusCode: HTTP_STATUS.BAD_GATEWAY,
         module: "ai",
         op: OP,
         cause: error,
@@ -150,7 +168,7 @@ export class SetModeService {
       throw new AppError({
         message: "Session is not running",
         code: "SESSION_NOT_RUNNING",
-        statusCode: 409,
+        statusCode: HTTP_STATUS.CONFLICT,
         module: "ai",
         op: OP,
         details: { chatId, modeId },
@@ -160,7 +178,7 @@ export class SetModeService {
       throw new AppError({
         message: "Session connection is closed",
         code: "SESSION_CONNECTION_CLOSED",
-        statusCode: 409,
+        statusCode: HTTP_STATUS.CONFLICT,
         module: "ai",
         op: OP,
         details: { chatId, modeId },
@@ -173,7 +191,10 @@ export class SetModeService {
     modeId: string,
     session: ChatSession
   ): Promise<void> {
-    const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy();
+    const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy({
+      maxAttempts: this.policy.acpRetryMaxAttempts,
+      retryBaseDelayMs: this.policy.acpRetryBaseDelayMs,
+    });
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -183,9 +204,10 @@ export class SetModeService {
         });
         return;
       } catch (error) {
-        const errorText = getAcpErrorText(error);
+        const classified = classifyAcpError(error);
+        const errorText = classified.text;
         if (
-          isProcessTransportNotReady(errorText) &&
+          classified.kind === "retryable_transport" &&
           attempt < maxAttempts - 1
         ) {
           await new Promise((resolve) => {
@@ -197,13 +219,31 @@ export class SetModeService {
           continue;
         }
 
-        if (isProcessExited(errorText)) {
-          const reason = errorText || "Agent process exited";
-          await this.markSessionStopped(chatId, session, reason);
+        if (
+          classified.kind === "fatal_process" ||
+          classified.kind === "fatal_session"
+        ) {
+          const reason =
+            errorText ||
+            (classified.kind === "fatal_process"
+              ? "Agent process exited"
+              : "Agent session is unavailable");
+          await this.markSessionStopped(
+            chatId,
+            session,
+            reason,
+            classified.kind === "fatal_process"
+          );
           throw new AppError({
             message: reason,
-            code: "AGENT_PROCESS_EXITED",
-            statusCode: 503,
+            code:
+              classified.kind === "fatal_process"
+                ? "AGENT_PROCESS_EXITED"
+                : "SESSION_CONNECTION_CLOSED",
+            statusCode:
+              classified.kind === "fatal_process"
+                ? HTTP_STATUS.SERVICE_UNAVAILABLE
+                : HTTP_STATUS.CONFLICT,
             module: "ai",
             op: OP,
             details: { chatId, modeId },
@@ -217,7 +257,8 @@ export class SetModeService {
   private async markSessionStopped(
     chatId: string,
     session: ChatSession,
-    reason: string
+    reason: string,
+    killProcess: boolean
   ): Promise<void> {
     this.sessionRuntime.broadcast(chatId, {
       type: "error",
@@ -230,7 +271,7 @@ export class SetModeService {
       status: "error",
     });
     await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
-    if (!session.proc.killed) {
+    if (killProcess && !session.proc.killed) {
       session.proc.kill();
     }
     this.sessionRuntime.delete(chatId);

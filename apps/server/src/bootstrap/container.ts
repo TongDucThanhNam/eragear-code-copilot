@@ -86,6 +86,7 @@ import {
 } from "@/modules/tooling";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
+import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import type {
@@ -112,6 +113,7 @@ export interface ContainerDependencies {
   sessionRuntime: SessionRuntimePort;
   logStore: LogStorePort;
   appLogger: LoggerPort;
+  clock: ClockPort;
   sessionRepo: SessionRepositoryPort;
   projectRepo: ProjectRepositoryPort;
   agentRepo: AgentRepositoryPort;
@@ -141,6 +143,8 @@ export class Container {
   private readonly logStore: LogStorePort;
   /** Application logger port for use-cases */
   private readonly appLogger: LoggerPort;
+  /** Clock for deterministic time usage in services */
+  private readonly clock: ClockPort;
   /** Auth service runtime */
   private readonly authService: typeof authServiceType;
   /** Auth database runtime */
@@ -191,6 +195,7 @@ export class Container {
     this.sessionRuntime = deps.sessionRuntime;
     this.logStore = deps.logStore;
     this.appLogger = deps.appLogger;
+    this.clock = deps.clock;
 
     this.sessionRepo = deps.sessionRepo;
     this.projectRepo = deps.projectRepo;
@@ -379,12 +384,19 @@ export class Container {
             this.sessionRepo,
             this.sessionRuntime,
             this.appLogger,
-            this.sendMessagePolicy
+            this.sendMessagePolicy,
+            this.clock
           ),
         setModel: () =>
-          new SetModelService(this.sessionRuntime, this.sessionRepo),
+          new SetModelService(this.sessionRuntime, this.sessionRepo, {
+            acpRetryMaxAttempts: this.sendMessagePolicy.acpRetryMaxAttempts,
+            acpRetryBaseDelayMs: this.sendMessagePolicy.acpRetryBaseDelayMs,
+          }),
         setMode: () =>
-          new SetModeService(this.sessionRuntime, this.sessionRepo),
+          new SetModeService(this.sessionRuntime, this.sessionRepo, {
+            acpRetryMaxAttempts: this.sendMessagePolicy.acpRetryMaxAttempts,
+            acpRetryBaseDelayMs: this.sendMessagePolicy.acpRetryBaseDelayMs,
+          }),
         cancelPrompt: () => new CancelPromptService(this.sessionRuntime),
       };
     }

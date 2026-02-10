@@ -7,8 +7,10 @@
  * @module modules/ai/application/prompt.builder
  */
 
-import type { Annotations, ContentBlock } from "@agentclientprotocol/sdk";
+import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { ValidationError } from "@/shared/errors";
+import type { Annotations } from "@/shared/types/annotation.types";
+import { AI_OP } from "./ai.constants";
 
 /**
  * Input for an image in a prompt
@@ -111,7 +113,7 @@ export function buildPrompt(params: {
   /** Optional resource links to include in the prompt */
   resourceLinks?: PromptResourceLinkInput[];
 }): ContentBlock[] {
-  const op = "ai.prompt.send";
+  const op = AI_OP.PROMPT_SEND;
   const prompt: ContentBlock[] = [
     {
       type: "text",

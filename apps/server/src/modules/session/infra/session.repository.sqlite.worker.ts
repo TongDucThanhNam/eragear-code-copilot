@@ -63,7 +63,7 @@ export class SessionSqliteWorkerRepository implements SessionRepositoryPort {
     id: string,
     userId: string,
     message: StoredMessage
-  ): Promise<void> {
+  ): Promise<{ appended: true }> {
     return callSqliteWorker("session", "appendMessage", [id, userId, message]);
   }
 

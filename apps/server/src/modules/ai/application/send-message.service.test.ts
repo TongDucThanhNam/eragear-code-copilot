@@ -8,6 +8,7 @@ import type {
   SessionStorageStats,
 } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
   BroadcastEvent,
@@ -107,12 +108,14 @@ class InMemorySessionRepo implements SessionRepositoryPort {
     id: string,
     userId: string,
     message: StoredMessage
-  ): Promise<void> {
+  ): Promise<{ appended: true }> {
     this.appendedMessages.push({ chatId: id, userId, message });
     if (this.onAppendMessage) {
-      return this.onAppendMessage({ chatId: id, userId, message });
+      return this.onAppendMessage({ chatId: id, userId, message }).then(() => ({
+        appended: true as const,
+      }));
     }
-    return Promise.resolve();
+    return Promise.resolve({ appended: true as const });
   }
 
   getMessagesPage(
@@ -227,11 +230,15 @@ function createService(
   runtime: SessionRuntimePort,
   policyOverrides?: Partial<SendMessagePolicy>
 ): SendMessageService {
+  const clock: ClockPort = {
+    nowMs: () => Date.now(),
+  };
   return new SendMessageService(
     repo,
     runtime,
     createLoggerStub(),
-    createPolicy(policyOverrides)
+    createPolicy(policyOverrides),
+    clock
   );
 }
 
@@ -239,6 +246,7 @@ function createChatSession(params: {
   prompt: (input: unknown) => Promise<{
     stopReason: string;
   }>;
+  cancel?: (input: unknown) => Promise<void>;
 }): ChatSession {
   const proc = {
     pid: 123,
@@ -256,6 +264,7 @@ function createChatSession(params: {
   const conn = {
     signal: { aborted: false },
     prompt: params.prompt,
+    cancel: params.cancel ?? (async () => undefined),
   } as unknown as ChatSession["conn"];
 
   return {
@@ -382,6 +391,49 @@ describe("SendMessageService", () => {
       .find((event) => event.turnId === turn2.turnId);
     expect(activeFinishEvent).toBeDefined();
     expect(session.activeTurnId).toBeUndefined();
+  });
+
+  test("cancels active prompt before replacing with a new turn", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const first = createDeferred<{ stopReason: string }>();
+    const second = createDeferred<{ stopReason: string }>();
+    let promptCallCount = 0;
+    let cancelCallCount = 0;
+    const session = createChatSession({
+      prompt: () => {
+        promptCallCount += 1;
+        if (promptCallCount === 1) {
+          return first.promise;
+        }
+        return second.promise;
+      },
+      cancel: () => {
+        cancelCallCount += 1;
+        return Promise.resolve();
+      },
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime);
+
+    const turn1 = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "first",
+    });
+    const turn2 = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "second",
+    });
+
+    expect(turn1.turnId).not.toBe(turn2.turnId);
+    expect(cancelCallCount).toBe(1);
+    expect(session.activeTurnId).toBe(turn2.turnId);
+
+    second.resolve({ stopReason: "end_turn" });
+    first.resolve({ stopReason: "end_turn" });
+    await flushAsync();
   });
 
   test("serializes same-chat concurrent submits and preserves turn ordering", async () => {

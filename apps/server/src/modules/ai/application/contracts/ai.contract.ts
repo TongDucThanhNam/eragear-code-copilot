@@ -1,4 +1,8 @@
 import { z } from "zod";
+import type {
+  Annotations,
+  AnnotationValue,
+} from "@/shared/types/annotation.types";
 
 const MAX_MESSAGE_TEXT_CHARS = 100_000;
 const MAX_INLINE_MEDIA_ITEMS = 8;
@@ -8,17 +12,33 @@ const MAX_RESOURCE_TEXT_CHARS = 200_000;
 const MAX_RESOURCE_LINK_ITEMS = 32;
 const MAX_RESOURCE_LINK_SIZE = Number.MAX_SAFE_INTEGER;
 
+const AnnotationValueSchema: z.ZodType<AnnotationValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(AnnotationValueSchema),
+    z.record(z.string(), AnnotationValueSchema),
+  ])
+);
+
+const AnnotationsSchema: z.ZodType<Annotations> = z.record(
+  z.string(),
+  AnnotationValueSchema
+);
+
 const InlineImageInputSchema = z.object({
   base64: z.string().min(1).max(MAX_BASE64_CHARS),
   mimeType: z.string().min(1).max(255),
   uri: z.string().max(4096).optional(),
-  annotations: z.record(z.string(), z.unknown()).optional(),
+  annotations: AnnotationsSchema.optional(),
 });
 
 const InlineAudioInputSchema = z.object({
   base64: z.string().min(1).max(MAX_BASE64_CHARS),
   mimeType: z.string().min(1).max(255),
-  annotations: z.record(z.string(), z.unknown()).optional(),
+  annotations: AnnotationsSchema.optional(),
 });
 
 const ResourceInputSchema = z
@@ -27,7 +47,7 @@ const ResourceInputSchema = z
     text: z.string().max(MAX_RESOURCE_TEXT_CHARS).optional(),
     blob: z.string().max(MAX_BASE64_CHARS).optional(),
     mimeType: z.string().min(1).max(255).optional(),
-    annotations: z.record(z.string(), z.unknown()).optional(),
+    annotations: AnnotationsSchema.optional(),
   })
   .superRefine((value, ctx) => {
     const hasText = value.text !== undefined;
@@ -47,13 +67,13 @@ const ResourceLinkInputSchema = z.object({
   title: z.string().max(255).optional(),
   description: z.string().max(2000).optional(),
   size: z.number().int().nonnegative().max(MAX_RESOURCE_LINK_SIZE).optional(),
-  annotations: z.record(z.string(), z.unknown()).optional(),
+  annotations: AnnotationsSchema.optional(),
 });
 
 export const SendMessageInputSchema = z.object({
   chatId: z.string(),
   text: z.string().max(MAX_MESSAGE_TEXT_CHARS),
-  textAnnotations: z.record(z.string(), z.unknown()).optional(),
+  textAnnotations: AnnotationsSchema.optional(),
   images: z
     .array(InlineImageInputSchema)
     .max(MAX_INLINE_MEDIA_ITEMS)

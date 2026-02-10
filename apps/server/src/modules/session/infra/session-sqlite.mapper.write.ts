@@ -11,7 +11,7 @@ import type {
 } from "./session-sqlite.mapper.types";
 
 export class SessionSqliteMapper extends SessionSqliteReadMapper {
-  protected toSessionInsert(session: StoredSession): SessionInsert {
+  toSessionInsert(session: StoredSession): SessionInsert {
     return {
       id: session.id,
       userId: session.userId,
@@ -42,7 +42,7 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
     };
   }
 
-  protected toMessageInsert(
+  toMessageInsert(
     sessionId: string,
     message: StoredMessage
   ): MessageInsert {
@@ -64,7 +64,7 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
     };
   }
 
-  protected toSessionSaveUpdateSet(
+  toSessionSaveUpdateSet(
     session: StoredSession
   ): Partial<SessionInsert> {
     const setValues: Partial<SessionInsert> = {
@@ -139,7 +139,7 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
     return setValues;
   }
 
-  protected toMetadataUpdateSet(
+  toMetadataUpdateSet(
     updates: Partial<StoredSession>
   ): Partial<SessionInsert> {
     const setValues: Partial<SessionInsert> = {};

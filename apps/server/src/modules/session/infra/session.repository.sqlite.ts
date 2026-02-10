@@ -2,8 +2,12 @@
  * Session Repository (SQLite-backed via Drizzle ORM)
  */
 
+import type { SQL } from "drizzle-orm";
 import { and, asc, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
-import { ENV } from "@/config/environment";
+import {
+  DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
+  DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
+} from "@/config/constants";
 import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
 import {
   getSqliteDb,
@@ -11,6 +15,9 @@ import {
   runInSqliteTransaction,
 } from "@/platform/storage/sqlite-store";
 import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
+import { systemClock } from "@/platform/time/system-clock";
+import { NotFoundError } from "@/shared/errors";
+import type { ClockPort } from "@/shared/ports/clock.port";
 import type {
   StoredMessage,
   StoredSession,
@@ -29,10 +36,57 @@ import {
   SessionSqliteMapper,
 } from "./session-sqlite.mapper";
 
-export class SessionSqliteRepository
-  extends SessionSqliteMapper
-  implements SessionRepositoryPort
-{
+export interface SessionSqliteRepositoryPolicy {
+  sessionListPageMaxLimit: number;
+  sessionMessagesPageMaxLimit: number;
+}
+
+interface SessionSqliteRepositoryDeps {
+  mapper?: SessionSqliteMapper;
+  clock?: ClockPort;
+  policy?: SessionSqliteRepositoryPolicy;
+}
+
+const DEFAULT_POLICY: SessionSqliteRepositoryPolicy = {
+  sessionListPageMaxLimit: DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
+  sessionMessagesPageMaxLimit: DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
+};
+
+const SQLITE_SESSION_OP = {
+  SAVE: "session.save",
+  UPDATE_STATUS: "session.update_status",
+  UPDATE_METADATA: "session.update_metadata",
+  DELETE: "session.delete",
+  APPEND_MESSAGE: "session.append_message",
+  COMPACT_MESSAGES: "session.compact_messages",
+} as const;
+
+function normalizePolicy(
+  policy: SessionSqliteRepositoryPolicy
+): SessionSqliteRepositoryPolicy {
+  return {
+    sessionListPageMaxLimit: Math.max(
+      1,
+      Math.trunc(policy.sessionListPageMaxLimit)
+    ),
+    sessionMessagesPageMaxLimit: Math.max(
+      1,
+      Math.trunc(policy.sessionMessagesPageMaxLimit)
+    ),
+  };
+}
+
+export class SessionSqliteRepository implements SessionRepositoryPort {
+  private readonly mapper: SessionSqliteMapper;
+  private readonly clock: ClockPort;
+  private readonly policy: SessionSqliteRepositoryPolicy;
+
+  constructor(deps: SessionSqliteRepositoryDeps = {}) {
+    this.mapper = deps.mapper ?? new SessionSqliteMapper();
+    this.clock = deps.clock ?? systemClock;
+    this.policy = normalizePolicy(deps.policy ?? DEFAULT_POLICY);
+  }
+
   async findById(
     id: string,
     userId: string
@@ -51,12 +105,20 @@ export class SessionSqliteRepository
     if (!row) {
       return undefined;
     }
-    return this.mapSessionRow(row);
+    return this.mapper.mapSessionRow(row);
   }
 
-  async findAll(
-    userId: string,
-    query?: SessionListQuery
+  findAll(userId: string, query?: SessionListQuery): Promise<StoredSession[]> {
+    return this.listSessions(query, eq(sqliteSchema.sessions.userId, userId));
+  }
+
+  findAllForMaintenance(query?: SessionListQuery): Promise<StoredSession[]> {
+    return this.listSessions(query);
+  }
+
+  private async listSessions(
+    query?: SessionListQuery,
+    whereClause?: SQL<unknown>
   ): Promise<StoredSession[]> {
     const db = await getSqliteOrm();
     const offset = Math.max(0, Math.trunc(query?.offset ?? 0));
@@ -66,61 +128,7 @@ export class SessionSqliteRepository
         ? undefined
         : Math.max(
             1,
-            Math.min(ENV.sessionListPageMaxLimit, Math.trunc(rawLimit))
-          );
-
-    let select = db
-      .select({
-        id: sqliteSchema.sessions.id,
-        userId: sqliteSchema.sessions.userId,
-        name: sqliteSchema.sessions.name,
-        sessionId: sqliteSchema.sessions.sessionId,
-        projectId: sqliteSchema.sessions.projectId,
-        projectRoot: sqliteSchema.sessions.projectRoot,
-        loadSessionSupported: sqliteSchema.sessions.loadSessionSupported,
-        useUnstableResume: sqliteSchema.sessions.useUnstableResume,
-        supportsModelSwitching: sqliteSchema.sessions.supportsModelSwitching,
-        agentInfoJson: sqliteSchema.sessions.agentInfoJson,
-        status: sqliteSchema.sessions.status,
-        pinned: sqliteSchema.sessions.pinned,
-        archived: sqliteSchema.sessions.archived,
-        createdAt: sqliteSchema.sessions.createdAt,
-        lastActiveAt: sqliteSchema.sessions.lastActiveAt,
-        modeId: sqliteSchema.sessions.modeId,
-        modelId: sqliteSchema.sessions.modelId,
-        messageCount: sqliteSchema.sessions.messageCount,
-        planJson: sqliteSchema.sessions.planJson,
-        agentCapabilitiesJson: sqliteSchema.sessions.agentCapabilitiesJson,
-        authMethodsJson: sqliteSchema.sessions.authMethodsJson,
-      })
-      .from(sqliteSchema.sessions)
-      .where(eq(sqliteSchema.sessions.userId, userId))
-      .orderBy(desc(sqliteSchema.sessions.lastActiveAt))
-      .$dynamic();
-
-    if (limit !== undefined) {
-      select = select.limit(limit);
-    }
-    if (offset > 0) {
-      select = select.offset(offset);
-    }
-
-    const rows = select.all();
-    return rows.map((row) => this.mapSessionListRow(row));
-  }
-
-  async findAllForMaintenance(
-    query?: SessionListQuery
-  ): Promise<StoredSession[]> {
-    const db = await getSqliteOrm();
-    const offset = Math.max(0, Math.trunc(query?.offset ?? 0));
-    const rawLimit = query?.limit;
-    const limit =
-      rawLimit === undefined
-        ? undefined
-        : Math.max(
-            1,
-            Math.min(ENV.sessionListPageMaxLimit, Math.trunc(rawLimit))
+            Math.min(this.policy.sessionListPageMaxLimit, Math.trunc(rawLimit))
           );
 
     let select = db
@@ -150,6 +158,9 @@ export class SessionSqliteRepository
       .from(sqliteSchema.sessions)
       .orderBy(desc(sqliteSchema.sessions.lastActiveAt))
       .$dynamic();
+    if (whereClause) {
+      select = select.where(whereClause);
+    }
 
     if (limit !== undefined) {
       select = select.limit(limit);
@@ -159,7 +170,7 @@ export class SessionSqliteRepository
     }
 
     const rows = select.all();
-    return rows.map((row) => this.mapSessionListRow(row));
+    return rows.map((row) => this.mapper.mapSessionListRow(row));
   }
 
   async countAll(userId: string): Promise<number> {
@@ -173,7 +184,7 @@ export class SessionSqliteRepository
   }
 
   async save(session: StoredSession): Promise<void> {
-    await enqueueSqliteWrite("session.save", async () => {
+    await enqueueSqliteWrite(SQLITE_SESSION_OP.SAVE, async () => {
       const orm = await getSqliteOrm();
       const existing = orm
         .select({ id: sqliteSchema.sessions.id })
@@ -192,10 +203,10 @@ export class SessionSqliteRepository
       runInSqliteTransaction(sqliteDb, () => {
         orm
           .insert(sqliteSchema.sessions)
-          .values(this.toSessionInsert(session))
+          .values(this.mapper.toSessionInsert(session))
           .onConflictDoUpdate({
             target: sqliteSchema.sessions.id,
-            set: this.toSessionSaveUpdateSet(session),
+            set: this.mapper.toSessionSaveUpdateSet(session),
           })
           .run();
 
@@ -204,7 +215,7 @@ export class SessionSqliteRepository
           for (const message of session.messages) {
             dedupedMessageById.set(
               message.id,
-              this.toMessageInsert(session.id, message)
+              this.mapper.toMessageInsert(session.id, message)
             );
           }
           const dedupedMessages = [...dedupedMessageById.values()];
@@ -244,11 +255,11 @@ export class SessionSqliteRepository
     status: "running" | "stopped",
     options?: { touchLastActiveAt?: boolean }
   ): Promise<void> {
-    await enqueueSqliteWrite("session.update_status", async () => {
+    await enqueueSqliteWrite(SQLITE_SESSION_OP.UPDATE_STATUS, async () => {
       const db = await getSqliteOrm();
       if (options?.touchLastActiveAt === true) {
         db.update(sqliteSchema.sessions)
-          .set({ status, lastActiveAt: Date.now() })
+          .set({ status, lastActiveAt: this.clock.nowMs() })
           .where(
             and(
               eq(sqliteSchema.sessions.id, id),
@@ -276,12 +287,12 @@ export class SessionSqliteRepository
     userId: string,
     updates: Partial<StoredSession>
   ): Promise<void> {
-    await enqueueSqliteWrite("session.update_metadata", async () => {
+    await enqueueSqliteWrite(SQLITE_SESSION_OP.UPDATE_METADATA, async () => {
       const db = await getSqliteOrm();
       const setValues: Partial<SessionInsert> = {
-        lastActiveAt: Date.now(),
+        lastActiveAt: this.clock.nowMs(),
       };
-      Object.assign(setValues, this.toMetadataUpdateSet(updates));
+      Object.assign(setValues, this.mapper.toMetadataUpdateSet(updates));
 
       db.update(sqliteSchema.sessions)
         .set(setValues)
@@ -296,7 +307,7 @@ export class SessionSqliteRepository
   }
 
   async delete(id: string, userId: string): Promise<void> {
-    await enqueueSqliteWrite("session.delete", async () => {
+    await enqueueSqliteWrite(SQLITE_SESSION_OP.DELETE, async () => {
       const db = await getSqliteOrm();
       db.delete(sqliteSchema.sessions)
         .where(
@@ -313,27 +324,31 @@ export class SessionSqliteRepository
     id: string,
     userId: string,
     message: StoredMessage
-  ): Promise<void> {
-    await enqueueSqliteWrite("session.append_message", async () => {
+  ): Promise<{ appended: true }> {
+    await enqueueSqliteWrite(SQLITE_SESSION_OP.APPEND_MESSAGE, async () => {
       const orm = await getSqliteOrm();
       const sqliteDb = await getSqliteDb();
 
-      runInSqliteTransaction(sqliteDb, () => {
-        const row = orm
-          .select({ id: sqliteSchema.sessions.id })
-          .from(sqliteSchema.sessions)
-          .where(
-            and(
-              eq(sqliteSchema.sessions.id, id),
-              eq(sqliteSchema.sessions.userId, userId)
-            )
+      const row = orm
+        .select({ id: sqliteSchema.sessions.id })
+        .from(sqliteSchema.sessions)
+        .where(
+          and(
+            eq(sqliteSchema.sessions.id, id),
+            eq(sqliteSchema.sessions.userId, userId)
           )
-          .get();
-        if (!row) {
-          return;
-        }
+        )
+        .get();
+      if (!row) {
+        throw new NotFoundError("Chat not found", {
+          module: "session",
+          op: SQLITE_SESSION_OP.APPEND_MESSAGE,
+          details: { chatId: id },
+        });
+      }
 
-        const values = this.toMessageInsert(id, message);
+      runInSqliteTransaction(sqliteDb, () => {
+        const values = this.mapper.toMessageInsert(id, message);
         orm
           .insert(sqliteSchema.sessionMessages)
           .values(values)
@@ -361,7 +376,7 @@ export class SessionSqliteRepository
         orm
           .update(sqliteSchema.sessions)
           .set({
-            lastActiveAt: Date.now(),
+            lastActiveAt: this.clock.nowMs(),
           })
           .where(
             and(
@@ -372,6 +387,7 @@ export class SessionSqliteRepository
           .run();
       });
     });
+    return { appended: true };
   }
 
   async getMessagesPage(
@@ -383,8 +399,8 @@ export class SessionSqliteRepository
     const limit = Math.max(
       1,
       Math.min(
-        ENV.sessionMessagesPageMaxLimit,
-        Math.trunc(query.limit ?? ENV.sessionMessagesPageMaxLimit)
+        this.policy.sessionMessagesPageMaxLimit,
+        Math.trunc(query.limit ?? this.policy.sessionMessagesPageMaxLimit)
       )
     );
     const cursor =
@@ -427,7 +443,9 @@ export class SessionSqliteRepository
       ? Number(pageRows.at(-1)?.session_messages.seq ?? cursor ?? 0)
       : undefined;
     return {
-      messages: pageRows.map((row) => this.mapMessageRow(row.session_messages)),
+      messages: pageRows.map((row) =>
+        this.mapper.mapMessageRow(row.session_messages)
+      ),
       nextCursor,
       hasMore,
     };
@@ -446,7 +464,7 @@ export class SessionSqliteRepository
     }
 
     return enqueueSqliteWrite(
-      "session.compact_messages",
+      SQLITE_SESSION_OP.COMPACT_MESSAGES,
       async () => {
         const db = await getSqliteOrm();
         const rows = db
@@ -483,7 +501,7 @@ export class SessionSqliteRepository
             partsJson: null,
             storageTier: "cold_stub",
             retainedPayload: 0,
-            compactedAt: Date.now(),
+            compactedAt: this.clock.nowMs(),
           })
           .where(inArray(sqliteSchema.sessionMessages.seq, seqList))
           .run();

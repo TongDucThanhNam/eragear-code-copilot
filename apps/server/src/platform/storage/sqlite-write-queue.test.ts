@@ -123,4 +123,46 @@ describe("sqlite-write-queue", () => {
       ENV.sqliteBusyRetryBaseDelayMs = originalBaseDelay;
     }
   });
+
+  test("does not block high-priority writes while busy retry is delayed", async () => {
+    const originalMaxRetries = ENV.sqliteBusyMaxRetries;
+    const originalBaseDelay = ENV.sqliteBusyRetryBaseDelayMs;
+    ENV.sqliteBusyMaxRetries = 3;
+    ENV.sqliteBusyRetryBaseDelayMs = 20;
+
+    const order: string[] = [];
+    let lowAttempts = 0;
+    try {
+      const low = enqueueSqliteWrite(
+        "test.busy.low",
+        () => {
+          lowAttempts += 1;
+          order.push(`low-${lowAttempts}`);
+          if (lowAttempts === 1) {
+            throw new Error("SQLITE_BUSY: database is locked");
+          }
+          return "low-ok";
+        },
+        { priority: "low" }
+      );
+
+      await sleep(1);
+      const high = enqueueSqliteWrite(
+        "test.busy.high",
+        () => {
+          order.push("high");
+          return "high-ok";
+        },
+        { priority: "high" }
+      );
+
+      const [lowResult, highResult] = await Promise.all([low, high]);
+      expect(lowResult).toBe("low-ok");
+      expect(highResult).toBe("high-ok");
+      expect(order).toEqual(["low-1", "high", "low-2"]);
+    } finally {
+      ENV.sqliteBusyMaxRetries = originalMaxRetries;
+      ENV.sqliteBusyRetryBaseDelayMs = originalBaseDelay;
+    }
+  });
 });

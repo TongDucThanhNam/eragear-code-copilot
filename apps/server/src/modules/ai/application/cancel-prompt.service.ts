@@ -10,8 +10,9 @@
 import type { SessionRuntimePort } from "@/modules/session";
 import { NotFoundError } from "@/shared/errors";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
+import { AI_OP } from "./ai.constants";
 
-const OP = "ai.prompt.cancel";
+const OP = AI_OP.PROMPT_CANCEL;
 
 /**
  * CancelPromptService
