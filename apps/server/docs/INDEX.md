@@ -76,6 +76,15 @@ Các file sau là nguồn chuẩn khi docs và thực tế có khác biệt:
 - `bun run ui:build`
 - `bun run compile`
 
+### Compile Notes
+
+- `bun run compile` tạo executable tại `dist/server`.
+- Lệnh compile cũng tạo `dist/settings.json` từ `settings.example.json`.
+- Lệnh compile copy migrations vào `dist/drizzle` và worker entry vào
+  `dist/platform/storage/sqlite-worker.entry.mjs`.
+- Khi `boot.mode = "compiled"`, server chỉ đọc boot config từ `settings.json`
+  (env var config overrides bị vô hiệu).
+
 ## 7. Scope Notes for ACP Docs
 
 `docs/acp/*` chủ yếu là protocol reference (ACP schema/flows). Các tài liệu này

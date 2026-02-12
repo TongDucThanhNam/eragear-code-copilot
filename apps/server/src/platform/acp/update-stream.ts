@@ -9,9 +9,11 @@ import {
 } from "@/shared/utils/ui-message.util";
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 
-export function handleBufferedMessage(context: SessionUpdateContext): void {
+export async function handleBufferedMessage(
+  context: SessionUpdateContext
+): Promise<void> {
   appendAgentChunksToBuffer(context);
-  handleUiChunkUpdate(context);
+  await handleUiChunkUpdate(context);
 }
 
 function appendAgentChunksToBuffer(context: SessionUpdateContext): void {
@@ -25,7 +27,9 @@ function appendAgentChunksToBuffer(context: SessionUpdateContext): void {
   }
 }
 
-function handleUiChunkUpdate(context: SessionUpdateContext): void {
+async function handleUiChunkUpdate(
+  context: SessionUpdateContext
+): Promise<void> {
   const {
     chatId,
     buffer,
@@ -55,7 +59,7 @@ function handleUiChunkUpdate(context: SessionUpdateContext): void {
       "_meta" in update ? update._meta : undefined
     );
     appendContentBlock(message, block, partState, providerMetadata);
-    sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
     return;
   }
 
@@ -65,14 +69,14 @@ function handleUiChunkUpdate(context: SessionUpdateContext): void {
   );
   const preferredMessageId = session.uiState.currentAssistantId;
 
-  updateAssistantChunkType({
+  await updateAssistantChunkType({
     chatId,
     session,
     update,
     sessionRuntime,
     finalizeStreamingForCurrentAssistant,
   });
-  appendAssistantChunk({
+  await appendAssistantChunk({
     chatId,
     session,
     buffer,
@@ -85,7 +89,7 @@ function handleUiChunkUpdate(context: SessionUpdateContext): void {
   });
 }
 
-function appendAssistantChunk(params: {
+async function appendAssistantChunk(params: {
   chatId: string;
   session: NonNullable<ReturnType<SessionRuntimePort["get"]>>;
   buffer: SessionUpdateContext["buffer"];
@@ -100,7 +104,7 @@ function appendAssistantChunk(params: {
     | ReturnType<typeof buildProviderMetadataFromMeta>
     | undefined;
   sessionRuntime: SessionUpdateContext["sessionRuntime"];
-}): void {
+}): Promise<void> {
   const {
     chatId,
     session,
@@ -119,7 +123,7 @@ function appendAssistantChunk(params: {
     appendContentBlock(message, block, partState, providerMetadata);
 
     if (!isReplayingHistory) {
-      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+      await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
     }
     return;
   }
@@ -133,7 +137,7 @@ function appendAssistantChunk(params: {
   appendReasoningBlock(message, block, partState, providerMetadata);
 }
 
-function updateAssistantChunkType(params: {
+async function updateAssistantChunkType(params: {
   chatId: string;
   session: NonNullable<ReturnType<SessionRuntimePort["get"]>>;
   update: Extract<
@@ -141,9 +145,8 @@ function updateAssistantChunkType(params: {
     { sessionUpdate: "agent_message_chunk" | "agent_thought_chunk" }
   >;
   sessionRuntime: SessionUpdateContext["sessionRuntime"];
-  finalizeStreamingForCurrentAssistant:
-    SessionUpdateContext["finalizeStreamingForCurrentAssistant"];
-}): void {
+  finalizeStreamingForCurrentAssistant: SessionUpdateContext["finalizeStreamingForCurrentAssistant"];
+}): Promise<void> {
   const {
     chatId,
     session,
@@ -157,7 +160,7 @@ function updateAssistantChunkType(params: {
     session.lastAssistantChunkType &&
     session.lastAssistantChunkType !== nextChunkType
   ) {
-    finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
+    await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
   }
   session.lastAssistantChunkType = nextChunkType;
 }

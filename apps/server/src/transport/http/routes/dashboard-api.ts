@@ -15,34 +15,30 @@
  */
 
 import type { Context, Hono } from "hono";
-import { parseLogQueryParams, parseSessionPaginationParams } from "./helpers";
-import { getAuthContextFromRequest } from "../utils/auth";
 import type { HttpRouteDependencies } from "./deps";
+import { parseLogQueryParams, parseSessionPaginationParams } from "./helpers";
 
 /**
  * Registers dashboard-related API routes
  */
 export function registerDashboardApiRoutes(
   api: Hono,
-  deps: Pick<HttpRouteDependencies, "eventBus" | "logStore" | "opsServices">
+  deps: Pick<
+    HttpRouteDependencies,
+    "eventBus" | "logStore" | "opsServices" | "appConfig" | "resolveAuthContext"
+  >
 ): void {
-  const { eventBus, logStore, opsServices } = deps;
+  const { eventBus, logStore, opsServices, appConfig, resolveAuthContext } =
+    deps;
 
   const resolveUserId = async (c: Context): Promise<string | null> => {
-    const auth = await getAuthContextFromRequest({
+    const auth = await resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
     });
     return auth?.userId ?? null;
   };
-
-  const isEventVisibleToUser = (event: unknown, userId: string): boolean => {
-    if (!event || typeof event !== "object" || !("userId" in event)) {
-      return true;
-    }
-    const eventUserId = (event as { userId?: unknown }).userId;
-    return typeof eventUserId === "string" && eventUserId === userId;
-  };
+  const eventVisibilityService = opsServices.dashboardEventVisibility();
 
   // =========================================================================
   // Dashboard Data Endpoints
@@ -68,7 +64,10 @@ export function registerDashboardApiRoutes(
     if (!userId) {
       return c.json({ error: "Unauthorized" }, 401);
     }
-    const parsedPagination = parseSessionPaginationParams(c.req.query());
+    const parsedPagination = parseSessionPaginationParams(
+      c.req.query(),
+      appConfig.getConfig().sessionListPageMaxLimit
+    );
     if (!parsedPagination.ok) {
       return c.json({ error: parsedPagination.error }, 400);
     }
@@ -212,7 +211,7 @@ export function registerDashboardApiRoutes(
 
         unsubscribe = eventBus.subscribe(
           (event) => {
-            if (!isEventVisibleToUser(event, userId)) {
+            if (!eventVisibilityService.isVisible(event, userId)) {
               return;
             }
             if (event && typeof event === "object" && "type" in event) {

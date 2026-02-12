@@ -9,7 +9,6 @@
 
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
-import { AiChatSessionAggregate } from "../domain/ai-chat-session.aggregate";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import {
   AI_OP,
@@ -45,7 +44,8 @@ export class SetModeService {
   }
 
   async execute(userId: string, chatId: string, modeId: string) {
-    const session = this.getSessionForModeSwitch(userId, chatId, modeId);
+    const aggregate = this.getRuntimeForModeSwitch(userId, chatId, modeId);
+    const session = aggregate.raw;
 
     if (session.modes?.currentModeId === modeId) {
       return { ok: true };
@@ -61,23 +61,23 @@ export class SetModeService {
 
     await this.sendModeSwitchWithRetry(chatId, modeId, session);
 
-    const aggregate = new AiChatSessionAggregate(session);
     aggregate.setCurrentMode(modeId);
     return { ok: true };
   }
 
-  private getSessionForModeSwitch(
+  private getRuntimeForModeSwitch(
     userId: string,
     chatId: string,
     modeId: string
-  ): ChatSession {
-    const session = this.sessionGateway.requireAuthorizedSession({
+  ) {
+    const aggregate = this.sessionGateway.requireAuthorizedRuntime({
       userId,
       chatId,
       module: "ai",
       op: OP,
       details: { modeId },
     });
+    const session = aggregate.raw;
 
     if (!session.modes || session.modes.availableModes.length === 0) {
       throw new ValidationError("Agent does not support mode switching", {
@@ -98,7 +98,7 @@ export class SetModeService {
       });
     }
 
-    return session;
+    return aggregate;
   }
 
   private async sendModeSwitchWithRetry(

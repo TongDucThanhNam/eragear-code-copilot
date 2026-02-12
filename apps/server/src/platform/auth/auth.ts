@@ -3,14 +3,9 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { apiKey, multiSession, username } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { ENV } from "../../config/environment";
 import { authSchema } from "./drizzle-schema";
 import { ensureAuthDbWritable } from "./paths";
 import { getAuthSecret } from "./secret";
-
-const authDbPath = ensureAuthDbWritable();
-const authDb = new Database(authDbPath);
-const authOrm = drizzle({ client: authDb, schema: authSchema });
 
 interface AuthState {
   hasUsers: boolean;
@@ -19,44 +14,70 @@ interface AuthState {
   bootstrapApiKey: string | null;
 }
 
-export const authState: AuthState = {
-  hasUsers: false,
-  adminUserId: null,
-  adminUsername: null,
-  bootstrapApiKey: null,
-};
+export interface AuthRuntimePolicy {
+  authBaseUrl: string;
+  authTrustedOrigins: string[];
+  authApiKeyPrefix: string | undefined;
+  authApiKeyRateLimitEnabled: boolean;
+  authApiKeyRateLimitTimeWindowMs: number;
+  authApiKeyRateLimitMaxRequests: number;
+}
 
-export const authConfig = {
-  database: drizzleAdapter(authOrm, {
-    provider: "sqlite",
-    schema: authSchema,
-  }),
-  baseURL: ENV.authBaseUrl,
-  secret: getAuthSecret(),
-  trustedOrigins: ENV.authTrustedOrigins,
-  emailAndPassword: {
-    enabled: true,
-  },
-  plugins: [
-    username(),
-    multiSession(),
-    apiKey({
-      apiKeyHeaders: ["x-api-key", "authorization"],
-      defaultPrefix: ENV.authApiKeyPrefix ?? "eg_",
-      rateLimit: {
-        enabled: ENV.authApiKeyRateLimitEnabled,
-        timeWindow: ENV.authApiKeyRateLimitTimeWindowMs,
-        maxRequests: ENV.authApiKeyRateLimitMaxRequests,
-      },
-      enableSessionForAPIKeys: true,
+export function createAuthRuntime(policy: AuthRuntimePolicy) {
+  const authDbPath = ensureAuthDbWritable();
+  const authDb = new Database(authDbPath);
+  const authOrm = drizzle({ client: authDb, schema: authSchema });
+
+  const authState: AuthState = {
+    hasUsers: false,
+    adminUserId: null,
+    adminUsername: null,
+    bootstrapApiKey: null,
+  };
+
+  const authConfig = {
+    database: drizzleAdapter(authOrm, {
+      provider: "sqlite",
+      schema: authSchema,
     }),
-  ],
-};
+    baseURL: policy.authBaseUrl,
+    secret: getAuthSecret(),
+    trustedOrigins: policy.authTrustedOrigins,
+    emailAndPassword: {
+      enabled: true,
+    },
+    plugins: [
+      username(),
+      multiSession(),
+      apiKey({
+        apiKeyHeaders: ["x-api-key", "authorization"],
+        defaultPrefix: policy.authApiKeyPrefix ?? "eg_",
+        rateLimit: {
+          enabled: policy.authApiKeyRateLimitEnabled,
+          timeWindow: policy.authApiKeyRateLimitTimeWindowMs,
+          maxRequests: policy.authApiKeyRateLimitMaxRequests,
+        },
+        enableSessionForAPIKeys: true,
+      }),
+    ],
+  };
 
-export const authMigrationConfig = {
-  ...authConfig,
-  database: authDb,
-};
+  const authMigrationConfig = {
+    ...authConfig,
+    database: authDb,
+  };
 
-export const auth = betterAuth(authConfig);
-export { authDb, authDbPath, authOrm };
+  const auth = betterAuth(authConfig);
+
+  return {
+    authDbPath,
+    authDb,
+    authOrm,
+    authState,
+    authConfig,
+    authMigrationConfig,
+    auth,
+  };
+}
+
+export type AuthRuntime = ReturnType<typeof createAuthRuntime>;

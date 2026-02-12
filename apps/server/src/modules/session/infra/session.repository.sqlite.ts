@@ -2,8 +2,7 @@
  * Session Repository (SQLite-backed via Drizzle ORM)
  */
 
-import type { SQL } from "drizzle-orm";
-import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 import {
   DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
   DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
@@ -16,7 +15,7 @@ import {
 } from "@/platform/storage/sqlite-store";
 import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
 import { systemClock } from "@/platform/time/system-clock";
-import { NotFoundError, ValidationError } from "@/shared/errors";
+import { NotFoundError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type {
   StoredMessage,
@@ -32,6 +31,11 @@ import type {
   SessionRepositoryPort,
   SessionStorageStats,
 } from "../application/ports/session-repository.port";
+import { compactSessionMessagesInSqlite } from "./session.repository.sqlite.compaction";
+import {
+  listSessionsByCursorFromSqlite,
+  listSessionsFromSqlite,
+} from "./session.repository.sqlite.list";
 import {
   type MessageInsert,
   type SessionInsert,
@@ -47,6 +51,7 @@ interface SessionSqliteRepositoryDeps {
   mapper?: SessionSqliteMapper;
   clock?: ClockPort;
   policy?: SessionSqliteRepositoryPolicy;
+  policyProvider?: () => SessionSqliteRepositoryPolicy;
 }
 
 const DEFAULT_POLICY: SessionSqliteRepositoryPolicy = {
@@ -56,43 +61,12 @@ const DEFAULT_POLICY: SessionSqliteRepositoryPolicy = {
 
 const SQLITE_SESSION_OP = {
   CREATE: "session.create",
-  PAGE: "session.page",
   UPDATE_STATUS: "session.update_status",
   UPDATE_METADATA: "session.update_metadata",
   DELETE: "session.delete",
   APPEND_MESSAGE: "session.append_message",
   COMPACT_MESSAGES: "session.compact_messages",
 } as const;
-
-interface SessionListCursor {
-  lastActiveAt: number;
-  id: string;
-}
-
-function encodeSessionListCursor(cursor: SessionListCursor): string {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
-}
-
-function decodeSessionListCursor(
-  raw: string | undefined
-): SessionListCursor | undefined {
-  if (!raw) {
-    return undefined;
-  }
-  try {
-    const decoded = JSON.parse(
-      Buffer.from(raw, "base64url").toString("utf8")
-    ) as Partial<SessionListCursor>;
-    const lastActiveAt = Number(decoded.lastActiveAt);
-    const id = typeof decoded.id === "string" ? decoded.id : "";
-    if (!(Number.isFinite(lastActiveAt) && id)) {
-      return undefined;
-    }
-    return { lastActiveAt, id };
-  } catch {
-    return undefined;
-  }
-}
 
 function normalizePolicy(
   policy: SessionSqliteRepositoryPolicy
@@ -109,15 +83,49 @@ function normalizePolicy(
   };
 }
 
+function isSqliteForeignKeyError(error: unknown): boolean {
+  const queue: unknown[] = [error];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!(current instanceof Error)) {
+      continue;
+    }
+    const errorText = `${current.name} ${current.message}`.toUpperCase();
+    if (
+      errorText.includes("SQLITE_CONSTRAINT_FOREIGNKEY") ||
+      errorText.includes("FOREIGN KEY CONSTRAINT FAILED")
+    ) {
+      return true;
+    }
+    if (current instanceof AggregateError) {
+      queue.push(...current.errors);
+    }
+    if ("cause" in current && current.cause !== undefined) {
+      queue.push(current.cause);
+    }
+  }
+  return false;
+}
+
 export class SessionSqliteRepository implements SessionRepositoryPort {
   private readonly mapper: SessionSqliteMapper;
   private readonly clock: ClockPort;
-  private readonly policy: SessionSqliteRepositoryPolicy;
+  private readonly policyProvider: () => SessionSqliteRepositoryPolicy;
 
   constructor(deps: SessionSqliteRepositoryDeps = {}) {
     this.mapper = deps.mapper ?? new SessionSqliteMapper();
     this.clock = deps.clock ?? systemClock;
-    this.policy = normalizePolicy(deps.policy ?? DEFAULT_POLICY);
+    const staticPolicy = normalizePolicy(deps.policy ?? DEFAULT_POLICY);
+    const dynamicPolicyProvider = deps.policyProvider;
+    if (dynamicPolicyProvider) {
+      this.policyProvider = () => normalizePolicy(dynamicPolicyProvider());
+    } else {
+      this.policyProvider = () => staticPolicy;
+    }
+  }
+
+  private getPolicy(): SessionSqliteRepositoryPolicy {
+    return this.policyProvider();
   }
 
   async findById(
@@ -142,179 +150,42 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
   }
 
   findAll(userId: string, query?: SessionListQuery): Promise<StoredSession[]> {
-    return this.listSessions(query, eq(sqliteSchema.sessions.userId, userId));
+    return listSessionsFromSqlite({
+      mapper: this.mapper,
+      policy: this.getPolicy(),
+      query,
+      whereClause: eq(sqliteSchema.sessions.userId, userId),
+    });
   }
 
   findAllForMaintenance(query?: SessionListQuery): Promise<StoredSession[]> {
-    return this.listSessions(query);
+    return listSessionsFromSqlite({
+      mapper: this.mapper,
+      policy: this.getPolicy(),
+      query,
+    });
   }
 
   findPage(
     userId: string,
     query?: SessionListPageQuery
   ): Promise<SessionListPageResult> {
-    return this.listSessionsByCursor(
+    return listSessionsByCursorFromSqlite({
+      mapper: this.mapper,
+      policy: this.getPolicy(),
       query,
-      eq(sqliteSchema.sessions.userId, userId)
-    );
+      whereClause: eq(sqliteSchema.sessions.userId, userId),
+    });
   }
 
   findPageForMaintenance(
     query?: SessionListPageQuery
   ): Promise<SessionListPageResult> {
-    return this.listSessionsByCursor(query);
-  }
-
-  private async listSessions(
-    query?: SessionListQuery,
-    whereClause?: SQL<unknown>
-  ): Promise<StoredSession[]> {
-    const db = await getSqliteOrm();
-    const offset = Math.max(0, Math.trunc(query?.offset ?? 0));
-    const rawLimit = query?.limit;
-    const limit =
-      rawLimit === undefined
-        ? undefined
-        : Math.max(
-            1,
-            Math.min(this.policy.sessionListPageMaxLimit, Math.trunc(rawLimit))
-          );
-
-    let select = db
-      .select({
-        id: sqliteSchema.sessions.id,
-        userId: sqliteSchema.sessions.userId,
-        name: sqliteSchema.sessions.name,
-        sessionId: sqliteSchema.sessions.sessionId,
-        projectId: sqliteSchema.sessions.projectId,
-        projectRoot: sqliteSchema.sessions.projectRoot,
-        loadSessionSupported: sqliteSchema.sessions.loadSessionSupported,
-        useUnstableResume: sqliteSchema.sessions.useUnstableResume,
-        supportsModelSwitching: sqliteSchema.sessions.supportsModelSwitching,
-        agentInfoJson: sqliteSchema.sessions.agentInfoJson,
-        status: sqliteSchema.sessions.status,
-        pinned: sqliteSchema.sessions.pinned,
-        archived: sqliteSchema.sessions.archived,
-        createdAt: sqliteSchema.sessions.createdAt,
-        lastActiveAt: sqliteSchema.sessions.lastActiveAt,
-        modeId: sqliteSchema.sessions.modeId,
-        modelId: sqliteSchema.sessions.modelId,
-        messageCount: sqliteSchema.sessions.messageCount,
-        planJson: sqliteSchema.sessions.planJson,
-        agentCapabilitiesJson: sqliteSchema.sessions.agentCapabilitiesJson,
-        authMethodsJson: sqliteSchema.sessions.authMethodsJson,
-      })
-      .from(sqliteSchema.sessions)
-      .orderBy(
-        desc(sqliteSchema.sessions.lastActiveAt),
-        desc(sqliteSchema.sessions.id)
-      )
-      .$dynamic();
-    if (whereClause) {
-      select = select.where(whereClause);
-    }
-
-    if (limit !== undefined) {
-      select = select.limit(limit);
-    }
-    if (offset > 0) {
-      select = select.offset(offset);
-    }
-
-    const rows = select.all();
-    return rows.map((row) => this.mapper.mapSessionListRow(row));
-  }
-
-  private async listSessionsByCursor(
-    query?: SessionListPageQuery,
-    whereClause?: SQL<unknown>
-  ): Promise<SessionListPageResult> {
-    const db = await getSqliteOrm();
-    const rawLimit = query?.limit;
-    const limit =
-      rawLimit === undefined
-        ? this.policy.sessionListPageMaxLimit
-        : Math.max(
-            1,
-            Math.min(this.policy.sessionListPageMaxLimit, Math.trunc(rawLimit))
-          );
-    const cursor = decodeSessionListCursor(query?.cursor);
-    if (query?.cursor && !cursor) {
-      throw new ValidationError("Invalid session list cursor", {
-        module: "session",
-        op: SQLITE_SESSION_OP.PAGE,
-      });
-    }
-
-    const cursorClause = cursor
-      ? or(
-          lt(sqliteSchema.sessions.lastActiveAt, cursor.lastActiveAt),
-          and(
-            eq(sqliteSchema.sessions.lastActiveAt, cursor.lastActiveAt),
-            lt(sqliteSchema.sessions.id, cursor.id)
-          )
-        )
-      : undefined;
-
-    let combinedWhere = whereClause;
-    if (cursorClause) {
-      combinedWhere = combinedWhere
-        ? and(combinedWhere, cursorClause)
-        : cursorClause;
-    }
-
-    let select = db
-      .select({
-        id: sqliteSchema.sessions.id,
-        userId: sqliteSchema.sessions.userId,
-        name: sqliteSchema.sessions.name,
-        sessionId: sqliteSchema.sessions.sessionId,
-        projectId: sqliteSchema.sessions.projectId,
-        projectRoot: sqliteSchema.sessions.projectRoot,
-        loadSessionSupported: sqliteSchema.sessions.loadSessionSupported,
-        useUnstableResume: sqliteSchema.sessions.useUnstableResume,
-        supportsModelSwitching: sqliteSchema.sessions.supportsModelSwitching,
-        agentInfoJson: sqliteSchema.sessions.agentInfoJson,
-        status: sqliteSchema.sessions.status,
-        pinned: sqliteSchema.sessions.pinned,
-        archived: sqliteSchema.sessions.archived,
-        createdAt: sqliteSchema.sessions.createdAt,
-        lastActiveAt: sqliteSchema.sessions.lastActiveAt,
-        modeId: sqliteSchema.sessions.modeId,
-        modelId: sqliteSchema.sessions.modelId,
-        messageCount: sqliteSchema.sessions.messageCount,
-        planJson: sqliteSchema.sessions.planJson,
-        agentCapabilitiesJson: sqliteSchema.sessions.agentCapabilitiesJson,
-        authMethodsJson: sqliteSchema.sessions.authMethodsJson,
-      })
-      .from(sqliteSchema.sessions)
-      .orderBy(
-        desc(sqliteSchema.sessions.lastActiveAt),
-        desc(sqliteSchema.sessions.id)
-      )
-      .$dynamic();
-
-    if (combinedWhere) {
-      select = select.where(combinedWhere);
-    }
-
-    const rows = select.limit(limit + 1).all();
-    const hasMore = rows.length > limit;
-    const pageRows = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursorRow = pageRows.at(-1);
-    const nextCursor =
-      hasMore && nextCursorRow
-        ? encodeSessionListCursor({
-            lastActiveAt: Number(nextCursorRow.lastActiveAt),
-            id: nextCursorRow.id,
-          })
-        : undefined;
-
-    return {
-      sessions: pageRows.map((row) => this.mapper.mapSessionListRow(row)),
-      nextCursor,
-      hasMore,
-    };
+    return listSessionsByCursorFromSqlite({
+      mapper: this.mapper,
+      policy: this.getPolicy(),
+      query,
+    });
   }
 
   async countAll(userId: string): Promise<number> {
@@ -437,64 +308,56 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     await enqueueSqliteWrite(SQLITE_SESSION_OP.APPEND_MESSAGE, async () => {
       const orm = await getSqliteOrm();
       const sqliteDb = await getSqliteDb();
+      try {
+        runInSqliteTransaction(sqliteDb, () => {
+          const values = this.mapper.toMessageInsert(id, message);
+          orm
+            .insert(sqliteSchema.sessionMessages)
+            .values(values)
+            .onConflictDoUpdate({
+              target: [
+                sqliteSchema.sessionMessages.sessionId,
+                sqliteSchema.sessionMessages.messageId,
+              ],
+              set: {
+                role: values.role,
+                content: values.content,
+                contentBlocksJson: values.contentBlocksJson,
+                timestamp: values.timestamp,
+                toolCallsJson: values.toolCallsJson,
+                reasoning: values.reasoning,
+                reasoningBlocksJson: values.reasoningBlocksJson,
+                partsJson: values.partsJson,
+                storageTier: values.storageTier,
+                retainedPayload: values.retainedPayload,
+                compactedAt: values.compactedAt,
+              },
+            })
+            .run();
 
-      const row = orm
-        .select({ id: sqliteSchema.sessions.id })
-        .from(sqliteSchema.sessions)
-        .where(
-          and(
-            eq(sqliteSchema.sessions.id, id),
-            eq(sqliteSchema.sessions.userId, userId)
-          )
-        )
-        .get();
-      if (!row) {
-        throw new NotFoundError("Chat not found", {
-          module: "session",
-          op: SQLITE_SESSION_OP.APPEND_MESSAGE,
-          details: { chatId: id },
-        });
-      }
-
-      runInSqliteTransaction(sqliteDb, () => {
-        const values = this.mapper.toMessageInsert(id, message);
-        orm
-          .insert(sqliteSchema.sessionMessages)
-          .values(values)
-          .onConflictDoUpdate({
-            target: [
-              sqliteSchema.sessionMessages.sessionId,
-              sqliteSchema.sessionMessages.messageId,
-            ],
-            set: {
-              role: values.role,
-              content: values.content,
-              contentBlocksJson: values.contentBlocksJson,
-              timestamp: values.timestamp,
-              toolCallsJson: values.toolCallsJson,
-              reasoning: values.reasoning,
-              reasoningBlocksJson: values.reasoningBlocksJson,
-              partsJson: values.partsJson,
-              storageTier: values.storageTier,
-              retainedPayload: values.retainedPayload,
-              compactedAt: values.compactedAt,
-            },
-          })
-          .run();
-
-        orm
-          .update(sqliteSchema.sessions)
-          .set({
-            lastActiveAt: this.clock.nowMs(),
-          })
-          .where(
-            and(
-              eq(sqliteSchema.sessions.id, id),
-              eq(sqliteSchema.sessions.userId, userId)
+          orm
+            .update(sqliteSchema.sessions)
+            .set({
+              lastActiveAt: this.clock.nowMs(),
+            })
+            .where(
+              and(
+                eq(sqliteSchema.sessions.id, id),
+                eq(sqliteSchema.sessions.userId, userId)
+              )
             )
-          )
-          .run();
-      });
+            .run();
+        });
+      } catch (error) {
+        if (isSqliteForeignKeyError(error)) {
+          throw new NotFoundError("Chat not found", {
+            module: "session",
+            op: SQLITE_SESSION_OP.APPEND_MESSAGE,
+            details: { chatId: id },
+          });
+        }
+        throw error;
+      }
     });
     return { appended: true };
   }
@@ -505,11 +368,12 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     query: SessionMessagesPageQuery
   ): Promise<SessionMessagesPageResult> {
     const db = await getSqliteOrm();
+    const policy = this.getPolicy();
     const limit = Math.max(
       1,
       Math.min(
-        this.policy.sessionMessagesPageMaxLimit,
-        Math.trunc(query.limit ?? this.policy.sessionMessagesPageMaxLimit)
+        policy.sessionMessagesPageMaxLimit,
+        Math.trunc(query.limit ?? policy.sessionMessagesPageMaxLimit)
       )
     );
     const cursor =
@@ -574,48 +438,13 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
 
     return enqueueSqliteWrite(
       SQLITE_SESSION_OP.COMPACT_MESSAGES,
-      async () => {
-        const db = await getSqliteOrm();
-        const rows = db
-          .select({
-            seq: sqliteSchema.sessionMessages.seq,
-          })
-          .from(sqliteSchema.sessionMessages)
-          .where(
-            and(
-              inArray(sqliteSchema.sessionMessages.sessionId, sessionIds),
-              lte(sqliteSchema.sessionMessages.timestamp, cutoff),
-              eq(sqliteSchema.sessionMessages.retainedPayload, 1)
-            )
-          )
-          .orderBy(
-            asc(sqliteSchema.sessionMessages.timestamp),
-            asc(sqliteSchema.sessionMessages.seq)
-          )
-          .limit(batchSize)
-          .all();
-
-        if (rows.length === 0) {
-          return { compacted: 0 };
-        }
-
-        const seqList = rows.map((row) => row.seq);
-        db.update(sqliteSchema.sessionMessages)
-          .set({
-            content: "",
-            contentBlocksJson: null,
-            toolCallsJson: null,
-            reasoning: null,
-            reasoningBlocksJson: null,
-            partsJson: null,
-            storageTier: "cold_stub",
-            retainedPayload: 0,
-            compactedAt: this.clock.nowMs(),
-          })
-          .where(inArray(sqliteSchema.sessionMessages.seq, seqList))
-          .run();
-        return { compacted: rows.length };
-      },
+      async () =>
+        await compactSessionMessagesInSqlite({
+          sessionIds,
+          cutoffTimestamp: cutoff,
+          batchSize,
+          clock: this.clock,
+        }),
       { priority: "low" }
     );
   }

@@ -3,16 +3,20 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import {
+  SESSION_RUNTIME_CHAT_STATUS,
+  type SessionRuntimeEntity,
+} from "@/modules/session/domain/session-runtime.entity";
 import { AppError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
 import { mapStopReasonToFinishReason } from "@/shared/utils/chat-events.util";
-import { finalizeStreamingParts } from "@/shared/utils/ui-message.util";
+import { createId } from "@/shared/utils/id.util";
 import {
-  AI_CHAT_STATUS,
-  type AiChatSessionAggregate,
-} from "../../domain/ai-chat-session.aggregate";
+  buildAssistantMessageFromBlocks,
+  finalizeStreamingParts,
+} from "@/shared/utils/ui-message.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "../acp-retry-policy";
 import { AI_OP, HTTP_STATUS } from "../ai.constants";
 import type { AiSessionRuntimePort } from "../ports/ai-session-runtime.port";
@@ -23,17 +27,22 @@ interface PromptTaskRunnerPolicy {
   acpRetryBaseDelayMs: number;
 }
 
+interface PromptRuntimePolicy {
+  maxTokens: number;
+}
+
 interface PromptTaskRunnerDeps {
   sessionRepo: SessionRepositoryPort;
   sessionGateway: AiSessionRuntimePort;
   logger: LoggerPort;
   clock: ClockPort;
   policy: PromptTaskRunnerPolicy;
+  runtimePolicyProvider: () => PromptRuntimePolicy;
 }
 
 interface PromptTaskParams {
   chatId: string;
-  aggregate: AiChatSessionAggregate;
+  aggregate: SessionRuntimeEntity;
   prompt: ContentBlock[];
   broadcast: SessionRuntimePort["broadcast"];
   turnId: string;
@@ -45,6 +54,7 @@ export class PromptTaskRunner {
   private readonly logger: LoggerPort;
   private readonly clock: ClockPort;
   private readonly policy: PromptTaskRunnerPolicy;
+  private readonly runtimePolicyProvider: () => PromptRuntimePolicy;
 
   constructor(deps: PromptTaskRunnerDeps) {
     this.sessionRepo = deps.sessionRepo;
@@ -61,11 +71,12 @@ export class PromptTaskRunner {
         Math.trunc(deps.policy.acpRetryBaseDelayMs)
       ),
     };
+    this.runtimePolicyProvider = deps.runtimePolicyProvider;
   }
 
   async cancelActivePrompt(params: {
     chatId: string;
-    aggregate: AiChatSessionAggregate;
+    aggregate: SessionRuntimeEntity;
     broadcast: SessionRuntimePort["broadcast"];
   }): Promise<void> {
     const { chatId, aggregate } = params;
@@ -131,6 +142,13 @@ export class PromptTaskRunner {
           error.kind === "session_unavailable")
       ) {
         const reason = error.message || "Prompt task failed";
+        await this.persistAssistantFallbackMessage({
+          chatId,
+          aggregate,
+          turnId,
+          broadcast,
+          errorMessage: reason,
+        });
         await this.sessionGateway.stopAndCleanup({
           chatId,
           session,
@@ -145,6 +163,13 @@ export class PromptTaskRunner {
         error,
         "Unexpected prompt failure"
       );
+      await this.persistAssistantFallbackMessage({
+        chatId,
+        aggregate,
+        turnId,
+        broadcast,
+        errorMessage: normalizedError,
+      });
       this.logger.error("SendMessageService prompt task crashed", {
         chatId,
         turnId,
@@ -153,15 +178,69 @@ export class PromptTaskRunner {
       });
 
       if (aggregate.isCurrentTurn(turnId)) {
-        aggregate.markError({ chatId, broadcast }, turnId);
+        await aggregate.markError({ chatId, broadcast }, turnId);
         aggregate.clearActiveTurnIf(turnId);
-        broadcast(chatId, {
+        await broadcast(chatId, {
           type: "error",
           error: normalizedError,
         });
       }
     } finally {
       aggregate.clearActivePromptTaskIf(turnId);
+    }
+  }
+
+  private async persistAssistantFallbackMessage(params: {
+    chatId: string;
+    aggregate: SessionRuntimeEntity;
+    turnId: string;
+    broadcast: SessionRuntimePort["broadcast"];
+    errorMessage: string;
+  }): Promise<void> {
+    const { chatId, aggregate, turnId, broadcast, errorMessage } = params;
+    if (!aggregate.isCurrentTurn(turnId)) {
+      return;
+    }
+    if (aggregate.assistantMessageId) {
+      return;
+    }
+
+    const session = aggregate.raw;
+    const messageId = createId("msg");
+    const contentBlocks = [
+      {
+        type: "text",
+        text: errorMessage,
+      } as const,
+    ];
+    const uiMessage = buildAssistantMessageFromBlocks({
+      messageId,
+      contentBlocks,
+    });
+
+    try {
+      await this.sessionRepo.appendMessage(chatId, session.userId, {
+        id: messageId,
+        role: "assistant",
+        content: errorMessage,
+        contentBlocks,
+        parts: uiMessage.parts,
+        timestamp: this.clock.nowMs(),
+      });
+      session.uiState.messages.set(uiMessage.id, uiMessage);
+      await broadcast(chatId, {
+        type: "ui_message",
+        message: uiMessage,
+      });
+    } catch (persistError) {
+      this.logger.warn("Failed to persist fallback assistant error message", {
+        chatId,
+        turnId,
+        error:
+          persistError instanceof Error
+            ? persistError.message
+            : String(persistError),
+      });
     }
   }
 
@@ -213,7 +292,7 @@ export class PromptTaskRunner {
 
   private async requestPromptWithRetries(params: {
     chatId: string;
-    aggregate: AiChatSessionAggregate;
+    aggregate: SessionRuntimeEntity;
     session: ChatSession;
     prompt: ContentBlock[];
     broadcast: SessionRuntimePort["broadcast"];
@@ -226,6 +305,16 @@ export class PromptTaskRunner {
     });
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (!aggregate.isCurrentTurn(turnId)) {
+        this.logger.warn("SendMessageService skipping stale prompt retry", {
+          chatId,
+          turnId,
+          activeTurnId: session.activeTurnId,
+          attempt: attempt + 1,
+          maxAttempts,
+        });
+        return null;
+      }
       try {
         this.logger.debug("SendMessageService sending prompt", {
           chatId,
@@ -233,8 +322,11 @@ export class PromptTaskRunner {
           attempt: attempt + 1,
           maxAttempts,
           turnId,
+          maxTokens: this.runtimePolicyProvider().maxTokens,
         });
-        const response = await this.sessionGateway.prompt(session, prompt);
+        const response = await this.sessionGateway.prompt(session, prompt, {
+          maxTokens: this.runtimePolicyProvider().maxTokens,
+        });
         this.logger.debug("SendMessageService prompt response", {
           chatId,
           stopReason: response.stopReason,
@@ -262,7 +354,7 @@ export class PromptTaskRunner {
       }
     }
 
-    return this.handlePromptExhausted({
+    return await this.handlePromptExhausted({
       chatId,
       aggregate,
       session,
@@ -278,7 +370,7 @@ export class PromptTaskRunner {
     maxAttempts: number;
     retryBaseDelayMs: number;
     chatId: string;
-    aggregate: AiChatSessionAggregate;
+    aggregate: SessionRuntimeEntity;
     session: ChatSession;
     broadcast: SessionRuntimePort["broadcast"];
     turnId: string;
@@ -311,9 +403,32 @@ export class PromptTaskRunner {
       error.kind === "retryable_transport" &&
       attempt < maxAttempts - 1
     ) {
+      if (!aggregate.isCurrentTurn(turnId)) {
+        this.logger.warn(
+          "SendMessageService stale turn before retry delay; skipping retry",
+          {
+            chatId,
+            turnId,
+            activeTurnId: session.activeTurnId,
+            attempt: attempt + 1,
+            maxAttempts,
+          }
+        );
+        return "return_null";
+      }
       await new Promise((resolve) => {
         setTimeout(resolve, getAcpRetryDelayMs(attempt + 1, retryBaseDelayMs));
       });
+      if (!aggregate.isCurrentTurn(turnId)) {
+        this.logger.warn("SendMessageService stale turn after retry delay", {
+          chatId,
+          turnId,
+          activeTurnId: session.activeTurnId,
+          attempt: attempt + 1,
+          maxAttempts,
+        });
+        return "return_null";
+      }
       return "retry";
     }
 
@@ -345,7 +460,14 @@ export class PromptTaskRunner {
       return "return_null";
     }
 
-    aggregate.markError({ chatId, broadcast }, turnId);
+    await this.persistAssistantFallbackMessage({
+      chatId,
+      aggregate,
+      turnId,
+      broadcast,
+      errorMessage: errorText || "Failed to send message",
+    });
+    await aggregate.markError({ chatId, broadcast }, turnId);
     aggregate.clearActiveTurnIf(turnId);
     throw new AppError({
       message: errorText || "Failed to send message",
@@ -358,14 +480,14 @@ export class PromptTaskRunner {
     });
   }
 
-  private handlePromptExhausted(params: {
+  private async handlePromptExhausted(params: {
     chatId: string;
-    aggregate: AiChatSessionAggregate;
+    aggregate: SessionRuntimeEntity;
     session: ChatSession;
     broadcast: SessionRuntimePort["broadcast"];
     turnId: string;
     maxAttempts: number;
-  }): null {
+  }): Promise<null> {
     const { chatId, aggregate, session, broadcast, turnId, maxAttempts } =
       params;
     this.logger.warn("SendMessageService failed to get prompt response", {
@@ -382,7 +504,14 @@ export class PromptTaskRunner {
       return null;
     }
 
-    aggregate.markError({ chatId, broadcast }, turnId);
+    await this.persistAssistantFallbackMessage({
+      chatId,
+      aggregate,
+      turnId,
+      broadcast,
+      errorMessage: "Failed to send message",
+    });
+    await aggregate.markError({ chatId, broadcast }, turnId);
     aggregate.clearActiveTurnIf(turnId);
     throw new AppError({
       message: "Failed to send message",
@@ -396,7 +525,7 @@ export class PromptTaskRunner {
 
   private async finalizePromptSuccess(params: {
     chatId: string;
-    aggregate: AiChatSessionAggregate;
+    aggregate: SessionRuntimeEntity;
     session: ChatSession;
     broadcast: SessionRuntimePort["broadcast"];
     turnId: string;
@@ -429,7 +558,7 @@ export class PromptTaskRunner {
     const current = aggregate.currentStreamingAssistantMessage();
     if (current) {
       finalizeStreamingParts(current);
-      broadcast(chatId, {
+      await broadcast(chatId, {
         type: "ui_message",
         message: current,
       });
@@ -443,7 +572,7 @@ export class PromptTaskRunner {
     }
 
     aggregate.setChatFinishStopReason(stopReason, turnId);
-    aggregate.maybeBroadcastChatFinish({
+    await aggregate.maybeBroadcastChatFinish({
       chatId,
       broadcast,
     });
@@ -454,8 +583,8 @@ export class PromptTaskRunner {
       turnId,
     });
 
-    aggregate.markReadyIfSubmitted({ chatId, broadcast }, turnId);
-    if (session.chatStatus === AI_CHAT_STATUS.READY) {
+    await aggregate.markReadyIfSubmitted({ chatId, broadcast }, turnId);
+    if (session.chatStatus === SESSION_RUNTIME_CHAT_STATUS.READY) {
       this.logger.debug("SendMessageService chat status ready", {
         chatId,
         turnId,

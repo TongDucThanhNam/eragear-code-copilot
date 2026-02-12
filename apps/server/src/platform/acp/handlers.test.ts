@@ -41,6 +41,13 @@ describe("createSessionHandlers", () => {
       },
       broadcast(_chatId: string, event: unknown) {
         events.push(event);
+        return Promise.resolve();
+      },
+      async runExclusive<T>(
+        _chatId: string,
+        work: () => Promise<T>
+      ): Promise<T> {
+        return await work();
       },
     } as unknown as SessionRuntimePort;
 

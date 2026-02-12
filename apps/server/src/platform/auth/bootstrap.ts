@@ -1,16 +1,20 @@
 import { writeFileSync } from "node:fs";
 import { getMigrations } from "better-auth/db";
-import { ENV } from "../../config/environment";
 import { createLogger } from "../logging/structured-logger";
-import { auth, authDb, authMigrationConfig, authState } from "./auth";
+import type { AuthRuntime } from "./auth";
 import { getOrCreateAdminCredentials } from "./credentials";
 import { getAuthStorageFile } from "./paths";
 
 const logger = createLogger("Auth");
 
-function getTableCount(table: string): number {
+export interface AuthBootstrapPolicy {
+  authBootstrapApiKey: boolean;
+  authApiKeyPrefix: string | undefined;
+}
+
+function getTableCount(runtime: AuthRuntime, table: string): number {
   try {
-    const row = authDb
+    const row = runtime.authDb
       .prepare(`SELECT COUNT(*) as count FROM "${table}"`)
       .get() as { count?: number } | undefined;
     const count = row?.count ?? 0;
@@ -20,9 +24,10 @@ function getTableCount(table: string): number {
   }
 }
 
-async function ensureMigrations(): Promise<void> {
-  const { toBeAdded, toBeCreated, runMigrations } =
-    await getMigrations(authMigrationConfig);
+async function ensureMigrations(runtime: AuthRuntime): Promise<void> {
+  const { toBeAdded, toBeCreated, runMigrations } = await getMigrations(
+    runtime.authMigrationConfig
+  );
 
   if (toBeAdded.length === 0 && toBeCreated.length === 0) {
     return;
@@ -35,19 +40,19 @@ async function ensureMigrations(): Promise<void> {
   await runMigrations();
 }
 
-async function ensureAdminUser(): Promise<void> {
-  const userCount = getTableCount("user");
-  authState.hasUsers = userCount > 0;
+async function ensureAdminUser(runtime: AuthRuntime): Promise<void> {
+  const userCount = getTableCount(runtime, "user");
+  runtime.authState.hasUsers = userCount > 0;
 
-  if (authState.hasUsers) {
+  if (runtime.authState.hasUsers) {
     return;
   }
 
   const credentials = getOrCreateAdminCredentials();
-  authState.adminUsername = credentials.username;
+  runtime.authState.adminUsername = credentials.username;
 
   try {
-    const result = await auth.api.signUpEmail({
+    const result = await runtime.auth.api.signUpEmail({
       body: {
         name: "Administrator",
         email: credentials.email,
@@ -56,8 +61,8 @@ async function ensureAdminUser(): Promise<void> {
       },
     });
 
-    authState.hasUsers = true;
-    authState.adminUserId = result?.user?.id ?? null;
+    runtime.authState.hasUsers = true;
+    runtime.authState.adminUserId = result?.user?.id ?? null;
 
     if (credentials.source === "generated") {
       const credentialsPath = getAuthStorageFile("admin.credentials.json");
@@ -67,23 +72,23 @@ async function ensureAdminUser(): Promise<void> {
       });
     }
   } catch (error) {
-    const fallbackCount = getTableCount("user");
-    authState.hasUsers = fallbackCount > 0;
-    if (!authState.hasUsers) {
+    const fallbackCount = getTableCount(runtime, "user");
+    runtime.authState.hasUsers = fallbackCount > 0;
+    if (!runtime.authState.hasUsers) {
       logger.error("Failed to bootstrap admin user", error as Error);
     }
   }
 }
 
-function resolveAdminUserId(): string | null {
-  if (authState.adminUserId) {
-    return authState.adminUserId;
+function resolveAdminUserId(runtime: AuthRuntime): string | null {
+  if (runtime.authState.adminUserId) {
+    return runtime.authState.adminUserId;
   }
 
-  const username = authState.adminUsername;
+  const username = runtime.authState.adminUsername;
   try {
     if (username) {
-      const row = authDb
+      const row = runtime.authDb
         .prepare(
           'SELECT id FROM "user" WHERE username = ? ORDER BY createdAt ASC LIMIT 1'
         )
@@ -91,7 +96,7 @@ function resolveAdminUserId(): string | null {
       return row?.id ?? null;
     }
 
-    const fallback = authDb
+    const fallback = runtime.authDb
       .prepare('SELECT id FROM "user" ORDER BY createdAt ASC LIMIT 1')
       .get() as { id?: string } | undefined;
     return fallback?.id ?? null;
@@ -100,32 +105,35 @@ function resolveAdminUserId(): string | null {
   }
 }
 
-async function ensureBootstrapApiKey(): Promise<void> {
-  if (!ENV.authBootstrapApiKey) {
+async function ensureBootstrapApiKey(
+  runtime: AuthRuntime,
+  policy: AuthBootstrapPolicy
+): Promise<void> {
+  if (!policy.authBootstrapApiKey) {
     return;
   }
 
-  const keyCount = getTableCount("apikey");
+  const keyCount = getTableCount(runtime, "apikey");
   if (keyCount > 0) {
     return;
   }
 
-  const adminUserId = resolveAdminUserId();
+  const adminUserId = resolveAdminUserId(runtime);
   if (!adminUserId) {
     return;
   }
 
   try {
-    const result = await auth.api.createApiKey({
+    const result = await runtime.auth.api.createApiKey({
       body: {
         name: "default",
         userId: adminUserId,
-        prefix: ENV.authApiKeyPrefix ?? "eg_",
+        prefix: policy.authApiKeyPrefix ?? "eg_",
       },
     });
 
     if (result?.key) {
-      authState.bootstrapApiKey = result.key;
+      runtime.authState.bootstrapApiKey = result.key;
       const apiKeyPath = getAuthStorageFile("api-key.json");
       const payload = {
         key: result.key,
@@ -141,8 +149,11 @@ async function ensureBootstrapApiKey(): Promise<void> {
   }
 }
 
-export async function ensureAuthSetup(): Promise<void> {
-  await ensureMigrations();
-  await ensureAdminUser();
-  await ensureBootstrapApiKey();
+export async function ensureAuthSetup(
+  runtime: AuthRuntime,
+  policy: AuthBootstrapPolicy
+): Promise<void> {
+  await ensureMigrations(runtime);
+  await ensureAdminUser(runtime);
+  await ensureBootstrapApiKey(runtime, policy);
 }

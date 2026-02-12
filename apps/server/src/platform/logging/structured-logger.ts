@@ -7,7 +7,10 @@
  * @module infra/logging/structured-logger
  */
 
-export type LogLevel = "debug" | "info" | "warn" | "error";
+import type { LogLevel as SharedLogLevel } from "@/shared/types/log.types";
+import { shouldEmitRuntimeLog } from "./runtime-log-level";
+
+export type LogLevel = SharedLogLevel;
 
 export type LogTag =
   | "Server"
@@ -71,6 +74,9 @@ export class StructuredLogger {
     error?: Error,
     context?: Record<string, unknown>
   ): void {
+    if (!shouldEmitRuntimeLog(level)) {
+      return;
+    }
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,

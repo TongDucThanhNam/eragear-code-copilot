@@ -1,3 +1,4 @@
+import type { ZodType } from "zod";
 import {
   fromSqliteBoolean,
   fromSqliteJson,
@@ -8,7 +9,6 @@ import type {
   StoredSession,
 } from "@/shared/types/session.types";
 import {
-  isRecord,
   MAX_LIST_JSON_CACHE_ENTRIES,
   type MessageRow,
   OptionalAgentCapabilitiesSchema,
@@ -47,7 +47,10 @@ export class SessionSqliteReadMapper {
       loadSessionSupported: fromSqliteBoolean(row.loadSessionSupported),
       useUnstableResume: fromSqliteBoolean(row.useUnstableResume),
       supportsModelSwitching: fromSqliteBoolean(row.supportsModelSwitching),
-      agentInfo: this.parseAgentInfoLight(row.agentInfoJson),
+      agentInfo: this.parseListJsonWithSchema(
+        row.agentInfoJson,
+        OptionalAgentInfoSchema
+      ),
       status: row.status === "running" ? "running" : "stopped",
       pinned: fromSqliteBoolean(row.pinned),
       archived: fromSqliteBoolean(row.archived),
@@ -57,12 +60,16 @@ export class SessionSqliteReadMapper {
       modelId: row.modelId ?? undefined,
       messages: [],
       messageCount: row.messageCount,
-      plan: this.parsePlanLight(row.planJson),
+      plan: this.parseListJsonWithSchema(row.planJson, OptionalPlanSchema),
       commands: undefined,
-      agentCapabilities: this.parseAgentCapabilitiesLight(
-        row.agentCapabilitiesJson
+      agentCapabilities: this.parseListJsonWithSchema(
+        row.agentCapabilitiesJson,
+        OptionalAgentCapabilitiesSchema
       ),
-      authMethods: this.parseAuthMethodsLight(row.authMethodsJson),
+      authMethods: this.parseListJsonWithSchema(
+        row.authMethodsJson,
+        OptionalAuthMethodsSchema
+      ),
     };
   }
 
@@ -218,89 +225,25 @@ export class SessionSqliteReadMapper {
     return decoded;
   }
 
-  private parseAgentInfoLight(raw: unknown): StoredSession["agentInfo"] {
-    const parsed = this.decodeListJsonWithCache(raw);
-    if (!isRecord(parsed)) {
+  private parseListJsonWithSchema<T>(
+    raw: unknown,
+    schema: ZodType<T>
+  ): T | undefined {
+    const decoded = this.decodeListJsonWithCache(raw);
+    if (decoded === undefined) {
       return undefined;
     }
-
-    const name = typeof parsed.name === "string" ? parsed.name : undefined;
-    const title = typeof parsed.title === "string" ? parsed.title : undefined;
-    const version =
-      typeof parsed.version === "string" ? parsed.version : undefined;
-
-    if (!(name || title || version)) {
+    const parsed = schema.safeParse(decoded);
+    if (!parsed.success) {
       return undefined;
     }
-
-    return { name, title, version };
+    return this.cloneValue(parsed.data);
   }
 
-  private parsePlanLight(raw: unknown): StoredSession["plan"] {
-    const parsed = this.decodeListJsonWithCache(raw);
-    if (!(isRecord(parsed) && Array.isArray(parsed.entries))) {
-      return undefined;
+  private cloneValue<T>(value: T): T {
+    if (value === null || value === undefined) {
+      return value;
     }
-
-    const entries = parsed.entries.map((entry) =>
-      isRecord(entry) ? { ...entry } : entry
-    );
-    const rawMeta = "_meta" in parsed ? parsed._meta : undefined;
-    let meta: Record<string, unknown> | null | undefined;
-    if (rawMeta === null) {
-      meta = null;
-    } else if (isRecord(rawMeta)) {
-      meta = { ...rawMeta };
-    } else {
-      meta = undefined;
-    }
-
-    return {
-      _meta: meta,
-      entries: entries as NonNullable<StoredSession["plan"]>["entries"],
-    };
-  }
-
-  private parseAgentCapabilitiesLight(
-    raw: unknown
-  ): StoredSession["agentCapabilities"] {
-    const parsed = this.decodeListJsonWithCache(raw);
-    if (!isRecord(parsed)) {
-      return undefined;
-    }
-    return { ...parsed };
-  }
-
-  private parseAuthMethodsLight(raw: unknown): StoredSession["authMethods"] {
-    const parsed = this.decodeListJsonWithCache(raw);
-    if (!Array.isArray(parsed)) {
-      return undefined;
-    }
-
-    const methods = parsed
-      .map((entry) => {
-        if (!isRecord(entry)) {
-          return undefined;
-        }
-        if (
-          typeof entry.name !== "string" ||
-          typeof entry.id !== "string" ||
-          typeof entry.description !== "string"
-        ) {
-          return undefined;
-        }
-
-        return {
-          name: entry.name,
-          id: entry.id,
-          description: entry.description,
-        };
-      })
-      .filter((entry) => entry !== undefined);
-
-    if (methods.length !== parsed.length) {
-      return undefined;
-    }
-    return methods;
+    return structuredClone(value);
   }
 }

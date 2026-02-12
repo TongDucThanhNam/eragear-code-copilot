@@ -26,10 +26,10 @@ export const SessionBuffering = SessionBufferingImpl;
 
 const logger = createLogger("Debug");
 
-function finalizeStreamingForCurrentAssistant(
+async function finalizeStreamingForCurrentAssistant(
   chatId: string,
   sessionRuntime: SessionRuntimePort
-): void {
+): Promise<void> {
   const session = sessionRuntime.get(chatId);
   if (!session?.uiState.currentAssistantId) {
     return;
@@ -49,7 +49,7 @@ function finalizeStreamingForCurrentAssistant(
     return;
   }
   finalizeStreamingParts(message);
-  sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+  await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
 }
 
 function summarizeUpdate(update: SessionUpdate) {
@@ -148,7 +148,7 @@ async function handleModeUpdate(
     chatId,
     modeId: update.currentModeId,
   });
-  sessionRuntime.broadcast(chatId, {
+  await sessionRuntime.broadcast(chatId, {
     type: "current_mode_update",
     modeId: update.currentModeId,
   });
@@ -179,7 +179,7 @@ async function handleCommandsUpdate(
     chatId,
     availableCommandsCount: update.availableCommands.length,
   });
-  sessionRuntime.broadcast(chatId, {
+  await sessionRuntime.broadcast(chatId, {
     type: "available_commands_update",
     availableCommands: update.availableCommands,
   });
@@ -217,39 +217,46 @@ export function createSessionUpdateHandler(
       return;
     }
 
-    maybeMarkStreaming(chatId, isReplayingHistory, update, sessionRuntime);
+    await sessionRuntime.runExclusive(chatId, async () => {
+      await maybeMarkStreaming(
+        chatId,
+        isReplayingHistory,
+        update,
+        sessionRuntime
+      );
 
-    const context: SessionUpdateContext = {
-      chatId,
-      buffer,
-      isReplayingHistory,
-      update,
-      sessionRuntime,
-      sessionRepo,
-      finalizeStreamingForCurrentAssistant,
-    };
+      const context: SessionUpdateContext = {
+        chatId,
+        buffer,
+        isReplayingHistory,
+        update,
+        sessionRuntime,
+        sessionRepo,
+        finalizeStreamingForCurrentAssistant,
+      };
 
-    handleBufferedMessage(context);
+      await handleBufferedMessage(context);
 
-    if (await handleModeUpdate(context)) {
-      return;
-    }
-    if (await handleCommandsUpdate(context)) {
-      return;
-    }
-    if (await handlePlanUpdate(context)) {
-      return;
-    }
-    if (handleToolCallCreate(context)) {
-      return;
-    }
-    if (handleToolCallUpdate(context)) {
-      return;
-    }
+      if (await handleModeUpdate(context)) {
+        return;
+      }
+      if (await handleCommandsUpdate(context)) {
+        return;
+      }
+      if (await handlePlanUpdate(context)) {
+        return;
+      }
+      if (await handleToolCallCreate(context)) {
+        return;
+      }
+      if (await handleToolCallUpdate(context)) {
+        return;
+      }
 
-    logger.debug("ACP session update ignored by pipeline", {
-      chatId,
-      ...summary,
+      logger.debug("ACP session update ignored by pipeline", {
+        chatId,
+        ...summary,
+      });
     });
   };
 }
@@ -264,12 +271,12 @@ function trackReplayEvents(
   }
 }
 
-function maybeMarkStreaming(
+async function maybeMarkStreaming(
   chatId: string,
   isReplayingHistory: boolean,
   update: SessionUpdate,
   sessionRuntime: SessionRuntimePort
-): void {
+): Promise<void> {
   if (isReplayingHistory || !isStreamingUpdate(update)) {
     return;
   }
@@ -277,7 +284,7 @@ function maybeMarkStreaming(
   if (!session || session.chatStatus === "cancelling") {
     return;
   }
-  updateChatStatus({
+  await updateChatStatus({
     chatId,
     session,
     broadcast: sessionRuntime.broadcast.bind(sessionRuntime),

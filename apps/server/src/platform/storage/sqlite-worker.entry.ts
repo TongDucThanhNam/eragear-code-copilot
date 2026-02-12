@@ -1,9 +1,13 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
-import { ENV } from "@/config/environment";
 import { AgentSqliteRepository } from "@/modules/agent/di";
 import { ProjectSqliteRepository } from "@/modules/project/di";
-import { SessionSqliteRepository } from "@/modules/session/di";
+import { createSessionSqliteRepository } from "@/modules/session/di";
+import {
+  createDefaultAppConfigFromEnv,
+  normalizeAppConfig,
+} from "@/modules/settings/app-config.service";
 import { SettingsSqliteRepository } from "@/modules/settings/di";
+import type { AppConfig } from "@/shared/types/settings.types";
 import {
   closeSqliteDb,
   getSqliteStorageStatsLocal,
@@ -49,17 +53,18 @@ if (!isMainThread && port) {
     throw new Error("Invalid sqlite worker initialization data");
   }
 
-  const sessionRepo = new SessionSqliteRepository({
-    policy: {
-      sessionListPageMaxLimit: ENV.sessionListPageMaxLimit,
-      sessionMessagesPageMaxLimit: ENV.sessionMessagesPageMaxLimit,
-    },
+  let runtimeAppConfig: AppConfig = createDefaultAppConfigFromEnv();
+  const sessionRepo = createSessionSqliteRepository({
+    policyProvider: () => ({
+      sessionListPageMaxLimit: runtimeAppConfig.sessionListPageMaxLimit,
+      sessionMessagesPageMaxLimit: runtimeAppConfig.sessionMessagesPageMaxLimit,
+    }),
   });
   const projectRepo = new ProjectSqliteRepository();
   const agentRepo = new AgentSqliteRepository();
   const settingsRepo = new SettingsSqliteRepository();
 
-  const handleStorageMethod = async (method: string) => {
+  const handleStorageMethod = async (method: string, args: unknown[]) => {
     if (method === "runMaintenance") {
       return runSqliteRuntimeMaintenanceLocal();
     }
@@ -69,6 +74,10 @@ if (!isMainThread && port) {
     if (method === "shutdown") {
       await closeSqliteDb();
       return null;
+    }
+    if (method === "setRuntimeConfig") {
+      runtimeAppConfig = normalizeAppConfig(args[0], runtimeAppConfig);
+      return runtimeAppConfig;
     }
     throw new Error(`Unknown SQLite storage method: ${method}`);
   };
@@ -102,7 +111,7 @@ if (!isMainThread && port) {
           request.method
         )(...request.args);
       } else if (request.service === "storage") {
-        result = await handleStorageMethod(request.method);
+        result = await handleStorageMethod(request.method, request.args);
       } else {
         throw new Error(`Unknown SQLite worker service: ${request.service}`);
       }

@@ -10,21 +10,17 @@
 import type {
   AgentServiceFactory,
   AiServiceFactory,
+  AuthServiceFactory,
   ProjectServiceFactory,
   SessionServiceFactory,
   SettingsServiceFactory,
   ToolingServiceFactory,
 } from "@/modules/service-factories";
+import type { AppConfigService } from "@/modules/settings";
 
 export interface RequestLike {
   headers: Headers | Record<string, string | string[] | undefined>;
   url?: string;
-}
-
-export interface AuthDbPort {
-  prepare(query: string): {
-    get(...args: unknown[]): unknown;
-  };
 }
 
 export interface AuthContext {
@@ -41,7 +37,8 @@ export interface TrpcContextDependencies {
   agentServices: AgentServiceFactory;
   toolingServices: ToolingServiceFactory;
   settingsServices: SettingsServiceFactory;
-  authDb: AuthDbPort;
+  authServices: AuthServiceFactory;
+  appConfig: AppConfigService;
   resolveAuthContext: (req: RequestLike) => Promise<AuthContext | null>;
   ensureUserDefaults?: (userId: string) => Promise<void>;
 }
@@ -77,7 +74,8 @@ export async function createTrpcContext(
     agentServices: deps.agentServices,
     toolingServices: deps.toolingServices,
     settingsServices: deps.settingsServices,
-    authDb: deps.authDb,
+    authServices: deps.authServices,
+    appConfig: deps.appConfig,
     auth: authContext,
   };
 }

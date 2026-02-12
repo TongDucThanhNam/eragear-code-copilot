@@ -4,6 +4,7 @@ import type { LogEntry, LogLevel } from "@/shared/types/log.types";
 import { createId } from "@/shared/utils/id.util";
 import { getObservabilityContext } from "@/shared/utils/observability-context.util";
 import { getLogStore } from "./log-store";
+import { shouldEmitRuntimeLog } from "./runtime-log-level";
 
 type ConsoleMethod = "log" | "info" | "warn" | "error" | "debug" | "trace";
 
@@ -48,6 +49,9 @@ export class Logger {
   }
 
   log(level: LogLevel, message: string, context?: Partial<LogEntry>): void {
+    if (!shouldEmitRuntimeLog(level)) {
+      return;
+    }
     const entry = this.buildEntry(level, message, context);
     this.store.append(entry);
     const method = resolveMethod(level);
@@ -60,6 +64,9 @@ export class Logger {
     args: unknown[],
     context?: Partial<LogEntry>
   ): void {
+    if (!shouldEmitRuntimeLog(level)) {
+      return;
+    }
     const error = findError(args);
     const message = format(...args);
     const entry = this.buildEntry(level, message, {

@@ -10,8 +10,6 @@ Các API chính để build `useChat`:
 
 - `getSessionMessagesPage({ chatId, cursor?, limit?, includeCompacted? })` →
   trả `{ messages, nextCursor?, hasMore }` (history, paginated).
-- `getSessionMessages({ chatId })` → **deprecated compatibility endpoint**,
-  chỉ dùng tạm cho client cũ.
 - `onSessionEvents({ chatId })` → stream `BroadcastEvent` realtime.
 
 Event types quan trọng:

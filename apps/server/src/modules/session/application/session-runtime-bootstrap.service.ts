@@ -79,7 +79,7 @@ export class SessionRuntimeBootstrapService {
     };
 
     this.sessionRuntime.set(input.chatId, chatSession);
-    this.broadcastStoredPlan(input.chatId, chatSession);
+    await this.broadcastStoredPlan(input.chatId, chatSession);
     return { chatSession, buffer };
   }
 
@@ -98,7 +98,10 @@ export class SessionRuntimeBootstrapService {
     return page.messages.length > 0;
   }
 
-  private broadcastStoredPlan(chatId: string, chatSession: ChatSession): void {
+  private async broadcastStoredPlan(
+    chatId: string,
+    chatSession: ChatSession
+  ): Promise<void> {
     if (!chatSession.plan) {
       return;
     }
@@ -114,7 +117,7 @@ export class SessionRuntimeBootstrapService {
       part: planTool,
     });
 
-    this.sessionRuntime.broadcast(chatId, {
+    await this.sessionRuntime.broadcast(chatId, {
       type: "ui_message",
       message: updated,
     });

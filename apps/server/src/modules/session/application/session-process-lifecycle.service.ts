@@ -22,75 +22,101 @@ export class SessionProcessLifecycleService {
 
   attach(proc: ChildProcess, chatId: string): void {
     proc.on("error", async (err: Error) => {
-      this.logger.error("Agent process error", {
-        chatId,
-        error: err.message,
-      });
-      this.sessionRuntime.broadcast(chatId, {
-        type: "error",
-        error: `Agent process error: ${err.message}`,
-      });
+      try {
+        this.logger.error("Agent process error", {
+          chatId,
+          error: err.message,
+        });
+        await this.sessionRuntime.broadcast(chatId, {
+          type: "error",
+          error: `Agent process error: ${err.message}`,
+        });
 
-      const session = this.sessionRuntime.get(chatId);
-      updateChatStatus({
-        chatId,
-        session,
-        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-        status: "error",
-      });
-      if (session?.userId) {
-        await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
-      }
-      if (session) {
-        terminateSessionTerminals(session);
+        const session = this.sessionRuntime.get(chatId);
+        await updateChatStatus({
+          chatId,
+          session,
+          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+          status: "error",
+        });
+        if (session?.userId) {
+          await this.sessionRepo.updateStatus(
+            chatId,
+            session.userId,
+            "stopped"
+          );
+        }
+        if (session) {
+          terminateSessionTerminals(session);
+        }
+      } catch (error) {
+        this.logger.error("Failed to process agent error lifecycle event", {
+          chatId,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     });
 
     proc.on(
       "exit",
       async (code: number | null, signal: NodeJS.Signals | null) => {
-        this.logger.info("Agent process exited", {
-          chatId,
-          code,
-          signal,
-        });
-        const isExpectedSignal = signal === "SIGTERM" || signal === "SIGINT";
-        const isCleanExit = code === 0 || (code === null && isExpectedSignal);
-
-        if (isCleanExit) {
-          const session = this.sessionRuntime.get(chatId);
-          updateChatStatus({
+        try {
+          this.logger.info("Agent process exited", {
             chatId,
-            session,
-            broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-            status: "inactive",
+            code,
+            signal,
           });
-        } else {
-          const reason = signal
-            ? `signal ${signal}`
-            : `code ${code ?? "unknown"}`;
-          this.sessionRuntime.broadcast(chatId, {
-            type: "error",
-            error: `Agent process exited with ${reason}`,
-          });
-          const session = this.sessionRuntime.get(chatId);
-          updateChatStatus({
-            chatId,
-            session,
-            broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-            status: "error",
-          });
-        }
+          const isExpectedSignal = signal === "SIGTERM" || signal === "SIGINT";
+          const isCleanExit = code === 0 || (code === null && isExpectedSignal);
 
-        const session = this.sessionRuntime.get(chatId);
-        if (session?.userId) {
-          await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
-        }
-        if (session) {
-          terminateSessionTerminals(session);
-        }
-        if (this.sessionRuntime.has(chatId)) {
-          this.sessionRuntime.delete(chatId);
+          if (isCleanExit) {
+            const session = this.sessionRuntime.get(chatId);
+            await updateChatStatus({
+              chatId,
+              session,
+              broadcast: this.sessionRuntime.broadcast.bind(
+                this.sessionRuntime
+              ),
+              status: "inactive",
+            });
+          } else {
+            const reason = signal
+              ? `signal ${signal}`
+              : `code ${code ?? "unknown"}`;
+            await this.sessionRuntime.broadcast(chatId, {
+              type: "error",
+              error: `Agent process exited with ${reason}`,
+            });
+            const session = this.sessionRuntime.get(chatId);
+            await updateChatStatus({
+              chatId,
+              session,
+              broadcast: this.sessionRuntime.broadcast.bind(
+                this.sessionRuntime
+              ),
+              status: "error",
+            });
+          }
+
+          const session = this.sessionRuntime.get(chatId);
+          if (session?.userId) {
+            await this.sessionRepo.updateStatus(
+              chatId,
+              session.userId,
+              "stopped"
+            );
+          }
+          if (session) {
+            terminateSessionTerminals(session);
+          }
+          if (this.sessionRuntime.has(chatId)) {
+            this.sessionRuntime.delete(chatId);
+          }
+        } catch (error) {
+          this.logger.error("Failed to process agent exit lifecycle event", {
+            chatId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }
     );

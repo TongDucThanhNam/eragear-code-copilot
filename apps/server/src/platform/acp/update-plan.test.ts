@@ -32,7 +32,12 @@ function createRuntimeStub(session: ChatSession) {
     get: (chatId: string) => (chatId === session.id ? session : undefined),
     broadcast: (_chatId: string, event: unknown) => {
       broadcasts.push(event);
+      return Promise.resolve();
     },
+    runExclusive: async <T>(
+      _chatId: string,
+      work: () => Promise<T>
+    ): Promise<T> => await work(),
   } as unknown as SessionRuntimePort;
   return { runtime, broadcasts };
 }
@@ -82,7 +87,7 @@ describe("handlePlanUpdate", () => {
       },
       sessionRuntime: runtime,
       sessionRepo: repo,
-      finalizeStreamingForCurrentAssistant: () => undefined,
+      finalizeStreamingForCurrentAssistant: async () => undefined,
     });
 
     expect(handled).toBe(true);
@@ -110,7 +115,7 @@ describe("handlePlanUpdate", () => {
       },
       sessionRuntime: runtime,
       sessionRepo: repo,
-      finalizeStreamingForCurrentAssistant: () => undefined,
+      finalizeStreamingForCurrentAssistant: async () => undefined,
     });
 
     expect(broadcasts.length).toBe(1);
@@ -132,7 +137,7 @@ describe("handlePlanUpdate", () => {
       },
       sessionRuntime: runtime,
       sessionRepo: repo,
-      finalizeStreamingForCurrentAssistant: () => undefined,
+      finalizeStreamingForCurrentAssistant: async () => undefined,
     });
 
     expect(broadcasts.length).toBe(0);

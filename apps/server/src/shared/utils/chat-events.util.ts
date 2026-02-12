@@ -25,17 +25,17 @@ export function mapStopReasonToFinishReason(
 export function updateChatStatus(params: {
   chatId: string;
   session: ChatSession | undefined;
-  broadcast: (chatId: string, event: BroadcastEvent) => void;
+  broadcast: (chatId: string, event: BroadcastEvent) => Promise<void>;
   status: ChatStatus;
   turnId?: string;
-}): void {
+}): Promise<void> {
   const { chatId, session, broadcast, status } = params;
   if (!session || session.chatStatus === status) {
-    return;
+    return Promise.resolve();
   }
   session.chatStatus = status;
   const turnId = params.turnId ?? session.activeTurnId;
-  broadcast(chatId, {
+  return broadcast(chatId, {
     type: "chat_status",
     status,
     ...(turnId ? { turnId } : {}),
@@ -69,8 +69,8 @@ export function setChatFinishMessage(
 export function maybeBroadcastChatFinish(params: {
   chatId: string;
   session: ChatSession;
-  broadcast: (chatId: string, event: BroadcastEvent) => void;
-}): void {
+  broadcast: (chatId: string, event: BroadcastEvent) => Promise<void>;
+}): Promise<void> {
   const { chatId, session, broadcast } = params;
   const stopReason = session.chatFinish?.stopReason;
   const messageId = session.chatFinish?.messageId;
@@ -78,7 +78,7 @@ export function maybeBroadcastChatFinish(params: {
   const isAssistantActive = Boolean(session.uiState.currentAssistantId);
 
   if (!stopReason || (!messageId && isAssistantActive)) {
-    return;
+    return Promise.resolve();
   }
 
   const resolvedMessageId = messageId ?? session.uiState.lastAssistantId;
@@ -87,7 +87,7 @@ export function maybeBroadcastChatFinish(params: {
     : undefined;
   const finishReason = mapStopReasonToFinishReason(stopReason);
 
-  broadcast(chatId, {
+  return broadcast(chatId, {
     type: "chat_finish",
     stopReason,
     finishReason,
@@ -95,7 +95,7 @@ export function maybeBroadcastChatFinish(params: {
     ...(message ? { message } : {}),
     isAbort: stopReason === "cancelled",
     ...(turnId ? { turnId } : {}),
+  }).then(() => {
+    session.chatFinish = undefined;
   });
-
-  session.chatFinish = undefined;
 }

@@ -78,6 +78,7 @@ function createRuntime(session: ChatSession): SessionRuntimePort {
     },
     broadcast() {
       // no-op
+      return Promise.resolve();
     },
   };
 }

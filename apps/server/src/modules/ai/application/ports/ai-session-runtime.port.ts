@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
+import type { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import type { ChatSession } from "@/shared/types/session.types";
 
 export type AiSessionRuntimeErrorKind =
@@ -51,10 +52,12 @@ export interface AiStopSessionInput {
 
 export interface AiSessionRuntimePort {
   requireAuthorizedSession(input: AiRequireSessionInput): ChatSession;
+  requireAuthorizedRuntime(input: AiRequireSessionInput): SessionRuntimeEntity;
   assertSessionRunning(input: AiAssertSessionRunningInput): void;
   prompt(
     session: ChatSession,
-    prompt: ContentBlock[]
+    prompt: ContentBlock[],
+    options?: { maxTokens?: number }
   ): Promise<{ stopReason: string }>;
   cancelPrompt(session: ChatSession): Promise<void>;
   setSessionMode(session: ChatSession, modeId: string): Promise<void>;

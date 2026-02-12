@@ -191,6 +191,36 @@ describe("SessionSqliteRepository.create", () => {
     expect(untouchedPage.messages[0]?.content).toBe("untouched-content");
   });
 
+  test("compacts without SQLite bind-limit failures for large sessionId sets", async () => {
+    const repo = new SessionSqliteRepository();
+    const chatId = "chat-compact-large-id-set";
+    const base = Date.now();
+
+    await repo.create(createSession(chatId, [], base));
+    await repo.appendMessage(
+      chatId,
+      "user-1",
+      createMessage("m-large", "assistant", "payload", base - 5000)
+    );
+
+    const largeSessionIds = [
+      chatId,
+      ...Array.from({ length: 1200 }, (_, index) => `ghost-session-${index}`),
+    ];
+    const result = await repo.compactMessages({
+      beforeTimestamp: base,
+      batchSize: 10,
+      sessionIds: largeSessionIds,
+    });
+
+    expect(result.compacted).toBe(1);
+    const page = await repo.getMessagesPage(chatId, "user-1", {
+      limit: 10,
+      includeCompacted: true,
+    });
+    expect(page.messages[0]?.isCompacted).toBe(true);
+  });
+
   test("paginates sessions via cursor with stable ordering", async () => {
     const repo = new SessionSqliteRepository();
     const base = Date.now();

@@ -9,14 +9,20 @@ import {
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 import { isToolCallCreate, isToolCallUpdate } from "./update-types";
 
-export function handleToolCallCreate(context: SessionUpdateContext) {
-  const { chatId, update, sessionRuntime, finalizeStreamingForCurrentAssistant } =
-    context;
+export async function handleToolCallCreate(
+  context: SessionUpdateContext
+): Promise<boolean> {
+  const {
+    chatId,
+    update,
+    sessionRuntime,
+    finalizeStreamingForCurrentAssistant,
+  } = context;
   if (!isToolCallCreate(update)) {
     return false;
   }
 
-  finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
+  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
 
   const { sessionUpdate: _sessionUpdate, ...toolCall } = update;
   const sanitizedToolCall: acp.ToolCall = {
@@ -42,7 +48,7 @@ export function handleToolCallCreate(context: SessionUpdateContext) {
           messageId: message.id,
         })
       : message;
-    sessionRuntime.broadcast(chatId, {
+    await sessionRuntime.broadcast(chatId, {
       type: "ui_message",
       message: messageWithLocations ?? message,
     });
@@ -50,9 +56,9 @@ export function handleToolCallCreate(context: SessionUpdateContext) {
   return true;
 }
 
-export function handleToolCallUpdate(
+export async function handleToolCallUpdate(
   context: Pick<SessionUpdateContext, "chatId" | "update" | "sessionRuntime">
-) {
+): Promise<boolean> {
   const { chatId, update, sessionRuntime } = context;
   if (!isToolCallUpdate(update)) {
     return false;
@@ -99,7 +105,7 @@ export function handleToolCallUpdate(
       locations: nextLocations,
       messageId: message.id,
     });
-    sessionRuntime.broadcast(chatId, {
+    await sessionRuntime.broadcast(chatId, {
       type: "ui_message",
       message: messageWithLocations ?? message,
     });

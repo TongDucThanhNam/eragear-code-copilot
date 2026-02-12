@@ -26,8 +26,8 @@ export function SettingsTab() {
               <h2 className="font-black font-display text-3xl tracking-tight">
                 Project Roots
               </h2>
-              <div className="mt-4 font-body text-muted text-sm leading-relaxed text-justify">
-                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+              <div className="mt-4 text-justify font-body text-muted text-sm leading-relaxed">
+                <span className="float-left mt-1 mr-2 font-black font-display text-5xl text-ink leading-[0.8]">
                   S
                 </span>
                 essions can only be opened within these registered directories.
@@ -100,6 +100,100 @@ export function SettingsTab() {
                 {errors.projectRoots}
               </p>
             )}
+          </div>
+        </section>
+
+        <section className="mt-6 border-2 border-ink bg-paper shadow-news">
+          <div className="border-ink border-b-2 p-6">
+            <h2 className="font-black font-display text-3xl tracking-tight">
+              Runtime Policy
+            </h2>
+            <p className="mt-2 font-body text-muted text-sm">
+              Applied without restart. Boot settings still require process
+              restart.
+            </p>
+          </div>
+
+          <div className="grid gap-4 p-6 md:grid-cols-3">
+            <label className="block">
+              <span className="mb-2 block font-mono text-[10px] uppercase tracking-widest">
+                Session Idle Timeout (ms)
+              </span>
+              <input
+                className="input-underline w-full"
+                defaultValue={settings.app.sessionIdleTimeoutMs}
+                min={1}
+                name="app.sessionIdleTimeoutMs"
+                step={1}
+                type="number"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block font-mono text-[10px] uppercase tracking-widest">
+                Session List Max Limit
+              </span>
+              <input
+                className="input-underline w-full"
+                defaultValue={settings.app.sessionListPageMaxLimit}
+                min={1}
+                name="app.sessionListPageMaxLimit"
+                step={1}
+                type="number"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block font-mono text-[10px] uppercase tracking-widest">
+                Session Messages Max Limit
+              </span>
+              <input
+                className="input-underline w-full"
+                defaultValue={settings.app.sessionMessagesPageMaxLimit}
+                min={1}
+                name="app.sessionMessagesPageMaxLimit"
+                step={1}
+                type="number"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block font-mono text-[10px] uppercase tracking-widest">
+                Log Level
+              </span>
+              <select
+                className="input-underline w-full bg-transparent"
+                defaultValue={settings.app.logLevel}
+                name="app.logLevel"
+              >
+                <option value="debug">debug</option>
+                <option value="info">info</option>
+                <option value="warn">warn</option>
+                <option value="error">error</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-2 block font-mono text-[10px] uppercase tracking-widest">
+                Max Tokens
+              </span>
+              <input
+                className="input-underline w-full"
+                defaultValue={settings.app.maxTokens}
+                min={1}
+                name="app.maxTokens"
+                step={1}
+                type="number"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block font-mono text-[10px] uppercase tracking-widest">
+                Default Model
+              </span>
+              <input
+                className="input-underline w-full"
+                defaultValue={settings.app.defaultModel}
+                name="app.defaultModel"
+                placeholder="agent default"
+                type="text"
+              />
+            </label>
           </div>
         </section>
 

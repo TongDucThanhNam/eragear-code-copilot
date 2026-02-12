@@ -84,15 +84,6 @@ export function classifyAcpError(error: unknown): {
   return { text, kind: "unknown" };
 }
 
-export const isProcessTransportNotReady = (errorText: string) => {
-  return includesAny(errorText.toLowerCase(), RETRYABLE_TRANSPORT_PATTERNS);
-};
-
-export const isProcessExited = (errorText: string) => {
-  const normalized = errorText.toLowerCase();
-  return includesAny(normalized, FATAL_PROCESS_PATTERNS);
-};
-
 export const isMethodNotFound = (errorText: string) => {
   return errorText.toLowerCase().includes("method not found");
 };

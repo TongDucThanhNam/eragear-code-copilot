@@ -20,7 +20,10 @@ export class SessionMessageMapper {
     this.sessionRuntime = sessionRuntime;
   }
 
-  broadcastStoredMessage(chatId: string, message: StoredMessage): void {
+  async broadcastStoredMessage(
+    chatId: string,
+    message: StoredMessage
+  ): Promise<void> {
     const uiMessage = this.toUiMessage(message);
     if (!uiMessage) {
       return;
@@ -31,7 +34,7 @@ export class SessionMessageMapper {
       session.uiState.messages.set(uiMessage.id, uiMessage);
     }
 
-    this.sessionRuntime.broadcast(chatId, {
+    await this.sessionRuntime.broadcast(chatId, {
       type: "ui_message",
       message: uiMessage,
     });

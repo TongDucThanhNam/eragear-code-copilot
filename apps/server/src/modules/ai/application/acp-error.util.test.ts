@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { classifyAcpError, getAcpErrorText } from "./acp-error.util";
+import { classifyAcpError, getAcpErrorText } from "../infra/acp-error.mapper";
 
-describe("acp-error.util", () => {
+describe("acp-error.mapper", () => {
   test("deduplicates duplicate message fragments", () => {
     const error = {
       message: "Process exited unexpectedly",

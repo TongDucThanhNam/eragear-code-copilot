@@ -4,6 +4,7 @@ import {
   AgentSqliteWorkerRepository,
 } from "@/modules/agent/di";
 import type { SendMessagePolicy } from "@/modules/ai";
+import { GetMeService } from "@/modules/auth";
 import type { ProjectRepositoryPort } from "@/modules/project";
 import {
   ProjectSqliteRepository,
@@ -12,6 +13,7 @@ import {
 import type {
   AgentServiceFactory,
   AiServiceFactory,
+  AuthServiceFactory,
   OpsServiceFactory,
   ProjectServiceFactory,
   SessionServiceFactory,
@@ -24,32 +26,49 @@ import type {
   SessionRuntimePort,
 } from "@/modules/session";
 import {
+  createSessionRepository,
+  createSessionRuntimeStore,
   SessionAcpAdapter,
-  SessionRuntimeStore,
-  SessionSqliteRepository,
-  SessionSqliteWorkerRepository,
 } from "@/modules/session/di";
-import type { SettingsRepositoryPort } from "@/modules/settings";
+import {
+  AppConfigService,
+  type SettingsRepositoryPort,
+} from "@/modules/settings";
 import {
   SettingsSqliteRepository,
   SettingsSqliteWorkerRepository,
 } from "@/modules/settings/di";
+import type { ClockPort } from "@/shared/ports/clock.port";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
-import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import { EventBus } from "@/shared/utils/event-bus";
 import { ENV } from "../config/environment";
-import { auth, authDb } from "../platform/auth/auth";
-import { getAuthContext } from "../platform/auth/guards";
+import { AuthUserReadAdapter } from "../platform/auth/adapters/auth-user-read.adapter";
+import {
+  type AuthRuntime,
+  type AuthRuntimePolicy,
+  createAuthRuntime,
+} from "../platform/auth/auth";
+import { createAuthContextResolver } from "../platform/auth/guards";
 import { GitAdapter } from "../platform/git";
 import { getLogStore } from "../platform/logging/log-store";
 import { createAppLogger } from "../platform/logging/logger-adapter";
+import { setRuntimeLogLevel } from "../platform/logging/runtime-log-level";
 import { AgentRuntimeAdapter } from "../platform/process";
+import {
+  initializeSqliteWorker,
+  updateSqliteWorkerRuntimeConfig,
+} from "../platform/storage/sqlite-worker-client";
 import { systemClock } from "../platform/time/system-clock";
-import { initializeSqliteWorker } from "../platform/storage/sqlite-worker-client";
 import { Container, type ContainerDependencies } from "./container";
+import {
+  createServerLifecycle,
+  type ServerLifecycle,
+  type ServerLifecyclePolicy,
+} from "./lifecycle";
+import type { ServerRuntimePolicy } from "./server";
 
 interface PersistenceDependencies {
   sessionRepo: SessionRepositoryPort;
@@ -63,16 +82,19 @@ export interface AppDependencies {
   sessionRuntime: SessionRuntimePort;
   logStore: LogStorePort;
   appLogger: LoggerPort;
+  appConfig: AppConfigService;
   sessionServices: SessionServiceFactory;
   aiServices: AiServiceFactory;
   projectServices: ProjectServiceFactory;
   agentServices: AgentServiceFactory;
   settingsServices: SettingsServiceFactory;
   toolingServices: ToolingServiceFactory;
+  authServices: AuthServiceFactory;
   opsServices: OpsServiceFactory;
   sessionRepo: SessionRepositoryPort;
-  auth: typeof auth;
-  authDb: typeof authDb;
+  auth: AuthRuntime["auth"];
+  authRuntime: AuthRuntime;
+  lifecycle: ServerLifecycle;
   resolveAuthContext: ContainerDependencies["resolveAuthContext"];
   setBackgroundRunnerStateProvider: (
     provider: () => BackgroundRunnerState
@@ -83,35 +105,97 @@ export interface AppDependencies {
 export interface AppComposition {
   deps: AppDependencies;
   allowedRoots: string[];
+  runtimePolicy: ServerRuntimePolicy;
 }
 
-function createPersistenceDependencies(
-  allowedRoots: string[]
-): PersistenceDependencies {
-  if (ENV.sqliteWorkerEnabled) {
-    initializeSqliteWorker(allowedRoots);
-    return {
-      sessionRepo: new SessionSqliteWorkerRepository(),
-      projectRepo: new ProjectSqliteWorkerRepository(),
-      agentRepo: new AgentSqliteWorkerRepository(),
-      settingsRepo: new SettingsSqliteWorkerRepository(),
-    };
-  }
+interface AppRuntimeConfig {
+  sqliteWorkerEnabled: boolean;
+  sessionBufferLimit: number;
+  sessionLockAcquireTimeoutMs: number;
+  sendMessagePolicy: SendMessagePolicy;
+  authPolicy: AuthRuntimePolicy;
+  lifecyclePolicy: ServerLifecyclePolicy;
+  serverPolicy: ServerRuntimePolicy;
+}
 
+function resolveAppRuntimeConfig(): AppRuntimeConfig {
   return {
-    sessionRepo: new SessionSqliteRepository({
-      policy: {
-        sessionListPageMaxLimit: ENV.sessionListPageMaxLimit,
-        sessionMessagesPageMaxLimit: ENV.sessionMessagesPageMaxLimit,
-      },
-    }),
-    projectRepo: new ProjectSqliteRepository(),
-    agentRepo: new AgentSqliteRepository(),
-    settingsRepo: new SettingsSqliteRepository(),
+    sqliteWorkerEnabled: ENV.sqliteWorkerEnabled,
+    sessionBufferLimit: ENV.sessionBufferLimit,
+    sessionLockAcquireTimeoutMs: ENV.sessionLockAcquireTimeoutMs,
+    sendMessagePolicy: {
+      messageContentMaxBytes: ENV.messageContentMaxBytes,
+      messagePartsMaxBytes: ENV.messagePartsMaxBytes,
+      acpRetryMaxAttempts: ENV.acpRequestMaxAttempts,
+      acpRetryBaseDelayMs: ENV.acpRequestRetryBaseDelayMs,
+    },
+    authPolicy: {
+      authBaseUrl: ENV.authBaseUrl,
+      authTrustedOrigins: ENV.authTrustedOrigins,
+      authApiKeyPrefix: ENV.authApiKeyPrefix,
+      authApiKeyRateLimitEnabled: ENV.authApiKeyRateLimitEnabled,
+      authApiKeyRateLimitTimeWindowMs: ENV.authApiKeyRateLimitTimeWindowMs,
+      authApiKeyRateLimitMaxRequests: ENV.authApiKeyRateLimitMaxRequests,
+    },
+    lifecyclePolicy: {
+      sqliteRetentionHotDays: ENV.sqliteRetentionHotDays,
+      backgroundTaskTimeoutMs: ENV.backgroundTaskTimeoutMs,
+      sqliteRetentionCompactionBatchSize:
+        ENV.sqliteRetentionCompactionBatchSize,
+      authBootstrapApiKey: ENV.authBootstrapApiKey,
+      authApiKeyPrefix: ENV.authApiKeyPrefix,
+    },
+    serverPolicy: {
+      wsHost: ENV.wsHost,
+      wsPort: ENV.wsPort,
+      wsMaxPayloadBytes: ENV.wsMaxPayloadBytes,
+      corsStrictOrigin: ENV.corsStrictOrigin,
+      authAllowSignup: ENV.authAllowSignup,
+      isDev: ENV.isDev,
+      defaultAdminUsername: ENV.authAdminUsername ?? "admin",
+    },
   };
 }
 
-function createCoreDependencies(): {
+function createPersistenceDependencies(
+  settingsRepo: SettingsRepositoryPort,
+  appConfigService: AppConfigService,
+  sqliteWorkerEnabled: boolean
+): PersistenceDependencies {
+  return {
+    sessionRepo: createSessionRepository({
+      useWorker: sqliteWorkerEnabled,
+      policyProvider: () => {
+        const appConfig = appConfigService.getConfig();
+        return {
+          sessionListPageMaxLimit: appConfig.sessionListPageMaxLimit,
+          sessionMessagesPageMaxLimit: appConfig.sessionMessagesPageMaxLimit,
+        };
+      },
+    }),
+    projectRepo: sqliteWorkerEnabled
+      ? new ProjectSqliteWorkerRepository()
+      : new ProjectSqliteRepository(),
+    agentRepo: sqliteWorkerEnabled
+      ? new AgentSqliteWorkerRepository()
+      : new AgentSqliteRepository(),
+    settingsRepo,
+  };
+}
+
+function createSettingsRepository(
+  sqliteWorkerEnabled: boolean
+): SettingsRepositoryPort {
+  if (sqliteWorkerEnabled) {
+    return new SettingsSqliteWorkerRepository();
+  }
+  return new SettingsSqliteRepository();
+}
+
+function createCoreDependencies(policy: {
+  sessionBufferLimit: number;
+  sessionLockAcquireTimeoutMs: number;
+}): {
   eventBus: EventBusPort;
   sessionRuntime: SessionRuntimePort;
   logStore: LogStorePort;
@@ -123,22 +207,17 @@ function createCoreDependencies(): {
   const eventBus = new EventBus(appLogger);
   return {
     eventBus,
-    sessionRuntime: new SessionRuntimeStore(eventBus, {
-      sessionBufferLimit: ENV.sessionBufferLimit,
+    sessionRuntime: createSessionRuntimeStore({
+      eventBus,
+      policy: {
+        sessionBufferLimit: policy.sessionBufferLimit,
+        lockAcquireTimeoutMs: policy.sessionLockAcquireTimeoutMs,
+      },
     }),
     logStore: getLogStore(),
     appLogger,
     clock: systemClock,
     sessionAcpAdapter: new SessionAcpAdapter(),
-  };
-}
-
-function createSendMessagePolicy(): SendMessagePolicy {
-  return {
-    messageContentMaxBytes: ENV.messageContentMaxBytes,
-    messagePartsMaxBytes: ENV.messagePartsMaxBytes,
-    acpRetryMaxAttempts: ENV.acpRequestMaxAttempts,
-    acpRetryBaseDelayMs: ENV.acpRequestRetryBaseDelayMs,
   };
 }
 
@@ -152,38 +231,89 @@ function normalizeAllowedRoots(roots: string[]): string[] {
   return [...new Set(normalized)];
 }
 
-export function createAppComposition(allowedRoots: string[]): AppComposition {
+export async function createAppComposition(
+  allowedRoots: string[]
+): Promise<AppComposition> {
+  const runtimeConfig = resolveAppRuntimeConfig();
   const normalizedRoots = normalizeAllowedRoots(allowedRoots);
-  const core = createCoreDependencies();
-  const persistence = createPersistenceDependencies(normalizedRoots);
+  const runtime = createAuthRuntime(runtimeConfig.authPolicy);
+  const core = createCoreDependencies({
+    sessionBufferLimit: runtimeConfig.sessionBufferLimit,
+    sessionLockAcquireTimeoutMs: runtimeConfig.sessionLockAcquireTimeoutMs,
+  });
+  if (runtimeConfig.sqliteWorkerEnabled) {
+    initializeSqliteWorker(normalizedRoots);
+  }
+  const settingsRepo = createSettingsRepository(
+    runtimeConfig.sqliteWorkerEnabled
+  );
+  const appConfigService = await AppConfigService.create(settingsRepo);
+  setRuntimeLogLevel(appConfigService.getConfig().logLevel);
+  const persistence = createPersistenceDependencies(
+    settingsRepo,
+    appConfigService,
+    runtimeConfig.sqliteWorkerEnabled
+  );
+
+  if (runtimeConfig.sqliteWorkerEnabled) {
+    await updateSqliteWorkerRuntimeConfig(appConfigService.getConfig());
+    appConfigService.subscribe((nextConfig) => {
+      setRuntimeLogLevel(nextConfig.logLevel);
+      updateSqliteWorkerRuntimeConfig(nextConfig).catch((error) => {
+        core.appLogger.error("Failed to sync runtime config to sqlite worker", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    });
+  } else {
+    appConfigService.subscribe((nextConfig) => {
+      setRuntimeLogLevel(nextConfig.logLevel);
+    });
+  }
 
   const dependencies: ContainerDependencies = {
     ...core,
     ...persistence,
+    appConfigService,
     gitAdapter: new GitAdapter(),
     agentRuntimeAdapter: new AgentRuntimeAdapter(),
-    authService: auth,
-    authDb,
-    resolveAuthContext: getAuthContext,
-    sendMessagePolicy: createSendMessagePolicy(),
+    resolveAuthContext: createAuthContextResolver(runtime.auth),
+    sendMessagePolicy: runtimeConfig.sendMessagePolicy,
   };
   const container = new Container(dependencies);
   const sessionServices = container.getSessionServices();
+  const authUserRead = new AuthUserReadAdapter(runtime.authDb);
+  const authServices: AuthServiceFactory = {
+    getMe: () => new GetMeService(authUserRead),
+  };
+  const lifecycle = createServerLifecycle({
+    authRuntime: runtime,
+    sessionRuntime: container.getSessionRuntime(),
+    sessionRepo: container.getSessions(),
+    sessionServices,
+    appConfig: container.getAppConfigService(),
+    policy: runtimeConfig.lifecyclePolicy,
+    setBackgroundRunnerStateProvider: (provider) =>
+      container.setBackgroundRunnerStateProvider(provider),
+  });
   const deps: AppDependencies = {
     eventBus: container.getEventBus(),
     sessionRuntime: container.getSessionRuntime(),
     logStore: container.getLogStore(),
     appLogger: container.getAppLogger(),
+    appConfig: container.getAppConfigService(),
     sessionServices,
     aiServices: container.getAiServices(),
     projectServices: container.getProjectServices(),
     agentServices: container.getAgentServices(),
     settingsServices: container.getSettingsServices(),
     toolingServices: container.getToolingServices(),
+    authServices,
     opsServices: container.getOpsServices(),
     sessionRepo: container.getSessions(),
-    auth: container.getAuth() as typeof auth,
-    authDb: container.getAuthDb() as typeof authDb,
+    auth: runtime.auth,
+    authRuntime: runtime,
+    lifecycle,
     resolveAuthContext: (req) => container.getAuthContext(req),
     setBackgroundRunnerStateProvider: (provider) =>
       container.setBackgroundRunnerStateProvider(provider),
@@ -205,10 +335,11 @@ export function createAppComposition(allowedRoots: string[]): AppComposition {
   return {
     deps,
     allowedRoots: normalizedRoots,
+    runtimePolicy: runtimeConfig.serverPolicy,
   };
 }
 
 export async function createAppCompositionFromSettings(): Promise<AppComposition> {
   const settings = await new SettingsSqliteRepository().get();
-  return createAppComposition(settings.projectRoots);
+  return await createAppComposition(settings.projectRoots);
 }

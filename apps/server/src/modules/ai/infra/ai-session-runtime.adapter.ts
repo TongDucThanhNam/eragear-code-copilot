@@ -3,14 +3,10 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { AppError, NotFoundError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
-import {
-  classifyAcpError,
-  getAcpErrorText,
-  isMethodNotFound,
-} from "../application/acp-error.util";
 import type {
   AiAssertSessionRunningInput,
   AiRequireSessionInput,
@@ -18,6 +14,11 @@ import type {
   AiStopSessionInput,
 } from "../application/ports/ai-session-runtime.port";
 import { AiSessionRuntimeError } from "../application/ports/ai-session-runtime.port";
+import {
+  classifyAcpError,
+  getAcpErrorText,
+  isMethodNotFound,
+} from "./acp-error.mapper";
 
 interface ConnWithUnstableModel {
   unstable_setSessionModel: (params: {
@@ -50,45 +51,53 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
     return session;
   }
 
+  requireAuthorizedRuntime(input: AiRequireSessionInput): SessionRuntimeEntity {
+    return new SessionRuntimeEntity(this.requireAuthorizedSession(input));
+  }
+
   assertSessionRunning(input: AiAssertSessionRunningInput): void {
     const { session, module, op, chatId, details } = input;
-    const stdin = session.proc.stdin;
-    if (
-      !stdin ||
-      stdin.destroyed ||
-      !stdin.writable ||
-      session.proc.killed ||
-      session.proc.exitCode !== null
-    ) {
-      throw new AppError({
-        message: "Session is not running",
-        code: "SESSION_NOT_RUNNING",
-        statusCode: 409,
-        module,
-        op,
-        details: { chatId, ...details },
-      });
-    }
-    if (session.conn.signal.aborted) {
-      throw new AppError({
-        message: "Session connection is closed",
-        code: "SESSION_CONNECTION_CLOSED",
-        statusCode: 409,
-        module,
-        op,
-        details: { chatId, ...details },
-      });
+    const runtime = new SessionRuntimeEntity(session);
+    try {
+      runtime.assertProcessRunning(module, op, chatId);
+      runtime.assertConnectionOpen(module, op, chatId);
+    } catch (error) {
+      if (error instanceof AppError && details) {
+        throw new AppError({
+          message: error.message,
+          code: error.code,
+          statusCode: error.statusCode,
+          module: error.module,
+          op: error.op,
+          details: { ...(error.details ?? {}), ...details },
+          cause: error,
+        });
+      }
+      throw error;
     }
   }
 
   prompt(
     session: ChatSession,
-    prompt: ContentBlock[]
+    prompt: ContentBlock[],
+    options?: { maxTokens?: number }
   ): Promise<{ stopReason: string }> {
+    const maxTokens =
+      options?.maxTokens !== undefined
+        ? Math.max(1, Math.trunc(options.maxTokens))
+        : undefined;
+    const meta =
+      maxTokens !== undefined
+        ? {
+            maxTokens,
+            max_tokens: maxTokens,
+          }
+        : undefined;
     return this.wrapAcpCall(() =>
       session.conn.prompt({
         sessionId: session.sessionId ?? "",
         prompt,
+        ...(meta ? { _meta: meta } : {}),
       })
     );
   }
@@ -127,11 +136,11 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
 
   async stopAndCleanup(input: AiStopSessionInput): Promise<void> {
     const { chatId, session, reason, killProcess, turnId } = input;
-    this.sessionRuntime.broadcast(chatId, {
+    await this.sessionRuntime.broadcast(chatId, {
       type: "error",
       error: reason,
     });
-    updateChatStatus({
+    await updateChatStatus({
       chatId,
       session,
       broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
@@ -148,10 +157,7 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
   }
 
   clearPendingPermissionsAsCancelled(session: ChatSession): void {
-    for (const [, pending] of session.pendingPermissions) {
-      pending.resolve({ outcome: { outcome: "cancelled" } });
-    }
-    session.pendingPermissions.clear();
+    new SessionRuntimeEntity(session).cancelPendingPermissionsAsCancelled();
   }
 
   private async wrapAcpCall<T>(

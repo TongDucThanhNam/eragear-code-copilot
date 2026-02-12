@@ -26,7 +26,7 @@ export class StopSessionService {
     const session = this.sessionRuntime.get(chatId);
     if (session?.userId === userId) {
       terminateSessionTerminals(session);
-      updateChatStatus({
+      await updateChatStatus({
         chatId,
         session,
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),

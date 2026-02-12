@@ -54,7 +54,7 @@ export async function handlePlanUpdate(
     return false;
   }
 
-  finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
+  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
 
   const plan = extractPlan(update);
   if (!plan) {
@@ -86,7 +86,7 @@ export async function handlePlanUpdate(
       part: planTool,
     });
     if (shouldBroadcast) {
-      sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+      await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
     }
   }
   return true;

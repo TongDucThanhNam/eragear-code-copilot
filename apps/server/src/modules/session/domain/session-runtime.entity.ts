@@ -1,4 +1,5 @@
 import type { UIMessage } from "@repo/shared";
+import { AppError } from "@/shared/errors";
 import type {
   BroadcastEvent,
   ChatSession,
@@ -12,17 +13,17 @@ import {
 
 interface BroadcastContext {
   chatId: string;
-  broadcast: (chatId: string, event: BroadcastEvent) => void;
+  broadcast: (chatId: string, event: BroadcastEvent) => Promise<void>;
 }
 
-export const AI_CHAT_STATUS = {
+export const SESSION_RUNTIME_CHAT_STATUS = {
   CANCELLING: "cancelling",
   ERROR: "error",
   READY: "ready",
   SUBMITTED: "submitted",
 } as const satisfies Record<string, ChatStatus>;
 
-export class AiChatSessionAggregate {
+export class SessionRuntimeEntity {
   private readonly session: ChatSession;
 
   constructor(session: ChatSession) {
@@ -75,31 +76,46 @@ export class AiChatSessionAggregate {
     this.session.activePromptTask = undefined;
   }
 
-  markSubmitted(context: BroadcastContext, turnId: string): void {
-    this.updateStatus(context, AI_CHAT_STATUS.SUBMITTED, turnId);
+  markSubmitted(context: BroadcastContext, turnId: string): Promise<void> {
+    return this.updateStatus(
+      context,
+      SESSION_RUNTIME_CHAT_STATUS.SUBMITTED,
+      turnId
+    );
   }
 
-  markCancelling(context: BroadcastContext): void {
-    this.updateStatus(context, AI_CHAT_STATUS.CANCELLING);
+  markCancelling(context: BroadcastContext): Promise<void> {
+    return this.updateStatus(context, SESSION_RUNTIME_CHAT_STATUS.CANCELLING);
   }
 
-  markError(context: BroadcastContext, turnId?: string): void {
-    this.updateStatus(context, AI_CHAT_STATUS.ERROR, turnId);
+  markError(context: BroadcastContext, turnId?: string): Promise<void> {
+    return this.updateStatus(
+      context,
+      SESSION_RUNTIME_CHAT_STATUS.ERROR,
+      turnId
+    );
   }
 
-  markReadyIfSubmitted(context: BroadcastContext, turnId?: string): void {
-    if (this.session.chatStatus !== AI_CHAT_STATUS.SUBMITTED) {
-      return;
+  markReadyIfSubmitted(
+    context: BroadcastContext,
+    turnId?: string
+  ): Promise<void> {
+    if (this.session.chatStatus !== SESSION_RUNTIME_CHAT_STATUS.SUBMITTED) {
+      return Promise.resolve();
     }
-    this.updateStatus(context, AI_CHAT_STATUS.READY, turnId);
+    return this.updateStatus(
+      context,
+      SESSION_RUNTIME_CHAT_STATUS.READY,
+      turnId
+    );
   }
 
   setChatFinishStopReason(stopReason: string, turnId?: string): void {
     setChatFinishStopReason(this.session, stopReason, turnId);
   }
 
-  maybeBroadcastChatFinish(context: BroadcastContext): void {
-    maybeBroadcastChatFinish({
+  maybeBroadcastChatFinish(context: BroadcastContext): Promise<void> {
+    return maybeBroadcastChatFinish({
       chatId: context.chatId,
       session: this.session,
       broadcast: context.broadcast,
@@ -133,12 +149,52 @@ export class AiChatSessionAggregate {
     }
   }
 
+  cancelPendingPermissionsAsCancelled(): void {
+    for (const [, pending] of this.session.pendingPermissions) {
+      pending.resolve({ outcome: { outcome: "cancelled" } });
+    }
+    this.session.pendingPermissions.clear();
+  }
+
+  assertProcessRunning(module: string, op: string, chatId: string): void {
+    const stdin = this.session.proc.stdin;
+    if (
+      !stdin ||
+      stdin.destroyed ||
+      !stdin.writable ||
+      this.session.proc.killed ||
+      this.session.proc.exitCode !== null
+    ) {
+      throw new AppError({
+        message: "Session is not running",
+        code: "SESSION_NOT_RUNNING",
+        statusCode: 409,
+        module,
+        op,
+        details: { chatId },
+      });
+    }
+  }
+
+  assertConnectionOpen(module: string, op: string, chatId: string): void {
+    if (this.session.conn.signal.aborted) {
+      throw new AppError({
+        message: "Session connection is closed",
+        code: "SESSION_CONNECTION_CLOSED",
+        statusCode: 409,
+        module,
+        op,
+        details: { chatId },
+      });
+    }
+  }
+
   private updateStatus(
     context: BroadcastContext,
     status: ChatStatus,
     turnId?: string
-  ): void {
-    updateChatStatus({
+  ): Promise<void> {
+    return updateChatStatus({
       chatId: context.chatId,
       session: this.session,
       broadcast: context.broadcast,

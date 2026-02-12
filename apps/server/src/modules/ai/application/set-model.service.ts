@@ -9,7 +9,6 @@
 
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
-import { AiChatSessionAggregate } from "../domain/ai-chat-session.aggregate";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import {
   AI_OP,
@@ -45,7 +44,8 @@ export class SetModelService {
   }
 
   async execute(userId: string, chatId: string, modelId: string) {
-    const session = this.getSessionForModelSwitch(userId, chatId);
+    const aggregate = this.getRuntimeForModelSwitch(userId, chatId);
+    const session = aggregate.raw;
     if (this.isCurrentModel(session, modelId)) {
       return { ok: true };
     }
@@ -60,21 +60,18 @@ export class SetModelService {
 
     await this.sendModelSwitchWithRetry(chatId, session, modelId);
 
-    const aggregate = new AiChatSessionAggregate(session);
     aggregate.setCurrentModel(modelId);
     return { ok: true };
   }
 
-  private getSessionForModelSwitch(
-    userId: string,
-    chatId: string
-  ): ChatSession {
-    const session = this.sessionGateway.requireAuthorizedSession({
+  private getRuntimeForModelSwitch(userId: string, chatId: string) {
+    const aggregate = this.sessionGateway.requireAuthorizedRuntime({
       userId,
       chatId,
       module: "ai",
       op: OP,
     });
+    const session = aggregate.raw;
 
     if (!session.models || session.models.availableModels.length === 0) {
       throw new ValidationError("Agent does not support model switching", {
@@ -84,7 +81,7 @@ export class SetModelService {
       });
     }
 
-    return session;
+    return aggregate;
   }
 
   private isCurrentModel(session: ChatSession, modelId: string): boolean {

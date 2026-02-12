@@ -229,9 +229,10 @@ function createSessionRuntime(
     },
     broadcast(id, event) {
       if (!sessions.has(id)) {
-        return;
+        return Promise.resolve();
       }
       events.push(event as BroadcastEvent);
+      return Promise.resolve();
     },
   };
 }
@@ -268,6 +269,9 @@ function createService(
       acpRetryMaxAttempts: policy.acpRetryMaxAttempts,
       acpRetryBaseDelayMs: policy.acpRetryBaseDelayMs,
     },
+    runtimePolicyProvider: () => ({
+      maxTokens: 8192,
+    }),
   });
   return new SendMessageService({
     sessionRepo: repo,
@@ -431,6 +435,43 @@ describe("SendMessageService", () => {
     expect(session.activeTurnId).toBeUndefined();
   });
 
+  test("stops retrying transport errors after turn becomes stale", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    let promptCalls = 0;
+    const session = createChatSession({
+      prompt: () => {
+        promptCalls += 1;
+        if (promptCalls === 1) {
+          return Promise.reject(
+            new Error("ProcessTransport is not ready for writing")
+          );
+        }
+        return Promise.resolve({ stopReason: "end_turn" });
+      },
+      cancel: async () => undefined,
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime, {
+      acpRetryMaxAttempts: 4,
+      acpRetryBaseDelayMs: 60,
+    });
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "first",
+    });
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "second",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    expect(promptCalls).toBe(2);
+  });
+
   test("cancels active prompt before replacing with a new turn", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
@@ -561,6 +602,39 @@ describe("SendMessageService", () => {
     expect(first.userMessageId).not.toBe(second.userMessageId);
   });
 
+  test("clears active turn and reports error when user-message persistence fails", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    let promptCalls = 0;
+    repo.onAppendMessage = () =>
+      Promise.reject(new Error("sqlite unavailable"));
+    const session = createChatSession({
+      prompt: () => {
+        promptCalls += 1;
+        return Promise.resolve({ stopReason: "end_turn" });
+      },
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime);
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        text: "hello",
+      })
+    ).rejects.toThrow("sqlite unavailable");
+
+    expect(promptCalls).toBe(0);
+    expect(session.activeTurnId).toBeUndefined();
+    expect(session.activePromptTask).toBeUndefined();
+    expect(
+      events.some(
+        (event) => event.type === "chat_status" && event.status === "error"
+      )
+    ).toBe(true);
+  });
+
   test("rejects oversized inline media payloads by decoded bytes", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
@@ -685,6 +759,11 @@ describe("SendMessageService", () => {
         event.turnId === result.turnId
     );
     expect(errorStatusEvent).toBeDefined();
+    expect(repo.appendedMessages).toHaveLength(2);
+    expect(repo.appendedMessages[1]?.message.role).toBe("assistant");
+    expect(repo.appendedMessages[1]?.message.content).toContain(
+      "unexpected prompt crash"
+    );
     expect(session.activeTurnId).toBeUndefined();
     expect(session.activePromptTask).toBeUndefined();
   });

@@ -83,16 +83,27 @@ export class EventBus implements EventBusPort {
    */
   async publish(event: DomainEvent): Promise<void> {
     const listeners = [...this.listeners.values()];
+    let failedListeners = 0;
     for (const listener of listeners) {
       try {
         await listener(event);
       } catch (err) {
+        failedListeners += 1;
         this.logger?.error("[EventBus] Listener error", {
           eventType: event.type,
           error: err instanceof Error ? err.message : String(err),
         });
-        throw err;
       }
+    }
+    if (failedListeners > 0) {
+      this.logger?.error(
+        "[EventBus] Publish completed with listener failures",
+        {
+          eventType: event.type,
+          failedListeners,
+          listenerCount: listeners.length,
+        }
+      );
     }
   }
 }

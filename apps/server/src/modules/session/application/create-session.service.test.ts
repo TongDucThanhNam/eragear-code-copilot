@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
+import type { BootstrapSessionConnectionService } from "./bootstrap-session-connection.service";
 import { CreateSessionService } from "./create-session.service";
-import type { SessionOrchestratorService } from "./session-orchestrator.service";
+import type { PersistSessionBootstrapService } from "./persist-session-bootstrap.service";
 import type { SessionProjectContextResolverService } from "./session-project-context-resolver.service";
+import type { SpawnSessionProcessService } from "./spawn-session-process.service";
 
 function createLoggerStub(): LoggerPort {
   const noop = () => undefined;
@@ -43,7 +45,10 @@ describe("CreateSessionService", () => {
       projectId?: string;
       projectRoot?: string;
     }> = [];
-    const orchestratorCalls: Array<Record<string, unknown>> = [];
+    const spawnCalls: Array<Record<string, unknown>> = [];
+    const bootstrapCalls: Array<Record<string, unknown>> = [];
+    const persistCalls: Array<Record<string, unknown>> = [];
+    const proc = {} as ChatSession["proc"];
 
     const projectContextResolver = {
       resolve: async (input: {
@@ -56,16 +61,31 @@ describe("CreateSessionService", () => {
       },
     } as unknown as SessionProjectContextResolverService;
 
-    const sessionOrchestrator = {
-      execute: async (input: Record<string, unknown>) => {
-        orchestratorCalls.push(input);
-        return chatSession;
+    const spawnSessionProcess = {
+      execute: (input: Record<string, unknown>) => {
+        spawnCalls.push(input);
+        return proc;
       },
-    } as unknown as SessionOrchestratorService;
+    } as unknown as SpawnSessionProcessService;
+
+    const bootstrapSessionConnection = {
+      execute: async (input: Record<string, unknown>) => {
+        bootstrapCalls.push(input);
+        return { chatSession };
+      },
+    } as unknown as BootstrapSessionConnectionService;
+
+    const persistSessionBootstrap = {
+      execute: async (input: Record<string, unknown>) => {
+        persistCalls.push(input);
+      },
+    } as unknown as PersistSessionBootstrapService;
 
     const service = new CreateSessionService(
       projectContextResolver,
-      sessionOrchestrator,
+      spawnSessionProcess,
+      bootstrapSessionConnection,
+      persistSessionBootstrap,
       createLoggerStub()
     );
 
@@ -84,12 +104,27 @@ describe("CreateSessionService", () => {
         projectRoot: "/requested/project",
       },
     ]);
-    expect(orchestratorCalls).toHaveLength(1);
-    expect(orchestratorCalls[0]).toMatchObject({
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]).toMatchObject({
+      projectRoot: "/resolved/project",
+      agentCommand: "opencode",
+      agentArgs: ["acp"],
+      agentEnv: {},
+    });
+    expect(bootstrapCalls).toHaveLength(1);
+    expect(bootstrapCalls[0]).toMatchObject({
       chatId: "chat-1",
       projectId: "project-1",
       projectRoot: "/resolved/project",
       params,
+      proc,
+    });
+    expect(persistCalls).toHaveLength(1);
+    expect(persistCalls[0]).toMatchObject({
+      chatId: "chat-1",
+      projectRoot: "/resolved/project",
+      params,
+      chatSession,
       agentCommand: "opencode",
       agentArgs: ["acp"],
       agentEnv: {},
@@ -98,22 +133,28 @@ describe("CreateSessionService", () => {
 
   test("uses empty args for non-opencode command when args are omitted", async () => {
     const chatSession = createChatSession("chat-2", "user-1");
-    const orchestratorCalls: Array<Record<string, unknown>> = [];
+    const spawnCalls: Array<Record<string, unknown>> = [];
 
     const projectContextResolver = {
       resolve: async () => ({ projectId: "project-2", projectRoot: "/repo" }),
     } as unknown as SessionProjectContextResolverService;
 
-    const sessionOrchestrator = {
-      execute: async (input: Record<string, unknown>) => {
-        orchestratorCalls.push(input);
-        return chatSession;
+    const spawnSessionProcess = {
+      execute: (input: Record<string, unknown>) => {
+        spawnCalls.push(input);
+        return {} as ChatSession["proc"];
       },
-    } as unknown as SessionOrchestratorService;
+    } as unknown as SpawnSessionProcessService;
 
     const service = new CreateSessionService(
       projectContextResolver,
-      sessionOrchestrator,
+      spawnSessionProcess,
+      {
+        execute: async () => ({ chatSession }),
+      } as unknown as BootstrapSessionConnectionService,
+      {
+        execute: async () => undefined,
+      } as unknown as PersistSessionBootstrapService,
       createLoggerStub()
     );
 
@@ -125,9 +166,8 @@ describe("CreateSessionService", () => {
       env: { MODE: "strict" },
     });
 
-    expect(orchestratorCalls).toHaveLength(1);
-    expect(orchestratorCalls[0]).toMatchObject({
-      chatId: "chat-2",
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]).toMatchObject({
       agentCommand: "codex",
       agentArgs: [],
       agentEnv: { MODE: "strict" },

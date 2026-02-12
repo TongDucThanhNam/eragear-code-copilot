@@ -1,5 +1,4 @@
 import { createLogger } from "../logging/structured-logger";
-import { auth } from "./auth";
 
 const logger = createLogger("Auth");
 
@@ -8,6 +7,13 @@ type HeaderRecord = Record<string, string | string[] | undefined>;
 interface RequestLike {
   headers: Headers | HeaderRecord;
   url?: string;
+}
+
+interface AuthApiService {
+  api: {
+    getSession(input: { headers: Headers }): Promise<unknown>;
+    verifyApiKey(input: { body: { key: string } }): Promise<unknown>;
+  };
 }
 
 const API_KEY_QUERY_PARAMS = ["apiKey", "api_key", "apikey"] as const;
@@ -80,23 +86,27 @@ function hasDeprecatedApiKeyQuery(url?: string): boolean {
 
 export interface SessionUser {
   id: string;
-  username?: string;
-  email?: string;
-  name?: string;
+  username?: string | null;
+  email?: string | null;
+  name?: string | null;
 }
 
-export async function getSessionFromRequest(
+async function getSessionFromRequestWithAuth(
+  authService: AuthApiService,
   req: RequestLike
 ): Promise<{ user: SessionUser; session: unknown } | null> {
   const headers = normalizeHeaders(req.headers);
-  const session = await auth.api.getSession({ headers });
+  const session = (await authService.api.getSession({ headers })) as
+    | {
+        user?: SessionUser;
+        session?: unknown;
+      }
+    | undefined
+    | null;
   if (!session) {
     return null;
   }
-  const sessionData = session as {
-    user?: SessionUser;
-    session?: unknown;
-  };
+  const sessionData = session;
   if (!sessionData.user?.id) {
     logger.warn("Session missing user id");
     return null;
@@ -107,7 +117,32 @@ export async function getSessionFromRequest(
   return { user: sessionData.user, session: sessionData.session };
 }
 
-export async function getAuthContext(
+async function getAuthContextFromApiKeyWithAuth(
+  authService: AuthApiService,
+  apiKey: string
+): Promise<AuthContext | null> {
+  try {
+    const result = (await authService.api.verifyApiKey({
+      body: { key: apiKey },
+    })) as
+      | {
+          valid?: boolean;
+          key?: { userId?: string };
+        }
+      | undefined
+      | null;
+    if (!(result?.valid && result.key?.userId)) {
+      return null;
+    }
+    return { type: "apiKey", userId: result.key.userId };
+  } catch (error) {
+    logger.error("Failed to verify API key", error as Error);
+    return null;
+  }
+}
+
+async function getAuthContextWithAuth(
+  authService: AuthApiService,
   req?: RequestLike
 ): Promise<AuthContext | null> {
   if (!req) {
@@ -115,8 +150,19 @@ export async function getAuthContext(
   }
 
   const headers = normalizeHeaders(req.headers);
-  const session = await auth.api.getSession({ headers });
+  const session = (await authService.api.getSession({ headers })) as
+    | {
+        user?: {
+          id?: string;
+        };
+        session?: unknown;
+      }
+    | undefined
+    | null;
   if (session) {
+    if (!session.user?.id) {
+      return null;
+    }
     return {
       type: "session",
       userId: session.user.id,
@@ -133,20 +179,19 @@ export async function getAuthContext(
     return null;
   }
 
-  return await getAuthContextFromApiKey(apiKeyFromHeader);
+  return await getAuthContextFromApiKeyWithAuth(authService, apiKeyFromHeader);
 }
 
-export async function getAuthContextFromApiKey(
-  apiKey: string
-): Promise<AuthContext | null> {
-  try {
-    const result = await auth.api.verifyApiKey({ body: { key: apiKey } });
-    if (!(result?.valid && result.key?.userId)) {
-      return null;
-    }
-    return { type: "apiKey", userId: result.key.userId };
-  } catch (error) {
-    logger.error("Failed to verify API key", error as Error);
-    return null;
-  }
+export function createSessionResolver(authService: AuthApiService) {
+  return async (
+    req: RequestLike
+  ): Promise<{ user: SessionUser; session: unknown } | null> => {
+    return await getSessionFromRequestWithAuth(authService, req);
+  };
+}
+
+export function createAuthContextResolver(authService: AuthApiService) {
+  return async (req?: RequestLike): Promise<AuthContext | null> => {
+    return await getAuthContextWithAuth(authService, req);
+  };
 }

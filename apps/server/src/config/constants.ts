@@ -18,6 +18,8 @@ export const DEFAULT_WS_PORT = 3000;
 export const DEFAULT_WS_HOST = "0.0.0.0";
 /** Default maximum number of messages to buffer per session */
 export const DEFAULT_SESSION_BUFFER_LIMIT = 500;
+/** Default timeout while waiting to acquire a per-chat runtime lock */
+export const DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS = 15_000;
 /** Default WebSocket heartbeat interval: 30 seconds in milliseconds */
 export const DEFAULT_WS_HEARTBEAT_INTERVAL_MS = 30_000;
 /** Default maximum WebSocket payload size: 16 MiB */
@@ -40,34 +42,77 @@ export const DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS = 15_000;
 export const DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 /** Default cooldown before retrying a failed SQLite initialization */
 export const DEFAULT_SQLITE_INIT_RETRY_COOLDOWN_MS = 60_000;
+/** Storage-agnostic alias for init retry cooldown */
+export const DEFAULT_STORAGE_INIT_RETRY_COOLDOWN_MS =
+  DEFAULT_SQLITE_INIT_RETRY_COOLDOWN_MS;
 /** Default SQLite busy timeout in milliseconds */
 export const DEFAULT_SQLITE_BUSY_TIMEOUT_MS = 10_000;
+/** Storage-agnostic alias for busy timeout */
+export const DEFAULT_STORAGE_BUSY_TIMEOUT_MS = DEFAULT_SQLITE_BUSY_TIMEOUT_MS;
 /** Minimum free pages before running incremental vacuum */
 export const DEFAULT_SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES = 1024;
+/** Storage-agnostic alias for incremental vacuum trigger */
+export const DEFAULT_STORAGE_INCREMENTAL_VACUUM_MIN_FREE_PAGES =
+  DEFAULT_SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES;
 /** Number of pages reclaimed per incremental vacuum pass */
 export const DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES = 512;
+/** Storage-agnostic alias for incremental vacuum step */
+export const DEFAULT_STORAGE_INCREMENTAL_VACUUM_STEP_PAGES =
+  DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES;
 /** Default interval for WAL checkpoint maintenance */
 export const DEFAULT_SQLITE_WAL_CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000;
+/** Storage-agnostic alias for checkpoint interval */
+export const DEFAULT_STORAGE_WAL_CHECKPOINT_INTERVAL_MS =
+  DEFAULT_SQLITE_WAL_CHECKPOINT_INTERVAL_MS;
 /** Default retention window for full message payloads */
 export const DEFAULT_SQLITE_RETENTION_HOT_DAYS = 30;
+/** Storage-agnostic alias for hot retention days */
+export const DEFAULT_STORAGE_RETENTION_HOT_DAYS =
+  DEFAULT_SQLITE_RETENTION_HOT_DAYS;
 /** Default max messages compacted in one maintenance batch */
 export const DEFAULT_SQLITE_RETENTION_COMPACTION_BATCH_SIZE = 150;
+/** Storage-agnostic alias for compaction batch size */
+export const DEFAULT_STORAGE_RETENTION_COMPACTION_BATCH_SIZE =
+  DEFAULT_SQLITE_RETENTION_COMPACTION_BATCH_SIZE;
 /** Default soft alert threshold for SQLite DB size */
 export const DEFAULT_SQLITE_MAX_DB_SIZE_MB = 2048;
+/** Storage-agnostic alias for DB size soft threshold */
+export const DEFAULT_STORAGE_MAX_DB_SIZE_MB = DEFAULT_SQLITE_MAX_DB_SIZE_MB;
 /** Default max retries for SQLITE_BUSY operations */
 export const DEFAULT_SQLITE_BUSY_MAX_RETRIES = 5;
+/** Storage-agnostic alias for busy retry attempts */
+export const DEFAULT_STORAGE_BUSY_MAX_RETRIES = DEFAULT_SQLITE_BUSY_MAX_RETRIES;
 /** Base delay for SQLITE_BUSY retry backoff */
 export const DEFAULT_SQLITE_BUSY_RETRY_BASE_DELAY_MS = 25;
+/** Storage-agnostic alias for busy retry delay */
+export const DEFAULT_STORAGE_BUSY_RETRY_BASE_DELAY_MS =
+  DEFAULT_SQLITE_BUSY_RETRY_BASE_DELAY_MS;
+/** Default max SQLite bind parameters per statement */
+export const DEFAULT_SQLITE_MAX_BIND_PARAMS = 900;
+/** Storage-agnostic alias for max bind parameters */
+export const DEFAULT_STORAGE_MAX_BIND_PARAMS = DEFAULT_SQLITE_MAX_BIND_PARAMS;
 /** Default max ACP request attempts for transient transport errors */
 export const DEFAULT_ACP_REQUEST_MAX_ATTEMPTS = 3;
 /** Default base retry delay for ACP request retries */
 export const DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS = 150;
 /** Hard cap for compaction batch size per run */
 export const HARD_MAX_SQLITE_RETENTION_COMPACTION_BATCH_SIZE = 500;
+/** Storage-agnostic alias for compaction batch hard cap */
+export const HARD_MAX_STORAGE_RETENTION_COMPACTION_BATCH_SIZE =
+  HARD_MAX_SQLITE_RETENTION_COMPACTION_BATCH_SIZE;
+/** Hard cap for SQLite bind parameter configuration */
+export const HARD_MAX_SQLITE_MAX_BIND_PARAMS = 32_766;
+/** Storage-agnostic alias for bind parameter hard cap */
+export const HARD_MAX_STORAGE_MAX_BIND_PARAMS = HARD_MAX_SQLITE_MAX_BIND_PARAMS;
 /** Enable SQLite worker-thread offloading by default */
 export const DEFAULT_SQLITE_WORKER_ENABLED = true;
+/** Storage-agnostic alias for worker toggle */
+export const DEFAULT_STORAGE_WORKER_ENABLED = DEFAULT_SQLITE_WORKER_ENABLED;
 /** Default timeout for one SQLite worker request */
 export const DEFAULT_SQLITE_WORKER_REQUEST_TIMEOUT_MS = 30_000;
+/** Storage-agnostic alias for worker request timeout */
+export const DEFAULT_STORAGE_WORKER_REQUEST_TIMEOUT_MS =
+  DEFAULT_SQLITE_WORKER_REQUEST_TIMEOUT_MS;
 /** Default page size for session list endpoints */
 export const DEFAULT_SESSION_LIST_PAGE_LIMIT = 200;
 /** Default max page size for session list endpoints */
@@ -88,3 +133,16 @@ export const DEFAULT_MESSAGE_CONTENT_MAX_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MESSAGE_PARTS_MAX_BYTES = 4 * 1024 * 1024;
 /** Default interval for SQLite maintenance background task */
 export const DEFAULT_BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
+/** Storage-agnostic alias for maintenance background task */
+export const DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS =
+  DEFAULT_BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS;
+/** Default runtime log level for structured and request logs */
+export const DEFAULT_APP_LOG_LEVEL = "info";
+/** Default runtime max tokens policy for prompt requests */
+export const DEFAULT_APP_MAX_TOKENS = 8192;
+/** Hard cap for runtime max tokens policy */
+export const HARD_MAX_APP_MAX_TOKENS = 200_000;
+/** Default runtime model preference (empty means agent default) */
+export const DEFAULT_APP_DEFAULT_MODEL = "";
+/** Maximum allowed length for runtime default model identifier */
+export const MAX_APP_DEFAULT_MODEL_LENGTH = 200;

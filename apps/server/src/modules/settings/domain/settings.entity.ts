@@ -8,6 +8,7 @@
  */
 
 import type {
+  AppConfig,
   Settings,
   UiSettings,
 } from "../../../shared/types/settings.types";
@@ -37,6 +38,8 @@ export class SettingsAggregate {
   projectRoots: string[];
   /** MCP server configurations */
   mcpServers: Settings["mcpServers"];
+  /** Runtime app configuration */
+  app: AppConfig;
 
   /**
    * Creates a SettingsAggregate from a Settings configuration
@@ -45,6 +48,7 @@ export class SettingsAggregate {
     this.ui = config.ui;
     this.projectRoots = config.projectRoots;
     this.mcpServers = config.mcpServers;
+    this.app = config.app;
   }
 
   /**
@@ -107,6 +111,7 @@ export class SettingsAggregate {
       ui: this.ui,
       projectRoots: this.projectRoots,
       mcpServers: this.mcpServers,
+      app: this.app,
     };
   }
 }

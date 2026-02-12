@@ -7,7 +7,9 @@
  * @module modules/session/application/list-sessions.service
  */
 
+import { DEFAULT_SESSION_LIST_PAGE_LIMIT } from "@/config/constants";
 import type { ProjectRepositoryPort } from "@/modules/project";
+import { ValidationError } from "@/shared/errors";
 import type { StoredSession } from "@/shared/types/session.types";
 import type {
   SessionListPageQuery,
@@ -31,21 +33,90 @@ export class ListSessionsService {
     this.projectRepo = projectRepo;
   }
 
-  async execute(userId: string, query?: SessionListQuery) {
+  async execute(
+    userId: string,
+    query: SessionListQuery | undefined,
+    maxLimit: number
+  ) {
+    const normalizedQuery = this.normalizeOffsetLimit(query, maxLimit);
     const projects = await this.projectRepo.findAll(userId);
-    const storedSessions = await this.sessionRepo.findAll(userId, query);
+    const storedSessions = await this.sessionRepo.findAll(
+      userId,
+      normalizedQuery
+    );
     return await this.hydrateSessions(userId, storedSessions, projects);
   }
 
-  async executePage(userId: string, query?: SessionListPageQuery) {
+  async executePage(
+    userId: string,
+    query: SessionListPageQuery | undefined,
+    maxLimit: number
+  ) {
+    const normalizedQuery = this.normalizeCursorLimit(query, maxLimit);
     const projects = await this.projectRepo.findAll(userId);
-    const page = await this.sessionRepo.findPage(userId, query);
+    const page = await this.sessionRepo.findPage(userId, normalizedQuery);
     const items = await this.hydrateSessions(userId, page.sessions, projects);
 
     return {
       items,
       nextCursor: page.nextCursor,
       hasMore: page.hasMore,
+    };
+  }
+
+  private normalizeOffsetLimit(
+    query: SessionListQuery | undefined,
+    maxLimit: number
+  ): SessionListQuery {
+    const normalizedMaxLimit = Math.max(1, Math.trunc(maxLimit));
+    if (
+      query?.limit !== undefined &&
+      Number.isFinite(query.limit) &&
+      query.limit > normalizedMaxLimit
+    ) {
+      throw new ValidationError(`limit must be <= ${normalizedMaxLimit}`, {
+        module: "session",
+        op: "session.list",
+        details: {
+          limit: query.limit,
+          maxLimit: normalizedMaxLimit,
+        },
+      });
+    }
+
+    return {
+      limit:
+        query?.limit ??
+        Math.min(DEFAULT_SESSION_LIST_PAGE_LIMIT, normalizedMaxLimit),
+      offset: query?.offset ?? 0,
+    };
+  }
+
+  private normalizeCursorLimit(
+    query: SessionListPageQuery | undefined,
+    maxLimit: number
+  ): SessionListPageQuery {
+    const normalizedMaxLimit = Math.max(1, Math.trunc(maxLimit));
+    if (
+      query?.limit !== undefined &&
+      Number.isFinite(query.limit) &&
+      query.limit > normalizedMaxLimit
+    ) {
+      throw new ValidationError(`limit must be <= ${normalizedMaxLimit}`, {
+        module: "session",
+        op: "session.page",
+        details: {
+          limit: query.limit,
+          maxLimit: normalizedMaxLimit,
+        },
+      });
+    }
+
+    return {
+      limit:
+        query?.limit ??
+        Math.min(DEFAULT_SESSION_LIST_PAGE_LIMIT, normalizedMaxLimit),
+      cursor: query?.cursor,
     };
   }
 

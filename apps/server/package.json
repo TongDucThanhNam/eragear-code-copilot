@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsdown && bun run ui:build",
     "check-types": "tsc -b --noEmit",
-    "compile": "bun run ui:build && bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile dist/server",
+    "compile": "bun run build && bun build --compile --minify --sourcemap ./src/index.ts --outfile dist/server && cp ./settings.example.json ./dist/settings.json && mkdir -p ./dist/drizzle && cp -r ./drizzle/* ./dist/drizzle/",
     "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
     "dev": "bun run ./scripts/dev.ts",
     "smoke:auth-dashboard": "bun run ./scripts/smoke-auth-dashboard.ts",

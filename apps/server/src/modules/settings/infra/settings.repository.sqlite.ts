@@ -11,7 +11,16 @@ import {
   toSqliteJson,
 } from "@/platform/storage/sqlite-store";
 import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
-import type { McpServerConfig, Settings } from "@/shared/types/settings.types";
+import type {
+  AppConfig,
+  McpServerConfig,
+  Settings,
+} from "@/shared/types/settings.types";
+import {
+  AppConfigSchema,
+  createDefaultAppConfigFromEnv,
+  normalizeAppConfig,
+} from "../app-config.service";
 import type { SettingsRepositoryPort } from "../application/ports/settings-repository.port";
 
 const UiSettingsSchema = z.object({
@@ -58,6 +67,7 @@ const SettingsSchema = z.object({
   ui: UiSettingsSchema,
   projectRoots: z.array(z.string()).min(1).default([process.cwd()]),
   mcpServers: z.array(McpServerSchema).optional(),
+  app: AppConfigSchema,
 });
 
 const DEFAULT_SETTINGS: Settings = {
@@ -69,6 +79,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   projectRoots: [process.cwd()],
   mcpServers: [],
+  app: createDefaultAppConfigFromEnv(),
 };
 
 export class SettingsSqliteRepository implements SettingsRepositoryPort {
@@ -118,6 +129,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
         SQLITE_SETTING_KEYS.mcpServers,
         settings.mcpServers ?? []
       );
+      this.upsertSetting(db, SQLITE_SETTING_KEYS.appConfig, settings.app);
     });
   }
 
@@ -139,6 +151,11 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
         SQLITE_SETTING_KEYS.mcpServers,
         DEFAULT_SETTINGS.mcpServers ?? []
       ),
+      app: this.getRawSetting(
+        db,
+        SQLITE_SETTING_KEYS.appConfig,
+        DEFAULT_SETTINGS.app
+      ),
     };
 
     try {
@@ -147,6 +164,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
         ui: parsed.ui,
         projectRoots: parsed.projectRoots,
         mcpServers: parsed.mcpServers ?? [],
+        app: parsed.app,
       };
       await this.saveSettings(normalized);
       return normalized;
@@ -159,6 +177,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
       const mcpServersResult = Array.isArray(partial.mcpServers)
         ? z.array(McpServerSchema).safeParse(partial.mcpServers)
         : { success: false as const, data: [] as McpServerConfig[] };
+      const appFallback: AppConfig = DEFAULT_SETTINGS.app;
 
       const normalized: Settings = {
         ui: uiResult.success ? uiResult.data : DEFAULT_SETTINGS.ui,
@@ -169,6 +188,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
         mcpServers: mcpServersResult.success
           ? mcpServersResult.data
           : (DEFAULT_SETTINGS.mcpServers ?? []),
+        app: normalizeAppConfig(partial.app, appFallback),
       };
       await this.saveSettings(normalized);
       return normalized;
@@ -177,7 +197,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
 
   async update(patch: Partial<Settings>): Promise<Settings> {
     const current = await this.get();
-    const next: Settings = {
+    const merged: Settings = {
       ...current,
       ...patch,
       ui: { ...current.ui, ...(patch.ui ?? {}) },
@@ -187,8 +207,16 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
         patch.projectRoots !== undefined
           ? patch.projectRoots
           : current.projectRoots,
+      app: { ...current.app, ...(patch.app ?? {}) },
     };
-    await this.saveSettings(next);
-    return next;
+    const parsed = SettingsSchema.parse(merged);
+    const normalized: Settings = {
+      ui: parsed.ui,
+      projectRoots: parsed.projectRoots,
+      mcpServers: parsed.mcpServers ?? [],
+      app: parsed.app,
+    };
+    await this.saveSettings(normalized);
+    return normalized;
   }
 }

@@ -53,14 +53,14 @@ export class RespondPermissionService {
    * @throws Error if session or permission request is not found
    * @throws Error if the resolver is invalid
    */
-  execute(input: {
+  async execute(input: {
     /** The chat session identifier */
     chatId: string;
     /** The permission request identifier */
     requestId: string;
     /** The user's decision ("allow", "reject", or specific option ID) */
     decision: string;
-  }): acp.RequestPermissionResponse {
+  }): Promise<acp.RequestPermissionResponse> {
     const session = this.sessionRuntime.get(input.chatId);
     if (!session) {
       throw new NotFoundError("Chat not found", {
@@ -147,7 +147,7 @@ export class RespondPermissionService {
       nextStatus = "streaming";
     }
     if (nextStatus !== session.chatStatus) {
-      updateChatStatus({
+      await updateChatStatus({
         chatId: input.chatId,
         session,
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
@@ -170,7 +170,7 @@ export class RespondPermissionService {
         state: session.uiState,
         part: toolPart,
       });
-      this.sessionRuntime.broadcast(input.chatId, {
+      await this.sessionRuntime.broadcast(input.chatId, {
         type: "ui_message",
         message,
       });

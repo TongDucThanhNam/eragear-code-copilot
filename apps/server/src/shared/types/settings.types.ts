@@ -21,6 +21,24 @@ export interface UiSettings {
 }
 
 /**
+ * Runtime application configuration (hot-reload without restart)
+ */
+export interface AppConfig {
+  /** Idle timeout before runtime session cleanup */
+  sessionIdleTimeoutMs: number;
+  /** Maximum page size for session list endpoints */
+  sessionListPageMaxLimit: number;
+  /** Maximum page size for session message endpoints */
+  sessionMessagesPageMaxLimit: number;
+  /** Global minimum level for emitted server logs */
+  logLevel: "debug" | "info" | "warn" | "error";
+  /** Runtime max-tokens hint for prompt requests */
+  maxTokens: number;
+  /** Preferred model to apply for new sessions when available */
+  defaultModel: string;
+}
+
+/**
  * Complete application settings
  */
 export interface Settings {
@@ -30,6 +48,8 @@ export interface Settings {
   projectRoots: string[];
   /** MCP server configurations */
   mcpServers?: McpServerConfig[];
+  /** Runtime app policy configurable from dashboard */
+  app: AppConfig;
 }
 
 /**

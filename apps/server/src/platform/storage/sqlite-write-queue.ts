@@ -36,6 +36,9 @@ export interface SqliteWriteQueueStats {
   pendingTotal: number;
   pendingHigh: number;
   pendingLow: number;
+  busyRetryCount: number;
+  headBlockedMs: number;
+  maxHeadWaitMs: number;
   maxDepth: number;
   totalEnqueued: number;
   totalCompleted: number;
@@ -59,8 +62,7 @@ interface EnqueuedWriteTask {
 }
 
 class SqliteWriteQueue {
-  private readonly highQueue: EnqueuedWriteTask[] = [];
-  private readonly lowQueue: EnqueuedWriteTask[] = [];
+  private readonly queue: EnqueuedWriteTask[] = [];
   private readonly clock: ClockPort;
 
   private drainScheduled = false;
@@ -70,6 +72,8 @@ class SqliteWriteQueue {
 
   private pendingHigh = 0;
   private pendingLow = 0;
+  private busyRetryCount = 0;
+  private maxHeadWaitMs = 0;
   private maxDepth = 0;
   private totalEnqueued = 0;
   private totalCompleted = 0;
@@ -128,64 +132,23 @@ class SqliteWriteQueue {
   }
 
   private hasPendingQueue(): boolean {
-    return this.highQueue.length > 0 || this.lowQueue.length > 0;
+    return this.queue.length > 0;
   }
 
   private pushTask(task: EnqueuedWriteTask): void {
-    if (task.priority === "high") {
-      this.highQueue.push(task);
-      return;
-    }
-    this.lowQueue.push(task);
+    this.queue.push(task);
   }
 
-  private dequeueReadyTask(nowMs: number): EnqueuedWriteTask | undefined {
-    const highIndex = this.findReadyTaskIndex(this.highQueue, nowMs);
-    if (highIndex >= 0) {
-      return this.highQueue.splice(highIndex, 1)[0];
-    }
-
-    const lowIndex = this.findReadyTaskIndex(this.lowQueue, nowMs);
-    if (lowIndex >= 0) {
-      return this.lowQueue.splice(lowIndex, 1)[0];
-    }
-
-    return undefined;
+  private prependTask(task: EnqueuedWriteTask): void {
+    this.queue.unshift(task);
   }
 
-  private findReadyTaskIndex(
-    queue: EnqueuedWriteTask[],
-    nowMs: number
-  ): number {
-    for (let i = 0; i < queue.length; i += 1) {
-      const task = queue[i];
-      if (task && task.notBeforeMs <= nowMs) {
-        return i;
-      }
-    }
-    return -1;
+  private peekHeadTask(): EnqueuedWriteTask | undefined {
+    return this.queue[0];
   }
 
-  private nextDelayedReadyAtMs(): number | null {
-    let earliest: number | null = null;
-    for (const task of this.highQueue) {
-      if (earliest === null || task.notBeforeMs < earliest) {
-        earliest = task.notBeforeMs;
-      }
-    }
-    for (const task of this.lowQueue) {
-      if (earliest === null || task.notBeforeMs < earliest) {
-        earliest = task.notBeforeMs;
-      }
-    }
-    return earliest;
-  }
-
-  private hasReadyTask(nowMs: number): boolean {
-    return (
-      this.findReadyTaskIndex(this.highQueue, nowMs) >= 0 ||
-      this.findReadyTaskIndex(this.lowQueue, nowMs) >= 0
-    );
+  private dequeueHeadTask(): EnqueuedWriteTask | undefined {
+    return this.queue.shift();
   }
 
   private scheduleImmediateDrain(): void {
@@ -238,15 +201,22 @@ class SqliteWriteQueue {
     this.running = true;
     try {
       while (true) {
-        const nowMs = this.clock.nowMs();
-        const nextTask = this.dequeueReadyTask(nowMs);
+        const nextTask = this.peekHeadTask();
         if (!nextTask) {
-          const nextReadyAtMs = this.nextDelayedReadyAtMs();
-          if (nextReadyAtMs !== null) {
-            this.scheduleDelayedDrain(nextReadyAtMs);
-          }
           break;
         }
+        const nowMs = this.clock.nowMs();
+        if (nextTask.notBeforeMs > nowMs) {
+          const headBlockedMs = Math.max(
+            0,
+            Math.trunc(nextTask.notBeforeMs - nowMs)
+          );
+          this.maxHeadWaitMs = Math.max(this.maxHeadWaitMs, headBlockedMs);
+          this.scheduleDelayedDrain(nextTask.notBeforeMs);
+          break;
+        }
+
+        this.dequeueHeadTask();
 
         const startedAt = this.clock.nowMs();
         try {
@@ -265,26 +235,34 @@ class SqliteWriteQueue {
           this.decrementPending(nextTask.priority);
           nextTask.resolve(result);
         } catch (error) {
-          this.handleTaskFailure(nextTask, error);
+          const outcome = this.handleTaskFailure(nextTask, error);
+          if (outcome === "retry_delayed") {
+            const blockedTask = this.peekHeadTask();
+            if (blockedTask) {
+              this.scheduleDelayedDrain(blockedTask.notBeforeMs);
+            }
+            break;
+          }
         }
       }
     } finally {
       this.running = false;
       if (this.hasPendingQueue()) {
+        const headTask = this.peekHeadTask();
         const nowMs = this.clock.nowMs();
-        if (this.hasReadyTask(nowMs)) {
+        if (headTask && headTask.notBeforeMs <= nowMs) {
           this.scheduleImmediateDrain();
-        } else {
-          const nextReadyAtMs = this.nextDelayedReadyAtMs();
-          if (nextReadyAtMs !== null) {
-            this.scheduleDelayedDrain(nextReadyAtMs);
-          }
+        } else if (headTask) {
+          this.scheduleDelayedDrain(headTask.notBeforeMs);
         }
       }
     }
   }
 
-  private handleTaskFailure(task: EnqueuedWriteTask, error: unknown): boolean {
+  private handleTaskFailure(
+    task: EnqueuedWriteTask,
+    error: unknown
+  ): "retry_delayed" | "failed" {
     if (isSqliteBusyError(error) && task.attempt < task.maxAttempts) {
       const delayMs = task.retryBaseDelayMs * 2 ** (task.attempt - 1);
       logger.warn("SQLite busy encountered during write; retrying", {
@@ -294,10 +272,11 @@ class SqliteWriteQueue {
         delayMs,
         queueDepth: this.pendingTotal(),
       });
+      this.busyRetryCount += 1;
       task.attempt += 1;
       task.notBeforeMs = this.clock.nowMs() + delayMs;
-      this.pushTask(task);
-      return true;
+      this.prependTask(task);
+      return "retry_delayed";
     }
 
     logger.error(
@@ -313,17 +292,26 @@ class SqliteWriteQueue {
     this.totalFailed += 1;
     this.decrementPending(task.priority);
     task.reject(error);
-    return false;
+    return "failed";
   }
 
   getStats(): SqliteWriteQueueStats {
     const pending = this.pendingTotal();
+    const headTask = this.peekHeadTask();
+    const nowMs = this.clock.nowMs();
+    const headBlockedMs =
+      headTask && headTask.notBeforeMs > nowMs
+        ? Math.max(0, Math.trunc(headTask.notBeforeMs - nowMs))
+        : 0;
     return {
       pending,
       writeQueueDepth: pending,
       pendingTotal: pending,
       pendingHigh: this.pendingHigh,
       pendingLow: this.pendingLow,
+      busyRetryCount: this.busyRetryCount,
+      headBlockedMs,
+      maxHeadWaitMs: this.maxHeadWaitMs,
       maxDepth: this.maxDepth,
       totalEnqueued: this.totalEnqueued,
       totalCompleted: this.totalCompleted,

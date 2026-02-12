@@ -31,16 +31,17 @@ function createRuntime(events: BroadcastEvent[]): SessionRuntimePort {
     runExclusive: async (_chatId, work) => await work(),
     broadcast: (_chatId, event) => {
       events.push(event as BroadcastEvent);
+      return Promise.resolve();
     },
   };
 }
 
 describe("SessionMessageMapper", () => {
-  test("maps compacted assistant messages to placeholder text", () => {
+  test("maps compacted assistant messages to placeholder text", async () => {
     const events: BroadcastEvent[] = [];
     const mapper = new SessionMessageMapper(createRuntime(events));
 
-    mapper.broadcastStoredMessage("chat-1", {
+    await mapper.broadcastStoredMessage("chat-1", {
       id: "m-1",
       role: "assistant",
       content: "",
@@ -58,11 +59,11 @@ describe("SessionMessageMapper", () => {
     }
   });
 
-  test("drops empty user messages without payload", () => {
+  test("drops empty user messages without payload", async () => {
     const events: BroadcastEvent[] = [];
     const mapper = new SessionMessageMapper(createRuntime(events));
 
-    mapper.broadcastStoredMessage("chat-1", {
+    await mapper.broadcastStoredMessage("chat-1", {
       id: "m-2",
       role: "user",
       content: "",

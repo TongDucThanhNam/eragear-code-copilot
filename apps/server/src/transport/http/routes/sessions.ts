@@ -11,7 +11,6 @@
  */
 
 import type { Context, Hono } from "hono";
-import { getAuthContextFromRequest } from "../utils/auth";
 import type { HttpRouteDependencies } from "./deps";
 
 /**
@@ -19,9 +18,9 @@ import type { HttpRouteDependencies } from "./deps";
  */
 export function registerSessionRoutes(
   api: Hono,
-  deps: Pick<HttpRouteDependencies, "sessionServices">
+  deps: Pick<HttpRouteDependencies, "sessionServices" | "resolveAuthContext">
 ): void {
-  const { sessionServices } = deps;
+  const { sessionServices, resolveAuthContext } = deps;
 
   // =========================================================================
   // API Routes
@@ -31,7 +30,7 @@ export function registerSessionRoutes(
    * POST /api/sessions/stop - Stop a running session
    */
   api.post("/sessions/stop", async (c: Context) => {
-    const auth = await getAuthContextFromRequest({
+    const auth = await resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
     });
@@ -55,7 +54,7 @@ export function registerSessionRoutes(
    * DELETE /api/sessions - Delete a session
    */
   api.delete("/sessions", async (c: Context) => {
-    const auth = await getAuthContextFromRequest({
+    const auth = await resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
     });

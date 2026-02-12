@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { EMPTY_DASHBOARD_DATA } from "@/presentation/dashboard/dashboard-data";
-import type {
-  DashboardViewActions,
-  DashboardViewState,
-} from "@/presentation/dashboard/dashboard-view.contract";
+import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import {
   useDashboardActions,
   useDashboardState,
 } from "@/presentation/dashboard/dashboard-view.context";
-import { DashboardView } from "@/presentation/dashboard/dashboard-view";
+import type {
+  DashboardViewActions,
+  DashboardViewState,
+} from "@/presentation/dashboard/dashboard-view.contract";
 
 const baseState: DashboardViewState = {
   settings: {
@@ -21,6 +21,14 @@ const baseState: DashboardViewState = {
     },
     projectRoots: [],
     mcpServers: [],
+    app: {
+      sessionIdleTimeoutMs: 10 * 60 * 1000,
+      sessionListPageMaxLimit: 500,
+      sessionMessagesPageMaxLimit: 200,
+      logLevel: "info",
+      maxTokens: 8192,
+      defaultModel: "",
+    },
   },
   dashboardData: EMPTY_DASHBOARD_DATA,
   activeTab: "sessions",

@@ -1,6 +1,8 @@
 import type { Settings } from "../types/settings.types";
+import { LOG_LEVELS, type LogLevel } from "../types/log.types";
 
 type FormDataRecord = Record<string, string | File | undefined>;
+const LOG_LEVEL_SET = new Set(LOG_LEVELS);
 
 export function parseUiSettingsForm(
   formData: FormDataRecord,
@@ -54,5 +56,51 @@ export function parseUiSettingsForm(
     projectRoots.push(...filtered);
   }
 
-  return { ui, projectRoots };
+  const parsePositiveInt = (key: string, fallback: number): number => {
+    const raw = getString(key).trim();
+    if (raw.length === 0) {
+      return fallback;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+    return Math.trunc(parsed);
+  };
+
+  const app = {
+    sessionIdleTimeoutMs: parsePositiveInt(
+      "app.sessionIdleTimeoutMs",
+      currentSettings.app.sessionIdleTimeoutMs
+    ),
+    sessionListPageMaxLimit: parsePositiveInt(
+      "app.sessionListPageMaxLimit",
+      currentSettings.app.sessionListPageMaxLimit
+    ),
+    sessionMessagesPageMaxLimit: parsePositiveInt(
+      "app.sessionMessagesPageMaxLimit",
+      currentSettings.app.sessionMessagesPageMaxLimit
+    ),
+    logLevel: (() => {
+      const raw = getString("app.logLevel").trim().toLowerCase();
+      if (!raw) {
+        return currentSettings.app.logLevel;
+      }
+      if (!LOG_LEVEL_SET.has(raw as LogLevel)) {
+        throw new Error("app.logLevel must be one of debug,info,warn,error");
+      }
+      return raw as LogLevel;
+    })(),
+    maxTokens: parsePositiveInt("app.maxTokens", currentSettings.app.maxTokens),
+    defaultModel: (() => {
+      const rawValue = formData["app.defaultModel"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.defaultModel;
+      }
+      const normalized = rawValue.trim();
+      return normalized.length > 0 ? normalized : "";
+    })(),
+  };
+
+  return { ui, projectRoots, app };
 }

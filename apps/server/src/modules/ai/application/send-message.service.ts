@@ -18,7 +18,6 @@ import { mapStopReasonToFinishReason } from "@/shared/utils/chat-events.util";
 import { toStoredContentBlocks } from "@/shared/utils/content-block.util";
 import { createId } from "@/shared/utils/id.util";
 import { buildUserMessageFromBlocks } from "@/shared/utils/ui-message.util";
-import { AiChatSessionAggregate } from "../domain/ai-chat-session.aggregate";
 import { AI_OP } from "./ai.constants";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { buildPrompt } from "./prompt.builder";
@@ -100,12 +99,13 @@ export class SendMessageService {
       });
 
       try {
-        const session = this.sessionGateway.requireAuthorizedSession({
+        const aggregate = this.sessionGateway.requireAuthorizedRuntime({
           userId: input.userId,
           chatId: input.chatId,
           module: "ai",
           op: OP,
         });
+        const session = aggregate.raw;
         this.logger.debug("SendMessageService session lookup", {
           chatId: input.chatId,
           hasSession: true,
@@ -122,7 +122,6 @@ export class SendMessageService {
 
         this.assertPromptCapabilities(session, input.chatId, input);
 
-        const aggregate = new AiChatSessionAggregate(session);
         const broadcast = this.sessionRuntime.broadcast.bind(
           this.sessionRuntime
         );
@@ -146,7 +145,7 @@ export class SendMessageService {
           broadcast,
         });
 
-        aggregate.markSubmitted(
+        await aggregate.markSubmitted(
           {
             chatId: input.chatId,
             broadcast,
@@ -173,36 +172,64 @@ export class SendMessageService {
           messageId,
           contentBlocks: storedPromptBlocks,
         });
+        try {
+          await this.sessionRepo.appendMessage(input.chatId, input.userId, {
+            id: messageId,
+            role: "user",
+            content: input.text,
+            contentBlocks: storedPromptBlocks,
+            parts: uiMessage.parts,
+            timestamp: submittedAt,
+          });
+          this.logger.debug("SendMessageService user message persisted", {
+            chatId: input.chatId,
+            messageId,
+            contentBlocks: storedPromptBlocks.length,
+            parts: uiMessage.parts.length,
+            timestamp: submittedAt,
+          });
+          aggregate.raw.uiState.messages.set(uiMessage.id, uiMessage);
+          await this.sessionRuntime.broadcast(input.chatId, {
+            type: "ui_message",
+            message: uiMessage,
+          });
 
-        await this.sessionRepo.appendMessage(input.chatId, input.userId, {
-          id: messageId,
-          role: "user",
-          content: input.text,
-          contentBlocks: storedPromptBlocks,
-          parts: uiMessage.parts,
-          timestamp: submittedAt,
-        });
-        this.logger.debug("SendMessageService user message persisted", {
-          chatId: input.chatId,
-          messageId,
-          contentBlocks: storedPromptBlocks.length,
-          parts: uiMessage.parts.length,
-          timestamp: submittedAt,
-        });
-        aggregate.raw.uiState.messages.set(uiMessage.id, uiMessage);
-        this.sessionRuntime.broadcast(input.chatId, {
-          type: "ui_message",
-          message: uiMessage,
-        });
-
-        const promptTask = this.promptTaskRunner.runPromptTask({
-          chatId: input.chatId,
-          aggregate,
-          prompt,
-          broadcast,
-          turnId,
-        });
-        aggregate.setActivePromptTask(turnId, promptTask);
+          const promptTask = this.promptTaskRunner
+            .runPromptTask({
+              chatId: input.chatId,
+              aggregate,
+              prompt,
+              broadcast,
+              turnId,
+            })
+            .catch((error) => {
+              const errorText =
+                error instanceof Error
+                  ? error.message
+                  : "Prompt task failed unexpectedly";
+              this.logger.error("SendMessageService prompt task rejected", {
+                chatId: input.chatId,
+                turnId,
+                error: errorText,
+              });
+            });
+          aggregate.setActivePromptTask(turnId, promptTask);
+        } catch (error) {
+          await aggregate.markError(
+            { chatId: input.chatId, broadcast },
+            turnId
+          );
+          aggregate.clearTurnState();
+          const errorText =
+            error instanceof Error
+              ? error.message
+              : "Failed to persist user message";
+          await this.sessionRuntime.broadcast(input.chatId, {
+            type: "error",
+            error: errorText,
+          });
+          throw error;
+        }
 
         return {
           status: "submitted",

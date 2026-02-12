@@ -46,7 +46,7 @@ export class SessionHistoryReplayService {
     const message = session.uiState.messages.get(currentMessageId);
     if (message) {
       finalizeStreamingParts(message);
-      this.sessionRuntime.broadcast(chatId, {
+      await this.sessionRuntime.broadcast(chatId, {
         type: "ui_message",
         message,
       });
@@ -92,7 +92,7 @@ export class SessionHistoryReplayService {
       }
     );
     for (const message of storedMessages) {
-      this.messageMapper.broadcastStoredMessage(chatId, message);
+      await this.messageMapper.broadcastStoredMessage(chatId, message);
     }
   }
 }

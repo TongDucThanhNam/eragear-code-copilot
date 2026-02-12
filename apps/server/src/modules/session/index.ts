@@ -1,3 +1,4 @@
+export { BootstrapSessionConnectionService } from "./application/bootstrap-session-connection.service";
 export { CleanupProjectSessionsService } from "./application/cleanup-project-sessions.service";
 export { CompactSessionMessagesService } from "./application/compact-session-messages.service";
 export type {
@@ -22,6 +23,7 @@ export { GetSessionMessagesService } from "./application/get-session-messages.se
 export { GetSessionStateService } from "./application/get-session-state.service";
 export { GetSessionStorageStatsService } from "./application/get-session-storage-stats.service";
 export { ListSessionsService } from "./application/list-sessions.service";
+export { PersistSessionBootstrapService } from "./application/persist-session-bootstrap.service";
 export type { AgentRuntimePort } from "./application/ports/agent-runtime.port";
 export type {
   SessionAcpPort,
@@ -36,10 +38,14 @@ export { SessionHistoryReplayService } from "./application/session-history-repla
 export { SessionMcpConfigService } from "./application/session-mcp-config.service";
 export { SessionMessageMapper } from "./application/session-message.mapper";
 export { SessionMetadataPersistenceService } from "./application/session-metadata-persistence.service";
-export { SessionOrchestratorService } from "./application/session-orchestrator.service";
 export { SessionProcessLifecycleService } from "./application/session-process-lifecycle.service";
 export { SessionProjectContextResolverService } from "./application/session-project-context-resolver.service";
 export { SessionRuntimeBootstrapService } from "./application/session-runtime-bootstrap.service";
+export { SpawnSessionProcessService } from "./application/spawn-session-process.service";
 export { StopSessionService } from "./application/stop-session.service";
 export { SubscribeSessionEventsService } from "./application/subscribe-session-events.service";
 export { UpdateSessionMetaService } from "./application/update-session-meta.service";
+export {
+  SESSION_RUNTIME_CHAT_STATUS,
+  SessionRuntimeEntity,
+} from "./domain/session-runtime.entity";

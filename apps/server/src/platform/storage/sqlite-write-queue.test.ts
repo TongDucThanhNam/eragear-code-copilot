@@ -45,7 +45,7 @@ describe("sqlite-write-queue", () => {
     expect(getSqliteWriteQueueStats().pending).toBe(0);
   });
 
-  test("prioritizes high-priority writes before low-priority writes", async () => {
+  test("preserves FIFO order across priority labels", async () => {
     const order: string[] = [];
 
     const low = enqueueSqliteWrite(
@@ -69,7 +69,7 @@ describe("sqlite-write-queue", () => {
     const [lowResult, highResult] = await Promise.all([low, high]);
     expect(lowResult).toBe("low");
     expect(highResult).toBe("high");
-    expect(order).toEqual(["high", "low"]);
+    expect(order).toEqual(["low", "high"]);
   });
 
   test("exposes lane-aware pending queue stats", async () => {
@@ -124,7 +124,7 @@ describe("sqlite-write-queue", () => {
     }
   });
 
-  test("does not block high-priority writes while busy retry is delayed", async () => {
+  test("blocks later writes behind busy-retry head task", async () => {
     const originalMaxRetries = ENV.sqliteBusyMaxRetries;
     const originalBaseDelay = ENV.sqliteBusyRetryBaseDelayMs;
     ENV.sqliteBusyMaxRetries = 3;
@@ -159,7 +159,7 @@ describe("sqlite-write-queue", () => {
       const [lowResult, highResult] = await Promise.all([low, high]);
       expect(lowResult).toBe("low-ok");
       expect(highResult).toBe("high-ok");
-      expect(order).toEqual(["low-1", "high", "low-2"]);
+      expect(order).toEqual(["low-1", "low-2", "high"]);
     } finally {
       ENV.sqliteBusyMaxRetries = originalMaxRetries;
       ENV.sqliteBusyRetryBaseDelayMs = originalBaseDelay;

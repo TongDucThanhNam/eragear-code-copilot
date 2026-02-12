@@ -77,14 +77,6 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         return;
       }
 
-      updateChatStatus({
-        chatId,
-        session,
-        broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
-        status: "awaiting_permission",
-      });
-
-      // Store the resolve function to be called when user responds
       const toolName = getToolNameFromCall(toolCall);
       const title = toolCall.title ?? toolCall.kind ?? toolName;
       session.pendingPermissions.set(requestId, {
@@ -98,42 +90,62 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         meta: toolCall._meta,
       });
 
-      const toolPart = buildToolApprovalPart({
-        toolCallId: toolCall.toolCallId,
-        toolName,
-        title,
-        input: toolCall.rawInput,
-        approvalId: requestId,
-        meta: toolCall._meta,
-      });
-      const { message } = upsertToolPart({
-        state: session.uiState,
-        messageId: session.uiState.currentAssistantId,
-        part: toolPart,
-      });
-      const optionList = options;
-      if (optionList.length > 0) {
-        const existingOptions = message.parts.find(
-          (part) =>
-            part.type === "data-permission-options" &&
-            typeof part.data === "object" &&
-            part.data !== null &&
-            (part.data as { requestId?: string }).requestId === requestId
-        );
-        if (!existingOptions) {
-          message.parts.push({
-            type: "data-permission-options",
-            data: {
-              requestId,
-              toolCallId: toolCall.toolCallId,
-              options,
-            },
-          });
+      const publishPermissionRequest = async () => {
+        await updateChatStatus({
+          chatId,
+          session,
+          broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+          status: "awaiting_permission",
+        });
+
+        const toolPart = buildToolApprovalPart({
+          toolCallId: toolCall.toolCallId,
+          toolName,
+          title,
+          input: toolCall.rawInput,
+          approvalId: requestId,
+          meta: toolCall._meta,
+        });
+        const { message } = upsertToolPart({
+          state: session.uiState,
+          messageId: session.uiState.currentAssistantId,
+          part: toolPart,
+        });
+        const optionList = options;
+        if (optionList.length > 0) {
+          const existingOptions = message.parts.find(
+            (part) =>
+              part.type === "data-permission-options" &&
+              typeof part.data === "object" &&
+              part.data !== null &&
+              (part.data as { requestId?: string }).requestId === requestId
+          );
+          if (!existingOptions) {
+            message.parts.push({
+              type: "data-permission-options",
+              data: {
+                requestId,
+                toolCallId: toolCall.toolCallId,
+                options,
+              },
+            });
+          }
         }
-      }
-      sessionRuntime.broadcast(chatId, {
-        type: "ui_message",
-        message,
+        await sessionRuntime.broadcast(chatId, {
+          type: "ui_message",
+          message,
+        });
+      };
+      publishPermissionRequest().catch((error) => {
+        if (session.pendingPermissions.has(requestId)) {
+          session.pendingPermissions.delete(requestId);
+        }
+        logger.error("Failed to publish permission request", error as Error, {
+          chatId,
+          requestId,
+          toolCallId: toolCall.toolCallId,
+        });
+        resolve({ outcome: { outcome: "cancelled" } });
       });
     });
   };

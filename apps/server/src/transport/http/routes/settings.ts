@@ -13,6 +13,7 @@
 
 import type { Context, Hono } from "hono";
 import { isAppError } from "../../../shared/errors";
+import type { Settings } from "../../../shared/types/settings.types";
 import { parseUiSettingsForm } from "../../../shared/utils/ui-settings.util";
 import type { HttpRouteDependencies } from "./deps";
 
@@ -43,17 +44,27 @@ export function registerSettingsRoutes(
    */
   const handleApiUpdate = async (c: Context) => {
     try {
-      const body = await c.req.parseBody();
-      const getSettings = settingsServices.getSettings();
-      const currentSettings = await getSettings.execute();
-      const formData = body as Record<string, string | File | undefined>;
-
-      const { ui, projectRoots } = parseUiSettingsForm(
-        formData,
-        currentSettings
-      );
       const updateSettings = settingsServices.updateSettings();
-      const result = await updateSettings.execute({ ui, projectRoots });
+      const contentType = c.req.header("content-type") ?? "";
+      let result:
+        | Awaited<ReturnType<typeof updateSettings.execute>>
+        | undefined;
+
+      if (contentType.includes("application/json")) {
+        const patch = (await c.req.json()) as Partial<Settings>;
+        result = await updateSettings.execute(patch);
+      } else {
+        const body = await c.req.parseBody();
+        const getSettings = settingsServices.getSettings();
+        const currentSettings = await getSettings.execute();
+        const formData = body as Record<string, string | File | undefined>;
+        const { ui, projectRoots, app } = parseUiSettingsForm(
+          formData,
+          currentSettings
+        );
+        result = await updateSettings.execute({ ui, projectRoots, app });
+      }
+
       return c.json({
         ...result.settings,
         changedKeys: result.changedKeys,
@@ -63,8 +74,14 @@ export function registerSettingsRoutes(
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
+      if (error instanceof Error) {
+        logger.error("Failed to parse settings update payload", {
+          error: error.message,
+        });
+        return c.json({ error: error.message }, 400);
+      }
       logger.error("Failed to parse settings update payload", {
-        error: error instanceof Error ? error.message : String(error),
+        error: String(error),
       });
       return c.json({ error: "Failed to parse settings" }, 400);
     }

@@ -7,13 +7,22 @@
  * @module config/environment
  */
 
-import { z } from "zod";
+import type { LogLevel } from "@/shared/types/log.types";
+import {
+  assertCompiledBootRequirements,
+  type BootRuntimeMode,
+  loadBootConfigValues,
+  normalizeBootValue,
+} from "./boot-config.loader";
 import {
   DEFAULT_ACP_REQUEST_MAX_ATTEMPTS,
   DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS,
+  DEFAULT_APP_DEFAULT_MODEL,
+  DEFAULT_APP_LOG_LEVEL,
+  DEFAULT_APP_MAX_TOKENS,
   DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
   DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
-  DEFAULT_BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS,
+  DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_BACKGROUND_TASK_TIMEOUT_MS,
   DEFAULT_BACKGROUND_TICK_MS,
   DEFAULT_LOG_BUFFER_LIMIT,
@@ -23,238 +32,101 @@ import {
   DEFAULT_SESSION_BUFFER_LIMIT,
   DEFAULT_SESSION_IDLE_TIMEOUT_MS,
   DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
+  DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS,
   DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
-  DEFAULT_SQLITE_BUSY_MAX_RETRIES,
-  DEFAULT_SQLITE_BUSY_RETRY_BASE_DELAY_MS,
-  DEFAULT_SQLITE_BUSY_TIMEOUT_MS,
-  DEFAULT_SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES,
-  DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES,
-  DEFAULT_SQLITE_INIT_RETRY_COOLDOWN_MS,
-  DEFAULT_SQLITE_MAX_DB_SIZE_MB,
-  DEFAULT_SQLITE_RETENTION_COMPACTION_BATCH_SIZE,
-  DEFAULT_SQLITE_RETENTION_HOT_DAYS,
-  DEFAULT_SQLITE_WAL_CHECKPOINT_INTERVAL_MS,
-  DEFAULT_SQLITE_WORKER_ENABLED,
-  DEFAULT_SQLITE_WORKER_REQUEST_TIMEOUT_MS,
+  DEFAULT_STORAGE_BUSY_MAX_RETRIES,
+  DEFAULT_STORAGE_BUSY_RETRY_BASE_DELAY_MS,
+  DEFAULT_STORAGE_BUSY_TIMEOUT_MS,
+  DEFAULT_STORAGE_INCREMENTAL_VACUUM_MIN_FREE_PAGES,
+  DEFAULT_STORAGE_INCREMENTAL_VACUUM_STEP_PAGES,
+  DEFAULT_STORAGE_INIT_RETRY_COOLDOWN_MS,
+  DEFAULT_STORAGE_MAX_BIND_PARAMS,
+  DEFAULT_STORAGE_MAX_DB_SIZE_MB,
+  DEFAULT_STORAGE_RETENTION_COMPACTION_BATCH_SIZE,
+  DEFAULT_STORAGE_RETENTION_HOT_DAYS,
+  DEFAULT_STORAGE_WAL_CHECKPOINT_INTERVAL_MS,
+  DEFAULT_STORAGE_WORKER_ENABLED,
+  DEFAULT_STORAGE_WORKER_REQUEST_TIMEOUT_MS,
   DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES,
   DEFAULT_WS_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WS_HOST,
   DEFAULT_WS_MAX_PAYLOAD_BYTES,
   DEFAULT_WS_PORT,
+  HARD_MAX_APP_MAX_TOKENS,
   HARD_MAX_SESSION_LIST_PAGE_LIMIT,
   HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
-  HARD_MAX_SQLITE_RETENTION_COMPACTION_BATCH_SIZE,
+  HARD_MAX_STORAGE_MAX_BIND_PARAMS,
+  HARD_MAX_STORAGE_RETENTION_COMPACTION_BATCH_SIZE,
 } from "./constants";
+import {
+  firstNonEmpty,
+  parseRequiredAllowlist,
+  toBoolean,
+  toBoundedPositiveInt,
+  toList,
+  toLogLevel,
+  toNumber,
+  toOptionalNumber,
+  toPositiveInt,
+  toTrimmedString,
+} from "./environment.parsers";
+import { type EnvKey, envSchema } from "./environment.schema";
 
-/** Zod schema for environment variable validation */
-const envSchema = z.object({
-  SESSION_IDLE_TIMEOUT_MS: z.string().optional(),
-  SESSION_BUFFER_LIMIT: z.string().optional(),
-  WS_HEARTBEAT_INTERVAL_MS: z.string().optional(),
-  WS_MAX_PAYLOAD_BYTES: z.string().optional(),
-  WS_PORT: z.string().optional(),
-  WS_HOST: z.string().optional(),
-  AGENT_TIMEOUT_MS: z.string().optional(),
-  TERMINAL_TIMEOUT_MS: z.string().optional(),
-  TERMINAL_OUTPUT_HARD_CAP_BYTES: z.string().optional(),
-  ALLOWED_AGENT_COMMANDS: z.string().optional(),
-  ALLOWED_TERMINAL_COMMANDS: z.string().optional(),
-  ALLOWED_ENV_KEYS: z.string().optional(),
-  SESSION_LIST_PAGE_MAX_LIMIT: z.string().optional(),
-  SESSION_MESSAGES_PAGE_MAX_LIMIT: z.string().optional(),
-  AUTH_SECRET: z.string().optional(),
-  BETTER_AUTH_SECRET: z.string().optional(),
-  AUTH_BASE_URL: z.string().optional(),
-  BETTER_AUTH_URL: z.string().optional(),
-  AUTH_TRUSTED_ORIGINS: z.string().optional(),
-  AUTH_ADMIN_USERNAME: z.string().optional(),
-  AUTH_ADMIN_PASSWORD: z.string().optional(),
-  AUTH_ADMIN_EMAIL: z.string().optional(),
-  AUTH_ALLOW_SIGNUP: z.string().optional(),
-  AUTH_DB_PATH: z.string().optional(),
-  AUTH_BOOTSTRAP_API_KEY: z.string().optional(),
-  AUTH_API_KEY_PREFIX: z.string().optional(),
-  AUTH_API_KEY_RATE_LIMIT_ENABLED: z.string().optional(),
-  AUTH_API_KEY_RATE_LIMIT_TIME_WINDOW_MS: z.string().optional(),
-  AUTH_API_KEY_RATE_LIMIT_MAX_REQUESTS: z.string().optional(),
-  CORS_STRICT_ORIGIN: z.string().optional(),
-  LOG_BUFFER_LIMIT: z.string().optional(),
-  LOG_FLUSH_INTERVAL_MS: z.string().optional(),
-  LOG_RETENTION_DAYS: z.string().optional(),
-  LOG_FILE_ENABLED: z.string().optional(),
-  BACKGROUND_ENABLED: z.string().optional(),
-  BACKGROUND_TICK_MS: z.string().optional(),
-  BACKGROUND_TASK_TIMEOUT_MS: z.string().optional(),
-  BACKGROUND_SESSION_CLEANUP_INTERVAL_MS: z.string().optional(),
-  BACKGROUND_CACHE_PRUNE_INTERVAL_MS: z.string().optional(),
-  BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS: z.string().optional(),
-  SQLITE_BUSY_TIMEOUT_MS: z.string().optional(),
-  SQLITE_BUSY_MAX_RETRIES: z.string().optional(),
-  SQLITE_BUSY_RETRY_BASE_DELAY_MS: z.string().optional(),
-  SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES: z.string().optional(),
-  SQLITE_INCREMENTAL_VACUUM_STEP_PAGES: z.string().optional(),
-  SQLITE_WAL_CHECKPOINT_INTERVAL_MS: z.string().optional(),
-  SQLITE_RETENTION_HOT_DAYS: z.string().optional(),
-  SQLITE_RETENTION_COMPACTION_BATCH_SIZE: z.string().optional(),
-  SQLITE_MAX_DB_SIZE_MB: z.string().optional(),
-  SQLITE_MIGRATIONS_DIR: z.string().optional(),
-  SQLITE_INIT_RETRY_COOLDOWN_MS: z.string().optional(),
-  SQLITE_WORKER_ENABLED: z.string().optional(),
-  SQLITE_WORKER_REQUEST_TIMEOUT_MS: z.string().optional(),
-  MESSAGE_CONTENT_MAX_BYTES: z.string().optional(),
-  MESSAGE_PARTS_MAX_BYTES: z.string().optional(),
-  ACP_REQUEST_MAX_ATTEMPTS: z.string().optional(),
-  ACP_REQUEST_RETRY_BASE_DELAY_MS: z.string().optional(),
-  NODE_ENV: z.string().optional(),
-  BUN_ENV: z.string().optional(),
-});
+function createEnvInput(
+  bootConfigValues: Record<string, unknown>,
+  mode: BootRuntimeMode
+): Record<EnvKey, string | undefined> {
+  const keys = Object.keys(envSchema.shape) as EnvKey[];
+  const out = {} as Record<EnvKey, string | undefined>;
+
+  for (const key of keys) {
+    const bootValue = normalizeBootValue(bootConfigValues[key]);
+    if (mode === "compiled") {
+      out[key] = bootValue;
+      continue;
+    }
+    const envValue = process.env[key];
+    if (envValue && envValue.trim().length > 0) {
+      out[key] = envValue;
+      continue;
+    }
+    out[key] = bootValue;
+  }
+
+  return out;
+}
+
+const bootConfig = loadBootConfigValues();
+
+if (bootConfig.mode === "compiled") {
+  assertCompiledBootRequirements(bootConfig);
+}
 
 /** Parse environment variables */
-const env = envSchema.parse(process.env);
+const env = envSchema.parse(createEnvInput(bootConfig.values, bootConfig.mode));
 
-/**
- * Converts a string environment variable to a number with fallback
- *
- * @param value - The string value to convert
- * @param fallback - The fallback number if conversion fails or value is empty
- * @returns The parsed number or fallback
- */
-function toNumber(value: string | undefined, fallback: number) {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-/**
- * Converts a string environment variable to an optional number
- *
- * @param value - The string value to convert
- * @returns The parsed number or undefined if invalid/empty
- */
-function toOptionalNumber(value: string | undefined) {
-  if (!value) {
-    return undefined;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return undefined;
-  }
-  return parsed;
-}
-
-/**
- * Converts a string environment variable to a positive integer with fallback
- */
-function toPositiveInt(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-  return Math.trunc(parsed);
-}
-
-/**
- * Converts a string environment variable to a bounded positive integer
- */
-function toBoundedPositiveInt(
-  value: string | undefined,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  const parsed = toPositiveInt(value, fallback);
-  return Math.max(min, Math.min(max, parsed));
-}
-
-/**
- * Converts a comma-separated list into a string array
- *
- * @param value - The string list value to convert
- * @returns Array of trimmed, non-empty entries
- */
-function toList(value: string | undefined) {
-  if (!value) {
-    return [];
-  }
-  if (value.trim() === "*") {
-    return ["*"];
-  }
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
-}
-
-/**
- * Converts a string environment variable to a boolean
- *
- * @param value - The string value to convert
- * @param fallback - The fallback boolean if value is empty
- * @returns The parsed boolean or fallback
- */
-function toBoolean(value: string | undefined, fallback: boolean) {
-  if (!value) {
-    return fallback;
-  }
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
-
-function parseRequiredAllowlist(
-  name: string,
-  value: string | undefined,
-  errors: string[]
-): string[] {
-  if (!value || value.trim().length === 0) {
-    errors.push(`${name} must be a non-empty comma-separated allowlist.`);
-    return [];
-  }
-
-  const entries = value
-    .split(",")
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
-
-  if (entries.length === 0) {
-    errors.push(`${name} must contain at least one explicit entry.`);
-    return [];
-  }
-
-  if (entries.includes("*")) {
-    errors.push(
-      `${name} does not support wildcard '*'; list entries explicitly.`
-    );
-    return [];
-  }
-
-  return [...new Set(entries)];
-}
-
-const wsPort = toNumber(env.WS_PORT, DEFAULT_WS_PORT);
-const wsHost = env.WS_HOST ?? DEFAULT_WS_HOST;
+const wsPort = toNumber(
+  firstNonEmpty([env.WS_PORT, env.PORT]),
+  DEFAULT_WS_PORT
+);
+const wsHost = firstNonEmpty([env.WS_HOST, env.HOST]) ?? DEFAULT_WS_HOST;
 const normalizedAuthHost = wsHost === "0.0.0.0" ? "localhost" : wsHost;
 const runtimeEnv = env.NODE_ENV ?? env.BUN_ENV ?? "production";
 const isProd = runtimeEnv === "production";
 const isDev = !isProd;
 const sqliteWorkerEnabled = toBoolean(
-  env.SQLITE_WORKER_ENABLED,
-  DEFAULT_SQLITE_WORKER_ENABLED
+  env.STORAGE_WORKER_ENABLED,
+  DEFAULT_STORAGE_WORKER_ENABLED
 );
 if (isProd && !sqliteWorkerEnabled) {
   throw new Error(
-    "[Config] SQLITE_WORKER_ENABLED must be true in production runtime."
+    "[Config] STORAGE_WORKER_ENABLED must be true in production runtime."
   );
 }
 const defaultApiKeyRateLimitWindowMs = 60_000;
 const defaultApiKeyRateLimitMaxRequests = 3000;
 const authBaseUrl =
-  env.AUTH_BASE_URL ??
-  env.BETTER_AUTH_URL ??
-  `http://${normalizedAuthHost}:${wsPort}`;
+  env.AUTH_BASE_URL ?? `http://${normalizedAuthHost}:${wsPort}`;
 const allowlistErrors: string[] = [];
 const allowedAgentCommands = parseRequiredAllowlist(
   "ALLOWED_AGENT_COMMANDS",
@@ -272,11 +144,20 @@ const allowedEnvKeys = parseRequiredAllowlist(
   allowlistErrors
 );
 if (allowlistErrors.length > 0) {
+  const bootConfigHint = bootConfig.sourcePath
+    ? `Loaded boot config from: ${bootConfig.sourcePath}`
+    : `No settings.json boot config found. Searched: ${bootConfig.searchedPaths.join(", ")}`;
+  const configInputHint =
+    bootConfig.mode === "compiled"
+      ? 'Compiled mode ignores env var overrides. Configure these in settings.json under "boot".'
+      : "You can configure these via env vars or settings.json (boot.ALLOWED_*).";
   throw new Error(
     [
       "[Config] Invalid required allowlist configuration:",
       ...allowlistErrors.map((error) => `- ${error}`),
       "Expected format: NAME=item1,item2,item3",
+      configInputHint,
+      bootConfigHint,
     ].join("\n")
   );
 }
@@ -304,6 +185,10 @@ if (authTrustedOrigins[0] !== "*") {
  * All values have sensible defaults
  */
 export const ENV = {
+  /** Boot configuration mode controlling env override behavior */
+  bootMode: bootConfig.mode,
+  /** True when running in strict compiled configuration mode */
+  isCompiledConfigMode: bootConfig.mode === "compiled",
   /** Runtime environment */
   runtimeEnv,
   /** True when running in development or test modes */
@@ -319,6 +204,11 @@ export const ENV = {
   sessionBufferLimit: toNumber(
     env.SESSION_BUFFER_LIMIT,
     DEFAULT_SESSION_BUFFER_LIMIT
+  ),
+  /** Timeout while waiting to acquire per-chat session lock */
+  sessionLockAcquireTimeoutMs: toPositiveInt(
+    env.SESSION_LOCK_ACQUIRE_TIMEOUT_MS,
+    DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS
   ),
   /** WebSocket heartbeat interval in milliseconds */
   wsHeartbeatIntervalMs: toNumber(
@@ -364,7 +254,7 @@ export const ENV = {
     HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT
   ),
   /** Better Auth secret (persisted or env) */
-  authSecret: env.AUTH_SECRET ?? env.BETTER_AUTH_SECRET,
+  authSecret: env.AUTH_SECRET,
   /** Better Auth base URL */
   authBaseUrl,
   /** Better Auth trusted origins */
@@ -400,6 +290,8 @@ export const ENV = {
     defaultApiKeyRateLimitMaxRequests,
   /** Log buffer max entries */
   logBufferLimit: toNumber(env.LOG_BUFFER_LIMIT, DEFAULT_LOG_BUFFER_LIMIT),
+  /** Global minimum log level for emitted server logs */
+  logLevel: toLogLevel(env.LOG_LEVEL, DEFAULT_APP_LOG_LEVEL as LogLevel),
   /** Log flush interval in milliseconds */
   logFlushIntervalMs: toNumber(
     env.LOG_FLUSH_INTERVAL_MS,
@@ -409,6 +301,15 @@ export const ENV = {
   logRetentionDays: toOptionalNumber(env.LOG_RETENTION_DAYS),
   /** Enable log file sink */
   logFileEnabled: toBoolean(env.LOG_FILE_ENABLED, true),
+  /** Runtime max-tokens hint for prompt requests */
+  maxTokens: toBoundedPositiveInt(
+    env.MAX_TOKENS,
+    DEFAULT_APP_MAX_TOKENS,
+    1,
+    HARD_MAX_APP_MAX_TOKENS
+  ),
+  /** Preferred default model for new sessions when available */
+  defaultModel: toTrimmedString(env.DEFAULT_MODEL, DEFAULT_APP_DEFAULT_MODEL),
   /** Enable background runner */
   backgroundEnabled: toBoolean(env.BACKGROUND_ENABLED, true),
   /** Background runner tick interval in milliseconds */
@@ -433,67 +334,74 @@ export const ENV = {
   ),
   /** Interval for sqlite maintenance task in milliseconds */
   backgroundSqliteMaintenanceIntervalMs: toNumber(
-    env.BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS,
-    DEFAULT_BACKGROUND_SQLITE_MAINTENANCE_INTERVAL_MS
+    env.BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
+    DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS
   ),
   /** Cooldown before retrying a failed SQLite init */
   sqliteInitRetryCooldownMs: toNumber(
-    env.SQLITE_INIT_RETRY_COOLDOWN_MS,
-    DEFAULT_SQLITE_INIT_RETRY_COOLDOWN_MS
+    env.STORAGE_INIT_RETRY_COOLDOWN_MS,
+    DEFAULT_STORAGE_INIT_RETRY_COOLDOWN_MS
   ),
   /** SQLite busy timeout in milliseconds */
   sqliteBusyTimeoutMs: toPositiveInt(
-    env.SQLITE_BUSY_TIMEOUT_MS,
-    DEFAULT_SQLITE_BUSY_TIMEOUT_MS
+    env.STORAGE_BUSY_TIMEOUT_MS,
+    DEFAULT_STORAGE_BUSY_TIMEOUT_MS
   ),
   /** Maximum retries for SQLITE_BUSY operations */
   sqliteBusyMaxRetries: toPositiveInt(
-    env.SQLITE_BUSY_MAX_RETRIES,
-    DEFAULT_SQLITE_BUSY_MAX_RETRIES
+    env.STORAGE_BUSY_MAX_RETRIES,
+    DEFAULT_STORAGE_BUSY_MAX_RETRIES
   ),
   /** Base delay for SQLITE_BUSY retry backoff */
   sqliteBusyRetryBaseDelayMs: toPositiveInt(
-    env.SQLITE_BUSY_RETRY_BASE_DELAY_MS,
-    DEFAULT_SQLITE_BUSY_RETRY_BASE_DELAY_MS
+    env.STORAGE_BUSY_RETRY_BASE_DELAY_MS,
+    DEFAULT_STORAGE_BUSY_RETRY_BASE_DELAY_MS
+  ),
+  /** Maximum SQLite bind parameters per statement */
+  sqliteMaxBindParams: toBoundedPositiveInt(
+    env.STORAGE_MAX_BIND_PARAMS,
+    DEFAULT_STORAGE_MAX_BIND_PARAMS,
+    1,
+    HARD_MAX_STORAGE_MAX_BIND_PARAMS
   ),
   /** Minimum free pages before incremental vacuum kicks in */
   sqliteIncrementalVacuumMinFreePages: toPositiveInt(
-    env.SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES,
-    DEFAULT_SQLITE_INCREMENTAL_VACUUM_MIN_FREE_PAGES
+    env.STORAGE_INCREMENTAL_VACUUM_MIN_FREE_PAGES,
+    DEFAULT_STORAGE_INCREMENTAL_VACUUM_MIN_FREE_PAGES
   ),
   /** Maximum pages reclaimed per incremental vacuum pass */
   sqliteIncrementalVacuumStepPages: toPositiveInt(
-    env.SQLITE_INCREMENTAL_VACUUM_STEP_PAGES,
-    DEFAULT_SQLITE_INCREMENTAL_VACUUM_STEP_PAGES
+    env.STORAGE_INCREMENTAL_VACUUM_STEP_PAGES,
+    DEFAULT_STORAGE_INCREMENTAL_VACUUM_STEP_PAGES
   ),
   /** Interval between WAL checkpoints in milliseconds */
   sqliteWalCheckpointIntervalMs: toPositiveInt(
-    env.SQLITE_WAL_CHECKPOINT_INTERVAL_MS,
-    DEFAULT_SQLITE_WAL_CHECKPOINT_INTERVAL_MS
+    env.STORAGE_WAL_CHECKPOINT_INTERVAL_MS,
+    DEFAULT_STORAGE_WAL_CHECKPOINT_INTERVAL_MS
   ),
   /** Number of days to retain full message payload before compaction */
   sqliteRetentionHotDays: toPositiveInt(
-    env.SQLITE_RETENTION_HOT_DAYS,
-    DEFAULT_SQLITE_RETENTION_HOT_DAYS
+    env.STORAGE_RETENTION_HOT_DAYS,
+    DEFAULT_STORAGE_RETENTION_HOT_DAYS
   ),
   /** Maximum compacted rows per maintenance batch */
   sqliteRetentionCompactionBatchSize: toBoundedPositiveInt(
-    env.SQLITE_RETENTION_COMPACTION_BATCH_SIZE,
-    DEFAULT_SQLITE_RETENTION_COMPACTION_BATCH_SIZE,
+    env.STORAGE_RETENTION_COMPACTION_BATCH_SIZE,
+    DEFAULT_STORAGE_RETENTION_COMPACTION_BATCH_SIZE,
     1,
-    HARD_MAX_SQLITE_RETENTION_COMPACTION_BATCH_SIZE
+    HARD_MAX_STORAGE_RETENTION_COMPACTION_BATCH_SIZE
   ),
   /** Soft alert threshold for SQLite DB size */
   sqliteMaxDbSizeMb: toPositiveInt(
-    env.SQLITE_MAX_DB_SIZE_MB,
-    DEFAULT_SQLITE_MAX_DB_SIZE_MB
+    env.STORAGE_MAX_DB_SIZE_MB,
+    DEFAULT_STORAGE_MAX_DB_SIZE_MB
   ),
   /** Enable SQLite worker-thread request offloading */
   sqliteWorkerEnabled,
   /** Timeout for one SQLite worker request in milliseconds */
   sqliteWorkerRequestTimeoutMs: toPositiveInt(
-    env.SQLITE_WORKER_REQUEST_TIMEOUT_MS,
-    DEFAULT_SQLITE_WORKER_REQUEST_TIMEOUT_MS
+    env.STORAGE_WORKER_REQUEST_TIMEOUT_MS,
+    DEFAULT_STORAGE_WORKER_REQUEST_TIMEOUT_MS
   ),
   /** Maximum bytes allowed for plain message content */
   messageContentMaxBytes: toPositiveInt(
@@ -516,5 +424,5 @@ export const ENV = {
     DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS
   ),
   /** Optional override path for SQLite drizzle migrations directory */
-  sqliteMigrationsDir: env.SQLITE_MIGRATIONS_DIR?.trim() || undefined,
+  sqliteMigrationsDir: env.STORAGE_MIGRATIONS_DIR?.trim() || undefined,
 };

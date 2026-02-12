@@ -15,7 +15,6 @@
 import type { Context, Hono } from "hono";
 import { isAppError } from "../../../shared/errors";
 import { parseArgsInput } from "../../../shared/utils/cli-args.util";
-import { getAuthContextFromRequest } from "../utils/auth";
 import type { HttpRouteDependencies } from "./deps";
 
 /** Valid agent types */
@@ -33,9 +32,12 @@ type AgentType = (typeof VALID_AGENT_TYPES)[number];
  */
 export function registerAgentRoutes(
   api: Hono,
-  deps: Pick<HttpRouteDependencies, "agentServices" | "logger">
+  deps: Pick<
+    HttpRouteDependencies,
+    "agentServices" | "logger" | "resolveAuthContext"
+  >
 ): void {
-  const { agentServices, logger } = deps;
+  const { agentServices, logger, resolveAuthContext } = deps;
 
   // =========================================================================
   // API Routes
@@ -45,7 +47,7 @@ export function registerAgentRoutes(
    * GET /api/agents - List all agent configurations
    */
   api.get("/agents", async (c: Context) => {
-    const auth = await getAuthContextFromRequest({
+    const auth = await resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
     });
@@ -62,7 +64,7 @@ export function registerAgentRoutes(
    */
   api.post("/agents", async (c: Context) => {
     try {
-      const auth = await getAuthContextFromRequest({
+      const auth = await resolveAuthContext({
         headers: c.req.raw.headers,
         url: c.req.raw.url,
       });
@@ -127,7 +129,7 @@ export function registerAgentRoutes(
    */
   api.put("/agents", async (c: Context) => {
     try {
-      const auth = await getAuthContextFromRequest({
+      const auth = await resolveAuthContext({
         headers: c.req.raw.headers,
         url: c.req.raw.url,
       });
@@ -195,7 +197,7 @@ export function registerAgentRoutes(
    */
   api.delete("/agents", async (c: Context) => {
     try {
-      const auth = await getAuthContextFromRequest({
+      const auth = await resolveAuthContext({
         headers: c.req.raw.headers,
         url: c.req.raw.url,
       });

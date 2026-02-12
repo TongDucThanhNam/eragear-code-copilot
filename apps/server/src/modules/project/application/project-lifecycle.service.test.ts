@@ -103,6 +103,14 @@ function createSettingsRepoStub(roots: string[]): SettingsRepositoryPort {
       },
       projectRoots: roots,
       mcpServers: [],
+      app: {
+        sessionIdleTimeoutMs: 10 * 60 * 1000,
+        sessionListPageMaxLimit: 500,
+        sessionMessagesPageMaxLimit: 200,
+        logLevel: "info",
+        maxTokens: 8192,
+        defaultModel: "",
+      },
     }),
     update: (_patch) => Promise.reject(new Error("Not implemented")),
   };

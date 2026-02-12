@@ -6,11 +6,11 @@ import {
   type TabKey,
 } from "@/presentation/dashboard/dashboard-data";
 import type { DashboardBootstrap } from "@/presentation/dashboard/dashboard-types";
+import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import type {
   DashboardViewActions,
   DashboardViewState,
 } from "@/presentation/dashboard/dashboard-view.contract";
-import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import { normalizeTab } from "@/presentation/dashboard/utils";
 import type { Settings } from "@/shared/types/settings.types";
 
@@ -55,6 +55,14 @@ const FALLBACK_SETTINGS: Settings = {
   },
   projectRoots: [],
   mcpServers: [],
+  app: {
+    sessionIdleTimeoutMs: 10 * 60 * 1000,
+    sessionListPageMaxLimit: 500,
+    sessionMessagesPageMaxLimit: 200,
+    logLevel: "info",
+    maxTokens: 8192,
+    defaultModel: "",
+  },
 };
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -454,10 +462,12 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
 
   const handleRevokeDeviceSession = useCallback(
     async (token: string) => {
-       // Optimistic update
-       setDashboardData((prev) => ({
+      // Optimistic update
+      setDashboardData((prev) => ({
         ...prev,
-        deviceSessions: prev.deviceSessions.filter((s) => s.session.token !== token),
+        deviceSessions: prev.deviceSessions.filter(
+          (s) => s.session.token !== token
+        ),
       }));
 
       try {

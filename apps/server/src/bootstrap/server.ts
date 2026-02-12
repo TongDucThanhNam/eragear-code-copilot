@@ -17,22 +17,9 @@ import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { createElement, Fragment } from "react";
 import { WebSocketServer } from "ws";
-import { ENV } from "../config/environment";
-import { auth, authConfig, authDb, authState } from "../platform/auth/auth";
-import { ensureAuthSetup } from "../platform/auth/bootstrap";
-import {
-  BackgroundRunner,
-  createCachePruneTask,
-  createSessionIdleCleanupTask,
-  createSqliteStorageMaintenanceTask,
-} from "../platform/background";
 import { installConsoleLogger } from "../platform/logging/logger";
 import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
-import { closeSqliteStorage } from "../platform/storage/sqlite-db";
-import { runSqliteRuntimeMaintenance } from "../platform/storage/sqlite-store";
-import { ensureTenantOwnershipBackfill } from "../platform/storage/tenant-ownership";
-import { terminateSessionTerminals } from "../shared/utils/session-cleanup.util";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
 import { requestIdMiddleware } from "../transport/http/request-id";
@@ -52,22 +39,38 @@ import {
 } from "./composition";
 
 const logger = createLogger("Server");
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const SHUTDOWN_COMPACTION_MAX_BUDGET_MS = 5000;
+
+export interface ServerRuntimePolicy {
+  wsHost: string;
+  wsPort: number;
+  wsMaxPayloadBytes: number;
+  corsStrictOrigin: boolean;
+  authAllowSignup: boolean;
+  isDev: boolean;
+  defaultAdminUsername: string;
+}
 
 function createHttpRouteDependencies(
-  deps: AppDependencies
+  deps: AppDependencies,
+  runtimePolicy: ServerRuntimePolicy
 ): HttpRouteDependencies {
   return {
     sessionServices: deps.sessionServices,
     projectServices: deps.projectServices,
     agentServices: deps.agentServices,
     settingsServices: deps.settingsServices,
+    appConfig: deps.appConfig,
     opsServices: deps.opsServices,
     eventBus: deps.eventBus,
     logStore: deps.logStore,
     logger: deps.appLogger,
-    auth: deps.auth as HttpRouteDependencies["auth"],
+    auth: deps.auth as unknown as HttpRouteDependencies["auth"],
+    authState: deps.authRuntime.authState,
+    runtime: {
+      isDev: runtimePolicy.isDev,
+      defaultAdminUsername: runtimePolicy.defaultAdminUsername,
+    },
+    resolveAuthContext: deps.resolveAuthContext,
   };
 }
 
@@ -81,27 +84,13 @@ function createTrpcContextDependencies(
     agentServices: deps.agentServices,
     toolingServices: deps.toolingServices,
     settingsServices: deps.settingsServices,
-    authDb: deps.authDb as TrpcContextDependencies["authDb"],
+    authServices: deps.authServices,
+    appConfig: deps.appConfig,
     resolveAuthContext: deps.resolveAuthContext,
     ensureUserDefaults: async (userId) => {
       await deps.agentServices.ensureAgentDefaults().execute(userId);
     },
   };
-}
-
-function resolvePrimaryAuthUserId(): string | null {
-  try {
-    const row = authDb
-      .prepare('SELECT id FROM "user" ORDER BY createdAt ASC LIMIT 1')
-      .get() as { id?: string } | undefined;
-    if (typeof row?.id !== "string") {
-      return null;
-    }
-    const normalized = row.id.trim();
-    return normalized.length > 0 ? normalized : null;
-  } catch {
-    return null;
-  }
 }
 
 async function pipeResponseBody(
@@ -153,9 +142,10 @@ async function pipeResponseBody(
 export async function createApp(composition?: AppComposition) {
   const resolvedComposition =
     composition ?? (await createAppCompositionFromSettings());
+  const runtimePolicy = resolvedComposition.runtimePolicy;
   const deps = resolvedComposition.deps;
-  const httpDeps = createHttpRouteDependencies(deps);
-  await deps.sessionServices.reconcileSessionStatus().execute();
+  const authRuntime = deps.authRuntime;
+  const httpDeps = createHttpRouteDependencies(deps, runtimePolicy);
 
   const app = new Hono();
   app.use(
@@ -182,8 +172,8 @@ export async function createApp(composition?: AppComposition) {
 
   // Create reusable CORS middleware factory
   const corsMiddleware = createCorsMiddlewares(
-    authConfig.trustedOrigins,
-    ENV.corsStrictOrigin
+    authRuntime.authConfig.trustedOrigins,
+    runtimePolicy.corsStrictOrigin
   );
 
   // Apply API CORS defaults (auth/health override below)
@@ -204,7 +194,7 @@ export async function createApp(composition?: AppComposition) {
     if (path === "/api/auth/api-key/verify" && c.req.method === "POST") {
       try {
         const body = await c.req.json();
-        const result = await auth.api.verifyApiKey({
+        const result = await authRuntime.auth.api.verifyApiKey({
           body,
         });
         return c.json(result);
@@ -221,14 +211,14 @@ export async function createApp(composition?: AppComposition) {
     }
 
     if (
-      !ENV.authAllowSignup &&
-      authState.hasUsers &&
+      !runtimePolicy.authAllowSignup &&
+      authRuntime.authState.hasUsers &&
       (isSignup || isUsernameAvailability)
     ) {
       return c.json({ error: "Sign-up is disabled" }, 403);
     }
 
-    return await auth.handler(c.req.raw);
+    return await authRuntime.auth.handler(c.req.raw);
   });
 
   app.get("/api/health", (c) => {
@@ -276,36 +266,17 @@ export async function createApp(composition?: AppComposition) {
  */
 export async function startServer() {
   installConsoleLogger();
-  await ensureAuthSetup();
-  const primaryUserId = resolvePrimaryAuthUserId();
-  if (!primaryUserId) {
-    throw new Error("Cannot start server: no auth user available");
-  }
-  await ensureTenantOwnershipBackfill(primaryUserId);
   const composition = await createAppCompositionFromSettings();
+  const runtimePolicy = composition.runtimePolicy;
   const deps = composition.deps;
+  await deps.lifecycle.prepareStartup();
   const trpcDeps = createTrpcContextDependencies(deps);
   const app = await createApp(composition);
-  const backgroundRunner = new BackgroundRunner();
-  backgroundRunner.register(
-    createSessionIdleCleanupTask({
-      sessionRuntime: deps.sessionRuntime,
-      sessionRepo: deps.sessionRepo,
-    })
-  );
-  backgroundRunner.register(
-    createSqliteStorageMaintenanceTask({
-      sessionRepo: deps.sessionRepo,
-      sessionRuntime: deps.sessionRuntime,
-      compactSessionMessages: deps.sessionServices.compactSessionMessages(),
-    })
-  );
-  backgroundRunner.register(createCachePruneTask());
-  deps.setBackgroundRunnerStateProvider(() => backgroundRunner.getState());
-  backgroundRunner.start();
+  deps.lifecycle.startBackground();
 
   const server = createServer(async (req, res) => {
-    const host = req.headers.host ?? `${ENV.wsHost}:${ENV.wsPort}`;
+    const host =
+      req.headers.host ?? `${runtimePolicy.wsHost}:${runtimePolicy.wsPort}`;
     const url = new URL(req.url ?? "/", `http://${host}`);
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers)) {
@@ -340,7 +311,7 @@ export async function startServer() {
 
   const wss = new WebSocketServer({
     noServer: true,
-    maxPayload: ENV.wsMaxPayloadBytes,
+    maxPayload: runtimePolicy.wsMaxPayloadBytes,
   });
   server.on("upgrade", (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) => {
@@ -357,11 +328,11 @@ export async function startServer() {
       }),
   });
 
-  server.listen(ENV.wsPort, ENV.wsHost);
+  server.listen(runtimePolicy.wsPort, runtimePolicy.wsHost);
 
   logger.info("HTTP + WebSocket server started", {
-    host: ENV.wsHost,
-    port: ENV.wsPort,
+    host: runtimePolicy.wsHost,
+    port: runtimePolicy.wsPort,
   });
 
   let shuttingDown = false;
@@ -371,55 +342,8 @@ export async function startServer() {
     }
     shuttingDown = true;
 
-    logger.info(`${signal} received, gracefully shutting down`);
-    backgroundRunner.stop();
     wsHandler.broadcastReconnectNotification();
-
-    const sessionRuntime = deps.sessionRuntime;
-    const sessionRepo = deps.sessionRepo;
-    const compactSessionMessagesService =
-      deps.sessionServices.compactSessionMessages();
-    for (const session of sessionRuntime.getAll()) {
-      terminateSessionTerminals(session);
-      if (!session.proc.killed) {
-        session.proc.kill("SIGTERM");
-      }
-      sessionRuntime.delete(session.id);
-      await sessionRepo.updateStatus(session.id, session.userId, "stopped");
-    }
-
-    const compactBeforeTs =
-      Date.now() - Math.max(1, ENV.sqliteRetentionHotDays) * MS_PER_DAY;
-    const shutdownBudgetMs = Math.min(
-      SHUTDOWN_COMPACTION_MAX_BUDGET_MS,
-      Math.max(1, ENV.backgroundTaskTimeoutMs)
-    );
-    const shutdownDeadline = Date.now() + shutdownBudgetMs;
-    let compactedTotal = 0;
-    while (Date.now() < shutdownDeadline) {
-      const result = await compactSessionMessagesService.execute({
-        beforeTimestamp: compactBeforeTs,
-        batchSize: ENV.sqliteRetentionCompactionBatchSize,
-      });
-      compactedTotal += result.compacted;
-      if (result.compacted === 0) {
-        break;
-      }
-    }
-    if (compactedTotal > 0) {
-      logger.info("Shutdown storage compaction completed", {
-        compactedTotal,
-        budgetMs: shutdownBudgetMs,
-      });
-    }
-
-    try {
-      await runSqliteRuntimeMaintenance();
-    } catch (error) {
-      logger.warn("SQLite runtime maintenance failed during shutdown", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await deps.lifecycle.shutdown(signal);
 
     await new Promise<void>((resolve) => {
       wss.close(() => resolve());
@@ -427,7 +351,6 @@ export async function startServer() {
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
-    await closeSqliteStorage();
   };
 
   process.on("SIGTERM", () => {
@@ -442,12 +365,4 @@ export async function startServer() {
   });
 
   return { server, wsHandler };
-}
-
-// Start server if run directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  startServer().catch((err) => {
-    logger.error("Failed to start server", err as Error);
-    process.exit(1);
-  });
 }

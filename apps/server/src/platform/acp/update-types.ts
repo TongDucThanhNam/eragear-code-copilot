@@ -17,7 +17,7 @@ export interface SessionUpdateContext {
   finalizeStreamingForCurrentAssistant: (
     chatId: string,
     sessionRuntime: SessionRuntimePort
-  ) => void;
+  ) => Promise<void>;
 }
 
 export function isToolCallUpdate(

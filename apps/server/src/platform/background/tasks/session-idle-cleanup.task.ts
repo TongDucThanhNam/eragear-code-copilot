@@ -11,6 +11,7 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import type { AppConfigService } from "@/modules/settings";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BackgroundTaskSpec } from "@/shared/types/background.types";
 import { terminateSessionTerminals } from "@/shared/utils/session-cleanup.util";
@@ -20,14 +21,16 @@ const logger = createLogger("Server");
 export function createSessionIdleCleanupTask(params: {
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
+  appConfig: AppConfigService;
 }): BackgroundTaskSpec {
-  const { sessionRuntime, sessionRepo } = params;
+  const { sessionRuntime, sessionRepo, appConfig } = params;
 
   return {
     name: "session-idle-cleanup",
     intervalMs: ENV.backgroundSessionCleanupIntervalMs,
     run: async () => {
       const now = Date.now();
+      const runtimeConfig = appConfig.getConfig();
       let checked = 0;
       let cleaned = 0;
 
@@ -44,7 +47,7 @@ export function createSessionIdleCleanupTask(params: {
           continue;
         }
 
-        if (now - session.idleSinceAt < ENV.sessionIdleTimeoutMs) {
+        if (now - session.idleSinceAt < runtimeConfig.sessionIdleTimeoutMs) {
           continue;
         }
 

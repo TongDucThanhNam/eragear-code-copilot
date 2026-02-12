@@ -12,7 +12,6 @@
 
 import type { Context, Hono } from "hono";
 import { isAppError } from "../../../shared/errors";
-import { getAuthContextFromRequest } from "../utils/auth";
 import type { HttpRouteDependencies } from "./deps";
 
 /**
@@ -20,9 +19,12 @@ import type { HttpRouteDependencies } from "./deps";
  */
 export function registerProjectRoutes(
   api: Hono,
-  deps: Pick<HttpRouteDependencies, "projectServices" | "logger">
+  deps: Pick<
+    HttpRouteDependencies,
+    "projectServices" | "logger" | "resolveAuthContext"
+  >
 ): void {
-  const { projectServices, logger } = deps;
+  const { projectServices, logger, resolveAuthContext } = deps;
 
   // =========================================================================
   // API Routes
@@ -33,7 +35,7 @@ export function registerProjectRoutes(
    */
   api.post("/projects", async (c: Context) => {
     try {
-      const auth = await getAuthContextFromRequest({
+      const auth = await resolveAuthContext({
         headers: c.req.raw.headers,
         url: c.req.raw.url,
       });
@@ -78,7 +80,7 @@ export function registerProjectRoutes(
    */
   api.delete("/projects", async (c: Context) => {
     try {
-      const auth = await getAuthContextFromRequest({
+      const auth = await resolveAuthContext({
         headers: c.req.raw.headers,
         url: c.req.raw.url,
       });

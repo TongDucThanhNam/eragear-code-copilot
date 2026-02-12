@@ -10,11 +10,6 @@
 
 import { observable } from "@trpc/server/observable";
 import {
-  DEFAULT_SESSION_LIST_PAGE_LIMIT,
-  DEFAULT_SESSION_MESSAGES_PAGE_LIMIT,
-} from "@/config/constants";
-import { ENV } from "@/config/environment";
-import {
   CreateSessionInputSchema,
   ListSessionsInputSchema,
   SessionChatIdInputSchema,
@@ -94,28 +89,32 @@ export const sessionRouter = router({
   getSessions: protectedProcedure
     .input(ListSessionsInputSchema)
     .query(async ({ ctx, input }) => {
-      const limit = input?.limit ?? DEFAULT_SESSION_LIST_PAGE_LIMIT;
-      const offset = input?.offset ?? 0;
-
+      const runtimeConfig = ctx.appConfig.getConfig();
       const service = ctx.sessionServices.listSessions();
-      return await service.execute(requireUserId(ctx), {
-        limit: Math.min(limit, ENV.sessionListPageMaxLimit),
-        offset,
-      });
+      return await service.execute(
+        requireUserId(ctx),
+        {
+          limit: input?.limit,
+          offset: input?.offset,
+        },
+        runtimeConfig.sessionListPageMaxLimit
+      );
     }),
 
   /** List sessions with cursor pagination (preferred for large datasets). */
   getSessionsPage: protectedProcedure
     .input(SessionListPageInputSchema)
     .query(async ({ ctx, input }) => {
+      const runtimeConfig = ctx.appConfig.getConfig();
       const service = ctx.sessionServices.listSessions();
-      return await service.executePage(requireUserId(ctx), {
-        limit: Math.min(
-          input?.limit ?? DEFAULT_SESSION_LIST_PAGE_LIMIT,
-          ENV.sessionListPageMaxLimit
-        ),
-        cursor: input?.cursor,
-      });
+      return await service.executePage(
+        requireUserId(ctx),
+        {
+          limit: input?.limit,
+          cursor: input?.cursor,
+        },
+        runtimeConfig.sessionListPageMaxLimit
+      );
     }),
 
   /** Update session metadata (name, pinned, archived) */
@@ -126,46 +125,18 @@ export const sessionRouter = router({
       return await service.execute({ ...input, userId: requireUserId(ctx) });
     }),
 
-  /** @deprecated Use getSessionMessagesPage for paginated history retrieval. */
-  getSessionMessages: protectedProcedure
-    .input(SessionChatIdInputSchema)
-    .query(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.getSessionMessages();
-      const messages: Awaited<ReturnType<typeof service.execute>>["messages"] =
-        [];
-      let cursor: number | undefined;
-
-      while (true) {
-        const page = await service.execute({
-          userId: requireUserId(ctx),
-          chatId: input.chatId,
-          cursor,
-          limit: ENV.sessionMessagesPageMaxLimit,
-          includeCompacted: true,
-        });
-        messages.push(...page.messages);
-        if (!page.hasMore || page.nextCursor === undefined) {
-          break;
-        }
-        cursor = page.nextCursor;
-      }
-
-      return messages;
-    }),
-
   /** Get paginated session message history */
   getSessionMessagesPage: protectedProcedure
     .input(SessionMessagesPageInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.getSessionMessages();
+      const runtimeConfig = ctx.appConfig.getConfig();
+      const service = ctx.sessionServices.getSessionMessagesPage();
       return await service.execute({
         userId: requireUserId(ctx),
         chatId: input.chatId,
         cursor: input.cursor,
-        limit: Math.min(
-          input.limit ?? DEFAULT_SESSION_MESSAGES_PAGE_LIMIT,
-          ENV.sessionMessagesPageMaxLimit
-        ),
+        limit: input.limit,
+        maxLimit: runtimeConfig.sessionMessagesPageMaxLimit,
         includeCompacted: input.includeCompacted ?? true,
       });
     }),

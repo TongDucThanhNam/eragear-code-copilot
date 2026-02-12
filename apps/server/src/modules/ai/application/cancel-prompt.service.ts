@@ -9,7 +9,6 @@
 
 import type { SessionRuntimePort } from "@/modules/session";
 import { AppError } from "@/shared/errors";
-import { AiChatSessionAggregate } from "../domain/ai-chat-session.aggregate";
 import { AI_OP, HTTP_STATUS } from "./ai.constants";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { AiSessionRuntimeError } from "./ports/ai-session-runtime.port";
@@ -29,15 +28,14 @@ export class CancelPromptService {
   }
 
   async execute(userId: string, chatId: string) {
-    const session = this.sessionGateway.requireAuthorizedSession({
+    const aggregate = this.sessionGateway.requireAuthorizedRuntime({
       userId,
       chatId,
       module: "ai",
       op: OP,
     });
-
-    const aggregate = new AiChatSessionAggregate(session);
-    aggregate.markCancelling({
+    const session = aggregate.raw;
+    await aggregate.markCancelling({
       chatId,
       broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
     });

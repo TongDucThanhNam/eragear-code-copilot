@@ -17,5 +17,5 @@ export interface SessionRuntimePort {
   /** Execute work under a per-chat exclusive lock */
   runExclusive<T>(chatId: string, work: () => Promise<T>): Promise<T>;
   /** Broadcast an event to a session's subscribers */
-  broadcast(chatId: string, event: unknown): void;
+  broadcast(chatId: string, event: unknown): Promise<void>;
 }

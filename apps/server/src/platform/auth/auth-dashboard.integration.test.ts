@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -58,8 +58,28 @@ function signIn(username: string, password: string): Promise<Response> {
 
 beforeAll(async () => {
   tempDir = mkdtempSync(path.join(os.tmpdir(), "eragear-auth-dashboard-"));
+  const bootConfigPath = path.join(tempDir, "settings.json");
+  writeFileSync(
+    bootConfigPath,
+    JSON.stringify(
+      {
+        boot: {
+          mode: "standard",
+          ALLOWED_AGENT_COMMANDS: ["bun"],
+          ALLOWED_TERMINAL_COMMANDS: ["bun"],
+          ALLOWED_ENV_KEYS: ["PATH"],
+          WS_HOST: "127.0.0.1",
+          WS_PORT: 3010,
+        },
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
 
   process.env.NODE_ENV = "development";
+  process.env.ERAGEAR_BOOT_CONFIG_PATH = bootConfigPath;
   process.env.AUTH_DB_PATH = path.join(tempDir, "auth.sqlite");
   process.env.ERAGEAR_STORAGE_DIR = path.join(tempDir, "storage");
   process.env.AUTH_ADMIN_USERNAME = TEST_ADMIN_USERNAME;
@@ -67,20 +87,25 @@ beforeAll(async () => {
   process.env.AUTH_BASE_URL = TEST_BASE_URL;
   process.env.AUTH_TRUSTED_ORIGINS = TEST_BASE_URL;
   process.env.AUTH_ALLOW_SIGNUP = "false";
-  process.env.BETTER_AUTH_SECRET = "auth-dashboard-integration-secret";
+  process.env.AUTH_SECRET = "auth-dashboard-integration-secret";
   process.env.LOG_FILE_ENABLED = "false";
 
   const stamp = Date.now().toString();
-  const authBootstrap = await import(`./bootstrap.ts?integration=${stamp}`);
+  const compositionBootstrap = await import(
+    `../../bootstrap/composition.ts?integration=${stamp}`
+  );
   const serverBootstrap = await import(
     `../../bootstrap/server.ts?integration=${stamp}`
   );
 
-  await authBootstrap.ensureAuthSetup();
-  app = (await serverBootstrap.createApp()) as AppWithFetch;
+  const composition =
+    await compositionBootstrap.createAppCompositionFromSettings();
+  await composition.deps.lifecycle.prepareStartup();
+  app = (await serverBootstrap.createApp(composition)) as AppWithFetch;
 });
 
 afterAll(() => {
+  process.env.ERAGEAR_BOOT_CONFIG_PATH = undefined;
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
   }

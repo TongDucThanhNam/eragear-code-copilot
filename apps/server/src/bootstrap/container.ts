@@ -26,6 +26,7 @@ import {
 } from "@/modules/ai";
 import { AiSessionRuntimeAdapter } from "@/modules/ai/di";
 import {
+  DashboardEventVisibilityService,
   GetDashboardPageDataService,
   GetDashboardStatsService,
   GetObservabilitySnapshotService,
@@ -51,6 +52,7 @@ import type {
 } from "@/modules/service-factories";
 import {
   type AgentRuntimePort,
+  BootstrapSessionConnectionService,
   CleanupProjectSessionsService,
   CompactSessionMessagesService,
   CreateSessionService,
@@ -59,6 +61,7 @@ import {
   GetSessionStateService,
   GetSessionStorageStatsService,
   ListSessionsService,
+  PersistSessionBootstrapService,
   ReconcileSessionStatusService,
   ResumeSessionService,
   SessionAcpBootstrapService,
@@ -67,17 +70,18 @@ import {
   SessionMcpConfigService,
   SessionMessageMapper,
   SessionMetadataPersistenceService,
-  SessionOrchestratorService,
   SessionProcessLifecycleService,
   SessionProjectContextResolverService,
   type SessionRepositoryPort,
   SessionRuntimeBootstrapService,
   type SessionRuntimePort,
+  SpawnSessionProcessService,
   StopSessionService,
   SubscribeSessionEventsService,
   UpdateSessionMetaService,
 } from "@/modules/session";
 import {
+  type AppConfigService,
   GetSettingsService,
   type SettingsRepositoryPort,
   UpdateSettingsService,
@@ -91,10 +95,6 @@ import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
-import type {
-  authDb as authDbType,
-  auth as authServiceType,
-} from "../platform/auth/auth";
 import type { AuthContext } from "../platform/auth/guards";
 import { getResponseCache } from "../platform/caching/response-cache";
 import type { CacheStats } from "../platform/caching/types";
@@ -120,11 +120,10 @@ export interface ContainerDependencies {
   projectRepo: ProjectRepositoryPort;
   agentRepo: AgentRepositoryPort;
   settingsRepo: SettingsRepositoryPort;
+  appConfigService: AppConfigService;
   gitAdapter: GitAdapter;
   agentRuntimeAdapter: AgentRuntimePort;
   sessionAcpAdapter: SessionAcpPort;
-  authService: typeof authServiceType;
-  authDb: typeof authDbType;
   resolveAuthContext: (req?: {
     headers: Headers | Record<string, string | string[] | undefined>;
     url?: string;
@@ -147,14 +146,12 @@ export class Container {
   private readonly appLogger: LoggerPort;
   /** Clock for deterministic time usage in services */
   private readonly clock: ClockPort;
-  /** Auth service runtime */
-  private readonly authService: typeof authServiceType;
-  /** Auth database runtime */
-  private readonly authDbInstance: typeof authDbType;
   /** Auth context resolver */
   private readonly authContextResolver: ContainerDependencies["resolveAuthContext"];
   /** Policy for send-message use-case */
   private readonly sendMessagePolicy: SendMessagePolicy;
+  /** Runtime app configuration service */
+  private readonly appConfigService: AppConfigService;
   /** Background runner state provider */
   private backgroundRunnerStateProvider:
     | (() => BackgroundRunnerState)
@@ -203,13 +200,12 @@ export class Container {
     this.projectRepo = deps.projectRepo;
     this.agentRepo = deps.agentRepo;
     this.settingsRepo = deps.settingsRepo;
+    this.appConfigService = deps.appConfigService;
 
     this.gitAdapter = deps.gitAdapter;
     this.agentRuntimeAdapter = deps.agentRuntimeAdapter;
     this.sessionAcpAdapter = deps.sessionAcpAdapter;
 
-    this.authService = deps.authService;
-    this.authDbInstance = deps.authDb;
     this.authContextResolver = deps.resolveAuthContext;
     this.sendMessagePolicy = deps.sendMessagePolicy;
   }
@@ -263,6 +259,10 @@ export class Container {
     return this.settingsRepo;
   }
 
+  getAppConfigService(): AppConfigService {
+    return this.appConfigService;
+  }
+
   getAgentRuntime(): AgentRuntimePort {
     return this.agentRuntimeAdapter;
   }
@@ -298,7 +298,10 @@ export class Container {
           this.agentRuntimeAdapter,
           mcpConfig,
           historyReplay,
-          this.appLogger
+          this.appLogger,
+          () => ({
+            defaultModel: this.appConfigService.getConfig().defaultModel,
+          })
         );
         const processLifecycle = new SessionProcessLifecycleService(
           this.sessionRuntime,
@@ -308,19 +311,26 @@ export class Container {
         const metadataPersistence = new SessionMetadataPersistenceService(
           this.sessionRepo
         );
-        const sessionOrchestrator = new SessionOrchestratorService(
-          this.sessionRepo,
-          this.sessionRuntime,
-          this.agentRuntimeAdapter,
-          runtimeBootstrap,
-          acpBootstrap,
-          processLifecycle,
+        const spawnSessionProcess = new SpawnSessionProcessService(
+          this.agentRuntimeAdapter
+        );
+        const bootstrapSessionConnection =
+          new BootstrapSessionConnectionService(
+            this.sessionRepo,
+            this.sessionRuntime,
+            runtimeBootstrap,
+            acpBootstrap,
+            processLifecycle
+          );
+        const persistSessionBootstrap = new PersistSessionBootstrapService(
           metadataPersistence
         );
 
         return new CreateSessionService(
           projectContextResolver,
-          sessionOrchestrator,
+          spawnSessionProcess,
+          bootstrapSessionConnection,
+          persistSessionBootstrap,
           this.appLogger
         );
       };
@@ -354,7 +364,7 @@ export class Container {
             this.projectRepo
           ),
         updateSessionMeta: () => new UpdateSessionMetaService(this.sessionRepo),
-        getSessionMessages: () =>
+        getSessionMessagesPage: () =>
           new GetSessionMessagesService(this.sessionRepo),
         getSessionStorageStats: () =>
           new GetSessionStorageStatsService(this.sessionRepo),
@@ -394,6 +404,9 @@ export class Container {
               acpRetryMaxAttempts: this.sendMessagePolicy.acpRetryMaxAttempts,
               acpRetryBaseDelayMs: this.sendMessagePolicy.acpRetryBaseDelayMs,
             },
+            runtimePolicyProvider: () => ({
+              maxTokens: this.appConfigService.getConfig().maxTokens,
+            }),
           });
           return new SendMessageService({
             sessionRepo: this.sessionRepo,
@@ -473,7 +486,11 @@ export class Container {
       this.settingsServices = {
         getSettings: () => new GetSettingsService(this.settingsRepo),
         updateSettings: () =>
-          new UpdateSettingsService(this.settingsRepo, this.eventBus),
+          new UpdateSettingsService(
+            this.settingsRepo,
+            this.eventBus,
+            this.appConfigService
+          ),
       };
     }
 
@@ -499,6 +516,7 @@ export class Container {
         this.projectRepo,
         this.sessionRepo
       );
+      const dashboardEventVisibility = new DashboardEventVisibilityService();
       const dashboardSessions = new ListDashboardSessionsService(
         this.projectRepo,
         this.sessionRepo,
@@ -509,6 +527,7 @@ export class Container {
         this.sessionRepo
       );
       this.opsServices = {
+        dashboardEventVisibility: () => dashboardEventVisibility,
         observabilitySnapshot: () =>
           new GetObservabilitySnapshotService({
             sessionRuntime: this.sessionRuntime,
@@ -534,14 +553,6 @@ export class Container {
 
   getGit(): GitAdapter {
     return this.gitAdapter;
-  }
-
-  getAuth() {
-    return this.authService;
-  }
-
-  getAuthDb() {
-    return this.authDbInstance;
   }
 
   getAuthContext(

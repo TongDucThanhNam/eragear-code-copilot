@@ -1,24 +1,32 @@
 import crypto from "node:crypto";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
+import type { BootstrapSessionConnectionService } from "./bootstrap-session-connection.service";
 import type { CreateSessionParams } from "./create-session.types";
-import type { SessionOrchestratorService } from "./session-orchestrator.service";
+import type { PersistSessionBootstrapService } from "./persist-session-bootstrap.service";
 import type { SessionProjectContextResolverService } from "./session-project-context-resolver.service";
+import type { SpawnSessionProcessService } from "./spawn-session-process.service";
 
 export type { CreateSessionParams } from "./create-session.types";
 
 export class CreateSessionService {
   private readonly projectContextResolver: SessionProjectContextResolverService;
-  private readonly sessionOrchestrator: SessionOrchestratorService;
+  private readonly spawnSessionProcess: SpawnSessionProcessService;
+  private readonly bootstrapSessionConnection: BootstrapSessionConnectionService;
+  private readonly persistSessionBootstrap: PersistSessionBootstrapService;
   private readonly logger: LoggerPort;
 
   constructor(
     projectContextResolver: SessionProjectContextResolverService,
-    sessionOrchestrator: SessionOrchestratorService,
+    spawnSessionProcess: SpawnSessionProcessService,
+    bootstrapSessionConnection: BootstrapSessionConnectionService,
+    persistSessionBootstrap: PersistSessionBootstrapService,
     logger: LoggerPort
   ) {
     this.projectContextResolver = projectContextResolver;
-    this.sessionOrchestrator = sessionOrchestrator;
+    this.spawnSessionProcess = spawnSessionProcess;
+    this.bootstrapSessionConnection = bootstrapSessionConnection;
+    this.persistSessionBootstrap = persistSessionBootstrap;
     this.logger = logger;
   }
 
@@ -51,14 +59,31 @@ export class CreateSessionService {
       argsCount: agentArgs.length,
     });
 
-    return this.sessionOrchestrator.execute({
-      chatId,
-      projectId,
+    const proc = this.spawnSessionProcess.execute({
       projectRoot,
-      params,
       agentCommand,
       agentArgs,
       agentEnv,
     });
+
+    const { chatSession } = await this.bootstrapSessionConnection.execute({
+      chatId,
+      projectId,
+      projectRoot,
+      params,
+      proc,
+    });
+
+    await this.persistSessionBootstrap.execute({
+      chatId,
+      projectRoot,
+      params,
+      chatSession,
+      agentCommand,
+      agentArgs,
+      agentEnv,
+    });
+
+    return chatSession;
   }
 }

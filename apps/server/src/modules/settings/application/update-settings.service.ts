@@ -1,6 +1,7 @@
 import { ValidationError } from "@/shared/errors";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { Settings } from "@/shared/types/settings.types";
+import { APP_CONFIG_KEYS, type AppConfigService } from "../app-config.service";
 import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
 
 export interface UpdateSettingsResult {
@@ -12,10 +13,16 @@ export interface UpdateSettingsResult {
 export class UpdateSettingsService {
   private readonly settingsRepo: SettingsRepositoryPort;
   private readonly eventBus: EventBusPort;
+  private readonly appConfigService: AppConfigService;
 
-  constructor(settingsRepo: SettingsRepositoryPort, eventBus: EventBusPort) {
+  constructor(
+    settingsRepo: SettingsRepositoryPort,
+    eventBus: EventBusPort,
+    appConfigService: AppConfigService
+  ) {
     this.settingsRepo = settingsRepo;
     this.eventBus = eventBus;
+    this.appConfigService = appConfigService;
   }
 
   async execute(patch: Partial<Settings>): Promise<UpdateSettingsResult> {
@@ -29,8 +36,25 @@ export class UpdateSettingsService {
       });
     }
 
+    const normalizedPatch: Partial<Settings> = {
+      ...patch,
+    };
+    if (patch.app !== undefined) {
+      try {
+        normalizedPatch.app = this.appConfigService.validatePatch(patch.app);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Invalid app configuration";
+        throw new ValidationError(message, {
+          module: "settings",
+          op: "settings.update",
+        });
+      }
+    }
+
     const current = await this.settingsRepo.get();
-    const settings = await this.settingsRepo.update(patch);
+    const settings = await this.settingsRepo.update(normalizedPatch);
+    this.appConfigService.reloadFromSettings(settings);
     const changedKeys: string[] = [];
     const requiresRestart: string[] = [];
 
@@ -51,6 +75,12 @@ export class UpdateSettingsService {
     ) {
       changedKeys.push("mcpServers");
       requiresRestart.push("mcpServers");
+    }
+
+    for (const key of APP_CONFIG_KEYS) {
+      if (current.app[key] !== settings.app[key]) {
+        changedKeys.push(`app.${key}`);
+      }
     }
 
     await this.eventBus.publish({

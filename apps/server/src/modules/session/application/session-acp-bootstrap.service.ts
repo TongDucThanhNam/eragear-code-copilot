@@ -24,6 +24,13 @@ interface SessionConnectionResult {
   models?: SessionModelState | null;
 }
 
+interface SessionModelConnection {
+  unstable_setSessionModel: (params: {
+    sessionId: string;
+    modelId: string;
+  }) => Promise<void>;
+}
+
 interface ResumeConnection {
   unstable_resumeSession: (params: {
     sessionId: string;
@@ -58,6 +65,7 @@ export class SessionAcpBootstrapService {
   private readonly mcpConfig: SessionMcpConfigService;
   private readonly historyReplay: SessionHistoryReplayService;
   private readonly logger: LoggerPort;
+  private readonly runtimeConfigProvider: () => { defaultModel: string };
 
   constructor(
     sessionRuntime: SessionRuntimePort,
@@ -66,7 +74,8 @@ export class SessionAcpBootstrapService {
     agentRuntime: AgentRuntimePort,
     mcpConfig: SessionMcpConfigService,
     historyReplay: SessionHistoryReplayService,
-    logger: LoggerPort
+    logger: LoggerPort,
+    runtimeConfigProvider: () => { defaultModel: string }
   ) {
     this.sessionRuntime = sessionRuntime;
     this.sessionRepo = sessionRepo;
@@ -75,6 +84,7 @@ export class SessionAcpBootstrapService {
     this.mcpConfig = mcpConfig;
     this.historyReplay = historyReplay;
     this.logger = logger;
+    this.runtimeConfigProvider = runtimeConfigProvider;
   }
 
   async bootstrap(input: BootstrapSessionInput): Promise<void> {
@@ -299,7 +309,7 @@ export class SessionAcpBootstrapService {
 
     const currentModeId = chatSession.modes?.currentModeId;
     if (currentModeId) {
-      this.sessionRuntime.broadcast(chatId, {
+      await this.sessionRuntime.broadcast(chatId, {
         type: "current_mode_update",
         modeId: currentModeId,
       });
@@ -323,15 +333,88 @@ export class SessionAcpBootstrapService {
     chatSession.sessionId = newResult.sessionId;
     chatSession.modes = newResult.modes ?? undefined;
     chatSession.models = newResult.models ?? undefined;
+    await this.applyDefaultModel(chatId, chatSession);
 
     if (chatSession.modes?.currentModeId) {
-      this.sessionRuntime.broadcast(chatId, {
+      await this.sessionRuntime.broadcast(chatId, {
         type: "current_mode_update",
         modeId: chatSession.modes.currentModeId,
       });
     }
 
     this.sessionRuntime.set(chatId, chatSession);
+  }
+
+  private async applyDefaultModel(
+    chatId: string,
+    chatSession: ChatSession
+  ): Promise<void> {
+    const configuredDefaultModel =
+      this.runtimeConfigProvider().defaultModel.trim();
+    if (!configuredDefaultModel) {
+      return;
+    }
+    if (!chatSession.supportsModelSwitching) {
+      this.logger.warn(
+        "Default model is configured but agent does not support model switching",
+        {
+          chatId,
+          defaultModel: configuredDefaultModel,
+        }
+      );
+      return;
+    }
+    const models = chatSession.models?.availableModels ?? [];
+    if (models.length === 0) {
+      this.logger.warn(
+        "Default model is configured but session did not expose available models",
+        {
+          chatId,
+          defaultModel: configuredDefaultModel,
+        }
+      );
+      return;
+    }
+    const matchedModel = models.find(
+      (model) =>
+        model.modelId === configuredDefaultModel ||
+        model.name === configuredDefaultModel
+    );
+    if (!matchedModel) {
+      this.logger.warn("Configured default model not found in session models", {
+        chatId,
+        defaultModel: configuredDefaultModel,
+      });
+      return;
+    }
+    if (chatSession.models?.currentModelId === matchedModel.modelId) {
+      return;
+    }
+    if (!chatSession.sessionId) {
+      return;
+    }
+
+    try {
+      await (
+        chatSession.conn as unknown as SessionModelConnection
+      ).unstable_setSessionModel({
+        sessionId: chatSession.sessionId,
+        modelId: matchedModel.modelId,
+      });
+      if (chatSession.models) {
+        chatSession.models.currentModelId = matchedModel.modelId;
+      }
+      this.logger.info("Applied runtime default model to new session", {
+        chatId,
+        modelId: matchedModel.modelId,
+      });
+    } catch (error) {
+      this.logger.warn("Failed to apply runtime default model", {
+        chatId,
+        defaultModel: configuredDefaultModel,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private cleanupFailedBootstrap(

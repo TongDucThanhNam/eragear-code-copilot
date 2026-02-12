@@ -3,6 +3,7 @@ import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
+import type { AppConfig } from "@/shared/types/settings.types";
 import type {
   SqliteWorkerInitData,
   SqliteWorkerRequest,
@@ -66,65 +67,50 @@ function toError(error: unknown, fallback: string): Error {
 }
 
 function resolveWorkerEntrypointPath(): string {
-  const fromDistRuntime = Boolean(
-    process.argv[1]?.includes(`${path.sep}dist${path.sep}`)
-  );
+  const runtimeDir = path.dirname(process.execPath);
+  const fromDistRuntime = runtimeDir.includes(`${path.sep}dist`);
+  const srcFromCwd = [
+    path.join(
+      process.cwd(),
+      "src",
+      "platform",
+      "storage",
+      "sqlite-worker.entry.ts"
+    ),
+  ];
+  const distFromCwd = [
+    path.join(
+      process.cwd(),
+      "dist",
+      "platform",
+      "storage",
+      "sqlite-worker.entry.mjs"
+    ),
+    path.join(
+      process.cwd(),
+      "dist",
+      "platform",
+      "storage",
+      "sqlite-worker.entry.js"
+    ),
+  ];
+  const distFromRuntime = [
+    path.join(runtimeDir, "platform", "storage", "sqlite-worker.entry.mjs"),
+    path.join(runtimeDir, "platform", "storage", "sqlite-worker.entry.js"),
+  ];
   const candidates = fromDistRuntime
-    ? [
-        path.join(
-          process.cwd(),
-          "dist",
-          "platform",
-          "storage",
-          "sqlite-worker.entry.mjs"
-        ),
-        path.join(
-          process.cwd(),
-          "dist",
-          "platform",
-          "storage",
-          "sqlite-worker.entry.js"
-        ),
-        path.join(
-          process.cwd(),
-          "src",
-          "platform",
-          "storage",
-          "sqlite-worker.entry.ts"
-        ),
-      ]
-    : [
-        path.join(
-          process.cwd(),
-          "src",
-          "platform",
-          "storage",
-          "sqlite-worker.entry.ts"
-        ),
-        path.join(
-          process.cwd(),
-          "dist",
-          "platform",
-          "storage",
-          "sqlite-worker.entry.mjs"
-        ),
-        path.join(
-          process.cwd(),
-          "dist",
-          "platform",
-          "storage",
-          "sqlite-worker.entry.js"
-        ),
-      ];
+    ? [...distFromRuntime, ...distFromCwd, ...srcFromCwd]
+    : [...srcFromCwd, ...distFromCwd, ...distFromRuntime];
+  const uniqueCandidates = [...new Set(candidates)];
 
-  for (const candidate of candidates) {
+  for (const candidate of uniqueCandidates) {
     if (existsSync(candidate)) {
       return candidate;
     }
   }
 
   throw new Error(
-    `[Storage] SQLite worker entrypoint not found. Tried: ${candidates.join(", ")}`
+    `[Storage] SQLite worker entrypoint not found. Tried: ${uniqueCandidates.join(", ")}`
   );
 }
 
@@ -187,7 +173,7 @@ function recycleSqliteWorker(
 
 function ensureSqliteWorker(): Worker {
   if (!ENV.sqliteWorkerEnabled) {
-    throw new Error("[Storage] SQLITE_WORKER_ENABLED is false");
+    throw new Error("[Storage] STORAGE_WORKER_ENABLED is false");
   }
   if (sqliteWorker) {
     return sqliteWorker;
@@ -351,6 +337,15 @@ export function callSqliteWorker<T>(
 ): Promise<T> {
   const worker = ensureSqliteWorker();
   return callSqliteWorkerOn(worker, service, method, args);
+}
+
+export async function updateSqliteWorkerRuntimeConfig(
+  config: AppConfig
+): Promise<void> {
+  if (!ENV.sqliteWorkerEnabled) {
+    return;
+  }
+  await callSqliteWorker("storage", "setRuntimeConfig", [config]);
 }
 
 export async function stopSqliteWorker(): Promise<void> {

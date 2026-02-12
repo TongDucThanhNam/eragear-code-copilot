@@ -1,0 +1,41 @@
+{
+  "boot": {
+    "mode": "compiled",
+    "WS_PORT": 3000,
+    "WS_HOST": "0.0.0.0",
+    "AUTH_SECRET": "change_me_in_production_with_32_chars_min",
+    "LOG_LEVEL": "info",
+    "MAX_TOKENS": 8192,
+    "DEFAULT_MODEL": "",
+    "AUTH_TRUSTED_ORIGINS": [
+      "http://localhost:3000",
+      "http://localhost:5173"
+    ],
+    "ALLOWED_AGENT_COMMANDS": [
+      "ls",
+      "grep",
+      "cat",
+      "find",
+      "git",
+      "echo",
+      "mkdir",
+      "touch",
+      "rm"
+    ],
+    "ALLOWED_TERMINAL_COMMANDS": [
+      "ls",
+      "grep",
+      "cat",
+      "find",
+      "git",
+      "echo",
+      "mkdir",
+      "touch",
+      "rm",
+      "cd",
+      "pwd",
+      "whoami"
+    ],
+    "ALLOWED_ENV_KEYS": ["NODE_ENV", "API_KEY", "DEBUG", "PATH"]
+  }
+}

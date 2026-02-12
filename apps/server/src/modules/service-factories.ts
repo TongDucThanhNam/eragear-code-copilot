@@ -12,7 +12,9 @@ import type {
   SetModelService,
   SetModeService,
 } from "@/modules/ai";
+import type { GetMeService } from "@/modules/auth";
 import type {
+  DashboardEventVisibilityService,
   GetDashboardPageDataService,
   GetDashboardStatsService,
   GetObservabilitySnapshotService,
@@ -58,7 +60,7 @@ export interface SessionServiceFactory {
   getSessionState(): GetSessionStateService;
   listSessions(): ListSessionsService;
   updateSessionMeta(): UpdateSessionMetaService;
-  getSessionMessages(): GetSessionMessagesService;
+  getSessionMessagesPage(): GetSessionMessagesService;
   getSessionStorageStats(): GetSessionStorageStatsService;
   subscribeSessionEvents(): SubscribeSessionEventsService;
   cleanupProjectSessions(): CleanupProjectSessionsService;
@@ -100,7 +102,12 @@ export interface ToolingServiceFactory {
   respondPermission(): RespondPermissionService;
 }
 
+export interface AuthServiceFactory {
+  getMe(): GetMeService;
+}
+
 export interface OpsServiceFactory {
+  dashboardEventVisibility(): DashboardEventVisibilityService;
   observabilitySnapshot(): GetObservabilitySnapshotService;
   dashboardProjects(): ListDashboardProjectsService;
   dashboardSessions(): ListDashboardSessionsService;

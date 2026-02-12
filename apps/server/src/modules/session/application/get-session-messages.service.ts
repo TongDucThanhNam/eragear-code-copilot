@@ -6,11 +6,12 @@
  * @module modules/session/application/get-session-messages.service
  */
 
+import { DEFAULT_SESSION_MESSAGES_PAGE_LIMIT } from "@/config/constants";
+import { NotFoundError, ValidationError } from "@/shared/errors";
 import {
   buildAssistantMessageFromBlocks,
   buildUserMessageFromBlocks,
 } from "@/shared/utils/ui-message.util";
-import { NotFoundError } from "@/shared/errors";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
 const OP = "session.messages.get";
@@ -41,6 +42,7 @@ export class GetSessionMessagesService {
     chatId: string;
     cursor?: number;
     limit?: number;
+    maxLimit: number;
     includeCompacted?: boolean;
   }) {
     const stored = await this.sessionRepo.findById(input.chatId, input.userId);
@@ -51,12 +53,31 @@ export class GetSessionMessagesService {
         details: { chatId: input.chatId },
       });
     }
+    const normalizedMaxLimit = Math.max(1, Math.trunc(input.maxLimit));
+    if (
+      input.limit !== undefined &&
+      Number.isFinite(input.limit) &&
+      input.limit > normalizedMaxLimit
+    ) {
+      throw new ValidationError(`limit must be <= ${normalizedMaxLimit}`, {
+        module: "session",
+        op: OP,
+        details: {
+          chatId: input.chatId,
+          limit: input.limit,
+          maxLimit: normalizedMaxLimit,
+        },
+      });
+    }
+
     const page = await this.sessionRepo.getMessagesPage(
       input.chatId,
       input.userId,
       {
         cursor: input.cursor,
-        limit: input.limit,
+        limit:
+          input.limit ??
+          Math.min(DEFAULT_SESSION_MESSAGES_PAGE_LIMIT, normalizedMaxLimit),
         includeCompacted: input.includeCompacted,
       }
     );

@@ -187,15 +187,36 @@ body {
 .text-ink {
   color: var(--ink);
 }
+.text-paper {
+  color: var(--paper);
+}
 .text-muted {
   color: var(--muted);
 }
 .text-success {
   color: var(--success);
 }
+.text-paper\/70 {
+  color: rgba(249, 249, 247, 0.7);
+}
+.text-paper\/50 {
+  color: rgba(249, 249, 247, 0.5);
+}
+.text-paper\/30 {
+  color: rgba(249, 249, 247, 0.3);
+}
 
 .border-ink {
   border-color: var(--ink);
+}
+.border-paper\/30 {
+  border-color: rgba(249, 249, 247, 0.3);
+}
+.bg-paper\/30 {
+  background-color: rgba(249, 249, 247, 0.3);
+}
+.bg-ink\/80 {
+  background-color: rgba(17, 17, 17, 0.8);
 }
 
 /* ==========================================================================
@@ -715,6 +736,167 @@ input[type="color"] {
 /* ==========================================================================
    STATS
    ========================================================================== */
+
+.overview-panel {
+  position: sticky;
+  top: 0;
+  border: 2px solid var(--ink);
+  background-color: var(--paper-light);
+  color: var(--ink);
+  padding: 1.5rem;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+/* Compatibility fallback for stale cached markup before overview refactor */
+.dashboard-side
+> section.sticky.top-0.border-2.border-ink.bg-ink.p-6.shadow-news {
+  background-color: var(--paper-light);
+  color: var(--ink);
+}
+
+.dashboard-side
+  > section.sticky.top-0.border-2.border-ink.bg-ink.p-6.shadow-news
+  .text-paper,
+.dashboard-side
+  > section.sticky.top-0.border-2.border-ink.bg-ink.p-6.shadow-news
+  .text-paper\/70,
+.dashboard-side
+  > section.sticky.top-0.border-2.border-ink.bg-ink.p-6.shadow-news
+  .text-paper\/50,
+.dashboard-side
+  > section.sticky.top-0.border-2.border-ink.bg-ink.p-6.shadow-news
+  .text-paper\/30 {
+  color: var(--ink);
+}
+
+.dashboard-side
+  > section.sticky.top-0.border-2.border-ink.bg-ink.p-6.shadow-news
+  .border-paper\/30 {
+  border-color: #d7d7d2;
+}
+
+.dashboard-side
+  > section.sticky.top-0.border-2.border-ink.bg-ink.p-6.shadow-news
+  .bg-paper\/30 {
+  background-color: #d7d7d2;
+}
+
+.overview-kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.overview-kicker-line {
+  flex: 1;
+  height: 1px;
+  background-color: #d7d7d2;
+}
+
+.overview-kicker-text {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.625rem;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+.overview-title {
+  margin-bottom: 1.5rem;
+  text-align: center;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.875rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  line-height: 1;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid #d7d7d2;
+}
+
+.overview-cell {
+  padding: 1rem;
+  text-align: center;
+  border-right: 1px solid #d7d7d2;
+  border-bottom: 1px solid #d7d7d2;
+}
+
+.overview-cell:nth-child(2n) {
+  border-right: none;
+}
+
+.overview-cell-uptime {
+  grid-column: 1 / -1;
+  border-right: none;
+  border-bottom: none;
+}
+
+.overview-value {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 2.25rem;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.overview-value-uptime {
+  font-family: "JetBrains Mono", "Courier Prime", "Courier New", monospace;
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+
+.overview-label {
+  margin-top: 0.25rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.625rem;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.overview-cell-active {
+  background-color: #cc0000;
+}
+
+.overview-cell-active .overview-value,
+.overview-cell-active .overview-label {
+  color: var(--paper);
+}
+
+.overview-divider {
+  padding: 1rem 0;
+  text-align: center;
+  font-family: Lora, Georgia, serif;
+  font-size: 1.25rem;
+  color: var(--ink-subtle);
+  letter-spacing: 0.3em;
+}
+
+.overview-weekly {
+  border-top: 1px solid #d7d7d2;
+  padding-top: 1rem;
+  text-align: center;
+}
+
+.overview-weekly-value {
+  margin-top: 0.5rem;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+@media (max-width: 1023px) {
+  .overview-panel {
+    position: static;
+  }
+}
 
 /* ==========================================================================
    SESSIONS LIST

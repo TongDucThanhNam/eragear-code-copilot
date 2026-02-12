@@ -384,10 +384,20 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       termState.outputBufferBytes = next;
       termState.outputBuffer = next.toString("utf8");
 
-      sessionRuntime.broadcast(chatId, {
+      const publishOutput = sessionRuntime.broadcast(chatId, {
         type: "terminal_output",
         terminalId: termId,
         data: text,
+      });
+      publishOutput.catch((error) => {
+        logger.error(
+          "Failed to publish terminal output event",
+          error as Error,
+          {
+            chatId,
+            terminalId: termId,
+          }
+        );
       });
     };
 

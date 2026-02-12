@@ -217,6 +217,18 @@ Migration note:
   `ALLOWED_TERMINAL_COMMANDS`, hoặc `ALLOWED_ENV_KEYS`.
 - Giá trị `ALLOWED_*="*"` không hợp lệ; phải liệt kê explicit từng command/env key.
 
+Compiled executable mode:
+
+- Dùng `settings.json` với `boot.mode = "compiled"` đặt cạnh binary
+  (hoặc chỉ định bằng `ERAGEAR_BOOT_CONFIG_PATH`).
+- Ở mode này, config env var overrides bị vô hiệu; boot config chỉ lấy từ
+  `settings.json`.
+- Server fail-fast nếu thiếu boot keys bắt buộc cho mode compiled:
+  - `WS_PORT` hoặc `PORT`
+  - `WS_HOST` hoặc `HOST`
+  - `AUTH_SECRET`
+  - `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`
+
 ## 8. Ops Commands
 
 Trong `apps/server/package.json`:

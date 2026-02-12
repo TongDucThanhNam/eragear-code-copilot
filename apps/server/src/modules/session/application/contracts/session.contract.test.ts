@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { ENV } from "@/config/environment";
+import {
+  HARD_MAX_SESSION_LIST_PAGE_LIMIT,
+  HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
+} from "@/config/constants";
 import {
   ListSessionsInputSchema,
   SessionListPageInputSchema,
@@ -7,53 +10,53 @@ import {
 } from "./session.contract";
 
 describe("session contract page limits", () => {
-  test("enforces session list max limit from ENV", () => {
+  test("enforces session list hard max limit", () => {
     expect(
       ListSessionsInputSchema.parse({
-        limit: ENV.sessionListPageMaxLimit,
+        limit: HARD_MAX_SESSION_LIST_PAGE_LIMIT,
         offset: 0,
       })
     ).toEqual({
-      limit: ENV.sessionListPageMaxLimit,
+      limit: HARD_MAX_SESSION_LIST_PAGE_LIMIT,
       offset: 0,
     });
     expect(() =>
       ListSessionsInputSchema.parse({
-        limit: ENV.sessionListPageMaxLimit + 1,
+        limit: HARD_MAX_SESSION_LIST_PAGE_LIMIT + 1,
         offset: 0,
       })
     ).toThrow();
   });
 
-  test("enforces session messages max limit from ENV", () => {
+  test("enforces session messages hard max limit", () => {
     expect(
       SessionMessagesPageInputSchema.parse({
         chatId: "chat-1",
-        limit: ENV.sessionMessagesPageMaxLimit,
+        limit: HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
       })
     ).toEqual({
       chatId: "chat-1",
-      limit: ENV.sessionMessagesPageMaxLimit,
+      limit: HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
     });
     expect(() =>
       SessionMessagesPageInputSchema.parse({
         chatId: "chat-1",
-        limit: ENV.sessionMessagesPageMaxLimit + 1,
+        limit: HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT + 1,
       })
     ).toThrow();
   });
 
-  test("enforces session list page max limit from ENV", () => {
+  test("enforces session list page hard max limit", () => {
     expect(
       SessionListPageInputSchema.parse({
-        limit: ENV.sessionListPageMaxLimit,
+        limit: HARD_MAX_SESSION_LIST_PAGE_LIMIT,
       })
     ).toEqual({
-      limit: ENV.sessionListPageMaxLimit,
+      limit: HARD_MAX_SESSION_LIST_PAGE_LIMIT,
     });
     expect(() =>
       SessionListPageInputSchema.parse({
-        limit: ENV.sessionListPageMaxLimit + 1,
+        limit: HARD_MAX_SESSION_LIST_PAGE_LIMIT + 1,
       })
     ).toThrow();
   });

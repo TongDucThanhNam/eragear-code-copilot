@@ -69,6 +69,7 @@ export const SQLITE_SETTING_KEYS = {
   uiSettings: "ui_settings",
   projectRoots: "project_roots",
   mcpServers: "mcp_servers",
+  appConfig: "app_config",
 } as const;
 
 interface LegacyProjectsData {
@@ -796,6 +797,11 @@ function importLegacySettings(params: {
     db,
     SQLITE_SETTING_KEYS.mcpServers,
     settings.mcpServers ?? []
+  );
+  setSqliteSettingIfMissing(
+    db,
+    SQLITE_SETTING_KEYS.appConfig,
+    settings.app ?? null
   );
 }
 

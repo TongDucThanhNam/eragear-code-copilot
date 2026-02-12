@@ -92,8 +92,6 @@ Client có thể fallback bằng cách lookup `messageId` trong state nếu `mes
   promptCapabilities, loadSessionSupported, supportsModelSwitching, agentInfo, plan
 - `getSessionMessagesPage({ chatId, cursor?, limit?, includeCompacted? })` →
   `{ messages: UIMessage[], nextCursor?, hasMore }` (**primary history API**)
-- `getSessionMessages({ chatId })` → `UIMessage[]` (**deprecated compatibility**,
-  dùng tạm cho client legacy)
 - `onSessionEvents({ chatId })` → stream `BroadcastEvent`
 
 ### 4.2 Prompt / Mode / Model

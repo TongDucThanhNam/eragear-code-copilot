@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
-import { SessionRuntimeStore } from "./runtime-store";
+import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
+import { createUiMessageState } from "@/shared/utils/ui-message.util";
+import { SessionBroadcastError, SessionRuntimeStore } from "./runtime-store";
+
+const LOCK_TIMEOUT_RE = /Lock acquisition timed out/;
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -17,6 +22,25 @@ function createEventBusStub(): EventBusPort {
   };
 }
 
+function createSession(chatId = "chat-1"): ChatSession {
+  return {
+    id: chatId,
+    userId: "user-1",
+    proc: {} as ChatSession["proc"],
+    conn: {} as ChatSession["conn"],
+    projectRoot: "/tmp/project",
+    emitter: new EventEmitter(),
+    cwd: "/tmp/project",
+    subscriberCount: 0,
+    messageBuffer: [],
+    pendingPermissions: new Map(),
+    toolCalls: new Map(),
+    terminals: new Map(),
+    uiState: createUiMessageState(),
+    chatStatus: "ready",
+  };
+}
+
 async function flushAsync(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -25,6 +49,7 @@ describe("SessionRuntimeStore.runExclusive", () => {
   test("serializes execution per chat id", async () => {
     const store = new SessionRuntimeStore(createEventBusStub(), {
       sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 500,
     });
     const firstStarted = createDeferred<void>();
     const releaseFirst = createDeferred<void>();
@@ -59,6 +84,7 @@ describe("SessionRuntimeStore.runExclusive", () => {
   test("allows concurrent execution across different chat ids", async () => {
     const store = new SessionRuntimeStore(createEventBusStub(), {
       sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 500,
     });
     const releaseA = createDeferred<void>();
     const releaseB = createDeferred<void>();
@@ -84,5 +110,62 @@ describe("SessionRuntimeStore.runExclusive", () => {
     const [a, b] = await Promise.all([first, second]);
     expect(a).toBe("a");
     expect(b).toBe("b");
+  });
+
+  test("fails fast when lock acquisition exceeds timeout", async () => {
+    const store = new SessionRuntimeStore(createEventBusStub(), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 20,
+    });
+    const firstStarted = createDeferred<void>();
+    const releaseFirst = createDeferred<void>();
+
+    const first = store.runExclusive("chat-1", async () => {
+      firstStarted.resolve();
+      await releaseFirst.promise;
+      return "first";
+    });
+
+    await firstStarted.promise;
+
+    await expect(
+      store.runExclusive("chat-1", async () => "second")
+    ).rejects.toThrow(LOCK_TIMEOUT_RE);
+
+    const third = store.runExclusive("chat-1", async () => "third");
+
+    releaseFirst.resolve();
+    await expect(first).resolves.toBe("first");
+    await expect(third).resolves.toBe("third");
+    await expect(
+      store.runExclusive("chat-1", async () => "fourth")
+    ).resolves.toBe("fourth");
+  });
+});
+
+describe("SessionRuntimeStore.broadcast", () => {
+  test("throws when event bus publish fails", async () => {
+    const store = new SessionRuntimeStore(
+      {
+        subscribe: () => () => undefined,
+        publish: () => {
+          throw new Error("event bus down");
+        },
+      },
+      {
+        sessionBufferLimit: 20,
+        lockAcquireTimeoutMs: 500,
+      }
+    );
+    store.set("chat-1", createSession("chat-1"));
+
+    const event: BroadcastEvent = {
+      type: "error",
+      error: "boom",
+    };
+
+    await expect(store.broadcast("chat-1", event)).rejects.toBeInstanceOf(
+      SessionBroadcastError
+    );
   });
 });

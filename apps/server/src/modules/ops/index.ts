@@ -1,3 +1,4 @@
+export { DashboardEventVisibilityService } from "./application/dashboard-event-visibility.service";
 export { GetDashboardPageDataService } from "./application/get-dashboard-page-data.service";
 export { GetDashboardStatsService } from "./application/get-dashboard-stats.service";
 export { GetObservabilitySnapshotService } from "./application/get-observability-snapshot.service";
