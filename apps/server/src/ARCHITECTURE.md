@@ -163,9 +163,16 @@ Policy invariants:
 Trong `apps/server/package.json`:
 
 - `bun run dev`
+- `bun run lint`
+- `bun run lint:full`
 - `bun run check-types`
+- `bun run check`
 - `bun run build`
 - `bun run ui:build`
+
+Biome (`biome.json`) là guard chính để enforce clean architecture boundaries
+qua `noRestrictedImports` theo từng layer (`bun run lint`). `bun run lint:full`
+dùng cho đợt cleanup full lint/format.
 
 ## Non-negotiable Boundaries
 

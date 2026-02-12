@@ -117,11 +117,17 @@ Mục tiêu: tránh tăng RAM không giới hạn khi có nhiều `userId`/reque
 
 ```bash
 bun run dev
+bun run lint
 bun run check-types
+bun run check
+bun run lint:full
 bun run build
 bun run ui:build
 bun run compile
 ```
+
+`bun run lint` dùng Biome để enforce layer boundaries (clean architecture import rules) theo `biome.json` và là gate mặc định trong `bun run check`.
+`bun run lint:full` chạy Biome full check cho các đợt dọn format/lint debt toàn repo.
 
 ## Khi build executable (compiled mode)
 

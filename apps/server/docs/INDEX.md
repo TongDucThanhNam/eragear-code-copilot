@@ -74,12 +74,17 @@ Các file sau là nguồn chuẩn khi docs và thực tế có khác biệt:
 ## 6. Development Commands
 
 - `bun run dev`
+- `bun run lint`
+- `bun run lint:full`
 - `bun run check-types`
+- `bun run check`
 - `bun run test:auth-dashboard`
 - `bun run smoke:auth-dashboard`
 - `bun run build`
 - `bun run ui:build`
 - `bun run compile`
+
+`bun run check` là quality gate mặc định: type-check + Biome + tests.
 
 ### Compile Notes
 

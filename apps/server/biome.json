@@ -62,10 +62,16 @@
                       "**/infra/**",
                       "**/platform/**",
                       "**/transport/**",
+                      "**/application/**",
+                      "**/bootstrap/**",
+                      "**/presentation/**",
+                      "@/modules/*/application/**",
+                      "@/bootstrap/**",
                       "@/platform/**",
-                      "@/transport/**"
+                      "@/transport/**",
+                      "@/presentation/**"
                     ],
-                    "message": "Domain must not import from transport or platform."
+                    "message": "Domain must stay pure: no imports from application, bootstrap, transport, platform, infra, or presentation."
                   }
                 ]
               }
@@ -85,12 +91,45 @@
                 "patterns": [
                   {
                     "group": [
+                      "**/infra/**",
+                      "@/modules/*/infra/**",
+                      "**/modules/*/di",
+                      "@/modules/*/di",
+                      "**/bootstrap/**",
+                      "@/bootstrap/**",
+                      "**/presentation/**",
+                      "@/presentation/**",
                       "**/transport/**",
                       "@/transport/**",
                       "**/platform/**",
                       "@/platform/**"
                     ],
-                    "message": "Application must not import from transport or platform."
+                    "message": "Application must not import infra/bootstrap/transport/platform/presentation. Depend on ports, domain, shared."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/modules/**/infra/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/transport/**",
+                      "@/transport/**",
+                      "**/presentation/**",
+                      "@/presentation/**"
+                    ],
+                    "message": "Module infra must not import from transport or presentation."
                   }
                 ]
               }
@@ -207,6 +246,16 @@
                 ]
               }
             }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/**/*.test.ts", "src/**/*.spec.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
           }
         }
       }
