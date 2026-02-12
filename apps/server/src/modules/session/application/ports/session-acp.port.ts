@@ -1,5 +1,5 @@
 import type * as acp from "@agentclientprotocol/sdk";
-import type { StoredContentBlock } from "@/shared/types/session.types";
+import type { StoredContentBlock } from "@/modules/session/domain/stored-session.types";
 import type { SessionRepositoryPort } from "./session-repository.port";
 import type { SessionRuntimePort } from "./session-runtime.port";
 

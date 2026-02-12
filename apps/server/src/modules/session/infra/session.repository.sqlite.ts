@@ -7,20 +7,21 @@ import {
   DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
   DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
 } from "@/config/constants";
-import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
+import type {
+  StoredMessage,
+  StoredSession,
+} from "@/modules/session/domain/stored-session.types";
 import {
-  getSqliteDb,
-  getSqliteStorageStats,
-  runInSqliteTransaction,
-} from "@/platform/storage/sqlite-store";
+  getSqliteOrm,
+  sqliteSchema,
+  withSqliteTransaction,
+} from "@/platform/storage/sqlite-db";
+import { isSqliteForeignKeyConstraint } from "@/platform/storage/sqlite-errors";
+import { getSqliteStorageStats } from "@/platform/storage/sqlite-store";
 import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
 import { systemClock } from "@/platform/time/system-clock";
 import { NotFoundError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
-import type {
-  StoredMessage,
-  StoredSession,
-} from "@/shared/types/session.types";
 import type {
   SessionListPageQuery,
   SessionListPageResult,
@@ -81,30 +82,6 @@ function normalizePolicy(
       Math.trunc(policy.sessionMessagesPageMaxLimit)
     ),
   };
-}
-
-function isSqliteForeignKeyError(error: unknown): boolean {
-  const queue: unknown[] = [error];
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!(current instanceof Error)) {
-      continue;
-    }
-    const errorText = `${current.name} ${current.message}`.toUpperCase();
-    if (
-      errorText.includes("SQLITE_CONSTRAINT_FOREIGNKEY") ||
-      errorText.includes("FOREIGN KEY CONSTRAINT FAILED")
-    ) {
-      return true;
-    }
-    if (current instanceof AggregateError) {
-      queue.push(...current.errors);
-    }
-    if ("cause" in current && current.cause !== undefined) {
-      queue.push(current.cause);
-    }
-  }
-  return false;
 }
 
 export class SessionSqliteRepository implements SessionRepositoryPort {
@@ -200,10 +177,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
 
   async create(session: StoredSession): Promise<void> {
     await enqueueSqliteWrite(SQLITE_SESSION_OP.CREATE, async () => {
-      const orm = await getSqliteOrm();
-      const sqliteDb = await getSqliteDb();
-
-      runInSqliteTransaction(sqliteDb, () => {
+      await withSqliteTransaction(({ orm }) => {
         orm
           .insert(sqliteSchema.sessions)
           .values(this.mapper.toSessionInsert(session))
@@ -306,10 +280,8 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     message: StoredMessage
   ): Promise<{ appended: true }> {
     await enqueueSqliteWrite(SQLITE_SESSION_OP.APPEND_MESSAGE, async () => {
-      const orm = await getSqliteOrm();
-      const sqliteDb = await getSqliteDb();
       try {
-        runInSqliteTransaction(sqliteDb, () => {
+        await withSqliteTransaction(({ orm }) => {
           const values = this.mapper.toMessageInsert(id, message);
           orm
             .insert(sqliteSchema.sessionMessages)
@@ -349,7 +321,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
             .run();
         });
       } catch (error) {
-        if (isSqliteForeignKeyError(error)) {
+        if (isSqliteForeignKeyConstraint(error)) {
           throw new NotFoundError("Chat not found", {
             module: "session",
             op: SQLITE_SESSION_OP.APPEND_MESSAGE,

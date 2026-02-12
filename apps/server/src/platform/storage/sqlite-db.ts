@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
 import {
   agents,
@@ -8,7 +9,11 @@ import {
   sessions,
   userSettings,
 } from "./sqlite-schema";
-import { closeSqliteDb, getSqliteDb } from "./sqlite-store";
+import {
+  closeSqliteDb,
+  getSqliteDb,
+  runInSqliteTransaction,
+} from "./sqlite-store";
 import { stopSqliteWorker } from "./sqlite-worker-client";
 
 const sqliteSchema = {
@@ -23,18 +28,39 @@ const sqliteSchema = {
 
 type SqliteOrmDb = BunSQLiteDatabase<typeof sqliteSchema>;
 
+let sqliteOrmDb: SqliteOrmDb | null = null;
+let sqliteOrmClient: Database | null = null;
+
+function getOrCreateSqliteOrm(db: Database): SqliteOrmDb {
+  if (!sqliteOrmDb || sqliteOrmClient !== db) {
+    sqliteOrmDb = drizzle({ client: db, schema: sqliteSchema });
+    sqliteOrmClient = db;
+  }
+  return sqliteOrmDb;
+}
+
 export async function getSqliteOrm(): Promise<SqliteOrmDb> {
   const db = await getSqliteDb();
-  return drizzle({ client: db, schema: sqliteSchema });
+  return getOrCreateSqliteOrm(db);
+}
+
+export async function withSqliteTransaction<T>(
+  fn: (context: { orm: SqliteOrmDb; db: Database }) => T
+): Promise<T> {
+  const db = await getSqliteDb();
+  const orm = getOrCreateSqliteOrm(db);
+  return runInSqliteTransaction(db, () => fn({ orm, db }));
 }
 
 export function resetSqliteOrmCache(): void {
-  // No-op: ORM instances are no longer cached globally.
+  sqliteOrmDb = null;
+  sqliteOrmClient = null;
 }
 
 export async function closeSqliteStorage(): Promise<void> {
   await stopSqliteWorker();
   await closeSqliteDb();
+  resetSqliteOrmCache();
 }
 
 export { sqliteSchema };

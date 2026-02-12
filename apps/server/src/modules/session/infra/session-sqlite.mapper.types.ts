@@ -1,6 +1,6 @@
 import { z } from "zod";
+import type { StoredMessage } from "@/modules/session/domain/stored-session.types";
 import type { sqliteSchema } from "@/platform/storage/sqlite-db";
-import type { StoredMessage } from "@/shared/types/session.types";
 
 export type SessionRow = typeof sqliteSchema.sessions.$inferSelect;
 export type MessageRow = typeof sqliteSchema.sessionMessages.$inferSelect;

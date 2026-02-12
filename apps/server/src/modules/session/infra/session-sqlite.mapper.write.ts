@@ -1,14 +1,83 @@
 import { ENV } from "@/config/environment";
-import { toSqliteBoolean, toSqliteJson } from "@/platform/storage/sqlite-store";
 import type {
   StoredMessage,
   StoredSession,
-} from "@/shared/types/session.types";
+} from "@/modules/session/domain/stored-session.types";
+import { toSqliteBoolean, toSqliteJson } from "@/platform/storage/sqlite-store";
 import { SessionSqliteReadMapper } from "./session-sqlite.mapper.read";
 import type {
   MessageInsert,
   SessionInsert,
 } from "./session-sqlite.mapper.types";
+
+type SessionMetadataUpdateKey =
+  | "name"
+  | "sessionId"
+  | "projectId"
+  | "userId"
+  | "projectRoot"
+  | "command"
+  | "args"
+  | "env"
+  | "cwd"
+  | "loadSessionSupported"
+  | "useUnstableResume"
+  | "supportsModelSwitching"
+  | "agentInfo"
+  | "status"
+  | "pinned"
+  | "archived"
+  | "createdAt"
+  | "modeId"
+  | "modelId"
+  | "plan"
+  | "commands"
+  | "agentCapabilities"
+  | "authMethods";
+
+type MetadataWriter = {
+  [K in SessionMetadataUpdateKey]: (
+    value: StoredSession[K]
+  ) => Partial<SessionInsert>;
+};
+
+const SESSION_METADATA_WRITERS: MetadataWriter = {
+  name: (value) => ({ name: value ?? null }),
+  sessionId: (value) => ({ sessionId: value ?? null }),
+  projectId: (value) => ({ projectId: value ?? null }),
+  userId: (value) => (typeof value === "string" ? { userId: value } : {}),
+  projectRoot: (value) => (value ? { projectRoot: value } : {}),
+  command: (value) => ({ command: value ?? null }),
+  args: (value) => ({ argsJson: toSqliteJson(value) }),
+  env: (value) => ({ envJson: toSqliteJson(value) }),
+  cwd: (value) => ({ cwd: value ?? null }),
+  loadSessionSupported: (value) => ({
+    loadSessionSupported: toSqliteBoolean(value),
+  }),
+  useUnstableResume: (value) => ({ useUnstableResume: toSqliteBoolean(value) }),
+  supportsModelSwitching: (value) => ({
+    supportsModelSwitching: toSqliteBoolean(value),
+  }),
+  agentInfo: (value) => ({ agentInfoJson: toSqliteJson(value) }),
+  status: (value) => ({
+    status: value === "running" ? "running" : "stopped",
+  }),
+  pinned: (value) => ({ pinned: toSqliteBoolean(value) }),
+  archived: (value) => ({ archived: toSqliteBoolean(value) }),
+  createdAt: (value) => (typeof value === "number" ? { createdAt: value } : {}),
+  modeId: (value) => ({ modeId: value ?? null }),
+  modelId: (value) => ({ modelId: value ?? null }),
+  plan: (value) => ({ planJson: toSqliteJson(value) }),
+  commands: (value) => ({ commandsJson: toSqliteJson(value) }),
+  agentCapabilities: (value) => ({
+    agentCapabilitiesJson: toSqliteJson(value),
+  }),
+  authMethods: (value) => ({ authMethodsJson: toSqliteJson(value) }),
+};
+
+const SESSION_METADATA_UPDATE_KEYS = Object.keys(
+  SESSION_METADATA_WRITERS
+) as SessionMetadataUpdateKey[];
 
 export class SessionSqliteMapper extends SessionSqliteReadMapper {
   toSessionInsert(session: StoredSession): SessionInsert {
@@ -63,9 +132,13 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
 
   toMetadataUpdateSet(updates: Partial<StoredSession>): Partial<SessionInsert> {
     const setValues: Partial<SessionInsert> = {};
-    this.applyIdentityMetadataUpdates(setValues, updates);
-    this.applyCapabilityMetadataUpdates(setValues, updates);
-    this.applyModelMetadataUpdates(setValues, updates);
+    for (const key of SESSION_METADATA_UPDATE_KEYS) {
+      if (!(key in updates)) {
+        continue;
+      }
+      const writer = SESSION_METADATA_WRITERS[key];
+      Object.assign(setValues, writer(updates[key] as never));
+    }
     return setValues;
   }
 
@@ -85,97 +158,6 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
       throw new Error(
         `Message parts payload exceeds max size: ${partsBytes} bytes > ${ENV.messagePartsMaxBytes}`
       );
-    }
-  }
-
-  private applyIdentityMetadataUpdates(
-    setValues: Partial<SessionInsert>,
-    updates: Partial<StoredSession>
-  ): void {
-    if ("name" in updates) {
-      setValues.name = updates.name ?? null;
-    }
-    if ("sessionId" in updates) {
-      setValues.sessionId = updates.sessionId ?? null;
-    }
-    if ("projectId" in updates) {
-      setValues.projectId = updates.projectId ?? null;
-    }
-    if ("userId" in updates && typeof updates.userId === "string") {
-      setValues.userId = updates.userId;
-    }
-    if ("projectRoot" in updates && updates.projectRoot) {
-      setValues.projectRoot = updates.projectRoot;
-    }
-    if ("command" in updates) {
-      setValues.command = updates.command ?? null;
-    }
-    if ("args" in updates) {
-      setValues.argsJson = toSqliteJson(updates.args);
-    }
-    if ("env" in updates) {
-      setValues.envJson = toSqliteJson(updates.env);
-    }
-    if ("cwd" in updates) {
-      setValues.cwd = updates.cwd ?? null;
-    }
-  }
-
-  private applyCapabilityMetadataUpdates(
-    setValues: Partial<SessionInsert>,
-    updates: Partial<StoredSession>
-  ): void {
-    if ("loadSessionSupported" in updates) {
-      setValues.loadSessionSupported = toSqliteBoolean(
-        updates.loadSessionSupported
-      );
-    }
-    if ("useUnstableResume" in updates) {
-      setValues.useUnstableResume = toSqliteBoolean(updates.useUnstableResume);
-    }
-    if ("supportsModelSwitching" in updates) {
-      setValues.supportsModelSwitching = toSqliteBoolean(
-        updates.supportsModelSwitching
-      );
-    }
-    if ("agentInfo" in updates) {
-      setValues.agentInfoJson = toSqliteJson(updates.agentInfo);
-    }
-    if ("status" in updates) {
-      setValues.status = updates.status === "running" ? "running" : "stopped";
-    }
-    if ("pinned" in updates) {
-      setValues.pinned = toSqliteBoolean(updates.pinned);
-    }
-    if ("archived" in updates) {
-      setValues.archived = toSqliteBoolean(updates.archived);
-    }
-  }
-
-  private applyModelMetadataUpdates(
-    setValues: Partial<SessionInsert>,
-    updates: Partial<StoredSession>
-  ): void {
-    if ("createdAt" in updates && typeof updates.createdAt === "number") {
-      setValues.createdAt = updates.createdAt;
-    }
-    if ("modeId" in updates) {
-      setValues.modeId = updates.modeId ?? null;
-    }
-    if ("modelId" in updates) {
-      setValues.modelId = updates.modelId ?? null;
-    }
-    if ("plan" in updates) {
-      setValues.planJson = toSqliteJson(updates.plan);
-    }
-    if ("commands" in updates) {
-      setValues.commandsJson = toSqliteJson(updates.commands);
-    }
-    if ("agentCapabilities" in updates) {
-      setValues.agentCapabilitiesJson = toSqliteJson(updates.agentCapabilities);
-    }
-    if ("authMethods" in updates) {
-      setValues.authMethodsJson = toSqliteJson(updates.authMethods);
     }
   }
 }

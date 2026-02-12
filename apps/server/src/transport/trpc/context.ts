@@ -40,7 +40,6 @@ export interface TrpcContextDependencies {
   authServices: AuthServiceFactory;
   appConfig: AppConfigService;
   resolveAuthContext: (req: RequestLike) => Promise<AuthContext | null>;
-  ensureUserDefaults?: (userId: string) => Promise<void>;
 }
 
 /**
@@ -63,9 +62,6 @@ export async function createTrpcContext(
   const authContext = opts?.req
     ? await deps.resolveAuthContext(opts.req)
     : null;
-  if (authContext) {
-    await deps.ensureUserDefaults?.(authContext.userId);
-  }
 
   return {
     sessionServices: deps.sessionServices,

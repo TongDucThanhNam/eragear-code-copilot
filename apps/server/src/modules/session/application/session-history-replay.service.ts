@@ -1,5 +1,5 @@
+import type { StoredMessage } from "@/modules/session/domain/stored-session.types";
 import type { LoggerPort } from "@/shared/ports/logger.port";
-import type { StoredMessage } from "@/shared/types/session.types";
 import { finalizeStreamingParts } from "@/shared/utils/ui-message.util";
 import type { SessionBufferingPort } from "./ports/session-acp.port";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";

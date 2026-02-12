@@ -1,8 +1,8 @@
 import type { SQL } from "drizzle-orm";
 import { and, desc, eq, lt, or } from "drizzle-orm";
+import type { StoredSession } from "@/modules/session/domain/stored-session.types";
 import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
 import { ValidationError } from "@/shared/errors";
-import type { StoredSession } from "@/shared/types/session.types";
 import type {
   SessionListPageQuery,
   SessionListPageResult,

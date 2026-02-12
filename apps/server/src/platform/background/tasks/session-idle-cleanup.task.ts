@@ -14,6 +14,7 @@ import type {
 import type { AppConfigService } from "@/modules/settings";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BackgroundTaskSpec } from "@/shared/types/background.types";
+import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "@/shared/utils/session-cleanup.util";
 
 const logger = createLogger("Server");
@@ -52,9 +53,7 @@ export function createSessionIdleCleanupTask(params: {
         }
 
         terminateSessionTerminals(session);
-        if (!session.proc.killed) {
-          session.proc.kill("SIGTERM");
-        }
+        await terminateProcessGracefully(session.proc);
         try {
           await sessionRepo.updateStatus(session.id, session.userId, "stopped");
           sessionRuntime.delete(session.id);

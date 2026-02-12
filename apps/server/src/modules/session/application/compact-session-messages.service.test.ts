@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   StoredMessage,
   StoredSession,
-} from "@/shared/types/session.types";
+} from "@/modules/session/domain/stored-session.types";
 import { CompactSessionMessagesService } from "./compact-session-messages.service";
 import type {
   SessionListPageQuery,

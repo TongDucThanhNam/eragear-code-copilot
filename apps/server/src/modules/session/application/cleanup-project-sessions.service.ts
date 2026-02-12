@@ -1,3 +1,4 @@
+import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "@/shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -38,9 +39,7 @@ export class CleanupProjectSessionsService {
       const runtimeSession = this.sessionRuntime.get(session.id);
       if (runtimeSession) {
         terminateSessionTerminals(runtimeSession);
-        if (!runtimeSession.proc.killed) {
-          runtimeSession.proc.kill("SIGTERM");
-        }
+        await terminateProcessGracefully(runtimeSession.proc);
         this.sessionRuntime.delete(session.id);
         terminatedRuntimeCount += 1;
       }

@@ -9,6 +9,7 @@
 
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import { NotFoundError } from "../../../shared/errors";
+import { terminateProcessGracefully } from "../../../shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -64,7 +65,7 @@ export class DeleteSessionService {
     const session = this.sessionRuntime.get(chatId);
     if (session?.userId === userId) {
       terminateSessionTerminals(session);
-      session.proc.kill();
+      await terminateProcessGracefully(session.proc);
       this.sessionRuntime.delete(chatId);
     }
     const stored = await this.sessionRepo.findById(chatId, userId);

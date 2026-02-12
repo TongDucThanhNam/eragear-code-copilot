@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { StoredSession } from "@/shared/types/session.types";
+import type { StoredSession } from "@/modules/session/domain/stored-session.types";
 import {
   type SessionListRow,
   SessionSqliteMapper,

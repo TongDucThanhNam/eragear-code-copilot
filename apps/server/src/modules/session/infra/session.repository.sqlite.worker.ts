@@ -1,8 +1,8 @@
-import { callSqliteWorker } from "@/platform/storage/sqlite-worker-client";
 import type {
   StoredMessage,
   StoredSession,
-} from "@/shared/types/session.types";
+} from "@/modules/session/domain/stored-session.types";
+import { callSqliteWorker } from "@/platform/storage/sqlite-worker-client";
 import type {
   SessionListPageQuery,
   SessionListPageResult,

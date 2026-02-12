@@ -2,7 +2,7 @@ import type { UIMessage } from "@repo/shared";
 import type {
   StoredContentBlock,
   StoredMessage,
-} from "@/shared/types/session.types";
+} from "@/modules/session/domain/stored-session.types";
 import {
   buildAssistantMessageFromBlocks,
   buildUserMessageFromBlocks,

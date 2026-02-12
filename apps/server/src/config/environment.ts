@@ -15,6 +15,8 @@ import {
   normalizeBootValue,
 } from "./boot-config.loader";
 import {
+  DEFAULT_ACP_NDJSON_MAX_BUFFERED_BYTES,
+  DEFAULT_ACP_NDJSON_MAX_LINE_BYTES,
   DEFAULT_ACP_REQUEST_MAX_ATTEMPTS,
   DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS,
   DEFAULT_APP_DEFAULT_MODEL,
@@ -422,6 +424,16 @@ export const ENV = {
   acpRequestRetryBaseDelayMs: toPositiveInt(
     env.ACP_REQUEST_RETRY_BASE_DELAY_MS,
     DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS
+  ),
+  /** Maximum accepted NDJSON line size from ACP stdout */
+  acpNdjsonMaxLineBytes: toPositiveInt(
+    env.ACP_NDJSON_MAX_LINE_BYTES,
+    DEFAULT_ACP_NDJSON_MAX_LINE_BYTES
+  ),
+  /** Maximum buffered NDJSON payload bytes before fail-fast termination */
+  acpNdjsonMaxBufferedBytes: toPositiveInt(
+    env.ACP_NDJSON_MAX_BUFFERED_BYTES,
+    DEFAULT_ACP_NDJSON_MAX_BUFFERED_BYTES
   ),
   /** Optional override path for SQLite drizzle migrations directory */
   sqliteMigrationsDir: env.STORAGE_MIGRATIONS_DIR?.trim() || undefined,

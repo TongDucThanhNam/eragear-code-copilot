@@ -66,7 +66,8 @@ export class SessionProcessLifecycleService {
             code,
             signal,
           });
-          const isExpectedSignal = signal === "SIGTERM" || signal === "SIGINT";
+          const isExpectedSignal =
+            signal === "SIGTERM" || signal === "SIGINT" || signal === "SIGKILL";
           const isCleanExit = code === 0 || (code === null && isExpectedSignal);
 
           if (isCleanExit) {

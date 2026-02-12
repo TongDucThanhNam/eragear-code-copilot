@@ -7,6 +7,7 @@ import type {
   SessionModelState,
   SessionModeState,
 } from "@/shared/types/session.types";
+import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import type { AgentRuntimePort } from "./ports/agent-runtime.port";
 import type {
   SessionAcpPort,
@@ -129,7 +130,7 @@ export class SessionAcpBootstrapService {
         acpMcpServers,
       });
     } catch (error) {
-      this.cleanupFailedBootstrap(chatId, chatSession);
+      await this.cleanupFailedBootstrap(chatId, chatSession);
       throw error;
     }
   }
@@ -417,15 +418,13 @@ export class SessionAcpBootstrapService {
     }
   }
 
-  private cleanupFailedBootstrap(
+  private async cleanupFailedBootstrap(
     chatId: string,
     chatSession: ChatSession
-  ): void {
+  ): Promise<void> {
     if (this.sessionRuntime.has(chatId)) {
       this.sessionRuntime.delete(chatId);
     }
-    if (!chatSession.proc.killed) {
-      chatSession.proc.kill();
-    }
+    await terminateProcessGracefully(chatSession.proc);
   }
 }

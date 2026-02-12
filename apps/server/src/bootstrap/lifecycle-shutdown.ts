@@ -4,6 +4,7 @@ import type {
   SessionRuntimePort,
 } from "@/modules/session";
 import type { ChatSession } from "@/shared/types/session.types";
+import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "@/shared/utils/session-cleanup.util";
 import { createLogger } from "../platform/logging/structured-logger";
 import { closeSqliteStorage } from "../platform/storage/sqlite-db";
@@ -125,16 +126,13 @@ async function stopRuntimeSession(
     });
   }
 
-  if (!session.proc.killed) {
-    try {
-      session.proc.kill("SIGTERM");
-    } catch (error) {
-      logger.warn("Failed to signal session process during shutdown", {
-        chatId: session.id,
-        pid: session.proc.pid,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  const termination = await terminateProcessGracefully(session.proc);
+  if (!termination.exited) {
+    logger.warn("Session process did not exit after forced termination", {
+      chatId: session.id,
+      pid: session.proc.pid,
+      signalSent: termination.signalSent,
+    });
   }
 
   sessionRuntime.delete(session.id);

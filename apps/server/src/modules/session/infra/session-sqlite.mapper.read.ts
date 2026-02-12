@@ -1,13 +1,13 @@
 import type { ZodType } from "zod";
+import type {
+  StoredMessage,
+  StoredSession,
+} from "@/modules/session/domain/stored-session.types";
 import {
   fromSqliteBoolean,
   fromSqliteJson,
   fromSqliteJsonWithSchema,
 } from "@/platform/storage/sqlite-store";
-import type {
-  StoredMessage,
-  StoredSession,
-} from "@/shared/types/session.types";
 import {
   MAX_LIST_JSON_CACHE_ENTRIES,
   type MessageRow,

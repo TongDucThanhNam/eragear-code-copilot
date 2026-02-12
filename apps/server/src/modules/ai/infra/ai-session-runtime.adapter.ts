@@ -7,6 +7,7 @@ import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.e
 import { AppError, NotFoundError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
+import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import type {
   AiAssertSessionRunningInput,
   AiRequireSessionInput,
@@ -150,8 +151,8 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
     await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
     session.activeTurnId = undefined;
     session.activePromptTask = undefined;
-    if (killProcess && !session.proc.killed) {
-      session.proc.kill();
+    if (killProcess) {
+      await terminateProcessGracefully(session.proc);
     }
     this.sessionRuntime.delete(chatId);
   }

@@ -1,6 +1,7 @@
 import { NotFoundError } from "@/shared/errors";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import { updateChatStatus } from "../../../shared/utils/chat-events.util";
+import { terminateProcessGracefully } from "../../../shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -32,7 +33,7 @@ export class StopSessionService {
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
         status: "inactive",
       });
-      session.proc.kill();
+      await terminateProcessGracefully(session.proc);
       // Remove from runtime so getSessionState returns "stopped"
       this.sessionRuntime.delete(chatId);
     }

@@ -1,7 +1,7 @@
 import type {
   StoredMessage,
   StoredSession,
-} from "@/shared/types/session.types";
+} from "@/modules/session/domain/stored-session.types";
 
 export interface SessionListQuery {
   limit?: number;

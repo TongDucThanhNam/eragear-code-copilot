@@ -63,6 +63,8 @@ export const envSchema = z.object({
   MESSAGE_PARTS_MAX_BYTES: z.string().optional(),
   ACP_REQUEST_MAX_ATTEMPTS: z.string().optional(),
   ACP_REQUEST_RETRY_BASE_DELAY_MS: z.string().optional(),
+  ACP_NDJSON_MAX_LINE_BYTES: z.string().optional(),
+  ACP_NDJSON_MAX_BUFFERED_BYTES: z.string().optional(),
   NODE_ENV: z.string().optional(),
   BUN_ENV: z.string().optional(),
 });

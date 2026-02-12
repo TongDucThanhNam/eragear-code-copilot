@@ -9,8 +9,8 @@
 
 import { DEFAULT_SESSION_LIST_PAGE_LIMIT } from "@/config/constants";
 import type { ProjectRepositoryPort } from "@/modules/project";
+import type { StoredSession } from "@/modules/session/domain/stored-session.types";
 import { ValidationError } from "@/shared/errors";
-import type { StoredSession } from "@/shared/types/session.types";
 import type {
   SessionListPageQuery,
   SessionListQuery,

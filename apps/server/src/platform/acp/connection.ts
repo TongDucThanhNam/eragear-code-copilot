@@ -1,37 +1,332 @@
 /**
  * ACP Connection Adapter
  *
- * Implements the transport layer for the Agent Client Protocol (ACP).
- * Creates ClientSideConnection instances for bidirectional communication
- * with agent processes using the @agentclientprotocol/sdk library.
+ * Implements transport setup between server and ACP agents over stdio.
+ * Adds stream safety guards and stderr observability for production runtime.
  *
- * @module infra/acp/connection
+ * @module platform/acp/connection
  */
 
 import type { ChildProcess } from "node:child_process";
 import { Readable, Writable } from "node:stream";
-import type { Client } from "@agentclientprotocol/sdk";
-import { ClientSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
+import type { Client, Stream } from "@agentclientprotocol/sdk";
+import { ClientSideConnection } from "@agentclientprotocol/sdk";
+import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
+import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 
 const logger = createLogger("Debug");
 
+const STDERR_LOG_INTERVAL_MS = 5000;
+const STDERR_SAMPLE_CHAR_LIMIT = 2000;
+const STDERR_SAMPLE_LINE_LIMIT = 12;
+const PARSE_ERROR_SAMPLE_LIMIT = 256;
+
+interface NdJsonGuardPolicy {
+  maxLineBytes: number;
+  maxBufferedBytes: number;
+}
+
+function toError(error: unknown, fallbackMessage: string): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(fallbackMessage, { cause: error });
+}
+
+function truncate(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, maxChars)}...`;
+}
+
+function createBufferOverflowError(
+  reason: "line_limit" | "buffer_limit",
+  currentBytes: number,
+  limitBytes: number
+): Error {
+  return new Error(
+    `ACP NDJSON ${reason} exceeded (${currentBytes} > ${limitBytes} bytes)`
+  );
+}
+
+function terminateAgentAfterTransportFailure(
+  proc: ChildProcess,
+  error: Error
+): void {
+  logger.error("ACP stream guard triggered, terminating process", error, {
+    pid: proc.pid,
+  });
+  terminateProcessGracefully(proc)
+    .then((result) => {
+      if (!result.exited) {
+        logger.warn(
+          "ACP process did not exit after guard-triggered termination",
+          {
+            pid: proc.pid,
+            signalSent: result.signalSent,
+          }
+        );
+      }
+    })
+    .catch((terminationError) => {
+      logger.error(
+        "Failed to terminate ACP process after stream guard trigger",
+        toError(
+          terminationError,
+          "Failed to terminate ACP process after stream guard trigger"
+        ),
+        { pid: proc.pid }
+      );
+    });
+}
+
+function assertNdJsonLimit(
+  reason: "line_limit" | "buffer_limit",
+  currentBytes: number,
+  limitBytes: number
+): void {
+  if (currentBytes > limitBytes) {
+    throw createBufferOverflowError(reason, currentBytes, limitBytes);
+  }
+}
+
+function decodeChunkIntoLines(
+  decoder: TextDecoder,
+  currentContent: string,
+  chunk: Uint8Array
+): { lines: string[]; remainder: string } {
+  const nextContent = `${currentContent}${decoder.decode(chunk, { stream: true })}`;
+  const lines = nextContent.split("\n");
+  return {
+    lines,
+    remainder: lines.pop() || "",
+  };
+}
+
+function enqueueNdJsonLines(
+  lines: string[],
+  policy: NdJsonGuardPolicy,
+  controller: ReadableStreamDefaultController<unknown>
+): void {
+  for (const line of lines) {
+    const lineBytes = Buffer.byteLength(line, "utf8");
+    assertNdJsonLimit("line_limit", lineBytes, policy.maxLineBytes);
+
+    const trimmedLine = line.trim();
+    if (!trimmedLine) {
+      continue;
+    }
+
+    try {
+      controller.enqueue(JSON.parse(trimmedLine));
+    } catch (error) {
+      logger.warn("Failed to parse ACP JSON line; dropping line", {
+        lineSample: truncate(trimmedLine, PARSE_ERROR_SAMPLE_LIMIT),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+function createGuardedNdJsonStream(
+  output: WritableStream<Uint8Array>,
+  input: ReadableStream<Uint8Array>,
+  policy: NdJsonGuardPolicy,
+  onOverflow: (error: Error) => void
+): Stream {
+  const textEncoder = new TextEncoder();
+  const textDecoder = new TextDecoder();
+
+  const readable = new ReadableStream({
+    async start(controller) {
+      let content = "";
+      const reader = input.getReader();
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+          if (!value || value.byteLength === 0) {
+            continue;
+          }
+
+          assertNdJsonLimit(
+            "buffer_limit",
+            value.byteLength,
+            policy.maxBufferedBytes
+          );
+          const decoded = decodeChunkIntoLines(textDecoder, content, value);
+          content = decoded.remainder;
+          const bufferedBytes = Buffer.byteLength(content, "utf8");
+          assertNdJsonLimit(
+            "buffer_limit",
+            bufferedBytes,
+            policy.maxBufferedBytes
+          );
+          assertNdJsonLimit("line_limit", bufferedBytes, policy.maxLineBytes);
+          enqueueNdJsonLines(decoded.lines, policy, controller);
+        }
+      } catch (error) {
+        const overflowError = toError(error, "ACP NDJSON stream guard failure");
+        onOverflow(overflowError);
+        controller.error(overflowError);
+      } finally {
+        reader.releaseLock();
+        if (!(controller.desiredSize === null)) {
+          controller.close();
+        }
+      }
+    },
+  });
+
+  const writable = new WritableStream({
+    async write(message) {
+      const content = `${JSON.stringify(message)}\n`;
+      const writer = output.getWriter();
+      try {
+        await writer.write(textEncoder.encode(content));
+      } finally {
+        writer.releaseLock();
+      }
+    },
+    async close() {
+      const writer = output.getWriter();
+      try {
+        await writer.close();
+      } finally {
+        writer.releaseLock();
+      }
+    },
+    async abort(reason) {
+      const writer = output.getWriter();
+      try {
+        await writer.abort(reason);
+      } finally {
+        writer.releaseLock();
+      }
+    },
+  });
+
+  return { readable, writable };
+}
+
+function attachRateLimitedStderrLogger(proc: ChildProcess): void {
+  if (!proc.stderr) {
+    return;
+  }
+
+  let chunkCount = 0;
+  let totalBytes = 0;
+  let sampleChars = 0;
+  let sampleTruncated = false;
+  const samples: string[] = [];
+  let flushTimer: ReturnType<typeof setInterval> | null = null;
+  let cleaned = false;
+
+  const resetWindow = () => {
+    chunkCount = 0;
+    totalBytes = 0;
+    sampleChars = 0;
+    sampleTruncated = false;
+    samples.length = 0;
+  };
+
+  const flush = (reason: "interval" | "exit" | "error" | "stderr_close") => {
+    if (chunkCount === 0) {
+      return;
+    }
+
+    logger.warn("ACP process stderr summary", {
+      pid: proc.pid,
+      reason,
+      chunkCount,
+      totalBytes,
+      sample: samples.join("\n"),
+      sampleTruncated,
+    });
+    resetWindow();
+  };
+
+  const ensureFlushTimer = () => {
+    if (flushTimer) {
+      return;
+    }
+    flushTimer = setInterval(() => {
+      flush("interval");
+    }, STDERR_LOG_INTERVAL_MS);
+    flushTimer.unref?.();
+  };
+
+  const cleanup = (reason: "exit" | "error" | "stderr_close") => {
+    if (cleaned) {
+      return;
+    }
+    cleaned = true;
+    if (flushTimer) {
+      clearInterval(flushTimer);
+      flushTimer = null;
+    }
+    flush(reason);
+  };
+
+  proc.stderr.on("data", (chunk: Buffer) => {
+    if (chunk.byteLength === 0) {
+      return;
+    }
+
+    chunkCount += 1;
+    totalBytes += chunk.byteLength;
+
+    if (sampleChars < STDERR_SAMPLE_CHAR_LIMIT) {
+      const lines = chunk.toString("utf8").split(/\r?\n/g);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          continue;
+        }
+        if (samples.length >= STDERR_SAMPLE_LINE_LIMIT) {
+          sampleTruncated = true;
+          break;
+        }
+
+        const remainingChars = STDERR_SAMPLE_CHAR_LIMIT - sampleChars;
+        if (remainingChars <= 0) {
+          sampleTruncated = true;
+          break;
+        }
+
+        const lineSample = trimmed.slice(0, remainingChars);
+        samples.push(lineSample);
+        sampleChars += lineSample.length;
+
+        if (lineSample.length < trimmed.length) {
+          sampleTruncated = true;
+          break;
+        }
+      }
+    } else {
+      sampleTruncated = true;
+    }
+
+    ensureFlushTimer();
+  });
+
+  proc.on("exit", () => cleanup("exit"));
+  proc.on("error", () => cleanup("error"));
+  proc.stderr.on("close", () => cleanup("stderr_close"));
+}
+
 /**
- * Creates an ACP connection adapter for a child process
+ * Creates an ACP connection adapter for a child process.
  *
  * @param proc - The child process to communicate with (must have stdin and stdout)
- * @param handlers - Client handlers for incoming messages and lifecycle events
+ * @param handlers - Client handlers for incoming ACP messages and lifecycle events
  * @returns ClientSideConnection instance for ACP communication
  * @throws Error if stdin or stdout are not available
- *
- * @example
- * ```typescript
- * const connection = createAcpConnectionAdapter(process, {
- *   handleMessage: (msg) => console.log(msg),
- *   handleError: (err) => console.error(err),
- *   handleClose: (code) => console.log(`Closed with code ${code}`),
- * });
- * ```
  */
 export function createAcpConnectionAdapter(
   proc: ChildProcess,
@@ -40,6 +335,8 @@ export function createAcpConnectionAdapter(
   if (!(proc.stdin && proc.stdout)) {
     throw new Error("Child process stdin/stdout are not available");
   }
+
+  attachRateLimitedStderrLogger(proc);
 
   proc.stdout.on("error", (error) => {
     logger.error("ACP stdout error", error);
@@ -55,11 +352,22 @@ export function createAcpConnectionAdapter(
     logger.error("ACP process error", error, { pid: proc.pid });
   });
 
-  return new ClientSideConnection(
-    () => handlers,
-    ndJsonStream(
-      Writable.toWeb(proc.stdin) as unknown as WritableStream<Uint8Array>,
-      Readable.toWeb(proc.stdout) as unknown as ReadableStream<Uint8Array>
-    )
+  const output = Writable.toWeb(
+    proc.stdin
+  ) as unknown as WritableStream<Uint8Array>;
+  const input = Readable.toWeb(
+    proc.stdout
+  ) as unknown as ReadableStream<Uint8Array>;
+
+  const stream = createGuardedNdJsonStream(
+    output,
+    input,
+    {
+      maxLineBytes: ENV.acpNdjsonMaxLineBytes,
+      maxBufferedBytes: ENV.acpNdjsonMaxBufferedBytes,
+    },
+    (error) => terminateAgentAfterTransportFailure(proc, error)
   );
+
+  return new ClientSideConnection(() => handlers, stream);
 }

@@ -95,6 +95,10 @@ export const DEFAULT_STORAGE_MAX_BIND_PARAMS = DEFAULT_SQLITE_MAX_BIND_PARAMS;
 export const DEFAULT_ACP_REQUEST_MAX_ATTEMPTS = 3;
 /** Default base retry delay for ACP request retries */
 export const DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS = 150;
+/** Maximum NDJSON line size accepted from ACP agent stdout */
+export const DEFAULT_ACP_NDJSON_MAX_LINE_BYTES = 1024 * 1024;
+/** Maximum buffered NDJSON bytes accepted before fail-fast termination */
+export const DEFAULT_ACP_NDJSON_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 /** Hard cap for compaction batch size per run */
 export const HARD_MAX_SQLITE_RETENTION_COMPACTION_BATCH_SIZE = 500;
 /** Storage-agnostic alias for compaction batch hard cap */

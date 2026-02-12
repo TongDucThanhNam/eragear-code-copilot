@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { closeSqliteStorage } from "@/platform/storage/sqlite-db";
-import { resetStoragePathCacheForTests } from "@/platform/storage/storage-path";
 import type {
   StoredMessage,
   StoredSession,
-} from "@/shared/types/session.types";
+} from "@/modules/session/domain/stored-session.types";
+import { closeSqliteStorage } from "@/platform/storage/sqlite-db";
+import { resetStoragePathCacheForTests } from "@/platform/storage/storage-path";
 import { SessionSqliteRepository } from "./session.repository.sqlite";
 
 function createMessage(
@@ -100,6 +100,28 @@ describe("SessionSqliteRepository.create", () => {
       includeCompacted: true,
     });
     expect(page.messages).toHaveLength(0);
+  });
+
+  test("rolls back session row when message insert mapping fails", async () => {
+    const repo = new SessionSqliteRepository();
+    const chatId = "chat-create-rolls-back-on-message-failure";
+    const base = Date.now();
+    const oversizedContent = "x".repeat(2 * 1024 * 1024 + 1);
+
+    await expect(
+      repo.create(
+        createSession(
+          chatId,
+          [createMessage("m-oversized", "assistant", oversizedContent, base)],
+          base
+        )
+      )
+    ).rejects.toMatchObject({
+      name: "StorageTransactionError",
+    });
+
+    const stored = await repo.findById(chatId, "user-1");
+    expect(stored).toBeUndefined();
   });
 
   test("persists messages through appendMessage after initial save", async () => {

@@ -20,6 +20,7 @@ import { WebSocketServer } from "ws";
 import { installConsoleLogger } from "../platform/logging/logger";
 import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
+import { resolveAuthContextWithBootstrap } from "../transport/auth/auth-context.bootstrap";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
 import { requestIdMiddleware } from "../transport/http/request-id";
@@ -52,7 +53,8 @@ export interface ServerRuntimePolicy {
 
 function createHttpRouteDependencies(
   deps: AppDependencies,
-  runtimePolicy: ServerRuntimePolicy
+  runtimePolicy: ServerRuntimePolicy,
+  resolveAuthContext: HttpRouteDependencies["resolveAuthContext"]
 ): HttpRouteDependencies {
   return {
     sessionServices: deps.sessionServices,
@@ -70,12 +72,13 @@ function createHttpRouteDependencies(
       isDev: runtimePolicy.isDev,
       defaultAdminUsername: runtimePolicy.defaultAdminUsername,
     },
-    resolveAuthContext: deps.resolveAuthContext,
+    resolveAuthContext,
   };
 }
 
 function createTrpcContextDependencies(
-  deps: AppDependencies
+  deps: AppDependencies,
+  resolveAuthContext: TrpcContextDependencies["resolveAuthContext"]
 ): TrpcContextDependencies {
   return {
     sessionServices: deps.sessionServices,
@@ -86,10 +89,23 @@ function createTrpcContextDependencies(
     settingsServices: deps.settingsServices,
     authServices: deps.authServices,
     appConfig: deps.appConfig,
-    resolveAuthContext: deps.resolveAuthContext,
-    ensureUserDefaults: async (userId) => {
-      await deps.agentServices.ensureAgentDefaults().execute(userId);
-    },
+    resolveAuthContext,
+  };
+}
+
+function createBootstrappedAuthResolver(deps: AppDependencies) {
+  return async (
+    req: Parameters<HttpRouteDependencies["resolveAuthContext"]>[0]
+  ) => {
+    return await resolveAuthContextWithBootstrap(
+      {
+        resolveAuthContext: deps.resolveAuthContext,
+        ensureUserDefaults: async (userId) => {
+          await deps.agentServices.ensureAgentDefaults().execute(userId);
+        },
+      },
+      req
+    );
   };
 }
 
@@ -145,7 +161,12 @@ export async function createApp(composition?: AppComposition) {
   const runtimePolicy = resolvedComposition.runtimePolicy;
   const deps = resolvedComposition.deps;
   const authRuntime = deps.authRuntime;
-  const httpDeps = createHttpRouteDependencies(deps, runtimePolicy);
+  const resolveAuthContext = createBootstrappedAuthResolver(deps);
+  const httpDeps = createHttpRouteDependencies(
+    deps,
+    runtimePolicy,
+    resolveAuthContext
+  );
 
   const app = new Hono();
   app.use(
@@ -233,14 +254,13 @@ export async function createApp(composition?: AppComposition) {
     ) {
       return next();
     }
-    const authContext = await deps.resolveAuthContext({
+    const authContext = await resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
     });
     if (!authContext) {
       return c.json({ error: "Unauthorized" }, 401);
     }
-    await deps.agentServices.ensureAgentDefaults().execute(authContext.userId);
     return next();
   });
 
@@ -269,8 +289,9 @@ export async function startServer() {
   const composition = await createAppCompositionFromSettings();
   const runtimePolicy = composition.runtimePolicy;
   const deps = composition.deps;
+  const resolveAuthContext = createBootstrappedAuthResolver(deps);
   await deps.lifecycle.prepareStartup();
-  const trpcDeps = createTrpcContextDependencies(deps);
+  const trpcDeps = createTrpcContextDependencies(deps, resolveAuthContext);
   const app = await createApp(composition);
   deps.lifecycle.startBackground();
 
