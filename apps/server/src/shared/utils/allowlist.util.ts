@@ -8,6 +8,21 @@ function normalizeAllowlistValue(value: string): string {
   return normalized;
 }
 
+export interface CommandPolicy {
+  command: string;
+  allowAnyArgs?: boolean;
+  allowedArgs?: string[];
+  allowedArgPrefixes?: string[];
+}
+
+interface CompiledCommandPolicy {
+  allowAnyArgs: boolean;
+  allowedArgs: Set<string>;
+  allowedArgPrefixes: string[];
+}
+
+export type CommandPolicyRegistry = Map<string, CompiledCommandPolicy>;
+
 /**
  * Exact command allowlist matcher.
  *
@@ -35,6 +50,101 @@ export function isCommandAllowed(
   );
 
   return allowed.has(normalizedCommand);
+}
+
+function normalizeArgToken(token: string): string {
+  return token.trim();
+}
+
+function assertUniqueCommandPolicy(
+  registry: CommandPolicyRegistry,
+  command: string
+): void {
+  if (registry.has(command)) {
+    throw new Error(`Duplicate command policy for: ${command}`);
+  }
+}
+
+/**
+ * Compiles command/args policies for fast invocation checks.
+ */
+export function compileCommandPolicies(
+  policies: CommandPolicy[]
+): CommandPolicyRegistry {
+  const registry: CommandPolicyRegistry = new Map();
+  for (const policy of policies) {
+    const normalizedCommand = normalizeAllowlistValue(policy.command);
+    if (normalizedCommand.length === 0) {
+      throw new Error("Command policy command must be a non-empty string");
+    }
+    assertUniqueCommandPolicy(registry, normalizedCommand);
+
+    const allowAnyArgs = policy.allowAnyArgs === true;
+    const allowedArgs = new Set(
+      (policy.allowedArgs ?? [])
+        .map((entry) => normalizeArgToken(entry))
+        .filter((entry) => entry.length > 0)
+    );
+    const allowedArgPrefixes = [
+      ...new Set(
+        (policy.allowedArgPrefixes ?? [])
+          .map((entry) => normalizeArgToken(entry))
+          .filter((entry) => entry.length > 0)
+      ),
+    ];
+
+    registry.set(normalizedCommand, {
+      allowAnyArgs,
+      allowedArgs,
+      allowedArgPrefixes,
+    });
+  }
+  return registry;
+}
+
+/**
+ * Validates one command invocation against a compiled command policy registry.
+ */
+export function isCommandInvocationAllowed(
+  command: string,
+  args: string[],
+  policies: CommandPolicyRegistry
+): boolean {
+  if (policies.size === 0) {
+    return false;
+  }
+  const normalizedCommand = normalizeAllowlistValue(command);
+  if (normalizedCommand.length === 0) {
+    return false;
+  }
+
+  const policy = policies.get(normalizedCommand);
+  if (!policy) {
+    return false;
+  }
+  if (policy.allowAnyArgs) {
+    return true;
+  }
+
+  for (const arg of args) {
+    const normalizedArg = normalizeArgToken(arg);
+    if (normalizedArg.length === 0) {
+      return false;
+    }
+    if (policy.allowedArgs.has(normalizedArg)) {
+      continue;
+    }
+    if (
+      policy.allowedArgPrefixes.some((prefix) =>
+        normalizedArg.startsWith(prefix)
+      )
+    ) {
+      continue;
+    }
+    return false;
+  }
+
+  return true;
 }
 
 /**

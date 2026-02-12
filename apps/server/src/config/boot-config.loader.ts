@@ -28,6 +28,15 @@ export function normalizeBootValue(value: unknown): string | undefined {
     return value ? "true" : "false";
   }
   if (Array.isArray(value)) {
+    if (
+      value.some(
+        (item) =>
+          typeof item !== "string" &&
+          (typeof item !== "number" || !Number.isFinite(item))
+      )
+    ) {
+      return JSON.stringify(value);
+    }
     const items = value
       .map((item) => {
         if (typeof item === "string") {
@@ -42,6 +51,9 @@ export function normalizeBootValue(value: unknown): string | undefined {
     if (items.length > 0) {
       return items.join(",");
     }
+  }
+  if (isRecord(value)) {
+    return JSON.stringify(value);
   }
   return undefined;
 }
@@ -167,11 +179,11 @@ export function assertCompiledBootRequirements(
   } else if (!authSecrets.some((secret) => secret.trim().length >= 32)) {
     missing.push("AUTH_SECRET (minimum 32 characters)");
   }
-  if (!hasBootValue(config.values, "ALLOWED_AGENT_COMMANDS")) {
-    missing.push("ALLOWED_AGENT_COMMANDS");
+  if (!hasBootValue(config.values, "ALLOWED_AGENT_COMMAND_POLICIES")) {
+    missing.push("ALLOWED_AGENT_COMMAND_POLICIES");
   }
-  if (!hasBootValue(config.values, "ALLOWED_TERMINAL_COMMANDS")) {
-    missing.push("ALLOWED_TERMINAL_COMMANDS");
+  if (!hasBootValue(config.values, "ALLOWED_TERMINAL_COMMAND_POLICIES")) {
+    missing.push("ALLOWED_TERMINAL_COMMAND_POLICIES");
   }
   if (!hasBootValue(config.values, "ALLOWED_ENV_KEYS")) {
     missing.push("ALLOWED_ENV_KEYS");

@@ -16,9 +16,12 @@ export interface AgentRuntimePort {
     proc: ChildProcess,
     handlers: Client
   ): ClientSideConnection;
+  /** Prevents new spawns while shutdown cleanup is in progress */
+  beginShutdown(): void;
   /** Terminate any tracked runtime processes that are still active */
   terminateAllActiveProcesses(): Promise<{
     terminated: number;
     failed: number;
+    lingeringPids: number[];
   }>;
 }

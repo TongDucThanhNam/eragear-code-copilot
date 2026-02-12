@@ -12,18 +12,44 @@ import { spawn } from "node:child_process";
 import type { Client } from "@agentclientprotocol/sdk";
 import type { AgentRuntimePort } from "@/modules/session";
 import {
+  type CommandPolicy,
+  type CommandPolicyRegistry,
+  compileCommandPolicies,
   filterEnvAllowlist,
-  isCommandAllowed,
+  isCommandInvocationAllowed,
 } from "@/shared/utils/allowlist.util";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
-import { ENV } from "../../config/environment";
 import { createAcpConnectionAdapter } from "../acp/connection";
+
+const TERMINATION_DRAIN_PASSES = 6;
+
+export interface AgentRuntimePolicy {
+  allowedAgentCommandPolicies: CommandPolicy[];
+  allowedEnvKeys: string[];
+  agentTimeoutMs?: number;
+}
+
+function hasProcessExited(proc: ChildProcess): boolean {
+  return proc.exitCode !== null || proc.signalCode !== null;
+}
 
 /**
  * AgentRuntimeAdapter - Implements runtime spawning for agent processes
  */
 export class AgentRuntimeAdapter implements AgentRuntimePort {
   private readonly activeProcesses = new Set<ChildProcess>();
+  private readonly commandPolicies: CommandPolicyRegistry;
+  private readonly allowedEnvKeys: string[];
+  private readonly agentTimeoutMs: number | undefined;
+  private isShuttingDown = false;
+
+  constructor(policy: AgentRuntimePolicy) {
+    this.commandPolicies = compileCommandPolicies(
+      policy.allowedAgentCommandPolicies
+    );
+    this.allowedEnvKeys = [...policy.allowedEnvKeys];
+    this.agentTimeoutMs = policy.agentTimeoutMs;
+  }
 
   private trackProcess(proc: ChildProcess): void {
     this.activeProcesses.add(proc);
@@ -49,13 +75,16 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     args: string[],
     options: { cwd: string; env: Record<string, string> }
   ): ChildProcess {
-    if (!isCommandAllowed(command, ENV.allowedAgentCommands)) {
-      throw new Error(`Agent command not allowed: ${command}`);
+    if (this.isShuttingDown) {
+      throw new Error("Agent runtime is shutting down; spawn is disabled");
+    }
+    if (!isCommandInvocationAllowed(command, args, this.commandPolicies)) {
+      throw new Error(`Agent command invocation not allowed: ${command}`);
     }
 
     const env = filterEnvAllowlist(
       { ...process.env, ...options.env },
-      ENV.allowedEnvKeys
+      this.allowedEnvKeys
     );
 
     const proc = spawn(command, args, {
@@ -65,7 +94,7 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     });
     this.trackProcess(proc);
 
-    const timeoutMs = ENV.agentTimeoutMs;
+    const timeoutMs = this.agentTimeoutMs;
     if (timeoutMs !== undefined) {
       const timer = setTimeout(() => {
         if (!proc.killed) {
@@ -90,26 +119,55 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     return createAcpConnectionAdapter(proc, handlers);
   }
 
+  beginShutdown(): void {
+    this.isShuttingDown = true;
+  }
+
   async terminateAllActiveProcesses(): Promise<{
     terminated: number;
     failed: number;
+    lingeringPids: number[];
   }> {
-    const processes = [...this.activeProcesses];
     let terminated = 0;
     let failed = 0;
+    const attempted = new Set<ChildProcess>();
+    const failedSet = new Set<ChildProcess>();
 
-    await Promise.all(
-      processes.map(async (proc) => {
-        const result = await terminateProcessGracefully(proc);
-        if (result.exited) {
-          terminated += 1;
-        } else {
+    for (let pass = 0; pass < TERMINATION_DRAIN_PASSES; pass += 1) {
+      const pending = [...this.activeProcesses].filter(
+        (proc) => !(attempted.has(proc) || hasProcessExited(proc))
+      );
+      if (pending.length === 0) {
+        break;
+      }
+
+      await Promise.all(
+        pending.map(async (proc) => {
+          attempted.add(proc);
+          const result = await terminateProcessGracefully(proc);
+          if (result.exited) {
+            terminated += 1;
+            return;
+          }
           failed += 1;
-        }
-        this.activeProcesses.delete(proc);
-      })
-    );
+          failedSet.add(proc);
+        })
+      );
+    }
 
-    return { terminated, failed };
+    const lingeringProcesses = [...this.activeProcesses].filter(
+      (proc) => !hasProcessExited(proc)
+    );
+    const lingeringPids = lingeringProcesses
+      .map((proc) => proc.pid)
+      .filter((pid): pid is number => typeof pid === "number" && pid > 0);
+
+    for (const lingering of lingeringProcesses) {
+      if (!(attempted.has(lingering) && failedSet.has(lingering))) {
+        failed += 1;
+      }
+    }
+
+    return { terminated, failed, lingeringPids };
   }
 }

@@ -9,9 +9,34 @@ import {
 } from "./storage-path";
 
 describe("storage-path network guard", () => {
-  test("falls back to safe local directory when ERAGEAR_STORAGE_DIR is risky", async () => {
+  test("accepts local paths even when folder name contains sync keywords", async () => {
     const baseDir = await mkdtemp(path.join(os.tmpdir(), "eragear-storage-"));
     const riskyDir = path.join(baseDir, "OneDrive", "EragearData");
+
+    const prevStorageDir = process.env.ERAGEAR_STORAGE_DIR;
+    try {
+      process.env.ERAGEAR_STORAGE_DIR = riskyDir;
+      resetStoragePathCacheForTests();
+
+      const resolved = getStorageDirPathSync();
+      const resolution = getStoragePathResolutionInfo();
+
+      expect(resolved).toBe(path.resolve(riskyDir));
+      expect(resolution?.origin).toBe("env");
+      expect(resolution?.rejectedPath).toBeUndefined();
+    } finally {
+      if (prevStorageDir === undefined) {
+        Reflect.deleteProperty(process.env, "ERAGEAR_STORAGE_DIR");
+      } else {
+        process.env.ERAGEAR_STORAGE_DIR = prevStorageDir;
+      }
+      resetStoragePathCacheForTests();
+    }
+  });
+
+  test("falls back when ERAGEAR_STORAGE_DIR points to mount-risk path", async () => {
+    const baseDir = await mkdtemp(path.join(os.tmpdir(), "eragear-storage-"));
+    const riskyDir = path.join(baseDir, "gvfs", "remote");
     const xdgConfigHome = path.join(baseDir, "safe-config-home");
 
     const prevStorageDir = process.env.ERAGEAR_STORAGE_DIR;

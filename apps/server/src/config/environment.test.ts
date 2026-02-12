@@ -22,6 +22,10 @@ function runEnvironmentSubprocess(params: {
   const { code, overrides, includeRequiredAllowlists = true } = params;
   const requiredAllowlists = includeRequiredAllowlists
     ? {
+        ALLOWED_AGENT_COMMAND_POLICIES:
+          '[{"command":"bun","allowAnyArgs":true}]',
+        ALLOWED_TERMINAL_COMMAND_POLICIES:
+          '[{"command":"bun","allowAnyArgs":true}]',
         ALLOWED_AGENT_COMMANDS: "bun",
         ALLOWED_TERMINAL_COMMANDS: "bun",
         ALLOWED_ENV_KEYS: "PATH",
@@ -119,6 +123,8 @@ describe("environment worker invariants", () => {
       overrides: {
         NODE_ENV: "development",
         CONFIG_STRICT_ALLOWLIST: "false",
+        ALLOWED_AGENT_COMMAND_POLICIES: "",
+        ALLOWED_TERMINAL_COMMAND_POLICIES: "",
         ALLOWED_AGENT_COMMANDS: "",
         ALLOWED_TERMINAL_COMMANDS: "",
         ALLOWED_ENV_KEYS: "",
@@ -135,6 +141,8 @@ describe("environment worker invariants", () => {
       includeRequiredAllowlists: false,
       overrides: {
         NODE_ENV: "production",
+        ALLOWED_AGENT_COMMAND_POLICIES: "",
+        ALLOWED_TERMINAL_COMMAND_POLICIES: "",
         ALLOWED_AGENT_COMMANDS: "",
         ALLOWED_TERMINAL_COMMANDS: "",
         ALLOWED_ENV_KEYS: "",
@@ -148,8 +156,10 @@ describe("environment worker invariants", () => {
   test("loads required boot config from settings.json", async () => {
     const configPath = await writeBootConfigFile({
       boot: {
-        ALLOWED_AGENT_COMMANDS: ["bun"],
-        ALLOWED_TERMINAL_COMMANDS: ["bun"],
+        ALLOWED_AGENT_COMMAND_POLICIES: [{ command: "bun", allowAnyArgs: true }],
+        ALLOWED_TERMINAL_COMMAND_POLICIES: [
+          { command: "bun", allowAnyArgs: true },
+        ],
         ALLOWED_ENV_KEYS: ["PATH"],
         WS_HOST: "127.0.0.1",
         WS_PORT: 4111,
@@ -161,6 +171,8 @@ describe("environment worker invariants", () => {
       includeRequiredAllowlists: false,
       overrides: {
         ERAGEAR_BOOT_CONFIG_PATH: configPath,
+        ALLOWED_AGENT_COMMAND_POLICIES: "",
+        ALLOWED_TERMINAL_COMMAND_POLICIES: "",
         ALLOWED_AGENT_COMMANDS: "",
         ALLOWED_TERMINAL_COMMANDS: "",
         ALLOWED_ENV_KEYS: "",
@@ -175,8 +187,10 @@ describe("environment worker invariants", () => {
     const configPath = await writeBootConfigFile({
       boot: {
         mode: "standard",
-        ALLOWED_AGENT_COMMANDS: ["bun"],
-        ALLOWED_TERMINAL_COMMANDS: ["bun"],
+        ALLOWED_AGENT_COMMAND_POLICIES: [{ command: "bun", allowAnyArgs: true }],
+        ALLOWED_TERMINAL_COMMAND_POLICIES: [
+          { command: "bun", allowAnyArgs: true },
+        ],
         ALLOWED_ENV_KEYS: ["PATH"],
         WS_PORT: 4111,
       },
@@ -185,6 +199,8 @@ describe("environment worker invariants", () => {
     const result = readEnvironmentValueInSubprocess(
       {
         ERAGEAR_BOOT_CONFIG_PATH: configPath,
+        ALLOWED_AGENT_COMMAND_POLICIES: "",
+        ALLOWED_TERMINAL_COMMAND_POLICIES: "",
         WS_PORT: "5222",
         ALLOWED_AGENT_COMMANDS: "",
         ALLOWED_TERMINAL_COMMANDS: "",
@@ -202,8 +218,10 @@ describe("environment worker invariants", () => {
     const configPath = await writeBootConfigFile({
       boot: {
         mode: "compiled",
-        ALLOWED_AGENT_COMMANDS: ["bun"],
-        ALLOWED_TERMINAL_COMMANDS: ["bun"],
+        ALLOWED_AGENT_COMMAND_POLICIES: [{ command: "bun", allowAnyArgs: true }],
+        ALLOWED_TERMINAL_COMMAND_POLICIES: [
+          { command: "bun", allowAnyArgs: true },
+        ],
         ALLOWED_ENV_KEYS: ["PATH"],
         WS_HOST: "127.0.0.1",
         WS_PORT: 4111,
@@ -215,6 +233,10 @@ describe("environment worker invariants", () => {
       {
         ERAGEAR_BOOT_CONFIG_PATH: configPath,
         WS_PORT: "5222",
+        ALLOWED_AGENT_COMMAND_POLICIES:
+          '[{"command":"node","allowAnyArgs":true}]',
+        ALLOWED_TERMINAL_COMMAND_POLICIES:
+          '[{"command":"node","allowAnyArgs":true}]',
         ALLOWED_AGENT_COMMANDS: "node",
         ALLOWED_TERMINAL_COMMANDS: "node",
         ALLOWED_ENV_KEYS: "HOME",
@@ -248,15 +270,17 @@ describe("environment worker invariants", () => {
     expect(result.stderr).toContain(
       "Missing required boot keys for compiled mode"
     );
-    expect(result.stderr).toContain("ALLOWED_AGENT_COMMANDS");
+    expect(result.stderr).toContain("ALLOWED_AGENT_COMMAND_POLICIES");
   });
 
   test("compiled mode fails fast when auth secret is too short", async () => {
     const configPath = await writeBootConfigFile({
       boot: {
         mode: "compiled",
-        ALLOWED_AGENT_COMMANDS: ["bun"],
-        ALLOWED_TERMINAL_COMMANDS: ["bun"],
+        ALLOWED_AGENT_COMMAND_POLICIES: [{ command: "bun", allowAnyArgs: true }],
+        ALLOWED_TERMINAL_COMMAND_POLICIES: [
+          { command: "bun", allowAnyArgs: true },
+        ],
         ALLOWED_ENV_KEYS: ["PATH"],
         WS_HOST: "127.0.0.1",
         WS_PORT: 4111,
@@ -286,6 +310,8 @@ describe("environment worker invariants", () => {
       includeRequiredAllowlists: false,
       overrides: {
         ERAGEAR_BOOT_CONFIG_PATH: filePath,
+        ALLOWED_AGENT_COMMAND_POLICIES: "",
+        ALLOWED_TERMINAL_COMMAND_POLICIES: "",
         ALLOWED_AGENT_COMMANDS: "",
         ALLOWED_TERMINAL_COMMANDS: "",
         ALLOWED_ENV_KEYS: "",

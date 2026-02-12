@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { filterEnvAllowlist, isCommandAllowed } from "./allowlist.util";
+import {
+  compileCommandPolicies,
+  filterEnvAllowlist,
+  isCommandAllowed,
+  isCommandInvocationAllowed,
+} from "./allowlist.util";
+
+const DUPLICATE_POLICY_REGEX = /Duplicate command policy/i;
 
 describe("isCommandAllowed", () => {
   test("denies when allowlist is empty", () => {
@@ -29,5 +36,63 @@ describe("filterEnvAllowlist", () => {
       NODE_ENV: "production",
       ALLOWED: "yes",
     });
+  });
+});
+
+describe("command policy invocation", () => {
+  test("allows command when all args are explicitly allowed", () => {
+    const policies = compileCommandPolicies([
+      {
+        command: "node",
+        allowedArgs: ["--version"],
+      },
+    ]);
+
+    expect(isCommandInvocationAllowed("node", ["--version"], policies)).toBe(
+      true
+    );
+    expect(isCommandInvocationAllowed("node", ["-e"], policies)).toBe(false);
+  });
+
+  test("allows prefix-based arg patterns", () => {
+    const policies = compileCommandPolicies([
+      {
+        command: "codex",
+        allowedArgPrefixes: ["--model=", "--config="],
+      },
+    ]);
+
+    expect(
+      isCommandInvocationAllowed(
+        "codex",
+        ["--model=gpt-5", "--config=prod"],
+        policies
+      )
+    ).toBe(true);
+    expect(isCommandInvocationAllowed("codex", ["--unsafe"], policies)).toBe(
+      false
+    );
+  });
+
+  test("supports explicit allowAnyArgs only when configured", () => {
+    const policies = compileCommandPolicies([
+      {
+        command: "python",
+        allowAnyArgs: true,
+      },
+    ]);
+
+    expect(
+      isCommandInvocationAllowed("python", ["-c", "print(1)"], policies)
+    ).toBe(true);
+  });
+
+  test("throws on duplicate command policy", () => {
+    expect(() =>
+      compileCommandPolicies([
+        { command: "node", allowedArgs: ["--version"] },
+        { command: "node", allowedArgs: ["-v"] },
+      ])
+    ).toThrow(DUPLICATE_POLICY_REGEX);
   });
 });

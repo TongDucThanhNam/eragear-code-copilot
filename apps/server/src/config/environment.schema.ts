@@ -15,6 +15,8 @@ export const envSchema = z.object({
   AGENT_TIMEOUT_MS: z.string().optional(),
   TERMINAL_TIMEOUT_MS: z.string().optional(),
   TERMINAL_OUTPUT_HARD_CAP_BYTES: z.string().optional(),
+  ALLOWED_AGENT_COMMAND_POLICIES: z.string().optional(),
+  ALLOWED_TERMINAL_COMMAND_POLICIES: z.string().optional(),
   ALLOWED_AGENT_COMMANDS: z.string().optional(),
   ALLOWED_TERMINAL_COMMANDS: z.string().optional(),
   ALLOWED_ENV_KEYS: z.string().optional(),

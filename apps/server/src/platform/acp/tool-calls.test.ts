@@ -99,7 +99,14 @@ async function withTimeout<T>(
 }
 
 describe("createToolCallHandlers", () => {
-  const originalAllowedCommands = [...ENV.allowedTerminalCommands];
+  const originalAllowedCommandPolicies = ENV.allowedTerminalCommandPolicies.map(
+    (policy) => ({
+      command: policy.command,
+      allowAnyArgs: policy.allowAnyArgs,
+      allowedArgs: [...(policy.allowedArgs ?? [])],
+      allowedArgPrefixes: [...(policy.allowedArgPrefixes ?? [])],
+    })
+  );
   const originalAllowedEnvKeys = [...ENV.allowedEnvKeys];
   const originalOutputHardCap = ENV.terminalOutputHardCapBytes;
   const originalTerminalTimeoutMs = ENV.terminalTimeoutMs;
@@ -107,13 +114,25 @@ describe("createToolCallHandlers", () => {
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(path.join(os.tmpdir(), "eragear-tool-calls-"));
-    ENV.allowedTerminalCommands = ["/bin/sh"];
+    ENV.allowedTerminalCommandPolicies = [
+      {
+        command: "/bin/sh",
+        allowAnyArgs: true,
+      },
+    ];
     ENV.allowedEnvKeys = [];
     ENV.terminalOutputHardCapBytes = originalOutputHardCap;
   });
 
   afterEach(async () => {
-    ENV.allowedTerminalCommands = [...originalAllowedCommands];
+    ENV.allowedTerminalCommandPolicies = originalAllowedCommandPolicies.map(
+      (policy) => ({
+        command: policy.command,
+        allowAnyArgs: policy.allowAnyArgs,
+        allowedArgs: [...(policy.allowedArgs ?? [])],
+        allowedArgPrefixes: [...(policy.allowedArgPrefixes ?? [])],
+      })
+    );
     ENV.allowedEnvKeys = [...originalAllowedEnvKeys];
     ENV.terminalOutputHardCapBytes = originalOutputHardCap;
     ENV.terminalTimeoutMs = originalTerminalTimeoutMs;
@@ -202,7 +221,9 @@ describe("createToolCallHandlers", () => {
   });
 
   test("waitForTerminalExit resolves when process spawn errors", async () => {
-    ENV.allowedTerminalCommands = ["/definitely-not-a-real-command"];
+    ENV.allowedTerminalCommandPolicies = [
+      { command: "/definitely-not-a-real-command", allowAnyArgs: true },
+    ];
     const session = createSession("chat-exit-error", tmpDir);
     const runtime = createRuntime(session);
     const handlers = createToolCallHandlers(runtime);
@@ -220,6 +241,26 @@ describe("createToolCallHandlers", () => {
     );
 
     expect(status).toEqual({ exitCode: null, signal: null });
+  });
+
+  test("rejects terminal invocation when args violate command policy", async () => {
+    ENV.allowedTerminalCommandPolicies = [
+      {
+        command: "/bin/sh",
+        allowedArgs: ["--version"],
+      },
+    ];
+    const session = createSession("chat-policy-deny", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+
+    await expect(
+      handlers.createTerminal(session.id, {
+        sessionId: session.id,
+        command: "/bin/sh",
+        args: ["-lc", "echo blocked"],
+      })
+    ).rejects.toThrow("Command invocation not allowed");
   });
 
   test("denies symlink escape on non-existing write paths", async () => {

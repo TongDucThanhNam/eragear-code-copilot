@@ -109,6 +109,7 @@ class DefaultServerLifecycle implements ServerLifecycle {
 
     this.shutdownPromise = (async () => {
       logger.info(`${signal} received, gracefully shutting down`);
+      this.deps.agentRuntime.beginShutdown();
       this.stopBackground();
       await executeServerShutdown({
         sessionRuntime: this.deps.sessionRuntime,
@@ -123,7 +124,11 @@ class DefaultServerLifecycle implements ServerLifecycle {
       });
       const processSummary =
         await this.deps.agentRuntime.terminateAllActiveProcesses();
-      if (processSummary.terminated > 0 || processSummary.failed > 0) {
+      if (
+        processSummary.terminated > 0 ||
+        processSummary.failed > 0 ||
+        processSummary.lingeringPids.length > 0
+      ) {
         logger.info("Agent runtime process cleanup summary", processSummary);
       }
     })();

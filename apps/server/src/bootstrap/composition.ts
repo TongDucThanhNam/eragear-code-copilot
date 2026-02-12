@@ -110,6 +110,9 @@ export interface AppComposition {
 
 interface AppRuntimeConfig {
   sqliteWorkerEnabled: boolean;
+  allowedAgentCommandPolicies: typeof ENV.allowedAgentCommandPolicies;
+  allowedEnvKeys: string[];
+  agentTimeoutMs: number | undefined;
   sessionBufferLimit: number;
   sessionLockAcquireTimeoutMs: number;
   sessionEventBusPublishTimeoutMs: number;
@@ -123,6 +126,9 @@ interface AppRuntimeConfig {
 function resolveAppRuntimeConfig(): AppRuntimeConfig {
   return {
     sqliteWorkerEnabled: ENV.sqliteWorkerEnabled,
+    allowedAgentCommandPolicies: ENV.allowedAgentCommandPolicies,
+    allowedEnvKeys: ENV.allowedEnvKeys,
+    agentTimeoutMs: ENV.agentTimeoutMs,
     sessionBufferLimit: ENV.sessionBufferLimit,
     sessionLockAcquireTimeoutMs: ENV.sessionLockAcquireTimeoutMs,
     sessionEventBusPublishTimeoutMs: ENV.sessionEventBusPublishTimeoutMs,
@@ -290,7 +296,11 @@ export async function createAppComposition(
     ...persistence,
     appConfigService,
     gitAdapter: new GitAdapter(),
-    agentRuntimeAdapter: new AgentRuntimeAdapter(),
+    agentRuntimeAdapter: new AgentRuntimeAdapter({
+      allowedAgentCommandPolicies: runtimeConfig.allowedAgentCommandPolicies,
+      allowedEnvKeys: runtimeConfig.allowedEnvKeys,
+      agentTimeoutMs: runtimeConfig.agentTimeoutMs,
+    }),
     resolveAuthContext: createAuthContextResolver(runtime.auth),
     sendMessagePolicy: runtimeConfig.sendMessagePolicy,
   };
@@ -356,7 +366,9 @@ export async function createAppComposition(
 
 export async function createAppCompositionFromSettings(): Promise<AppComposition> {
   const runtimeConfig = resolveAppRuntimeConfig();
-  const settingsRepo = createSettingsRepository(runtimeConfig.sqliteWorkerEnabled);
+  const settingsRepo = createSettingsRepository(
+    runtimeConfig.sqliteWorkerEnabled
+  );
   const settings = await settingsRepo.get();
   return await createAppComposition(settings.projectRoots);
 }

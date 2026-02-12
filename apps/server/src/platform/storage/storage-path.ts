@@ -19,13 +19,6 @@ const LEGACY_JSON_FILES = [
   "ui-settings.json",
 ] as const;
 const STORAGE_DIR_ENV_KEY = "ERAGEAR_STORAGE_DIR";
-const SYNC_PATH_HINTS = [
-  "onedrive",
-  "google drive",
-  "googledrive",
-  "dropbox",
-  "icloud drive",
-] as const;
 
 let storageDir: string | null = null;
 let storageResolution: {
@@ -119,9 +112,6 @@ function detectStorageRiskReason(dir: string): string | undefined {
     normalized.startsWith("/afs/")
   ) {
     return "network_mount";
-  }
-  if (SYNC_PATH_HINTS.some((hint) => normalized.includes(hint))) {
-    return "sync_folder";
   }
   return undefined;
 }

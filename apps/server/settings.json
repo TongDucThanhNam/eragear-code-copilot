@@ -22,6 +22,17 @@
       "touch",
       "rm"
     ],
+    "ALLOWED_AGENT_COMMAND_POLICIES": [
+      { "command": "ls", "allowAnyArgs": true },
+      { "command": "grep", "allowAnyArgs": true },
+      { "command": "cat", "allowAnyArgs": true },
+      { "command": "find", "allowAnyArgs": true },
+      { "command": "git", "allowAnyArgs": true },
+      { "command": "echo", "allowAnyArgs": true },
+      { "command": "mkdir", "allowAnyArgs": true },
+      { "command": "touch", "allowAnyArgs": true },
+      { "command": "rm", "allowAnyArgs": true }
+    ],
     "ALLOWED_TERMINAL_COMMANDS": [
       "ls",
       "grep",
@@ -35,6 +46,20 @@
       "cd",
       "pwd",
       "whoami"
+    ],
+    "ALLOWED_TERMINAL_COMMAND_POLICIES": [
+      { "command": "ls", "allowAnyArgs": true },
+      { "command": "grep", "allowAnyArgs": true },
+      { "command": "cat", "allowAnyArgs": true },
+      { "command": "find", "allowAnyArgs": true },
+      { "command": "git", "allowAnyArgs": true },
+      { "command": "echo", "allowAnyArgs": true },
+      { "command": "mkdir", "allowAnyArgs": true },
+      { "command": "touch", "allowAnyArgs": true },
+      { "command": "rm", "allowAnyArgs": true },
+      { "command": "cd", "allowAnyArgs": true },
+      { "command": "pwd", "allowAnyArgs": true },
+      { "command": "whoami", "allowAnyArgs": true }
     ],
     "ALLOWED_ENV_KEYS": ["NODE_ENV", "API_KEY", "DEBUG", "PATH"]
   }

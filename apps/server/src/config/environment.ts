@@ -22,12 +22,12 @@ import {
   DEFAULT_APP_DEFAULT_MODEL,
   DEFAULT_APP_LOG_LEVEL,
   DEFAULT_APP_MAX_TOKENS,
+  DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS,
   DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
   DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
   DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_BACKGROUND_TASK_TIMEOUT_MS,
   DEFAULT_BACKGROUND_TICK_MS,
-  DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS,
   DEFAULT_DEV_ALLOWED_AGENT_COMMANDS,
   DEFAULT_DEV_ALLOWED_ENV_KEYS,
   DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS,
@@ -69,7 +69,9 @@ import {
 import {
   firstNonEmpty,
   parseAllowlistWithFallback,
+  parseCommandPoliciesWithLegacyFallback,
   parseRequiredAllowlist,
+  parseRequiredCommandPolicies,
   toBoolean,
   toBoundedPositiveInt,
   toList,
@@ -142,30 +144,40 @@ const strictAllowlist =
     : toBoolean(env.CONFIG_STRICT_ALLOWLIST, isProd);
 const allowlistErrors: string[] = [];
 const allowlistWarnings: string[] = [];
-const allowedAgentCommands = strictAllowlist
-  ? parseRequiredAllowlist(
-      "ALLOWED_AGENT_COMMANDS",
-      env.ALLOWED_AGENT_COMMANDS,
+const allowedAgentCommandPolicies = strictAllowlist
+  ? parseRequiredCommandPolicies(
+      "ALLOWED_AGENT_COMMAND_POLICIES",
+      env.ALLOWED_AGENT_COMMAND_POLICIES,
       allowlistErrors
     )
-  : parseAllowlistWithFallback(
-      "ALLOWED_AGENT_COMMANDS",
-      env.ALLOWED_AGENT_COMMANDS,
-      DEFAULT_DEV_ALLOWED_AGENT_COMMANDS,
-      allowlistWarnings
-    );
-const allowedTerminalCommands = strictAllowlist
-  ? parseRequiredAllowlist(
-      "ALLOWED_TERMINAL_COMMANDS",
-      env.ALLOWED_TERMINAL_COMMANDS,
+  : parseCommandPoliciesWithLegacyFallback({
+      policyName: "ALLOWED_AGENT_COMMAND_POLICIES",
+      policyValue: env.ALLOWED_AGENT_COMMAND_POLICIES,
+      legacyName: "ALLOWED_AGENT_COMMANDS",
+      legacyValue: env.ALLOWED_AGENT_COMMANDS,
+      legacyFallback: DEFAULT_DEV_ALLOWED_AGENT_COMMANDS,
+      warnings: allowlistWarnings,
+    });
+const allowedTerminalCommandPolicies = strictAllowlist
+  ? parseRequiredCommandPolicies(
+      "ALLOWED_TERMINAL_COMMAND_POLICIES",
+      env.ALLOWED_TERMINAL_COMMAND_POLICIES,
       allowlistErrors
     )
-  : parseAllowlistWithFallback(
-      "ALLOWED_TERMINAL_COMMANDS",
-      env.ALLOWED_TERMINAL_COMMANDS,
-      DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS,
-      allowlistWarnings
-    );
+  : parseCommandPoliciesWithLegacyFallback({
+      policyName: "ALLOWED_TERMINAL_COMMAND_POLICIES",
+      policyValue: env.ALLOWED_TERMINAL_COMMAND_POLICIES,
+      legacyName: "ALLOWED_TERMINAL_COMMANDS",
+      legacyValue: env.ALLOWED_TERMINAL_COMMANDS,
+      legacyFallback: DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS,
+      warnings: allowlistWarnings,
+    });
+const allowedAgentCommands = [
+  ...new Set(allowedAgentCommandPolicies.map((policy) => policy.command)),
+];
+const allowedTerminalCommands = [
+  ...new Set(allowedTerminalCommandPolicies.map((policy) => policy.command)),
+];
 const allowedEnvKeys = strictAllowlist
   ? parseRequiredAllowlist(
       "ALLOWED_ENV_KEYS",
@@ -190,7 +202,8 @@ if (strictAllowlist && allowlistErrors.length > 0) {
     [
       "[Config] Invalid required allowlist configuration:",
       ...allowlistErrors.map((error) => `- ${error}`),
-      "Expected format: NAME=item1,item2,item3",
+      'Policy format: ALLOWED_*_COMMAND_POLICIES=\'[{"command":"codex","allowAnyArgs":true}]\'',
+      "Legacy format (non-strict only): ALLOWED_*_COMMANDS=item1,item2,item3",
       configInputHint,
       bootConfigHint,
     ].join("\n")
@@ -285,6 +298,10 @@ export const ENV = {
     env.TERMINAL_OUTPUT_HARD_CAP_BYTES,
     DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES
   ),
+  /** Structured policy map for agent command invocations */
+  allowedAgentCommandPolicies,
+  /** Structured policy map for terminal command invocations */
+  allowedTerminalCommandPolicies,
   /** Required allowlist of agent commands */
   allowedAgentCommands,
   /** Required allowlist of terminal commands */

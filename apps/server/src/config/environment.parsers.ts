@@ -1,4 +1,5 @@
 import { LOG_LEVELS, type LogLevel } from "@/shared/types/log.types";
+import type { CommandPolicy } from "@/shared/utils/allowlist.util";
 
 /**
  * Converts a string environment variable to a number with fallback
@@ -164,4 +165,158 @@ export function parseAllowlistWithFallback(
     `${name} is missing or invalid in non-strict mode; using fallback: ${fallback.join(", ")}`
   );
   return [...fallback];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseCommandPolicyEntry(
+  name: string,
+  rawEntry: unknown,
+  index: number,
+  errors: string[]
+): CommandPolicy | null {
+  if (!isRecord(rawEntry)) {
+    errors.push(`${name}[${index}] must be an object.`);
+    return null;
+  }
+
+  const command = rawEntry.command;
+  if (typeof command !== "string" || command.trim().length === 0) {
+    errors.push(`${name}[${index}].command must be a non-empty string.`);
+    return null;
+  }
+
+  const allowAnyArgs = rawEntry.allowAnyArgs;
+  if (allowAnyArgs !== undefined && typeof allowAnyArgs !== "boolean") {
+    errors.push(`${name}[${index}].allowAnyArgs must be a boolean when set.`);
+    return null;
+  }
+
+  const parseStringArray = (
+    field: "allowedArgs" | "allowedArgPrefixes"
+  ): string[] | null => {
+    const value = rawEntry[field];
+    if (value === undefined) {
+      return [];
+    }
+    if (!Array.isArray(value)) {
+      errors.push(`${name}[${index}].${field} must be an array of strings.`);
+      return null;
+    }
+    const normalized = value.map((item) =>
+      typeof item === "string" ? item.trim() : ""
+    );
+    if (normalized.some((item) => item.length === 0)) {
+      errors.push(
+        `${name}[${index}].${field} must contain non-empty string items only.`
+      );
+      return null;
+    }
+    return [...new Set(normalized)];
+  };
+
+  const allowedArgs = parseStringArray("allowedArgs");
+  const allowedArgPrefixes = parseStringArray("allowedArgPrefixes");
+  if (!(allowedArgs && allowedArgPrefixes)) {
+    return null;
+  }
+
+  return {
+    command: command.trim(),
+    allowAnyArgs: allowAnyArgs === true,
+    allowedArgs,
+    allowedArgPrefixes,
+  };
+}
+
+export function parseRequiredCommandPolicies(
+  name: string,
+  value: string | undefined,
+  errors: string[]
+): CommandPolicy[] {
+  if (!value || value.trim().length === 0) {
+    errors.push(`${name} must be a non-empty JSON array of command policies.`);
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    errors.push(`${name} must be valid JSON.`);
+    return [];
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    errors.push(`${name} must be a non-empty JSON array.`);
+    return [];
+  }
+
+  const commandPolicies: CommandPolicy[] = [];
+  const seenCommands = new Set<string>();
+  for (let i = 0; i < parsed.length; i += 1) {
+    const policy = parseCommandPolicyEntry(name, parsed[i], i, errors);
+    if (!policy) {
+      continue;
+    }
+    const normalized = policy.command.trim();
+    if (seenCommands.has(normalized)) {
+      errors.push(`${name} contains duplicate command policy: ${normalized}.`);
+      continue;
+    }
+    seenCommands.add(normalized);
+    commandPolicies.push(policy);
+  }
+
+  if (errors.length > 0) {
+    return [];
+  }
+
+  return commandPolicies;
+}
+
+export function parseCommandPoliciesWithLegacyFallback(params: {
+  policyName: string;
+  policyValue: string | undefined;
+  legacyName: string;
+  legacyValue: string | undefined;
+  legacyFallback: readonly string[];
+  warnings: string[];
+}): CommandPolicy[] {
+  const {
+    policyName,
+    policyValue,
+    legacyName,
+    legacyValue,
+    legacyFallback,
+    warnings,
+  } = params;
+
+  const policyErrors: string[] = [];
+  const parsedPolicies = parseRequiredCommandPolicies(
+    policyName,
+    policyValue,
+    policyErrors
+  );
+  if (policyErrors.length === 0) {
+    return parsedPolicies;
+  }
+
+  warnings.push(
+    `${policyName} is missing or invalid in non-strict mode; falling back to ${legacyName} (allowAnyArgs=true).`
+  );
+  const legacyCommands = parseAllowlistWithFallback(
+    legacyName,
+    legacyValue,
+    legacyFallback,
+    warnings
+  );
+  return legacyCommands.map((command) => ({
+    command,
+    allowAnyArgs: true,
+    allowedArgs: [],
+    allowedArgPrefixes: [],
+  }));
 }

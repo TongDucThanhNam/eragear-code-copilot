@@ -15,8 +15,9 @@ import { RequestError } from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session";
 import { createLogger } from "@/platform/logging/structured-logger";
 import {
+  compileCommandPolicies,
   filterEnvAllowlist,
-  isCommandAllowed,
+  isCommandInvocationAllowed,
 } from "@/shared/utils/allowlist.util";
 import { createId } from "@/shared/utils/id.util";
 import { fileUriToPath } from "@/shared/utils/path.util";
@@ -241,6 +242,10 @@ async function canonicalizeTargetPath(resolvedPath: string): Promise<string> {
  * ```
  */
 export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
+  const terminalCommandPolicies = compileCommandPolicies(
+    ENV.allowedTerminalCommandPolicies
+  );
+
   /**
    * Reads a text file within a chat session
    */
@@ -324,10 +329,16 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     const allowedCwd = await resolvePathInSession(session, targetCwd);
     const outputByteLimit = resolveOutputLimit(params.outputByteLimit ?? null);
 
-    if (!isCommandAllowed(params.command, ENV.allowedTerminalCommands)) {
+    if (
+      !isCommandInvocationAllowed(
+        params.command,
+        params.args ?? [],
+        terminalCommandPolicies
+      )
+    ) {
       throw RequestError.invalidParams(
-        { command: params.command },
-        "Command not allowed"
+        { command: params.command, args: params.args ?? [] },
+        "Command invocation not allowed"
       );
     }
 
