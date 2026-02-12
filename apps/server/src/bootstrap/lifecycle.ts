@@ -1,5 +1,6 @@
 import type { SessionServiceFactory } from "@/modules/service-factories";
 import type {
+  AgentRuntimePort,
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
@@ -35,6 +36,7 @@ export interface ServerLifecycle {
 
 export interface ServerLifecycleDependencies {
   authRuntime: AuthRuntime;
+  agentRuntime: AgentRuntimePort;
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
   sessionServices: SessionServiceFactory;
@@ -119,6 +121,11 @@ class DefaultServerLifecycle implements ServerLifecycle {
             this.deps.policy.sqliteRetentionCompactionBatchSize,
         },
       });
+      const processSummary =
+        await this.deps.agentRuntime.terminateAllActiveProcesses();
+      if (processSummary.terminated > 0 || processSummary.failed > 0) {
+        logger.info("Agent runtime process cleanup summary", processSummary);
+      }
     })();
 
     return this.shutdownPromise;

@@ -61,6 +61,13 @@ class AgentRepoStub implements AgentRepositoryPort {
     this.setActiveCalls.push({ id, userId });
     return Promise.resolve();
   }
+
+  ensureDefaultsSeeded(
+    _userId: string,
+    _defaultAgentInput: AgentInput
+  ): Promise<{ activeAgentId: string | null }> {
+    return Promise.reject(new Error("Not implemented"));
+  }
 }
 
 function createEventBusStub(): EventBusPort {

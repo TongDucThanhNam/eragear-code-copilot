@@ -16,4 +16,9 @@ export interface AgentRuntimePort {
     proc: ChildProcess,
     handlers: Client
   ): ClientSideConnection;
+  /** Terminate any tracked runtime processes that are still active */
+  terminateAllActiveProcesses(): Promise<{
+    terminated: number;
+    failed: number;
+  }>;
 }

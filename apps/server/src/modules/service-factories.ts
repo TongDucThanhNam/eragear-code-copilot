@@ -52,65 +52,71 @@ import type {
   RespondPermissionService,
 } from "@/modules/tooling";
 
+type ServiceMethodKeys<T> = {
+  [K in keyof T]-?: T[K] extends (...args: never[]) => unknown ? K : never;
+}[keyof T];
+
+type ServicePort<T> = Pick<T, ServiceMethodKeys<T>>;
+
 export interface SessionServiceFactory {
-  createSession(): CreateSessionService;
-  stopSession(): StopSessionService;
-  resumeSession(): ResumeSessionService;
-  deleteSession(): DeleteSessionService;
-  getSessionState(): GetSessionStateService;
-  listSessions(): ListSessionsService;
-  updateSessionMeta(): UpdateSessionMetaService;
-  getSessionMessagesPage(): GetSessionMessagesService;
-  getSessionStorageStats(): GetSessionStorageStatsService;
-  subscribeSessionEvents(): SubscribeSessionEventsService;
-  cleanupProjectSessions(): CleanupProjectSessionsService;
-  reconcileSessionStatus(): ReconcileSessionStatusService;
-  compactSessionMessages(): CompactSessionMessagesService;
+  createSession(): ServicePort<CreateSessionService>;
+  stopSession(): ServicePort<StopSessionService>;
+  resumeSession(): ServicePort<ResumeSessionService>;
+  deleteSession(): ServicePort<DeleteSessionService>;
+  getSessionState(): ServicePort<GetSessionStateService>;
+  listSessions(): ServicePort<ListSessionsService>;
+  updateSessionMeta(): ServicePort<UpdateSessionMetaService>;
+  getSessionMessagesPage(): ServicePort<GetSessionMessagesService>;
+  getSessionStorageStats(): ServicePort<GetSessionStorageStatsService>;
+  subscribeSessionEvents(): ServicePort<SubscribeSessionEventsService>;
+  cleanupProjectSessions(): ServicePort<CleanupProjectSessionsService>;
+  reconcileSessionStatus(): ServicePort<ReconcileSessionStatusService>;
+  compactSessionMessages(): ServicePort<CompactSessionMessagesService>;
 }
 
 export interface AiServiceFactory {
-  sendMessage(): SendMessageService;
-  setModel(): SetModelService;
-  setMode(): SetModeService;
-  cancelPrompt(): CancelPromptService;
+  sendMessage(): ServicePort<SendMessageService>;
+  setModel(): ServicePort<SetModelService>;
+  setMode(): ServicePort<SetModeService>;
+  cancelPrompt(): ServicePort<CancelPromptService>;
 }
 
 export interface ProjectServiceFactory {
-  listProjects(): ListProjectsService;
-  createProject(): CreateProjectService;
-  updateProject(): UpdateProjectService;
-  deleteProject(): DeleteProjectService;
-  setActiveProject(): SetActiveProjectService;
+  listProjects(): ServicePort<ListProjectsService>;
+  createProject(): ServicePort<CreateProjectService>;
+  updateProject(): ServicePort<UpdateProjectService>;
+  deleteProject(): ServicePort<DeleteProjectService>;
+  setActiveProject(): ServicePort<SetActiveProjectService>;
 }
 
 export interface AgentServiceFactory {
-  ensureAgentDefaults(): EnsureAgentDefaultsService;
-  listAgents(): ListAgentsService;
-  createAgent(): CreateAgentService;
-  updateAgent(): UpdateAgentService;
-  deleteAgent(): DeleteAgentService;
-  setActiveAgent(): SetActiveAgentService;
+  ensureAgentDefaults(): ServicePort<EnsureAgentDefaultsService>;
+  listAgents(): ServicePort<ListAgentsService>;
+  createAgent(): ServicePort<CreateAgentService>;
+  updateAgent(): ServicePort<UpdateAgentService>;
+  deleteAgent(): ServicePort<DeleteAgentService>;
+  setActiveAgent(): ServicePort<SetActiveAgentService>;
 }
 
 export interface SettingsServiceFactory {
-  getSettings(): GetSettingsService;
-  updateSettings(): UpdateSettingsService;
+  getSettings(): ServicePort<GetSettingsService>;
+  updateSettings(): ServicePort<UpdateSettingsService>;
 }
 
 export interface ToolingServiceFactory {
-  codeContext(): CodeContextService;
-  respondPermission(): RespondPermissionService;
+  codeContext(): ServicePort<CodeContextService>;
+  respondPermission(): ServicePort<RespondPermissionService>;
 }
 
 export interface AuthServiceFactory {
-  getMe(): GetMeService;
+  getMe(): ServicePort<GetMeService>;
 }
 
 export interface OpsServiceFactory {
-  dashboardEventVisibility(): DashboardEventVisibilityService;
-  observabilitySnapshot(): GetObservabilitySnapshotService;
-  dashboardProjects(): ListDashboardProjectsService;
-  dashboardSessions(): ListDashboardSessionsService;
-  dashboardStats(): GetDashboardStatsService;
-  dashboardPageData(): GetDashboardPageDataService;
+  dashboardEventVisibility(): ServicePort<DashboardEventVisibilityService>;
+  observabilitySnapshot(): ServicePort<GetObservabilitySnapshotService>;
+  dashboardProjects(): ServicePort<ListDashboardProjectsService>;
+  dashboardSessions(): ServicePort<ListDashboardSessionsService>;
+  dashboardStats(): ServicePort<GetDashboardStatsService>;
+  dashboardPageData(): ServicePort<GetDashboardPageDataService>;
 }

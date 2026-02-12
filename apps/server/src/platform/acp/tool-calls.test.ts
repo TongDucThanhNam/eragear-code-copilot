@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { ENV } from "@/config/environment";
 import type { SessionRuntimePort } from "@/modules/session";
-import type { ChatSession } from "@/shared/types/session.types";
+import type { ChatSession, TerminalState } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { createToolCallHandlers } from "./tool-calls";
 
@@ -102,6 +102,7 @@ describe("createToolCallHandlers", () => {
   const originalAllowedCommands = [...ENV.allowedTerminalCommands];
   const originalAllowedEnvKeys = [...ENV.allowedEnvKeys];
   const originalOutputHardCap = ENV.terminalOutputHardCapBytes;
+  const originalTerminalTimeoutMs = ENV.terminalTimeoutMs;
   let tmpDir = "";
 
   beforeEach(async () => {
@@ -115,6 +116,7 @@ describe("createToolCallHandlers", () => {
     ENV.allowedTerminalCommands = [...originalAllowedCommands];
     ENV.allowedEnvKeys = [...originalAllowedEnvKeys];
     ENV.terminalOutputHardCapBytes = originalOutputHardCap;
+    ENV.terminalTimeoutMs = originalTerminalTimeoutMs;
     if (tmpDir) {
       await rm(tmpDir, { recursive: true, force: true });
     }
@@ -264,5 +266,48 @@ describe("createToolCallHandlers", () => {
     });
     const written = await readFile(path.join(realRoot, "new.txt"), "utf8");
     expect(written).toBe("world");
+  });
+
+  test("clears terminal timeout timer when terminal is released", async () => {
+    ENV.terminalTimeoutMs = 30;
+    const session = createSession("chat-release-timeout", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+
+    const created = await handlers.createTerminal(session.id, {
+      sessionId: session.id,
+      command: "/bin/sh",
+      args: ["-lc", "sleep 5"],
+    });
+    const term = session.terminals.get(created.terminalId) as
+      | TerminalState
+      | undefined;
+    expect(term).toBeDefined();
+    if (!term) {
+      return;
+    }
+
+    const originalKill = term.process.kill.bind(term.process);
+    let killCalls = 0;
+    term.process.kill = ((..._args: Parameters<typeof term.process.kill>) => {
+      killCalls += 1;
+      return true;
+    }) as typeof term.process.kill;
+
+    await handlers.releaseTerminal(session.id, {
+      sessionId: session.id,
+      terminalId: created.terminalId,
+    });
+    await withTimeout(
+      new Promise((resolve) => {
+        setTimeout(resolve, 80);
+      })
+    );
+    expect(killCalls).toBe(1);
+
+    term.process.kill = originalKill;
+    if (!term.process.killed) {
+      term.process.kill("SIGKILL");
+    }
   });
 });

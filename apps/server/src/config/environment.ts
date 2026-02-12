@@ -27,11 +27,17 @@ import {
   DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_BACKGROUND_TASK_TIMEOUT_MS,
   DEFAULT_BACKGROUND_TICK_MS,
+  DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS,
+  DEFAULT_DEV_ALLOWED_AGENT_COMMANDS,
+  DEFAULT_DEV_ALLOWED_ENV_KEYS,
+  DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS,
   DEFAULT_LOG_BUFFER_LIMIT,
   DEFAULT_LOG_FLUSH_INTERVAL_MS,
   DEFAULT_MESSAGE_CONTENT_MAX_BYTES,
   DEFAULT_MESSAGE_PARTS_MAX_BYTES,
   DEFAULT_SESSION_BUFFER_LIMIT,
+  DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT,
+  DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS,
   DEFAULT_SESSION_IDLE_TIMEOUT_MS,
   DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
   DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS,
@@ -62,6 +68,7 @@ import {
 } from "./constants";
 import {
   firstNonEmpty,
+  parseAllowlistWithFallback,
   parseRequiredAllowlist,
   toBoolean,
   toBoundedPositiveInt,
@@ -129,23 +136,49 @@ const defaultApiKeyRateLimitWindowMs = 60_000;
 const defaultApiKeyRateLimitMaxRequests = 3000;
 const authBaseUrl =
   env.AUTH_BASE_URL ?? `http://${normalizedAuthHost}:${wsPort}`;
+const strictAllowlist =
+  bootConfig.mode === "compiled"
+    ? true
+    : toBoolean(env.CONFIG_STRICT_ALLOWLIST, isProd);
 const allowlistErrors: string[] = [];
-const allowedAgentCommands = parseRequiredAllowlist(
-  "ALLOWED_AGENT_COMMANDS",
-  env.ALLOWED_AGENT_COMMANDS,
-  allowlistErrors
-);
-const allowedTerminalCommands = parseRequiredAllowlist(
-  "ALLOWED_TERMINAL_COMMANDS",
-  env.ALLOWED_TERMINAL_COMMANDS,
-  allowlistErrors
-);
-const allowedEnvKeys = parseRequiredAllowlist(
-  "ALLOWED_ENV_KEYS",
-  env.ALLOWED_ENV_KEYS,
-  allowlistErrors
-);
-if (allowlistErrors.length > 0) {
+const allowlistWarnings: string[] = [];
+const allowedAgentCommands = strictAllowlist
+  ? parseRequiredAllowlist(
+      "ALLOWED_AGENT_COMMANDS",
+      env.ALLOWED_AGENT_COMMANDS,
+      allowlistErrors
+    )
+  : parseAllowlistWithFallback(
+      "ALLOWED_AGENT_COMMANDS",
+      env.ALLOWED_AGENT_COMMANDS,
+      DEFAULT_DEV_ALLOWED_AGENT_COMMANDS,
+      allowlistWarnings
+    );
+const allowedTerminalCommands = strictAllowlist
+  ? parseRequiredAllowlist(
+      "ALLOWED_TERMINAL_COMMANDS",
+      env.ALLOWED_TERMINAL_COMMANDS,
+      allowlistErrors
+    )
+  : parseAllowlistWithFallback(
+      "ALLOWED_TERMINAL_COMMANDS",
+      env.ALLOWED_TERMINAL_COMMANDS,
+      DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS,
+      allowlistWarnings
+    );
+const allowedEnvKeys = strictAllowlist
+  ? parseRequiredAllowlist(
+      "ALLOWED_ENV_KEYS",
+      env.ALLOWED_ENV_KEYS,
+      allowlistErrors
+    )
+  : parseAllowlistWithFallback(
+      "ALLOWED_ENV_KEYS",
+      env.ALLOWED_ENV_KEYS,
+      DEFAULT_DEV_ALLOWED_ENV_KEYS,
+      allowlistWarnings
+    );
+if (strictAllowlist && allowlistErrors.length > 0) {
   const bootConfigHint = bootConfig.sourcePath
     ? `Loaded boot config from: ${bootConfig.sourcePath}`
     : `No settings.json boot config found. Searched: ${bootConfig.searchedPaths.join(", ")}`;
@@ -162,6 +195,11 @@ if (allowlistErrors.length > 0) {
       bootConfigHint,
     ].join("\n")
   );
+}
+if (!strictAllowlist && allowlistWarnings.length > 0) {
+  for (const warning of allowlistWarnings) {
+    console.warn(`[Config] ${warning}`);
+  }
 }
 const authTrustedOrigins = toList(env.AUTH_TRUSTED_ORIGINS);
 if (authTrustedOrigins[0] !== "*") {
@@ -193,6 +231,8 @@ export const ENV = {
   isCompiledConfigMode: bootConfig.mode === "compiled",
   /** Runtime environment */
   runtimeEnv,
+  /** Strict enforcement mode for required ALLOWED_* allowlists */
+  strictAllowlist,
   /** True when running in development or test modes */
   isDev,
   /** True when running in production mode */
@@ -211,6 +251,16 @@ export const ENV = {
   sessionLockAcquireTimeoutMs: toPositiveInt(
     env.SESSION_LOCK_ACQUIRE_TIMEOUT_MS,
     DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS
+  ),
+  /** Timeout budget for one event bus publish from session runtime */
+  sessionEventBusPublishTimeoutMs: toPositiveInt(
+    env.SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS,
+    DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS
+  ),
+  /** Maximum queued event bus publish jobs per chat */
+  sessionEventBusPublishMaxQueuePerChat: toPositiveInt(
+    env.SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT,
+    DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT
   ),
   /** WebSocket heartbeat interval in milliseconds */
   wsHeartbeatIntervalMs: toNumber(
@@ -275,6 +325,11 @@ export const ENV = {
   authDbPath: env.AUTH_DB_PATH,
   /** Bootstrap a default API key if none exist */
   authBootstrapApiKey: toBoolean(env.AUTH_BOOTSTRAP_API_KEY, true),
+  /** TTL for ensure-defaults bootstrap dedupe cache per authenticated user */
+  authBootstrapEnsureDefaultsTtlMs: toPositiveInt(
+    env.AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS,
+    DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS
+  ),
   /** Default API key prefix */
   authApiKeyPrefix: env.AUTH_API_KEY_PREFIX,
   /** Enable API key plugin rate limiting */

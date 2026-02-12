@@ -143,6 +143,7 @@ function createGuardedNdJsonStream(
     async start(controller) {
       let content = "";
       const reader = input.getReader();
+      let didError = false;
 
       try {
         while (true) {
@@ -173,11 +174,18 @@ function createGuardedNdJsonStream(
       } catch (error) {
         const overflowError = toError(error, "ACP NDJSON stream guard failure");
         onOverflow(overflowError);
+        didError = true;
         controller.error(overflowError);
       } finally {
         reader.releaseLock();
-        if (!(controller.desiredSize === null)) {
-          controller.close();
+        if (!didError) {
+          try {
+            controller.close();
+          } catch (error) {
+            logger.warn("Failed to close ACP guarded NDJSON stream", {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
     },

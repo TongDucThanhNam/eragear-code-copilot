@@ -17,10 +17,11 @@ import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { createElement, Fragment } from "react";
 import { WebSocketServer } from "ws";
+import { ENV } from "../config/environment";
 import { installConsoleLogger } from "../platform/logging/logger";
 import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
-import { resolveAuthContextWithBootstrap } from "../transport/auth/auth-context.bootstrap";
+import { createAuthContextResolverWithBootstrap } from "../transport/auth/auth-context.bootstrap";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
 import { requestIdMiddleware } from "../transport/http/request-id";
@@ -94,19 +95,17 @@ function createTrpcContextDependencies(
 }
 
 function createBootstrappedAuthResolver(deps: AppDependencies) {
-  return async (
-    req: Parameters<HttpRouteDependencies["resolveAuthContext"]>[0]
-  ) => {
-    return await resolveAuthContextWithBootstrap(
-      {
-        resolveAuthContext: deps.resolveAuthContext,
-        ensureUserDefaults: async (userId) => {
-          await deps.agentServices.ensureAgentDefaults().execute(userId);
-        },
+  return createAuthContextResolverWithBootstrap(
+    {
+      resolveAuthContext: deps.resolveAuthContext,
+      ensureUserDefaults: async (userId) => {
+        await deps.agentServices.ensureAgentDefaults().execute(userId);
       },
-      req
-    );
-  };
+    },
+    {
+      ensureUserDefaultsTtlMs: ENV.authBootstrapEnsureDefaultsTtlMs,
+    }
+  );
 }
 
 async function pipeResponseBody(
@@ -155,13 +154,17 @@ async function pipeResponseBody(
  *
  * @returns Configured Hono application instance
  */
-export async function createApp(composition?: AppComposition) {
+export async function createApp(
+  composition?: AppComposition,
+  resolveAuthContextOverride?: HttpRouteDependencies["resolveAuthContext"]
+) {
   const resolvedComposition =
     composition ?? (await createAppCompositionFromSettings());
   const runtimePolicy = resolvedComposition.runtimePolicy;
   const deps = resolvedComposition.deps;
   const authRuntime = deps.authRuntime;
-  const resolveAuthContext = createBootstrappedAuthResolver(deps);
+  const resolveAuthContext =
+    resolveAuthContextOverride ?? createBootstrappedAuthResolver(deps);
   const httpDeps = createHttpRouteDependencies(
     deps,
     runtimePolicy,
@@ -292,7 +295,7 @@ export async function startServer() {
   const resolveAuthContext = createBootstrappedAuthResolver(deps);
   await deps.lifecycle.prepareStartup();
   const trpcDeps = createTrpcContextDependencies(deps, resolveAuthContext);
-  const app = await createApp(composition);
+  const app = await createApp(composition, resolveAuthContext);
   deps.lifecycle.startBackground();
 
   const server = createServer(async (req, res) => {
@@ -357,6 +360,7 @@ export async function startServer() {
   });
 
   let shuttingDown = false;
+  let fatalShutdownTriggered = false;
   const gracefulShutdown = async (signal: "SIGTERM" | "SIGINT") => {
     if (shuttingDown) {
       return;
@@ -374,6 +378,26 @@ export async function startServer() {
     });
   };
 
+  const handleFatalError = (label: string, cause: unknown) => {
+    if (fatalShutdownTriggered) {
+      return;
+    }
+    fatalShutdownTriggered = true;
+    const error =
+      cause instanceof Error ? cause : new Error(String(cause ?? label));
+    logger.error(`Fatal runtime error: ${label}`, error);
+    gracefulShutdown("SIGTERM")
+      .catch((shutdownError) => {
+        logger.error(
+          `Graceful shutdown failed after fatal ${label}`,
+          shutdownError as Error
+        );
+      })
+      .finally(() => {
+        process.exit(1);
+      });
+  };
+
   process.on("SIGTERM", () => {
     gracefulShutdown("SIGTERM").catch((error) => {
       logger.error("Graceful shutdown failed after SIGTERM", error as Error);
@@ -383,6 +407,12 @@ export async function startServer() {
     gracefulShutdown("SIGINT").catch((error) => {
       logger.error("Graceful shutdown failed after SIGINT", error as Error);
     });
+  });
+  process.on("uncaughtException", (error) => {
+    handleFatalError("uncaughtException", error);
+  });
+  process.on("unhandledRejection", (reason) => {
+    handleFatalError("unhandledRejection", reason);
   });
 
   return { server, wsHandler };

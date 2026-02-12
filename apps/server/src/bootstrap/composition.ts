@@ -112,6 +112,8 @@ interface AppRuntimeConfig {
   sqliteWorkerEnabled: boolean;
   sessionBufferLimit: number;
   sessionLockAcquireTimeoutMs: number;
+  sessionEventBusPublishTimeoutMs: number;
+  sessionEventBusPublishMaxQueuePerChat: number;
   sendMessagePolicy: SendMessagePolicy;
   authPolicy: AuthRuntimePolicy;
   lifecyclePolicy: ServerLifecyclePolicy;
@@ -123,6 +125,9 @@ function resolveAppRuntimeConfig(): AppRuntimeConfig {
     sqliteWorkerEnabled: ENV.sqliteWorkerEnabled,
     sessionBufferLimit: ENV.sessionBufferLimit,
     sessionLockAcquireTimeoutMs: ENV.sessionLockAcquireTimeoutMs,
+    sessionEventBusPublishTimeoutMs: ENV.sessionEventBusPublishTimeoutMs,
+    sessionEventBusPublishMaxQueuePerChat:
+      ENV.sessionEventBusPublishMaxQueuePerChat,
     sendMessagePolicy: {
       messageContentMaxBytes: ENV.messageContentMaxBytes,
       messagePartsMaxBytes: ENV.messagePartsMaxBytes,
@@ -195,6 +200,8 @@ function createSettingsRepository(
 function createCoreDependencies(policy: {
   sessionBufferLimit: number;
   sessionLockAcquireTimeoutMs: number;
+  sessionEventBusPublishTimeoutMs: number;
+  sessionEventBusPublishMaxQueuePerChat: number;
 }): {
   eventBus: EventBusPort;
   sessionRuntime: SessionRuntimePort;
@@ -212,6 +219,9 @@ function createCoreDependencies(policy: {
       policy: {
         sessionBufferLimit: policy.sessionBufferLimit,
         lockAcquireTimeoutMs: policy.sessionLockAcquireTimeoutMs,
+        eventBusPublishTimeoutMs: policy.sessionEventBusPublishTimeoutMs,
+        eventBusPublishMaxQueuePerChat:
+          policy.sessionEventBusPublishMaxQueuePerChat,
       },
     }),
     logStore: getLogStore(),
@@ -240,6 +250,10 @@ export async function createAppComposition(
   const core = createCoreDependencies({
     sessionBufferLimit: runtimeConfig.sessionBufferLimit,
     sessionLockAcquireTimeoutMs: runtimeConfig.sessionLockAcquireTimeoutMs,
+    sessionEventBusPublishTimeoutMs:
+      runtimeConfig.sessionEventBusPublishTimeoutMs,
+    sessionEventBusPublishMaxQueuePerChat:
+      runtimeConfig.sessionEventBusPublishMaxQueuePerChat,
   });
   if (runtimeConfig.sqliteWorkerEnabled) {
     initializeSqliteWorker(normalizedRoots);
@@ -288,6 +302,7 @@ export async function createAppComposition(
   };
   const lifecycle = createServerLifecycle({
     authRuntime: runtime,
+    agentRuntime: container.getAgentRuntime(),
     sessionRuntime: container.getSessionRuntime(),
     sessionRepo: container.getSessions(),
     sessionServices,
@@ -340,6 +355,8 @@ export async function createAppComposition(
 }
 
 export async function createAppCompositionFromSettings(): Promise<AppComposition> {
-  const settings = await new SettingsSqliteRepository().get();
+  const runtimeConfig = resolveAppRuntimeConfig();
+  const settingsRepo = createSettingsRepository(runtimeConfig.sqliteWorkerEnabled);
+  const settings = await settingsRepo.get();
   return await createAppComposition(settings.projectRoots);
 }

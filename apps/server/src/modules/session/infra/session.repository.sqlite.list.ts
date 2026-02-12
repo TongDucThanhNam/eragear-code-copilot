@@ -1,7 +1,8 @@
 import type { SQL } from "drizzle-orm";
 import { and, desc, eq, lt, or } from "drizzle-orm";
 import type { StoredSession } from "@/modules/session/domain/stored-session.types";
-import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
+import type { getSqliteOrm } from "@/platform/storage/sqlite-db";
+import { sqliteSchema } from "@/platform/storage/sqlite-db";
 import { ValidationError } from "@/shared/errors";
 import type {
   SessionListPageQuery,
@@ -20,6 +21,8 @@ interface SessionListCursor {
 interface SessionListPolicy {
   sessionListPageMaxLimit: number;
 }
+
+type SqliteOrm = Awaited<ReturnType<typeof getSqliteOrm>>;
 
 function encodeSessionListCursor(cursor: SessionListCursor): string {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
@@ -46,7 +49,7 @@ function decodeSessionListCursor(
   }
 }
 
-function createSessionListSelect(db: Awaited<ReturnType<typeof getSqliteOrm>>) {
+function createSessionListSelect(db: SqliteOrm) {
   return db
     .select({
       id: sqliteSchema.sessions.id,
@@ -79,14 +82,14 @@ function createSessionListSelect(db: Awaited<ReturnType<typeof getSqliteOrm>>) {
     .$dynamic();
 }
 
-export async function listSessionsFromSqlite(params: {
+export function listSessionsFromSqlite(params: {
+  db: SqliteOrm;
   mapper: SessionSqliteMapper;
   policy: SessionListPolicy;
   query?: SessionListQuery;
   whereClause?: SQL<unknown>;
 }): Promise<StoredSession[]> {
-  const { mapper, policy, query, whereClause } = params;
-  const db = await getSqliteOrm();
+  const { db, mapper, policy, query, whereClause } = params;
   const offset = Math.max(0, Math.trunc(query?.offset ?? 0));
   const rawLimit = query?.limit;
   const limit =
@@ -110,17 +113,17 @@ export async function listSessionsFromSqlite(params: {
   }
 
   const rows = select.all();
-  return rows.map((row) => mapper.mapSessionListRow(row));
+  return Promise.resolve(rows.map((row) => mapper.mapSessionListRow(row)));
 }
 
-export async function listSessionsByCursorFromSqlite(params: {
+export function listSessionsByCursorFromSqlite(params: {
+  db: SqliteOrm;
   mapper: SessionSqliteMapper;
   policy: SessionListPolicy;
   query?: SessionListPageQuery;
   whereClause?: SQL<unknown>;
 }): Promise<SessionListPageResult> {
-  const { mapper, policy, query, whereClause } = params;
-  const db = await getSqliteOrm();
+  const { db, mapper, policy, query, whereClause } = params;
   const rawLimit = query?.limit;
   const limit =
     rawLimit === undefined
@@ -171,9 +174,9 @@ export async function listSessionsByCursorFromSqlite(params: {
         })
       : undefined;
 
-  return {
+  return Promise.resolve({
     sessions: pageRows.map((row) => mapper.mapSessionListRow(row)),
     nextCursor,
     hasMore,
-  };
+  });
 }

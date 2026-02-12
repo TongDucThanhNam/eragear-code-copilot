@@ -41,4 +41,14 @@ export class AgentSqliteWorkerRepository implements AgentRepositoryPort {
   setActive(id: string | null, userId: string): Promise<void> {
     return callSqliteWorker("agent", "setActive", [id, userId]);
   }
+
+  ensureDefaultsSeeded(
+    userId: string,
+    defaultAgentInput: AgentInput
+  ): Promise<{ activeAgentId: string | null }> {
+    return callSqliteWorker("agent", "ensureDefaultsSeeded", [
+      userId,
+      defaultAgentInput,
+    ]);
+  }
 }

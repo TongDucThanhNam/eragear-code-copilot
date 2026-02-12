@@ -86,6 +86,7 @@ export class Container {
   private readonly authContextResolver: ContainerDependencies["resolveAuthContext"];
   private readonly sendMessagePolicy: SendMessagePolicy;
   private readonly appConfigService: AppConfigService;
+  private readonly serviceRegistryDependencies: ServiceRegistryDependencies;
   private backgroundRunnerStateProvider:
     | (() => BackgroundRunnerState)
     | undefined;
@@ -98,14 +99,14 @@ export class Container {
   private toolingServices: ToolingServiceFactory | undefined;
   private opsServices: OpsServiceFactory | undefined;
 
-  sessionRepo: SessionRepositoryPort;
-  projectRepo: ProjectRepositoryPort;
-  agentRepo: AgentRepositoryPort;
-  settingsRepo: SettingsRepositoryPort;
+  private readonly sessionRepo: SessionRepositoryPort;
+  private readonly projectRepo: ProjectRepositoryPort;
+  private readonly agentRepo: AgentRepositoryPort;
+  private readonly settingsRepo: SettingsRepositoryPort;
 
-  gitAdapter: GitAdapter;
-  agentRuntimeAdapter: AgentRuntimePort;
-  sessionAcpAdapter: SessionAcpPort;
+  private readonly gitAdapter: GitAdapter;
+  private readonly agentRuntimeAdapter: AgentRuntimePort;
+  private readonly sessionAcpAdapter: SessionAcpPort;
 
   constructor(deps: ContainerDependencies) {
     this.eventBus = deps.eventBus;
@@ -126,10 +127,7 @@ export class Container {
 
     this.authContextResolver = deps.resolveAuthContext;
     this.sendMessagePolicy = deps.sendMessagePolicy;
-  }
-
-  private createServiceRegistryDependencies(): ServiceRegistryDependencies {
-    return {
+    this.serviceRegistryDependencies = {
       eventBus: this.eventBus,
       sessionRuntime: this.sessionRuntime,
       logStore: this.logStore,
@@ -144,8 +142,8 @@ export class Container {
       agentRuntimeAdapter: this.agentRuntimeAdapter,
       sessionAcpAdapter: this.sessionAcpAdapter,
       sendMessagePolicy: this.sendMessagePolicy,
-      getCacheStats: () => this.getCacheStats(),
-      getBackgroundRunnerState: () => this.getBackgroundRunnerState(),
+      getCacheStats: this.getCacheStats.bind(this),
+      getBackgroundRunnerState: this.getBackgroundRunnerState.bind(this),
     };
   }
 
@@ -213,7 +211,7 @@ export class Container {
   getSessionServices(): SessionServiceFactory {
     if (!this.sessionServices) {
       this.sessionServices = createSessionServices(
-        this.createServiceRegistryDependencies()
+        this.serviceRegistryDependencies
       );
     }
     return this.sessionServices;
@@ -221,9 +219,7 @@ export class Container {
 
   getAiServices(): AiServiceFactory {
     if (!this.aiServices) {
-      this.aiServices = createAiServices(
-        this.createServiceRegistryDependencies()
-      );
+      this.aiServices = createAiServices(this.serviceRegistryDependencies);
     }
     return this.aiServices;
   }
@@ -231,7 +227,7 @@ export class Container {
   getProjectServices(): ProjectServiceFactory {
     if (!this.projectServices) {
       this.projectServices = createProjectServices(
-        this.createServiceRegistryDependencies()
+        this.serviceRegistryDependencies
       );
     }
     return this.projectServices;
@@ -240,7 +236,7 @@ export class Container {
   getAgentServices(): AgentServiceFactory {
     if (!this.agentServices) {
       this.agentServices = createAgentServices(
-        this.createServiceRegistryDependencies()
+        this.serviceRegistryDependencies
       );
     }
     return this.agentServices;
@@ -249,7 +245,7 @@ export class Container {
   getSettingsServices(): SettingsServiceFactory {
     if (!this.settingsServices) {
       this.settingsServices = createSettingsServices(
-        this.createServiceRegistryDependencies()
+        this.serviceRegistryDependencies
       );
     }
     return this.settingsServices;
@@ -258,7 +254,7 @@ export class Container {
   getToolingServices(): ToolingServiceFactory {
     if (!this.toolingServices) {
       this.toolingServices = createToolingServices(
-        this.createServiceRegistryDependencies()
+        this.serviceRegistryDependencies
       );
     }
     return this.toolingServices;
@@ -266,9 +262,7 @@ export class Container {
 
   getOpsServices(): OpsServiceFactory {
     if (!this.opsServices) {
-      this.opsServices = createOpsServices(
-        this.createServiceRegistryDependencies()
-      );
+      this.opsServices = createOpsServices(this.serviceRegistryDependencies);
     }
     return this.opsServices;
   }

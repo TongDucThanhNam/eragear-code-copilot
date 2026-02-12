@@ -1,3 +1,7 @@
+import {
+  getSqliteOrm,
+  withSqliteTransaction,
+} from "@/platform/storage/sqlite-db";
 import { systemClock } from "@/platform/time/system-clock";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
@@ -31,6 +35,8 @@ export function createSessionSqliteRepository(params?: {
 }): SessionRepositoryPort {
   return new SessionSqliteRepository({
     clock: params?.clock ?? systemClock,
+    ormProvider: getSqliteOrm,
+    transactionRunner: withSqliteTransaction,
     ...(params?.policyProvider
       ? { policyProvider: params.policyProvider }
       : {}),

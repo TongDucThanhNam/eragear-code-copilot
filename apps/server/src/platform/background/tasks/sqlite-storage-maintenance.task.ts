@@ -22,7 +22,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export function createSqliteStorageMaintenanceTask(params: {
   sessionRepo: SessionRepositoryPort;
   sessionRuntime: SessionRuntimePort;
-  compactSessionMessages: CompactSessionMessagesService;
+  compactSessionMessages: Pick<CompactSessionMessagesService, "execute">;
 }): BackgroundTaskSpec {
   const { sessionRepo, sessionRuntime, compactSessionMessages } = params;
 

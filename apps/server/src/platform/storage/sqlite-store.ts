@@ -66,6 +66,7 @@ const logger = createLogger("Storage");
 export const SQLITE_SETTING_KEYS = {
   activeProjectId: "active_project_id",
   activeAgentId: "active_agent_id",
+  agentDefaultsSeededV1: "agent_defaults_seeded_v1",
   uiSettings: "ui_settings",
   projectRoots: "project_roots",
   mcpServers: "mcp_servers",

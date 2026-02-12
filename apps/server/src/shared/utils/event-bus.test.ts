@@ -7,6 +7,14 @@ const DASHBOARD_REFRESH_EVENT: DomainEvent = {
   reason: "settings_updated",
 };
 
+function createDeferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe("EventBus.publish", () => {
   test("continues notifying later listeners when one listener fails", async () => {
     const delivery: string[] = [];
@@ -34,5 +42,28 @@ describe("EventBus.publish", () => {
     expect(logs[1]?.message).toBe(
       "[EventBus] Publish completed with listener failures"
     );
+  });
+
+  test("does not block fast listeners behind a slow listener", async () => {
+    const bus = new EventBus();
+    const slowRelease = createDeferred();
+    const delivery: string[] = [];
+
+    bus.subscribe(async () => {
+      delivery.push("slow:start");
+      await slowRelease.promise;
+      delivery.push("slow:end");
+    });
+    bus.subscribe(() => {
+      delivery.push("fast");
+    });
+
+    const publishPromise = bus.publish(DASHBOARD_REFRESH_EVENT);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(delivery).toEqual(["slow:start", "fast"]);
+
+    slowRelease.resolve();
+    await publishPromise;
+    expect(delivery).toEqual(["slow:start", "fast", "slow:end"]);
   });
 });

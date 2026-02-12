@@ -5,7 +5,11 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
+import {
+  getSqliteOrm,
+  sqliteSchema,
+  withSqliteTransaction,
+} from "@/platform/storage/sqlite-db";
 import {
   fromSqliteJsonWithSchema,
   SQLITE_SETTING_KEYS,
@@ -25,6 +29,35 @@ const StringRecordSchema = z.record(z.string(), z.string());
 const NullableStringSchema = z.string().nullable();
 
 export class AgentSqliteRepository implements AgentRepositoryPort {
+  private parseActiveAgentId(valueJson: string | undefined): string | null {
+    return fromSqliteJsonWithSchema(valueJson, null, NullableStringSchema, {
+      table: "user_settings",
+      column: "value_json",
+    });
+  }
+
+  private upsertUserSetting(
+    db: Awaited<ReturnType<typeof getSqliteOrm>>,
+    userId: string,
+    key: string,
+    valueJson: string
+  ) {
+    db.insert(sqliteSchema.userSettings)
+      .values({
+        userId,
+        key,
+        valueJson,
+      })
+      .onConflictDoUpdate({
+        target: [
+          sqliteSchema.userSettings.userId,
+          sqliteSchema.userSettings.key,
+        ],
+        set: { valueJson },
+      })
+      .run();
+  }
+
   private mapRow(row: AgentRow): AgentConfig {
     if (!row.userId) {
       throw new Error(`Agent ${row.id} is missing owner`);
@@ -89,15 +122,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         )
       )
       .get();
-    const activeId = fromSqliteJsonWithSchema(
-      row?.valueJson,
-      null,
-      NullableStringSchema,
-      {
-        table: "user_settings",
-        column: "value_json",
-      }
-    );
+    const activeId = this.parseActiveAgentId(row?.valueJson);
     return activeId;
   }
 
@@ -141,6 +166,104 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       )
       .all();
     return rows.map((row) => this.mapRow(row));
+  }
+
+  ensureDefaultsSeeded(
+    userId: string,
+    defaultAgentInput: AgentInput
+  ): Promise<{ activeAgentId: string | null }> {
+    const normalizedUserId = userId.trim();
+    if (!normalizedUserId) {
+      return Promise.resolve({ activeAgentId: null });
+    }
+
+    return enqueueSqliteWrite("agent.ensure_defaults_seeded", async () => {
+      return await withSqliteTransaction(({ orm }) => {
+        let agentRows = orm
+          .select()
+          .from(sqliteSchema.agents)
+          .where(eq(sqliteSchema.agents.userId, normalizedUserId))
+          .all();
+
+        const activeRow = orm
+          .select({ valueJson: sqliteSchema.userSettings.valueJson })
+          .from(sqliteSchema.userSettings)
+          .where(
+            and(
+              eq(sqliteSchema.userSettings.userId, normalizedUserId),
+              eq(
+                sqliteSchema.userSettings.key,
+                SQLITE_SETTING_KEYS.activeAgentId
+              )
+            )
+          )
+          .get();
+
+        const seedMarker = orm
+          .select({ valueJson: sqliteSchema.userSettings.valueJson })
+          .from(sqliteSchema.userSettings)
+          .where(
+            and(
+              eq(sqliteSchema.userSettings.userId, normalizedUserId),
+              eq(
+                sqliteSchema.userSettings.key,
+                SQLITE_SETTING_KEYS.agentDefaultsSeededV1
+              )
+            )
+          )
+          .get();
+
+        if (agentRows.length === 0) {
+          const name = defaultAgentInput.name.trim();
+          if (!name) {
+            throw new Error("Agent name is required");
+          }
+          const now = Date.now();
+          const created: AgentRow = {
+            id: randomUUID(),
+            userId: normalizedUserId,
+            name,
+            type: defaultAgentInput.type,
+            command: defaultAgentInput.command,
+            argsJson: toSqliteJson(defaultAgentInput.args),
+            envJson: toSqliteJson(defaultAgentInput.env),
+            projectId: defaultAgentInput.projectId ?? null,
+            createdAt: now,
+            updatedAt: now,
+          };
+          orm.insert(sqliteSchema.agents).values(created).run();
+          agentRows = [created];
+        }
+
+        const currentActiveId = this.parseActiveAgentId(activeRow?.valueJson);
+        const hasCurrentActive =
+          currentActiveId !== null &&
+          agentRows.some((agent) => agent.id === currentActiveId);
+        const nextActiveId = hasCurrentActive
+          ? currentActiveId
+          : (agentRows[0]?.id ?? null);
+
+        if (nextActiveId !== currentActiveId) {
+          this.upsertUserSetting(
+            orm,
+            normalizedUserId,
+            SQLITE_SETTING_KEYS.activeAgentId,
+            toSqliteJson(nextActiveId) ?? "null"
+          );
+        }
+
+        if (!seedMarker) {
+          this.upsertUserSetting(
+            orm,
+            normalizedUserId,
+            SQLITE_SETTING_KEYS.agentDefaultsSeededV1,
+            "true"
+          );
+        }
+
+        return { activeAgentId: nextActiveId };
+      });
+    });
   }
 
   create(input: AgentInput): Promise<AgentConfig> {
@@ -268,22 +391,12 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
           throw new Error("Agent not found");
         }
       }
-      db.insert(sqliteSchema.userSettings)
-        .values({
-          userId,
-          key: SQLITE_SETTING_KEYS.activeAgentId,
-          valueJson: toSqliteJson(id) ?? "null",
-        })
-        .onConflictDoUpdate({
-          target: [
-            sqliteSchema.userSettings.userId,
-            sqliteSchema.userSettings.key,
-          ],
-          set: {
-            valueJson: toSqliteJson(id) ?? "null",
-          },
-        })
-        .run();
+      this.upsertUserSetting(
+        db,
+        userId,
+        SQLITE_SETTING_KEYS.activeAgentId,
+        toSqliteJson(id) ?? "null"
+      );
     });
   }
 }

@@ -137,6 +137,14 @@ function getTerminalOrThrow(
   return terminal as TerminalState;
 }
 
+function clearTerminalKillTimer(term: TerminalState): void {
+  if (!term.killTimer) {
+    return;
+  }
+  clearTimeout(term.killTimer);
+  term.killTimer = undefined;
+}
+
 /**
  * Resolves a file path within a session's project root with security checks
  *
@@ -366,10 +374,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       termState.exitStatus = status;
       termState.resolveExit?.(status);
       termState.resolveExit = undefined;
-      if (termState.killTimer) {
-        clearTimeout(termState.killTimer);
-        termState.killTimer = undefined;
-      }
+      clearTerminalKillTimer(termState);
     };
 
     // Handle output streaming
@@ -420,8 +425,17 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     const terminalTimeoutMs = ENV.terminalTimeoutMs;
     if (terminalTimeoutMs !== undefined) {
       termState.killTimer = setTimeout(() => {
-        if (!termProc.killed) {
+        if (termState.exitStatus || termProc.killed) {
+          return;
+        }
+        try {
           termProc.kill("SIGTERM");
+        } catch (error) {
+          logger.warn("Failed to terminate timed-out terminal process", {
+            chatId,
+            terminalId: termId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       }, terminalTimeoutMs);
     }
@@ -486,8 +500,17 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     }
 
     const typedTerm = term as TerminalState;
+    clearTerminalKillTimer(typedTerm);
     if (!typedTerm.exitStatus) {
-      typedTerm.process.kill();
+      try {
+        typedTerm.process.kill();
+      } catch (error) {
+        logger.warn("Failed to kill terminal during release", {
+          chatId,
+          terminalId: params.terminalId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     session.terminals.delete(params.terminalId);
     return Promise.resolve(undefined);

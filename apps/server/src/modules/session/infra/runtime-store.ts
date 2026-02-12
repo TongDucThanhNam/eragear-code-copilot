@@ -17,21 +17,35 @@ import type { SessionRuntimePort } from "../application/ports/session-runtime.po
 
 const logger = createLogger("Debug");
 const MIN_LOCK_ACQUIRE_TIMEOUT_MS = 100;
+const MIN_EVENT_BUS_PUBLISH_TIMEOUT_MS = 10;
+const MIN_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT = 1;
 
 export interface SessionRuntimeStorePolicy {
   sessionBufferLimit: number;
   lockAcquireTimeoutMs: number;
+  eventBusPublishTimeoutMs: number;
+  eventBusPublishMaxQueuePerChat: number;
 }
 
 function normalizePolicy(policy: SessionRuntimeStorePolicy): {
   sessionBufferLimit: number;
   lockAcquireTimeoutMs: number;
+  eventBusPublishTimeoutMs: number;
+  eventBusPublishMaxQueuePerChat: number;
 } {
   return {
     sessionBufferLimit: Math.max(1, Math.trunc(policy.sessionBufferLimit)),
     lockAcquireTimeoutMs: Math.max(
       MIN_LOCK_ACQUIRE_TIMEOUT_MS,
       Math.trunc(policy.lockAcquireTimeoutMs)
+    ),
+    eventBusPublishTimeoutMs: Math.max(
+      MIN_EVENT_BUS_PUBLISH_TIMEOUT_MS,
+      Math.trunc(policy.eventBusPublishTimeoutMs)
+    ),
+    eventBusPublishMaxQueuePerChat: Math.max(
+      MIN_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT,
+      Math.trunc(policy.eventBusPublishMaxQueuePerChat)
     ),
   };
 }
@@ -45,18 +59,18 @@ class SessionLockAcquireTimeoutError extends Error {
   }
 }
 
-export class SessionBroadcastError extends Error {
-  constructor(chatId: string, userId: string, cause: unknown) {
+class EventBusPublishTimeoutError extends Error {
+  constructor(chatId: string, timeoutMs: number) {
     super(
-      `[SessionRuntimeStore] Broadcast failed for chat "${chatId}" (user "${userId}")`
+      `[SessionRuntimeStore] Event bus publish timed out for chat "${chatId}" after ${timeoutMs}ms`
     );
-    this.name = "SessionBroadcastError";
-    if (cause instanceof Error) {
-      this.cause = cause;
-      return;
-    }
-    this.cause = new Error(String(cause));
+    this.name = "EventBusPublishTimeoutError";
   }
+}
+
+interface ChatPublishState {
+  queueSize: number;
+  tail: Promise<void>;
 }
 
 /**
@@ -70,6 +84,8 @@ export class SessionBroadcastError extends Error {
  * const store = new SessionRuntimeStore(eventBus, {
  *   sessionBufferLimit: 200,
  *   lockAcquireTimeoutMs: 15000,
+ *   eventBusPublishTimeoutMs: 250,
+ *   eventBusPublishMaxQueuePerChat: 500,
  * });
  *
  * store.set(chatId, session);
@@ -82,12 +98,18 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   private readonly sessions = new Map<string, ChatSession>();
   /** Per-chat lock tails for exclusive state mutation */
   private readonly chatLockTails = new Map<string, Promise<void>>();
+  /** Per-chat event bus publish state to preserve ordering and back-pressure */
+  private readonly chatPublishStates = new Map<string, ChatPublishState>();
   /** Event bus for publishing broadcast events */
   private readonly eventBus: EventBusPort;
   /** Maximum retained buffered events per session */
   private readonly sessionBufferLimit: number;
   /** Maximum time waiting to acquire a per-chat lock */
   private readonly lockAcquireTimeoutMs: number;
+  /** Maximum time waiting for one event bus publish */
+  private readonly eventBusPublishTimeoutMs: number;
+  /** Max queued event bus publish jobs per chat */
+  private readonly eventBusPublishMaxQueuePerChat: number;
 
   /**
    * Creates a SessionRuntimeStore with the event bus dependency
@@ -97,6 +119,9 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     const normalizedPolicy = normalizePolicy(policy);
     this.sessionBufferLimit = normalizedPolicy.sessionBufferLimit;
     this.lockAcquireTimeoutMs = normalizedPolicy.lockAcquireTimeoutMs;
+    this.eventBusPublishTimeoutMs = normalizedPolicy.eventBusPublishTimeoutMs;
+    this.eventBusPublishMaxQueuePerChat =
+      normalizedPolicy.eventBusPublishMaxQueuePerChat;
   }
 
   /**
@@ -106,6 +131,10 @@ export class SessionRuntimeStore implements SessionRuntimePort {
    * @param session - The session runtime object
    */
   set(chatId: string, session: ChatSession): void {
+    const existing = this.sessions.get(chatId);
+    if (existing && existing !== session) {
+      this.chatPublishStates.delete(chatId);
+    }
     this.sessions.set(chatId, session);
   }
 
@@ -127,6 +156,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   delete(chatId: string): void {
     this.sessions.delete(chatId);
     this.chatLockTails.delete(chatId);
+    this.chatPublishStates.delete(chatId);
   }
 
   /**
@@ -209,10 +239,10 @@ export class SessionRuntimeStore implements SessionRuntimePort {
    * @param chatId - The session identifier
    * @param event - The broadcast event
    */
-  async broadcast(chatId: string, event: BroadcastEvent): Promise<void> {
+  broadcast(chatId: string, event: BroadcastEvent): Promise<void> {
     const session = this.sessions.get(chatId);
     if (!session) {
-      return;
+      return Promise.resolve();
     }
 
     // Buffer the event
@@ -227,21 +257,102 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     // Emit to subscribers
     session.emitter.emit("data", event);
 
-    // Publish to event bus
-    try {
-      await this.eventBus.publish({
-        type: "session_broadcast",
-        userId: session.userId,
+    // Event bus fan-out is best-effort and intentionally detached from ACP/UI hot-path.
+    this.enqueueEventBusPublish(chatId, session.userId, event);
+    return Promise.resolve();
+  }
+
+  private enqueueEventBusPublish(
+    chatId: string,
+    userId: string,
+    event: BroadcastEvent
+  ): void {
+    const publishState =
+      this.chatPublishStates.get(chatId) ?? this.createChatPublishState(chatId);
+    if (publishState.queueSize >= this.eventBusPublishMaxQueuePerChat) {
+      logger.warn("Event bus publish queue is full for chat", {
         chatId,
-        event,
+        userId,
+        maxQueue: this.eventBusPublishMaxQueuePerChat,
       });
-    } catch (error) {
-      logger.error(
-        "Failed to publish session event to event bus",
-        error as Error,
-        { chatId, userId: session.userId }
-      );
-      throw new SessionBroadcastError(chatId, session.userId, error);
+      return;
+    }
+
+    publishState.queueSize += 1;
+    const previousTail = publishState.tail;
+    const nextTask = previousTail
+      .catch(() => undefined)
+      .then(async () => {
+        await this.publishToEventBusWithTimeout(chatId, userId, event);
+      })
+      .catch((error) => {
+        if (error instanceof EventBusPublishTimeoutError) {
+          logger.warn("Event bus publish timed out", {
+            chatId,
+            userId,
+            timeoutMs: this.eventBusPublishTimeoutMs,
+          });
+          return;
+        }
+        logger.error(
+          "Failed to publish session event to event bus",
+          error as Error,
+          { chatId, userId }
+        );
+      });
+
+    let currentTail: Promise<void> = Promise.resolve();
+    currentTail = nextTask.finally(() => {
+      publishState.queueSize = Math.max(0, publishState.queueSize - 1);
+      const activeState = this.chatPublishStates.get(chatId);
+      if (activeState !== publishState) {
+        return;
+      }
+      if (publishState.tail === currentTail && publishState.queueSize === 0) {
+        this.chatPublishStates.delete(chatId);
+      }
+    });
+
+    publishState.tail = currentTail;
+  }
+
+  private createChatPublishState(chatId: string): ChatPublishState {
+    const state: ChatPublishState = {
+      queueSize: 0,
+      tail: Promise.resolve(),
+    };
+    this.chatPublishStates.set(chatId, state);
+    return state;
+  }
+
+  private async publishToEventBusWithTimeout(
+    chatId: string,
+    userId: string,
+    event: BroadcastEvent
+  ): Promise<void> {
+    const publishPromise = this.eventBus.publish({
+      type: "session_broadcast",
+      userId,
+      chatId,
+      event,
+    });
+    // When timeout wins race, ensure late rejections are consumed.
+    publishPromise.catch(() => undefined);
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(
+          new EventBusPublishTimeoutError(chatId, this.eventBusPublishTimeoutMs)
+        );
+      }, this.eventBusPublishTimeoutMs);
+    });
+    try {
+      await Promise.race([publishPromise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
     }
   }
 }

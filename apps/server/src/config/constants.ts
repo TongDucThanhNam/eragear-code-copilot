@@ -20,6 +20,42 @@ export const DEFAULT_WS_HOST = "0.0.0.0";
 export const DEFAULT_SESSION_BUFFER_LIMIT = 500;
 /** Default timeout while waiting to acquire a per-chat runtime lock */
 export const DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS = 15_000;
+/** Max time budget for one event bus publish attempt from session runtime */
+export const DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS = 250;
+/** Max queued event bus publish jobs per chat before dropping new jobs */
+export const DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT = 512;
+/** Dev fallback allowlist for spawning configured agent commands */
+export const DEFAULT_DEV_ALLOWED_AGENT_COMMANDS = [
+  "opencode",
+  "codex",
+  "claude",
+  "gemini",
+  "bun",
+  "node",
+] as const;
+/** Dev fallback allowlist for terminal tool command execution */
+export const DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS = [
+  "ls",
+  "grep",
+  "cat",
+  "find",
+  "git",
+  "echo",
+  "mkdir",
+  "touch",
+  "pwd",
+  "whoami",
+] as const;
+/** Dev fallback allowlist for inherited environment variable keys */
+export const DEFAULT_DEV_ALLOWED_ENV_KEYS = [
+  "PATH",
+  "HOME",
+  "NODE_ENV",
+  "BUN_ENV",
+  "TERM",
+  "SHELL",
+  "DEBUG",
+] as const;
 /** Default WebSocket heartbeat interval: 30 seconds in milliseconds */
 export const DEFAULT_WS_HEARTBEAT_INTERVAL_MS = 30_000;
 /** Default maximum WebSocket payload size: 16 MiB */
@@ -150,3 +186,5 @@ export const HARD_MAX_APP_MAX_TOKENS = 200_000;
 export const DEFAULT_APP_DEFAULT_MODEL = "";
 /** Maximum allowed length for runtime default model identifier */
 export const MAX_APP_DEFAULT_MODEL_LENGTH = 200;
+/** Default TTL for auth bootstrap ensure-defaults cache */
+export const DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS = 30 * 60 * 1000;

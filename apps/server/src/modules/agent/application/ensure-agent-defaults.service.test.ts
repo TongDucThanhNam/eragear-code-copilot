@@ -114,6 +114,44 @@ class InMemoryAgentRepo implements AgentRepositoryPort {
     this.activeByUser.set(userId, id);
     return Promise.resolve();
   }
+
+  ensureDefaultsSeeded(
+    userId: string,
+    defaultAgentInput: AgentInput
+  ): Promise<{ activeAgentId: string | null }> {
+    const agents = this.agents.filter((agent) => agent.userId === userId);
+    if (agents.length === 0) {
+      const now = Date.now();
+      const created: AgentConfig = {
+        id: `agent-${this.createCalls.length + 1}`,
+        userId,
+        name: defaultAgentInput.name,
+        type: defaultAgentInput.type,
+        command: defaultAgentInput.command,
+        args: defaultAgentInput.args,
+        env: defaultAgentInput.env,
+        projectId: defaultAgentInput.projectId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.createCalls.push(defaultAgentInput);
+      this.agents.push(created);
+      this.setActiveCalls.push({ id: created.id, userId });
+      this.activeByUser.set(userId, created.id);
+      return Promise.resolve({ activeAgentId: created.id });
+    }
+    const currentActiveId = this.activeByUser.get(userId) ?? null;
+    const hasValidActive =
+      currentActiveId !== null &&
+      agents.some((agent) => agent.id === currentActiveId);
+    if (hasValidActive) {
+      return Promise.resolve({ activeAgentId: currentActiveId });
+    }
+    const fallbackAgentId = agents[0]?.id ?? null;
+    this.setActiveCalls.push({ id: fallbackAgentId, userId });
+    this.activeByUser.set(userId, fallbackAgentId);
+    return Promise.resolve({ activeAgentId: fallbackAgentId });
+  }
 }
 
 describe("EnsureAgentDefaultsService", () => {
@@ -172,5 +210,30 @@ describe("EnsureAgentDefaultsService", () => {
 
     expect(repo.createCalls).toHaveLength(1);
     expect(repo.setActiveCalls).toHaveLength(1);
+  });
+
+  test("fails with timeout when repository seed operation hangs", async () => {
+    const hangingRepo: AgentRepositoryPort = {
+      findById: async () => undefined,
+      findAll: async () => [],
+      getActiveId: async () => null,
+      listByProject: async () => [],
+      create: () => {
+        throw new Error("not called");
+      },
+      update: () => {
+        throw new Error("not called");
+      },
+      delete: async () => undefined,
+      setActive: async () => undefined,
+      ensureDefaultsSeeded: () => new Promise(() => undefined),
+    };
+    const service = new EnsureAgentDefaultsService(hangingRepo, {
+      timeoutMs: 20,
+    });
+
+    await expect(service.execute("user-timeout")).rejects.toThrow(
+      "Timed out after 20ms"
+    );
   });
 });

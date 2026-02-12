@@ -27,4 +27,9 @@ export interface AgentRepositoryPort {
   delete(id: string, userId: string): Promise<void>;
   /** Set the active agent */
   setActive(id: string | null, userId: string): Promise<void>;
+  /** Ensure default agents exist atomically and return active agent state */
+  ensureDefaultsSeeded(
+    userId: string,
+    defaultAgentInput: AgentInput
+  ): Promise<{ activeAgentId: string | null }>;
 }

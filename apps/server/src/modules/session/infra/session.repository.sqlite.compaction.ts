@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, lte } from "drizzle-orm";
 import { ENV } from "@/config/environment";
-import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
+import type { getSqliteOrm } from "@/platform/storage/sqlite-db";
+import { sqliteSchema } from "@/platform/storage/sqlite-db";
 import type { ClockPort } from "@/shared/ports/clock.port";
 
 function chunkArray<T>(items: T[], chunkSize: number): T[][] {
@@ -15,18 +16,17 @@ function chunkArray<T>(items: T[], chunkSize: number): T[][] {
   return chunks;
 }
 
-export async function compactSessionMessagesInSqlite(params: {
+export function compactSessionMessagesInSqlite(params: {
+  db: Awaited<ReturnType<typeof getSqliteOrm>>;
   sessionIds: string[];
   cutoffTimestamp: number;
   batchSize: number;
   clock: ClockPort;
 }): Promise<{ compacted: number }> {
-  const { sessionIds, cutoffTimestamp, batchSize, clock } = params;
+  const { db, sessionIds, cutoffTimestamp, batchSize, clock } = params;
   if (sessionIds.length === 0) {
-    return { compacted: 0 };
+    return Promise.resolve({ compacted: 0 });
   }
-
-  const db = await getSqliteOrm();
   const sqliteMaxBindParams = Math.max(1, Math.trunc(ENV.sqliteMaxBindParams));
   const sessionIdChunkSize = Math.max(1, sqliteMaxBindParams - 2);
   const selectedRows: Array<{ seq: number; timestamp: number }> = [];
@@ -59,7 +59,7 @@ export async function compactSessionMessagesInSqlite(params: {
   }
 
   if (selectedRows.length === 0) {
-    return { compacted: 0 };
+    return Promise.resolve({ compacted: 0 });
   }
 
   selectedRows.sort((left, right) => {
@@ -87,5 +87,5 @@ export async function compactSessionMessagesInSqlite(params: {
       .run();
   }
 
-  return { compacted: seqList.length };
+  return Promise.resolve({ compacted: seqList.length });
 }

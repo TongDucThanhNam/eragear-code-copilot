@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
-import { SessionBroadcastError, SessionRuntimeStore } from "./runtime-store";
+import { SessionRuntimeStore } from "./runtime-store";
 
 const LOCK_TIMEOUT_RE = /Lock acquisition timed out/;
 
@@ -50,6 +50,8 @@ describe("SessionRuntimeStore.runExclusive", () => {
     const store = new SessionRuntimeStore(createEventBusStub(), {
       sessionBufferLimit: 20,
       lockAcquireTimeoutMs: 500,
+      eventBusPublishTimeoutMs: 100,
+      eventBusPublishMaxQueuePerChat: 8,
     });
     const firstStarted = createDeferred<void>();
     const releaseFirst = createDeferred<void>();
@@ -85,6 +87,8 @@ describe("SessionRuntimeStore.runExclusive", () => {
     const store = new SessionRuntimeStore(createEventBusStub(), {
       sessionBufferLimit: 20,
       lockAcquireTimeoutMs: 500,
+      eventBusPublishTimeoutMs: 100,
+      eventBusPublishMaxQueuePerChat: 8,
     });
     const releaseA = createDeferred<void>();
     const releaseB = createDeferred<void>();
@@ -116,6 +120,8 @@ describe("SessionRuntimeStore.runExclusive", () => {
     const store = new SessionRuntimeStore(createEventBusStub(), {
       sessionBufferLimit: 20,
       lockAcquireTimeoutMs: 20,
+      eventBusPublishTimeoutMs: 100,
+      eventBusPublishMaxQueuePerChat: 8,
     });
     const firstStarted = createDeferred<void>();
     const releaseFirst = createDeferred<void>();
@@ -144,7 +150,7 @@ describe("SessionRuntimeStore.runExclusive", () => {
 });
 
 describe("SessionRuntimeStore.broadcast", () => {
-  test("throws when event bus publish fails", async () => {
+  test("returns successfully when event bus publish fails", async () => {
     const store = new SessionRuntimeStore(
       {
         subscribe: () => () => undefined,
@@ -155,6 +161,8 @@ describe("SessionRuntimeStore.broadcast", () => {
       {
         sessionBufferLimit: 20,
         lockAcquireTimeoutMs: 500,
+        eventBusPublishTimeoutMs: 100,
+        eventBusPublishMaxQueuePerChat: 8,
       }
     );
     store.set("chat-1", createSession("chat-1"));
@@ -164,8 +172,133 @@ describe("SessionRuntimeStore.broadcast", () => {
       error: "boom",
     };
 
-    await expect(store.broadcast("chat-1", event)).rejects.toBeInstanceOf(
-      SessionBroadcastError
+    await expect(store.broadcast("chat-1", event)).resolves.toBeUndefined();
+  });
+
+  test("does not wait for slow event bus publish", async () => {
+    const publishRelease = createDeferred<void>();
+    let publishCalls = 0;
+    const store = new SessionRuntimeStore(
+      {
+        subscribe: () => () => undefined,
+        publish: async () => {
+          publishCalls += 1;
+          await publishRelease.promise;
+        },
+      },
+      {
+        sessionBufferLimit: 20,
+        lockAcquireTimeoutMs: 500,
+        eventBusPublishTimeoutMs: 100,
+        eventBusPublishMaxQueuePerChat: 8,
+      }
     );
+    store.set("chat-1", createSession("chat-1"));
+
+    const event: BroadcastEvent = {
+      type: "error",
+      error: "boom",
+    };
+
+    await expect(store.broadcast("chat-1", event)).resolves.toBeUndefined();
+    await flushAsync();
+    expect(publishCalls).toBe(1);
+    publishRelease.resolve();
+  });
+
+  test("drops publishes when per-chat event bus queue is full", async () => {
+    const firstPublishRelease = createDeferred<void>();
+    let publishCalls = 0;
+    const store = new SessionRuntimeStore(
+      {
+        subscribe: () => () => undefined,
+        publish: async () => {
+          publishCalls += 1;
+          if (publishCalls === 1) {
+            await firstPublishRelease.promise;
+          }
+        },
+      },
+      {
+        sessionBufferLimit: 20,
+        lockAcquireTimeoutMs: 500,
+        eventBusPublishTimeoutMs: 100,
+        eventBusPublishMaxQueuePerChat: 2,
+      }
+    );
+    store.set("chat-1", createSession("chat-1"));
+    const event: BroadcastEvent = {
+      type: "error",
+      error: "boom",
+    };
+
+    await store.broadcast("chat-1", event);
+    await store.broadcast("chat-1", event);
+    await store.broadcast("chat-1", event);
+    expect(publishCalls).toBe(1);
+
+    firstPublishRelease.resolve();
+    await flushAsync();
+    await flushAsync();
+
+    expect(publishCalls).toBe(2);
+  });
+
+  test("keeps publish back-pressure correct across delete and recreate of same chat id", async () => {
+    const firstPublishRelease = createDeferred<void>();
+    const secondPublishRelease = createDeferred<void>();
+    let publishCalls = 0;
+    const store = new SessionRuntimeStore(
+      {
+        subscribe: () => () => undefined,
+        publish: async () => {
+          publishCalls += 1;
+          if (publishCalls === 1) {
+            await firstPublishRelease.promise;
+            return;
+          }
+          if (publishCalls === 2) {
+            await secondPublishRelease.promise;
+          }
+        },
+      },
+      {
+        sessionBufferLimit: 20,
+        lockAcquireTimeoutMs: 500,
+        eventBusPublishTimeoutMs: 100,
+        eventBusPublishMaxQueuePerChat: 1,
+      }
+    );
+    const event: BroadcastEvent = {
+      type: "error",
+      error: "boom",
+    };
+
+    store.set("chat-1", createSession("chat-1"));
+    await store.broadcast("chat-1", event);
+    await flushAsync();
+    expect(publishCalls).toBe(1);
+
+    store.delete("chat-1");
+    store.set("chat-1", createSession("chat-1"));
+    await store.broadcast("chat-1", event);
+    await flushAsync();
+    expect(publishCalls).toBe(2);
+
+    firstPublishRelease.resolve();
+    await flushAsync();
+    await flushAsync();
+
+    await store.broadcast("chat-1", event);
+    await flushAsync();
+    expect(publishCalls).toBe(2);
+
+    secondPublishRelease.resolve();
+    await flushAsync();
+    await flushAsync();
+
+    await store.broadcast("chat-1", event);
+    await flushAsync();
+    expect(publishCalls).toBe(3);
   });
 });

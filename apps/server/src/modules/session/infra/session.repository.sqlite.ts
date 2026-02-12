@@ -53,6 +53,8 @@ interface SessionSqliteRepositoryDeps {
   clock?: ClockPort;
   policy?: SessionSqliteRepositoryPolicy;
   policyProvider?: () => SessionSqliteRepositoryPolicy;
+  ormProvider?: () => Promise<SqliteOrm>;
+  transactionRunner?: SqliteTransactionRunner;
 }
 
 const DEFAULT_POLICY: SessionSqliteRepositoryPolicy = {
@@ -68,6 +70,9 @@ const SQLITE_SESSION_OP = {
   APPEND_MESSAGE: "session.append_message",
   COMPACT_MESSAGES: "session.compact_messages",
 } as const;
+
+type SqliteOrm = Awaited<ReturnType<typeof getSqliteOrm>>;
+type SqliteTransactionRunner = typeof withSqliteTransaction;
 
 function normalizePolicy(
   policy: SessionSqliteRepositoryPolicy
@@ -88,10 +93,14 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
   private readonly mapper: SessionSqliteMapper;
   private readonly clock: ClockPort;
   private readonly policyProvider: () => SessionSqliteRepositoryPolicy;
+  private readonly ormProvider: () => Promise<SqliteOrm>;
+  private readonly transactionRunner: SqliteTransactionRunner;
 
   constructor(deps: SessionSqliteRepositoryDeps = {}) {
     this.mapper = deps.mapper ?? new SessionSqliteMapper();
     this.clock = deps.clock ?? systemClock;
+    this.ormProvider = deps.ormProvider ?? getSqliteOrm;
+    this.transactionRunner = deps.transactionRunner ?? withSqliteTransaction;
     const staticPolicy = normalizePolicy(deps.policy ?? DEFAULT_POLICY);
     const dynamicPolicyProvider = deps.policyProvider;
     if (dynamicPolicyProvider) {
@@ -109,7 +118,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     id: string,
     userId: string
   ): Promise<StoredSession | undefined> {
-    const db = await getSqliteOrm();
+    const db = await this.ormProvider();
     const row = db
       .select()
       .from(sqliteSchema.sessions)
@@ -127,46 +136,58 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
   }
 
   findAll(userId: string, query?: SessionListQuery): Promise<StoredSession[]> {
-    return listSessionsFromSqlite({
-      mapper: this.mapper,
-      policy: this.getPolicy(),
-      query,
-      whereClause: eq(sqliteSchema.sessions.userId, userId),
-    });
+    return this.ormProvider().then((db) =>
+      listSessionsFromSqlite({
+        db,
+        mapper: this.mapper,
+        policy: this.getPolicy(),
+        query,
+        whereClause: eq(sqliteSchema.sessions.userId, userId),
+      })
+    );
   }
 
   findAllForMaintenance(query?: SessionListQuery): Promise<StoredSession[]> {
-    return listSessionsFromSqlite({
-      mapper: this.mapper,
-      policy: this.getPolicy(),
-      query,
-    });
+    return this.ormProvider().then((db) =>
+      listSessionsFromSqlite({
+        db,
+        mapper: this.mapper,
+        policy: this.getPolicy(),
+        query,
+      })
+    );
   }
 
   findPage(
     userId: string,
     query?: SessionListPageQuery
   ): Promise<SessionListPageResult> {
-    return listSessionsByCursorFromSqlite({
-      mapper: this.mapper,
-      policy: this.getPolicy(),
-      query,
-      whereClause: eq(sqliteSchema.sessions.userId, userId),
-    });
+    return this.ormProvider().then((db) =>
+      listSessionsByCursorFromSqlite({
+        db,
+        mapper: this.mapper,
+        policy: this.getPolicy(),
+        query,
+        whereClause: eq(sqliteSchema.sessions.userId, userId),
+      })
+    );
   }
 
   findPageForMaintenance(
     query?: SessionListPageQuery
   ): Promise<SessionListPageResult> {
-    return listSessionsByCursorFromSqlite({
-      mapper: this.mapper,
-      policy: this.getPolicy(),
-      query,
-    });
+    return this.ormProvider().then((db) =>
+      listSessionsByCursorFromSqlite({
+        db,
+        mapper: this.mapper,
+        policy: this.getPolicy(),
+        query,
+      })
+    );
   }
 
   async countAll(userId: string): Promise<number> {
-    const db = await getSqliteOrm();
+    const db = await this.ormProvider();
     const row = db
       .select({ count: sql<number>`count(*)` })
       .from(sqliteSchema.sessions)
@@ -177,7 +198,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
 
   async create(session: StoredSession): Promise<void> {
     await enqueueSqliteWrite(SQLITE_SESSION_OP.CREATE, async () => {
-      await withSqliteTransaction(({ orm }) => {
+      await this.transactionRunner(({ orm }) => {
         orm
           .insert(sqliteSchema.sessions)
           .values(this.mapper.toSessionInsert(session))
@@ -210,10 +231,24 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     options?: { touchLastActiveAt?: boolean }
   ): Promise<void> {
     await enqueueSqliteWrite(SQLITE_SESSION_OP.UPDATE_STATUS, async () => {
-      const db = await getSqliteOrm();
-      if (options?.touchLastActiveAt === true) {
-        db.update(sqliteSchema.sessions)
-          .set({ status, lastActiveAt: this.clock.nowMs() })
+      await this.transactionRunner(({ orm }) => {
+        if (options?.touchLastActiveAt === true) {
+          orm
+            .update(sqliteSchema.sessions)
+            .set({ status, lastActiveAt: this.clock.nowMs() })
+            .where(
+              and(
+                eq(sqliteSchema.sessions.id, id),
+                eq(sqliteSchema.sessions.userId, userId)
+              )
+            )
+            .run();
+          return;
+        }
+
+        orm
+          .update(sqliteSchema.sessions)
+          .set({ status })
           .where(
             and(
               eq(sqliteSchema.sessions.id, id),
@@ -221,18 +256,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
             )
           )
           .run();
-        return;
-      }
-
-      db.update(sqliteSchema.sessions)
-        .set({ status })
-        .where(
-          and(
-            eq(sqliteSchema.sessions.id, id),
-            eq(sqliteSchema.sessions.userId, userId)
-          )
-        )
-        .run();
+      });
     });
   }
 
@@ -242,35 +266,39 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     updates: Partial<StoredSession>
   ): Promise<void> {
     await enqueueSqliteWrite(SQLITE_SESSION_OP.UPDATE_METADATA, async () => {
-      const db = await getSqliteOrm();
-      const setValues: Partial<SessionInsert> = {
-        lastActiveAt: this.clock.nowMs(),
-      };
-      Object.assign(setValues, this.mapper.toMetadataUpdateSet(updates));
+      await this.transactionRunner(({ orm }) => {
+        const setValues: Partial<SessionInsert> = {
+          lastActiveAt: this.clock.nowMs(),
+        };
+        Object.assign(setValues, this.mapper.toMetadataUpdateSet(updates));
 
-      db.update(sqliteSchema.sessions)
-        .set(setValues)
-        .where(
-          and(
-            eq(sqliteSchema.sessions.id, id),
-            eq(sqliteSchema.sessions.userId, userId)
+        orm
+          .update(sqliteSchema.sessions)
+          .set(setValues)
+          .where(
+            and(
+              eq(sqliteSchema.sessions.id, id),
+              eq(sqliteSchema.sessions.userId, userId)
+            )
           )
-        )
-        .run();
+          .run();
+      });
     });
   }
 
   async delete(id: string, userId: string): Promise<void> {
     await enqueueSqliteWrite(SQLITE_SESSION_OP.DELETE, async () => {
-      const db = await getSqliteOrm();
-      db.delete(sqliteSchema.sessions)
-        .where(
-          and(
-            eq(sqliteSchema.sessions.id, id),
-            eq(sqliteSchema.sessions.userId, userId)
+      await this.transactionRunner(({ orm }) => {
+        orm
+          .delete(sqliteSchema.sessions)
+          .where(
+            and(
+              eq(sqliteSchema.sessions.id, id),
+              eq(sqliteSchema.sessions.userId, userId)
+            )
           )
-        )
-        .run();
+          .run();
+      });
     });
   }
 
@@ -281,7 +309,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
   ): Promise<{ appended: true }> {
     await enqueueSqliteWrite(SQLITE_SESSION_OP.APPEND_MESSAGE, async () => {
       try {
-        await withSqliteTransaction(({ orm }) => {
+        await this.transactionRunner(({ orm }) => {
           const values = this.mapper.toMessageInsert(id, message);
           orm
             .insert(sqliteSchema.sessionMessages)
@@ -339,7 +367,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     userId: string,
     query: SessionMessagesPageQuery
   ): Promise<SessionMessagesPageResult> {
-    const db = await getSqliteOrm();
+    const db = await this.ormProvider();
     const policy = this.getPolicy();
     const limit = Math.max(
       1,
@@ -410,13 +438,16 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
 
     return enqueueSqliteWrite(
       SQLITE_SESSION_OP.COMPACT_MESSAGES,
-      async () =>
-        await compactSessionMessagesInSqlite({
+      async () => {
+        const db = await this.ormProvider();
+        return await compactSessionMessagesInSqlite({
+          db,
           sessionIds,
           cutoffTimestamp: cutoff,
           batchSize,
           clock: this.clock,
-        }),
+        });
+      },
       { priority: "low" }
     );
   }

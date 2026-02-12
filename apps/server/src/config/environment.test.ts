@@ -112,6 +112,39 @@ describe("environment worker invariants", () => {
     expect(hostResult.stdout.trim()).toBe("127.0.0.1");
   });
 
+  test("falls back allowlists in development when strict mode is disabled", () => {
+    const result = runEnvironmentSubprocess({
+      code: "import { ENV } from './src/config/environment.ts'; console.log([ENV.allowedAgentCommands.length, ENV.allowedTerminalCommands.length, ENV.allowedEnvKeys.length].join(':'));",
+      includeRequiredAllowlists: false,
+      overrides: {
+        NODE_ENV: "development",
+        CONFIG_STRICT_ALLOWLIST: "false",
+        ALLOWED_AGENT_COMMANDS: "",
+        ALLOWED_TERMINAL_COMMANDS: "",
+        ALLOWED_ENV_KEYS: "",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("6:10:7");
+  });
+
+  test("keeps allowlists strict in production runtime", () => {
+    const result = runEnvironmentSubprocess({
+      code: "import './src/config/environment.ts';",
+      includeRequiredAllowlists: false,
+      overrides: {
+        NODE_ENV: "production",
+        ALLOWED_AGENT_COMMANDS: "",
+        ALLOWED_TERMINAL_COMMANDS: "",
+        ALLOWED_ENV_KEYS: "",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Invalid required allowlist configuration");
+  });
+
   test("loads required boot config from settings.json", async () => {
     const configPath = await writeBootConfigFile({
       boot: {

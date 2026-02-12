@@ -148,3 +148,20 @@ export function parseRequiredAllowlist(
 
   return [...new Set(entries)];
 }
+
+export function parseAllowlistWithFallback(
+  name: string,
+  value: string | undefined,
+  fallback: readonly string[],
+  warnings: string[]
+): string[] {
+  const parseErrors: string[] = [];
+  const parsed = parseRequiredAllowlist(name, value, parseErrors);
+  if (parseErrors.length === 0) {
+    return parsed;
+  }
+  warnings.push(
+    `${name} is missing or invalid in non-strict mode; using fallback: ${fallback.join(", ")}`
+  );
+  return [...fallback];
+}

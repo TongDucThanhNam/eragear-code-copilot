@@ -12,6 +12,7 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { finalizeStreamingParts } from "@/shared/utils/ui-message.util";
@@ -206,13 +207,16 @@ export function createSessionUpdateHandler(
     const suppressReplay =
       isReplayingHistory &&
       Boolean(sessionRuntime.get(chatId)?.suppressReplayBroadcast);
-    const summary = summarizeUpdate(update);
-    logger.debug("ACP session update", {
-      chatId,
-      isReplayingHistory,
-      suppressReplay,
-      ...summary,
-    });
+    const isDebugEnabled = shouldEmitRuntimeLog("debug");
+    const summary = isDebugEnabled ? summarizeUpdate(update) : undefined;
+    if (isDebugEnabled && summary) {
+      logger.debug("ACP session update", {
+        chatId,
+        isReplayingHistory,
+        suppressReplay,
+        ...summary,
+      });
+    }
     if (suppressReplay) {
       return;
     }
@@ -253,10 +257,12 @@ export function createSessionUpdateHandler(
         return;
       }
 
-      logger.debug("ACP session update ignored by pipeline", {
-        chatId,
-        ...summary,
-      });
+      if (isDebugEnabled && summary) {
+        logger.debug("ACP session update ignored by pipeline", {
+          chatId,
+          ...summary,
+        });
+      }
     });
   };
 }
