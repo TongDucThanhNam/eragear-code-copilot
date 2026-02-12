@@ -539,6 +539,31 @@ async function backupLegacyFiles(
 
 async function resolveMigrationsFolder(): Promise<string> {
   const configuredMigrationsDir = ENV.sqliteMigrationsDir;
+  const trustedRoots = [
+    path.resolve(process.cwd()),
+    path.resolve(path.dirname(process.execPath)),
+    path.resolve(SOURCE_MIGRATIONS_DIR),
+  ];
+  const isWithinTrustedRoots = (candidatePath: string): boolean => {
+    const normalizedCandidate = path.resolve(candidatePath);
+    return trustedRoots.some((root) => {
+      const relative = path.relative(root, normalizedCandidate);
+      return (
+        relative === "" ||
+        !(relative.startsWith("..") || path.isAbsolute(relative))
+      );
+    });
+  };
+
+  if (
+    configuredMigrationsDir &&
+    !isWithinTrustedRoots(configuredMigrationsDir)
+  ) {
+    throw new Error(
+      `[Storage] STORAGE_MIGRATIONS_DIR must resolve inside trusted roots (${trustedRoots.join(", ")}), received: ${configuredMigrationsDir}`
+    );
+  }
+
   const candidates = [
     configuredMigrationsDir,
     path.join(process.cwd(), "drizzle"),

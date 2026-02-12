@@ -3,9 +3,12 @@
 Tài liệu điều hướng nhanh cho `apps/server`.
 
 Runtime support: `apps/server` chạy trên **Bun** (không hỗ trợ Node.js runtime).
+Production target hiện tại: **Linux/macOS**.
 
 ## 1. Read First
 
+- `README.md`
+  - Onboarding nhanh: chạy local, config tối thiểu, links quan trọng.
 - `src/ARCHITECTURE.md`
   - Kiến trúc hiện tại theo layers + module boundaries.
 - `docs/CODEMAP.md`
@@ -21,7 +24,7 @@ Runtime support: `apps/server` chạy trên **Bun** (không hỗ trợ Node.js r
 
 - `src/index.ts`
 - `src/bootstrap/server.ts`
-- `src/bootstrap/container.ts`
+- `src/bootstrap/composition.ts`
 - `src/transport/trpc/router.ts`
 - `src/transport/http/routes/index.ts`
 

@@ -41,7 +41,7 @@ Vertical modules chính:
 
 Composition root:
 
-- `src/bootstrap/container.ts`
+- `src/bootstrap/composition.ts`
 - `src/bootstrap/server.ts`
 
 ## 3. Runtime Surfaces
@@ -208,8 +208,8 @@ Nhóm biến chính:
 
 - Networking: `WS_HOST`, `WS_PORT`, `WS_HEARTBEAT_INTERVAL_MS`
 - Timeouts: `SESSION_IDLE_TIMEOUT_MS`, `AGENT_TIMEOUT_MS`, `TERMINAL_TIMEOUT_MS`
-- Policy: `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`, `CORS_STRICT_ORIGIN`, `TERMINAL_OUTPUT_HARD_CAP_BYTES`, `SESSION_LIST_PAGE_MAX_LIMIT`, `SESSION_MESSAGES_PAGE_MAX_LIMIT`
-- Auth: `AUTH_SECRET`, `AUTH_BASE_URL`, `AUTH_TRUSTED_ORIGINS`, `AUTH_ALLOW_SIGNUP`, `AUTH_BOOTSTRAP_API_KEY`, `AUTH_API_KEY_PREFIX`, `AUTH_API_KEY_RATE_LIMIT_*`
+- Policy (strict/canonical): `ALLOWED_AGENT_COMMAND_POLICIES`, `ALLOWED_TERMINAL_COMMAND_POLICIES`, `ALLOWED_ENV_KEYS`, `CORS_STRICT_ORIGIN`, `TERMINAL_OUTPUT_HARD_CAP_BYTES`, `SESSION_LIST_PAGE_MAX_LIMIT`, `SESSION_MESSAGES_PAGE_MAX_LIMIT`
+- Auth: `AUTH_SECRET`, `AUTH_BASE_URL`, `AUTH_TRUSTED_ORIGINS`, `AUTH_ALLOW_SIGNUP`, `AUTH_BOOTSTRAP_API_KEY`, `AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS`, `AUTH_BOOTSTRAP_CACHE_MAX_USERS`, `AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS`, `AUTH_API_KEY_PREFIX`, `AUTH_API_KEY_RATE_LIMIT_*`
 - Logging: `LOG_*`
 - Background: `BACKGROUND_*`
 
@@ -220,9 +220,11 @@ Khuyến nghị remote tunnel:
 
 Migration note:
 
-- Server sẽ fail-fast khi thiếu hoặc để trống `ALLOWED_AGENT_COMMANDS`,
-  `ALLOWED_TERMINAL_COMMANDS`, hoặc `ALLOWED_ENV_KEYS`.
+- Server sẽ fail-fast khi thiếu hoặc để trống
+  `ALLOWED_AGENT_COMMAND_POLICIES`,
+  `ALLOWED_TERMINAL_COMMAND_POLICIES`, hoặc `ALLOWED_ENV_KEYS`.
 - Giá trị `ALLOWED_*="*"` không hợp lệ; phải liệt kê explicit từng command/env key.
+- Legacy format `ALLOWED_*_COMMANDS` chỉ dùng fallback ở non-strict mode.
 
 Compiled executable mode:
 
@@ -234,7 +236,8 @@ Compiled executable mode:
   - `WS_PORT` hoặc `PORT`
   - `WS_HOST` hoặc `HOST`
   - `AUTH_SECRET`
-  - `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`
+  - `ALLOWED_AGENT_COMMAND_POLICIES`,
+    `ALLOWED_TERMINAL_COMMAND_POLICIES`, `ALLOWED_ENV_KEYS`
 
 ## 8. Ops Commands
 

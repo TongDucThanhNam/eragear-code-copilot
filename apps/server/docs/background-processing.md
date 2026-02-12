@@ -42,12 +42,12 @@ Trong `src/config/environment.ts`:
 
 ## 4. Trạng thái runtime
 
-Container expose state snapshot để dashboard API đọc:
+Composition runtime expose state snapshot để dashboard API đọc:
 
-- `container.getBackgroundRunnerState()`
-- `container.getCacheStats()`
+- `getBackgroundRunnerState()`
+- `getCacheStats()`
 
-Nguồn: `src/bootstrap/container.ts`.
+Nguồn: `src/bootstrap/composition.ts`.
 
 ## 5. Scope hiện tại
 

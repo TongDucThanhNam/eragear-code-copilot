@@ -80,7 +80,7 @@ async requestPermission(p: any) {
 
 ```typescript
 // Router chỉ nhận input rồi gọi service:
-const service = new RespondPermissionService(ctx.container.getSessionRuntime());
+const service = ctx.toolingServices.respondPermission();
 return service.execute(input);
 ```
 

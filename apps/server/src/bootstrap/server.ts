@@ -428,6 +428,7 @@ export async function startServer() {
       (async () => {
         wsHandler.broadcastReconnectNotification();
         await deps.lifecycle.shutdown(signal);
+        await composition.dispose();
         await closeWebSocketServer();
         await closeHttpServer();
       })(),

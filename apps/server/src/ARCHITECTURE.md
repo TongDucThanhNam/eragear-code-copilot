@@ -63,8 +63,8 @@ modules/<feature>/
 Invariant quan trọng:
 - `modules/<feature>/index.ts` chỉ export public application API (services/ports/types), không export `infra/*`.
 - `modules/<feature>/di.ts` là entrypoint dành cho composition/wiring của concrete adapters.
-- `transport` không `new Service(...)` trực tiếp; luôn gọi qua
-  `Container` factories (`getSessionServices()`, `getAiServices()`, ...).
+- `transport` không `new Service(...)` trực tiếp; luôn dùng service factories
+  đã được inject từ composition (`ctx.sessionServices`, `ctx.aiServices`, ...).
 
 ## Runtime Components
 
@@ -72,7 +72,8 @@ Invariant quan trọng:
 
 - `src/index.ts`: process entry.
 - `src/bootstrap/server.ts`: dựng HTTP server + WebSocket upgrade + tRPC WS handler.
-- `src/bootstrap/container.ts`: wiring singleton container (ports/adapters/repositories).
+- `src/bootstrap/composition.ts`: composition root, wiring dependencies và
+  service factories bằng constructor/function DI trực tiếp.
 
 ### Transport
 

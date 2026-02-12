@@ -51,7 +51,12 @@ import {
   type AuthRuntimePolicy,
   createAuthRuntime,
 } from "../platform/auth/auth";
-import { createAuthContextResolver } from "../platform/auth/guards";
+import {
+  type AuthContext,
+  createAuthContextResolver,
+} from "../platform/auth/guards";
+import { getResponseCache } from "../platform/caching/response-cache";
+import type { CacheStats } from "../platform/caching/types";
 import { GitAdapter } from "../platform/git";
 import { getLogStore } from "../platform/logging/log-store";
 import { createAppLogger } from "../platform/logging/logger-adapter";
@@ -62,13 +67,20 @@ import {
   updateSqliteWorkerRuntimeConfig,
 } from "../platform/storage/sqlite-worker-client";
 import { systemClock } from "../platform/time/system-clock";
-import { Container, type ContainerDependencies } from "./container";
 import {
   createServerLifecycle,
   type ServerLifecycle,
   type ServerLifecyclePolicy,
 } from "./lifecycle";
 import type { ServerRuntimePolicy } from "./server";
+import { createAgentServices } from "./service-registry/agent-services";
+import { createAiServices } from "./service-registry/ai-services";
+import type { ServiceRegistryDependencies } from "./service-registry/dependencies";
+import { createOpsServices } from "./service-registry/ops-services";
+import { createProjectServices } from "./service-registry/project-services";
+import { createSessionServices } from "./service-registry/session-services";
+import { createSettingsServices } from "./service-registry/settings-services";
+import { createToolingServices } from "./service-registry/tooling-services";
 
 interface PersistenceDependencies {
   sessionRepo: SessionRepositoryPort;
@@ -76,6 +88,11 @@ interface PersistenceDependencies {
   agentRepo: AgentRepositoryPort;
   settingsRepo: SettingsRepositoryPort;
 }
+
+export type ResolveAuthContext = (req?: {
+  headers: Headers | Record<string, string | string[] | undefined>;
+  url?: string;
+}) => Promise<AuthContext | null>;
 
 export interface AppDependencies {
   eventBus: EventBusPort;
@@ -95,7 +112,7 @@ export interface AppDependencies {
   auth: AuthRuntime["auth"];
   authRuntime: AuthRuntime;
   lifecycle: ServerLifecycle;
-  resolveAuthContext: ContainerDependencies["resolveAuthContext"];
+  resolveAuthContext: ResolveAuthContext;
   setBackgroundRunnerStateProvider: (
     provider: () => BackgroundRunnerState
   ) => void;
@@ -106,6 +123,7 @@ export interface AppComposition {
   deps: AppDependencies;
   allowedRoots: string[];
   runtimePolicy: ServerRuntimePolicy;
+  dispose(): Promise<void>;
 }
 
 interface AppRuntimeConfig {
@@ -121,6 +139,11 @@ interface AppRuntimeConfig {
   authPolicy: AuthRuntimePolicy;
   lifecyclePolicy: ServerLifecyclePolicy;
   serverPolicy: ServerRuntimePolicy;
+}
+
+interface SqliteWorkerRuntimeConfigSync {
+  enqueue(config: ReturnType<AppConfigService["getConfig"]>): void;
+  flush(): Promise<void>;
 }
 
 function resolveAppRuntimeConfig(): AppRuntimeConfig {
@@ -216,7 +239,7 @@ function createCoreDependencies(policy: {
   clock: ClockPort;
   sessionAcpAdapter: SessionAcpPort;
 } {
-  const appLogger = createAppLogger("Debug");
+  const appLogger = createAppLogger("Server");
   const eventBus = new EventBus(appLogger);
   return {
     eventBus,
@@ -237,6 +260,32 @@ function createCoreDependencies(policy: {
   };
 }
 
+function createSqliteWorkerRuntimeConfigSync(
+  logger: LoggerPort
+): SqliteWorkerRuntimeConfigSync {
+  let tail = Promise.resolve();
+
+  const enqueue = (config: ReturnType<AppConfigService["getConfig"]>) => {
+    tail = tail
+      .catch(() => undefined)
+      .then(async () => {
+        await updateSqliteWorkerRuntimeConfig(config);
+      })
+      .catch((error) => {
+        logger.error("Failed to sync runtime config to sqlite worker", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  };
+
+  return {
+    enqueue,
+    async flush() {
+      await tail.catch(() => undefined);
+    },
+  };
+}
+
 function normalizeAllowedRoots(roots: string[]): string[] {
   const normalized = roots
     .map((root) => root.trim())
@@ -253,6 +302,7 @@ async function createAppCompositionWithRuntimeConfig(
   settingsRepoOverride?: SettingsRepositoryPort
 ): Promise<AppComposition> {
   const normalizedRoots = normalizeAllowedRoots(allowedRoots);
+  setRuntimeLogLevel(ENV.logLevel);
   const runtime = createAuthRuntime(runtimeConfig.authPolicy);
   const core = createCoreDependencies({
     sessionBufferLimit: runtimeConfig.sessionBufferLimit,
@@ -276,77 +326,102 @@ async function createAppCompositionWithRuntimeConfig(
     runtimeConfig.sqliteWorkerEnabled
   );
 
+  const unsubscribeCallbacks: Array<() => void> = [];
+  const sqliteWorkerRuntimeConfigSync = createSqliteWorkerRuntimeConfigSync(
+    core.appLogger
+  );
+
   if (runtimeConfig.sqliteWorkerEnabled) {
     await updateSqliteWorkerRuntimeConfig(appConfigService.getConfig());
-    appConfigService.subscribe((nextConfig) => {
+    const unsubscribe = appConfigService.subscribe((nextConfig) => {
       setRuntimeLogLevel(nextConfig.logLevel);
-      updateSqliteWorkerRuntimeConfig(nextConfig).catch((error) => {
-        core.appLogger.error("Failed to sync runtime config to sqlite worker", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
+      sqliteWorkerRuntimeConfigSync.enqueue(nextConfig);
     });
+    unsubscribeCallbacks.push(unsubscribe);
   } else {
-    appConfigService.subscribe((nextConfig) => {
+    const unsubscribe = appConfigService.subscribe((nextConfig) => {
       setRuntimeLogLevel(nextConfig.logLevel);
     });
+    unsubscribeCallbacks.push(unsubscribe);
   }
 
-  const dependencies: ContainerDependencies = {
+  const gitAdapter = new GitAdapter();
+  const agentRuntimeAdapter = new AgentRuntimeAdapter({
+    allowedAgentCommandPolicies: runtimeConfig.allowedAgentCommandPolicies,
+    allowedEnvKeys: runtimeConfig.allowedEnvKeys,
+    agentTimeoutMs: runtimeConfig.agentTimeoutMs,
+  });
+  const resolveAuthContext: ResolveAuthContext = createAuthContextResolver(
+    runtime.auth
+  );
+  let backgroundRunnerStateProvider: (() => BackgroundRunnerState) | undefined;
+  const setBackgroundRunnerStateProvider = (
+    provider: () => BackgroundRunnerState
+  ) => {
+    backgroundRunnerStateProvider = provider;
+  };
+  const getBackgroundRunnerState = (): BackgroundRunnerState | null => {
+    if (!backgroundRunnerStateProvider) {
+      return null;
+    }
+    return backgroundRunnerStateProvider();
+  };
+  const getCacheStats = (): CacheStats => getResponseCache().getStats();
+  const serviceRegistryDependencies: ServiceRegistryDependencies = {
     ...core,
     ...persistence,
     appConfigService,
-    gitAdapter: new GitAdapter(),
-    agentRuntimeAdapter: new AgentRuntimeAdapter({
-      allowedAgentCommandPolicies: runtimeConfig.allowedAgentCommandPolicies,
-      allowedEnvKeys: runtimeConfig.allowedEnvKeys,
-      agentTimeoutMs: runtimeConfig.agentTimeoutMs,
-    }),
-    resolveAuthContext: createAuthContextResolver(runtime.auth),
+    gitAdapter,
+    agentRuntimeAdapter,
     sendMessagePolicy: runtimeConfig.sendMessagePolicy,
+    getCacheStats,
+    getBackgroundRunnerState,
   };
-  const container = new Container(dependencies);
-  const sessionServices = container.getSessionServices();
+  const sessionServices = createSessionServices(serviceRegistryDependencies);
+  const aiServices = createAiServices(serviceRegistryDependencies);
+  const projectServices = createProjectServices(serviceRegistryDependencies);
+  const agentServices = createAgentServices(serviceRegistryDependencies);
+  const settingsServices = createSettingsServices(serviceRegistryDependencies);
+  const toolingServices = createToolingServices(serviceRegistryDependencies);
+  const opsServices = createOpsServices(serviceRegistryDependencies);
   const authUserRead = new AuthUserReadAdapter(runtime.authDb);
   const authServices: AuthServiceFactory = {
     getMe: () => new GetMeService(authUserRead),
   };
   const lifecycle = createServerLifecycle({
     authRuntime: runtime,
-    agentRuntime: container.getAgentRuntime(),
-    sessionRuntime: container.getSessionRuntime(),
-    sessionRepo: container.getSessions(),
+    agentRuntime: agentRuntimeAdapter,
+    sessionRuntime: core.sessionRuntime,
+    sessionRepo: persistence.sessionRepo,
     sessionServices,
-    appConfig: container.getAppConfigService(),
+    appConfig: appConfigService,
     policy: runtimeConfig.lifecyclePolicy,
-    setBackgroundRunnerStateProvider: (provider) =>
-      container.setBackgroundRunnerStateProvider(provider),
+    setBackgroundRunnerStateProvider,
   });
   const deps: AppDependencies = {
-    eventBus: container.getEventBus(),
-    sessionRuntime: container.getSessionRuntime(),
-    logStore: container.getLogStore(),
-    appLogger: container.getAppLogger(),
-    appConfig: container.getAppConfigService(),
+    eventBus: core.eventBus,
+    sessionRuntime: core.sessionRuntime,
+    logStore: core.logStore,
+    appLogger: core.appLogger,
+    appConfig: appConfigService,
     sessionServices,
-    aiServices: container.getAiServices(),
-    projectServices: container.getProjectServices(),
-    agentServices: container.getAgentServices(),
-    settingsServices: container.getSettingsServices(),
-    toolingServices: container.getToolingServices(),
+    aiServices,
+    projectServices,
+    agentServices,
+    settingsServices,
+    toolingServices,
     authServices,
-    opsServices: container.getOpsServices(),
-    sessionRepo: container.getSessions(),
+    opsServices,
+    sessionRepo: persistence.sessionRepo,
     auth: runtime.auth,
     authRuntime: runtime,
     lifecycle,
-    resolveAuthContext: (req) => container.getAuthContext(req),
-    setBackgroundRunnerStateProvider: (provider) =>
-      container.setBackgroundRunnerStateProvider(provider),
-    getBackgroundRunnerState: () => container.getBackgroundRunnerState(),
+    resolveAuthContext,
+    setBackgroundRunnerStateProvider,
+    getBackgroundRunnerState,
   };
 
-  deps.eventBus.subscribe(async (event) => {
+  const unsubscribeProjectDeleting = deps.eventBus.subscribe(async (event) => {
     if (event.type !== "project_deleting") {
       return;
     }
@@ -357,11 +432,25 @@ async function createAppCompositionWithRuntimeConfig(
       projectPath: event.projectPath,
     });
   });
+  unsubscribeCallbacks.push(unsubscribeProjectDeleting);
+
+  let disposed = false;
+  const dispose = async () => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    for (const unsubscribe of unsubscribeCallbacks.splice(0)) {
+      unsubscribe();
+    }
+    await sqliteWorkerRuntimeConfigSync.flush();
+  };
 
   return {
     deps,
     allowedRoots: normalizedRoots,
     runtimePolicy: runtimeConfig.serverPolicy,
+    dispose,
   };
 }
 

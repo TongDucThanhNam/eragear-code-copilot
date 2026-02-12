@@ -150,6 +150,34 @@ describe("SessionRuntimeStore.runExclusive", () => {
 });
 
 describe("SessionRuntimeStore.broadcast", () => {
+  test("handles concurrent broadcast bursts without corrupting message buffer", async () => {
+    const store = new SessionRuntimeStore(createEventBusStub(), {
+      sessionBufferLimit: 10,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishTimeoutMs: 100,
+      eventBusPublishMaxQueuePerChat: 64,
+    });
+    const session = createSession("chat-1");
+    store.set("chat-1", session);
+
+    await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        store.broadcast("chat-1", {
+          type: "error",
+          error: `e-${index}`,
+        })
+      )
+    );
+
+    expect(session.messageBuffer.length).toBe(10);
+    expect(session.messageBuffer).toEqual(
+      Array.from({ length: 10 }, (_, offset) => ({
+        type: "error",
+        error: `e-${90 + offset}`,
+      }))
+    );
+  });
+
   test("returns successfully when event bus publish fails", async () => {
     const store = new SessionRuntimeStore(
       {
