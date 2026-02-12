@@ -11,6 +11,7 @@
 import type { ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { reactRenderer } from "@hono/react-renderer";
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { Hono } from "hono";
@@ -41,6 +42,7 @@ import {
 } from "./composition";
 
 const logger = createLogger("Server");
+const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 15_000;
 
 export interface ServerRuntimePolicy {
   wsHost: string;
@@ -67,7 +69,7 @@ function createHttpRouteDependencies(
     eventBus: deps.eventBus,
     logStore: deps.logStore,
     logger: deps.appLogger,
-    auth: deps.auth as unknown as HttpRouteDependencies["auth"],
+    auth: deps.auth,
     authState: deps.authRuntime.authState,
     runtime: {
       isDev: runtimePolicy.isDev,
@@ -101,6 +103,12 @@ function createBootstrappedAuthResolver(deps: AppDependencies) {
       ensureUserDefaults: async (userId) => {
         await deps.agentServices.ensureAgentDefaults().execute(userId);
       },
+      onEnsureUserDefaultsError: ({ userId, error }) => {
+        logger.warn("Failed to ensure user defaults during auth bootstrap", {
+          userId,
+          error: error.message,
+        });
+      },
     },
     {
       ensureUserDefaultsTtlMs: ENV.authBootstrapEnsureDefaultsTtlMs,
@@ -125,7 +133,17 @@ async function pipeResponseBody(
   ).fromWeb;
 
   if (typeof fromWeb === "function") {
-    fromWeb(body as unknown as ReadableStream).pipe(res);
+    const stream = fromWeb(body as unknown as ReadableStream);
+    try {
+      await pipeline(stream as NodeJS.ReadableStream, res);
+    } catch (error) {
+      logger.warn("Failed to stream HTTP response body", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (!(res.writableEnded || res.destroyed)) {
+        res.end();
+      }
+    }
     return;
   }
 
@@ -144,8 +162,15 @@ async function pipeResponseBody(
         }
       }
     }
+  } catch (error) {
+    logger.warn("Failed to read HTTP response stream", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   } finally {
-    res.end();
+    reader.releaseLock();
+    if (!(res.writableEnded || res.destroyed)) {
+      res.end();
+    }
   }
 }
 
@@ -200,13 +225,20 @@ export async function createApp(
     runtimePolicy.corsStrictOrigin
   );
 
-  // Apply API CORS defaults (auth/health override below)
-  app.use("/api/*", corsMiddleware.api);
-
   // Auth CORS
   app.use("/api/auth/*", corsMiddleware.auth);
 
   app.use("/api/health", corsMiddleware.health);
+
+  app.use("/api/*", (c, next) => {
+    if (
+      c.req.path.startsWith("/api/auth") ||
+      c.req.path.startsWith("/api/health")
+    ) {
+      return next();
+    }
+    return corsMiddleware.api(c, next);
+  });
 
   app.all("/api/auth/*", async (c) => {
     const path = c.req.path;
@@ -359,23 +391,72 @@ export async function startServer() {
     port: runtimePolicy.wsPort,
   });
 
-  let shuttingDown = false;
+  let processExitScheduled = false;
+  let shutdownPromise: Promise<void> | null = null;
   let fatalShutdownTriggered = false;
-  const gracefulShutdown = async (signal: "SIGTERM" | "SIGINT") => {
-    if (shuttingDown) {
+  const requestProcessExit = (code: number) => {
+    if (processExitScheduled) {
       return;
     }
-    shuttingDown = true;
+    processExitScheduled = true;
+    process.exit(code);
+  };
 
-    wsHandler.broadcastReconnectNotification();
-    await deps.lifecycle.shutdown(signal);
+  const withTimeout = async <T>(
+    work: Promise<T>,
+    timeoutMs: number,
+    timeoutMessage: string
+  ): Promise<T> => {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+      timeoutHandle.unref?.();
+    });
 
-    await new Promise<void>((resolve) => {
+    try {
+      return await Promise.race([work, timeoutPromise]);
+    } finally {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  };
+
+  const closeWebSocketServer = () =>
+    new Promise<void>((resolve) => {
       wss.close(() => resolve());
     });
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
+
+  const closeHttpServer = () =>
+    new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
     });
+
+  const gracefulShutdown = (signal: "SIGTERM" | "SIGINT") => {
+    if (shutdownPromise) {
+      return shutdownPromise;
+    }
+
+    shutdownPromise = withTimeout(
+      (async () => {
+        wsHandler.broadcastReconnectNotification();
+        await deps.lifecycle.shutdown(signal);
+        await closeWebSocketServer();
+        await closeHttpServer();
+      })(),
+      SHUTDOWN_FORCE_EXIT_TIMEOUT_MS,
+      `Graceful shutdown timed out after ${SHUTDOWN_FORCE_EXIT_TIMEOUT_MS}ms`
+    );
+
+    return shutdownPromise;
   };
 
   const handleFatalError = (label: string, cause: unknown) => {
@@ -394,19 +475,29 @@ export async function startServer() {
         );
       })
       .finally(() => {
-        process.exit(1);
+        requestProcessExit(1);
       });
   };
 
   process.on("SIGTERM", () => {
-    gracefulShutdown("SIGTERM").catch((error) => {
-      logger.error("Graceful shutdown failed after SIGTERM", error as Error);
-    });
+    gracefulShutdown("SIGTERM")
+      .then(() => {
+        requestProcessExit(0);
+      })
+      .catch((error) => {
+        logger.error("Graceful shutdown failed after SIGTERM", error as Error);
+        requestProcessExit(1);
+      });
   });
   process.on("SIGINT", () => {
-    gracefulShutdown("SIGINT").catch((error) => {
-      logger.error("Graceful shutdown failed after SIGINT", error as Error);
-    });
+    gracefulShutdown("SIGINT")
+      .then(() => {
+        requestProcessExit(0);
+      })
+      .catch((error) => {
+        logger.error("Graceful shutdown failed after SIGINT", error as Error);
+        requestProcessExit(1);
+      });
   });
   process.on("uncaughtException", (error) => {
     handleFatalError("uncaughtException", error);

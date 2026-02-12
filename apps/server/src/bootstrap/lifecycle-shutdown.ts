@@ -118,7 +118,7 @@ async function stopRuntimeSession(
   session: ChatSession
 ): Promise<void> {
   try {
-    terminateSessionTerminals(session);
+    await terminateSessionTerminals(session);
   } catch (error) {
     logger.warn("Failed to terminate session terminals during shutdown", {
       chatId: session.id,

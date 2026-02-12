@@ -2,6 +2,8 @@
 
 Tài liệu điều hướng nhanh cho `apps/server`.
 
+Runtime support: `apps/server` chạy trên **Bun** (không hỗ trợ Node.js runtime).
+
 ## 1. Read First
 
 - `src/ARCHITECTURE.md`

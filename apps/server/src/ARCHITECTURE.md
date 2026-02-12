@@ -9,6 +9,7 @@ Server đóng vai trò ACP client và backend cho web/native:
 - Bridge ACP (NDJSON over stdio).
 - Chuẩn hóa stream thành `UIMessage` để broadcast realtime.
 - Persist state/messages vào SQLite (`eragear.sqlite`).
+- Runtime mục tiêu: **Bun-only** (sử dụng Bun runtime APIs như `bun:sqlite`, `hono/bun`).
 
 ## Layers
 

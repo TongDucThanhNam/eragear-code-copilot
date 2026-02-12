@@ -38,7 +38,7 @@ export class CleanupProjectSessionsService {
     for (const session of linkedSessions) {
       const runtimeSession = this.sessionRuntime.get(session.id);
       if (runtimeSession) {
-        terminateSessionTerminals(runtimeSession);
+        await terminateSessionTerminals(runtimeSession);
         await terminateProcessGracefully(runtimeSession.proc);
         this.sessionRuntime.delete(session.id);
         terminatedRuntimeCount += 1;

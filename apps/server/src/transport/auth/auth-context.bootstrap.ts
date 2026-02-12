@@ -12,6 +12,10 @@ export interface AuthContextBootstrapDependencies<TAuthContext> {
     req: AuthBootstrapRequestLike
   ) => Promise<TAuthContext | null>;
   ensureUserDefaults: (userId: string) => Promise<void>;
+  onEnsureUserDefaultsError?: (input: {
+    userId: string;
+    error: Error;
+  }) => void | Promise<void>;
 }
 
 export interface AuthContextBootstrapPolicy {
@@ -19,7 +23,7 @@ export interface AuthContextBootstrapPolicy {
   now?: () => number;
 }
 
-const MIN_ENSURE_DEFAULTS_TTL_MS = 1_000;
+const MIN_ENSURE_DEFAULTS_TTL_MS = 1000;
 
 function normalizeUserId(userId: string): string {
   const normalized = userId.trim();
@@ -36,6 +40,13 @@ function normalizeEnsureDefaultsTtlMs(ttlMs: number): number {
     return MIN_ENSURE_DEFAULTS_TTL_MS;
   }
   return Math.max(MIN_ENSURE_DEFAULTS_TTL_MS, Math.trunc(ttlMs));
+}
+
+function toError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(String(error));
 }
 
 export async function resolveAuthContextWithBootstrap<
@@ -97,6 +108,17 @@ export function createAuthContextResolverWithBootstrap<
       .then(() => {
         cacheByUserId.set(userId, now() + ttlMs);
       })
+      .catch(async (error) => {
+        const normalizedError = toError(error);
+        try {
+          await deps.onEnsureUserDefaultsError?.({
+            userId,
+            error: normalizedError,
+          });
+        } catch {
+          // Ignore observability callback failures to keep auth resolution fail-open.
+        }
+      })
       .finally(() => {
         if (inFlightByUserId.get(userId) === currentTask) {
           inFlightByUserId.delete(userId);
@@ -106,7 +128,9 @@ export function createAuthContextResolverWithBootstrap<
     await currentTask;
   };
 
-  return async (req: AuthBootstrapRequestLike): Promise<TAuthContext | null> => {
+  return async (
+    req: AuthBootstrapRequestLike
+  ): Promise<TAuthContext | null> => {
     const authContext = await deps.resolveAuthContext(req);
     if (!authContext) {
       return null;

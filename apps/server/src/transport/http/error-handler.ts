@@ -8,6 +8,7 @@
  */
 
 import type { Context } from "hono";
+import { ENV } from "@/config/environment";
 // biome-ignore lint/style/noRestrictedImports: transport error boundary needs server logger sink.
 import { createLogger } from "@/platform/logging/structured-logger";
 import { isAppError } from "@/shared/errors";
@@ -56,6 +57,29 @@ function resolveFallbackErrorShape(err: unknown): {
   return { code: "INTERNAL_SERVER_ERROR", statusCode: 500 };
 }
 
+function resolvePublicMessage(statusCode: number): string {
+  if (statusCode === 401) {
+    return "Unauthorized";
+  }
+  if (statusCode === 403) {
+    return "Forbidden";
+  }
+  if (statusCode === 404) {
+    return "Not found";
+  }
+  if (statusCode === 429) {
+    return "Too many requests";
+  }
+  if (statusCode >= 400 && statusCode < 500) {
+    return "Request failed";
+  }
+  return "Internal server error";
+}
+
+export interface ErrorHandlerPolicy {
+  exposeInternalDetails?: boolean;
+}
+
 const logger = createLogger("Server");
 
 /**
@@ -65,7 +89,9 @@ const logger = createLogger("Server");
  *
  * @returns Error handler middleware
  */
-export function createErrorHandler() {
+export function createErrorHandler(policy: ErrorHandlerPolicy = {}) {
+  const exposeInternalDetails = policy.exposeInternalDetails ?? ENV.isDev;
+
   return (err: Error, c: Context) => {
     const context = getObservabilityContext();
     const requestId =
@@ -97,16 +123,22 @@ export function createErrorHandler() {
       stack: err.stack,
     });
 
-    // Return consistent error response
-    const response: ErrorResponse = {
-      error: err.message || "An unexpected error occurred",
-      code,
-      module,
-      op,
-      path,
-      requestId,
-      timestamp: new Date().toISOString(),
-    };
+    const response: ErrorResponse = exposeInternalDetails
+      ? {
+          error: err.message || "An unexpected error occurred",
+          code,
+          module,
+          op,
+          path,
+          requestId,
+          timestamp: new Date().toISOString(),
+        }
+      : {
+          error: resolvePublicMessage(statusCode),
+          code,
+          requestId,
+          timestamp: new Date().toISOString(),
+        };
 
     return new Response(JSON.stringify(response), {
       status: statusCode,

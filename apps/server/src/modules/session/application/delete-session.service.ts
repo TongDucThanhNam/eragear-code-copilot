@@ -64,7 +64,7 @@ export class DeleteSessionService {
   async execute(userId: string, chatId: string): Promise<{ ok: true }> {
     const session = this.sessionRuntime.get(chatId);
     if (session?.userId === userId) {
-      terminateSessionTerminals(session);
+      await terminateSessionTerminals(session);
       await terminateProcessGracefully(session.proc);
       this.sessionRuntime.delete(chatId);
     }

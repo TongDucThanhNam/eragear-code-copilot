@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  createAuthContextResolverWithBootstrap,
   type AuthBootstrapRequestLike,
+  createAuthContextResolverWithBootstrap,
 } from "./auth-context.bootstrap";
+
+const EMPTY_USER_ID_RE = /empty userId/i;
 
 interface TestAuthContext {
   userId: string;
@@ -53,23 +55,24 @@ describe("createAuthContextResolverWithBootstrap", () => {
   });
 
   test("uses cached bootstrap success within ttl", async () => {
-    let nowMs = 1_000;
+    let nowMs = 1000;
     let ensureCalls = 0;
     const resolver = createAuthContextResolverWithBootstrap<TestAuthContext>(
       {
         resolveAuthContext: async () => ({ userId: "user-1" }),
-        ensureUserDefaults: async () => {
+        ensureUserDefaults: () => {
           ensureCalls += 1;
+          return Promise.resolve();
         },
       },
       {
-        ensureUserDefaultsTtlMs: 1_000,
+        ensureUserDefaultsTtlMs: 1000,
         now: () => nowMs,
       }
     );
 
     await resolver(createRequest());
-    nowMs = 1_500;
+    nowMs = 1500;
     await resolver(createRequest());
     expect(ensureCalls).toBe(1);
   });
@@ -80,12 +83,13 @@ describe("createAuthContextResolverWithBootstrap", () => {
     const resolver = createAuthContextResolverWithBootstrap<TestAuthContext>(
       {
         resolveAuthContext: async () => ({ userId: "user-1" }),
-        ensureUserDefaults: async () => {
+        ensureUserDefaults: () => {
           ensureCalls += 1;
+          return Promise.resolve();
         },
       },
       {
-        ensureUserDefaultsTtlMs: 1_000,
+        ensureUserDefaultsTtlMs: 1000,
         now: () => nowMs,
       }
     );
@@ -96,41 +100,50 @@ describe("createAuthContextResolverWithBootstrap", () => {
     expect(ensureCalls).toBe(2);
   });
 
-  test("does not cache failed ensureUserDefaults call", async () => {
+  test("does not cache failed ensureUserDefaults call and stays fail-open", async () => {
     let ensureCalls = 0;
+    let errorCalls = 0;
     const resolver = createAuthContextResolverWithBootstrap<TestAuthContext>(
       {
         resolveAuthContext: async () => ({ userId: "user-1" }),
-        ensureUserDefaults: async () => {
+        ensureUserDefaults: () => {
           ensureCalls += 1;
           if (ensureCalls === 1) {
-            throw new Error("db unavailable");
+            return Promise.reject(new Error("db unavailable"));
           }
+          return Promise.resolve();
+        },
+        onEnsureUserDefaultsError: () => {
+          errorCalls += 1;
+          return Promise.resolve();
         },
       },
       {
-        ensureUserDefaultsTtlMs: 1_000,
+        ensureUserDefaultsTtlMs: 1000,
       }
     );
 
-    await expect(resolver(createRequest())).rejects.toThrow(/db unavailable/i);
+    await expect(resolver(createRequest())).resolves.toEqual({
+      userId: "user-1",
+    });
     await expect(resolver(createRequest())).resolves.toEqual({
       userId: "user-1",
     });
     expect(ensureCalls).toBe(2);
+    expect(errorCalls).toBe(1);
   });
 
   test("fails fast when authenticated context has empty userId", async () => {
     const resolver = createAuthContextResolverWithBootstrap<TestAuthContext>(
       {
         resolveAuthContext: async () => ({ userId: "   " }),
-        ensureUserDefaults: async () => undefined,
+        ensureUserDefaults: () => Promise.resolve(),
       },
       {
-        ensureUserDefaultsTtlMs: 1_000,
+        ensureUserDefaultsTtlMs: 1000,
       }
     );
 
-    await expect(resolver(createRequest())).rejects.toThrow(/empty userId/i);
+    await expect(resolver(createRequest())).rejects.toThrow(EMPTY_USER_ID_RE);
   });
 });

@@ -47,7 +47,7 @@ export class SessionProcessLifecycleService {
           );
         }
         if (session) {
-          terminateSessionTerminals(session);
+          await terminateSessionTerminals(session);
         }
       } catch (error) {
         this.logger.error("Failed to process agent error lifecycle event", {
@@ -108,7 +108,7 @@ export class SessionProcessLifecycleService {
             );
           }
           if (session) {
-            terminateSessionTerminals(session);
+            await terminateSessionTerminals(session);
           }
           if (this.sessionRuntime.has(chatId)) {
             this.sessionRuntime.delete(chatId);

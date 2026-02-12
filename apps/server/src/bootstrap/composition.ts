@@ -247,10 +247,11 @@ function normalizeAllowedRoots(roots: string[]): string[] {
   return [...new Set(normalized)];
 }
 
-export async function createAppComposition(
-  allowedRoots: string[]
+async function createAppCompositionWithRuntimeConfig(
+  allowedRoots: string[],
+  runtimeConfig: AppRuntimeConfig,
+  settingsRepoOverride?: SettingsRepositoryPort
 ): Promise<AppComposition> {
-  const runtimeConfig = resolveAppRuntimeConfig();
   const normalizedRoots = normalizeAllowedRoots(allowedRoots);
   const runtime = createAuthRuntime(runtimeConfig.authPolicy);
   const core = createCoreDependencies({
@@ -264,9 +265,9 @@ export async function createAppComposition(
   if (runtimeConfig.sqliteWorkerEnabled) {
     initializeSqliteWorker(normalizedRoots);
   }
-  const settingsRepo = createSettingsRepository(
-    runtimeConfig.sqliteWorkerEnabled
-  );
+  const settingsRepo =
+    settingsRepoOverride ??
+    createSettingsRepository(runtimeConfig.sqliteWorkerEnabled);
   const appConfigService = await AppConfigService.create(settingsRepo);
   setRuntimeLogLevel(appConfigService.getConfig().logLevel);
   const persistence = createPersistenceDependencies(
@@ -364,11 +365,25 @@ export async function createAppComposition(
   };
 }
 
+export async function createAppComposition(
+  allowedRoots: string[]
+): Promise<AppComposition> {
+  const runtimeConfig = resolveAppRuntimeConfig();
+  return await createAppCompositionWithRuntimeConfig(
+    allowedRoots,
+    runtimeConfig
+  );
+}
+
 export async function createAppCompositionFromSettings(): Promise<AppComposition> {
   const runtimeConfig = resolveAppRuntimeConfig();
   const settingsRepo = createSettingsRepository(
     runtimeConfig.sqliteWorkerEnabled
   );
   const settings = await settingsRepo.get();
-  return await createAppComposition(settings.projectRoots);
+  return await createAppCompositionWithRuntimeConfig(
+    settings.projectRoots,
+    runtimeConfig,
+    settingsRepo
+  );
 }

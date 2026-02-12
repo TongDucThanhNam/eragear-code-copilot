@@ -52,7 +52,7 @@ export function createSessionIdleCleanupTask(params: {
           continue;
         }
 
-        terminateSessionTerminals(session);
+        await terminateSessionTerminals(session);
         await terminateProcessGracefully(session.proc);
         try {
           await sessionRepo.updateStatus(session.id, session.userId, "stopped");
