@@ -1,16 +1,6 @@
 import { LOG_LEVELS, type LogLevel } from "@/shared/types/log.types";
 import type { CommandPolicy } from "@/shared/utils/allowlist.util";
-
-/**
- * Converts a string environment variable to a number with fallback
- */
-export function toNumber(value: string | undefined, fallback: number) {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+import { isRecord } from "@/shared/utils/type-guards.util";
 
 /**
  * Converts a string environment variable to an optional number
@@ -41,6 +31,37 @@ export function toPositiveInt(
     return fallback;
   }
   return Math.trunc(parsed);
+}
+
+/**
+ * Converts a string environment variable to a non-negative integer
+ */
+export function toNonNegativeInt(
+  value: string | undefined,
+  fallback: number
+): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return Math.trunc(parsed);
+}
+
+/**
+ * Converts a string environment variable to a TCP port number
+ */
+export function toPortNumber(
+  value: string | undefined,
+  fallback: number
+): number {
+  const parsed = toPositiveInt(value, fallback);
+  if (parsed < 1 || parsed > 65_535) {
+    return fallback;
+  }
+  return parsed;
 }
 
 /**
@@ -165,10 +186,6 @@ export function parseAllowlistWithFallback(
     `${name} is missing or invalid in non-strict mode; using fallback: ${fallback.join(", ")}`
   );
   return [...fallback];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function parseCommandPolicyEntry(

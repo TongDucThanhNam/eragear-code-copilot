@@ -6,6 +6,7 @@ import type {
 import type { ChatSession } from "@/shared/types/session.types";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "@/shared/utils/session-cleanup.util";
+import { withTimeout } from "@/shared/utils/timeout.util";
 import { createLogger } from "../platform/logging/structured-logger";
 import { closeSqliteStorage } from "../platform/storage/sqlite-db";
 import { runSqliteRuntimeMaintenance } from "../platform/storage/sqlite-store";
@@ -40,6 +41,10 @@ interface SessionStopSummary {
   failures: number;
 }
 
+interface SessionStopResult {
+  failed: boolean;
+}
+
 interface CompactionSummary {
   compactedTotal: number;
   batches: number;
@@ -64,38 +69,19 @@ function normalizePolicy(policy: ServerShutdownPolicy): ShutdownPolicy {
   };
 }
 
-async function withTimeout<T>(
-  work: Promise<T>,
-  timeoutMs: number,
-  timeoutMessage: string
-): Promise<T> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => {
-      reject(new Error(timeoutMessage));
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([work, timeoutPromise]);
-  } finally {
-    if (timeoutHandle !== undefined) {
-      clearTimeout(timeoutHandle);
-    }
-  }
-}
-
 async function runWithConcurrencyLimit<T>(
   items: T[],
   maxConcurrent: number,
-  worker: (item: T) => Promise<void>
-): Promise<void> {
+  worker: (item: T) => Promise<SessionStopResult>
+): Promise<SessionStopResult[]> {
   if (items.length === 0) {
-    return;
+    return [];
   }
 
   const normalizedLimit = Math.max(1, Math.min(maxConcurrent, items.length));
   let cursor = 0;
   const workers: Promise<void>[] = [];
+  const results: SessionStopResult[] = new Array(items.length);
 
   for (let workerIndex = 0; workerIndex < normalizedLimit; workerIndex += 1) {
     workers.push(
@@ -103,13 +89,14 @@ async function runWithConcurrencyLimit<T>(
         while (cursor < items.length) {
           const itemIndex = cursor;
           cursor += 1;
-          await worker(items[itemIndex] as T);
+          results[itemIndex] = await worker(items[itemIndex] as T);
         }
       })()
     );
   }
 
   await Promise.all(workers);
+  return results;
 }
 
 async function stopRuntimeSession(
@@ -144,27 +131,29 @@ async function stopAllRuntimeSessions(
   sessionRepo: SessionRepositoryPort
 ): Promise<SessionStopSummary> {
   const sessions = sessionRuntime.getAll();
-  let failures = 0;
-
-  await runWithConcurrencyLimit(
+  const results = await runWithConcurrencyLimit(
     sessions,
     SHUTDOWN_SESSION_STOP_CONCURRENCY,
     async (session) => {
       try {
         await stopRuntimeSession(sessionRuntime, sessionRepo, session);
+        return { failed: false };
       } catch (error) {
-        failures += 1;
         logger.warn("Failed to stop runtime session during shutdown", {
           chatId: session.id,
           error: error instanceof Error ? error.message : String(error),
         });
+        return { failed: true };
       }
     }
   );
 
   return {
     total: sessions.length,
-    failures,
+    failures: results.reduce(
+      (count, result) => count + (result.failed ? 1 : 0),
+      0
+    ),
   };
 }
 

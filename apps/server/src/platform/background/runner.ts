@@ -15,6 +15,7 @@ import type {
 } from "@/shared/types/background.types";
 import { createId } from "@/shared/utils/id.util";
 import { withObservabilityContext } from "@/shared/utils/observability-context.util";
+import { withTimeout } from "@/shared/utils/timeout.util";
 
 const logger = createLogger("Server");
 
@@ -119,9 +120,10 @@ export class BackgroundRunner {
       },
       async () => {
         try {
-          const result = await this.withTimeout(
+          const result = await withTimeout(
             Promise.resolve(spec.run()),
-            timeoutMs
+            timeoutMs,
+            `Background task timed out after ${timeoutMs}ms`
           );
           state.successCount += 1;
           state.lastResult = result ?? undefined;
@@ -146,26 +148,5 @@ export class BackgroundRunner {
         }
       }
     );
-  }
-
-  private async withTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs: number
-  ): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race<T>([
-        promise,
-        new Promise<T>((_, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error(`Background task timed out after ${timeoutMs}ms`));
-          }, timeoutMs);
-        }),
-      ]);
-    } finally {
-      if (timer) {
-        clearTimeout(timer);
-      }
-    }
   }
 }

@@ -33,6 +33,8 @@ export const envSchema = z.object({
   AUTH_DB_PATH: z.string().optional(),
   AUTH_BOOTSTRAP_API_KEY: z.string().optional(),
   AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS: z.string().optional(),
+  AUTH_BOOTSTRAP_CACHE_MAX_USERS: z.string().optional(),
+  AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS: z.string().optional(),
   AUTH_API_KEY_PREFIX: z.string().optional(),
   AUTH_API_KEY_RATE_LIMIT_ENABLED: z.string().optional(),
   AUTH_API_KEY_RATE_LIMIT_TIME_WINDOW_MS: z.string().optional(),

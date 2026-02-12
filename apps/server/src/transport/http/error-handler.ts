@@ -149,6 +149,8 @@ export function createErrorHandler(policy: ErrorHandlerPolicy = {}) {
   };
 }
 
+const defaultErrorHandler = createErrorHandler();
+
 /**
  * Wraps an async handler to catch errors
  *
@@ -161,8 +163,7 @@ export function withErrorHandling(handler: (c: Context) => Promise<Response>) {
       return await handler(c);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      const errorHandler = createErrorHandler();
-      return await errorHandler(error, c);
+      return await defaultErrorHandler(error, c);
     }
   };
 }

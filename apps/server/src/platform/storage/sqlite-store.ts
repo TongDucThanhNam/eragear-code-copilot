@@ -18,7 +18,9 @@ import type { AgentConfig } from "@/shared/types/agent.types";
 import type { Project } from "@/shared/types/project.types";
 import type { StoredSession } from "@/shared/types/session.types";
 import type { Settings } from "@/shared/types/settings.types";
+import { toError } from "@/shared/utils/error.util";
 import { stringifyJson } from "@/shared/utils/json.util";
+import { isRecord } from "@/shared/utils/type-guards.util";
 import {
   callSqliteWorker,
   getSqliteWorkerStats,
@@ -46,6 +48,11 @@ const STORAGE_PATH_REASON_META_KEY = "storage_path_reason";
 const SQLITE_SAVEPOINT_PREFIX = "sqlite_tx_";
 const SQLITE_VARIABLE_LIMIT = 999;
 const SQLITE_AUTO_VACUUM_INCREMENTAL = 2;
+const SQLITE_NUMERIC_PRAGMAS = [
+  "foreign_keys",
+  "auto_vacuum",
+  "freelist_count",
+] as const;
 const SOURCE_MIGRATIONS_DIR = fileURLToPath(
   new URL("../../../drizzle", import.meta.url)
 );
@@ -96,6 +103,7 @@ interface SqliteJsonContext {
 
 type SqlitePrimitive = string | number | null;
 type TransactionOperation = "savepoint" | "immediate";
+type SqliteNumericPragma = (typeof SQLITE_NUMERIC_PRAGMAS)[number];
 
 let sqliteDb: Database | null = null;
 let sqliteInitPromise: Promise<Database> | null = null;
@@ -141,17 +149,6 @@ export class StorageTransactionError extends Error {
     this.name = "StorageTransactionError";
     this.operation = operation;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function toError(error: unknown, fallbackMessage: string): Error {
-  if (error instanceof Error) {
-    return error;
-  }
-  return new Error(fallbackMessage, { cause: error });
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -293,7 +290,8 @@ async function runInSqliteImmediateTransaction<T>(
 }
 
 function configureSqliteConnection(db: Database): void {
-  db.exec(`PRAGMA busy_timeout = ${ENV.sqliteBusyTimeoutMs}`);
+  const busyTimeoutMs = Math.max(1, Math.trunc(ENV.sqliteBusyTimeoutMs));
+  db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
   db.exec("PRAGMA foreign_keys = ON");
 
   const foreignKeysRow = db.query("PRAGMA foreign_keys").get() as {
@@ -309,7 +307,10 @@ function configureSqliteConnection(db: Database): void {
   db.exec("PRAGMA synchronous = NORMAL");
 }
 
-function readPragmaNumber(db: Database, pragmaName: string): number {
+function readPragmaNumber(
+  db: Database,
+  pragmaName: SqliteNumericPragma
+): number {
   const row = db.query(`PRAGMA ${pragmaName}`).get() as Record<
     string,
     unknown
@@ -380,10 +381,13 @@ function maybeRunIncrementalVacuum(db: Database): {
     return { freePages, pagesToVacuum: 0 };
   }
 
-  const pagesToVacuum = Math.min(
-    freePages,
-    ENV.sqliteIncrementalVacuumStepPages
+  const pagesToVacuum = Math.max(
+    0,
+    Math.trunc(Math.min(freePages, ENV.sqliteIncrementalVacuumStepPages))
   );
+  if (pagesToVacuum === 0) {
+    return { freePages, pagesToVacuum: 0 };
+  }
   db.exec(`PRAGMA incremental_vacuum(${pagesToVacuum})`);
 
   logger.info("Ran SQLite incremental vacuum maintenance", {

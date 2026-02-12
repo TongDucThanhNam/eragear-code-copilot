@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { StoredMessage } from "@/modules/session/domain/stored-session.types";
 import type { sqliteSchema } from "@/platform/storage/sqlite-db";
+import { isRecord as isRecordValue } from "@/shared/utils/type-guards.util";
 
 export type SessionRow = typeof sqliteSchema.sessions.$inferSelect;
 export type MessageRow = typeof sqliteSchema.sessionMessages.$inferSelect;
@@ -32,7 +33,7 @@ export type SessionListRow = Pick<
 >;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return isRecordValue(value);
 }
 
 export const StringArraySchema = z.array(z.string());

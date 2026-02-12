@@ -31,9 +31,8 @@ interface EventBusLogger {
  */
 export class EventBus implements EventBusPort {
   /** Registered event listeners */
-  private readonly listeners = new Map<number, EventBusListener>();
+  private readonly listeners = new Map<symbol, EventBusListener>();
   private readonly logger?: EventBusLogger;
-  private nextListenerId = 1;
 
   constructor(logger?: EventBusLogger) {
     this.logger = logger;
@@ -59,8 +58,7 @@ export class EventBus implements EventBusPort {
       return () => undefined;
     }
 
-    const listenerId = this.nextListenerId;
-    this.nextListenerId += 1;
+    const listenerId = Symbol("event_bus_listener");
     this.listeners.set(listenerId, listener);
 
     const unsubscribe = () => {

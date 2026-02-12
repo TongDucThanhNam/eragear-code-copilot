@@ -116,6 +116,39 @@ describe("environment worker invariants", () => {
     expect(hostResult.stdout.trim()).toBe("127.0.0.1");
   });
 
+  test("falls back to default wsPort when WS_PORT is invalid", () => {
+    const negativePort = readEnvironmentValueInSubprocess(
+      {
+        WS_PORT: "-1",
+      },
+      "wsPort"
+    );
+    expect(negativePort.status).toBe(0);
+    expect(negativePort.stdout.trim()).toBe("3000");
+
+    const overRangePort = readEnvironmentValueInSubprocess(
+      {
+        WS_PORT: "70000",
+      },
+      "wsPort"
+    );
+    expect(overRangePort.status).toBe(0);
+    expect(overRangePort.stdout.trim()).toBe("3000");
+  });
+
+  test("falls back to defaults when positive-only numeric configs are negative", () => {
+    const result = runEnvironmentSubprocess({
+      code: "import { ENV } from './src/config/environment.ts'; console.log(String(ENV.sessionBufferLimit) + ':' + String(ENV.wsMaxPayloadBytes));",
+      overrides: {
+        SESSION_BUFFER_LIMIT: "-10",
+        WS_MAX_PAYLOAD_BYTES: "-4096",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("500:16777216");
+  });
+
   test("falls back allowlists in development when strict mode is disabled", () => {
     const result = runEnvironmentSubprocess({
       code: "import { ENV } from './src/config/environment.ts'; console.log([ENV.allowedAgentCommands.length, ENV.allowedTerminalCommands.length, ENV.allowedEnvKeys.length].join(':'));",
@@ -156,7 +189,9 @@ describe("environment worker invariants", () => {
   test("loads required boot config from settings.json", async () => {
     const configPath = await writeBootConfigFile({
       boot: {
-        ALLOWED_AGENT_COMMAND_POLICIES: [{ command: "bun", allowAnyArgs: true }],
+        ALLOWED_AGENT_COMMAND_POLICIES: [
+          { command: "bun", allowAnyArgs: true },
+        ],
         ALLOWED_TERMINAL_COMMAND_POLICIES: [
           { command: "bun", allowAnyArgs: true },
         ],
@@ -187,7 +222,9 @@ describe("environment worker invariants", () => {
     const configPath = await writeBootConfigFile({
       boot: {
         mode: "standard",
-        ALLOWED_AGENT_COMMAND_POLICIES: [{ command: "bun", allowAnyArgs: true }],
+        ALLOWED_AGENT_COMMAND_POLICIES: [
+          { command: "bun", allowAnyArgs: true },
+        ],
         ALLOWED_TERMINAL_COMMAND_POLICIES: [
           { command: "bun", allowAnyArgs: true },
         ],
@@ -218,7 +255,9 @@ describe("environment worker invariants", () => {
     const configPath = await writeBootConfigFile({
       boot: {
         mode: "compiled",
-        ALLOWED_AGENT_COMMAND_POLICIES: [{ command: "bun", allowAnyArgs: true }],
+        ALLOWED_AGENT_COMMAND_POLICIES: [
+          { command: "bun", allowAnyArgs: true },
+        ],
         ALLOWED_TERMINAL_COMMAND_POLICIES: [
           { command: "bun", allowAnyArgs: true },
         ],
@@ -277,7 +316,9 @@ describe("environment worker invariants", () => {
     const configPath = await writeBootConfigFile({
       boot: {
         mode: "compiled",
-        ALLOWED_AGENT_COMMAND_POLICIES: [{ command: "bun", allowAnyArgs: true }],
+        ALLOWED_AGENT_COMMAND_POLICIES: [
+          { command: "bun", allowAnyArgs: true },
+        ],
         ALLOWED_TERMINAL_COMMAND_POLICIES: [
           { command: "bun", allowAnyArgs: true },
         ],

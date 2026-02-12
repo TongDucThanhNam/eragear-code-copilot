@@ -4,6 +4,7 @@ import { Worker } from "node:worker_threads";
 import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { AppConfig } from "@/shared/types/settings.types";
+import { toError } from "@/shared/utils/error.util";
 import type {
   SqliteWorkerInitData,
   SqliteWorkerRequest,
@@ -57,13 +58,6 @@ function normalizeRoots(roots: string[]): string[] {
     return [process.cwd()];
   }
   return [...new Set(normalized)];
-}
-
-function toError(error: unknown, fallback: string): Error {
-  if (error instanceof Error) {
-    return error;
-  }
-  return new Error(fallback, { cause: error });
 }
 
 function resolveWorkerEntrypointPath(): string {

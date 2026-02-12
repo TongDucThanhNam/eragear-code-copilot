@@ -4,13 +4,11 @@
  * Provides helpers for terminating session-related processes safely.
  */
 
-import type { ChildProcess } from "node:child_process";
 import type { ChatSession, TerminalState } from "../types/session.types";
-import { terminateProcessGracefully } from "./process-termination.util";
-
-function hasProcessExited(proc: ChildProcess): boolean {
-  return proc.exitCode !== null || proc.signalCode !== null;
-}
+import {
+  hasProcessExited,
+  terminateProcessGracefully,
+} from "./process-termination.util";
 
 /**
  * Terminates all terminal processes for a session.

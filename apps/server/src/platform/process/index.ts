@@ -18,7 +18,10 @@ import {
   filterEnvAllowlist,
   isCommandInvocationAllowed,
 } from "@/shared/utils/allowlist.util";
-import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
+import {
+  hasProcessExited,
+  terminateProcessGracefully,
+} from "@/shared/utils/process-termination.util";
 import { createAcpConnectionAdapter } from "../acp/connection";
 
 const TERMINATION_DRAIN_PASSES = 6;
@@ -27,10 +30,6 @@ export interface AgentRuntimePolicy {
   allowedAgentCommandPolicies: CommandPolicy[];
   allowedEnvKeys: string[];
   agentTimeoutMs?: number;
-}
-
-function hasProcessExited(proc: ChildProcess): boolean {
-  return proc.exitCode !== null || proc.signalCode !== null;
 }
 
 /**

@@ -146,4 +146,66 @@ describe("createAuthContextResolverWithBootstrap", () => {
 
     await expect(resolver(createRequest())).rejects.toThrow(EMPTY_USER_ID_RE);
   });
+
+  test("evicts oldest bootstrap cache entries when cache max size is reached", async () => {
+    let userId = "user-1";
+    const ensureCalls: string[] = [];
+    const resolver = createAuthContextResolverWithBootstrap<TestAuthContext>(
+      {
+        resolveAuthContext: async () => ({ userId }),
+        ensureUserDefaults: (nextUserId) => {
+          ensureCalls.push(nextUserId);
+          return Promise.resolve();
+        },
+      },
+      {
+        ensureUserDefaultsTtlMs: 60_000,
+        cacheMaxUsers: 2,
+        now: () => 10_000,
+      }
+    );
+
+    await resolver(createRequest());
+    userId = "user-2";
+    await resolver(createRequest());
+    userId = "user-3";
+    await resolver(createRequest());
+    userId = "user-1";
+    await resolver(createRequest());
+
+    expect(ensureCalls).toEqual(["user-1", "user-2", "user-3", "user-1"]);
+  });
+
+  test("stays fail-open when in-flight dedupe capacity is exhausted", async () => {
+    let userId = "user-1";
+    const firstUserDeferred = createDeferred();
+    const ensureCalls: string[] = [];
+    const resolver = createAuthContextResolverWithBootstrap<TestAuthContext>(
+      {
+        resolveAuthContext: async () => ({ userId }),
+        ensureUserDefaults: async (nextUserId) => {
+          ensureCalls.push(nextUserId);
+          if (nextUserId === "user-1") {
+            await firstUserDeferred.promise;
+          }
+        },
+      },
+      {
+        ensureUserDefaultsTtlMs: 60_000,
+        inFlightMaxUsers: 1,
+      }
+    );
+
+    const firstRequest = resolver(createRequest());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    userId = "user-2";
+    await expect(resolver(createRequest())).resolves.toEqual({
+      userId: "user-2",
+    });
+
+    firstUserDeferred.resolve();
+    await expect(firstRequest).resolves.toEqual({ userId: "user-1" });
+    expect(ensureCalls).toEqual(["user-1", "user-2"]);
+  });
 });

@@ -13,6 +13,7 @@ import type { Client, Stream } from "@agentclientprotocol/sdk";
 import { ClientSideConnection } from "@agentclientprotocol/sdk";
 import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
+import { toError } from "@/shared/utils/error.util";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 
 const logger = createLogger("Debug");
@@ -25,13 +26,6 @@ const PARSE_ERROR_SAMPLE_LIMIT = 256;
 interface NdJsonGuardPolicy {
   maxLineBytes: number;
   maxBufferedBytes: number;
-}
-
-function toError(error: unknown, fallbackMessage: string): Error {
-  if (error instanceof Error) {
-    return error;
-  }
-  return new Error(fallbackMessage, { cause: error });
 }
 
 function truncate(value: string, maxChars: number): string {

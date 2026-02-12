@@ -22,7 +22,9 @@ import {
   DEFAULT_APP_DEFAULT_MODEL,
   DEFAULT_APP_LOG_LEVEL,
   DEFAULT_APP_MAX_TOKENS,
+  DEFAULT_AUTH_BOOTSTRAP_CACHE_MAX_USERS,
   DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS,
+  DEFAULT_AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS,
   DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
   DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
   DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
@@ -76,8 +78,8 @@ import {
   toBoundedPositiveInt,
   toList,
   toLogLevel,
-  toNumber,
   toOptionalNumber,
+  toPortNumber,
   toPositiveInt,
   toTrimmedString,
 } from "./environment.parsers";
@@ -116,7 +118,7 @@ if (bootConfig.mode === "compiled") {
 /** Parse environment variables */
 const env = envSchema.parse(createEnvInput(bootConfig.values, bootConfig.mode));
 
-const wsPort = toNumber(
+const wsPort = toPortNumber(
   firstNonEmpty([env.WS_PORT, env.PORT]),
   DEFAULT_WS_PORT
 );
@@ -251,12 +253,12 @@ export const ENV = {
   /** True when running in production mode */
   isProd,
   /** Timeout for idle sessions in milliseconds */
-  sessionIdleTimeoutMs: toNumber(
+  sessionIdleTimeoutMs: toPositiveInt(
     env.SESSION_IDLE_TIMEOUT_MS,
     DEFAULT_SESSION_IDLE_TIMEOUT_MS
   ),
   /** Maximum number of messages to buffer per session */
-  sessionBufferLimit: toNumber(
+  sessionBufferLimit: toPositiveInt(
     env.SESSION_BUFFER_LIMIT,
     DEFAULT_SESSION_BUFFER_LIMIT
   ),
@@ -276,12 +278,12 @@ export const ENV = {
     DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT
   ),
   /** WebSocket heartbeat interval in milliseconds */
-  wsHeartbeatIntervalMs: toNumber(
+  wsHeartbeatIntervalMs: toPositiveInt(
     env.WS_HEARTBEAT_INTERVAL_MS,
     DEFAULT_WS_HEARTBEAT_INTERVAL_MS
   ),
   /** Maximum accepted payload per WebSocket message/frame in bytes */
-  wsMaxPayloadBytes: toNumber(
+  wsMaxPayloadBytes: toPositiveInt(
     env.WS_MAX_PAYLOAD_BYTES,
     DEFAULT_WS_MAX_PAYLOAD_BYTES
   ),
@@ -347,6 +349,16 @@ export const ENV = {
     env.AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS,
     DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS
   ),
+  /** Max retained users in auth bootstrap ensure-defaults success cache */
+  authBootstrapCacheMaxUsers: toPositiveInt(
+    env.AUTH_BOOTSTRAP_CACHE_MAX_USERS,
+    DEFAULT_AUTH_BOOTSTRAP_CACHE_MAX_USERS
+  ),
+  /** Max tracked in-flight ensure-defaults tasks for auth bootstrap */
+  authBootstrapInFlightMaxUsers: toPositiveInt(
+    env.AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS,
+    DEFAULT_AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS
+  ),
   /** Default API key prefix */
   authApiKeyPrefix: env.AUTH_API_KEY_PREFIX,
   /** Enable API key plugin rate limiting */
@@ -363,11 +375,11 @@ export const ENV = {
     toOptionalNumber(env.AUTH_API_KEY_RATE_LIMIT_MAX_REQUESTS) ??
     defaultApiKeyRateLimitMaxRequests,
   /** Log buffer max entries */
-  logBufferLimit: toNumber(env.LOG_BUFFER_LIMIT, DEFAULT_LOG_BUFFER_LIMIT),
+  logBufferLimit: toPositiveInt(env.LOG_BUFFER_LIMIT, DEFAULT_LOG_BUFFER_LIMIT),
   /** Global minimum log level for emitted server logs */
   logLevel: toLogLevel(env.LOG_LEVEL, DEFAULT_APP_LOG_LEVEL as LogLevel),
   /** Log flush interval in milliseconds */
-  logFlushIntervalMs: toNumber(
+  logFlushIntervalMs: toPositiveInt(
     env.LOG_FLUSH_INTERVAL_MS,
     DEFAULT_LOG_FLUSH_INTERVAL_MS
   ),
@@ -387,32 +399,32 @@ export const ENV = {
   /** Enable background runner */
   backgroundEnabled: toBoolean(env.BACKGROUND_ENABLED, true),
   /** Background runner tick interval in milliseconds */
-  backgroundTickMs: toNumber(
+  backgroundTickMs: toPositiveInt(
     env.BACKGROUND_TICK_MS,
     DEFAULT_BACKGROUND_TICK_MS
   ),
   /** Timeout for a single background task run in milliseconds */
-  backgroundTaskTimeoutMs: toNumber(
+  backgroundTaskTimeoutMs: toPositiveInt(
     env.BACKGROUND_TASK_TIMEOUT_MS,
     DEFAULT_BACKGROUND_TASK_TIMEOUT_MS
   ),
   /** Interval for session idle cleanup task in milliseconds */
-  backgroundSessionCleanupIntervalMs: toNumber(
+  backgroundSessionCleanupIntervalMs: toPositiveInt(
     env.BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
     DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS
   ),
   /** Interval for cache prune task in milliseconds */
-  backgroundCachePruneIntervalMs: toNumber(
+  backgroundCachePruneIntervalMs: toPositiveInt(
     env.BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
     DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS
   ),
   /** Interval for sqlite maintenance task in milliseconds */
-  backgroundSqliteMaintenanceIntervalMs: toNumber(
+  backgroundSqliteMaintenanceIntervalMs: toPositiveInt(
     env.BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
     DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS
   ),
   /** Cooldown before retrying a failed SQLite init */
-  sqliteInitRetryCooldownMs: toNumber(
+  sqliteInitRetryCooldownMs: toPositiveInt(
     env.STORAGE_INIT_RETRY_COOLDOWN_MS,
     DEFAULT_STORAGE_INIT_RETRY_COOLDOWN_MS
   ),

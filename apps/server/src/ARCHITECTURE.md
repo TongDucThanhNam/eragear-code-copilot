@@ -10,6 +10,8 @@ Server đóng vai trò ACP client và backend cho web/native:
 - Chuẩn hóa stream thành `UIMessage` để broadcast realtime.
 - Persist state/messages vào SQLite (`eragear.sqlite`).
 - Runtime mục tiêu: **Bun-only** (sử dụng Bun runtime APIs như `bun:sqlite`, `hono/bun`).
+- Production support target: Linux/macOS với Bun stable; Windows không phải
+  production target hiện tại.
 
 ## Layers
 

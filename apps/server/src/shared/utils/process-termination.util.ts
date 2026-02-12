@@ -13,7 +13,7 @@ export interface ProcessTerminationResult {
   signalSent: "none" | "SIGTERM" | "SIGKILL";
 }
 
-function hasProcessExited(proc: ChildProcess): boolean {
+export function hasProcessExited(proc: ChildProcess): boolean {
   return proc.exitCode !== null || proc.signalCode !== null;
 }
 

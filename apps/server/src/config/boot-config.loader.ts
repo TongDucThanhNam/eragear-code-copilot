@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { isRecord } from "@/shared/utils/type-guards.util";
 
 const BOOT_CONFIG_FILE_NAME = "settings.json";
 const BOOT_CONFIG_PATH_ENV_KEY = "ERAGEAR_BOOT_CONFIG_PATH";
@@ -11,10 +12,6 @@ export interface BootConfigLoadResult {
   sourcePath?: string;
   searchedPaths: string[];
   mode: BootRuntimeMode;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 export function normalizeBootValue(value: unknown): string | undefined {

@@ -22,6 +22,7 @@ import { ENV } from "../config/environment";
 import { installConsoleLogger } from "../platform/logging/logger";
 import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
+import { withTimeout } from "../shared/utils/timeout.util";
 import { createAuthContextResolverWithBootstrap } from "../transport/auth/auth-context.bootstrap";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
@@ -43,6 +44,10 @@ import {
 
 const logger = createLogger("Server");
 const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 15_000;
+
+function isPublicApiPath(path: string): boolean {
+  return path.startsWith("/api/auth") || path.startsWith("/api/health");
+}
 
 export interface ServerRuntimePolicy {
   wsHost: string;
@@ -112,6 +117,8 @@ function createBootstrappedAuthResolver(deps: AppDependencies) {
     },
     {
       ensureUserDefaultsTtlMs: ENV.authBootstrapEnsureDefaultsTtlMs,
+      cacheMaxUsers: ENV.authBootstrapCacheMaxUsers,
+      inFlightMaxUsers: ENV.authBootstrapInFlightMaxUsers,
     }
   );
 }
@@ -231,10 +238,7 @@ export async function createApp(
   app.use("/api/health", corsMiddleware.health);
 
   app.use("/api/*", (c, next) => {
-    if (
-      c.req.path.startsWith("/api/auth") ||
-      c.req.path.startsWith("/api/health")
-    ) {
+    if (isPublicApiPath(c.req.path)) {
       return next();
     }
     return corsMiddleware.api(c, next);
@@ -283,10 +287,7 @@ export async function createApp(
 
   // Protect API routes (except /api/auth)
   app.use("/api/*", async (c, next) => {
-    if (
-      c.req.path.startsWith("/api/auth") ||
-      c.req.path.startsWith("/api/health")
-    ) {
+    if (isPublicApiPath(c.req.path)) {
       return next();
     }
     const authContext = await resolveAuthContext({
@@ -400,28 +401,6 @@ export async function startServer() {
     }
     processExitScheduled = true;
     process.exit(code);
-  };
-
-  const withTimeout = async <T>(
-    work: Promise<T>,
-    timeoutMs: number,
-    timeoutMessage: string
-  ): Promise<T> => {
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        reject(new Error(timeoutMessage));
-      }, timeoutMs);
-      timeoutHandle.unref?.();
-    });
-
-    try {
-      return await Promise.race([work, timeoutPromise]);
-    } finally {
-      if (timeoutHandle !== undefined) {
-        clearTimeout(timeoutHandle);
-      }
-    }
   };
 
   const closeWebSocketServer = () =>

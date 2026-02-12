@@ -1,13 +1,14 @@
 import { z } from "zod";
 import {
   HARD_MAX_APP_MAX_TOKENS,
-  MAX_APP_DEFAULT_MODEL_LENGTH,
   HARD_MAX_SESSION_LIST_PAGE_LIMIT,
   HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
+  MAX_APP_DEFAULT_MODEL_LENGTH,
 } from "@/config/constants";
 import { ENV } from "@/config/environment";
 import { LOG_LEVELS, type LogLevel } from "@/shared/types/log.types";
 import type { AppConfig, Settings } from "@/shared/types/settings.types";
+import { isRecord } from "@/shared/utils/type-guards.util";
 import type { SettingsRepositoryPort } from "./application/ports/settings-repository.port";
 
 const MAX_SESSION_IDLE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
@@ -80,10 +81,6 @@ function toTrimmedString(value: unknown): string | undefined {
   }
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : "";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function normalizeFromUnknown(value: unknown, fallback: AppConfig): AppConfig {

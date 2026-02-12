@@ -188,3 +188,7 @@ export const DEFAULT_APP_DEFAULT_MODEL = "";
 export const MAX_APP_DEFAULT_MODEL_LENGTH = 200;
 /** Default TTL for auth bootstrap ensure-defaults cache */
 export const DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS = 30 * 60 * 1000;
+/** Default max users retained in auth bootstrap success cache */
+export const DEFAULT_AUTH_BOOTSTRAP_CACHE_MAX_USERS = 10_000;
+/** Default max in-flight ensure-defaults tasks tracked for auth bootstrap */
+export const DEFAULT_AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS = 2000;

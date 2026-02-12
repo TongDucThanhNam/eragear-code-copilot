@@ -13,6 +13,13 @@
 Mục tiêu kiến trúc là ổn định production cho local-first workflows, nơi server
 chạy trên máy người dùng và có quyền filesystem/terminal.
 
+Runtime scope:
+
+- Server runtime là **Bun-only**.
+- Production target: Linux/macOS.
+- Windows path conventions vẫn được mô tả cho storage/auth, nhưng không đồng
+  nghĩa production runtime support.
+
 ## 2. Architecture
 
 Server theo Clean Architecture + Ports/Adapters:
