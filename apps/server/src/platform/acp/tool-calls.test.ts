@@ -16,6 +16,7 @@ import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { createToolCallHandlers } from "./tool-calls";
 
 const OUTSIDE_PROJECT_ROOT_REGEX = /outside project root/i;
+const FILE_NOT_FOUND_REGEX = /File not found/i;
 
 function createSession(chatId: string, projectRoot: string): ChatSession {
   return {
@@ -220,6 +221,31 @@ describe("createToolCallHandlers", () => {
     expect(status.exitCode).toBe(7);
   });
 
+  test("tracks process group id for POSIX terminal processes", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const session = createSession("chat-process-group", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+
+    const created = await handlers.createTerminal(session.id, {
+      sessionId: session.id,
+      command: "/bin/sh",
+      args: ["-lc", "exit 0"],
+    });
+    const terminal = session.terminals.get(created.terminalId) as
+      | TerminalState
+      | undefined;
+    expect(terminal?.processGroupId).toEqual(terminal?.process.pid);
+    await withTimeout(
+      handlers.waitForTerminalExit(session.id, {
+        sessionId: session.id,
+        terminalId: created.terminalId,
+      })
+    );
+  });
+
   test("waitForTerminalExit resolves when process spawn errors", async () => {
     ENV.allowedTerminalCommandPolicies = [
       { command: "/definitely-not-a-real-command", allowAnyArgs: true },
@@ -309,6 +335,19 @@ describe("createToolCallHandlers", () => {
     expect(written).toBe("world");
   });
 
+  test("returns explicit error when reading a missing file", async () => {
+    const session = createSession("chat-missing-file", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+
+    await expect(
+      handlers.readTextFileForChat(session.id, {
+        sessionId: session.id,
+        path: "does-not-exist.txt",
+      })
+    ).rejects.toThrow(FILE_NOT_FOUND_REGEX);
+  });
+
   test("clears terminal timeout timer when terminal is released", async () => {
     ENV.terminalTimeoutMs = 30;
     const session = createSession("chat-release-timeout", tmpDir);
@@ -328,13 +367,6 @@ describe("createToolCallHandlers", () => {
       return;
     }
 
-    const originalKill = term.process.kill.bind(term.process);
-    let killCalls = 0;
-    term.process.kill = ((..._args: Parameters<typeof term.process.kill>) => {
-      killCalls += 1;
-      return true;
-    }) as typeof term.process.kill;
-
     await handlers.releaseTerminal(session.id, {
       sessionId: session.id,
       terminalId: created.terminalId,
@@ -344,11 +376,7 @@ describe("createToolCallHandlers", () => {
         setTimeout(resolve, 80);
       })
     );
-    expect(killCalls).toBe(1);
-
-    term.process.kill = originalKill;
-    if (!term.process.killed) {
-      term.process.kill("SIGKILL");
-    }
+    expect(term.killTimer).toBeUndefined();
+    expect(session.terminals.has(created.terminalId)).toBe(false);
   });
 });

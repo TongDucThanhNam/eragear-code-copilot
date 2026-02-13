@@ -424,6 +424,8 @@ export interface TerminalState {
   id: string;
   /** Terminal process */
   process: ChildProcess;
+  /** POSIX process group id used for tree termination */
+  processGroupId?: number;
   /** Output buffer */
   outputBuffer: string;
   /** Output buffer bytes for accurate byte-limit truncation */

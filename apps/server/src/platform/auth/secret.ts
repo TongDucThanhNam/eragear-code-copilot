@@ -60,11 +60,7 @@ export function getAuthSecret(): string {
   if (racedPersisted) {
     return racedPersisted;
   }
-
-  writeFileSync(secretPath, generated, {
-    encoding: "utf-8",
-    mode: AUTH_FILE_PRIVATE_MODE,
-  });
-  chmodSync(secretPath, AUTH_FILE_PRIVATE_MODE);
-  return generated;
+  throw new Error(
+    `[Auth] Failed to read or create auth secret at ${secretPath}. Manual intervention required.`
+  );
 }

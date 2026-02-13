@@ -17,6 +17,15 @@ import {
 export async function terminateSessionTerminals(
   session: ChatSession
 ): Promise<void> {
+  for (const [, pending] of session.pendingPermissions) {
+    try {
+      pending.resolve({ outcome: { outcome: "cancelled" } });
+    } catch {
+      // Ignore permission resolution failures during teardown.
+    }
+  }
+  session.pendingPermissions.clear();
+
   const terminalStates = Array.from(
     session.terminals.values()
   ) as TerminalState[];
@@ -30,7 +39,9 @@ export async function terminateSessionTerminals(
       if (!termState.process || hasProcessExited(termState.process)) {
         return;
       }
-      await terminateProcessGracefully(termState.process);
+      await terminateProcessGracefully(termState.process, {
+        processGroupId: termState.processGroupId,
+      });
     })
   );
 

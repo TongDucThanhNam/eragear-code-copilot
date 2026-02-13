@@ -11,9 +11,20 @@ import type { EventBusListener, EventBusPort } from "../ports/event-bus.port";
 import type { DomainEvent } from "../types/domain-events.types";
 
 const MAX_EVENT_BUS_LISTENERS = 10_000;
+const DEFAULT_EVENT_BUS_LISTENER_TIMEOUT_MS = 30_000;
 
 interface EventBusLogger {
   error(message: string, context?: Record<string, unknown>): void;
+}
+
+class EventBusListenerTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`[EventBus] Listener timed out after ${timeoutMs}ms`);
+    this.name = "EventBusListenerTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
 }
 
 /**
@@ -33,9 +44,25 @@ export class EventBus implements EventBusPort {
   /** Registered event listeners */
   private readonly listeners = new Map<symbol, EventBusListener>();
   private readonly logger?: EventBusLogger;
+  private readonly listenerTimeoutMs: number;
 
-  constructor(logger?: EventBusLogger) {
+  constructor(
+    logger?: EventBusLogger,
+    options?: {
+      listenerTimeoutMs?: number;
+    }
+  ) {
     this.logger = logger;
+    const timeoutMs = options?.listenerTimeoutMs;
+    if (
+      typeof timeoutMs !== "number" ||
+      !Number.isFinite(timeoutMs) ||
+      timeoutMs <= 0
+    ) {
+      this.listenerTimeoutMs = DEFAULT_EVENT_BUS_LISTENER_TIMEOUT_MS;
+      return;
+    }
+    this.listenerTimeoutMs = Math.max(1, Math.trunc(timeoutMs));
   }
 
   /**
@@ -83,7 +110,7 @@ export class EventBus implements EventBusPort {
     const listeners = [...this.listeners.values()];
     const results = await Promise.allSettled(
       listeners.map(async (listener) => {
-        await listener(event);
+        await this.callListenerWithTimeout(listener, event);
       })
     );
     let failedListeners = 0;
@@ -98,6 +125,10 @@ export class EventBus implements EventBusPort {
           result.reason instanceof Error
             ? result.reason.message
             : String(result.reason),
+        timeout:
+          result.reason instanceof EventBusListenerTimeoutError
+            ? result.reason.timeoutMs
+            : undefined,
       });
     }
     if (failedListeners > 0) {
@@ -109,6 +140,28 @@ export class EventBus implements EventBusPort {
           listenerCount: listeners.length,
         }
       );
+    }
+  }
+
+  private async callListenerWithTimeout(
+    listener: EventBusListener,
+    event: DomainEvent
+  ): Promise<void> {
+    const listenerPromise = Promise.resolve().then(() => listener(event));
+    listenerPromise.catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new EventBusListenerTimeoutError(this.listenerTimeoutMs));
+      }, this.listenerTimeoutMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([listenerPromise, timeoutPromise]);
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
     }
   }
 }

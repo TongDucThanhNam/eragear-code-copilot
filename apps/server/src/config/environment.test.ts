@@ -413,7 +413,36 @@ describe("environment worker invariants", () => {
     });
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("must not use insecure placeholder value");
+    expect(result.stderr).toContain("insecure placeholder");
+  });
+
+  test("compiled mode fails fast when auth secret uses local-dev marker", async () => {
+    const configPath = await writeBootConfigFile({
+      boot: {
+        mode: "compiled",
+        ALLOWED_AGENT_COMMAND_POLICIES: [
+          { command: process.execPath, allowAnyArgs: true },
+        ],
+        ALLOWED_TERMINAL_COMMAND_POLICIES: [
+          { command: process.execPath, allowAnyArgs: true },
+        ],
+        ALLOWED_ENV_KEYS: ["PATH"],
+        WS_HOST: "127.0.0.1",
+        WS_PORT: 4111,
+        AUTH_SECRET: "local_dev_secret_rotate_before_production_2026",
+      },
+    });
+
+    const result = runEnvironmentSubprocess({
+      code: "import './src/config/environment.ts';",
+      includeRequiredAllowlists: false,
+      overrides: {
+        ERAGEAR_BOOT_CONFIG_PATH: configPath,
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("local-dev secret value");
   });
 
   test("fails fast on invalid settings.json boot config", async () => {

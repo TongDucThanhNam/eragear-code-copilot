@@ -66,4 +66,26 @@ describe("EventBus.publish", () => {
     await publishPromise;
     expect(delivery).toEqual(["slow:start", "fast", "slow:end"]);
   });
+
+  test("times out slow listeners and still returns from publish", async () => {
+    const logs: Array<{ message: string; context?: Record<string, unknown> }> =
+      [];
+    const bus = new EventBus(
+      {
+        error(message, context) {
+          logs.push({ message, context });
+        },
+      },
+      { listenerTimeoutMs: 10 }
+    );
+
+    bus.subscribe(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    await expect(bus.publish(DASHBOARD_REFRESH_EVENT)).resolves.toBeUndefined();
+    expect(
+      logs.some((entry) => entry.message === "[EventBus] Listener error")
+    ).toBe(true);
+  });
 });

@@ -32,6 +32,8 @@ const MIN_ENSURE_DEFAULTS_TTL_MS = 1000;
 const DEFAULT_CACHE_MAX_USERS = 10_000;
 const DEFAULT_INFLIGHT_MAX_USERS = 2000;
 const MAX_INFLIGHT_OVERFLOW_BACKOFF_MS = 5000;
+const ENSURE_DEFAULTS_CAPACITY_ERROR_PREFIX =
+  "[AuthBootstrap] ensureUserDefaults capacity exceeded";
 
 function normalizeUserId(userId: string): string {
   const normalized = userId.trim();
@@ -99,7 +101,26 @@ export function createAuthContextResolverWithBootstrap<
   let cacheExpiryCursor = 0;
   const inFlightByUserId = new Map<string, Promise<void>>();
   const inFlightOverflowBackoffByUserId = new Map<string, number>();
+  const scheduledRetryByUserId = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
   let lastCachePruneAt = 0;
+
+  const isEnsureDefaultsCapacityError = (error: Error): boolean => {
+    return error.message.includes(ENSURE_DEFAULTS_CAPACITY_ERROR_PREFIX);
+  };
+
+  const reportEnsureDefaultsError = async (userId: string, error: Error) => {
+    try {
+      await deps.onEnsureUserDefaultsError?.({
+        userId,
+        error,
+      });
+    } catch {
+      // Observability callback failures must not hide bootstrap errors.
+    }
+  };
 
   const pruneExpiredCache = (nowMs: number, force = false) => {
     if (!force && nowMs - lastCachePruneAt < ttlMs) {
@@ -161,16 +182,14 @@ export function createAuthContextResolverWithBootstrap<
       cacheByUserId.set(userId, expiresAt);
       cacheExpiryQueue.push({ userId, expiresAt });
       inFlightOverflowBackoffByUserId.delete(userId);
+      const retryTimer = scheduledRetryByUserId.get(userId);
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        scheduledRetryByUserId.delete(userId);
+      }
     } catch (error) {
       const normalizedError = toError(error);
-      try {
-        await deps.onEnsureUserDefaultsError?.({
-          userId,
-          error: normalizedError,
-        });
-      } catch {
-        // Observability callback failures must not hide bootstrap errors.
-      }
+      await reportEnsureDefaultsError(userId, normalizedError);
       throw normalizedError;
     }
   };
@@ -199,7 +218,7 @@ export function createAuthContextResolverWithBootstrap<
       const blockedUntil = inFlightOverflowBackoffByUserId.get(userId);
       if (blockedUntil !== undefined && blockedUntil > nowMs) {
         throw new Error(
-          `[AuthBootstrap] ensureUserDefaults capacity exceeded for user ${userId}`
+          `${ENSURE_DEFAULTS_CAPACITY_ERROR_PREFIX} for user ${userId}`
         );
       }
       inFlightOverflowBackoffByUserId.set(
@@ -207,7 +226,7 @@ export function createAuthContextResolverWithBootstrap<
         nowMs + inFlightOverflowBackoffMs
       );
       throw new Error(
-        `[AuthBootstrap] ensureUserDefaults capacity exceeded for user ${userId}`
+        `${ENSURE_DEFAULTS_CAPACITY_ERROR_PREFIX} for user ${userId}`
       );
     }
 
@@ -219,6 +238,27 @@ export function createAuthContextResolverWithBootstrap<
     });
     inFlightByUserId.set(userId, currentTask);
     await currentTask;
+  };
+
+  const scheduleEnsureDefaultsRetry = (userId: string) => {
+    if (scheduledRetryByUserId.has(userId)) {
+      return;
+    }
+    if (scheduledRetryByUserId.size >= inFlightMaxUsers) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      scheduledRetryByUserId.delete(userId);
+      ensureUserDefaultsWithCache(userId).catch(async (error) => {
+        const normalizedError = toError(error);
+        if (isEnsureDefaultsCapacityError(normalizedError)) {
+          await reportEnsureDefaultsError(userId, normalizedError);
+        }
+        scheduleEnsureDefaultsRetry(userId);
+      });
+    }, inFlightOverflowBackoffMs);
+    timer.unref?.();
+    scheduledRetryByUserId.set(userId, timer);
   };
 
   return async (
@@ -236,8 +276,13 @@ export function createAuthContextResolverWithBootstrap<
 
     try {
       await ensureUserDefaultsWithCache(normalizedUserId);
-    } catch {
-      return null;
+    } catch (error) {
+      const normalizedError = toError(error);
+      if (isEnsureDefaultsCapacityError(normalizedError)) {
+        await reportEnsureDefaultsError(normalizedUserId, normalizedError);
+      }
+      scheduleEnsureDefaultsRetry(normalizedUserId);
+      return normalizedAuthContext;
     }
     return normalizedAuthContext;
   };

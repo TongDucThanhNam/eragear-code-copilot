@@ -149,6 +149,32 @@ describe("SessionRuntimeStore.runExclusive", () => {
   });
 });
 
+describe("SessionRuntimeStore.delete", () => {
+  test("cancels pending permissions before removing runtime session", () => {
+    const store = new SessionRuntimeStore(createEventBusStub(), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishTimeoutMs: 100,
+      eventBusPublishMaxQueuePerChat: 8,
+    });
+    const session = createSession("chat-1");
+    const decisions: unknown[] = [];
+    session.pendingPermissions.set("req-1", {
+      resolve: (decision: unknown) => {
+        decisions.push(decision);
+      },
+      options: [],
+    });
+    store.set("chat-1", session);
+
+    store.delete("chat-1");
+
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(decisions).toEqual([{ outcome: { outcome: "cancelled" } }]);
+    expect(store.has("chat-1")).toBe(false);
+  });
+});
+
 describe("SessionRuntimeStore.broadcast", () => {
   test("handles concurrent broadcast bursts without corrupting message buffer", async () => {
     const store = new SessionRuntimeStore(createEventBusStub(), {

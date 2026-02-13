@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
 import {
-  fromSqliteJson,
+  fromSqliteJsonWithSchema,
   SQLITE_SETTING_KEYS,
   toSqliteJson,
 } from "@/platform/storage/sqlite-store";
@@ -106,14 +106,18 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
   private getRawSetting<T>(
     db: Awaited<ReturnType<typeof getSqliteOrm>>,
     key: string,
-    fallback: T
+    fallback: T,
+    schema: z.ZodType<T>
   ): T {
     const row = db
       .select({ valueJson: sqliteSchema.appSettings.valueJson })
       .from(sqliteSchema.appSettings)
       .where(eq(sqliteSchema.appSettings.key, key))
       .get();
-    return fromSqliteJson(row?.valueJson, fallback);
+    return fromSqliteJsonWithSchema(row?.valueJson, fallback, schema, {
+      table: "app_settings",
+      column: "value_json",
+    });
   }
 
   private upsertSetting(
@@ -159,22 +163,26 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
       ui: this.getRawSetting(
         db,
         SQLITE_SETTING_KEYS.uiSettings,
-        DEFAULT_SETTINGS.ui
+        DEFAULT_SETTINGS.ui,
+        UiSettingsSchema
       ),
       projectRoots: this.getRawSetting(
         db,
         SQLITE_SETTING_KEYS.projectRoots,
-        DEFAULT_SETTINGS.projectRoots
+        DEFAULT_SETTINGS.projectRoots,
+        z.array(z.string()).min(1)
       ),
       mcpServers: this.getRawSetting(
         db,
         SQLITE_SETTING_KEYS.mcpServers,
-        DEFAULT_SETTINGS.mcpServers ?? []
+        DEFAULT_SETTINGS.mcpServers ?? [],
+        z.array(McpServerSchema)
       ),
       app: this.getRawSetting(
         db,
         SQLITE_SETTING_KEYS.appConfig,
-        DEFAULT_SETTINGS.app
+        DEFAULT_SETTINGS.app,
+        AppConfigSchema
       ),
     };
 

@@ -183,17 +183,6 @@ function toJson(value: unknown): string | null {
   return stringifyJson(value);
 }
 
-function fromJson<T>(raw: unknown, fallback: T): T {
-  if (typeof raw !== "string") {
-    return fallback;
-  }
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 function setMeta(db: Database, key: string, value: string): void {
   db.query(
     "INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
@@ -477,16 +466,6 @@ function runBulkInsert({
 
     db.query(`${prefixSql} ${placeholders}`).run(...values);
   }
-}
-
-export function getSqliteSetting<T>(db: Database, key: string, fallback: T): T {
-  const row = db
-    .query("SELECT value_json FROM app_settings WHERE key = ?")
-    .get(key) as { value_json: string } | null;
-  if (!row) {
-    return fallback;
-  }
-  return fromJson(row.value_json, fallback);
 }
 
 export function setSqliteSetting(db: Database, key: string, value: unknown) {
@@ -1172,10 +1151,6 @@ export function fromSqliteBoolean(value: unknown): boolean | undefined {
 
 export function toSqliteBoolean(value: boolean | undefined): number | null {
   return normalizeBooleanToInt(value);
-}
-
-export function fromSqliteJson<T>(raw: unknown, fallback: T): T {
-  return fromJson(raw, fallback);
 }
 
 export function fromSqliteJsonWithSchema<T>(

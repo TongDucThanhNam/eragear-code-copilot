@@ -154,6 +154,23 @@ export class SessionRuntimeStore implements SessionRuntimePort {
    * @param chatId - The session identifier
    */
   delete(chatId: string): void {
+    const session = this.sessions.get(chatId);
+    if (session) {
+      for (const [, pending] of session.pendingPermissions) {
+        try {
+          pending.resolve({ outcome: { outcome: "cancelled" } });
+        } catch (error) {
+          logger.warn(
+            "Failed to resolve pending permission during session delete",
+            {
+              chatId,
+              error: error instanceof Error ? error.message : String(error),
+            }
+          );
+        }
+      }
+      session.pendingPermissions.clear();
+    }
     this.sessions.delete(chatId);
     this.chatLockTails.delete(chatId);
     this.chatPublishStates.delete(chatId);

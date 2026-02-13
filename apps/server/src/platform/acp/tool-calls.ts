@@ -21,6 +21,7 @@ import {
 } from "@/shared/utils/allowlist.util";
 import { createId } from "@/shared/utils/id.util";
 import { fileUriToPath } from "@/shared/utils/path.util";
+import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import { ENV } from "../../config/environment";
 import type {
   ChatSession,
@@ -144,6 +145,16 @@ function clearTerminalKillTimer(term: TerminalState): void {
   }
   clearTimeout(term.killTimer);
   term.killTimer = undefined;
+}
+
+function isPosixRuntime(): boolean {
+  return process.platform !== "win32";
+}
+
+async function terminateTerminalProcess(term: TerminalState): Promise<void> {
+  await terminateProcessGracefully(term.process, {
+    processGroupId: term.processGroupId,
+  });
 }
 
 /**
@@ -277,11 +288,10 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       if (error && typeof error === "object" && "code" in error) {
         const code = (error as NodeJS.ErrnoException).code;
         if (code === "ENOENT") {
-          logger.debug("readTextFile missing file; returning empty content", {
-            chatId,
-            path: filePath,
-          });
-          return { content: "" };
+          throw RequestError.invalidParams(
+            { path: requestPath },
+            "File not found"
+          );
         }
       }
       throw error;
@@ -353,7 +363,12 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       cwd: allowedCwd,
       env: filteredEnv,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: isPosixRuntime(),
     });
+    const processGroupId =
+      isPosixRuntime() && typeof termProc.pid === "number" && termProc.pid > 0
+        ? termProc.pid
+        : undefined;
 
     // Store terminal state
     let resolveExit:
@@ -368,6 +383,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     const termState: TerminalState = {
       id: termId,
       process: termProc,
+      processGroupId,
       outputBuffer: "",
       outputBufferBytes: Buffer.alloc(0),
       outputByteLimit,
@@ -439,15 +455,13 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
         if (termState.exitStatus || termProc.killed) {
           return;
         }
-        try {
-          termProc.kill("SIGTERM");
-        } catch (error) {
+        terminateTerminalProcess(termState).catch((error) => {
           logger.warn("Failed to terminate timed-out terminal process", {
             chatId,
             terminalId: termId,
             error: error instanceof Error ? error.message : String(error),
           });
-        }
+        });
       }, terminalTimeoutMs);
     }
 
@@ -486,35 +500,35 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
   /**
    * Kills a terminal process
    */
-  function killTerminal(
+  async function killTerminal(
     chatId: string,
     params: acp.KillTerminalCommandRequest
   ): Promise<acp.KillTerminalCommandResponse> {
     const session = getSessionOrThrow(sessionRuntime, chatId);
     const term = getTerminalOrThrow(session, params.terminalId);
 
-    term.process.kill();
-    return Promise.resolve({});
+    await terminateTerminalProcess(term);
+    return {};
   }
 
   /**
    * Releases (terminates and removes) a terminal
    */
-  function releaseTerminal(
+  async function releaseTerminal(
     chatId: string,
     params: acp.ReleaseTerminalRequest
   ): Promise<acp.ReleaseTerminalResponse | undefined> {
     const session = getSessionOrThrow(sessionRuntime, chatId);
     const term = session.terminals.get(params.terminalId);
     if (!term) {
-      return Promise.resolve(undefined);
+      return undefined;
     }
 
     const typedTerm = term as TerminalState;
     clearTerminalKillTimer(typedTerm);
     if (!typedTerm.exitStatus) {
       try {
-        typedTerm.process.kill();
+        await terminateTerminalProcess(typedTerm);
       } catch (error) {
         logger.warn("Failed to kill terminal during release", {
           chatId,
@@ -524,7 +538,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       }
     }
     session.terminals.delete(params.terminalId);
-    return Promise.resolve(undefined);
+    return undefined;
   }
 
   return {

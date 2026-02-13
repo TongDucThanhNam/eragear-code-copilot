@@ -1,8 +1,9 @@
 import {
-  accessSync,
+  closeSync,
   existsSync,
-  constants as fsConstants,
   mkdirSync,
+  openSync,
+  unlinkSync,
 } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
@@ -50,8 +51,15 @@ function pathExistsSync(filePath: string): boolean {
 function ensureWritableDirectorySync(dir: string): boolean {
   try {
     mkdirSync(dir, { recursive: true });
-    accessSync(dir, fsConstants.R_OK);
-    accessSync(dir, fsConstants.W_OK);
+    const probePath = path.join(
+      dir,
+      `.eragear-write-probe-${process.pid}-${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}`
+    );
+    const probeFd = openSync(probePath, "wx", 0o600);
+    closeSync(probeFd);
+    unlinkSync(probePath);
     return true;
   } catch {
     return false;

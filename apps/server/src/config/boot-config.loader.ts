@@ -6,6 +6,23 @@ const BOOT_CONFIG_FILE_NAME = "settings.json";
 const BOOT_CONFIG_PATH_ENV_KEY = "ERAGEAR_BOOT_CONFIG_PATH";
 const AUTH_SECRET_PLACEHOLDER_VALUE =
   "change_me_in_production_with_32_chars_min";
+const AUTH_SECRET_LOCAL_DEV_VALUE =
+  "local_dev_secret_rotate_before_production_2026";
+const AUTH_SECRET_LOCAL_DEV_PREFIX_RE = /^local_dev_secret/i;
+
+function isInsecureBootAuthSecret(secret: string): boolean {
+  const normalized = secret.trim();
+  if (normalized.length === 0) {
+    return true;
+  }
+  if (
+    normalized === AUTH_SECRET_PLACEHOLDER_VALUE ||
+    normalized === AUTH_SECRET_LOCAL_DEV_VALUE
+  ) {
+    return true;
+  }
+  return AUTH_SECRET_LOCAL_DEV_PREFIX_RE.test(normalized);
+}
 
 export type BootRuntimeMode = "standard" | "compiled";
 
@@ -177,12 +194,10 @@ export function assertCompiledBootRequirements(
     missing.push("AUTH_SECRET");
   } else if (!authSecrets.some((secret) => secret.trim().length >= 32)) {
     missing.push("AUTH_SECRET (minimum 32 characters)");
-  } else if (
-    authSecrets.some(
-      (secret) => secret.trim() === AUTH_SECRET_PLACEHOLDER_VALUE
-    )
-  ) {
-    missing.push("AUTH_SECRET (must not use insecure placeholder value)");
+  } else if (authSecrets.some((secret) => isInsecureBootAuthSecret(secret))) {
+    missing.push(
+      "AUTH_SECRET (must not use insecure placeholder or local-dev secret value)"
+    );
   }
   if (!hasBootValue(config.values, "ALLOWED_AGENT_COMMAND_POLICIES")) {
     missing.push("ALLOWED_AGENT_COMMAND_POLICIES");

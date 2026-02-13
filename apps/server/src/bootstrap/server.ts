@@ -314,14 +314,12 @@ async function runShutdownStep(
  *
  * @returns Configured Hono application instance
  */
-export async function createApp(
-  composition?: AppComposition,
+export function createApp(
+  composition: AppComposition,
   resolveAuthContextOverride?: HttpRouteDependencies["resolveAuthContext"]
 ) {
-  const resolvedComposition =
-    composition ?? (await createAppCompositionFromSettings());
-  const runtimePolicy = resolvedComposition.runtimePolicy;
-  const deps = resolvedComposition.deps;
+  const runtimePolicy = composition.runtimePolicy;
+  const deps = composition.deps;
   const authRuntime = deps.authRuntime;
   const resolveAuthContext =
     resolveAuthContextOverride ?? createBootstrappedAuthResolver(deps);
@@ -447,7 +445,7 @@ export async function createApp(
   registerDashboardUiRoutes(app, httpDeps);
 
   // Explicit 404 handler for better UX
-  app.notFound((c) => c.json({ error: "Not found", path: c.req.path }, 404));
+  app.notFound((c) => c.json({ error: "Not found" }, 404));
 
   // Error handler for unhandled exceptions
   app.onError(createErrorHandler());
@@ -468,7 +466,7 @@ export async function startServer() {
   const resolveAuthContext = createBootstrappedAuthResolver(deps);
   await deps.lifecycle.prepareStartup();
   const trpcDeps = createTrpcContextDependencies(deps, resolveAuthContext);
-  const app = await createApp(composition, resolveAuthContext);
+  const app = createApp(composition, resolveAuthContext);
   deps.lifecycle.startBackground();
 
   const server = createServer(async (req, res) => {

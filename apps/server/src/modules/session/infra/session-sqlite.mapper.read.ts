@@ -5,7 +5,6 @@ import type {
 } from "@/modules/session/domain/stored-session.types";
 import {
   fromSqliteBoolean,
-  fromSqliteJson,
   fromSqliteJsonWithSchema,
 } from "@/platform/storage/sqlite-store";
 import {
@@ -213,7 +212,12 @@ export class SessionSqliteReadMapper {
       return cached;
     }
 
-    const decoded = fromSqliteJson<unknown>(raw, undefined);
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(raw);
+    } catch {
+      decoded = undefined;
+    }
     this.listJsonDecodeCache.set(raw, decoded);
     if (this.listJsonDecodeCache.size > MAX_LIST_JSON_CACHE_ENTRIES) {
       const oldestKey = this.listJsonDecodeCache.keys().next().value;
