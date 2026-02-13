@@ -12,13 +12,13 @@ export interface CommandPolicy {
   command: string;
   allowAnyArgs?: boolean;
   allowedArgs?: string[];
-  allowedArgPrefixes?: string[];
+  allowedArgPatterns?: string[];
 }
 
 interface CompiledCommandPolicy {
   allowAnyArgs: boolean;
   allowedArgs: Set<string>;
-  allowedArgPrefixes: string[];
+  allowedArgPatterns: RegExp[];
 }
 
 export type CommandPolicyRegistry = Map<string, CompiledCommandPolicy>;
@@ -56,6 +56,40 @@ function normalizeArgToken(token: string): string {
   return token.trim();
 }
 
+function assertAbsoluteCommandPath(command: string): void {
+  if (!path.isAbsolute(command)) {
+    throw new Error(
+      `Command policy command must be an absolute path: ${command}`
+    );
+  }
+}
+
+function compileAllowedArgPattern(
+  command: string,
+  pattern: string,
+  index: number
+): RegExp {
+  const normalizedPattern = normalizeArgToken(pattern);
+  if (normalizedPattern.length === 0) {
+    throw new Error(
+      `Allowed arg pattern for ${command} at index ${index} must be a non-empty string`
+    );
+  }
+  if (!(normalizedPattern.startsWith("^") && normalizedPattern.endsWith("$"))) {
+    throw new Error(
+      `Allowed arg pattern for ${command} at index ${index} must be anchored with ^...$`
+    );
+  }
+
+  try {
+    return new RegExp(normalizedPattern);
+  } catch {
+    throw new Error(
+      `Allowed arg pattern for ${command} at index ${index} is not a valid regex`
+    );
+  }
+}
+
 function assertUniqueCommandPolicy(
   registry: CommandPolicyRegistry,
   command: string
@@ -73,6 +107,7 @@ export function compileCommandPolicies(
 ): CommandPolicyRegistry {
   const registry: CommandPolicyRegistry = new Map();
   for (const policy of policies) {
+    assertAbsoluteCommandPath(policy.command);
     const normalizedCommand = normalizeAllowlistValue(policy.command);
     if (normalizedCommand.length === 0) {
       throw new Error("Command policy command must be a non-empty string");
@@ -85,18 +120,20 @@ export function compileCommandPolicies(
         .map((entry) => normalizeArgToken(entry))
         .filter((entry) => entry.length > 0)
     );
-    const allowedArgPrefixes = [
+    const allowedArgPatterns = [
       ...new Set(
-        (policy.allowedArgPrefixes ?? [])
+        (policy.allowedArgPatterns ?? [])
           .map((entry) => normalizeArgToken(entry))
           .filter((entry) => entry.length > 0)
       ),
-    ];
+    ].map((pattern, index) =>
+      compileAllowedArgPattern(normalizedCommand, pattern, index)
+    );
 
     registry.set(normalizedCommand, {
       allowAnyArgs,
       allowedArgs,
-      allowedArgPrefixes,
+      allowedArgPatterns,
     });
   }
   return registry;
@@ -111,6 +148,9 @@ export function isCommandInvocationAllowed(
   policies: CommandPolicyRegistry
 ): boolean {
   if (policies.size === 0) {
+    return false;
+  }
+  if (!path.isAbsolute(command)) {
     return false;
   }
   const normalizedCommand = normalizeAllowlistValue(command);
@@ -135,9 +175,7 @@ export function isCommandInvocationAllowed(
       continue;
     }
     if (
-      policy.allowedArgPrefixes.some((prefix) =>
-        normalizedArg.startsWith(prefix)
-      )
+      policy.allowedArgPatterns.some((pattern) => pattern.test(normalizedArg))
     ) {
       continue;
     }

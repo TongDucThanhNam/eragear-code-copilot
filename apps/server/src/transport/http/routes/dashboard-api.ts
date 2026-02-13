@@ -35,6 +35,7 @@ export function registerDashboardApiRoutes(
     const auth = await resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
+      remoteAddress: c.req.header("x-eragear-remote-address"),
     });
     return auth?.userId ?? null;
   };

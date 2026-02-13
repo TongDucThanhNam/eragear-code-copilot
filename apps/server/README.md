@@ -78,12 +78,13 @@ Các key này là bắt buộc ở strict mode (production/compiled):
 Ví dụ policy:
 
 ```json
-[{"command":"codex","allowAnyArgs":true}]
+[{"command":"/usr/local/bin/codex","allowAnyArgs":true}]
 ```
 
 Ghi chú:
 
 - `*` không hợp lệ
+- `command` phải là executable path tuyệt đối (absolute path)
 - Legacy keys `ALLOWED_*_COMMANDS` chỉ dùng fallback ở non-strict mode
 
 ### Auth bootstrap cache (hardening)
@@ -91,6 +92,7 @@ Ghi chú:
 - `AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS`
 - `AUTH_BOOTSTRAP_CACHE_MAX_USERS` (default: `10000`)
 - `AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS` (default: `2000`)
+- `AUTH_TRUSTED_PROXY_IPS` (chỉ tin `x-forwarded-for`/`cf-connecting-ip` khi remote nằm trong danh sách này)
 
 Mục tiêu: tránh tăng RAM không giới hạn khi có nhiều `userId`/request đồng thời.
 

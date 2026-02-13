@@ -9,4 +9,5 @@ export interface LogStorePort {
   append(entry: LogEntry): void;
   list(query?: LogQuery): LogListResult;
   subscribe(listener: (entry: LogEntry) => void): () => void;
+  flush(): Promise<void>;
 }

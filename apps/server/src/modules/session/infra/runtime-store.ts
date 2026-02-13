@@ -239,27 +239,27 @@ export class SessionRuntimeStore implements SessionRuntimePort {
    * @param chatId - The session identifier
    * @param event - The broadcast event
    */
-  broadcast(chatId: string, event: BroadcastEvent): Promise<void> {
-    const session = this.sessions.get(chatId);
-    if (!session) {
+  async broadcast(chatId: string, event: BroadcastEvent): Promise<void> {
+    await this.runExclusive(chatId, () => {
+      const session = this.sessions.get(chatId);
+      if (!session) {
+        return Promise.resolve();
+      }
+
+      session.messageBuffer.push(event);
+      if (session.messageBuffer.length > this.sessionBufferLimit) {
+        session.messageBuffer.splice(
+          0,
+          session.messageBuffer.length - this.sessionBufferLimit
+        );
+      }
+
+      session.emitter.emit("data", event);
+
+      // Event bus fan-out is best-effort and intentionally detached from ACP/UI hot-path.
+      this.enqueueEventBusPublish(chatId, session.userId, event);
       return Promise.resolve();
-    }
-
-    // Buffer the event
-    session.messageBuffer.push(event);
-    if (session.messageBuffer.length > this.sessionBufferLimit) {
-      session.messageBuffer.splice(
-        0,
-        session.messageBuffer.length - this.sessionBufferLimit
-      );
-    }
-
-    // Emit to subscribers
-    session.emitter.emit("data", event);
-
-    // Event bus fan-out is best-effort and intentionally detached from ACP/UI hot-path.
-    this.enqueueEventBusPublish(chatId, session.userId, event);
-    return Promise.resolve();
+    });
   }
 
   private enqueueEventBusPublish(

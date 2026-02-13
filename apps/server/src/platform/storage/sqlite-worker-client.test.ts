@@ -9,6 +9,7 @@ import type {
 import {
   callSqliteWorker,
   getSqliteWorkerStats,
+  initializeSqliteWorker,
   resetSqliteWorkerClientForTests,
   setSqliteWorkerFactoryForTests,
   stopSqliteWorker,
@@ -28,6 +29,9 @@ class FakeWorker extends EventEmitter {
   ) {
     super();
     this.respond = respond;
+    queueMicrotask(() => {
+      this.emit("message", { type: "ready" });
+    });
   }
 
   postMessage(request: SqliteWorkerRequest): void {
@@ -82,6 +86,8 @@ describe("sqlite-worker-client timeout recovery", () => {
       workers.push(worker);
       return worker as unknown as Worker;
     });
+
+    await initializeSqliteWorker([process.cwd()]);
 
     await expect(
       callSqliteWorker("storage", "getStorageStats", [])

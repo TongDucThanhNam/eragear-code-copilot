@@ -7,6 +7,7 @@ import type { AppConfig } from "@/shared/types/settings.types";
 import { toError } from "@/shared/utils/error.util";
 import type {
   SqliteWorkerInitData,
+  SqliteWorkerMessage,
   SqliteWorkerRequest,
   SqliteWorkerResponse,
   SqliteWorkerService,
@@ -14,6 +15,7 @@ import type {
 import { SQLITE_WORKER_KIND } from "./sqlite-worker.protocol";
 
 const logger = createLogger("Storage");
+const SQLITE_WORKER_READY_TIMEOUT_MS = 5000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -39,9 +41,10 @@ const defaultSqliteWorkerFactory: SqliteWorkerFactory = (entryPath, initData) =>
 let sqliteWorker: Worker | null = null;
 let sqliteWorkerStartError: Error | null = null;
 let sqliteWorkerRequestId = 0;
-let sqliteWorkerAllowedRoots: string[] = [process.cwd()];
+let sqliteWorkerAllowedRoots: string[] = [];
 const pendingRequests = new Map<number, PendingRequest>();
 let sqliteWorkerRecyclePromise: Promise<void> | null = null;
+let sqliteWorkerStartupPromise: Promise<Worker> | null = null;
 let sqliteWorkerFactory: SqliteWorkerFactory = defaultSqliteWorkerFactory;
 const sqliteWorkerStats: SqliteWorkerHealthStats = {
   recycleCount: 0,
@@ -53,9 +56,20 @@ const sqliteWorkerStats: SqliteWorkerHealthStats = {
 function normalizeRoots(roots: string[]): string[] {
   const normalized = roots
     .map((root) => root.trim())
-    .filter((root) => root.length > 0);
+    .filter((root) => root.length > 0)
+    .map((root) => path.resolve(root));
   if (normalized.length === 0) {
-    return [process.cwd()];
+    throw new Error(
+      "[Storage] SQLite worker allowed roots must contain at least one path."
+    );
+  }
+  for (const root of normalized) {
+    const parsed = path.parse(root);
+    if (root === parsed.root) {
+      throw new Error(
+        `[Storage] SQLite worker allowed root "${root}" cannot be a filesystem root.`
+      );
+    }
   }
   return [...new Set(normalized)];
 }
@@ -136,6 +150,7 @@ function recycleSqliteWorker(
   if (sqliteWorker === worker) {
     sqliteWorker = null;
   }
+  sqliteWorkerStartupPromise = null;
   sqliteWorkerStartError = null;
   sqliteWorkerStats.recycleCount += 1;
   sqliteWorkerStats.lastRecycleReason = reason;
@@ -165,12 +180,143 @@ function recycleSqliteWorker(
   return sqliteWorkerRecyclePromise;
 }
 
-function ensureSqliteWorker(): Worker {
+function resolveWorkerResponseError(message: SqliteWorkerResponse): Error {
+  const errorData = message.error;
+  const error = new Error(errorData?.message ?? "SQLite worker request failed");
+  error.name = errorData?.name ?? "SqliteWorkerError";
+  if (errorData?.stack) {
+    error.stack = errorData.stack;
+  }
+  return error;
+}
+
+function handleWorkerResponseMessage(raw: unknown): void {
+  const message = raw as SqliteWorkerMessage;
+  if (message?.type !== "response" || typeof message.id !== "number") {
+    return;
+  }
+
+  const pending = pendingRequests.get(message.id);
+  if (!pending) {
+    return;
+  }
+  pendingRequests.delete(message.id);
+  clearTimeout(pending.timer);
+
+  if (message.ok) {
+    pending.resolve(message.result);
+    return;
+  }
+  pending.reject(resolveWorkerResponseError(message));
+}
+
+function attachRuntimeWorkerListeners(worker: Worker): void {
+  worker.on("message", handleWorkerResponseMessage);
+  worker.on("error", (error) => {
+    logger.error("SQLite worker runtime error", toError(error));
+  });
+
+  worker.on("exit", (code) => {
+    if (sqliteWorker === worker) {
+      sqliteWorker = null;
+    }
+    sqliteWorkerStartupPromise = null;
+    const exitError = new Error(
+      `[Storage] SQLite worker exited with code ${code}`
+    );
+    rejectAllPending(exitError);
+    if (code !== 0) {
+      logger.error("SQLite worker exited unexpectedly", exitError);
+    }
+  });
+}
+
+async function startSqliteWorker(): Promise<Worker> {
+  if (sqliteWorkerAllowedRoots.length === 0) {
+    throw new Error(
+      "[Storage] SQLite worker cannot start before allowed roots are configured."
+    );
+  }
+
+  const entryPath = resolveWorkerEntrypointPath();
+  const initData: SqliteWorkerInitData = {
+    kind: SQLITE_WORKER_KIND,
+    allowedRoots: [...sqliteWorkerAllowedRoots],
+  };
+  const worker = sqliteWorkerFactory(entryPath, initData);
+
+  try {
+    const readyWorker = await new Promise<Worker>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(
+          new Error(
+            `[Storage] SQLite worker startup timed out after ${SQLITE_WORKER_READY_TIMEOUT_MS}ms`
+          )
+        );
+      }, SQLITE_WORKER_READY_TIMEOUT_MS);
+      timer.unref?.();
+
+      const handleStartupError = (error: unknown) => {
+        cleanup();
+        reject(toError(error, "SQLite worker failed before ready"));
+      };
+
+      const handleStartupExit = (code: number) => {
+        cleanup();
+        reject(
+          new Error(
+            `[Storage] SQLite worker exited before ready with code ${code}`
+          )
+        );
+      };
+
+      const handleReady = (raw: unknown) => {
+        const message = raw as SqliteWorkerMessage;
+        if (message?.type !== "ready") {
+          return;
+        }
+        cleanup();
+        attachRuntimeWorkerListeners(worker);
+        sqliteWorker = worker;
+        sqliteWorkerStartError = null;
+        logger.info("SQLite worker started", { entryPath });
+        resolve(worker);
+      };
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        worker.off("message", handleReady);
+        worker.off("error", handleStartupError);
+        worker.off("exit", handleStartupExit);
+      };
+
+      worker.on("message", handleReady);
+      worker.on("error", handleStartupError);
+      worker.on("exit", handleStartupExit);
+    });
+    return readyWorker;
+  } catch (error) {
+    const startError = toError(error, "Failed to start SQLite worker");
+    sqliteWorkerStartError = startError;
+    try {
+      await worker.terminate();
+    } catch {
+      // Best effort termination on startup failure.
+    }
+    throw startError;
+  }
+}
+
+function ensureSqliteWorker(): Promise<Worker> {
   if (!ENV.sqliteWorkerEnabled) {
     throw new Error("[Storage] STORAGE_WORKER_ENABLED is false");
   }
   if (sqliteWorker) {
-    return sqliteWorker;
+    return Promise.resolve(sqliteWorker);
+  }
+  if (sqliteWorkerStartupPromise) {
+    return sqliteWorkerStartupPromise;
   }
   if (sqliteWorkerStartError) {
     logger.warn("Retrying SQLite worker startup after previous failure", {
@@ -178,84 +324,24 @@ function ensureSqliteWorker(): Worker {
     });
     sqliteWorkerStartError = null;
   }
-
-  try {
-    const entryPath = resolveWorkerEntrypointPath();
-    const initData: SqliteWorkerInitData = {
-      kind: SQLITE_WORKER_KIND,
-      allowedRoots: [...sqliteWorkerAllowedRoots],
-    };
-    const worker = sqliteWorkerFactory(entryPath, initData);
-
-    worker.on("message", (raw: unknown) => {
-      const message = raw as SqliteWorkerResponse;
-      if (message?.type !== "response" || typeof message.id !== "number") {
-        return;
-      }
-
-      const pending = pendingRequests.get(message.id);
-      if (!pending) {
-        return;
-      }
-      pendingRequests.delete(message.id);
-      clearTimeout(pending.timer);
-
-      if (message.ok) {
-        pending.resolve(message.result);
-        return;
-      }
-
-      const errorData = message.error;
-      const error = new Error(
-        errorData?.message ?? "SQLite worker request failed"
-      );
-      error.name = errorData?.name ?? "SqliteWorkerError";
-      if (errorData?.stack) {
-        error.stack = errorData.stack;
-      }
-      pending.reject(error);
-    });
-
-    worker.on("error", (error) => {
-      logger.error("SQLite worker runtime error", error);
-    });
-
-    worker.on("exit", (code) => {
-      if (sqliteWorker !== worker) {
-        return;
-      }
-
-      const exitError = new Error(
-        `[Storage] SQLite worker exited with code ${code}`
-      );
-      sqliteWorker = null;
-      rejectAllPending(exitError);
-      if (code !== 0) {
-        logger.error("SQLite worker exited unexpectedly", exitError);
-      }
-    });
-
-    sqliteWorker = worker;
-    sqliteWorkerStartError = null;
-    logger.info("SQLite worker started", { entryPath });
-    return worker;
-  } catch (error) {
-    const startError = toError(error, "Failed to start SQLite worker");
-    sqliteWorkerStartError = startError;
-    throw startError;
-  }
+  sqliteWorkerStartupPromise = startSqliteWorker().finally(() => {
+    sqliteWorkerStartupPromise = null;
+  });
+  return sqliteWorkerStartupPromise;
 }
 
 export function isSqliteWorkerEnabled(): boolean {
   return ENV.sqliteWorkerEnabled;
 }
 
-export function initializeSqliteWorker(allowedRoots: string[]): void {
+export async function initializeSqliteWorker(
+  allowedRoots: string[]
+): Promise<void> {
   if (!ENV.sqliteWorkerEnabled) {
     return;
   }
   sqliteWorkerAllowedRoots = normalizeRoots(allowedRoots);
-  ensureSqliteWorker();
+  await ensureSqliteWorker();
 }
 
 export function configureSqliteWorkerAllowedRoots(
@@ -324,12 +410,12 @@ function callSqliteWorkerOn<T>(
   });
 }
 
-export function callSqliteWorker<T>(
+export async function callSqliteWorker<T>(
   service: SqliteWorkerService,
   method: string,
   args: unknown[]
 ): Promise<T> {
-  const worker = ensureSqliteWorker();
+  const worker = await ensureSqliteWorker();
   return callSqliteWorkerOn(worker, service, method, args);
 }
 
@@ -343,8 +429,21 @@ export async function updateSqliteWorkerRuntimeConfig(
 }
 
 export async function stopSqliteWorker(): Promise<void> {
+  const startupPromise = sqliteWorkerStartupPromise;
+  if (startupPromise) {
+    try {
+      await startupPromise;
+    } catch {
+      sqliteWorkerStartupPromise = null;
+      sqliteWorkerStartError = null;
+      rejectAllPending(new Error("[Storage] SQLite worker stopped"));
+      return;
+    }
+  }
+
   const worker = sqliteWorker;
   if (!worker) {
+    sqliteWorkerStartupPromise = null;
     sqliteWorkerStartError = null;
     return;
   }
@@ -357,6 +456,7 @@ export async function stopSqliteWorker(): Promise<void> {
     });
   } finally {
     sqliteWorker = null;
+    sqliteWorkerStartupPromise = null;
     sqliteWorkerStartError = null;
     rejectAllPending(new Error("[Storage] SQLite worker stopped"));
     await worker.terminate();
@@ -380,9 +480,10 @@ export function getSqliteWorkerStats(): SqliteWorkerHealthStats {
 
 export function resetSqliteWorkerClientForTests(): void {
   sqliteWorker = null;
+  sqliteWorkerStartupPromise = null;
   sqliteWorkerStartError = null;
   sqliteWorkerRequestId = 0;
-  sqliteWorkerAllowedRoots = [process.cwd()];
+  sqliteWorkerAllowedRoots = [];
   sqliteWorkerRecyclePromise = null;
   sqliteWorkerFactory = defaultSqliteWorkerFactory;
   sqliteWorkerStats.recycleCount = 0;

@@ -73,5 +73,6 @@ export interface HttpRouteDependencies {
   resolveAuthContext(input: {
     headers: Headers | Record<string, string | string[] | undefined>;
     url?: string;
+    remoteAddress?: string;
   }): Promise<AuthContextResult | null>;
 }

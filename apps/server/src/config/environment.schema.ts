@@ -21,6 +21,7 @@ export const envSchema = z.object({
   ALLOWED_TERMINAL_COMMANDS: z.string().optional(),
   ALLOWED_ENV_KEYS: z.string().optional(),
   CONFIG_STRICT_ALLOWLIST: z.string().optional(),
+  ALLOW_INSECURE_DEV_DEFAULTS: z.string().optional(),
   SESSION_LIST_PAGE_MAX_LIMIT: z.string().optional(),
   SESSION_MESSAGES_PAGE_MAX_LIMIT: z.string().optional(),
   AUTH_SECRET: z.string().optional(),
@@ -39,6 +40,7 @@ export const envSchema = z.object({
   AUTH_API_KEY_RATE_LIMIT_ENABLED: z.string().optional(),
   AUTH_API_KEY_RATE_LIMIT_TIME_WINDOW_MS: z.string().optional(),
   AUTH_API_KEY_RATE_LIMIT_MAX_REQUESTS: z.string().optional(),
+  AUTH_TRUSTED_PROXY_IPS: z.string().optional(),
   CORS_STRICT_ORIGIN: z.string().optional(),
   LOG_BUFFER_LIMIT: z.string().optional(),
   LOG_LEVEL: z.string().optional(),
@@ -73,6 +75,7 @@ export const envSchema = z.object({
   ACP_REQUEST_RETRY_BASE_DELAY_MS: z.string().optional(),
   ACP_NDJSON_MAX_LINE_BYTES: z.string().optional(),
   ACP_NDJSON_MAX_BUFFERED_BYTES: z.string().optional(),
+  ACP_STDERR_MAX_TOTAL_BYTES: z.string().optional(),
   NODE_ENV: z.string().optional(),
   BUN_ENV: z.string().optional(),
 });

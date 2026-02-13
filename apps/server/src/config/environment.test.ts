@@ -20,14 +20,15 @@ function runEnvironmentSubprocess(params: {
   includeRequiredAllowlists?: boolean;
 }) {
   const { code, overrides, includeRequiredAllowlists = true } = params;
+  const defaultCommandPolicy = JSON.stringify([
+    { command: process.execPath, allowAnyArgs: true },
+  ]);
   const requiredAllowlists = includeRequiredAllowlists
     ? {
-        ALLOWED_AGENT_COMMAND_POLICIES:
-          '[{"command":"bun","allowAnyArgs":true}]',
-        ALLOWED_TERMINAL_COMMAND_POLICIES:
-          '[{"command":"bun","allowAnyArgs":true}]',
-        ALLOWED_AGENT_COMMANDS: "bun",
-        ALLOWED_TERMINAL_COMMANDS: "bun",
+        ALLOWED_AGENT_COMMAND_POLICIES: defaultCommandPolicy,
+        ALLOWED_TERMINAL_COMMAND_POLICIES: defaultCommandPolicy,
+        ALLOWED_AGENT_COMMANDS: process.execPath,
+        ALLOWED_TERMINAL_COMMANDS: process.execPath,
         ALLOWED_ENV_KEYS: "PATH",
       }
     : {};
@@ -136,6 +137,18 @@ describe("environment worker invariants", () => {
     expect(overRangePort.stdout.trim()).toBe("3000");
   });
 
+  test("falls back to default ACP stderr cap when env value is invalid", () => {
+    const result = readEnvironmentValueInSubprocess(
+      {
+        ACP_STDERR_MAX_TOTAL_BYTES: "-1",
+      },
+      "acpStderrMaxTotalBytes"
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe(String(16 * 1024 * 1024));
+  });
+
   test("falls back to defaults when positive-only numeric configs are negative", () => {
     const result = runEnvironmentSubprocess({
       code: "import { ENV } from './src/config/environment.ts'; console.log(String(ENV.sessionBufferLimit) + ':' + String(ENV.wsMaxPayloadBytes));",
@@ -149,13 +162,14 @@ describe("environment worker invariants", () => {
     expect(result.stdout.trim()).toBe("500:16777216");
   });
 
-  test("falls back allowlists in development when strict mode is disabled", () => {
+  test("falls back allowlists in development when insecure defaults are explicitly enabled", () => {
     const result = runEnvironmentSubprocess({
       code: "import { ENV } from './src/config/environment.ts'; console.log([ENV.allowedAgentCommands.length, ENV.allowedTerminalCommands.length, ENV.allowedEnvKeys.length].join(':'));",
       includeRequiredAllowlists: false,
       overrides: {
         NODE_ENV: "development",
         CONFIG_STRICT_ALLOWLIST: "false",
+        ALLOW_INSECURE_DEV_DEFAULTS: "true",
         ALLOWED_AGENT_COMMAND_POLICIES: "",
         ALLOWED_TERMINAL_COMMAND_POLICIES: "",
         ALLOWED_AGENT_COMMANDS: "",
@@ -165,7 +179,21 @@ describe("environment worker invariants", () => {
     });
 
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("6:10:7");
+    expect(result.stdout.trim()).toBe("1:1:7");
+  });
+
+  test("fails fast when strict mode is disabled without explicit insecure override", () => {
+    const result = runEnvironmentSubprocess({
+      code: "import './src/config/environment.ts';",
+      includeRequiredAllowlists: false,
+      overrides: {
+        NODE_ENV: "development",
+        CONFIG_STRICT_ALLOWLIST: "false",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("ALLOW_INSECURE_DEV_DEFAULTS=true");
   });
 
   test("keeps allowlists strict in production runtime", () => {
@@ -186,14 +214,31 @@ describe("environment worker invariants", () => {
     expect(result.stderr).toContain("Invalid required allowlist configuration");
   });
 
+  test("fails fast when command policies use relative command paths", () => {
+    const result = runEnvironmentSubprocess({
+      code: "import './src/config/environment.ts';",
+      includeRequiredAllowlists: false,
+      overrides: {
+        ALLOWED_AGENT_COMMAND_POLICIES:
+          '[{"command":"codex","allowAnyArgs":true}]',
+        ALLOWED_TERMINAL_COMMAND_POLICIES:
+          '[{"command":"git","allowAnyArgs":true}]',
+        ALLOWED_ENV_KEYS: "PATH",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("must be an absolute path");
+  });
+
   test("loads required boot config from settings.json", async () => {
     const configPath = await writeBootConfigFile({
       boot: {
         ALLOWED_AGENT_COMMAND_POLICIES: [
-          { command: "bun", allowAnyArgs: true },
+          { command: process.execPath, allowAnyArgs: true },
         ],
         ALLOWED_TERMINAL_COMMAND_POLICIES: [
-          { command: "bun", allowAnyArgs: true },
+          { command: process.execPath, allowAnyArgs: true },
         ],
         ALLOWED_ENV_KEYS: ["PATH"],
         WS_HOST: "127.0.0.1",
@@ -223,10 +268,10 @@ describe("environment worker invariants", () => {
       boot: {
         mode: "standard",
         ALLOWED_AGENT_COMMAND_POLICIES: [
-          { command: "bun", allowAnyArgs: true },
+          { command: process.execPath, allowAnyArgs: true },
         ],
         ALLOWED_TERMINAL_COMMAND_POLICIES: [
-          { command: "bun", allowAnyArgs: true },
+          { command: process.execPath, allowAnyArgs: true },
         ],
         ALLOWED_ENV_KEYS: ["PATH"],
         WS_PORT: 4111,
@@ -252,14 +297,17 @@ describe("environment worker invariants", () => {
   });
 
   test("compiled mode ignores env overrides and uses settings.json values", async () => {
+    const overrideCommandPolicy = JSON.stringify([
+      { command: process.execPath, allowAnyArgs: true },
+    ]);
     const configPath = await writeBootConfigFile({
       boot: {
         mode: "compiled",
         ALLOWED_AGENT_COMMAND_POLICIES: [
-          { command: "bun", allowAnyArgs: true },
+          { command: process.execPath, allowAnyArgs: true },
         ],
         ALLOWED_TERMINAL_COMMAND_POLICIES: [
-          { command: "bun", allowAnyArgs: true },
+          { command: process.execPath, allowAnyArgs: true },
         ],
         ALLOWED_ENV_KEYS: ["PATH"],
         WS_HOST: "127.0.0.1",
@@ -272,12 +320,10 @@ describe("environment worker invariants", () => {
       {
         ERAGEAR_BOOT_CONFIG_PATH: configPath,
         WS_PORT: "5222",
-        ALLOWED_AGENT_COMMAND_POLICIES:
-          '[{"command":"node","allowAnyArgs":true}]',
-        ALLOWED_TERMINAL_COMMAND_POLICIES:
-          '[{"command":"node","allowAnyArgs":true}]',
-        ALLOWED_AGENT_COMMANDS: "node",
-        ALLOWED_TERMINAL_COMMANDS: "node",
+        ALLOWED_AGENT_COMMAND_POLICIES: overrideCommandPolicy,
+        ALLOWED_TERMINAL_COMMAND_POLICIES: overrideCommandPolicy,
+        ALLOWED_AGENT_COMMANDS: process.execPath,
+        ALLOWED_TERMINAL_COMMANDS: process.execPath,
         ALLOWED_ENV_KEYS: "HOME",
       },
       "wsPort",
@@ -317,10 +363,10 @@ describe("environment worker invariants", () => {
       boot: {
         mode: "compiled",
         ALLOWED_AGENT_COMMAND_POLICIES: [
-          { command: "bun", allowAnyArgs: true },
+          { command: process.execPath, allowAnyArgs: true },
         ],
         ALLOWED_TERMINAL_COMMAND_POLICIES: [
-          { command: "bun", allowAnyArgs: true },
+          { command: process.execPath, allowAnyArgs: true },
         ],
         ALLOWED_ENV_KEYS: ["PATH"],
         WS_HOST: "127.0.0.1",

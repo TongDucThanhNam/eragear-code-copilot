@@ -21,6 +21,7 @@ import type { AppConfigService } from "@/modules/settings";
 export interface RequestLike {
   headers: Headers | Record<string, string | string[] | undefined>;
   url?: string;
+  remoteAddress?: string;
 }
 
 export interface AuthContext {

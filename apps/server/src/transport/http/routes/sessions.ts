@@ -33,6 +33,7 @@ export function registerSessionRoutes(
     const auth = await resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
+      remoteAddress: c.req.header("x-eragear-remote-address"),
     });
     if (!auth) {
       return c.json({ error: "Unauthorized" }, 401);
@@ -57,6 +58,7 @@ export function registerSessionRoutes(
     const auth = await resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
+      remoteAddress: c.req.header("x-eragear-remote-address"),
     });
     if (!auth) {
       return c.json({ error: "Unauthorized" }, 401);

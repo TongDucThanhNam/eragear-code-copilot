@@ -7,6 +7,8 @@ import {
 } from "./allowlist.util";
 
 const DUPLICATE_POLICY_REGEX = /Duplicate command policy/i;
+const ABSOLUTE_PATH_REGEX = /absolute path/i;
+const ANCHORED_REGEX = /anchored/i;
 
 describe("isCommandAllowed", () => {
   test("denies when allowlist is empty", () => {
@@ -43,56 +45,92 @@ describe("command policy invocation", () => {
   test("allows command when all args are explicitly allowed", () => {
     const policies = compileCommandPolicies([
       {
-        command: "node",
+        command: process.execPath,
         allowedArgs: ["--version"],
       },
     ]);
 
-    expect(isCommandInvocationAllowed("node", ["--version"], policies)).toBe(
-      true
+    expect(
+      isCommandInvocationAllowed(process.execPath, ["--version"], policies)
+    ).toBe(true);
+    expect(isCommandInvocationAllowed(process.execPath, ["-e"], policies)).toBe(
+      false
     );
-    expect(isCommandInvocationAllowed("node", ["-e"], policies)).toBe(false);
   });
 
-  test("allows prefix-based arg patterns", () => {
+  test("allows regex-based arg patterns", () => {
     const policies = compileCommandPolicies([
       {
-        command: "codex",
-        allowedArgPrefixes: ["--model=", "--config="],
+        command: process.execPath,
+        allowedArgPatterns: ["^--model=[a-z0-9-]+$", "^--config=[a-z0-9-]+$"],
       },
     ]);
 
     expect(
       isCommandInvocationAllowed(
-        "codex",
+        process.execPath,
         ["--model=gpt-5", "--config=prod"],
         policies
       )
     ).toBe(true);
-    expect(isCommandInvocationAllowed("codex", ["--unsafe"], policies)).toBe(
-      false
-    );
+    expect(
+      isCommandInvocationAllowed(process.execPath, ["--unsafe"], policies)
+    ).toBe(false);
   });
 
   test("supports explicit allowAnyArgs only when configured", () => {
     const policies = compileCommandPolicies([
       {
-        command: "python",
+        command: process.execPath,
         allowAnyArgs: true,
       },
     ]);
 
     expect(
-      isCommandInvocationAllowed("python", ["-c", "print(1)"], policies)
+      isCommandInvocationAllowed(process.execPath, ["-c", "print(1)"], policies)
     ).toBe(true);
   });
 
   test("throws on duplicate command policy", () => {
     expect(() =>
       compileCommandPolicies([
-        { command: "node", allowedArgs: ["--version"] },
-        { command: "node", allowedArgs: ["-v"] },
+        { command: process.execPath, allowedArgs: ["--version"] },
+        { command: process.execPath, allowedArgs: ["-v"] },
       ])
     ).toThrow(DUPLICATE_POLICY_REGEX);
+  });
+
+  test("rejects relative command policies", () => {
+    expect(() =>
+      compileCommandPolicies([
+        {
+          command: "node",
+          allowAnyArgs: true,
+        },
+      ])
+    ).toThrow(ABSOLUTE_PATH_REGEX);
+  });
+
+  test("rejects invocations with relative command names", () => {
+    const policies = compileCommandPolicies([
+      {
+        command: process.execPath,
+        allowAnyArgs: true,
+      },
+    ]);
+    expect(isCommandInvocationAllowed("node", ["--version"], policies)).toBe(
+      false
+    );
+  });
+
+  test("rejects non-anchored arg patterns", () => {
+    expect(() =>
+      compileCommandPolicies([
+        {
+          command: process.execPath,
+          allowedArgPatterns: ["--model=.*"],
+        },
+      ])
+    ).toThrow(ANCHORED_REGEX);
   });
 });

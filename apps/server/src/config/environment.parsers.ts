@@ -1,3 +1,4 @@
+import path from "node:path";
 import { LOG_LEVELS, type LogLevel } from "@/shared/types/log.types";
 import type { CommandPolicy } from "@/shared/utils/allowlist.util";
 import { isRecord } from "@/shared/utils/type-guards.util";
@@ -204,6 +205,11 @@ function parseCommandPolicyEntry(
     errors.push(`${name}[${index}].command must be a non-empty string.`);
     return null;
   }
+  const normalizedCommand = command.trim();
+  if (!path.isAbsolute(normalizedCommand)) {
+    errors.push(`${name}[${index}].command must be an absolute path.`);
+    return null;
+  }
 
   const allowAnyArgs = rawEntry.allowAnyArgs;
   if (allowAnyArgs !== undefined && typeof allowAnyArgs !== "boolean") {
@@ -212,7 +218,7 @@ function parseCommandPolicyEntry(
   }
 
   const parseStringArray = (
-    field: "allowedArgs" | "allowedArgPrefixes"
+    field: "allowedArgs" | "allowedArgPatterns"
   ): string[] | null => {
     const value = rawEntry[field];
     if (value === undefined) {
@@ -235,16 +241,22 @@ function parseCommandPolicyEntry(
   };
 
   const allowedArgs = parseStringArray("allowedArgs");
-  const allowedArgPrefixes = parseStringArray("allowedArgPrefixes");
-  if (!(allowedArgs && allowedArgPrefixes)) {
+  const allowedArgPatterns = parseStringArray("allowedArgPatterns");
+  if (!(allowedArgs && allowedArgPatterns)) {
+    return null;
+  }
+  if (rawEntry.allowedArgPrefixes !== undefined) {
+    errors.push(
+      `${name}[${index}].allowedArgPrefixes is deprecated; use allowedArgPatterns (anchored regex) instead.`
+    );
     return null;
   }
 
   return {
-    command: command.trim(),
+    command: normalizedCommand,
     allowAnyArgs: allowAnyArgs === true,
     allowedArgs,
-    allowedArgPrefixes,
+    allowedArgPatterns,
   };
 }
 
@@ -330,10 +342,29 @@ export function parseCommandPoliciesWithLegacyFallback(params: {
     legacyFallback,
     warnings
   );
-  return legacyCommands.map((command) => ({
-    command,
-    allowAnyArgs: true,
-    allowedArgs: [],
-    allowedArgPrefixes: [],
-  }));
+  const resolvedPolicies = legacyCommands
+    .filter((command) => {
+      if (path.isAbsolute(command)) {
+        return true;
+      }
+      warnings.push(
+        `${legacyName} entry "${command}" is ignored because command policies require absolute executable paths.`
+      );
+      return false;
+    })
+    .map((command) => ({
+      command,
+      allowAnyArgs: true,
+      allowedArgs: [],
+      allowedArgPatterns: [],
+    }));
+
+  if (resolvedPolicies.length > 0) {
+    return resolvedPolicies;
+  }
+
+  warnings.push(
+    `${legacyName} did not provide any absolute command paths; falling back to deny-all policy.`
+  );
+  return [];
 }

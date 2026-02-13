@@ -15,6 +15,7 @@ import {
 } from "./sqlite-store";
 import type {
   SqliteWorkerInitData,
+  SqliteWorkerReadyMessage,
   SqliteWorkerRequest,
   SqliteWorkerResponse,
 } from "./sqlite-worker.protocol";
@@ -63,6 +64,8 @@ if (!isMainThread && port) {
   const projectRepo = new ProjectSqliteRepository();
   const agentRepo = new AgentSqliteRepository();
   const settingsRepo = new SettingsSqliteRepository();
+  const readyMessage: SqliteWorkerReadyMessage = { type: "ready" };
+  port.postMessage(readyMessage);
 
   const handleStorageMethod = async (method: string, args: unknown[]) => {
     if (method === "runMaintenance") {

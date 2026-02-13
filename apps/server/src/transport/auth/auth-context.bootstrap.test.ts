@@ -100,7 +100,7 @@ describe("createAuthContextResolverWithBootstrap", () => {
     expect(ensureCalls).toBe(2);
   });
 
-  test("does not cache failed ensureUserDefaults call and stays fail-open", async () => {
+  test("does not cache failed ensureUserDefaults call and fails closed", async () => {
     let ensureCalls = 0;
     let errorCalls = 0;
     const resolver = createAuthContextResolverWithBootstrap<TestAuthContext>(
@@ -123,9 +123,7 @@ describe("createAuthContextResolverWithBootstrap", () => {
       }
     );
 
-    await expect(resolver(createRequest())).resolves.toEqual({
-      userId: "user-1",
-    });
+    await expect(resolver(createRequest())).resolves.toBeNull();
     await expect(resolver(createRequest())).resolves.toEqual({
       userId: "user-1",
     });
@@ -176,7 +174,7 @@ describe("createAuthContextResolverWithBootstrap", () => {
     expect(ensureCalls).toEqual(["user-1", "user-2", "user-3", "user-1"]);
   });
 
-  test("stays fail-open when in-flight dedupe capacity is exhausted", async () => {
+  test("fails closed when in-flight capacity is exhausted", async () => {
     let userId = "user-1";
     const firstUserDeferred = createDeferred();
     const ensureCalls: string[] = [];
@@ -200,12 +198,10 @@ describe("createAuthContextResolverWithBootstrap", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     userId = "user-2";
-    await expect(resolver(createRequest())).resolves.toEqual({
-      userId: "user-2",
-    });
+    await expect(resolver(createRequest())).resolves.toBeNull();
 
     firstUserDeferred.resolve();
     await expect(firstRequest).resolves.toEqual({ userId: "user-1" });
-    expect(ensureCalls).toEqual(["user-1", "user-2"]);
+    expect(ensureCalls).toEqual(["user-1"]);
   });
 });

@@ -32,6 +32,26 @@ describe("sqlite-store helpers", () => {
     }
   });
 
+  test("runInSqliteTransaction generates unique savepoint names", () => {
+    const savepointNames: string[] = [];
+    const db = {
+      exec(sql: string) {
+        if (sql.startsWith("SAVEPOINT ")) {
+          const [, savepointName] = sql.split(" ");
+          if (typeof savepointName === "string" && savepointName.length > 0) {
+            savepointNames.push(savepointName);
+          }
+        }
+      },
+    } as unknown as Database;
+
+    for (let i = 0; i < 100; i += 1) {
+      runInSqliteTransaction(db, () => undefined);
+    }
+
+    expect(new Set(savepointNames).size).toBe(savepointNames.length);
+  });
+
   test("runInSqliteTransaction rolls back only failed nested scope", () => {
     const db = new Database(":memory:");
     try {
@@ -71,6 +91,33 @@ describe("sqlite-store helpers", () => {
     } finally {
       db.close();
     }
+  });
+
+  test("runInSqliteTransaction fails fast when savepoint rollback fails", () => {
+    const statements: string[] = [];
+    const db = {
+      exec(sql: string) {
+        statements.push(sql);
+        if (sql.startsWith("ROLLBACK TO SAVEPOINT")) {
+          throw new Error("rollback failed");
+        }
+      },
+    } as unknown as Database;
+
+    let transactionError: unknown;
+    try {
+      runInSqliteTransaction(db, () => {
+        throw new Error("boom");
+      });
+    } catch (error) {
+      transactionError = error;
+    }
+
+    expect(transactionError).toBeInstanceOf(StorageTransactionError);
+    expect((transactionError as Error).message).toContain("during rollback");
+    expect(
+      statements.some((statement) => statement.startsWith("RELEASE SAVEPOINT"))
+    ).toBe(false);
   });
 
   test("fromSqliteJsonWithSchema falls back on malformed or invalid shape", () => {

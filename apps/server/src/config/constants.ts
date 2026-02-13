@@ -25,26 +25,10 @@ export const DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS = 250;
 /** Max queued event bus publish jobs per chat before dropping new jobs */
 export const DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT = 512;
 /** Dev fallback allowlist for spawning configured agent commands */
-export const DEFAULT_DEV_ALLOWED_AGENT_COMMANDS = [
-  "opencode",
-  "codex",
-  "claude",
-  "gemini",
-  "bun",
-  "node",
-] as const;
+export const DEFAULT_DEV_ALLOWED_AGENT_COMMANDS = [process.execPath] as const;
 /** Dev fallback allowlist for terminal tool command execution */
 export const DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS = [
-  "ls",
-  "grep",
-  "cat",
-  "find",
-  "git",
-  "echo",
-  "mkdir",
-  "touch",
-  "pwd",
-  "whoami",
+  process.platform === "win32" ? process.execPath : "/bin/sh",
 ] as const;
 /** Dev fallback allowlist for inherited environment variable keys */
 export const DEFAULT_DEV_ALLOWED_ENV_KEYS = [
@@ -135,6 +119,8 @@ export const DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS = 150;
 export const DEFAULT_ACP_NDJSON_MAX_LINE_BYTES = 1024 * 1024;
 /** Maximum buffered NDJSON bytes accepted before fail-fast termination */
 export const DEFAULT_ACP_NDJSON_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+/** Maximum cumulative stderr bytes accepted from one ACP process before termination */
+export const DEFAULT_ACP_STDERR_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 /** Hard cap for compaction batch size per run */
 export const HARD_MAX_SQLITE_RETENTION_COMPACTION_BATCH_SIZE = 500;
 /** Storage-agnostic alias for compaction batch hard cap */

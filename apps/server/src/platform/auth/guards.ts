@@ -1,12 +1,20 @@
+import { createHash } from "node:crypto";
+import { ENV } from "@/config/environment";
 import { createLogger } from "../logging/structured-logger";
 
 const logger = createLogger("Auth");
+const SESSION_TOKEN_COOKIE_NAME = "better-auth.session_token";
+const AUTH_RESOLUTION_RATE_LIMIT_MAX_TRACKED_KEYS = 20_000;
+const MIN_AUTH_RESOLUTION_RATE_LIMIT_WINDOW_MS = 1000;
+const AUTH_RESOLUTION_OVERFLOW_BUCKET_KEY = "__overflow__";
+const INTERNAL_REMOTE_ADDRESS_HEADER = "x-eragear-remote-address";
 
 type HeaderRecord = Record<string, string | string[] | undefined>;
 
 interface RequestLike {
   headers: Headers | HeaderRecord;
   url?: string;
+  remoteAddress?: string;
 }
 
 interface AuthApiService {
@@ -17,6 +25,14 @@ interface AuthApiService {
 }
 
 const API_KEY_QUERY_PARAMS = ["apiKey", "api_key", "apikey"] as const;
+const authResolutionRateBuckets = new Map<
+  string,
+  {
+    windowStartedAtMs: number;
+    count: number;
+  }
+>();
+let lastAuthResolutionPruneAtMs = 0;
 
 export interface AuthContext {
   type: "session" | "apiKey";
@@ -84,6 +100,210 @@ function hasDeprecatedApiKeyQuery(url?: string): boolean {
   }
 }
 
+function hashToken(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function normalizeIpAddress(
+  rawValue: string | null | undefined
+): string | null {
+  if (!rawValue) {
+    return null;
+  }
+  const trimmed = rawValue.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (trimmed.startsWith("::ffff:")) {
+    const mapped = trimmed.slice("::ffff:".length).trim();
+    return mapped.length > 0 ? mapped : null;
+  }
+  return trimmed;
+}
+
+function getTrustedProxyIpSet(): Set<string> {
+  return new Set(
+    ENV.authTrustedProxyIps
+      .map((ip) => normalizeIpAddress(ip))
+      .filter((ip): ip is string => ip !== null)
+  );
+}
+
+function extractSessionTokenFromCookie(headers: Headers): string | null {
+  const cookieHeader = headers.get("cookie");
+  if (!cookieHeader) {
+    return null;
+  }
+  const cookies = cookieHeader.split(";");
+  for (const cookie of cookies) {
+    const [namePart, ...valueParts] = cookie.trim().split("=");
+    if (namePart !== SESSION_TOKEN_COOKIE_NAME) {
+      continue;
+    }
+    const token = valueParts.join("=").trim();
+    return token.length > 0 ? token : null;
+  }
+  return null;
+}
+
+function resolveRemoteAddress(
+  req: RequestLike,
+  headers: Headers
+): string | null {
+  return normalizeIpAddress(
+    req.remoteAddress ?? headers.get(INTERNAL_REMOTE_ADDRESS_HEADER)
+  );
+}
+
+function extractClientAddress(
+  req: RequestLike,
+  headers: Headers
+): string | null {
+  const remoteAddress = resolveRemoteAddress(req, headers);
+  if (!remoteAddress) {
+    return null;
+  }
+  if (!getTrustedProxyIpSet().has(remoteAddress)) {
+    return remoteAddress;
+  }
+
+  const forwardedAddress =
+    normalizeIpAddress(headers.get("cf-connecting-ip")) ??
+    normalizeIpAddress(headers.get("x-real-ip")) ??
+    normalizeIpAddress(headers.get("x-forwarded-for")?.split(",")[0]);
+  if (forwardedAddress) {
+    return forwardedAddress;
+  }
+  return remoteAddress;
+}
+
+function buildAuthResolutionRateLimitKey(params: {
+  req: RequestLike;
+  headers: Headers;
+}): {
+  key: string;
+  keyType:
+    | "api"
+    | "session"
+    | "ip"
+    | "authorization"
+    | "anonymous"
+    | "overflow";
+} {
+  const { req, headers } = params;
+  const apiKey = extractApiKeyFromHeaders(headers);
+  if (apiKey) {
+    return { key: `api:${hashToken(apiKey)}`, keyType: "api" };
+  }
+
+  const sessionToken = extractSessionTokenFromCookie(headers);
+  if (sessionToken) {
+    return { key: `session:${hashToken(sessionToken)}`, keyType: "session" };
+  }
+
+  const clientAddress = extractClientAddress(req, headers);
+  if (clientAddress) {
+    return { key: `ip:${clientAddress}`, keyType: "ip" };
+  }
+
+  const authorizationHeader = headers.get("authorization");
+  if (authorizationHeader && authorizationHeader.trim().length > 0) {
+    return {
+      key: `authorization:${hashToken(authorizationHeader)}`,
+      keyType: "authorization",
+    };
+  }
+
+  return { key: "anonymous", keyType: "anonymous" };
+}
+
+function pruneAuthResolutionRateBuckets(nowMs: number, windowMs: number): void {
+  if (nowMs - lastAuthResolutionPruneAtMs < windowMs) {
+    return;
+  }
+  lastAuthResolutionPruneAtMs = nowMs;
+  for (const [key, bucket] of authResolutionRateBuckets) {
+    if (nowMs - bucket.windowStartedAtMs >= windowMs) {
+      authResolutionRateBuckets.delete(key);
+    }
+  }
+}
+
+function resolveRateLimitBucketKey(rateLimitKey: {
+  key: string;
+  keyType:
+    | "api"
+    | "session"
+    | "ip"
+    | "authorization"
+    | "anonymous"
+    | "overflow";
+}): {
+  key: string;
+  keyType:
+    | "api"
+    | "session"
+    | "ip"
+    | "authorization"
+    | "anonymous"
+    | "overflow";
+} {
+  if (authResolutionRateBuckets.has(rateLimitKey.key)) {
+    return rateLimitKey;
+  }
+  if (
+    authResolutionRateBuckets.size < AUTH_RESOLUTION_RATE_LIMIT_MAX_TRACKED_KEYS
+  ) {
+    return rateLimitKey;
+  }
+  return {
+    key: AUTH_RESOLUTION_OVERFLOW_BUCKET_KEY,
+    keyType: "overflow",
+  };
+}
+
+function consumeAuthResolutionRateLimit(req: RequestLike): boolean {
+  if (!ENV.authApiKeyRateLimitEnabled) {
+    return true;
+  }
+
+  const maxRequests = Math.max(
+    1,
+    Math.trunc(ENV.authApiKeyRateLimitMaxRequests)
+  );
+  const windowMs = Math.max(
+    MIN_AUTH_RESOLUTION_RATE_LIMIT_WINDOW_MS,
+    Math.trunc(ENV.authApiKeyRateLimitTimeWindowMs)
+  );
+  const nowMs = Date.now();
+  pruneAuthResolutionRateBuckets(nowMs, windowMs);
+  const headers = normalizeHeaders(req.headers);
+  const rateLimitKey = resolveRateLimitBucketKey(
+    buildAuthResolutionRateLimitKey({ req, headers })
+  );
+
+  const bucket = authResolutionRateBuckets.get(rateLimitKey.key);
+  if (!bucket || nowMs - bucket.windowStartedAtMs >= windowMs) {
+    authResolutionRateBuckets.set(rateLimitKey.key, {
+      windowStartedAtMs: nowMs,
+      count: 1,
+    });
+    return true;
+  }
+
+  if (bucket.count >= maxRequests) {
+    logger.warn("Auth resolution rate limit exceeded", {
+      keyType: rateLimitKey.keyType,
+      windowMs,
+      maxRequests,
+    });
+    return false;
+  }
+
+  bucket.count += 1;
+  return true;
+}
+
 export interface SessionUser {
   id: string;
   username?: string | null;
@@ -96,6 +316,9 @@ async function getSessionFromRequestWithAuth(
   req: RequestLike
 ): Promise<{ user: SessionUser; session: unknown } | null> {
   const headers = normalizeHeaders(req.headers);
+  if (!consumeAuthResolutionRateLimit(req)) {
+    return null;
+  }
   const session = (await authService.api.getSession({ headers })) as
     | {
         user?: SessionUser;
@@ -150,6 +373,9 @@ async function getAuthContextWithAuth(
   }
 
   const headers = normalizeHeaders(req.headers);
+  if (!consumeAuthResolutionRateLimit(req)) {
+    return null;
+  }
   const session = (await authService.api.getSession({ headers })) as
     | {
         user?: {
@@ -194,4 +420,9 @@ export function createAuthContextResolver(authService: AuthApiService) {
   return async (req?: RequestLike): Promise<AuthContext | null> => {
     return await getAuthContextWithAuth(authService, req);
   };
+}
+
+export function resetAuthResolutionRateLimitForTests(): void {
+  authResolutionRateBuckets.clear();
+  lastAuthResolutionPruneAtMs = 0;
 }

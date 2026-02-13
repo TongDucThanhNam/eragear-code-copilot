@@ -104,7 +104,7 @@ describe("createToolCallHandlers", () => {
       command: policy.command,
       allowAnyArgs: policy.allowAnyArgs,
       allowedArgs: [...(policy.allowedArgs ?? [])],
-      allowedArgPrefixes: [...(policy.allowedArgPrefixes ?? [])],
+      allowedArgPatterns: [...(policy.allowedArgPatterns ?? [])],
     })
   );
   const originalAllowedEnvKeys = [...ENV.allowedEnvKeys];
@@ -130,7 +130,7 @@ describe("createToolCallHandlers", () => {
         command: policy.command,
         allowAnyArgs: policy.allowAnyArgs,
         allowedArgs: [...(policy.allowedArgs ?? [])],
-        allowedArgPrefixes: [...(policy.allowedArgPrefixes ?? [])],
+        allowedArgPatterns: [...(policy.allowedArgPatterns ?? [])],
       })
     );
     ENV.allowedEnvKeys = [...originalAllowedEnvKeys];

@@ -44,6 +44,7 @@ import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import { EventBus } from "@/shared/utils/event-bus";
+import { normalizeProjectRootsForSettings } from "@/shared/utils/project-roots.util";
 import { ENV } from "../config/environment";
 import { AuthUserReadAdapter } from "../platform/auth/adapters/auth-user-read.adapter";
 import {
@@ -62,6 +63,7 @@ import { getLogStore } from "../platform/logging/log-store";
 import { createAppLogger } from "../platform/logging/logger-adapter";
 import { setRuntimeLogLevel } from "../platform/logging/runtime-log-level";
 import { AgentRuntimeAdapter } from "../platform/process";
+import { closeSqliteStorage } from "../platform/storage/sqlite-db";
 import {
   initializeSqliteWorker,
   updateSqliteWorkerRuntimeConfig,
@@ -92,6 +94,7 @@ interface PersistenceDependencies {
 export type ResolveAuthContext = (req?: {
   headers: Headers | Record<string, string | string[] | undefined>;
   url?: string;
+  remoteAddress?: string;
 }) => Promise<AuthContext | null>;
 
 export interface AppDependencies {
@@ -287,13 +290,7 @@ function createSqliteWorkerRuntimeConfigSync(
 }
 
 function normalizeAllowedRoots(roots: string[]): string[] {
-  const normalized = roots
-    .map((root) => root.trim())
-    .filter((root) => root.length > 0);
-  if (normalized.length === 0) {
-    return [process.cwd()];
-  }
-  return [...new Set(normalized)];
+  return normalizeProjectRootsForSettings(roots);
 }
 
 async function createAppCompositionWithRuntimeConfig(
@@ -313,7 +310,7 @@ async function createAppCompositionWithRuntimeConfig(
       runtimeConfig.sessionEventBusPublishMaxQueuePerChat,
   });
   if (runtimeConfig.sqliteWorkerEnabled) {
-    initializeSqliteWorker(normalizedRoots);
+    await initializeSqliteWorker(normalizedRoots);
   }
   const settingsRepo =
     settingsRepoOverride ??
@@ -444,6 +441,21 @@ async function createAppCompositionWithRuntimeConfig(
       unsubscribe();
     }
     await sqliteWorkerRuntimeConfigSync.flush();
+    try {
+      await closeSqliteStorage();
+    } catch (error) {
+      core.appLogger.warn("Failed to close sqlite storage during dispose", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    try {
+      runtime.authDb.close();
+    } catch (error) {
+      core.appLogger.warn("Failed to close auth database during dispose", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    await core.logStore.flush();
   };
 
   return {
@@ -466,13 +478,10 @@ export async function createAppComposition(
 
 export async function createAppCompositionFromSettings(): Promise<AppComposition> {
   const runtimeConfig = resolveAppRuntimeConfig();
-  const settingsRepo = createSettingsRepository(
-    runtimeConfig.sqliteWorkerEnabled
-  );
-  const settings = await settingsRepo.get();
+  const bootstrapSettingsRepo = new SettingsSqliteRepository();
+  const settings = await bootstrapSettingsRepo.get();
   return await createAppCompositionWithRuntimeConfig(
     settings.projectRoots,
-    runtimeConfig,
-    settingsRepo
+    runtimeConfig
   );
 }

@@ -20,11 +20,14 @@ import {
 } from "@/shared/utils/allowlist.util";
 import {
   hasProcessExited,
+  hasProcessGroupAlive,
   terminateProcessGracefully,
 } from "@/shared/utils/process-termination.util";
 import { createAcpConnectionAdapter } from "../acp/connection";
 
 const TERMINATION_DRAIN_PASSES = 6;
+const PROCESS_RECORD_PRUNE_THRESHOLD = 4096;
+const PROCESS_RECORD_PRUNE_TARGET = 2048;
 
 export interface AgentRuntimePolicy {
   allowedAgentCommandPolicies: CommandPolicy[];
@@ -32,11 +35,17 @@ export interface AgentRuntimePolicy {
   agentTimeoutMs?: number;
 }
 
+interface TrackedProcess {
+  proc: ChildProcess;
+  pid: number | null;
+  processGroupId?: number;
+}
+
 /**
  * AgentRuntimeAdapter - Implements runtime spawning for agent processes
  */
 export class AgentRuntimeAdapter implements AgentRuntimePort {
-  private readonly activeProcesses = new Set<ChildProcess>();
+  private readonly trackedProcesses = new Set<TrackedProcess>();
   private readonly commandPolicies: CommandPolicyRegistry;
   private readonly allowedEnvKeys: string[];
   private readonly agentTimeoutMs: number | undefined;
@@ -50,15 +59,56 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     this.agentTimeoutMs = policy.agentTimeoutMs;
   }
 
-  private trackProcess(proc: ChildProcess): void {
-    this.activeProcesses.add(proc);
-    const cleanup = () => {
-      this.activeProcesses.delete(proc);
-      proc.off("exit", cleanup);
-      proc.off("error", cleanup);
+  private trackProcess(proc: ChildProcess, detached: boolean): TrackedProcess {
+    const pid = typeof proc.pid === "number" && proc.pid > 0 ? proc.pid : null;
+    const tracked: TrackedProcess = {
+      proc,
+      pid,
+      processGroupId:
+        detached && process.platform !== "win32" && pid !== null
+          ? pid
+          : undefined,
     };
-    proc.on("exit", cleanup);
-    proc.on("error", cleanup);
+    const pruneIfSettled = () => {
+      if (!this.shouldAttemptTermination(tracked)) {
+        this.trackedProcesses.delete(tracked);
+      }
+    };
+    proc.on("exit", pruneIfSettled);
+    proc.on("close", pruneIfSettled);
+    proc.on("error", pruneIfSettled);
+    this.trackedProcesses.add(tracked);
+    pruneIfSettled();
+    this.pruneCompletedProcessRecords();
+    return tracked;
+  }
+
+  private shouldAttemptTermination(record: TrackedProcess): boolean {
+    if (!hasProcessExited(record.proc)) {
+      return true;
+    }
+    if (
+      typeof record.processGroupId === "number" &&
+      hasProcessGroupAlive(record.processGroupId)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  private pruneCompletedProcessRecords(): void {
+    if (this.trackedProcesses.size < PROCESS_RECORD_PRUNE_THRESHOLD) {
+      return;
+    }
+    for (const record of this.trackedProcesses) {
+      if (this.shouldAttemptTermination(record)) {
+        continue;
+      }
+      this.trackedProcesses.delete(record);
+      if (this.trackedProcesses.size <= PROCESS_RECORD_PRUNE_TARGET) {
+        break;
+      }
+    }
   }
 
   /**
@@ -85,21 +135,26 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
       { ...process.env, ...options.env },
       this.allowedEnvKeys
     );
+    const detached = process.platform !== "win32";
 
     const proc = spawn(command, args, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env,
+      detached,
     });
-    this.trackProcess(proc);
+    const tracked = this.trackProcess(proc, detached);
 
     const timeoutMs = this.agentTimeoutMs;
     if (timeoutMs !== undefined) {
       const timer = setTimeout(() => {
-        if (!proc.killed) {
-          proc.kill("SIGTERM");
+        if (!hasProcessExited(proc)) {
+          terminateProcessGracefully(proc, {
+            processGroupId: tracked.processGroupId,
+          }).catch(() => undefined);
         }
       }, timeoutMs);
+      timer.unref?.();
       proc.on("exit", () => clearTimeout(timer));
       proc.on("error", () => clearTimeout(timer));
     }
@@ -129,40 +184,43 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
   }> {
     let terminated = 0;
     let failed = 0;
-    const attempted = new Set<ChildProcess>();
-    const failedSet = new Set<ChildProcess>();
+    const attempted = new Set<TrackedProcess>();
+    const failedRecords = new Set<TrackedProcess>();
+    const records = [...this.trackedProcesses];
 
     for (let pass = 0; pass < TERMINATION_DRAIN_PASSES; pass += 1) {
-      const pending = [...this.activeProcesses].filter(
-        (proc) => !(attempted.has(proc) || hasProcessExited(proc))
+      const pending = records.filter(
+        (record) =>
+          !attempted.has(record) && this.shouldAttemptTermination(record)
       );
       if (pending.length === 0) {
         break;
       }
 
       await Promise.all(
-        pending.map(async (proc) => {
-          attempted.add(proc);
-          const result = await terminateProcessGracefully(proc);
+        pending.map(async (record) => {
+          attempted.add(record);
+          const result = await terminateProcessGracefully(record.proc, {
+            processGroupId: record.processGroupId,
+          });
           if (result.exited) {
             terminated += 1;
             return;
           }
           failed += 1;
-          failedSet.add(proc);
+          failedRecords.add(record);
         })
       );
     }
 
-    const lingeringProcesses = [...this.activeProcesses].filter(
-      (proc) => !hasProcessExited(proc)
+    const lingeringRecords = records.filter((record) =>
+      this.shouldAttemptTermination(record)
     );
-    const lingeringPids = lingeringProcesses
-      .map((proc) => proc.pid)
+    const lingeringPids = lingeringRecords
+      .map((record) => record.pid)
       .filter((pid): pid is number => typeof pid === "number" && pid > 0);
-
-    for (const lingering of lingeringProcesses) {
-      if (!(attempted.has(lingering) && failedSet.has(lingering))) {
+    for (const lingeringRecord of lingeringRecords) {
+      if (!failedRecords.has(lingeringRecord)) {
         failed += 1;
       }
     }

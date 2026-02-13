@@ -3,6 +3,7 @@ import { toError } from "@/shared/utils/error.util";
 export interface AuthBootstrapRequestLike {
   headers: Headers | Record<string, string | string[] | undefined>;
   url?: string;
+  remoteAddress?: string;
 }
 
 interface UserScopedAuthContext {
@@ -30,6 +31,7 @@ export interface AuthContextBootstrapPolicy {
 const MIN_ENSURE_DEFAULTS_TTL_MS = 1000;
 const DEFAULT_CACHE_MAX_USERS = 10_000;
 const DEFAULT_INFLIGHT_MAX_USERS = 2000;
+const MAX_INFLIGHT_OVERFLOW_BACKOFF_MS = 5000;
 
 function normalizeUserId(userId: string): string {
   const normalized = userId.trim();
@@ -88,8 +90,15 @@ export function createAuthContextResolverWithBootstrap<
     policy.inFlightMaxUsers,
     DEFAULT_INFLIGHT_MAX_USERS
   );
+  const inFlightOverflowBackoffMs = Math.max(
+    250,
+    Math.min(ttlMs, MAX_INFLIGHT_OVERFLOW_BACKOFF_MS)
+  );
   const cacheByUserId = new Map<string, number>();
+  const cacheExpiryQueue: Array<{ userId: string; expiresAt: number }> = [];
+  let cacheExpiryCursor = 0;
   const inFlightByUserId = new Map<string, Promise<void>>();
+  const inFlightOverflowBackoffByUserId = new Map<string, number>();
   let lastCachePruneAt = 0;
 
   const pruneExpiredCache = (nowMs: number, force = false) => {
@@ -97,9 +106,31 @@ export function createAuthContextResolverWithBootstrap<
       return;
     }
     lastCachePruneAt = nowMs;
-    for (const [userId, expiresAt] of cacheByUserId) {
-      if (expiresAt <= nowMs) {
-        cacheByUserId.delete(userId);
+    while (cacheExpiryCursor < cacheExpiryQueue.length) {
+      const entry = cacheExpiryQueue[cacheExpiryCursor];
+      if (!entry || entry.expiresAt > nowMs) {
+        break;
+      }
+      cacheExpiryCursor += 1;
+      const currentExpiresAt = cacheByUserId.get(entry.userId);
+      if (
+        currentExpiresAt !== undefined &&
+        currentExpiresAt <= nowMs &&
+        currentExpiresAt === entry.expiresAt
+      ) {
+        cacheByUserId.delete(entry.userId);
+      }
+    }
+    if (
+      cacheExpiryCursor > 0 &&
+      cacheExpiryCursor * 2 >= cacheExpiryQueue.length
+    ) {
+      cacheExpiryQueue.splice(0, cacheExpiryCursor);
+      cacheExpiryCursor = 0;
+    }
+    for (const [userId, blockedUntil] of inFlightOverflowBackoffByUserId) {
+      if (blockedUntil <= nowMs) {
+        inFlightOverflowBackoffByUserId.delete(userId);
       }
     }
   };
@@ -128,6 +159,8 @@ export function createAuthContextResolverWithBootstrap<
       const expiresAt = nowMs + ttlMs;
       cacheByUserId.delete(userId);
       cacheByUserId.set(userId, expiresAt);
+      cacheExpiryQueue.push({ userId, expiresAt });
+      inFlightOverflowBackoffByUserId.delete(userId);
     } catch (error) {
       const normalizedError = toError(error);
       try {
@@ -136,8 +169,9 @@ export function createAuthContextResolverWithBootstrap<
           error: normalizedError,
         });
       } catch {
-        // Ignore observability callback failures to keep auth resolution fail-open.
+        // Observability callback failures must not hide bootstrap errors.
       }
+      throw normalizedError;
     }
   };
 
@@ -162,8 +196,19 @@ export function createAuthContextResolverWithBootstrap<
     }
 
     if (inFlightByUserId.size >= inFlightMaxUsers) {
-      await runEnsureDefaults(userId);
-      return;
+      const blockedUntil = inFlightOverflowBackoffByUserId.get(userId);
+      if (blockedUntil !== undefined && blockedUntil > nowMs) {
+        throw new Error(
+          `[AuthBootstrap] ensureUserDefaults capacity exceeded for user ${userId}`
+        );
+      }
+      inFlightOverflowBackoffByUserId.set(
+        userId,
+        nowMs + inFlightOverflowBackoffMs
+      );
+      throw new Error(
+        `[AuthBootstrap] ensureUserDefaults capacity exceeded for user ${userId}`
+      );
     }
 
     let currentTask: Promise<void> | undefined;
@@ -183,8 +228,17 @@ export function createAuthContextResolverWithBootstrap<
     if (!authContext) {
       return null;
     }
+    const normalizedUserId = normalizeUserId(authContext.userId);
+    const normalizedAuthContext = {
+      ...authContext,
+      userId: normalizedUserId,
+    } satisfies TAuthContext;
 
-    await ensureUserDefaultsWithCache(authContext.userId);
-    return authContext;
+    try {
+      await ensureUserDefaultsWithCache(normalizedUserId);
+    } catch {
+      return null;
+    }
+    return normalizedAuthContext;
   };
 }

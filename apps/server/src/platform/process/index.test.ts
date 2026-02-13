@@ -61,4 +61,36 @@ describe("AgentRuntimeAdapter", () => {
     expect(summary.terminated).toBeGreaterThanOrEqual(1);
     expect(summary.lingeringPids.length).toBe(0);
   });
+
+  test("terminates lingering process groups even when tracked process already exited", async () => {
+    const adapter = createAdapter();
+    adapter.spawn(
+      process.execPath,
+      [
+        "-e",
+        `const { spawn } = require("node:child_process"); spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" }); setTimeout(() => process.exit(0), 10);`,
+      ],
+      {
+        cwd: process.cwd(),
+        env: {},
+      }
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const summary = await adapter.terminateAllActiveProcesses();
+    expect(summary.lingeringPids.length).toBe(0);
+  });
+
+  test("does not retain fast-exit processes in tracked state", async () => {
+    const adapter = createAdapter();
+    adapter.spawn(process.execPath, ["-e", "process.exit(0)"], {
+      cwd: process.cwd(),
+      env: {},
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const tracked = (adapter as unknown as { trackedProcesses: Set<unknown> })
+      .trackedProcesses;
+    expect(tracked.size).toBe(0);
+  });
 });

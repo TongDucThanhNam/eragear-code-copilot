@@ -2,6 +2,7 @@
  * Settings Repository (SQLite-backed via Drizzle ORM)
  */
 
+import { homedir } from "node:os";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
@@ -16,6 +17,7 @@ import type {
   McpServerConfig,
   Settings,
 } from "@/shared/types/settings.types";
+import { normalizeProjectRootsForSettings } from "@/shared/utils/project-roots.util";
 import {
   AppConfigSchema,
   createDefaultAppConfigFromEnv,
@@ -63,9 +65,27 @@ const McpSseSchema = z.object({
 
 const McpServerSchema = z.union([McpStdioSchema, McpHttpSchema, McpSseSchema]);
 
+function resolveDefaultProjectRoot(): string {
+  const home = homedir().trim();
+  if (home.length === 0) {
+    throw new Error(
+      "[Settings] Unable to derive a safe default project root. Configure settings.projectRoots explicitly."
+    );
+  }
+  const [defaultRoot] = normalizeProjectRootsForSettings([home]);
+  if (!defaultRoot) {
+    throw new Error(
+      "[Settings] Unable to derive a safe default project root. Configure settings.projectRoots explicitly."
+    );
+  }
+  return defaultRoot;
+}
+
+const DEFAULT_PROJECT_ROOT = resolveDefaultProjectRoot();
+
 const SettingsSchema = z.object({
   ui: UiSettingsSchema,
-  projectRoots: z.array(z.string()).min(1).default([process.cwd()]),
+  projectRoots: z.array(z.string()).min(1).default([DEFAULT_PROJECT_ROOT]),
   mcpServers: z.array(McpServerSchema).optional(),
   app: AppConfigSchema,
 });
@@ -77,7 +97,7 @@ const DEFAULT_SETTINGS: Settings = {
     density: "comfortable",
     fontScale: 1,
   },
-  projectRoots: [process.cwd()],
+  projectRoots: [DEFAULT_PROJECT_ROOT],
   mcpServers: [],
   app: createDefaultAppConfigFromEnv(),
 };
@@ -160,9 +180,12 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
 
     try {
       const parsed = SettingsSchema.parse(raw);
+      const normalizedProjectRoots = normalizeProjectRootsForSettings(
+        parsed.projectRoots
+      );
       const normalized: Settings = {
         ui: parsed.ui,
-        projectRoots: parsed.projectRoots,
+        projectRoots: normalizedProjectRoots,
         mcpServers: parsed.mcpServers ?? [],
         app: parsed.app,
       };
@@ -178,13 +201,16 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
         ? z.array(McpServerSchema).safeParse(partial.mcpServers)
         : { success: false as const, data: [] as McpServerConfig[] };
       const appFallback: AppConfig = DEFAULT_SETTINGS.app;
+      let normalizedProjectRoots = DEFAULT_SETTINGS.projectRoots;
+      try {
+        normalizedProjectRoots = normalizeProjectRootsForSettings(projectRoots);
+      } catch {
+        normalizedProjectRoots = DEFAULT_SETTINGS.projectRoots;
+      }
 
       const normalized: Settings = {
         ui: uiResult.success ? uiResult.data : DEFAULT_SETTINGS.ui,
-        projectRoots:
-          projectRoots.length > 0
-            ? projectRoots
-            : DEFAULT_SETTINGS.projectRoots,
+        projectRoots: normalizedProjectRoots,
         mcpServers: mcpServersResult.success
           ? mcpServersResult.data
           : (DEFAULT_SETTINGS.mcpServers ?? []),
@@ -210,9 +236,12 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
       app: { ...current.app, ...(patch.app ?? {}) },
     };
     const parsed = SettingsSchema.parse(merged);
+    const normalizedProjectRoots = normalizeProjectRootsForSettings(
+      parsed.projectRoots
+    );
     const normalized: Settings = {
       ui: parsed.ui,
-      projectRoots: parsed.projectRoots,
+      projectRoots: normalizedProjectRoots,
       mcpServers: parsed.mcpServers ?? [],
       app: parsed.app,
     };

@@ -1,6 +1,7 @@
 import { ValidationError } from "@/shared/errors";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { Settings } from "@/shared/types/settings.types";
+import { normalizeProjectRootsForSettings } from "@/shared/utils/project-roots.util";
 import { APP_CONFIG_KEYS, type AppConfigService } from "../app-config.service";
 import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
 
@@ -26,19 +27,23 @@ export class UpdateSettingsService {
   }
 
   async execute(patch: Partial<Settings>): Promise<UpdateSettingsResult> {
-    if (
-      patch.projectRoots !== undefined &&
-      (!Array.isArray(patch.projectRoots) || patch.projectRoots.length < 1)
-    ) {
-      throw new ValidationError("At least one project root is required.", {
-        module: "settings",
-        op: "settings.update",
-      });
-    }
-
     const normalizedPatch: Partial<Settings> = {
       ...patch,
     };
+    if (patch.projectRoots !== undefined) {
+      try {
+        normalizedPatch.projectRoots = normalizeProjectRootsForSettings(
+          patch.projectRoots
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Invalid project roots";
+        throw new ValidationError(message, {
+          module: "settings",
+          op: "settings.update",
+        });
+      }
+    }
     if (patch.app !== undefined) {
       try {
         normalizedPatch.app = this.appConfigService.validatePatch(patch.app);
@@ -63,6 +68,7 @@ export class UpdateSettingsService {
       JSON.stringify(settings.projectRoots)
     ) {
       changedKeys.push("projectRoots");
+      requiresRestart.push("projectRoots");
     }
 
     if (JSON.stringify(current.ui) !== JSON.stringify(settings.ui)) {

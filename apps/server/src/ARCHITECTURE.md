@@ -80,7 +80,8 @@ Invariant quan trọng:
 - HTTP routes: `src/transport/http/routes/*`.
 - tRPC router: `src/transport/trpc/router.ts`.
 - tRPC context: `src/transport/trpc/context.ts`.
-- WS transport: `applyWSSHandler` trong `src/bootstrap/server.ts`.
+- WS transport: `applyWSSHandler` trong `src/bootstrap/server.ts` (upgrade path
+  cố định: `/trpc`).
 
 ### Session Runtime
 
@@ -129,7 +130,8 @@ Invariant quan trọng:
 
 ## Auth Model
 
-- HTTP `/api/*` (trừ `/api/auth` và `/api/health`) yêu cầu auth context.
+- HTTP `/api/*` yêu cầu auth context, ngoại trừ các route public đã được
+  allowlist explicit (ví dụ health + một số auth endpoints).
 - tRPC procedures dùng `protectedProcedure` yêu cầu `ctx.auth`.
 - `ctx.auth` có thể đến từ:
   - Session/auth headers trong request.
@@ -146,7 +148,8 @@ Config đọc từ `src/config/environment.ts`:
 - Network: `WS_HOST`, `WS_PORT`, `WS_HEARTBEAT_INTERVAL_MS`.
 - Security/auth: `AUTH_*`.
 - Process/tool policy:
-  `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS`,
+  `ALLOWED_AGENT_COMMAND_POLICIES`, `ALLOWED_TERMINAL_COMMAND_POLICIES`,
+  `ALLOWED_ENV_KEYS`,
   `TERMINAL_OUTPUT_HARD_CAP_BYTES`.
 - Pagination policy:
   `SESSION_LIST_PAGE_MAX_LIMIT`, `SESSION_MESSAGES_PAGE_MAX_LIMIT`.
@@ -154,9 +157,13 @@ Config đọc từ `src/config/environment.ts`:
 
 Policy invariants:
 
-- `ALLOWED_AGENT_COMMANDS`, `ALLOWED_TERMINAL_COMMANDS`, `ALLOWED_ENV_KEYS` là
-  required và fail-fast nếu thiếu/rỗng.
+- `ALLOWED_AGENT_COMMAND_POLICIES`,
+  `ALLOWED_TERMINAL_COMMAND_POLICIES`, `ALLOWED_ENV_KEYS` là required và
+  fail-fast nếu thiếu/rỗng.
 - `ALLOWED_*="*"` không hợp lệ, phải khai báo explicit.
+- Runtime chỉ hỗ trợ Bun; fail-fast khi chạy bằng Node runtime.
+- Chế độ fallback allowlist chỉ cho development khi bật explicit
+  `ALLOW_INSECURE_DEV_DEFAULTS=true`.
 
 ## Operational Commands
 

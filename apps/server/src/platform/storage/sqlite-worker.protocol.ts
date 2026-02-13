@@ -27,6 +27,14 @@ export interface SqliteWorkerResponse {
   };
 }
 
+export interface SqliteWorkerReadyMessage {
+  type: "ready";
+}
+
+export type SqliteWorkerMessage =
+  | SqliteWorkerReadyMessage
+  | SqliteWorkerResponse;
+
 export interface SqliteWorkerInitData {
   kind: typeof SQLITE_WORKER_KIND;
   allowedRoots: string[];

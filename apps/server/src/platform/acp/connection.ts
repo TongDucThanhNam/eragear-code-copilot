@@ -124,6 +124,54 @@ function enqueueNdJsonLines(
   }
 }
 
+function appendStderrSample(input: {
+  chunk: Buffer;
+  sampleChars: number;
+  sampleTruncated: boolean;
+  samples: string[];
+}): { sampleChars: number; sampleTruncated: boolean } {
+  if (input.sampleChars >= STDERR_SAMPLE_CHAR_LIMIT) {
+    return {
+      sampleChars: input.sampleChars,
+      sampleTruncated: true,
+    };
+  }
+
+  let nextSampleChars = input.sampleChars;
+  let nextSampleTruncated = input.sampleTruncated;
+  const lines = input.chunk.toString("utf8").split(/\r?\n/g);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (input.samples.length >= STDERR_SAMPLE_LINE_LIMIT) {
+      nextSampleTruncated = true;
+      break;
+    }
+
+    const remainingChars = STDERR_SAMPLE_CHAR_LIMIT - nextSampleChars;
+    if (remainingChars <= 0) {
+      nextSampleTruncated = true;
+      break;
+    }
+
+    const lineSample = trimmed.slice(0, remainingChars);
+    input.samples.push(lineSample);
+    nextSampleChars += lineSample.length;
+
+    if (lineSample.length < trimmed.length) {
+      nextSampleTruncated = true;
+      break;
+    }
+  }
+
+  return {
+    sampleChars: nextSampleChars,
+    sampleTruncated: nextSampleTruncated,
+  };
+}
+
 function createGuardedNdJsonStream(
   output: WritableStream<Uint8Array>,
   input: ReadableStream<Uint8Array>,
@@ -221,8 +269,10 @@ function attachRateLimitedStderrLogger(proc: ChildProcess): void {
     return;
   }
 
+  const maxTotalBytes = Math.max(1, Math.trunc(ENV.acpStderrMaxTotalBytes));
   let chunkCount = 0;
   let totalBytes = 0;
+  let lifetimeTotalBytes = 0;
   let sampleChars = 0;
   let sampleTruncated = false;
   const samples: string[] = [];
@@ -237,7 +287,9 @@ function attachRateLimitedStderrLogger(proc: ChildProcess): void {
     samples.length = 0;
   };
 
-  const flush = (reason: "interval" | "exit" | "error" | "stderr_close") => {
+  const flush = (
+    reason: "interval" | "exit" | "error" | "stderr_close" | "stderr_cap"
+  ) => {
     if (chunkCount === 0) {
       return;
     }
@@ -247,6 +299,7 @@ function attachRateLimitedStderrLogger(proc: ChildProcess): void {
       reason,
       chunkCount,
       totalBytes,
+      lifetimeTotalBytes,
       sample: samples.join("\n"),
       sampleTruncated,
     });
@@ -263,7 +316,9 @@ function attachRateLimitedStderrLogger(proc: ChildProcess): void {
     flushTimer.unref?.();
   };
 
-  const cleanup = (reason: "exit" | "error" | "stderr_close") => {
+  const cleanup = (
+    reason: "exit" | "error" | "stderr_close" | "stderr_cap"
+  ) => {
     if (cleaned) {
       return;
     }
@@ -282,37 +337,28 @@ function attachRateLimitedStderrLogger(proc: ChildProcess): void {
 
     chunkCount += 1;
     totalBytes += chunk.byteLength;
+    lifetimeTotalBytes += chunk.byteLength;
 
-    if (sampleChars < STDERR_SAMPLE_CHAR_LIMIT) {
-      const lines = chunk.toString("utf8").split(/\r?\n/g);
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          continue;
-        }
-        if (samples.length >= STDERR_SAMPLE_LINE_LIMIT) {
-          sampleTruncated = true;
-          break;
-        }
-
-        const remainingChars = STDERR_SAMPLE_CHAR_LIMIT - sampleChars;
-        if (remainingChars <= 0) {
-          sampleTruncated = true;
-          break;
-        }
-
-        const lineSample = trimmed.slice(0, remainingChars);
-        samples.push(lineSample);
-        sampleChars += lineSample.length;
-
-        if (lineSample.length < trimmed.length) {
-          sampleTruncated = true;
-          break;
-        }
-      }
-    } else {
+    if (lifetimeTotalBytes > maxTotalBytes) {
       sampleTruncated = true;
+      cleanup("stderr_cap");
+      terminateAgentAfterTransportFailure(
+        proc,
+        new Error(
+          `ACP process stderr exceeded configured cap (${lifetimeTotalBytes} > ${maxTotalBytes} bytes)`
+        )
+      );
+      return;
     }
+
+    const samplingResult = appendStderrSample({
+      chunk,
+      sampleChars,
+      sampleTruncated,
+      samples,
+    });
+    sampleChars = samplingResult.sampleChars;
+    sampleTruncated = samplingResult.sampleTruncated;
 
     ensureFlushTimer();
   });

@@ -19,6 +19,7 @@ import {
   DEFAULT_ACP_NDJSON_MAX_LINE_BYTES,
   DEFAULT_ACP_REQUEST_MAX_ATTEMPTS,
   DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS,
+  DEFAULT_ACP_STDERR_MAX_TOTAL_BYTES,
   DEFAULT_APP_DEFAULT_MODEL,
   DEFAULT_APP_LOG_LEVEL,
   DEFAULT_APP_MAX_TOKENS,
@@ -85,6 +86,16 @@ import {
 } from "./environment.parsers";
 import { type EnvKey, envSchema } from "./environment.schema";
 
+function assertBunRuntime(): void {
+  const bunVersion = process.versions?.bun;
+  if (typeof bunVersion === "string" && bunVersion.length > 0) {
+    return;
+  }
+  throw new Error(
+    "[Config] Bun runtime is required. Node.js runtime is not supported."
+  );
+}
+
 function createEnvInput(
   bootConfigValues: Record<string, unknown>,
   mode: BootRuntimeMode
@@ -110,6 +121,7 @@ function createEnvInput(
 }
 
 const bootConfig = loadBootConfigValues();
+assertBunRuntime();
 
 if (bootConfig.mode === "compiled") {
   assertCompiledBootRequirements(bootConfig);
@@ -140,10 +152,23 @@ const defaultApiKeyRateLimitWindowMs = 60_000;
 const defaultApiKeyRateLimitMaxRequests = 3000;
 const authBaseUrl =
   env.AUTH_BASE_URL ?? `http://${normalizedAuthHost}:${wsPort}`;
+const allowInsecureDevDefaults = toBoolean(
+  env.ALLOW_INSECURE_DEV_DEFAULTS,
+  false
+);
+if (allowInsecureDevDefaults && isProd) {
+  throw new Error(
+    "[Config] ALLOW_INSECURE_DEV_DEFAULTS must be false in production runtime."
+  );
+}
+const strictAllowlistRequested = toBoolean(env.CONFIG_STRICT_ALLOWLIST, true);
+if (!(strictAllowlistRequested || allowInsecureDevDefaults)) {
+  throw new Error(
+    "[Config] CONFIG_STRICT_ALLOWLIST=false requires ALLOW_INSECURE_DEV_DEFAULTS=true (development-only)."
+  );
+}
 const strictAllowlist =
-  bootConfig.mode === "compiled"
-    ? true
-    : toBoolean(env.CONFIG_STRICT_ALLOWLIST, isProd);
+  bootConfig.mode === "compiled" ? true : !allowInsecureDevDefaults;
 const allowlistErrors: string[] = [];
 const allowlistWarnings: string[] = [];
 const allowedAgentCommandPolicies = strictAllowlist
@@ -204,7 +229,7 @@ if (strictAllowlist && allowlistErrors.length > 0) {
     [
       "[Config] Invalid required allowlist configuration:",
       ...allowlistErrors.map((error) => `- ${error}`),
-      'Policy format: ALLOWED_*_COMMAND_POLICIES=\'[{"command":"codex","allowAnyArgs":true}]\'',
+      'Policy format: ALLOWED_*_COMMAND_POLICIES=\'[{"command":"/usr/local/bin/codex","allowAnyArgs":true}]\'',
       "Legacy format (non-strict only): ALLOWED_*_COMMANDS=item1,item2,item3",
       configInputHint,
       bootConfigHint,
@@ -217,6 +242,7 @@ if (!strictAllowlist && allowlistWarnings.length > 0) {
   }
 }
 const authTrustedOrigins = toList(env.AUTH_TRUSTED_ORIGINS);
+const authTrustedProxyIps = toList(env.AUTH_TRUSTED_PROXY_IPS);
 if (authTrustedOrigins[0] !== "*") {
   const defaultDevOrigins = [
     `http://localhost:${wsPort}`,
@@ -248,6 +274,8 @@ export const ENV = {
   runtimeEnv,
   /** Strict enforcement mode for required ALLOWED_* allowlists */
   strictAllowlist,
+  /** Explicit development-only override for insecure allowlist defaults */
+  allowInsecureDevDefaults,
   /** True when running in development or test modes */
   isDev,
   /** True when running in production mode */
@@ -330,6 +358,8 @@ export const ENV = {
   authBaseUrl,
   /** Better Auth trusted origins */
   authTrustedOrigins,
+  /** Trusted reverse-proxy source IPs allowed to provide forwarded client IP headers */
+  authTrustedProxyIps,
   /** Enforce strict CORS origin allowlist; false means permissive dev mode */
   corsStrictOrigin: toBoolean(env.CORS_STRICT_ORIGIN, isProd),
   /** Optional admin bootstrap username */
@@ -518,6 +548,11 @@ export const ENV = {
   acpNdjsonMaxBufferedBytes: toPositiveInt(
     env.ACP_NDJSON_MAX_BUFFERED_BYTES,
     DEFAULT_ACP_NDJSON_MAX_BUFFERED_BYTES
+  ),
+  /** Maximum cumulative stderr bytes from one ACP process before termination */
+  acpStderrMaxTotalBytes: toPositiveInt(
+    env.ACP_STDERR_MAX_TOTAL_BYTES,
+    DEFAULT_ACP_STDERR_MAX_TOTAL_BYTES
   ),
   /** Optional override path for SQLite drizzle migrations directory */
   sqliteMigrationsDir: env.STORAGE_MIGRATIONS_DIR?.trim() || undefined,

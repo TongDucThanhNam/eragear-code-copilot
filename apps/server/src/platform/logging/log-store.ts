@@ -90,6 +90,23 @@ class LogFileSink {
     }, this.flushIntervalMs);
   }
 
+  private async waitForCurrentFlush(): Promise<void> {
+    if (!this.flushing) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const poll = () => {
+        if (!this.flushing) {
+          resolve();
+          return;
+        }
+        const timer = setTimeout(poll, 5);
+        timer.unref?.();
+      };
+      poll();
+    });
+  }
+
   private resolveFilePath(): string {
     const date = formatDate(new Date());
     if (date !== this.activeDate) {
@@ -118,30 +135,33 @@ class LogFileSink {
     return this.activePath;
   }
 
-  private async flush(): Promise<void> {
+  async flush(): Promise<void> {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
     if (this.flushing) {
-      return;
+      await this.waitForCurrentFlush();
     }
-    this.flushing = true;
-    const batch = this.buffer.splice(0, this.buffer.length);
-    this.flushTimer = null;
-    if (!batch.length) {
-      this.flushing = false;
-      return;
-    }
-    const payload = `${batch.join("\n")}\n`;
-    try {
-      const filePath = this.resolveFilePath();
-      await appendFile(filePath, payload, "utf-8");
-    } catch (error) {
-      process.stderr.write(
-        `[LogStore] Failed to append logs: ${String(error)}\n`
-      );
-    } finally {
-      this.flushing = false;
-    }
-    if (this.buffer.length) {
-      this.scheduleFlush();
+
+    while (this.buffer.length > 0) {
+      this.flushing = true;
+      const batch = this.buffer.splice(0, this.buffer.length);
+      if (!batch.length) {
+        this.flushing = false;
+        return;
+      }
+      const payload = `${batch.join("\n")}\n`;
+      try {
+        const filePath = this.resolveFilePath();
+        await appendFile(filePath, payload, "utf-8");
+      } catch (error) {
+        process.stderr.write(
+          `[LogStore] Failed to append logs: ${String(error)}\n`
+        );
+      } finally {
+        this.flushing = false;
+      }
     }
   }
 
@@ -271,6 +291,10 @@ export class LogStore implements LogStorePort {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  async flush(): Promise<void> {
+    await this.fileSink?.flush();
   }
 
   private toArray(): LogEntry[] {

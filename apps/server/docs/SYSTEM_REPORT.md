@@ -55,7 +55,7 @@ HTTP app được tạo trong `src/bootstrap/server.ts` với middleware stack:
 3. response-time header
 4. compression (nếu runtime hỗ trợ)
 5. CORS presets
-6. auth protection cho `/api/*` (trừ `/api/auth`, `/api/health`)
+6. auth protection cho `/api/*` (trừ các route public trong allowlist explicit)
 7. error handler
 
 Route groups được đăng ký tại `src/transport/http/routes/index.ts`:
@@ -66,7 +66,7 @@ Route groups được đăng ký tại `src/transport/http/routes/index.ts`:
 - `/api/projects/*`
 - `/api/agents/*`
 - `/api/admin/*`
-- `/api/auth/*` (Better Auth handler)
+- `/api/auth/*` (Better Auth handler; public theo allowlist explicit)
 - `/api/health`
 
 Dashboard UI routes được mount qua `registerDashboardUiRoutes`.
@@ -96,6 +96,7 @@ Auth cho tRPC:
 - `ctx.auth` được resolve từ:
   - request headers/session (cookie hoặc API key header/query),
   - hoặc `connectionParams.apiKey` với WebSocket client.
+- WS upgrade path canonical cho tRPC là `/trpc`.
 
 ### 3.3 Observability & Background Runtime
 
@@ -213,6 +214,11 @@ Nhóm biến chính:
 - Logging: `LOG_*`
 - Background: `BACKGROUND_*`
 
+Runtime-config scope:
+
+- Chỉ `settings.app.*` được hot-reload tại runtime.
+- `projectRoots` và `mcpServers` được báo `requiresRestart` sau khi update.
+
 Khuyến nghị remote tunnel:
 
 - đặt `WS_HOST=127.0.0.1`.
@@ -224,7 +230,8 @@ Migration note:
   `ALLOWED_AGENT_COMMAND_POLICIES`,
   `ALLOWED_TERMINAL_COMMAND_POLICIES`, hoặc `ALLOWED_ENV_KEYS`.
 - Giá trị `ALLOWED_*="*"` không hợp lệ; phải liệt kê explicit từng command/env key.
-- Legacy format `ALLOWED_*_COMMANDS` chỉ dùng fallback ở non-strict mode.
+- Legacy format `ALLOWED_*_COMMANDS` chỉ được dùng khi bật
+  `ALLOW_INSECURE_DEV_DEFAULTS=true` trong development.
 
 Compiled executable mode:
 

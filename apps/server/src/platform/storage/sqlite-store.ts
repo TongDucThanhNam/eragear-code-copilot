@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { randomUUID } from "node:crypto";
 import {
   access,
   copyFile,
@@ -108,7 +109,6 @@ type SqliteNumericPragma = (typeof SQLITE_NUMERIC_PRAGMAS)[number];
 let sqliteDb: Database | null = null;
 let sqliteInitPromise: Promise<Database> | null = null;
 let sqliteInitFailureState: SqliteInitFailureState | null = null;
-let sqliteSavepointCounter = 0;
 let sqliteLastCheckpointAt = 0;
 
 export interface SqliteStorageStatsSnapshot {
@@ -199,8 +199,7 @@ function getMeta(db: Database, key: string): string | null {
 }
 
 function createSavepointName(): string {
-  sqliteSavepointCounter += 1;
-  return `${SQLITE_SAVEPOINT_PREFIX}${sqliteSavepointCounter}`;
+  return `${SQLITE_SAVEPOINT_PREFIX}${randomUUID().replaceAll("-", "")}`;
 }
 
 export function runInSqliteTransaction<T>(db: Database, fn: () => T): T {
@@ -212,34 +211,35 @@ export function runInSqliteTransaction<T>(db: Database, fn: () => T): T {
     return result;
   } catch (error) {
     const originalError = toError(error, "SQLite savepoint transaction failed");
-    let rollbackError: Error | null = null;
-    let releaseError: Error | null = null;
-
     try {
       db.exec(`ROLLBACK TO SAVEPOINT ${savepointName}`);
     } catch (rollbackFailure) {
-      rollbackError = toError(
+      const rollbackError = toError(
         rollbackFailure,
         "SQLite savepoint rollback failed"
+      );
+      throw new StorageTransactionError(
+        "savepoint",
+        "SQLite savepoint transaction failed during rollback; connection state may be inconsistent",
+        new AggregateError(
+          [originalError, rollbackError],
+          "SQLite savepoint rollback failed"
+        )
       );
     }
 
     try {
       db.exec(`RELEASE SAVEPOINT ${savepointName}`);
     } catch (releaseFailure) {
-      releaseError = toError(releaseFailure, "SQLite savepoint release failed");
-    }
-
-    if (rollbackError || releaseError) {
-      const recoveryErrors = [rollbackError, releaseError].filter(
-        (entry): entry is Error => entry !== null
-      );
       throw new StorageTransactionError(
         "savepoint",
-        "SQLite savepoint transaction failed during rollback",
+        "SQLite savepoint transaction failed during release",
         new AggregateError(
-          [originalError, ...recoveryErrors],
-          "SQLite savepoint rollback failed"
+          [
+            originalError,
+            toError(releaseFailure, "SQLite savepoint release failed"),
+          ],
+          "SQLite savepoint release failed"
         )
       );
     }
@@ -705,6 +705,7 @@ function importLegacySessions(params: {
       projectByPath,
     });
 
+    const sessionMessages = session.messages ?? [];
     sessionRows.push([
       session.id,
       session.name ?? null,
@@ -730,10 +731,10 @@ function importLegacySessions(params: {
       toJson(session.commands),
       toJson(session.agentCapabilities),
       toJson(session.authMethods),
-      0,
+      sessionMessages.length,
     ]);
 
-    for (const message of session.messages ?? []) {
+    for (const message of sessionMessages) {
       messageRows.push([
         session.id,
         message.id,
@@ -772,13 +773,6 @@ function importLegacySessions(params: {
     columnCount: 10,
     preferredChunkSize: MESSAGE_IMPORT_CHUNK_SIZE,
   });
-
-  db.exec(
-    `UPDATE sessions
-     SET message_count = (
-       SELECT COUNT(*) FROM session_messages WHERE session_messages.session_id = sessions.id
-     )`
-  );
 }
 
 function importLegacySettings(params: {

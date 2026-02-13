@@ -8,7 +8,7 @@
  * @module bootstrap/server
  */
 
-import type { ServerResponse } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -44,9 +44,71 @@ import {
 
 const logger = createLogger("Server");
 const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 15_000;
+const TRPC_WS_PATH = "/trpc";
 
-function isPublicApiPath(path: string): boolean {
-  return path.startsWith("/api/auth") || path.startsWith("/api/health");
+interface PublicApiRouteRule {
+  methods: readonly string[];
+  pattern: RegExp;
+}
+
+const INTERNAL_REMOTE_ADDRESS_HEADER = "x-eragear-remote-address";
+
+interface FetchHandlerApp {
+  fetch(request: Request): Response | Promise<Response>;
+}
+
+interface ShutdownTaskState {
+  firstError: Error | null;
+}
+
+const PUBLIC_API_ROUTE_ALLOWLIST: readonly PublicApiRouteRule[] = [
+  {
+    methods: ["GET", "HEAD", "OPTIONS"],
+    pattern: /^\/api\/health\/?$/,
+  },
+  {
+    methods: ["POST", "OPTIONS"],
+    pattern: /^\/api\/auth\/sign-in(?:\/[^/]+)?\/?$/,
+  },
+  {
+    methods: ["POST", "OPTIONS"],
+    pattern: /^\/api\/auth\/sign-up(?:\/[^/]+)?\/?$/,
+  },
+  {
+    methods: ["POST", "OPTIONS"],
+    pattern: /^\/api\/auth\/sign-out\/?$/,
+  },
+  {
+    methods: ["POST", "OPTIONS"],
+    pattern: /^\/api\/auth\/is-username-available\/?$/,
+  },
+  {
+    methods: ["GET", "POST", "OPTIONS"],
+    pattern: /^\/api\/auth\/(?:get-session|session|list-sessions)\/?$/,
+  },
+  {
+    methods: ["POST", "OPTIONS"],
+    pattern: /^\/api\/auth\/revoke-session\/?$/,
+  },
+  {
+    methods: ["POST", "OPTIONS"],
+    pattern: /^\/api\/auth\/api-key\/verify\/?$/,
+  },
+  {
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    pattern: /^\/api\/auth\/api-key\/(?:create|list|update|delete|revoke)\/?$/,
+  },
+  {
+    methods: ["GET", "POST", "OPTIONS"],
+    pattern: /^\/api\/auth\/callback\/[^/]+\/?$/,
+  },
+];
+
+function isPublicApiRoute(method: string | undefined, path: string): boolean {
+  const normalizedMethod = (method ?? "GET").toUpperCase();
+  return PUBLIC_API_ROUTE_ALLOWLIST.some(
+    (rule) => rule.methods.includes(normalizedMethod) && rule.pattern.test(path)
+  );
 }
 
 export interface ServerRuntimePolicy {
@@ -138,46 +200,112 @@ async function pipeResponseBody(
       fromWeb?: (stream: ReadableStream) => NodeJS.ReadableStream;
     }
   ).fromWeb;
-
-  if (typeof fromWeb === "function") {
-    const stream = fromWeb(body as unknown as ReadableStream);
-    try {
-      await pipeline(stream as NodeJS.ReadableStream, res);
-    } catch (error) {
-      logger.warn("Failed to stream HTTP response body", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      if (!(res.writableEnded || res.destroyed)) {
-        res.end();
-      }
-    }
-    return;
+  if (typeof fromWeb !== "function") {
+    throw new Error(
+      "Readable.fromWeb is unavailable. Bun runtime requirements are not met."
+    );
   }
 
-  // Fallback: manual chunk reading (for older Node versions)
-  const reader = body.getReader();
+  const stream = fromWeb(body as unknown as ReadableStream);
+  await pipeline(stream as NodeJS.ReadableStream, res);
+}
+
+function buildFetchRequestFromNode(
+  req: IncomingMessage,
+  runtimePolicy: ServerRuntimePolicy
+): Request {
+  const host =
+    req.headers.host ?? `${runtimePolicy.wsHost}:${runtimePolicy.wsPort}`;
+  const url = new URL(req.url ?? "/", `http://${host}`);
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (Array.isArray(value)) {
+      headers.set(key, value.join(","));
+      continue;
+    }
+    if (value !== undefined) {
+      headers.set(key, value);
+    }
+  }
+  const remoteAddress = req.socket.remoteAddress;
+  if (typeof remoteAddress === "string" && remoteAddress.trim().length > 0) {
+    headers.set(INTERNAL_REMOTE_ADDRESS_HEADER, remoteAddress.trim());
+  }
+  const requestInit: RequestInit & { duplex?: "half" } = {
+    method: req.method,
+    headers,
+    body:
+      req.method && req.method !== "GET" && req.method !== "HEAD"
+        ? (req as unknown as BodyInit)
+        : undefined,
+    duplex: "half",
+  };
+  return new Request(url, requestInit);
+}
+
+async function writeFetchResponseToNode(
+  req: IncomingMessage,
+  res: ServerResponse,
+  response: Response
+): Promise<void> {
+  res.statusCode = response.status;
+  applyFetchHeadersToNodeResponse(res, response.headers);
+  if (req.method === "HEAD" || response.status === 204) {
+    res.end();
+    return;
+  }
+  await pipeResponseBody(res, response);
+}
+
+async function handleNodeHttpRequest(params: {
+  app: FetchHandlerApp;
+  req: IncomingMessage;
+  res: ServerResponse;
+  runtimePolicy: ServerRuntimePolicy;
+}): Promise<void> {
+  const { app, req, res, runtimePolicy } = params;
   try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) {
-        break;
-      }
-      if (value) {
-        const chunk = Buffer.from(value);
-        if (!res.write(chunk)) {
-          await new Promise<void>((resolve) => res.once("drain", resolve));
-        }
-      }
-    }
+    const request = buildFetchRequestFromNode(req, runtimePolicy);
+    const response = await app.fetch(request);
+    await writeFetchResponseToNode(req, res, response);
   } catch (error) {
-    logger.warn("Failed to read HTTP response stream", {
-      error: error instanceof Error ? error.message : String(error),
+    const normalizedError =
+      error instanceof Error ? error : new Error(String(error));
+    logger.error("HTTP request handling failed", normalizedError, {
+      method: req.method ?? "GET",
+      path: req.url ?? "/",
     });
-  } finally {
-    reader.releaseLock();
-    if (!(res.writableEnded || res.destroyed)) {
-      res.end();
+
+    if (!(res.headersSent || res.writableEnded || res.destroyed)) {
+      res.statusCode = 500;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ error: "Internal Server Error" }));
+      return;
     }
+    if (!(res.writableEnded || res.destroyed)) {
+      res.destroy(normalizedError);
+    }
+  }
+}
+
+function captureShutdownError(state: ShutdownTaskState, error: unknown): void {
+  if (state.firstError) {
+    return;
+  }
+  state.firstError =
+    error instanceof Error
+      ? error
+      : new Error(String(error ?? "Shutdown error"));
+}
+
+async function runShutdownStep(
+  state: ShutdownTaskState,
+  step: () => Promise<void>
+): Promise<void> {
+  try {
+    await step();
+  } catch (error) {
+    captureShutdownError(state, error);
   }
 }
 
@@ -238,7 +366,7 @@ export async function createApp(
   app.use("/api/health", corsMiddleware.health);
 
   app.use("/api/*", (c, next) => {
-    if (isPublicApiPath(c.req.path)) {
+    if (isPublicApiRoute(c.req.method, c.req.path)) {
       return next();
     }
     return corsMiddleware.api(c, next);
@@ -246,6 +374,17 @@ export async function createApp(
 
   app.all("/api/auth/*", async (c) => {
     const path = c.req.path;
+    const method = c.req.method;
+    if (!isPublicApiRoute(method, path)) {
+      const authContext = await resolveAuthContext({
+        headers: c.req.raw.headers,
+        url: c.req.raw.url,
+        remoteAddress: c.req.header(INTERNAL_REMOTE_ADDRESS_HEADER),
+      });
+      if (!authContext) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
+    }
     const isSignup = path.startsWith("/api/auth/sign-up");
     const isUsernameAvailability = path.startsWith(
       "/api/auth/is-username-available"
@@ -285,14 +424,15 @@ export async function createApp(
     return c.json({ ok: true, ts: Date.now() });
   });
 
-  // Protect API routes (except /api/auth)
+  // Protect API routes except explicit public allowlist entries.
   app.use("/api/*", async (c, next) => {
-    if (isPublicApiPath(c.req.path)) {
+    if (isPublicApiRoute(c.req.method, c.req.path)) {
       return next();
     }
     const authContext = await resolveAuthContext({
       headers: c.req.raw.headers,
       url: c.req.raw.url,
+      remoteAddress: c.req.header(INTERNAL_REMOTE_ADDRESS_HEADER),
     });
     if (!authContext) {
       return c.json({ error: "Unauthorized" }, 401);
@@ -332,38 +472,12 @@ export async function startServer() {
   deps.lifecycle.startBackground();
 
   const server = createServer(async (req, res) => {
-    const host =
-      req.headers.host ?? `${runtimePolicy.wsHost}:${runtimePolicy.wsPort}`;
-    const url = new URL(req.url ?? "/", `http://${host}`);
-    const headers = new Headers();
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (Array.isArray(value)) {
-        headers.set(key, value.join(","));
-      } else if (value !== undefined) {
-        headers.set(key, value);
-      }
-    }
-    const requestInit: RequestInit & { duplex?: "half" } = {
-      method: req.method,
-      headers,
-      body:
-        req.method && req.method !== "GET" && req.method !== "HEAD"
-          ? (req as unknown as BodyInit)
-          : undefined,
-      duplex: "half",
-    };
-    const request = new Request(url, requestInit);
-
-    const response = await app.fetch(request);
-    res.statusCode = response.status;
-    applyFetchHeadersToNodeResponse(res, response.headers);
-
-    if (req.method === "HEAD" || response.status === 204) {
-      res.end();
-      return;
-    }
-
-    await pipeResponseBody(res, response);
+    await handleNodeHttpRequest({
+      app,
+      req,
+      res,
+      runtimePolicy,
+    });
   });
 
   const wss = new WebSocketServer({
@@ -371,6 +485,20 @@ export async function startServer() {
     maxPayload: runtimePolicy.wsMaxPayloadBytes,
   });
   server.on("upgrade", (req, socket, head) => {
+    try {
+      const host =
+        req.headers.host ?? `${runtimePolicy.wsHost}:${runtimePolicy.wsPort}`;
+      const url = new URL(req.url ?? "/", `http://${host}`);
+      if (url.pathname !== TRPC_WS_PATH) {
+        socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+    } catch {
+      socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
     });
@@ -381,7 +509,11 @@ export async function startServer() {
     router: appRouter,
     createContext: ({ req }) =>
       createTrpcContext(trpcDeps, {
-        req,
+        req: {
+          headers: req.headers,
+          url: req.url,
+          remoteAddress: req.socket.remoteAddress,
+        },
       }),
   });
 
@@ -390,6 +522,7 @@ export async function startServer() {
   logger.info("HTTP + WebSocket server started", {
     host: runtimePolicy.wsHost,
     port: runtimePolicy.wsPort,
+    trpcWsPath: TRPC_WS_PATH,
   });
 
   let processExitScheduled = false;
@@ -426,11 +559,18 @@ export async function startServer() {
 
     shutdownPromise = withTimeout(
       (async () => {
+        const shutdownState: ShutdownTaskState = { firstError: null };
         wsHandler.broadcastReconnectNotification();
-        await deps.lifecycle.shutdown(signal);
-        await composition.dispose();
-        await closeWebSocketServer();
-        await closeHttpServer();
+        await runShutdownStep(shutdownState, () =>
+          deps.lifecycle.shutdown(signal)
+        );
+        await runShutdownStep(shutdownState, () => composition.dispose());
+        await runShutdownStep(shutdownState, () => closeWebSocketServer());
+        await runShutdownStep(shutdownState, () => closeHttpServer());
+        await runShutdownStep(shutdownState, () => deps.logStore.flush());
+        if (shutdownState.firstError) {
+          throw shutdownState.firstError;
+        }
       })(),
       SHUTDOWN_FORCE_EXIT_TIMEOUT_MS,
       `Graceful shutdown timed out after ${SHUTDOWN_FORCE_EXIT_TIMEOUT_MS}ms`

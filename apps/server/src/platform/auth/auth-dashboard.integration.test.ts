@@ -65,8 +65,12 @@ beforeAll(async () => {
       {
         boot: {
           mode: "standard",
-          ALLOWED_AGENT_COMMANDS: ["bun"],
-          ALLOWED_TERMINAL_COMMANDS: ["bun"],
+          ALLOWED_AGENT_COMMAND_POLICIES: [
+            { command: process.execPath, allowAnyArgs: true },
+          ],
+          ALLOWED_TERMINAL_COMMAND_POLICIES: [
+            { command: process.execPath, allowAnyArgs: true },
+          ],
           ALLOWED_ENV_KEYS: ["PATH"],
           WS_HOST: "127.0.0.1",
           WS_PORT: 3010,
@@ -124,6 +128,15 @@ describe("auth + dashboard integration", () => {
     const cookie = extractCookieHeader(response);
     expect(cookie.length).toBeGreaterThan(0);
     expect(cookie).toContain("better-auth.session_token=");
+  });
+
+  test("does not expose unknown /api/auth/* routes as public", async () => {
+    const response = await app.fetch(
+      new Request(buildUrl("/api/auth/v1/internal/admin-panic-button"), {
+        method: "POST",
+      })
+    );
+    expect(response.status).toBe(401);
   });
 
   test("grants dashboard access with valid session cookie", async () => {

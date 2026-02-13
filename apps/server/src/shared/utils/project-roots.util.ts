@@ -7,6 +7,7 @@
  * @module shared/utils/project-roots.util
  */
 
+import { homedir } from "node:os";
 import path from "node:path";
 
 /**
@@ -94,4 +95,49 @@ export function resolveProjectPath(
   }
 
   return path.resolve(projectPath);
+}
+
+interface ProjectRootBoundaryOptions {
+  homeDir?: string;
+}
+
+/**
+ * Normalizes project roots and enforces that every root stays under the host home directory.
+ */
+export function normalizeProjectRootsForSettings(
+  roots: string[],
+  options?: ProjectRootBoundaryOptions
+): string[] {
+  const normalizedHomeDir = path.resolve(options?.homeDir ?? homedir());
+  if (normalizedHomeDir === path.parse(normalizedHomeDir).root) {
+    throw new Error(
+      "[Settings] Home directory must be a non-root path to define project root boundaries."
+    );
+  }
+
+  const normalizedRoots = roots
+    .map((root) => root.trim())
+    .filter((root) => root.length > 0)
+    .map((root) => path.resolve(root));
+
+  if (normalizedRoots.length === 0) {
+    throw new Error("At least one project root is required");
+  }
+
+  const uniqueRoots = [...new Set(normalizedRoots)];
+  for (const root of uniqueRoots) {
+    const parsed = path.parse(root);
+    if (root === parsed.root) {
+      throw new Error(
+        `Invalid project root "${root}". Filesystem root is not allowed.`
+      );
+    }
+    if (!isPathWithinRoots(root, [normalizedHomeDir])) {
+      throw new Error(
+        `Project root "${root}" must be inside the home directory "${normalizedHomeDir}".`
+      );
+    }
+  }
+
+  return uniqueRoots;
 }
