@@ -9,6 +9,7 @@ import {
 const DUPLICATE_POLICY_REGEX = /Duplicate command policy/i;
 const ABSOLUTE_PATH_REGEX = /absolute path/i;
 const ANCHORED_REGEX = /anchored/i;
+const SAFE_SUBSET_REGEX = /must not include/i;
 
 describe("isCommandAllowed", () => {
   test("denies when allowlist is empty", () => {
@@ -132,5 +133,27 @@ describe("command policy invocation", () => {
         },
       ])
     ).toThrow(ANCHORED_REGEX);
+  });
+
+  test("rejects grouping and alternation in arg patterns", () => {
+    expect(() =>
+      compileCommandPolicies([
+        {
+          command: process.execPath,
+          allowedArgPatterns: ["^(foo|bar)+$"],
+        },
+      ])
+    ).toThrow(SAFE_SUBSET_REGEX);
+  });
+
+  test("rejects consecutive quantifiers in arg patterns", () => {
+    expect(() =>
+      compileCommandPolicies([
+        {
+          command: process.execPath,
+          allowedArgPatterns: ["^a++$"],
+        },
+      ])
+    ).toThrow(SAFE_SUBSET_REGEX);
   });
 });

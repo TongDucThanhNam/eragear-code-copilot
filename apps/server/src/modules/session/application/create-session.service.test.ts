@@ -45,19 +45,22 @@ describe("CreateSessionService", () => {
       projectId?: string;
       projectRoot?: string;
     }> = [];
-    const spawnCalls: Array<Record<string, unknown>> = [];
-    const bootstrapCalls: Array<Record<string, unknown>> = [];
-    const persistCalls: Array<Record<string, unknown>> = [];
+    const spawnCalls: Record<string, unknown>[] = [];
+    const bootstrapCalls: Record<string, unknown>[] = [];
+    const persistCalls: Record<string, unknown>[] = [];
     const proc = {} as ChatSession["proc"];
 
     const projectContextResolver = {
-      resolve: async (input: {
+      resolve: (input: {
         userId: string;
         projectId?: string;
         projectRoot?: string;
       }) => {
         resolverCalls.push(input);
-        return { projectId: "project-1", projectRoot: "/resolved/project" };
+        return Promise.resolve({
+          projectId: "project-1",
+          projectRoot: "/resolved/project",
+        });
       },
     } as unknown as SessionProjectContextResolverService;
 
@@ -69,15 +72,16 @@ describe("CreateSessionService", () => {
     } as unknown as SpawnSessionProcessService;
 
     const bootstrapSessionConnection = {
-      execute: async (input: Record<string, unknown>) => {
+      execute: (input: Record<string, unknown>) => {
         bootstrapCalls.push(input);
-        return { chatSession };
+        return Promise.resolve({ chatSession });
       },
     } as unknown as BootstrapSessionConnectionService;
 
     const persistSessionBootstrap = {
-      execute: async (input: Record<string, unknown>) => {
+      execute: (input: Record<string, unknown>) => {
         persistCalls.push(input);
+        return Promise.resolve();
       },
     } as unknown as PersistSessionBootstrapService;
 
@@ -133,7 +137,7 @@ describe("CreateSessionService", () => {
 
   test("uses empty args for non-opencode command when args are omitted", async () => {
     const chatSession = createChatSession("chat-2", "user-1");
-    const spawnCalls: Array<Record<string, unknown>> = [];
+    const spawnCalls: Record<string, unknown>[] = [];
 
     const projectContextResolver = {
       resolve: async () => ({ projectId: "project-2", projectRoot: "/repo" }),

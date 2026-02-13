@@ -27,8 +27,8 @@ export function AgentsTab() {
               <h2 className="font-black font-display text-4xl tracking-tight">
                 Agent Configs
               </h2>
-              <div className="mt-4 max-w-md font-body text-muted text-sm leading-relaxed text-justify">
-                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+              <div className="mt-4 max-w-md text-justify font-body text-muted text-sm leading-relaxed">
+                <span className="float-left mt-1 mr-2 font-black font-display text-5xl text-ink leading-[0.8]">
                   R
                 </span>
                 egistered agent presets for spawning sessions. These
@@ -74,8 +74,8 @@ export function AgentsTab() {
             <h2 className="font-black font-display text-3xl tracking-tight">
               Usage Statistics
             </h2>
-            <div className="mt-4 max-w-md font-body text-muted text-sm leading-relaxed text-justify">
-              <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+            <div className="mt-4 max-w-md text-justify font-body text-muted text-sm leading-relaxed">
+              <span className="float-left mt-1 mr-2 font-black font-display text-5xl text-ink leading-[0.8]">
                 S
               </span>
               ession distribution by agent type. This report provides insights

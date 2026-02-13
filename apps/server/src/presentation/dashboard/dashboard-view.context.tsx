@@ -1,11 +1,13 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 import type {
   DashboardViewActions,
   DashboardViewState,
 } from "./dashboard-view.contract";
 
 const DashboardStateContext = createContext<DashboardViewState | null>(null);
-const DashboardActionsContext = createContext<DashboardViewActions | null>(null);
+const DashboardActionsContext = createContext<DashboardViewActions | null>(
+  null
+);
 
 interface DashboardViewProviderProps {
   state: DashboardViewState;
@@ -30,7 +32,9 @@ export function DashboardViewProvider({
 export function useDashboardState(): DashboardViewState {
   const context = useContext(DashboardStateContext);
   if (!context) {
-    throw new Error("useDashboardState must be used within DashboardViewProvider");
+    throw new Error(
+      "useDashboardState must be used within DashboardViewProvider"
+    );
   }
   return context;
 }

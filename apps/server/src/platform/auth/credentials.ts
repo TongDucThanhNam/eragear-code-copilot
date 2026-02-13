@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { ENV } from "../../config/environment";
 import { createLogger } from "../logging/structured-logger";
 import { getAuthStorageFile } from "./paths";
@@ -14,6 +14,7 @@ export interface AdminCredentials {
 
 const DEFAULT_USERNAME = "admin";
 const DEFAULT_EMAIL_DOMAIN = "localhost.local";
+const AUTH_FILE_PRIVATE_MODE = 0o600;
 const logger = createLogger("Auth");
 
 export function getOrCreateAdminCredentials(): AdminCredentials {
@@ -60,6 +61,10 @@ export function getOrCreateAdminCredentials(): AdminCredentials {
     source: "generated",
   };
 
-  writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2), "utf-8");
+  writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2), {
+    encoding: "utf-8",
+    mode: AUTH_FILE_PRIVATE_MODE,
+  });
+  chmodSync(credentialsPath, AUTH_FILE_PRIVATE_MODE);
   return credentials;
 }

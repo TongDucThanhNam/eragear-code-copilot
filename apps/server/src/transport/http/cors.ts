@@ -135,8 +135,8 @@ export function resolveCorsOrigin(
   const normalized = normalizeOrigin(origin ?? null);
 
   if (!normalized) {
-    // No Origin header is common for non-browser clients; do not force ACAO.
-    return origin ?? undefined;
+    // No/invalid Origin header: do not emit ACAO.
+    return undefined;
   }
 
   if (Array.isArray(trustedOrigins)) {

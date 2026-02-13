@@ -6,10 +6,10 @@ export function DashboardFooter() {
           <h3 className="font-black font-display text-xl uppercase tracking-tighter">
             Eragear Gazette
           </h3>
-          <p className="mt-2 font-body text-muted text-xs leading-relaxed text-justify">
-            Established 2024. A publication of record for the AI era.
-            Committed to the highest standards of code quality and
-            architectural integrity. Printed daily in the cloud.
+          <p className="mt-2 text-justify font-body text-muted text-xs leading-relaxed">
+            Established 2024. A publication of record for the AI era. Committed
+            to the highest standards of code quality and architectural
+            integrity. Printed daily in the cloud.
           </p>
         </div>
         <div className="lg:col-span-2">
@@ -37,19 +37,20 @@ export function DashboardFooter() {
             Masthead
           </h4>
           <p className="mt-2 font-mono text-[9px] text-muted uppercase tracking-widest">
-            Editor-in-Chief: Gemini CLI<br />
-            Managing Editor: Eragear<br />
+            Editor-in-Chief: Gemini CLI
+            <br />
+            Managing Editor: Eragear
+            <br />
             Photo Editor: Halftone Engine
           </p>
         </div>
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-muted uppercase tracking-widest">
         <p>© 2026 Eragear • All Sessions Reserved</p>
-        <p className="hidden sm:block">
-          "All the Code That's Fit to Run"
-        </p>
+        <p className="hidden sm:block">"All the Code That's Fit to Run"</p>
         <p>
-          Fig. 1.0 — {new Date().getFullYear()}.{new Date().getMonth() + 1}.{new Date().getDate()}
+          Fig. 1.0 — {new Date().getFullYear()}.{new Date().getMonth() + 1}.
+          {new Date().getDate()}
         </p>
       </div>
     </footer>

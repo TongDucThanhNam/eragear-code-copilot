@@ -33,8 +33,8 @@ export function SessionsTab() {
               <h2 className="font-black font-display text-4xl tracking-tight">
                 Sessions
               </h2>
-              <div className="mt-4 max-w-md font-body text-muted text-sm leading-relaxed text-justify">
-                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+              <div className="mt-4 max-w-md text-justify font-body text-muted text-sm leading-relaxed">
+                <span className="float-left mt-1 mr-2 font-black font-display text-5xl text-ink leading-[0.8]">
                   A
                 </span>
                 ctive and recent chat sessions across all registered projects.

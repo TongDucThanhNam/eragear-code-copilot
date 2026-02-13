@@ -39,7 +39,7 @@ describe("parseUiSettingsForm", () => {
     );
 
     expect(parsed.app).toEqual({
-      sessionIdleTimeoutMs: 30000,
+      sessionIdleTimeoutMs: 30_000,
       sessionListPageMaxLimit: 77,
       sessionMessagesPageMaxLimit: 55,
       logLevel: "warn",

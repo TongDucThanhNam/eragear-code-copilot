@@ -11,10 +11,14 @@ const USER_SCOPED_ACTIVE_KEYS = [
   SQLITE_SETTING_KEYS.activeAgentId,
 ] as const;
 
-export async function ensureTenantOwnershipBackfill(ownerUserId: string): Promise<void> {
+export async function ensureTenantOwnershipBackfill(
+  ownerUserId: string
+): Promise<void> {
   const normalizedOwner = ownerUserId.trim();
   if (!normalizedOwner) {
-    throw new Error("Cannot backfill tenant ownership without a valid owner user id");
+    throw new Error(
+      "Cannot backfill tenant ownership without a valid owner user id"
+    );
   }
 
   await enqueueSqliteWrite("storage.tenant_ownership_backfill", async () => {
@@ -57,9 +61,14 @@ export async function ensureTenantOwnershipBackfill(ownerUserId: string): Promis
     }
 
     const legacyActiveRows = db
-      .select({ key: sqliteSchema.appSettings.key, valueJson: sqliteSchema.appSettings.valueJson })
+      .select({
+        key: sqliteSchema.appSettings.key,
+        valueJson: sqliteSchema.appSettings.valueJson,
+      })
       .from(sqliteSchema.appSettings)
-      .where(inArray(sqliteSchema.appSettings.key, [...USER_SCOPED_ACTIVE_KEYS]))
+      .where(
+        inArray(sqliteSchema.appSettings.key, [...USER_SCOPED_ACTIVE_KEYS])
+      )
       .all();
 
     for (const row of legacyActiveRows) {
@@ -73,7 +82,11 @@ export async function ensureTenantOwnershipBackfill(ownerUserId: string): Promis
         .run();
     }
 
-    if (legacyProjectCount > 0 || legacyAgentCount > 0 || legacySessionCount > 0) {
+    if (
+      legacyProjectCount > 0 ||
+      legacyAgentCount > 0 ||
+      legacySessionCount > 0
+    ) {
       logger.warn("Backfilled tenant ownership for legacy records", {
         ownerUserId: normalizedOwner,
         projects: legacyProjectCount,

@@ -1,5 +1,5 @@
-import type { Settings } from "../types/settings.types";
 import { LOG_LEVELS, type LogLevel } from "../types/log.types";
+import type { Settings } from "../types/settings.types";
 
 type FormDataRecord = Record<string, string | File | undefined>;
 const LOG_LEVEL_SET = new Set(LOG_LEVELS);

@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { chmodSync, writeFileSync } from "node:fs";
 import { getMigrations } from "better-auth/db";
 import { createLogger } from "../logging/structured-logger";
 import type { AuthRuntime } from "./auth";
@@ -6,13 +6,19 @@ import { getOrCreateAdminCredentials } from "./credentials";
 import { getAuthStorageFile } from "./paths";
 
 const logger = createLogger("Auth");
+const AUTH_FILE_PRIVATE_MODE = 0o600;
+
+type AuthBootstrapTable = "user" | "apikey";
 
 export interface AuthBootstrapPolicy {
   authBootstrapApiKey: boolean;
   authApiKeyPrefix: string | undefined;
 }
 
-function getTableCount(runtime: AuthRuntime, table: string): number {
+function getTableCount(
+  runtime: AuthRuntime,
+  table: AuthBootstrapTable
+): number {
   try {
     const row = runtime.authDb
       .prepare(`SELECT COUNT(*) as count FROM "${table}"`)
@@ -139,7 +145,11 @@ async function ensureBootstrapApiKey(
         key: result.key,
         createdAt: new Date().toISOString(),
       };
-      writeFileSync(apiKeyPath, JSON.stringify(payload, null, 2), "utf-8");
+      writeFileSync(apiKeyPath, JSON.stringify(payload, null, 2), {
+        encoding: "utf-8",
+        mode: AUTH_FILE_PRIVATE_MODE,
+      });
+      chmodSync(apiKeyPath, AUTH_FILE_PRIVATE_MODE);
       logger.info("Bootstrap API key generated", { apiKeyPath });
     }
   } catch (error) {

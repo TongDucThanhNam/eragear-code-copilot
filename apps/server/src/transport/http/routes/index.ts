@@ -19,12 +19,11 @@
  */
 
 import type { Hono } from "hono";
-import type { HttpRouteDependencies } from "./deps";
-
 // Feature route modules
 import { registerAdminRoutes } from "./admin";
 import { registerAgentRoutes } from "./agents";
 import { registerDashboardApiRoutes } from "./dashboard-api";
+import type { HttpRouteDependencies } from "./deps";
 import { registerProjectRoutes } from "./projects";
 import { registerSessionRoutes } from "./sessions";
 import { registerSettingsRoutes } from "./settings";

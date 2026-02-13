@@ -23,6 +23,11 @@ interface CompiledCommandPolicy {
 
 export type CommandPolicyRegistry = Map<string, CompiledCommandPolicy>;
 
+const MAX_ALLOWED_ARG_PATTERN_LENGTH = 256;
+const REGEX_BACKREFERENCE_PATTERN = /\\[1-9]/;
+const REGEX_CONSECUTIVE_QUANTIFIERS_PATTERN =
+  /(\*|\+|\?|\{[^}]+\})(\*|\+|\?|\{)/;
+
 /**
  * Exact command allowlist matcher.
  *
@@ -56,6 +61,38 @@ function normalizeArgToken(token: string): string {
   return token.trim();
 }
 
+function assertSafeArgPatternSubset(
+  command: string,
+  pattern: string,
+  index: number
+): void {
+  if (pattern.length > MAX_ALLOWED_ARG_PATTERN_LENGTH) {
+    throw new Error(
+      `Allowed arg pattern for ${command} at index ${index} exceeds ${MAX_ALLOWED_ARG_PATTERN_LENGTH} characters`
+    );
+  }
+  if (pattern.includes("|")) {
+    throw new Error(
+      `Allowed arg pattern for ${command} at index ${index} must not include alternation (|)`
+    );
+  }
+  if (pattern.includes("(") || pattern.includes(")")) {
+    throw new Error(
+      `Allowed arg pattern for ${command} at index ${index} must not include grouping constructs`
+    );
+  }
+  if (REGEX_BACKREFERENCE_PATTERN.test(pattern)) {
+    throw new Error(
+      `Allowed arg pattern for ${command} at index ${index} must not include backreferences`
+    );
+  }
+  if (REGEX_CONSECUTIVE_QUANTIFIERS_PATTERN.test(pattern)) {
+    throw new Error(
+      `Allowed arg pattern for ${command} at index ${index} must not include consecutive quantifiers`
+    );
+  }
+}
+
 function assertAbsoluteCommandPath(command: string): void {
   if (!path.isAbsolute(command)) {
     throw new Error(
@@ -80,6 +117,7 @@ function compileAllowedArgPattern(
       `Allowed arg pattern for ${command} at index ${index} must be anchored with ^...$`
     );
   }
+  assertSafeArgPatternSubset(command, normalizedPattern, index);
 
   try {
     return new RegExp(normalizedPattern);

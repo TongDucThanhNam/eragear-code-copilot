@@ -5,11 +5,11 @@ import {
   type TabKey,
 } from "@/presentation/dashboard/dashboard-data";
 import type { DashboardBootstrap } from "@/presentation/dashboard/dashboard-types";
+import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import type {
   DashboardViewActions,
   DashboardViewState,
 } from "@/presentation/dashboard/dashboard-view.contract";
-import { DashboardView } from "@/presentation/dashboard/dashboard-view";
 import type { Settings } from "@/shared/types/settings.types";
 import { normalizeTab } from "../utils";
 import { getUiAssets } from "./ui-assets";

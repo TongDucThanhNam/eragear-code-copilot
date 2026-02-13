@@ -105,6 +105,15 @@ interface SqliteJsonContext {
 type SqlitePrimitive = string | number | null;
 type TransactionOperation = "savepoint" | "immediate";
 type SqliteNumericPragma = (typeof SQLITE_NUMERIC_PRAGMAS)[number];
+type SqlDataTable = "projects" | "sessions" | "agents";
+interface LegacyJsonData {
+  projects: Project[];
+  activeProjectId: string | null;
+  sessions: StoredSession[];
+  agents: AgentConfig[];
+  activeAgentId: string | null;
+  settings: Settings | null;
+}
 
 let sqliteDb: Database | null = null;
 let sqliteInitPromise: Promise<Database> | null = null;
@@ -252,13 +261,10 @@ export function runInSqliteTransaction<T>(db: Database, fn: () => T): T {
   }
 }
 
-async function runInSqliteImmediateTransaction<T>(
-  db: Database,
-  fn: () => Promise<T> | T
-): Promise<T> {
+function runInSqliteImmediateTransaction<T>(db: Database, fn: () => T): T {
   db.exec("BEGIN IMMEDIATE");
   try {
-    const result = await fn();
+    const result = fn();
     db.exec("COMMIT");
     return result;
   } catch (error) {
@@ -405,7 +411,7 @@ function hasSqlData(db: Database): boolean {
   );
 }
 
-function tableHasRows(db: Database, tableName: string): boolean {
+function tableHasRows(db: Database, tableName: SqlDataTable): boolean {
   const row = db
     .query(`SELECT 1 AS has_row FROM ${tableName} LIMIT 1`)
     .get() as { has_row: number } | null;
@@ -869,14 +875,7 @@ async function getExistingLegacyFiles(storageDir: string): Promise<string[]> {
   return existingLegacyFiles;
 }
 
-async function loadLegacyData(storageDir: string): Promise<{
-  projects: Project[];
-  activeProjectId: string | null;
-  sessions: StoredSession[];
-  agents: AgentConfig[];
-  activeAgentId: string | null;
-  settings: Settings | null;
-}> {
+async function loadLegacyData(storageDir: string): Promise<LegacyJsonData> {
   const projectsData =
     (await readLegacyJsonFile<LegacyProjectsData>(
       path.join(storageDir, "projects.json")
@@ -908,13 +907,25 @@ async function maybeMigrateFromLegacyJson(
   db: Database,
   storageDir: string
 ): Promise<void> {
-  await runInSqliteImmediateTransaction(db, async () => {
+  if (getMeta(db, JSON_MIGRATION_MARKER_KEY) === "1") {
+    return;
+  }
+
+  const existingLegacyFiles = await getExistingLegacyFiles(storageDir);
+  const shouldImportLegacyData = existingLegacyFiles.length > 0;
+  let legacyData: LegacyJsonData | null = null;
+
+  if (shouldImportLegacyData) {
+    await backupLegacyFiles(storageDir, existingLegacyFiles);
+    legacyData = await loadLegacyData(storageDir);
+  }
+
+  runInSqliteImmediateTransaction(db, () => {
     if (getMeta(db, JSON_MIGRATION_MARKER_KEY) === "1") {
       return;
     }
 
-    const existingLegacyFiles = await getExistingLegacyFiles(storageDir);
-    if (existingLegacyFiles.length === 0) {
+    if (!(shouldImportLegacyData && legacyData)) {
       setMeta(db, JSON_MIGRATION_MARKER_KEY, "1");
       return;
     }
@@ -925,11 +936,7 @@ async function maybeMigrateFromLegacyJson(
       );
     }
 
-    await backupLegacyFiles(storageDir, existingLegacyFiles);
-
-    const legacyData = await loadLegacyData(storageDir);
     importLegacyData({ db, ...legacyData });
-
     setMeta(db, JSON_MIGRATION_MARKER_KEY, "1");
   });
 }

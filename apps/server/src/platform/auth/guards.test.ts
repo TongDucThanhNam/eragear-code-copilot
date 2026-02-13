@@ -57,6 +57,46 @@ describe("auth guards", () => {
     expect(authStub.verifyApiKeyCalls()).toBe(0);
   });
 
+  test("consumes rate limit once when session misses and api key fallback succeeds", async () => {
+    resetAuthResolutionRateLimitForTests();
+    const originalEnabled = ENV.authApiKeyRateLimitEnabled;
+    const originalWindowMs = ENV.authApiKeyRateLimitTimeWindowMs;
+    const originalMaxRequests = ENV.authApiKeyRateLimitMaxRequests;
+    ENV.authApiKeyRateLimitEnabled = true;
+    ENV.authApiKeyRateLimitTimeWindowMs = 60_000;
+    ENV.authApiKeyRateLimitMaxRequests = 1;
+
+    try {
+      const authStub = createAuthServiceStub({
+        getSession: () => null,
+        verifyApiKey: () => ({
+          valid: true,
+          key: { userId: "api-user-1" },
+        }),
+      });
+      const resolver = createAuthContextResolver(authStub.service);
+
+      const result = await resolver({
+        headers: new Headers({
+          cookie: "better-auth.session_token=missing-session",
+          authorization: "Bearer eg_valid_key",
+        }),
+      });
+
+      expect(result).toEqual({
+        type: "apiKey",
+        userId: "api-user-1",
+      });
+      expect(authStub.getSessionCalls()).toBe(1);
+      expect(authStub.verifyApiKeyCalls()).toBe(1);
+    } finally {
+      ENV.authApiKeyRateLimitEnabled = originalEnabled;
+      ENV.authApiKeyRateLimitTimeWindowMs = originalWindowMs;
+      ENV.authApiKeyRateLimitMaxRequests = originalMaxRequests;
+      resetAuthResolutionRateLimitForTests();
+    }
+  });
+
   test("rate-limits repeated auth resolution attempts for same session token", async () => {
     resetAuthResolutionRateLimitForTests();
     const originalEnabled = ENV.authApiKeyRateLimitEnabled;

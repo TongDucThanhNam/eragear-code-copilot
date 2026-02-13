@@ -387,6 +387,35 @@ describe("environment worker invariants", () => {
     expect(result.stderr).toContain("minimum 32 characters");
   });
 
+  test("compiled mode fails fast when auth secret uses placeholder value", async () => {
+    const configPath = await writeBootConfigFile({
+      boot: {
+        mode: "compiled",
+        ALLOWED_AGENT_COMMAND_POLICIES: [
+          { command: process.execPath, allowAnyArgs: true },
+        ],
+        ALLOWED_TERMINAL_COMMAND_POLICIES: [
+          { command: process.execPath, allowAnyArgs: true },
+        ],
+        ALLOWED_ENV_KEYS: ["PATH"],
+        WS_HOST: "127.0.0.1",
+        WS_PORT: 4111,
+        AUTH_SECRET: "change_me_in_production_with_32_chars_min",
+      },
+    });
+
+    const result = runEnvironmentSubprocess({
+      code: "import './src/config/environment.ts';",
+      includeRequiredAllowlists: false,
+      overrides: {
+        ERAGEAR_BOOT_CONFIG_PATH: configPath,
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("must not use insecure placeholder value");
+  });
+
   test("fails fast on invalid settings.json boot config", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "eragear-boot-invalid-"));
     const filePath = path.join(dir, "settings.json");

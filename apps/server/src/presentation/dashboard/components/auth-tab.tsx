@@ -63,14 +63,14 @@ export function AuthTab() {
               <h2 className="font-black font-serif text-4xl leading-[0.9] tracking-tighter md:text-5xl">
                 API Keys
               </h2>
-              <div className="mt-4 max-w-xl font-body text-[#737373] text-sm leading-relaxed text-justify md:text-base">
-                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+              <div className="mt-4 max-w-xl text-justify font-body text-[#737373] text-sm leading-relaxed md:text-base">
+                <span className="float-left mt-1 mr-2 font-black font-display text-5xl text-ink leading-[0.8]">
                   G
                 </span>
                 enerate and manage authentication credentials for client
                 connections. These keys are the primary means of securing your
-                server's API, ensuring that only authorized agents and users
-                can access sensitive data and perform critical operations.
+                server's API, ensuring that only authorized agents and users can
+                access sensitive data and perform critical operations.
               </div>
             </div>
             <div className="flex min-h-[44px] flex-col items-center gap-2 md:items-end">
@@ -208,8 +208,8 @@ export function AuthTab() {
               <h2 className="font-black font-serif text-4xl leading-[0.9] tracking-tighter md:text-5xl">
                 Device Sessions
               </h2>
-              <div className="mt-4 max-w-xl font-body text-[#737373] text-sm leading-relaxed text-justify md:text-base">
-                <span className="float-left mr-2 mt-1 font-black font-display text-5xl leading-[0.8] text-ink">
+              <div className="mt-4 max-w-xl text-justify font-body text-[#737373] text-sm leading-relaxed md:text-base">
+                <span className="float-left mt-1 mr-2 font-black font-display text-5xl text-ink leading-[0.8]">
                   M
                 </span>
                 onitor and manage active login sessions across all devices. This

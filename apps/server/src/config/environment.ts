@@ -360,8 +360,8 @@ export const ENV = {
   authTrustedOrigins,
   /** Trusted reverse-proxy source IPs allowed to provide forwarded client IP headers */
   authTrustedProxyIps,
-  /** Enforce strict CORS origin allowlist; false means permissive dev mode */
-  corsStrictOrigin: toBoolean(env.CORS_STRICT_ORIGIN, isProd),
+  /** Enforce strict CORS origin allowlist across environments */
+  corsStrictOrigin: toBoolean(env.CORS_STRICT_ORIGIN, true),
   /** Optional admin bootstrap username */
   authAdminUsername: env.AUTH_ADMIN_USERNAME,
   /** Optional admin bootstrap password */

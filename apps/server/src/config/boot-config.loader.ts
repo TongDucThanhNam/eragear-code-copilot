@@ -4,6 +4,8 @@ import { isRecord } from "@/shared/utils/type-guards.util";
 
 const BOOT_CONFIG_FILE_NAME = "settings.json";
 const BOOT_CONFIG_PATH_ENV_KEY = "ERAGEAR_BOOT_CONFIG_PATH";
+const AUTH_SECRET_PLACEHOLDER_VALUE =
+  "change_me_in_production_with_32_chars_min";
 
 export type BootRuntimeMode = "standard" | "compiled";
 
@@ -175,6 +177,12 @@ export function assertCompiledBootRequirements(
     missing.push("AUTH_SECRET");
   } else if (!authSecrets.some((secret) => secret.trim().length >= 32)) {
     missing.push("AUTH_SECRET (minimum 32 characters)");
+  } else if (
+    authSecrets.some(
+      (secret) => secret.trim() === AUTH_SECRET_PLACEHOLDER_VALUE
+    )
+  ) {
+    missing.push("AUTH_SECRET (must not use insecure placeholder value)");
   }
   if (!hasBootValue(config.values, "ALLOWED_AGENT_COMMAND_POLICIES")) {
     missing.push("ALLOWED_AGENT_COMMAND_POLICIES");

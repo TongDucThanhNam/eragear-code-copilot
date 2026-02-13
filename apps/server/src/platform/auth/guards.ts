@@ -313,12 +313,15 @@ export interface SessionUser {
 
 async function getSessionFromRequestWithAuth(
   authService: AuthApiService,
-  req: RequestLike
+  req: RequestLike,
+  options?: { rateLimitAlreadyConsumed?: boolean }
 ): Promise<{ user: SessionUser; session: unknown } | null> {
-  const headers = normalizeHeaders(req.headers);
-  if (!consumeAuthResolutionRateLimit(req)) {
+  if (
+    !(options?.rateLimitAlreadyConsumed || consumeAuthResolutionRateLimit(req))
+  ) {
     return null;
   }
+  const headers = normalizeHeaders(req.headers);
   const session = (await authService.api.getSession({ headers })) as
     | {
         user?: SessionUser;
@@ -376,19 +379,10 @@ async function getAuthContextWithAuth(
   if (!consumeAuthResolutionRateLimit(req)) {
     return null;
   }
-  const session = (await authService.api.getSession({ headers })) as
-    | {
-        user?: {
-          id?: string;
-        };
-        session?: unknown;
-      }
-    | undefined
-    | null;
+  const session = await getSessionFromRequestWithAuth(authService, req, {
+    rateLimitAlreadyConsumed: true,
+  });
   if (session) {
-    if (!session.user?.id) {
-      return null;
-    }
     return {
       type: "session",
       userId: session.user.id,
