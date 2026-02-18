@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { Settings } from "@/shared/types/settings.types";
 import { parseUiSettingsForm } from "./ui-settings.util";
 
+const VALIDATION_ERROR_REGEX = /maxTokens|too_small|greater than/i;
+
 function createSettingsFixture(): Settings {
   return {
     ui: {
@@ -70,5 +72,17 @@ describe("parseUiSettingsForm", () => {
     );
 
     expect(parsed.app.defaultModel).toBe("");
+  });
+
+  test("fails fast when app payload violates shared schema", () => {
+    const current = createSettingsFixture();
+    expect(() =>
+      parseUiSettingsForm(
+        {
+          "app.maxTokens": "0",
+        },
+        current
+      )
+    ).toThrow(VALIDATION_ERROR_REGEX);
   });
 });

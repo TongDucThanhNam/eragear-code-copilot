@@ -78,33 +78,15 @@ function resolveWorkerEntrypointPath(): string {
   const runtimeDir = path.dirname(process.execPath);
   const fromDistRuntime = runtimeDir.includes(`${path.sep}dist`);
   const srcFromCwd = [
-    path.join(
-      process.cwd(),
-      "src",
-      "platform",
-      "storage",
-      "sqlite-worker.entry.ts"
-    ),
+    path.join(process.cwd(), "src", "bootstrap", "sqlite-worker.entry.ts"),
   ];
   const distFromCwd = [
-    path.join(
-      process.cwd(),
-      "dist",
-      "platform",
-      "storage",
-      "sqlite-worker.entry.mjs"
-    ),
-    path.join(
-      process.cwd(),
-      "dist",
-      "platform",
-      "storage",
-      "sqlite-worker.entry.js"
-    ),
+    path.join(process.cwd(), "dist", "bootstrap", "sqlite-worker.entry.mjs"),
+    path.join(process.cwd(), "dist", "bootstrap", "sqlite-worker.entry.js"),
   ];
   const distFromRuntime = [
-    path.join(runtimeDir, "platform", "storage", "sqlite-worker.entry.mjs"),
-    path.join(runtimeDir, "platform", "storage", "sqlite-worker.entry.js"),
+    path.join(runtimeDir, "bootstrap", "sqlite-worker.entry.mjs"),
+    path.join(runtimeDir, "bootstrap", "sqlite-worker.entry.js"),
   ];
   const candidates = fromDistRuntime
     ? [...distFromRuntime, ...distFromCwd, ...srcFromCwd]

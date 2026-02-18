@@ -8,6 +8,8 @@ import type { PersistSessionBootstrapService } from "./persist-session-bootstrap
 import type { SessionProjectContextResolverService } from "./session-project-context-resolver.service";
 import type { SpawnSessionProcessService } from "./spawn-session-process.service";
 
+const BOOTSTRAP_FAILED_RE = /bootstrap failed/;
+
 function createLoggerStub(): LoggerPort {
   const noop = () => undefined;
   return {
@@ -217,7 +219,7 @@ describe("CreateSessionService", () => {
         userId: "user-1",
         projectId: "project-3",
       })
-    ).rejects.toThrow(/bootstrap failed/);
+    ).rejects.toThrow(BOOTSTRAP_FAILED_RE);
     expect(terminateCalls).toEqual([
       {
         proc,

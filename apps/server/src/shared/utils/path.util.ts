@@ -28,17 +28,6 @@ export function fileUriToPath(uri: string) {
   try {
     return fileURLToPath(uri);
   } catch (error) {
-    if (process.platform === "win32") {
-      // Support UNC-host file URLs consistently on Windows.
-      const parsed = new URL(uri);
-      if (parsed.hostname.length > 0) {
-        const normalizedPath = decodeURIComponent(parsed.pathname).replace(
-          /\//g,
-          "\\"
-        );
-        return `\\\\${parsed.hostname}${normalizedPath}`;
-      }
-    }
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid file URI: ${uri}. ${message}`);
   }

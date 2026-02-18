@@ -1,6 +1,8 @@
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
+export const LOG_OUTPUT_FORMATS = ["text", "json"] as const;
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
+export type LogOutputFormat = (typeof LOG_OUTPUT_FORMATS)[number];
 
 export interface LogRequestMeta {
   method: string;

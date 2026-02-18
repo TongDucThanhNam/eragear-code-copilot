@@ -7,6 +7,7 @@
  * @module infra/logging/structured-logger
  */
 
+import { ENV } from "@/config/environment";
 import type { LogLevel as SharedLogLevel } from "@/shared/types/log.types";
 import { shouldEmitRuntimeLog } from "./runtime-log-level";
 
@@ -36,7 +37,7 @@ interface LogEntry {
  * @param entry - Log entry to format
  * @returns Formatted log string
  */
-function formatLogEntry(entry: LogEntry): string {
+function formatTextLogEntry(entry: LogEntry): string {
   const timestamp = entry.timestamp;
   const tag = `[${entry.tag}]`;
   const level = entry.level.toUpperCase().padEnd(5);
@@ -48,6 +49,30 @@ function formatLogEntry(entry: LogEntry): string {
   const error = entry.error ? `\n${entry.error.stack}` : "";
 
   return `${timestamp} ${level} ${tag} ${message}${context}${error}`;
+}
+
+function formatJsonLogEntry(entry: LogEntry): string {
+  return JSON.stringify({
+    ts: entry.timestamp,
+    level: entry.level,
+    tag: entry.tag,
+    message: entry.message,
+    context: entry.context,
+    error: entry.error
+      ? {
+          name: entry.error.name,
+          message: entry.error.message,
+          stack: entry.error.stack,
+        }
+      : undefined,
+  });
+}
+
+function formatLogEntry(entry: LogEntry): string {
+  if (ENV.logOutputFormat === "json") {
+    return formatJsonLogEntry(entry);
+  }
+  return formatTextLogEntry(entry);
 }
 
 /**

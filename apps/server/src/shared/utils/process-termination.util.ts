@@ -1,4 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import { getNodeErrnoCode } from "./node-error.util";
+import { isPosix, isWindows } from "./runtime-platform.util";
 
 const DEFAULT_TERM_TIMEOUT_MS = 3000;
 const DEFAULT_KILL_TIMEOUT_MS = 1000;
@@ -17,10 +19,6 @@ export interface ProcessTerminationResult {
 
 export function hasProcessExited(proc: ChildProcess): boolean {
   return proc.exitCode !== null || proc.signalCode !== null;
-}
-
-function isPosixRuntime(): boolean {
-  return process.platform !== "win32";
 }
 
 async function waitForProcessExit(
@@ -69,7 +67,7 @@ function signalProcess(
   signal: "SIGTERM" | "SIGKILL",
   processGroupId?: number
 ): void {
-  if (!isPosixRuntime()) {
+  if (!isPosix()) {
     signalWindowsProcessTree(proc, signal);
     return;
   }
@@ -130,20 +128,14 @@ function signalWindowsProcessTree(
 }
 
 export function hasProcessGroupAlive(processGroupId: number): boolean {
-  if (
-    !(isPosixRuntime() && Number.isInteger(processGroupId)) ||
-    processGroupId <= 0
-  ) {
+  if (!(isPosix() && Number.isInteger(processGroupId)) || processGroupId <= 0) {
     return false;
   }
   try {
     process.kill(-processGroupId, 0);
     return true;
   } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? (error as NodeJS.ErrnoException).code
-        : undefined;
+    const code = getNodeErrnoCode(error);
     if (code === "EPERM") {
       return true;
     }
@@ -181,7 +173,7 @@ export async function terminateProcessGracefully(
 ): Promise<ProcessTerminationResult> {
   const processGroupId = policy.processGroupId;
   const hasProcessGroup =
-    isPosixRuntime() &&
+    isPosix() &&
     typeof processGroupId === "number" &&
     Number.isInteger(processGroupId) &&
     processGroupId > 0;
@@ -189,7 +181,7 @@ export async function terminateProcessGracefully(
     hasProcessGroup && hasProcessGroupAlive(processGroupId);
 
   const forceWindowsTreeTermination =
-    process.platform === "win32" && policy.forceWindowsTreeTermination === true;
+    isWindows() && policy.forceWindowsTreeTermination === true;
 
   if (
     hasProcessExited(proc) &&

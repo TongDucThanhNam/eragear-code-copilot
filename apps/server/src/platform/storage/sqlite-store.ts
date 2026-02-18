@@ -455,7 +455,6 @@ async function initializeSqliteDb(): Promise<Database> {
     });
     removeOrphanedSessionMessages(db);
     ensureIncrementalAutoVacuum(db);
-    configureSqliteConnection(db);
     maybeRunIncrementalVacuum(db);
     return db;
   } catch (error) {

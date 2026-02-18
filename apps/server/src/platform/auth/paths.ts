@@ -6,34 +6,30 @@ import {
   mkdirSync,
   openSync,
 } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { APP_CONFIG_DIR_NAME } from "@/config/app-identity";
+import { getPlatformConfigDir } from "@/shared/utils/platform-path.util";
 import { ENV } from "../../config/environment";
 
-const AUTH_DIR_NAME = "Eragear";
-
-function getPlatformConfigDir(): string {
-  if (process.platform === "win32") {
-    return process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
+function getAuthDbPathOverride(): string | undefined {
+  const fromProcessEnv = process.env.AUTH_DB_PATH?.trim();
+  if (fromProcessEnv && fromProcessEnv.length > 0) {
+    return fromProcessEnv;
   }
-
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support");
-  }
-
-  return process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config");
+  return ENV.authDbPath;
 }
 
 function resolveAuthStorageDir(): string {
-  if (ENV.authDbPath) {
-    const resolved = path.isAbsolute(ENV.authDbPath)
-      ? ENV.authDbPath
-      : path.resolve(process.cwd(), ENV.authDbPath);
+  const authDbPath = getAuthDbPathOverride();
+  if (authDbPath) {
+    const resolved = path.isAbsolute(authDbPath)
+      ? authDbPath
+      : path.resolve(process.cwd(), authDbPath);
     return path.dirname(resolved);
   }
 
   const base = getPlatformConfigDir();
-  return path.join(base, AUTH_DIR_NAME);
+  return path.join(base, APP_CONFIG_DIR_NAME);
 }
 
 export function ensureAuthStorageDir(): string {
@@ -49,10 +45,11 @@ export function getAuthStorageFile(filename: string): string {
 }
 
 export function getAuthDbPath(): string {
-  if (ENV.authDbPath) {
-    return path.isAbsolute(ENV.authDbPath)
-      ? ENV.authDbPath
-      : path.resolve(process.cwd(), ENV.authDbPath);
+  const authDbPath = getAuthDbPathOverride();
+  if (authDbPath) {
+    return path.isAbsolute(authDbPath)
+      ? authDbPath
+      : path.resolve(process.cwd(), authDbPath);
   }
 
   return getAuthStorageFile("auth.sqlite");

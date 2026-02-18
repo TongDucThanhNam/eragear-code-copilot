@@ -1,10 +1,26 @@
-import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  statfsSync,
+} from "node:fs";
 import { mkdir } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { APP_CONFIG_DIR_NAME } from "@/config/app-identity";
+import { getPlatformConfigDir } from "@/shared/utils/platform-path.util";
+import {
+  getRuntimePlatform,
+  isWindows,
+} from "@/shared/utils/runtime-platform.util";
+import {
+  KNOWN_NETWORK_FS_TYPES,
+  STORAGE_LOCAL_FS_TYPES,
+  WINDOWS_UNC_PATH_PREFIX,
+} from "./storage.constants";
 
-const APP_DIR_NAME = "Eragear";
 const SQLITE_FILE_NAME = "eragear.sqlite";
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ROOT_DIR = path.resolve(MODULE_DIR, "../../..");
@@ -16,21 +32,26 @@ const LEGACY_JSON_FILES = [
   "ui-settings.json",
 ] as const;
 const STORAGE_DIR_ENV_KEY = "ERAGEAR_STORAGE_DIR";
+const STORAGE_ALLOW_UNKNOWN_FS_ENV_KEY = "STORAGE_ALLOW_UNKNOWN_FS";
+
+const resolveRealPathSync =
+  typeof realpathSync.native === "function"
+    ? realpathSync.native
+    : realpathSync;
 
 let storageDir: string | null = null;
 let storageResolution: {
   path: string;
   origin: "env" | "default";
 } | null = null;
+let localFsTypeAllowlistCache: Set<number> | null = null;
+let storageFsTypeOverrideForTests: number | null = null;
 
-function getPlatformConfigDir(): string {
-  if (process.platform === "win32") {
-    return process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
-  }
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support");
-  }
-  return process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config");
+interface StorageSafetyResult {
+  safe: boolean;
+  reason?: string;
+  fsType?: number;
+  resolvedPath: string;
 }
 
 function resolveStorageDirFromEnv(value: string): string {
@@ -63,7 +84,7 @@ function hasStorageDataSync(dir: string): boolean {
 }
 
 function getDefaultStorageCandidates(): string[] {
-  const platformDir = path.join(getPlatformConfigDir(), APP_DIR_NAME);
+  const platformDir = path.join(getPlatformConfigDir(), APP_CONFIG_DIR_NAME);
   const platformHasData = hasStorageDataSync(platformDir);
   const legacyHasData = hasStorageDataSync(LEGACY_STORAGE_DIR);
 
@@ -82,24 +103,126 @@ function getDefaultStorageCandidates(): string[] {
   return [platformDir, LEGACY_STORAGE_DIR];
 }
 
-function detectStorageRiskReason(dir: string): string | undefined {
-  const resolved = path.resolve(dir);
-  const normalized = resolved.replace(/\\/g, "/").toLowerCase();
+function isTruthyEnv(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+}
 
-  if (resolved.startsWith("\\\\")) {
-    return "unc_network_path";
+function allowUnknownStorageFsType(): boolean {
+  return isTruthyEnv(process.env[STORAGE_ALLOW_UNKNOWN_FS_ENV_KEY]);
+}
+
+function shouldAllowUnknownStorageFsType(): boolean {
+  if (allowUnknownStorageFsType()) {
+    return true;
   }
-  if (normalized.includes("/gvfs/") || normalized.includes("/.gvfs/")) {
-    return "gvfs_mount";
+  // Node on Windows does not provide stable fs type identifiers across hosts.
+  return isWindows();
+}
+
+function toFiniteFsType(rawType: number | bigint): number {
+  const fsType = typeof rawType === "bigint" ? Number(rawType) : rawType;
+  if (!Number.isFinite(fsType)) {
+    throw new Error("[Storage] Invalid filesystem type returned by statfs");
   }
-  if (
-    normalized.startsWith("/net/") ||
-    normalized.startsWith("/nfs/") ||
-    normalized.startsWith("/afs/")
-  ) {
-    return "network_mount";
+  return fsType;
+}
+
+function readFsTypeSync(dir: string): number {
+  if (storageFsTypeOverrideForTests !== null) {
+    return storageFsTypeOverrideForTests;
   }
-  return undefined;
+  const stats = statfsSync(dir);
+  return toFiniteFsType(stats.type);
+}
+
+function resolveStorageLocalFsTypeAllowlist(): Set<number> {
+  if (localFsTypeAllowlistCache) {
+    return new Set(localFsTypeAllowlistCache);
+  }
+
+  const allowlist = new Set(STORAGE_LOCAL_FS_TYPES[getRuntimePlatform()] ?? []);
+  localFsTypeAllowlistCache = allowlist;
+  return new Set(allowlist);
+}
+
+function resolveStorageSafety(dir: string): StorageSafetyResult {
+  const resolved = path.resolve(dir);
+  if (isWindows() && resolved.startsWith(WINDOWS_UNC_PATH_PREFIX)) {
+    return {
+      safe: false,
+      reason: "unc_network_path",
+      resolvedPath: resolved,
+    };
+  }
+
+  let canonical = resolved;
+  try {
+    canonical = resolveRealPathSync(resolved);
+  } catch {
+    // Directory should already exist after writability checks; keep resolved path.
+    canonical = resolved;
+  }
+
+  if (isWindows() && canonical.startsWith(WINDOWS_UNC_PATH_PREFIX)) {
+    return {
+      safe: false,
+      reason: "unc_network_path",
+      resolvedPath: canonical,
+    };
+  }
+
+  let fsType: number;
+  try {
+    fsType = readFsTypeSync(canonical);
+  } catch {
+    return {
+      safe: false,
+      reason: "statfs_failed",
+      resolvedPath: canonical,
+    };
+  }
+
+  if (KNOWN_NETWORK_FS_TYPES.has(fsType)) {
+    return {
+      safe: false,
+      reason: "unsupported_filesystem_type",
+      fsType,
+      resolvedPath: canonical,
+    };
+  }
+
+  const localFsTypeAllowlist = resolveStorageLocalFsTypeAllowlist();
+  if (localFsTypeAllowlist.has(fsType)) {
+    return {
+      safe: true,
+      fsType,
+      resolvedPath: canonical,
+    };
+  }
+
+  if (shouldAllowUnknownStorageFsType()) {
+    return {
+      safe: true,
+      fsType,
+      resolvedPath: canonical,
+    };
+  }
+
+  return {
+    safe: false,
+    reason: "unknown_filesystem_type",
+    fsType,
+    resolvedPath: canonical,
+  };
 }
 
 export function getStorageDirPathSync(): string {
@@ -115,18 +238,18 @@ export function getStorageDirPathSync(): string {
         `[Storage] ${STORAGE_DIR_ENV_KEY} is not writable: ${resolved}`
       );
     }
-    const riskReason = detectStorageRiskReason(resolved);
-    if (!riskReason) {
-      storageDir = resolved;
+    const safety = resolveStorageSafety(resolved);
+    if (safety.safe) {
+      storageDir = safety.resolvedPath;
       storageResolution = {
-        path: resolved,
+        path: safety.resolvedPath,
         origin: "env",
       };
-      return resolved;
+      return safety.resolvedPath;
     }
 
     throw new Error(
-      `[Storage] ${STORAGE_DIR_ENV_KEY} points to a risky path (${riskReason}): ${resolved}`
+      `[Storage] ${STORAGE_DIR_ENV_KEY} points to an unsafe path (${safety.reason}${typeof safety.fsType === "number" ? `, fsType=${safety.fsType}` : ""}): ${safety.resolvedPath}`
     );
   }
 
@@ -136,17 +259,20 @@ export function getStorageDirPathSync(): string {
     if (!ensureWritableDirectorySync(candidate)) {
       continue;
     }
-    const riskReason = detectStorageRiskReason(candidate);
-    if (riskReason) {
-      rejected.push({ candidate, reason: riskReason });
+    const safety = resolveStorageSafety(candidate);
+    if (!safety.safe) {
+      rejected.push({
+        candidate: safety.resolvedPath,
+        reason: `${safety.reason}${typeof safety.fsType === "number" ? `, fsType=${safety.fsType}` : ""}`,
+      });
       continue;
     }
-    storageDir = candidate;
+    storageDir = safety.resolvedPath;
     storageResolution = {
-      path: candidate,
+      path: safety.resolvedPath,
       origin: "default",
     };
-    return candidate;
+    return safety.resolvedPath;
   }
 
   const rejectedText =
@@ -168,9 +294,7 @@ export function getStorageDirPath(): Promise<string> {
 
 export function ensureStorageDirSync(): void {
   const dir = getStorageDirPathSync();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+  mkdirSync(dir, { recursive: true });
 }
 
 export async function ensureStorageDir(): Promise<void> {
@@ -198,4 +322,11 @@ export function getStoragePathResolutionInfo(): {
 export function resetStoragePathCacheForTests(): void {
   storageDir = null;
   storageResolution = null;
+  localFsTypeAllowlistCache = null;
+  storageFsTypeOverrideForTests = null;
+}
+
+export function setStorageFsTypeOverrideForTests(fsType: number | null): void {
+  storageFsTypeOverrideForTests = fsType;
+  localFsTypeAllowlistCache = null;
 }

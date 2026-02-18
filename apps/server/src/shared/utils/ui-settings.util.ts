@@ -1,8 +1,34 @@
-import { LOG_LEVELS, type LogLevel } from "../types/log.types";
+import {
+  AppConfigSchema,
+  UiSettingsSchema,
+} from "@/shared/contracts/settings.contract";
 import type { Settings } from "../types/settings.types";
 
 type FormDataRecord = Record<string, string | File | undefined>;
-const LOG_LEVEL_SET = new Set(LOG_LEVELS);
+
+function parseFiniteNumber(
+  key: string,
+  rawValue: string,
+  fallback: number
+): number {
+  const normalized = rawValue.trim();
+  if (normalized.length === 0) {
+    return fallback;
+  }
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${key} must be a finite number`);
+  }
+  return parsed;
+}
+
+function parseFiniteInt(
+  key: string,
+  rawValue: string,
+  fallback: number
+): number {
+  return Math.trunc(parseFiniteNumber(key, rawValue, fallback));
+}
 
 export function parseUiSettingsForm(
   formData: FormDataRecord,
@@ -13,19 +39,16 @@ export function parseUiSettingsForm(
     return typeof value === "string" ? value : "";
   };
 
-  const ui = {
-    theme: (getString("ui.theme") || currentSettings.ui.theme) as
-      | "light"
-      | "dark"
-      | "system",
+  const ui = UiSettingsSchema.parse({
+    theme: getString("ui.theme") || currentSettings.ui.theme,
     accentColor: getString("ui.accentColor") || currentSettings.ui.accentColor,
-    density: (getString("ui.density") || currentSettings.ui.density) as
-      | "comfortable"
-      | "compact",
-    fontScale:
-      Number.parseFloat(getString("ui.fontScale")) ||
-      currentSettings.ui.fontScale,
-  };
+    density: getString("ui.density") || currentSettings.ui.density,
+    fontScale: parseFiniteNumber(
+      "ui.fontScale",
+      getString("ui.fontScale"),
+      currentSettings.ui.fontScale
+    ),
+  });
 
   const projectRoots: string[] = [];
   let hasExplicitRoots = false;
@@ -56,42 +79,30 @@ export function parseUiSettingsForm(
     projectRoots.push(...filtered);
   }
 
-  const parsePositiveInt = (key: string, fallback: number): number => {
-    const raw = getString(key).trim();
-    if (raw.length === 0) {
-      return fallback;
-    }
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      throw new Error(`${key} must be a positive integer`);
-    }
-    return Math.trunc(parsed);
-  };
-
-  const app = {
-    sessionIdleTimeoutMs: parsePositiveInt(
+  const rawLogLevel = getString("app.logLevel").trim().toLowerCase();
+  const app = AppConfigSchema.parse({
+    sessionIdleTimeoutMs: parseFiniteInt(
       "app.sessionIdleTimeoutMs",
+      getString("app.sessionIdleTimeoutMs"),
       currentSettings.app.sessionIdleTimeoutMs
     ),
-    sessionListPageMaxLimit: parsePositiveInt(
+    sessionListPageMaxLimit: parseFiniteInt(
       "app.sessionListPageMaxLimit",
+      getString("app.sessionListPageMaxLimit"),
       currentSettings.app.sessionListPageMaxLimit
     ),
-    sessionMessagesPageMaxLimit: parsePositiveInt(
+    sessionMessagesPageMaxLimit: parseFiniteInt(
       "app.sessionMessagesPageMaxLimit",
+      getString("app.sessionMessagesPageMaxLimit"),
       currentSettings.app.sessionMessagesPageMaxLimit
     ),
-    logLevel: (() => {
-      const raw = getString("app.logLevel").trim().toLowerCase();
-      if (!raw) {
-        return currentSettings.app.logLevel;
-      }
-      if (!LOG_LEVEL_SET.has(raw as LogLevel)) {
-        throw new Error("app.logLevel must be one of debug,info,warn,error");
-      }
-      return raw as LogLevel;
-    })(),
-    maxTokens: parsePositiveInt("app.maxTokens", currentSettings.app.maxTokens),
+    logLevel:
+      rawLogLevel.length > 0 ? rawLogLevel : currentSettings.app.logLevel,
+    maxTokens: parseFiniteInt(
+      "app.maxTokens",
+      getString("app.maxTokens"),
+      currentSettings.app.maxTokens
+    ),
     defaultModel: (() => {
       const rawValue = formData["app.defaultModel"];
       if (typeof rawValue !== "string") {
@@ -100,7 +111,7 @@ export function parseUiSettingsForm(
       const normalized = rawValue.trim();
       return normalized.length > 0 ? normalized : "";
     })(),
-  };
+  });
 
   return { ui, projectRoots, app };
 }

@@ -4,6 +4,8 @@ import type { ProjectRepositoryPort } from "@/modules/project";
 import type { SettingsRepositoryPort } from "@/modules/settings";
 import { SessionProjectContextResolverService } from "./session-project-context-resolver.service";
 
+const PROJECT_ROOT_REJECT_RE = /not allowed|configured project roots/i;
+
 describe("SessionProjectContextResolverService", () => {
   test("uses project path from repository when projectId is provided", async () => {
     const service = new SessionProjectContextResolverService(
@@ -77,6 +79,6 @@ describe("SessionProjectContextResolverService", () => {
         userId: "user-1",
         projectRoot: outside,
       })
-    ).rejects.toThrow(/not allowed|configured project roots/i);
+    ).rejects.toThrow(PROJECT_ROOT_REJECT_RE);
   });
 });

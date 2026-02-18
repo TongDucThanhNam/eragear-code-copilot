@@ -76,3 +76,15 @@ export class UnauthorizedError extends AppError {
     this.name = "UnauthorizedError";
   }
 }
+
+export class ConflictError extends AppError {
+  constructor(message: string, context: AppErrorContext = {}) {
+    super({
+      message,
+      code: "CONFLICT",
+      statusCode: 409,
+      ...context,
+    });
+    this.name = "ConflictError";
+  }
+}

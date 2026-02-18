@@ -1,5 +1,10 @@
 import path from "node:path";
-import { LOG_LEVELS, type LogLevel } from "@/shared/types/log.types";
+import {
+  LOG_LEVELS,
+  LOG_OUTPUT_FORMATS,
+  type LogLevel,
+  type LogOutputFormat,
+} from "@/shared/types/log.types";
 import type { CommandPolicy } from "@/shared/utils/allowlist.util";
 import { isRecord } from "@/shared/utils/type-guards.util";
 
@@ -128,6 +133,7 @@ export function toStrictBoolean(
 }
 
 const LOG_LEVEL_SET = new Set(LOG_LEVELS);
+const LOG_OUTPUT_FORMAT_SET = new Set(LOG_OUTPUT_FORMATS);
 
 export function toLogLevel(
   value: string | undefined,
@@ -139,6 +145,20 @@ export function toLogLevel(
   const normalized = value.trim().toLowerCase();
   if (LOG_LEVEL_SET.has(normalized as LogLevel)) {
     return normalized as LogLevel;
+  }
+  return fallback;
+}
+
+export function toLogOutputFormat(
+  value: string | undefined,
+  fallback: LogOutputFormat
+): LogOutputFormat {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (LOG_OUTPUT_FORMAT_SET.has(normalized as LogOutputFormat)) {
+    return normalized as LogOutputFormat;
   }
   return fallback;
 }
@@ -329,22 +349,13 @@ export function parseRequiredCommandPolicies(
   return commandPolicies;
 }
 
-export function parseCommandPoliciesWithLegacyFallback(params: {
+export function parseCommandPoliciesWithFallback(params: {
   policyName: string;
   policyValue: string | undefined;
-  legacyName: string;
-  legacyValue: string | undefined;
-  legacyFallback: readonly string[];
+  fallbackCommands: readonly string[];
   warnings: string[];
 }): CommandPolicy[] {
-  const {
-    policyName,
-    policyValue,
-    legacyName,
-    legacyValue,
-    legacyFallback,
-    warnings,
-  } = params;
+  const { policyName, policyValue, fallbackCommands, warnings } = params;
 
   const policyErrors: string[] = [];
   const parsedPolicies = parseRequiredCommandPolicies(
@@ -357,37 +368,14 @@ export function parseCommandPoliciesWithLegacyFallback(params: {
   }
 
   warnings.push(
-    `${policyName} is missing or invalid in non-strict mode; falling back to ${legacyName} (allowAnyArgs=true).`
+    `${policyName} is missing or invalid in non-strict mode; using configured development fallback policies (allowAnyArgs=true).`
   );
-  const legacyCommands = parseAllowlistWithFallback(
-    legacyName,
-    legacyValue,
-    legacyFallback,
-    warnings
-  );
-  const resolvedPolicies = legacyCommands
-    .filter((command) => {
-      if (path.isAbsolute(command)) {
-        return true;
-      }
-      warnings.push(
-        `${legacyName} entry "${command}" is ignored because command policies require absolute executable paths.`
-      );
-      return false;
-    })
+  return fallbackCommands
+    .filter((command) => path.isAbsolute(command))
     .map((command) => ({
       command,
       allowAnyArgs: true,
       allowedArgs: [],
       allowedArgPatterns: [],
     }));
-
-  if (resolvedPolicies.length > 0) {
-    return resolvedPolicies;
-  }
-
-  warnings.push(
-    `${legacyName} did not provide any absolute command paths; falling back to deny-all policy.`
-  );
-  return [];
 }

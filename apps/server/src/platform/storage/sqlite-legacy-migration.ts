@@ -15,7 +15,7 @@ import type { Project } from "@/shared/types/project.types";
 import type { StoredSession } from "@/shared/types/session.types";
 import type { Settings } from "@/shared/types/settings.types";
 import { stringifyJson } from "@/shared/utils/json.util";
-import { isRecord } from "@/shared/utils/type-guards.util";
+import { isNodeErrno } from "@/shared/utils/node-error.util";
 
 const logger = createLogger("Storage");
 
@@ -243,12 +243,7 @@ async function readLegacyJsonFile<T>(filePath: string): Promise<T | undefined> {
     const raw = await readFile(filePath, "utf-8");
     return JSON.parse(raw) as T;
   } catch (error) {
-    if (
-      isRecord(error) &&
-      "code" in error &&
-      typeof error.code === "string" &&
-      error.code === "ENOENT"
-    ) {
+    if (isNodeErrno(error, "ENOENT")) {
       return undefined;
     }
     throw new Error(`Failed to parse legacy JSON file: ${filePath}`, {

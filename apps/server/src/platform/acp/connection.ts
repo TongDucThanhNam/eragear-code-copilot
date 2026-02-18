@@ -235,30 +235,43 @@ function createGuardedNdJsonStream(
     },
   });
 
+  let outputWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
+  const getOutputWriter = (): WritableStreamDefaultWriter<Uint8Array> => {
+    if (!outputWriter) {
+      outputWriter = output.getWriter();
+    }
+    return outputWriter;
+  };
+  const releaseOutputWriter = () => {
+    if (!outputWriter) {
+      return;
+    }
+    outputWriter.releaseLock();
+    outputWriter = null;
+  };
+
   const writable = new WritableStream({
+    start() {
+      outputWriter = output.getWriter();
+    },
     async write(message) {
       const content = `${JSON.stringify(message)}\n`;
-      const writer = output.getWriter();
-      try {
-        await writer.write(textEncoder.encode(content));
-      } finally {
-        writer.releaseLock();
-      }
+      await getOutputWriter().write(textEncoder.encode(content));
     },
     async close() {
-      const writer = output.getWriter();
+      const writer = getOutputWriter();
       try {
         await writer.close();
       } finally {
-        writer.releaseLock();
+        releaseOutputWriter();
       }
     },
     async abort(reason) {
-      const writer = output.getWriter();
+      const writer = getOutputWriter();
       try {
         await writer.abort(reason);
       } finally {
-        writer.releaseLock();
+        releaseOutputWriter();
       }
     },
   });

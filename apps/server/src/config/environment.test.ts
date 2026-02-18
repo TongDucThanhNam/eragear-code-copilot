@@ -27,8 +27,6 @@ function runEnvironmentSubprocess(params: {
     ? {
         ALLOWED_AGENT_COMMAND_POLICIES: defaultCommandPolicy,
         ALLOWED_TERMINAL_COMMAND_POLICIES: defaultCommandPolicy,
-        ALLOWED_AGENT_COMMANDS: process.execPath,
-        ALLOWED_TERMINAL_COMMANDS: process.execPath,
         ALLOWED_ENV_KEYS: "PATH",
       }
     : {};
@@ -149,6 +147,38 @@ describe("environment worker invariants", () => {
     expect(result.stdout.trim()).toBe(String(16 * 1024 * 1024));
   });
 
+  test("defaults and overrides LOG_OUTPUT_FORMAT by runtime environment", () => {
+    const prodDefault = readEnvironmentValueInSubprocess(
+      {
+        NODE_ENV: "production",
+        LOG_OUTPUT_FORMAT: "",
+      },
+      "logOutputFormat"
+    );
+    expect(prodDefault.status).toBe(0);
+    expect(prodDefault.stdout.trim()).toBe("json");
+
+    const devDefault = readEnvironmentValueInSubprocess(
+      {
+        NODE_ENV: "development",
+        LOG_OUTPUT_FORMAT: "",
+      },
+      "logOutputFormat"
+    );
+    expect(devDefault.status).toBe(0);
+    expect(devDefault.stdout.trim()).toBe("text");
+
+    const prodOverride = readEnvironmentValueInSubprocess(
+      {
+        NODE_ENV: "production",
+        LOG_OUTPUT_FORMAT: "text",
+      },
+      "logOutputFormat"
+    );
+    expect(prodOverride.status).toBe(0);
+    expect(prodOverride.stdout.trim()).toBe("text");
+  });
+
   test("parses AUTH_REQUIRE_CLOUDFLARE_ACCESS from environment", () => {
     const result = readEnvironmentValueInSubprocess(
       {
@@ -235,8 +265,6 @@ describe("environment worker invariants", () => {
         ALLOW_INSECURE_DEV_DEFAULTS: "true",
         ALLOWED_AGENT_COMMAND_POLICIES: "",
         ALLOWED_TERMINAL_COMMAND_POLICIES: "",
-        ALLOWED_AGENT_COMMANDS: "",
-        ALLOWED_TERMINAL_COMMANDS: "",
         ALLOWED_ENV_KEYS: "",
       },
     });
@@ -267,14 +295,32 @@ describe("environment worker invariants", () => {
         NODE_ENV: "production",
         ALLOWED_AGENT_COMMAND_POLICIES: "",
         ALLOWED_TERMINAL_COMMAND_POLICIES: "",
-        ALLOWED_AGENT_COMMANDS: "",
-        ALLOWED_TERMINAL_COMMANDS: "",
         ALLOWED_ENV_KEYS: "",
       },
     });
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("Invalid required allowlist configuration");
+  });
+
+  test("fails fast when deprecated legacy allowlist keys are provided in strict mode", () => {
+    const defaultCommandPolicy = JSON.stringify([
+      { command: process.execPath, allowAnyArgs: true },
+    ]);
+    const result = runEnvironmentSubprocess({
+      code: "import './src/config/environment.ts';",
+      includeRequiredAllowlists: false,
+      overrides: {
+        NODE_ENV: "development",
+        ALLOWED_AGENT_COMMAND_POLICIES: defaultCommandPolicy,
+        ALLOWED_TERMINAL_COMMAND_POLICIES: defaultCommandPolicy,
+        ALLOWED_AGENT_COMMANDS: process.execPath,
+        ALLOWED_ENV_KEYS: "PATH",
+      },
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("ALLOWED_AGENT_COMMANDS is deprecated");
   });
 
   test("fails fast when command policies use relative command paths", () => {
@@ -316,8 +362,6 @@ describe("environment worker invariants", () => {
         ERAGEAR_BOOT_CONFIG_PATH: configPath,
         ALLOWED_AGENT_COMMAND_POLICIES: "",
         ALLOWED_TERMINAL_COMMAND_POLICIES: "",
-        ALLOWED_AGENT_COMMANDS: "",
-        ALLOWED_TERMINAL_COMMANDS: "",
         ALLOWED_ENV_KEYS: "",
       },
     });
@@ -347,8 +391,6 @@ describe("environment worker invariants", () => {
         ALLOWED_AGENT_COMMAND_POLICIES: "",
         ALLOWED_TERMINAL_COMMAND_POLICIES: "",
         WS_PORT: "5222",
-        ALLOWED_AGENT_COMMANDS: "",
-        ALLOWED_TERMINAL_COMMANDS: "",
         ALLOWED_ENV_KEYS: "",
       },
       "wsPort",
@@ -385,8 +427,6 @@ describe("environment worker invariants", () => {
         WS_PORT: "5222",
         ALLOWED_AGENT_COMMAND_POLICIES: overrideCommandPolicy,
         ALLOWED_TERMINAL_COMMAND_POLICIES: overrideCommandPolicy,
-        ALLOWED_AGENT_COMMANDS: process.execPath,
-        ALLOWED_TERMINAL_COMMANDS: process.execPath,
         ALLOWED_ENV_KEYS: "HOME",
       },
       "wsPort",
@@ -520,8 +560,6 @@ describe("environment worker invariants", () => {
         ERAGEAR_BOOT_CONFIG_PATH: filePath,
         ALLOWED_AGENT_COMMAND_POLICIES: "",
         ALLOWED_TERMINAL_COMMAND_POLICIES: "",
-        ALLOWED_AGENT_COMMANDS: "",
-        ALLOWED_TERMINAL_COMMANDS: "",
         ALLOWED_ENV_KEYS: "",
       },
     });

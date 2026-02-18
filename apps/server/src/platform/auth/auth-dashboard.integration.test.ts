@@ -10,9 +10,23 @@ interface AppWithFetch {
 const TEST_ADMIN_USERNAME = "admin";
 const TEST_ADMIN_PASSWORD = "admin123";
 const TEST_BASE_URL = "http://127.0.0.1:3010";
+const AUTH_TEST_ENV_KEYS = [
+  "NODE_ENV",
+  "ERAGEAR_BOOT_CONFIG_PATH",
+  "AUTH_DB_PATH",
+  "ERAGEAR_STORAGE_DIR",
+  "AUTH_ADMIN_USERNAME",
+  "AUTH_ADMIN_PASSWORD",
+  "AUTH_BASE_URL",
+  "AUTH_TRUSTED_ORIGINS",
+  "AUTH_ALLOW_SIGNUP",
+  "AUTH_SECRET",
+  "LOG_FILE_ENABLED",
+] as const;
 
 let app: AppWithFetch;
 let tempDir = "";
+const previousEnv: Record<string, string | undefined> = {};
 
 function buildUrl(pathname: string): string {
   return `${TEST_BASE_URL}${pathname}`;
@@ -57,6 +71,10 @@ function signIn(username: string, password: string): Promise<Response> {
 }
 
 beforeAll(async () => {
+  for (const key of AUTH_TEST_ENV_KEYS) {
+    previousEnv[key] = process.env[key];
+  }
+
   tempDir = mkdtempSync(path.join(os.tmpdir(), "eragear-auth-dashboard-"));
   const bootConfigPath = path.join(tempDir, "settings.json");
   writeFileSync(
@@ -109,7 +127,14 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  process.env.ERAGEAR_BOOT_CONFIG_PATH = undefined;
+  for (const key of AUTH_TEST_ENV_KEYS) {
+    const previousValue = previousEnv[key];
+    if (previousValue === undefined) {
+      Reflect.deleteProperty(process.env, key);
+      continue;
+    }
+    process.env[key] = previousValue;
+  }
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
   }

@@ -5,6 +5,8 @@ import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { RespondPermissionService } from "./respond-permission.service";
 
+const CHAT_NOT_FOUND_RE = /chat not found/i;
+
 function createSession(userId: string): ChatSession {
   return {
     id: "chat-1",
@@ -48,7 +50,7 @@ describe("RespondPermissionService", () => {
         requestId: "req-1",
         decision: "allow",
       })
-    ).rejects.toThrow(/chat not found/i);
+    ).rejects.toThrow(CHAT_NOT_FOUND_RE);
   });
 
   test("resolves pending permission for owning user", async () => {

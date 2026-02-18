@@ -16,6 +16,7 @@
 import type { Context, Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { createElement } from "react";
+import { APP_SERVER_TITLE } from "@/config/app-identity";
 import { LoginHead, LoginPage } from "@/presentation/dashboard/login";
 import { DashboardPage } from "@/presentation/dashboard/server/dashboard-page";
 import { renderDocument } from "@/presentation/dashboard/server/render-document";
@@ -89,7 +90,7 @@ export function registerDashboardUiRoutes(
     }
     const username = authState.adminUsername ?? runtime.defaultAdminUsername;
     return renderDocument(c, createElement(LoginPage, { username }), {
-      title: "Eragear Server Login",
+      title: `${APP_SERVER_TITLE} Login`,
       head: createElement(LoginHead, { username }),
       bodyClassName:
         "flex min-h-screen flex-col bg-[#F9F9F7] font-body text-[#111111] antialiased",
@@ -166,7 +167,7 @@ export function registerDashboardUiRoutes(
         requiresRestart,
       }),
       {
-        title: "Eragear Server Dashboard",
+        title: `${APP_SERVER_TITLE} Dashboard`,
         bodyClassName: "bg-paper font-body text-ink antialiased",
         bodyAttributes: { "data-active-tab": normalizedTab },
       }

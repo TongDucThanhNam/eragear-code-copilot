@@ -6,6 +6,8 @@ import {
   SessionSqliteMapper,
 } from "./session-sqlite.mapper";
 
+const INVALID_STATUS_RE = /invalid status/i;
+
 class ExposedSessionSqliteMapper extends SessionSqliteMapper {
   mapListRowForTest(row: SessionListRow): StoredSession {
     return this.mapSessionListRow(row);
@@ -121,7 +123,7 @@ describe("SessionSqliteMapper row invariants", () => {
     } as SessionListRow;
 
     expect(() => mapper.mapListRowForTest(invalidRow)).toThrow(
-      /invalid status/i
+      INVALID_STATUS_RE
     );
   });
 });

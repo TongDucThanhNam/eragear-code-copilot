@@ -7,19 +7,19 @@ import {
   normalizeAppConfig,
 } from "@/modules/settings/app-config.service";
 import { SettingsSqliteRepository } from "@/modules/settings/di";
-import type { AppConfig } from "@/shared/types/settings.types";
 import {
   closeSqliteDb,
   getSqliteStorageStatsLocal,
   runSqliteRuntimeMaintenanceLocal,
-} from "./sqlite-store";
+} from "@/platform/storage/sqlite-store";
 import type {
   SqliteWorkerInitData,
   SqliteWorkerReadyMessage,
   SqliteWorkerRequest,
   SqliteWorkerResponse,
-} from "./sqlite-worker.protocol";
-import { SQLITE_WORKER_KIND } from "./sqlite-worker.protocol";
+} from "@/platform/storage/sqlite-worker.protocol";
+import { SQLITE_WORKER_KIND } from "@/platform/storage/sqlite-worker.protocol";
+import type { AppConfig } from "@/shared/types/settings.types";
 
 function toErrorPayload(error: unknown): SqliteWorkerResponse["error"] {
   if (error instanceof Error) {

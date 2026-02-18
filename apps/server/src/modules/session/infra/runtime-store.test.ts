@@ -6,6 +6,8 @@ import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { SessionRuntimeStore } from "./runtime-store";
 
 const LOCK_TIMEOUT_RE = /Lock acquisition timed out/;
+const OUTBOX_FAILURE_RE = /outbox failure/;
+const MUTATION_QUEUE_OVERFLOW_RE = /Pending mutation queue overflow/;
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -72,7 +74,6 @@ describe("SessionRuntimeStore.runExclusive", () => {
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 20,
       lockAcquireTimeoutMs: 500,
-      eventBusPublishTimeoutMs: 100,
       eventBusPublishMaxQueuePerChat: 8,
     });
     const firstStarted = createDeferred<void>();
@@ -110,7 +111,6 @@ describe("SessionRuntimeStore.runExclusive", () => {
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 20,
       lockAcquireTimeoutMs: 20,
-      eventBusPublishTimeoutMs: 100,
       eventBusPublishMaxQueuePerChat: 8,
     });
     const firstStarted = createDeferred<void>();
@@ -131,6 +131,31 @@ describe("SessionRuntimeStore.runExclusive", () => {
     releaseFirst.resolve();
     await expect(first).resolves.toBe("first");
   });
+
+  test("fails fast when pending mutation queue exceeds per-chat limit", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 1,
+    });
+    const firstStarted = createDeferred<void>();
+    const releaseFirst = createDeferred<void>();
+
+    const first = store.runExclusive("chat-1", async () => {
+      firstStarted.resolve();
+      await releaseFirst.promise;
+      return "first";
+    });
+    await firstStarted.promise;
+
+    await expect(
+      store.runExclusive("chat-1", async () => "second")
+    ).rejects.toThrow(MUTATION_QUEUE_OVERFLOW_RE);
+
+    releaseFirst.resolve();
+    await expect(first).resolves.toBe("first");
+  });
 });
 
 describe("SessionRuntimeStore.delete", () => {
@@ -139,7 +164,6 @@ describe("SessionRuntimeStore.delete", () => {
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 20,
       lockAcquireTimeoutMs: 500,
-      eventBusPublishTimeoutMs: 100,
       eventBusPublishMaxQueuePerChat: 8,
     });
     const session = createSession("chat-1");
@@ -166,7 +190,6 @@ describe("SessionRuntimeStore.broadcast", () => {
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 3,
       lockAcquireTimeoutMs: 500,
-      eventBusPublishTimeoutMs: 100,
       eventBusPublishMaxQueuePerChat: 8,
     });
     const session = createSession("chat-1");
@@ -192,8 +215,7 @@ describe("SessionRuntimeStore.broadcast", () => {
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 10,
       lockAcquireTimeoutMs: 500,
-      eventBusPublishTimeoutMs: 100,
-      eventBusPublishMaxQueuePerChat: 64,
+      eventBusPublishMaxQueuePerChat: 200,
     });
     const session = createSession("chat-1");
     store.set("chat-1", session);
@@ -221,7 +243,6 @@ describe("SessionRuntimeStore.broadcast", () => {
     const store = new SessionRuntimeStore(createFailingOutboxStub(), {
       sessionBufferLimit: 10,
       lockAcquireTimeoutMs: 500,
-      eventBusPublishTimeoutMs: 100,
       eventBusPublishMaxQueuePerChat: 64,
     });
     const session = createSession("chat-1");
@@ -236,7 +257,7 @@ describe("SessionRuntimeStore.broadcast", () => {
         type: "error",
         error: "e-1",
       })
-    ).rejects.toThrow(/outbox failure/);
+    ).rejects.toThrow(OUTBOX_FAILURE_RE);
     expect(received).toEqual([]);
     expect(session.messageBuffer).toEqual([]);
   });

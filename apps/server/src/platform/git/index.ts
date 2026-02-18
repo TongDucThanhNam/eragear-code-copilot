@@ -22,6 +22,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { GitPort } from "@/modules/tooling";
 import { createLogger } from "@/platform/logging/structured-logger";
+import { isNodeErrno } from "@/shared/utils/node-error.util";
 
 const execFileAsync = promisify(execFile);
 const logger = createLogger("Storage");
@@ -39,13 +40,7 @@ function isPathOutsideRoot(rootPath: string, targetPath: string): boolean {
 }
 
 function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
-  return (
-    error !== null &&
-    typeof error === "object" &&
-    "code" in error &&
-    ((error as NodeJS.ErrnoException).code === "ENOENT" ||
-      (error as NodeJS.ErrnoException).code === "ENOTDIR")
-  );
+  return isNodeErrno(error, "ENOENT") || isNodeErrno(error, "ENOTDIR");
 }
 
 async function runGitCommand(params: {

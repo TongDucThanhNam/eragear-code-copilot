@@ -1,6 +1,7 @@
 import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { systemClock } from "@/platform/time/system-clock";
+import { isAppError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 
 const logger = createLogger("Storage");
@@ -240,16 +241,24 @@ class SqliteWriteQueue {
         return await task();
       } catch (error) {
         if (!isSqliteBusyError(error) || attempt >= policy.busyMaxRetries) {
-          logger.error(
-            "SQLite write failed",
-            error instanceof Error ? error : new Error(String(error)),
-            {
-              operation,
-              attempt,
-              maxAttempts: policy.busyMaxRetries,
-              pendingTotal: this.pendingTotal(),
-            }
-          );
+          const normalizedError =
+            error instanceof Error ? error : new Error(String(error));
+          const context = {
+            operation,
+            attempt,
+            maxAttempts: policy.busyMaxRetries,
+            pendingTotal: this.pendingTotal(),
+          };
+          if (isAppError(error) && error.statusCode < 500) {
+            logger.warn("SQLite write rejected by application invariant", {
+              ...context,
+              code: error.code,
+              statusCode: error.statusCode,
+              message: error.message,
+            });
+          } else {
+            logger.error("SQLite write failed", normalizedError, context);
+          }
           throw error;
         }
 

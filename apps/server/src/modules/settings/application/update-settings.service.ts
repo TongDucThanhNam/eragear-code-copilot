@@ -1,8 +1,8 @@
 import { ValidationError } from "@/shared/errors";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { Settings } from "@/shared/types/settings.types";
-import { normalizeProjectRootsForSettings } from "@/shared/utils/project-roots.util";
 import { APP_CONFIG_KEYS, type AppConfigService } from "../app-config.service";
+import { SettingsAggregate } from "../domain/settings.entity";
 import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
 
 export interface UpdateSettingsResult {
@@ -27,14 +27,17 @@ export class UpdateSettingsService {
   }
 
   async execute(patch: Partial<Settings>): Promise<UpdateSettingsResult> {
-    const normalizedPatch: Partial<Settings> = {
-      ...patch,
-    };
+    const current = await this.settingsRepo.get();
+    const aggregate = new SettingsAggregate(current);
+    const normalizedPatch: Partial<Settings> = {};
+
+    if (patch.ui !== undefined) {
+      aggregate.updateUI(patch.ui);
+      normalizedPatch.ui = aggregate.ui;
+    }
     if (patch.projectRoots !== undefined) {
       try {
-        normalizedPatch.projectRoots = normalizeProjectRootsForSettings(
-          patch.projectRoots
-        );
+        aggregate.setProjectRoots(patch.projectRoots);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Invalid project roots";
@@ -43,6 +46,11 @@ export class UpdateSettingsService {
           op: "settings.update",
         });
       }
+      normalizedPatch.projectRoots = aggregate.projectRoots;
+    }
+    if (patch.mcpServers !== undefined) {
+      aggregate.setMcpServers(patch.mcpServers);
+      normalizedPatch.mcpServers = aggregate.mcpServers;
     }
     if (patch.app !== undefined) {
       try {
@@ -57,7 +65,6 @@ export class UpdateSettingsService {
       }
     }
 
-    const current = await this.settingsRepo.get();
     const settings = await this.settingsRepo.update(normalizedPatch);
     this.appConfigService.reloadFromSettings(settings);
     const changedKeys: string[] = [];

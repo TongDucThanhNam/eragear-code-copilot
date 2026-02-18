@@ -1,6 +1,5 @@
 export {
   APP_CONFIG_KEYS,
-  AppConfigSchema,
   AppConfigService,
   createDefaultAppConfigFromEnv,
   normalizeAppConfig,

@@ -1,0 +1,791 @@
+src/platform/storage/sqlite-process-lock.ts:164:23 lint/complexity/noExcessiveCognitiveComplexity ━━━━━━━━━━
+
+  ! Excessive complexity of 27 detected (max: 25).
+  
+    162 │ }
+    163 │ 
+  > 164 │ export async function acquireSqliteProcessInitLock(
+        │                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    165 │   storageDir: string
+    166 │ ): Promise<SqliteProcessInitLock> {
+  
+  i Please refactor this function to reduce its complexity score from 27 to the max allowed complexity 25.
+  
+
+src/bootstrap/composition.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+   > 1 │ import type {
+       │ ^^^^^^^^^^^^^
+   > 2 │   AgentServiceFactory,
+   > 3 │   AiServiceFactory,
+   > 4 │   AuthServiceFactory,
+        ...
+   > 9 │   ToolingServiceFactory,
+  > 10 │ } from "@/modules/service-factories";
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    11 │ import type {
+    12 │   SessionEventOutboxPort,
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      1     │ - import·type·{
+      2     │ - ··AgentServiceFactory,
+      3     │ - ··AiServiceFactory,
+      4     │ - ··AuthServiceFactory,
+      5     │ - ··OpsServiceFactory,
+      6     │ - ··ProjectServiceFactory,
+      7     │ - ··SessionServiceFactory,
+      8     │ - ··SettingsServiceFactory,
+      9     │ - ··ToolingServiceFactory,
+     10     │ - }·from·"@/modules/service-factories";
+          1 │ + import·{·ENV·}·from·"@/config/environment";
+     11   2 │   import type {
+     12     │ - ··SessionEventOutboxPort,
+     13     │ - ··SessionRepositoryPort,
+     14     │ - ··SessionRuntimePort,
+     15     │ - }·from·"@/modules/session";
+     16     │ - import·{
+     17     │ - ··AppConfigService,
+     18     │ - ··type·SettingsRepositoryPort,
+     19     │ - }·from·"@/modules/settings";
+     20     │ - import·{·SettingsSqliteRepository·}·from·"@/modules/settings/di";
+     21     │ - import·type·{·AuthRuntime·}·from·"@/platform/auth/auth";
+     22     │ - import·{·ENV·}·from·"@/config/environment";
+          3 │ + ··AgentServiceFactory,
+          4 │ + ··AiServiceFactory,
+          5 │ + ··AuthServiceFactory,
+          6 │ + ··OpsServiceFactory,
+          7 │ + ··ProjectServiceFactory,
+          8 │ + ··SessionServiceFactory,
+          9 │ + ··SettingsServiceFactory,
+         10 │ + ··ToolingServiceFactory,
+         11 │ + }·from·"@/modules/service-factories";
+         12 │ + import·type·{
+         13 │ + ··SessionEventOutboxPort,
+         14 │ + ··SessionRepositoryPort,
+         15 │ + ··SessionRuntimePort,
+         16 │ + }·from·"@/modules/session";
+         17 │ + import·{
+         18 │ + ··AppConfigService,
+         19 │ + ··type·SettingsRepositoryPort,
+         20 │ + }·from·"@/modules/settings";
+         21 │ + import·{·SettingsSqliteRepository·}·from·"@/modules/settings/di";
+         22 │ + import·type·{·AuthRuntime·}·from·"@/platform/auth/auth";
+     23  23 │   import { setRuntimeLogLevel } from "@/platform/logging/runtime-log-level";
+     24  24 │   import { closeSqliteStorage } from "@/platform/storage/sqlite-db";
+    ······· │ 
+     39  39 │   } from "./init/persistence-module.init";
+     40  40 │   import {
+     41     │ - ··initializeServiceModule,
+     42     │ - ··type·ResolveAuthContext·as·InitResolveAuthContext,
+     43     │ - }·from·"./init/service-module.init";
+         41 │ + ··type·AppRuntimeConfig,
+         42 │ + ··resolveAppRuntimeConfig,
+         43 │ + }·from·"./init/runtime-config.init";
+     44  44 │   import {
+     45     │ - ··resolveAppRuntimeConfig,
+     46     │ - ··type·AppRuntimeConfig,
+     47     │ - }·from·"./init/runtime-config.init";
+         45 │ + ··type·ResolveAuthContext·as·InitResolveAuthContext,
+         46 │ + ··initializeServiceModule,
+         47 │ + }·from·"./init/service-module.init";
+     48  48 │   import { createSqliteWorkerRuntimeConfigSync } from "./init/sqlite-worker-runtime-config-sync.init";
+     49  49 │   import type { ServerLifecycle } from "./lifecycle";
+  
+
+src/bootstrap/init/auth-module.init.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import {
+      │ ^^^^^^^^
+  > 2 │   createAuthRuntime,
+  > 3 │   type AuthRuntime,
+  > 4 │   type AuthRuntimePolicy,
+  > 5 │ } from "@/platform/auth/auth";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    6 │ 
+    7 │ export interface AuthModule {
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1  1 │   import {
+     2    │ - ··createAuthRuntime,
+     3    │ - ··type·AuthRuntime,
+        2 │ + ··type·AuthRuntime,
+     4  3 │     type AuthRuntimePolicy,
+        4 │ + ··createAuthRuntime,
+     5  5 │   } from "@/platform/auth/auth";
+     6  6 │   
+  
+
+src/bootstrap/init/core-module.init.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import {
+      │ ^^^^^^^^
+  > 2 │   createSessionEventOutbox,
+  > 3 │   createSessionRuntimeStore,
+  > 4 │   SessionAcpAdapter,
+  > 5 │ } from "@/modules/session/di";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    6 │ import type { SessionAcpPort, SessionEventOutboxPort } from "@/modules/session";
+    7 │ import type { ClockPort } from "@/shared/ports/clock.port";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1    │ - import·{
+     2    │ - ··createSessionEventOutbox,
+     3    │ - ··createSessionRuntimeStore,
+     4    │ - ··SessionAcpAdapter,
+     5    │ - }·from·"@/modules/session/di";
+     6    │ - import·type·{·SessionAcpPort,·SessionEventOutboxPort·}·from·"@/modules/session";
+     7    │ - import·type·{·ClockPort·}·from·"@/shared/ports/clock.port";
+     8    │ - import·type·{·EventBusPort·}·from·"@/shared/ports/event-bus.port";
+     9    │ - import·type·{·LogStorePort·}·from·"@/shared/ports/log-store.port";
+    10    │ - import·type·{·LoggerPort·}·from·"@/shared/ports/logger.port";
+    11    │ - import·{·EventBus·}·from·"@/shared/utils/event-bus";
+    12    │ - import·{·getLogStore·}·from·"@/platform/logging/log-store";
+    13    │ - import·{·createAppLogger·}·from·"@/platform/logging/logger-adapter";
+    14    │ - import·{·systemClock·}·from·"@/platform/time/system-clock";
+        1 │ + import·type·{·SessionAcpPort,·SessionEventOutboxPort·}·from·"@/modules/session";
+        2 │ + import·{
+        3 │ + ··createSessionEventOutbox,
+        4 │ + ··createSessionRuntimeStore,
+        5 │ + ··SessionAcpAdapter,
+        6 │ + }·from·"@/modules/session/di";
+        7 │ + import·{·getLogStore·}·from·"@/platform/logging/log-store";
+        8 │ + import·{·createAppLogger·}·from·"@/platform/logging/logger-adapter";
+        9 │ + import·{·systemClock·}·from·"@/platform/time/system-clock";
+       10 │ + import·type·{·ClockPort·}·from·"@/shared/ports/clock.port";
+       11 │ + import·type·{·EventBusPort·}·from·"@/shared/ports/event-bus.port";
+       12 │ + import·type·{·LogStorePort·}·from·"@/shared/ports/log-store.port";
+       13 │ + import·type·{·LoggerPort·}·from·"@/shared/ports/logger.port";
+       14 │ + import·{·EventBus·}·from·"@/shared/utils/event-bus";
+    15 15 │   
+    16 16 │   export interface CoreModuleInitPolicy {
+  
+
+src/bootstrap/init/persistence-module.init.ts:13:8 lint/style/useImportType  FIXABLE  ━━━━━━━━━━
+
+  × All these imports are only used as types.
+  
+    11 │ import type { SessionRepositoryPort } from "@/modules/session";
+    12 │ import { createSessionRepository } from "@/modules/session/di";
+  > 13 │ import {
+       │        ^
+  > 14 │   AppConfigService,
+  > 15 │   type SettingsRepositoryPort,
+  > 16 │ } from "@/modules/settings";
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    17 │ import {
+    18 │   SettingsSqliteRepository,
+  
+  i Importing the types with import type ensures that they are removed by the compilers and avoids loading unnecessary modules.
+  
+  i Safe fix: Use import type.
+  
+    11 11 │   import type { SessionRepositoryPort } from "@/modules/session";
+    12 12 │   import { createSessionRepository } from "@/modules/session/di";
+    13    │ - import·{
+       13 │ + import·type·{
+    14 14 │     AppConfigService,
+    15    │ - ··type·SettingsRepositoryPort,
+       15 │ + ··SettingsRepositoryPort,
+    16 16 │   } from "@/modules/settings";
+    17 17 │   import {
+  
+
+src/bootstrap/init/persistence-module.init.ts format ━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    45 45 │     params: PersistenceModuleInitParams
+    46 46 │   ): PersistenceModule {
+    47    │ - ··const·{·appConfigService,·sqliteWorkerEnabled,·settingsRepoOverride·}·=·params;
+       47 │ + ··const·{·appConfigService,·sqliteWorkerEnabled,·settingsRepoOverride·}·=
+       48 │ + ····params;
+    48 49 │     const settingsRepo =
+    49 50 │       settingsRepoOverride ?? initializeSettingsRepository(sqliteWorkerEnabled);
+  
+
+src/bootstrap/init/runtime-config.init.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { SendMessagePolicy } from "@/modules/ai";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { ENV } from "@/config/environment";
+    3 │ import type { AuthRuntimePolicy } from "@/platform/auth/auth";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1    │ - import·type·{·SendMessagePolicy·}·from·"@/modules/ai";
+     2    │ - import·{·ENV·}·from·"@/config/environment";
+        1 │ + import·{·ENV·}·from·"@/config/environment";
+        2 │ + import·type·{·SendMessagePolicy·}·from·"@/modules/ai";
+     3  3 │   import type { AuthRuntimePolicy } from "@/platform/auth/auth";
+     4  4 │   import type { ServerLifecyclePolicy } from "../lifecycle";
+  
+
+src/bootstrap/init/service-module.init.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { GetMeService } from "@/modules/auth";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type {
+    3 │   AgentServiceFactory,
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     14  14 │   import type { AuthRuntime } from "@/platform/auth/auth";
+     15  15 │   import {
+     16     │ - ··createAuthContextResolver,
+     17     │ - ··type·AuthContext,
+         16 │ + ··type·AuthContext,
+         17 │ + ··createAuthContextResolver,
+     18  18 │   } from "@/platform/auth/guards";
+     19  19 │   import { getResponseCache } from "@/platform/caching/response-cache";
+  
+
+src/config/environment.ts:10:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+     8 │  */
+     9 │ 
+  > 10 │ import type { LogLevel } from "@/shared/types/log.types";
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    11 │ import {
+    12 │   assertCompiledBootRequirements,
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     46  46 │     DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
+     47  47 │     DEFAULT_SQLITE_WRITE_QUEUE_MAX_PENDING,
+     48     │ - ··DEFAULT_STORAGE_BUSY_MAX_RETRIES,
+         48 │ + ··DEFAULT_STORAGE_ALLOW_UNKNOWN_FS,
+         49 │ + ··DEFAULT_STORAGE_BUSY_MAX_RETRIES,
+     49  50 │     DEFAULT_STORAGE_BUSY_RETRY_BASE_DELAY_MS,
+     50  51 │     DEFAULT_STORAGE_BUSY_TIMEOUT_MS,
+     51  52 │     DEFAULT_STORAGE_INCREMENTAL_VACUUM_MIN_FREE_PAGES,
+     52     │ - ··DEFAULT_STORAGE_INCREMENTAL_VACUUM_STEP_PAGES,
+     53     │ - ··DEFAULT_STORAGE_ALLOW_UNKNOWN_FS,
+         53 │ + ··DEFAULT_STORAGE_INCREMENTAL_VACUUM_STEP_PAGES,
+     54  54 │     DEFAULT_STORAGE_INIT_RETRY_COOLDOWN_MS,
+     55  55 │     DEFAULT_STORAGE_MAX_BIND_PARAMS,
+  
+
+src/modules/session/application/create-session.service.test.ts:220:23 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    218 │         projectId: "project-3",
+    219 │       })
+  > 220 │     ).rejects.toThrow(/bootstrap failed/);
+        │                       ^^^^^^^^^^^^^^^^^^
+    221 │     expect(terminateCalls).toEqual([
+    222 │       {
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+src/modules/session/application/session-project-context-resolver.service.test.ts:80:23 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    78 │         projectRoot: outside,
+    79 │       })
+  > 80 │     ).rejects.toThrow(/not allowed|configured project roots/i);
+       │                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    81 │   });
+    82 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+src/modules/session/infra/runtime-store.test.ts:239:23 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    237 │         error: "e-1",
+    238 │       })
+  > 239 │     ).rejects.toThrow(/outbox failure/);
+        │                       ^^^^^^^^^^^^^^^^
+    240 │     expect(received).toEqual([]);
+    241 │     expect(session.messageBuffer).toEqual([]);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+src/modules/session/infra/session-sqlite.mapper.test.ts:124:7 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    123 │     expect(() => mapper.mapListRowForTest(invalidRow)).toThrow(
+  > 124 │       /invalid status/i
+        │       ^^^^^^^^^^^^^^^^^
+    125 │     );
+    126 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+src/modules/tooling/application/code-context.service.test.ts:46:7 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    45 │     await expect(service.getProjectContext("user-1", "chat-1")).rejects.toThrow(
+  > 46 │       /chat not found/i
+       │       ^^^^^^^^^^^^^^^^^
+    47 │     );
+    48 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+src/modules/tooling/application/respond-permission.service.test.ts:51:23 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    49 │         decision: "allow",
+    50 │       })
+  > 51 │     ).rejects.toThrow(/chat not found/i);
+       │                       ^^^^^^^^^^^^^^^^^
+    52 │   });
+    53 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+src/platform/storage/sqlite-process-lock.test.ts:132:17 lint/suspicious/useAwait ━━━━━━━━━━
+
+  × This async function lacks an await expression.
+  
+    130 │       setSqliteProcessLockHooksForTests({
+    131 │         sleep: async () => undefined,
+  > 132 │         unlink: async () => {
+        │                 ^^^^^^^^^^^^^
+  > 133 │           throw createErrnoError("EBUSY");
+  > 134 │         },
+        │         ^
+    135 │       });
+    136 │ 
+  
+  i Remove this async modifier, or add an await expression in the function.
+  
+    130 │       setSqliteProcessLockHooksForTests({
+    131 │         sleep: async () => undefined,
+  > 132 │         unlink: async () => {
+        │                 ^^^^^^^^^^^^^
+  > 133 │           throw createErrnoError("EBUSY");
+  > 134 │         },
+        │         ^
+    135 │       });
+    136 │ 
+  
+  i Async functions without await expressions may not need to be declared async.
+  
+
+src/platform/storage/storage-path.test.ts:14:25 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    13 │ describe("storage-path network guard", () => {
+  > 14 │   const LOCAL_FS_TYPE = 0xef53;
+       │                         ^^^^^^
+    15 │   const NETWORK_FS_TYPE = 0x6969;
+    16 │   const UNKNOWN_FS_TYPE = 0x12345678;
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     12  12 │   
+     13  13 │   describe("storage-path network guard", () => {
+     14     │ - ··const·LOCAL_FS_TYPE·=·0xef53;
+         14 │ + ··const·LOCAL_FS_TYPE·=·0xef_53;
+     15  15 │     const NETWORK_FS_TYPE = 0x6969;
+     16  16 │     const UNKNOWN_FS_TYPE = 0x12345678;
+  
+
+src/platform/storage/storage-path.test.ts:15:27 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    13 │ describe("storage-path network guard", () => {
+    14 │   const LOCAL_FS_TYPE = 0xef53;
+  > 15 │   const NETWORK_FS_TYPE = 0x6969;
+       │                           ^^^^^^
+    16 │   const UNKNOWN_FS_TYPE = 0x12345678;
+    17 │ 
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     13  13 │   describe("storage-path network guard", () => {
+     14  14 │     const LOCAL_FS_TYPE = 0xef53;
+     15     │ - ··const·NETWORK_FS_TYPE·=·0x6969;
+         15 │ + ··const·NETWORK_FS_TYPE·=·0x69_69;
+     16  16 │     const UNKNOWN_FS_TYPE = 0x12345678;
+     17  17 │   
+  
+
+src/platform/storage/storage-path.test.ts:16:27 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    14 │   const LOCAL_FS_TYPE = 0xef53;
+    15 │   const NETWORK_FS_TYPE = 0x6969;
+  > 16 │   const UNKNOWN_FS_TYPE = 0x12345678;
+       │                           ^^^^^^^^^^
+    17 │ 
+    18 │   test("resolves relative ERAGEAR_STORAGE_DIR from server root, not cwd", async () => {
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     14  14 │     const LOCAL_FS_TYPE = 0xef53;
+     15  15 │     const NETWORK_FS_TYPE = 0x6969;
+     16     │ - ··const·UNKNOWN_FS_TYPE·=·0x12345678;
+         16 │ + ··const·UNKNOWN_FS_TYPE·=·0x12_34_56_78;
+     17  17 │   
+     18  18 │     test("resolves relative ERAGEAR_STORAGE_DIR from server root, not cwd", async () => {
+  
+
+src/platform/storage/storage-path.ts:30:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    28 │ const LINUX_LOCAL_FS_TYPES = new Set<number>([
+    29 │   0x1021994, // TMPFS
+  > 30 │   0x2fc12fc1, // ZFS
+       │   ^^^^^^^^^^
+    31 │   0x3153464a, // JFS
+    32 │   0x52654973, // ReiserFS
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     28  28 │   const LINUX_LOCAL_FS_TYPES = new Set<number>([
+     29  29 │     0x1021994, // TMPFS
+     30     │ - ··0x2fc12fc1,·//·ZFS
+         30 │ + ··0x2f_c1_2f_c1,·//·ZFS
+     31  31 │     0x3153464a, // JFS
+     32  32 │     0x52654973, // ReiserFS
+  
+
+src/platform/storage/storage-path.ts:31:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    29 │   0x1021994, // TMPFS
+    30 │   0x2fc12fc1, // ZFS
+  > 31 │   0x3153464a, // JFS
+       │   ^^^^^^^^^^
+    32 │   0x52654973, // ReiserFS
+    33 │   0x58465342, // XFS
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     29  29 │     0x1021994, // TMPFS
+     30  30 │     0x2fc12fc1, // ZFS
+     31     │ - ··0x3153464a,·//·JFS
+         31 │ + ··0x31_53_46_4a,·//·JFS
+     32  32 │     0x52654973, // ReiserFS
+     33  33 │     0x58465342, // XFS
+  
+
+src/platform/storage/storage-path.ts:32:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    30 │   0x2fc12fc1, // ZFS
+    31 │   0x3153464a, // JFS
+  > 32 │   0x52654973, // ReiserFS
+       │   ^^^^^^^^^^
+    33 │   0x58465342, // XFS
+    34 │   0x9123683e, // Btrfs
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     30  30 │     0x2fc12fc1, // ZFS
+     31  31 │     0x3153464a, // JFS
+     32     │ - ··0x52654973,·//·ReiserFS
+         32 │ + ··0x52_65_49_73,·//·ReiserFS
+     33  33 │     0x58465342, // XFS
+     34  34 │     0x9123683e, // Btrfs
+  
+
+src/platform/storage/storage-path.ts:33:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    31 │   0x3153464a, // JFS
+    32 │   0x52654973, // ReiserFS
+  > 33 │   0x58465342, // XFS
+       │   ^^^^^^^^^^
+    34 │   0x9123683e, // Btrfs
+    35 │   0xef53, // ext2/ext3/ext4
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     31  31 │     0x3153464a, // JFS
+     32  32 │     0x52654973, // ReiserFS
+     33     │ - ··0x58465342,·//·XFS
+         33 │ + ··0x58_46_53_42,·//·XFS
+     34  34 │     0x9123683e, // Btrfs
+     35  35 │     0xef53, // ext2/ext3/ext4
+  
+
+src/platform/storage/storage-path.ts:34:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    32 │   0x52654973, // ReiserFS
+    33 │   0x58465342, // XFS
+  > 34 │   0x9123683e, // Btrfs
+       │   ^^^^^^^^^^
+    35 │   0xef53, // ext2/ext3/ext4
+    36 │ ]);
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     32  32 │     0x52654973, // ReiserFS
+     33  33 │     0x58465342, // XFS
+     34     │ - ··0x9123683e,·//·Btrfs
+         34 │ + ··0x91_23_68_3e,·//·Btrfs
+     35  35 │     0xef53, // ext2/ext3/ext4
+     36  36 │   ]);
+  
+
+src/platform/storage/storage-path.ts:35:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    33 │   0x58465342, // XFS
+    34 │   0x9123683e, // Btrfs
+  > 35 │   0xef53, // ext2/ext3/ext4
+       │   ^^^^^^
+    36 │ ]);
+    37 │ 
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     33  33 │     0x58465342, // XFS
+     34  34 │     0x9123683e, // Btrfs
+     35     │ - ··0xef53,·//·ext2/ext3/ext4
+         35 │ + ··0xef_53,·//·ext2/ext3/ext4
+     36  36 │   ]);
+     37  37 │   
+  
+
+src/platform/storage/storage-path.ts:44:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    43 │ const KNOWN_NETWORK_FS_TYPES = new Set<number>([
+  > 44 │   0x517b, // SMB
+       │   ^^^^^^
+    45 │   0x6969, // NFS
+    46 │   0x5346414f, // AFS
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     42  42 │   
+     43  43 │   const KNOWN_NETWORK_FS_TYPES = new Set<number>([
+     44     │ - ··0x517b,·//·SMB
+         44 │ + ··0x51_7b,·//·SMB
+     45  45 │     0x6969, // NFS
+     46  46 │     0x5346414f, // AFS
+  
+
+src/platform/storage/storage-path.ts:45:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    43 │ const KNOWN_NETWORK_FS_TYPES = new Set<number>([
+    44 │   0x517b, // SMB
+  > 45 │   0x6969, // NFS
+       │   ^^^^^^
+    46 │   0x5346414f, // AFS
+    47 │   0xff534d42, // CIFS
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     43  43 │   const KNOWN_NETWORK_FS_TYPES = new Set<number>([
+     44  44 │     0x517b, // SMB
+     45     │ - ··0x6969,·//·NFS
+         45 │ + ··0x69_69,·//·NFS
+     46  46 │     0x5346414f, // AFS
+     47  47 │     0xff534d42, // CIFS
+  
+
+src/platform/storage/storage-path.ts:46:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    44 │   0x517b, // SMB
+    45 │   0x6969, // NFS
+  > 46 │   0x5346414f, // AFS
+       │   ^^^^^^^^^^
+    47 │   0xff534d42, // CIFS
+    48 │ ]);
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     44  44 │     0x517b, // SMB
+     45  45 │     0x6969, // NFS
+     46     │ - ··0x5346414f,·//·AFS
+         46 │ + ··0x53_46_41_4f,·//·AFS
+     47  47 │     0xff534d42, // CIFS
+     48  48 │   ]);
+  
+
+src/platform/storage/storage-path.ts:47:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    45 │   0x6969, // NFS
+    46 │   0x5346414f, // AFS
+  > 47 │   0xff534d42, // CIFS
+       │   ^^^^^^^^^^
+    48 │ ]);
+    49 │ 
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     45  45 │     0x6969, // NFS
+     46  46 │     0x5346414f, // AFS
+     47     │ - ··0xff534d42,·//·CIFS
+         47 │ + ··0xff_53_4d_42,·//·CIFS
+     48  48 │   ]);
+     49  49 │   
+  
+
+src/platform/storage/storage-path.ts format ━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     54  54 │   
+     55  55 │   const resolveRealPathSync =
+     56     │ - ··typeof·realpathSync.native·===·"function"·?·realpathSync.native·:·realpathSync;
+         56 │ + ··typeof·realpathSync.native·===·"function"
+         57 │ + ····?·realpathSync.native
+         58 │ + ····:·realpathSync;
+     57  59 │   
+     58  60 │   let storageDir: string | null = null;
+  
+
+src/platform/storage/storage-path.ts:29:3 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    28 │ const LINUX_LOCAL_FS_TYPES = new Set<number>([
+  > 29 │   0x1021994, // TMPFS
+       │   ^^^^^^^^^
+    30 │   0x2fc12fc1, // ZFS
+    31 │   0x3153464a, // JFS
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     27  27 │   
+     28  28 │   const LINUX_LOCAL_FS_TYPES = new Set<number>([
+     29     │ - ··0x1021994,·//·TMPFS
+         29 │ + ··0x1_02_19_94,·//·TMPFS
+     30  30 │     0x2fc12fc1, // ZFS
+     31  31 │     0x3153464a, // JFS
+  
+
+src/presentation/dashboard/components/dashboard-header.tsx:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import {
+      │ ^^^^^^^^
+  > 2 │   useDashboardActions,
+  > 3 │   useDashboardState,
+  > 4 │ } from "@/presentation/dashboard/dashboard-view.context";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5 │ import { APP_BRAND_NAME, APP_SERVER_TITLE } from "@/config/app-identity";
+    6 │ import { DashboardNav } from "./dashboard-nav";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     1    │ - import·{
+     2    │ - ··useDashboardActions,
+     3    │ - ··useDashboardState,
+     4    │ - }·from·"@/presentation/dashboard/dashboard-view.context";
+     5    │ - import·{·APP_BRAND_NAME,·APP_SERVER_TITLE·}·from·"@/config/app-identity";
+        1 │ + import·{·APP_BRAND_NAME,·APP_SERVER_TITLE·}·from·"@/config/app-identity";
+        2 │ + import·{
+        3 │ + ··useDashboardActions,
+        4 │ + ··useDashboardState,
+        5 │ + }·from·"@/presentation/dashboard/dashboard-view.context";
+     6  6 │   import { DashboardNav } from "./dashboard-nav";
+     7  7 │   
+  
+
+src/shared/utils/allowlist.util.test.ts:159:15 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    157 │         },
+    158 │       ])
+  > 159 │     ).toThrow(/wildcard tokens/i);
+        │               ^^^^^^^^^^^^^^^^^^
+    160 │   });
+    161 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+src/shared/utils/allowlist.util.test.ts:173:15 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    171 │         },
+    172 │       ])
+  > 173 │     ).toThrow(/Allowed args/i);
+        │               ^^^^^^^^^^^^^^^
+    174 │   });
+    175 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+Checked 363 files in 331ms. No fixes applied.
+Found 33 errors.
+Found 1 warning.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some warnings were emitted while running checks.
+  
+

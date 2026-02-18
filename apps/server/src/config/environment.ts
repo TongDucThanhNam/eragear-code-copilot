@@ -7,7 +7,7 @@
  * @module config/environment
  */
 
-import type { LogLevel } from "@/shared/types/log.types";
+import type { LogLevel, LogOutputFormat } from "@/shared/types/log.types";
 import {
   assertCompiledBootRequirements,
   type BootRuntimeMode,
@@ -45,6 +45,7 @@ import {
   DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS,
   DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
   DEFAULT_SQLITE_WRITE_QUEUE_MAX_PENDING,
+  DEFAULT_STORAGE_ALLOW_UNKNOWN_FS,
   DEFAULT_STORAGE_BUSY_MAX_RETRIES,
   DEFAULT_STORAGE_BUSY_RETRY_BASE_DELAY_MS,
   DEFAULT_STORAGE_BUSY_TIMEOUT_MS,
@@ -77,6 +78,7 @@ import {
   toBoundedPositiveInt,
   toList,
   toLogLevel,
+  toLogOutputFormat,
   toOptionalNumber,
   toPortNumber,
   toPositiveInt,
@@ -264,6 +266,7 @@ if (isProd && !corsStrictOrigin) {
     "[Config] CORS_STRICT_ORIGIN must be true in production runtime."
   );
 }
+const defaultLogOutputFormat: LogOutputFormat = isProd ? "json" : "text";
 
 /**
  * Application configuration loaded from environment variables
@@ -449,6 +452,11 @@ export const ENV = {
   logBufferLimit: toPositiveInt(env.LOG_BUFFER_LIMIT, DEFAULT_LOG_BUFFER_LIMIT),
   /** Global minimum log level for emitted server logs */
   logLevel: toLogLevel(env.LOG_LEVEL, DEFAULT_APP_LOG_LEVEL as LogLevel),
+  /** Structured logger output format */
+  logOutputFormat: toLogOutputFormat(
+    env.LOG_OUTPUT_FORMAT,
+    defaultLogOutputFormat
+  ),
   /** Log flush interval in milliseconds */
   logFlushIntervalMs: toPositiveInt(
     env.LOG_FLUSH_INTERVAL_MS,
@@ -602,4 +610,9 @@ export const ENV = {
   ),
   /** Optional override path for SQLite drizzle migrations directory */
   sqliteMigrationsDir: env.STORAGE_MIGRATIONS_DIR?.trim() || undefined,
+  /** Allow storage path guard to accept unknown filesystem types */
+  storageAllowUnknownFs: toBoolean(
+    env.STORAGE_ALLOW_UNKNOWN_FS,
+    DEFAULT_STORAGE_ALLOW_UNKNOWN_FS
+  ),
 };

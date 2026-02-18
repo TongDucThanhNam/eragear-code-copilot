@@ -88,6 +88,19 @@ describe("DashboardView", () => {
     expect(html).toContain("require server restart.");
   });
 
+  test("mounts only the active tab on initial render", () => {
+    const html = renderToString(
+      <DashboardView actions={baseActions} state={baseState} />
+    );
+
+    expect(html).toContain('id="tab-sessions"');
+    expect(html).not.toContain('id="tab-projects"');
+    expect(html).not.toContain('id="tab-agents"');
+    expect(html).not.toContain('id="tab-auth"');
+    expect(html).not.toContain('id="tab-settings"');
+    expect(html).not.toContain('id="tab-logs"');
+  });
+
   test("throws for state hook usage outside provider", () => {
     expect(() => renderToString(<StateHookProbe />)).toThrow(
       "useDashboardState must be used within DashboardViewProvider"

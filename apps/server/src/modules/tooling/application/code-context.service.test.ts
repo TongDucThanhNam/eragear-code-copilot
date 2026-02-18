@@ -6,6 +6,8 @@ import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { CodeContextService } from "./code-context.service";
 import type { GitPort } from "./ports/git.port";
 
+const CHAT_NOT_FOUND_RE = /chat not found/i;
+
 function createSession(userId: string): ChatSession {
   return {
     id: "chat-1",
@@ -43,7 +45,7 @@ describe("CodeContextService", () => {
     );
 
     await expect(service.getProjectContext("user-1", "chat-1")).rejects.toThrow(
-      /chat not found/i
+      CHAT_NOT_FOUND_RE
     );
   });
 

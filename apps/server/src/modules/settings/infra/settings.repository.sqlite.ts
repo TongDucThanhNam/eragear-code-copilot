@@ -12,6 +12,10 @@ import {
   toSqliteJson,
 } from "@/platform/storage/sqlite-store";
 import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
+import {
+  AppConfigSchema,
+  UiSettingsSchema,
+} from "@/shared/contracts/settings.contract";
 import type {
   AppConfig,
   McpServerConfig,
@@ -19,18 +23,10 @@ import type {
 } from "@/shared/types/settings.types";
 import { normalizeProjectRootsForSettings } from "@/shared/utils/project-roots.util";
 import {
-  AppConfigSchema,
   createDefaultAppConfigFromEnv,
   normalizeAppConfig,
 } from "../app-config.service";
 import type { SettingsRepositoryPort } from "../application/ports/settings-repository.port";
-
-const UiSettingsSchema = z.object({
-  theme: z.enum(["light", "dark", "system"]),
-  accentColor: z.string().min(4),
-  density: z.enum(["comfortable", "compact"]),
-  fontScale: z.number().min(0.8).max(1.3),
-});
 
 const McpEnvSchema = z.object({
   name: z.string(),

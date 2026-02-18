@@ -1,3 +1,4 @@
+import { APP_BRAND_NAME, APP_SERVER_TITLE } from "@/config/app-identity";
 import {
   useDashboardActions,
   useDashboardState,
@@ -37,7 +38,7 @@ export function DashboardHeader() {
 
           <div className="text-center">
             <p className="masthead-title font-black font-display text-[10px] text-ink uppercase tracking-[0.4em] sm:text-xs">
-              The Eragear Gazette
+              {`The ${APP_BRAND_NAME} Gazette`}
             </p>
           </div>
 
@@ -67,7 +68,7 @@ export function DashboardHeader() {
 
         <div className="relative px-3 sm:px-5">
           <h1 className="main-title font-black font-display text-4xl text-ink uppercase leading-[0.85] tracking-tighter transition-all duration-500 sm:text-6xl lg:text-7xl">
-            Eragear Server
+            {APP_SERVER_TITLE}
           </h1>
 
           <p className="mt-3 font-mono text-[9px] text-muted uppercase tracking-[0.28em] sm:text-[10px]">

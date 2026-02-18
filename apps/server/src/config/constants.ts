@@ -6,6 +6,7 @@
  *
  * @module config/constants
  */
+import { isWindows } from "@/shared/utils/runtime-platform.util";
 
 /** Client information sent to agents during connection */
 export const CLIENT_INFO = { name: "eragear-code-copilot", version: "0.0.1" };
@@ -39,7 +40,7 @@ function resolveDefaultWindowsShellPath(): string {
 }
 /** Dev fallback allowlist for terminal tool command execution */
 export const DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS = [
-  process.platform === "win32" ? resolveDefaultWindowsShellPath() : "/bin/sh",
+  isWindows() ? resolveDefaultWindowsShellPath() : "/bin/sh",
 ] as const;
 /** Dev fallback allowlist for inherited environment variable keys */
 export const DEFAULT_DEV_ALLOWED_ENV_KEYS = [
@@ -115,6 +116,8 @@ export const HARD_MAX_STORAGE_MAX_BIND_PARAMS = 32_766;
 export const DEFAULT_STORAGE_WORKER_ENABLED = true;
 /** Default timeout for one storage worker request */
 export const DEFAULT_STORAGE_WORKER_REQUEST_TIMEOUT_MS = 30_000;
+/** Allow unknown filesystem types for storage path safety checks */
+export const DEFAULT_STORAGE_ALLOW_UNKNOWN_FS = false;
 /** Default page size for session list endpoints */
 export const DEFAULT_SESSION_LIST_PAGE_LIMIT = 200;
 /** Default max page size for session list endpoints */

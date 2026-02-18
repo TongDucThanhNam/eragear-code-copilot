@@ -17,15 +17,37 @@ const DEFAULT_EMAIL_DOMAIN = "localhost.local";
 const AUTH_FILE_PRIVATE_MODE = 0o600;
 const logger = createLogger("Auth");
 
-export function getOrCreateAdminCredentials(): AdminCredentials {
-  const username = ENV.authAdminUsername ?? DEFAULT_USERNAME;
-  const email = ENV.authAdminEmail ?? `${username}@${DEFAULT_EMAIL_DOMAIN}`;
+function getRuntimeAuthEnvValue(
+  key: "AUTH_ADMIN_USERNAME" | "AUTH_ADMIN_EMAIL" | "AUTH_ADMIN_PASSWORD",
+  fallback: string | undefined
+): string | undefined {
+  const runtimeValue = process.env[key]?.trim();
+  if (runtimeValue && runtimeValue.length > 0) {
+    return runtimeValue;
+  }
+  if (fallback && fallback.trim().length > 0) {
+    return fallback.trim();
+  }
+  return undefined;
+}
 
-  if (ENV.authAdminPassword) {
+export function getOrCreateAdminCredentials(): AdminCredentials {
+  const username =
+    getRuntimeAuthEnvValue("AUTH_ADMIN_USERNAME", ENV.authAdminUsername) ??
+    DEFAULT_USERNAME;
+  const email =
+    getRuntimeAuthEnvValue("AUTH_ADMIN_EMAIL", ENV.authAdminEmail) ??
+    `${username}@${DEFAULT_EMAIL_DOMAIN}`;
+  const password = getRuntimeAuthEnvValue(
+    "AUTH_ADMIN_PASSWORD",
+    ENV.authAdminPassword
+  );
+
+  if (password) {
     return {
       username,
       email,
-      password: ENV.authAdminPassword,
+      password,
       createdAt: new Date().toISOString(),
       source: "env",
     };

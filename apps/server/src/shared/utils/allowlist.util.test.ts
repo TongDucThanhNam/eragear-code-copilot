@@ -9,6 +9,8 @@ import {
 const DUPLICATE_POLICY_REGEX = /Duplicate command policy/i;
 const ABSOLUTE_PATH_REGEX = /absolute path/i;
 const SAFE_SUBSET_REGEX = /supported wildcard tokens|must only use supported/i;
+const WILDCARD_TOKEN_REGEX = /wildcard tokens/i;
+const ALLOWED_ARGS_REGEX = /Allowed args/i;
 
 describe("isCommandAllowed", () => {
   test("denies when allowlist is empty", () => {
@@ -156,7 +158,7 @@ describe("command policy invocation", () => {
           allowedArgPatterns: [wildcardPattern],
         },
       ])
-    ).toThrow(/wildcard tokens/i);
+    ).toThrow(WILDCARD_TOKEN_REGEX);
   });
 
   test("rejects policy with too many allowed args", () => {
@@ -170,7 +172,7 @@ describe("command policy invocation", () => {
           ),
         },
       ])
-    ).toThrow(/Allowed args/i);
+    ).toThrow(ALLOWED_ARGS_REGEX);
   });
 
   test("rejects invocation args that exceed max length", () => {

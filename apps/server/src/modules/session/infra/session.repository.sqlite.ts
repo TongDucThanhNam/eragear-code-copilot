@@ -16,11 +16,14 @@ import {
   sqliteSchema,
   withSqliteTransaction,
 } from "@/platform/storage/sqlite-db";
-import { isSqliteForeignKeyConstraint } from "@/platform/storage/sqlite-errors";
+import {
+  isSqliteForeignKeyConstraint,
+  isSqliteUniqueConstraint,
+} from "@/platform/storage/sqlite-errors";
 import { getSqliteStorageStats } from "@/platform/storage/sqlite-store";
 import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
 import { systemClock } from "@/platform/time/system-clock";
-import { NotFoundError } from "@/shared/errors";
+import { ConflictError, NotFoundError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type {
   SessionListPageQuery,
@@ -198,29 +201,44 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
 
   async create(session: StoredSession): Promise<void> {
     await enqueueSqliteWrite(SQLITE_SESSION_OP.CREATE, async () => {
-      await this.transactionRunner(({ orm }) => {
-        orm
-          .insert(sqliteSchema.sessions)
-          .values(this.mapper.toSessionInsert(session))
-          .run();
+      try {
+        await this.transactionRunner(({ orm }) => {
+          orm
+            .insert(sqliteSchema.sessions)
+            .values(this.mapper.toSessionInsert(session))
+            .run();
 
-        if (session.messages.length > 0) {
-          const dedupedMessageById = new Map<string, MessageInsert>();
-          for (const message of session.messages) {
-            dedupedMessageById.set(
-              message.id,
-              this.mapper.toMessageInsert(session.id, message)
-            );
+          if (session.messages.length > 0) {
+            const dedupedMessageById = new Map<string, MessageInsert>();
+            for (const message of session.messages) {
+              dedupedMessageById.set(
+                message.id,
+                this.mapper.toMessageInsert(session.id, message)
+              );
+            }
+            const dedupedMessages = [...dedupedMessageById.values()];
+            if (dedupedMessages.length > 0) {
+              orm
+                .insert(sqliteSchema.sessionMessages)
+                .values(dedupedMessages)
+                .run();
+            }
           }
-          const dedupedMessages = [...dedupedMessageById.values()];
-          if (dedupedMessages.length > 0) {
-            orm
-              .insert(sqliteSchema.sessionMessages)
-              .values(dedupedMessages)
-              .run();
-          }
+        });
+      } catch (error) {
+        if (isSqliteUniqueConstraint(error)) {
+          throw new ConflictError("Session already exists", {
+            module: "session",
+            op: SQLITE_SESSION_OP.CREATE,
+            details: {
+              sessionId: session.id,
+              userId: session.userId,
+            },
+            cause: error,
+          });
         }
-      });
+        throw error;
+      }
     });
   }
 

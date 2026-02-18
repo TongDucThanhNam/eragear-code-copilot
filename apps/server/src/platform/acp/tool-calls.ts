@@ -20,6 +20,7 @@ import {
   isCommandInvocationAllowed,
 } from "@/shared/utils/allowlist.util";
 import { createId } from "@/shared/utils/id.util";
+import { isNodeErrno } from "@/shared/utils/node-error.util";
 import { normalizeTimeoutMs } from "@/shared/utils/timeout.util";
 import { ENV } from "../../config/environment";
 import type { TerminalState } from "../../shared/types/session.types";
@@ -84,14 +85,11 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
 
       return { content: text };
     } catch (error) {
-      if (error && typeof error === "object" && "code" in error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === "ENOENT") {
-          throw RequestError.invalidParams(
-            { path: requestPath },
-            "File not found"
-          );
-        }
+      if (isNodeErrno(error, "ENOENT")) {
+        throw RequestError.invalidParams(
+          { path: requestPath },
+          "File not found"
+        );
       }
       throw error;
     }

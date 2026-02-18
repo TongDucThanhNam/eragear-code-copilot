@@ -1,11 +1,8 @@
 import path from "node:path";
+import { normalizeExecutablePathForPlatform } from "./runtime-platform.util";
 
 function normalizeAllowlistValue(value: string): string {
-  const normalized = path.normalize(value.trim());
-  if (process.platform === "win32") {
-    return normalized.toLowerCase();
-  }
-  return normalized;
+  return normalizeExecutablePathForPlatform(value);
 }
 
 export interface CommandPolicy {

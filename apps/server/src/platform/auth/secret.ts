@@ -6,6 +6,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
+import { getNodeErrnoCode } from "@/shared/utils/node-error.util";
 import { ENV } from "../../config/environment";
 import { getAuthStorageFile } from "./paths";
 
@@ -47,11 +48,7 @@ export function getAuthSecret(): string {
     chmodSync(secretPath, AUTH_FILE_PRIVATE_MODE);
     return generated;
   } catch (error) {
-    const errorCode =
-      error && typeof error === "object" && "code" in error
-        ? String(error.code)
-        : null;
-    if (errorCode !== "EEXIST") {
+    if (getNodeErrnoCode(error) !== "EEXIST") {
       throw error;
     }
   }

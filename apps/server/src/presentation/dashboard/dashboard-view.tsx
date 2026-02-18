@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TabKey } from "@/presentation/dashboard/dashboard-data";
 import { DashboardViewProvider } from "@/presentation/dashboard/dashboard-view.context";
 import type {
@@ -30,6 +30,9 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
   const { activeTab, isLoading } = state;
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const prevActiveTabRef = useRef<TabKey | null>(null);
+  const [mountedTabs, setMountedTabs] = useState<Set<TabKey>>(
+    () => new Set([activeTab])
+  );
 
   useEffect(() => {
     // Reposition when tab changes so each section starts at the top
@@ -44,6 +47,17 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
       scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       prevActiveTabRef.current = activeTab;
     }
+  }, [activeTab]);
+
+  useEffect(() => {
+    setMountedTabs((previous) => {
+      if (previous.has(activeTab)) {
+        return previous;
+      }
+      const next = new Set(previous);
+      next.add(activeTab);
+      return next;
+    });
   }, [activeTab]);
 
   return (
@@ -93,12 +107,12 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
                     : "lg:col-span-8 lg:border-r-4 lg:border-b-0"
                 }`}
               >
-                <SessionsTab />
-                <ProjectsTab />
-                <AgentsTab />
-                <AuthTab />
-                <SettingsTab />
-                <LogsTab />
+                {mountedTabs.has("sessions") && <SessionsTab />}
+                {mountedTabs.has("projects") && <ProjectsTab />}
+                {mountedTabs.has("agents") && <AgentsTab />}
+                {mountedTabs.has("auth") && <AuthTab />}
+                {mountedTabs.has("settings") && <SettingsTab />}
+                {mountedTabs.has("logs") && <LogsTab />}
               </section>
 
               {activeTab !== "logs" && (

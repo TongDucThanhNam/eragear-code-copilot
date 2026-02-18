@@ -98,8 +98,10 @@ Invariant quan trọng:
 - Drizzle DB/schema: `src/platform/storage/sqlite-db.ts`, `src/platform/storage/sqlite-schema.ts`.
 - Session/project/agent/settings repos trong `src/modules/*/infra/*.repository.sqlite.ts`.
 - Storage dir policy:
-  - `ERAGEAR_STORAGE_DIR` override (bắt buộc writable và không phải risky/network mount).
-  - Nếu `ERAGEAR_STORAGE_DIR` risky hoặc không writable: fail-fast (không fallback tự động sang `/tmp`).
+  - `ERAGEAR_STORAGE_DIR` override (bắt buộc writable và phải qua storage safety guard).
+  - Storage safety guard dùng `realpath + statfs` với local filesystem allowlist.
+  - Nếu fs type không nhận diện: fail-closed mặc định; chỉ cho phép khi bật `STORAGE_ALLOW_UNKNOWN_FS=true`.
+  - Nếu `ERAGEAR_STORAGE_DIR` unsafe hoặc không writable: fail-fast (không fallback tự động sang `/tmp`).
   - Nếu không có override, chọn giữa platform config dir `Eragear` và legacy
     `.eragear/` theo dữ liệu đã tồn tại; chỉ nhận candidate local-safe.
 

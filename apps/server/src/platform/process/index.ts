@@ -24,6 +24,7 @@ import {
   hasProcessGroupAlive,
   terminateProcessGracefully,
 } from "@/shared/utils/process-termination.util";
+import { isPosix, isWindows } from "@/shared/utils/runtime-platform.util";
 import { normalizeTimeoutMs } from "@/shared/utils/timeout.util";
 import { createAcpConnectionAdapter } from "../acp/connection";
 
@@ -69,12 +70,9 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     const tracked: TrackedProcess = {
       proc,
       pid,
-      processGroupId:
-        detached && process.platform !== "win32" && pid !== null
-          ? pid
-          : undefined,
+      processGroupId: detached && isPosix() && pid !== null ? pid : undefined,
       windowsTreeTerminationDeadlineMs:
-        process.platform === "win32" && pid !== null
+        isWindows() && pid !== null
           ? Date.now() + WINDOWS_TREE_TERMINATION_GRACE_MS
           : undefined,
     };
@@ -97,7 +95,7 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
       return true;
     }
     if (
-      process.platform === "win32" &&
+      isWindows() &&
       typeof record.windowsTreeTerminationDeadlineMs === "number" &&
       Date.now() < record.windowsTreeTerminationDeadlineMs
     ) {
@@ -151,7 +149,7 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
       { ...process.env, ...options.env },
       this.allowedEnvKeys
     );
-    const detached = process.platform !== "win32";
+    const detached = isPosix();
 
     const proc = spawn(command, args, {
       cwd: options.cwd,

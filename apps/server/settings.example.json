@@ -9,49 +9,13 @@
     "DEFAULT_MODEL": "",
     "AUTH_TRUSTED_ORIGINS": ["http://localhost:3000", "http://localhost:5173"],
     "AUTH_REQUIRE_CLOUDFLARE_ACCESS": false,
-    "ALLOWED_AGENT_COMMANDS": [
-      "/bin/ls",
-      "/bin/grep",
-      "/bin/cat",
-      "/usr/bin/find",
-      "/usr/bin/git",
-      "/bin/echo",
-      "/bin/mkdir",
-      "/bin/touch"
-    ],
     "ALLOWED_AGENT_COMMAND_POLICIES": [
-      { "command": "/bin/ls", "allowAnyArgs": true },
-      { "command": "/bin/grep", "allowAnyArgs": true },
-      { "command": "/bin/cat", "allowAnyArgs": true },
-      { "command": "/usr/bin/find", "allowAnyArgs": true },
-      { "command": "/usr/bin/git", "allowAnyArgs": true },
-      { "command": "/bin/echo", "allowAnyArgs": true },
-      { "command": "/bin/mkdir", "allowAnyArgs": true },
-      { "command": "/bin/touch", "allowAnyArgs": true }
-    ],
-    "ALLOWED_TERMINAL_COMMANDS": [
-      "/bin/ls",
-      "/bin/grep",
-      "/bin/cat",
-      "/usr/bin/find",
-      "/usr/bin/git",
-      "/bin/echo",
-      "/bin/mkdir",
-      "/bin/touch",
-      "/bin/pwd",
-      "/usr/bin/whoami"
+      { "command": "/usr/local/bin/codex", "allowAnyArgs": true },
+      { "command": "C:\\Program Files\\Codex\\codex.exe", "allowAnyArgs": true }
     ],
     "ALLOWED_TERMINAL_COMMAND_POLICIES": [
-      { "command": "/bin/ls", "allowAnyArgs": true },
-      { "command": "/bin/grep", "allowAnyArgs": true },
-      { "command": "/bin/cat", "allowAnyArgs": true },
-      { "command": "/usr/bin/find", "allowAnyArgs": true },
-      { "command": "/usr/bin/git", "allowAnyArgs": true },
-      { "command": "/bin/echo", "allowAnyArgs": true },
-      { "command": "/bin/mkdir", "allowAnyArgs": true },
-      { "command": "/bin/touch", "allowAnyArgs": true },
-      { "command": "/bin/pwd", "allowAnyArgs": true },
-      { "command": "/usr/bin/whoami", "allowAnyArgs": true }
+      { "command": "/bin/sh", "allowAnyArgs": true },
+      { "command": "C:\\Windows\\System32\\cmd.exe", "allowAnyArgs": true }
     ],
     "ALLOWED_ENV_KEYS": ["NODE_ENV", "API_KEY", "DEBUG", "PATH"]
   }

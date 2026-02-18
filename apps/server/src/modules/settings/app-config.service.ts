@@ -1,11 +1,13 @@
-import { z } from "zod";
 import {
   HARD_MAX_APP_MAX_TOKENS,
   HARD_MAX_SESSION_LIST_PAGE_LIMIT,
   HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
-  MAX_APP_DEFAULT_MODEL_LENGTH,
 } from "@/config/constants";
 import { ENV } from "@/config/environment";
+import {
+  AppConfigPatchSchema,
+  AppConfigSchema,
+} from "@/shared/contracts/settings.contract";
 import { LOG_LEVELS, type LogLevel } from "@/shared/types/log.types";
 import type { AppConfig, Settings } from "@/shared/types/settings.types";
 import { isRecord } from "@/shared/utils/type-guards.util";
@@ -23,29 +25,6 @@ export const APP_CONFIG_KEYS = [
 ] as const;
 
 export type AppConfigKey = (typeof APP_CONFIG_KEYS)[number];
-
-export const AppConfigSchema = z.object({
-  sessionIdleTimeoutMs: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_SESSION_IDLE_TIMEOUT_MS),
-  sessionListPageMaxLimit: z
-    .number()
-    .int()
-    .min(1)
-    .max(HARD_MAX_SESSION_LIST_PAGE_LIMIT),
-  sessionMessagesPageMaxLimit: z
-    .number()
-    .int()
-    .min(1)
-    .max(HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT),
-  logLevel: z.enum(LOG_LEVELS),
-  maxTokens: z.number().int().min(1).max(HARD_MAX_APP_MAX_TOKENS),
-  defaultModel: z.string().trim().max(MAX_APP_DEFAULT_MODEL_LENGTH),
-});
-
-const AppConfigPatchSchema = AppConfigSchema.partial();
 
 function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(value)));

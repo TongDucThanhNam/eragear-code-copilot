@@ -5,11 +5,13 @@ import { RequestError } from "@agentclientprotocol/sdk";
 import { ENV } from "@/config/environment";
 import type { SessionRuntimePort } from "@/modules/session";
 import type { ChatSession, TerminalState } from "@/shared/types/session.types";
+import { isNodeErrno } from "@/shared/utils/node-error.util";
 import { fileUriToPath } from "@/shared/utils/path.util";
 import {
   hasProcessExited,
   terminateProcessGracefully,
 } from "@/shared/utils/process-termination.util";
+import { isPosix } from "@/shared/utils/runtime-platform.util";
 
 /** Regex for splitting text into lines across platforms */
 export const LINE_SPLITTER_REGEX = /\r?\n/;
@@ -135,7 +137,7 @@ export function clearTerminalKillTimer(term: TerminalState): void {
 }
 
 export function isPosixRuntime(): boolean {
-  return process.platform !== "win32";
+  return isPosix();
 }
 
 export async function terminateTerminalProcess(
@@ -229,11 +231,7 @@ function isPathOutsideRoot(rootPath: string, targetPath: string): boolean {
 }
 
 function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
-  if (!error || typeof error !== "object" || !("code" in error)) {
-    return false;
-  }
-  const code = (error as NodeJS.ErrnoException).code;
-  return code === "ENOENT" || code === "ENOTDIR";
+  return isNodeErrno(error, "ENOENT") || isNodeErrno(error, "ENOTDIR");
 }
 
 async function canonicalizeTargetPath(resolvedPath: string): Promise<string> {

@@ -93,7 +93,10 @@ describe("SessionSqliteRepository.create", () => {
 
     await expect(
       repo.create(createSession(chatId, [], base + 10))
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      name: "ConflictError",
+      code: "CONFLICT",
+    });
 
     const page = await repo.getMessagesPage(chatId, "user-1", {
       limit: 50,

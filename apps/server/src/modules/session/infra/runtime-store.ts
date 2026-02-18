@@ -18,19 +18,23 @@ const MIN_LOCK_ACQUIRE_TIMEOUT_MS = 100;
 export interface SessionRuntimeStorePolicy {
   sessionBufferLimit: number;
   lockAcquireTimeoutMs: number;
-  eventBusPublishTimeoutMs: number;
   eventBusPublishMaxQueuePerChat: number;
 }
 
 function normalizePolicy(policy: SessionRuntimeStorePolicy): {
   sessionBufferLimit: number;
   lockAcquireTimeoutMs: number;
+  maxQueuedMutationsPerChat: number;
 } {
   return {
     sessionBufferLimit: Math.max(1, Math.trunc(policy.sessionBufferLimit)),
     lockAcquireTimeoutMs: Math.max(
       MIN_LOCK_ACQUIRE_TIMEOUT_MS,
       Math.trunc(policy.lockAcquireTimeoutMs)
+    ),
+    maxQueuedMutationsPerChat: Math.max(
+      1,
+      Math.trunc(policy.eventBusPublishMaxQueuePerChat)
     ),
   };
 }
@@ -41,6 +45,15 @@ class SessionLockAcquireTimeoutError extends Error {
       `[SessionRuntimeStore] Lock acquisition timed out for chat "${chatId}" after ${timeoutMs}ms`
     );
     this.name = "SessionLockAcquireTimeoutError";
+  }
+}
+
+class SessionMutationQueueOverflowError extends Error {
+  constructor(chatId: string, pending: number, maxPending: number) {
+    super(
+      `[SessionRuntimeStore] Pending mutation queue overflow for chat "${chatId}" (${pending} >= ${maxPending})`
+    );
+    this.name = "SessionMutationQueueOverflowError";
   }
 }
 
@@ -62,6 +75,10 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   private readonly sessionBufferLimit: number;
   /** Maximum time waiting to acquire a per-chat lock */
   private readonly lockAcquireTimeoutMs: number;
+  /** Maximum queued state mutations per chat to cap memory growth */
+  private readonly maxQueuedMutationsPerChat: number;
+  /** Number of queued state mutations per chat */
+  private readonly queuedMutationsPerChat = new Map<string, number>();
 
   constructor(
     eventOutbox: SessionEventOutboxPort,
@@ -71,6 +88,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     const normalizedPolicy = normalizePolicy(policy);
     this.sessionBufferLimit = normalizedPolicy.sessionBufferLimit;
     this.lockAcquireTimeoutMs = normalizedPolicy.lockAcquireTimeoutMs;
+    this.maxQueuedMutationsPerChat = normalizedPolicy.maxQueuedMutationsPerChat;
   }
 
   set(chatId: string, session: ChatSession): void {
@@ -101,6 +119,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     }
     this.sessions.delete(chatId);
     this.chatLockTails.delete(chatId);
+    this.queuedMutationsPerChat.delete(chatId);
   }
 
   has(chatId: string): boolean {
@@ -112,6 +131,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   }
 
   async runExclusive<T>(chatId: string, work: () => Promise<T>): Promise<T> {
+    this.reserveQueuedMutationSlot(chatId);
     const previousTail = this.chatLockTails.get(chatId) ?? Promise.resolve();
     let releaseLock: () => void = () => undefined;
     const lockSignal = new Promise<void>((resolve) => {
@@ -132,14 +152,44 @@ export class SessionRuntimeStore implements SessionRuntimePort {
           chatId,
           timeoutMs: this.lockAcquireTimeoutMs,
         });
+      } else if (error instanceof SessionMutationQueueOverflowError) {
+        logger.warn("Session mutation queue overflow", {
+          chatId,
+          maxPending: this.maxQueuedMutationsPerChat,
+        });
       }
       throw error;
     } finally {
       releaseLock();
+      this.releaseQueuedMutationSlot(chatId);
       if (this.chatLockTails.get(chatId) === nextTail) {
         this.chatLockTails.delete(chatId);
       }
     }
+  }
+
+  private reserveQueuedMutationSlot(chatId: string): void {
+    const pending = this.queuedMutationsPerChat.get(chatId) ?? 0;
+    if (pending >= this.maxQueuedMutationsPerChat) {
+      throw new SessionMutationQueueOverflowError(
+        chatId,
+        pending,
+        this.maxQueuedMutationsPerChat
+      );
+    }
+    this.queuedMutationsPerChat.set(chatId, pending + 1);
+  }
+
+  private releaseQueuedMutationSlot(chatId: string): void {
+    const pending = this.queuedMutationsPerChat.get(chatId);
+    if (pending === undefined) {
+      return;
+    }
+    if (pending <= 1) {
+      this.queuedMutationsPerChat.delete(chatId);
+      return;
+    }
+    this.queuedMutationsPerChat.set(chatId, pending - 1);
   }
 
   private async waitForLock(

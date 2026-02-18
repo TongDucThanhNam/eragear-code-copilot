@@ -7,7 +7,7 @@ import {
 } from "./constants";
 import {
   parseAllowlistWithFallback,
-  parseCommandPoliciesWithLegacyFallback,
+  parseCommandPoliciesWithFallback,
   parseRequiredAllowlist,
   parseRequiredCommandPolicies,
   toBoolean,
@@ -37,6 +37,101 @@ export interface AllowlistConfig {
   allowedEnvKeys: string[];
 }
 
+function hasNonEmpty(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function pushLegacyAllowlistDiagnostics(params: {
+  strictAllowlist: boolean;
+  hasLegacyValue: boolean;
+  legacyName: "ALLOWED_AGENT_COMMANDS" | "ALLOWED_TERMINAL_COMMANDS";
+  policyName:
+    | "ALLOWED_AGENT_COMMAND_POLICIES"
+    | "ALLOWED_TERMINAL_COMMAND_POLICIES";
+  errors: string[];
+  warnings: string[];
+}): void {
+  if (!params.hasLegacyValue) {
+    return;
+  }
+  if (params.strictAllowlist) {
+    params.errors.push(
+      `${params.legacyName} is deprecated. Use ${params.policyName}.`
+    );
+    return;
+  }
+  params.warnings.push(
+    `${params.legacyName} is deprecated and ignored. Use ${params.policyName}.`
+  );
+}
+
+function parseCommandPoliciesByMode(params: {
+  strictAllowlist: boolean;
+  policyName:
+    | "ALLOWED_AGENT_COMMAND_POLICIES"
+    | "ALLOWED_TERMINAL_COMMAND_POLICIES";
+  policyValue: string | undefined;
+  fallbackCommands: readonly string[];
+  errors: string[];
+  warnings: string[];
+}): CommandPolicy[] {
+  if (params.strictAllowlist) {
+    return parseRequiredCommandPolicies(
+      params.policyName,
+      params.policyValue,
+      params.errors
+    );
+  }
+  return parseCommandPoliciesWithFallback({
+    policyName: params.policyName,
+    policyValue: params.policyValue,
+    fallbackCommands: params.fallbackCommands,
+    warnings: params.warnings,
+  });
+}
+
+function parseEnvAllowlistByMode(params: {
+  strictAllowlist: boolean;
+  value: string | undefined;
+  errors: string[];
+  warnings: string[];
+}): string[] {
+  if (params.strictAllowlist) {
+    return parseRequiredAllowlist(
+      "ALLOWED_ENV_KEYS",
+      params.value,
+      params.errors
+    );
+  }
+  return parseAllowlistWithFallback(
+    "ALLOWED_ENV_KEYS",
+    params.value,
+    DEFAULT_DEV_ALLOWED_ENV_KEYS,
+    params.warnings
+  );
+}
+
+function buildAllowlistErrorMessage(
+  input: AllowlistConfigInput,
+  errors: string[]
+): string {
+  const bootConfigHint = input.bootSourcePath
+    ? `Loaded boot config from: ${input.bootSourcePath}`
+    : `No settings.json boot config found. Searched: ${input.bootSearchedPaths.join(", ")}`;
+  const configInputHint =
+    input.bootMode === "compiled"
+      ? 'Compiled mode ignores env var overrides. Configure these in settings.json under "boot".'
+      : "You can configure these via env vars or settings.json (boot.ALLOWED_*).";
+  return [
+    "[Config] Invalid required allowlist configuration:",
+    ...errors.map((error) => `- ${error}`),
+    'Policy format: ALLOWED_*_COMMAND_POLICIES=\'[{"command":"/usr/local/bin/codex","allowAnyArgs":true}]\'',
+    "Legacy format (non-strict only): ALLOWED_*_COMMANDS=item1,item2,item3",
+    configInputHint,
+    bootConfigHint,
+  ].join("\n");
+}
+
 export function resolveAllowlistConfig(
   input: AllowlistConfigInput
 ): AllowlistConfig {
@@ -61,68 +156,50 @@ export function resolveAllowlistConfig(
     input.bootMode === "compiled" ? true : !allowInsecureDevDefaults;
   const allowlistErrors: string[] = [];
   const allowlistWarnings: string[] = [];
+  pushLegacyAllowlistDiagnostics({
+    strictAllowlist,
+    hasLegacyValue: hasNonEmpty(input.allowedAgentCommandsRaw),
+    legacyName: "ALLOWED_AGENT_COMMANDS",
+    policyName: "ALLOWED_AGENT_COMMAND_POLICIES",
+    errors: allowlistErrors,
+    warnings: allowlistWarnings,
+  });
+  pushLegacyAllowlistDiagnostics({
+    strictAllowlist,
+    hasLegacyValue: hasNonEmpty(input.allowedTerminalCommandsRaw),
+    legacyName: "ALLOWED_TERMINAL_COMMANDS",
+    policyName: "ALLOWED_TERMINAL_COMMAND_POLICIES",
+    errors: allowlistErrors,
+    warnings: allowlistWarnings,
+  });
 
-  const allowedAgentCommandPolicies = strictAllowlist
-    ? parseRequiredCommandPolicies(
-        "ALLOWED_AGENT_COMMAND_POLICIES",
-        input.allowedAgentCommandPoliciesRaw,
-        allowlistErrors
-      )
-    : parseCommandPoliciesWithLegacyFallback({
-        policyName: "ALLOWED_AGENT_COMMAND_POLICIES",
-        policyValue: input.allowedAgentCommandPoliciesRaw,
-        legacyName: "ALLOWED_AGENT_COMMANDS",
-        legacyValue: input.allowedAgentCommandsRaw,
-        legacyFallback: DEFAULT_DEV_ALLOWED_AGENT_COMMANDS,
-        warnings: allowlistWarnings,
-      });
+  const allowedAgentCommandPolicies = parseCommandPoliciesByMode({
+    strictAllowlist,
+    policyName: "ALLOWED_AGENT_COMMAND_POLICIES",
+    policyValue: input.allowedAgentCommandPoliciesRaw,
+    fallbackCommands: DEFAULT_DEV_ALLOWED_AGENT_COMMANDS,
+    errors: allowlistErrors,
+    warnings: allowlistWarnings,
+  });
 
-  const allowedTerminalCommandPolicies = strictAllowlist
-    ? parseRequiredCommandPolicies(
-        "ALLOWED_TERMINAL_COMMAND_POLICIES",
-        input.allowedTerminalCommandPoliciesRaw,
-        allowlistErrors
-      )
-    : parseCommandPoliciesWithLegacyFallback({
-        policyName: "ALLOWED_TERMINAL_COMMAND_POLICIES",
-        policyValue: input.allowedTerminalCommandPoliciesRaw,
-        legacyName: "ALLOWED_TERMINAL_COMMANDS",
-        legacyValue: input.allowedTerminalCommandsRaw,
-        legacyFallback: DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS,
-        warnings: allowlistWarnings,
-      });
+  const allowedTerminalCommandPolicies = parseCommandPoliciesByMode({
+    strictAllowlist,
+    policyName: "ALLOWED_TERMINAL_COMMAND_POLICIES",
+    policyValue: input.allowedTerminalCommandPoliciesRaw,
+    fallbackCommands: DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS,
+    errors: allowlistErrors,
+    warnings: allowlistWarnings,
+  });
 
-  const allowedEnvKeys = strictAllowlist
-    ? parseRequiredAllowlist(
-        "ALLOWED_ENV_KEYS",
-        input.allowedEnvKeysRaw,
-        allowlistErrors
-      )
-    : parseAllowlistWithFallback(
-        "ALLOWED_ENV_KEYS",
-        input.allowedEnvKeysRaw,
-        DEFAULT_DEV_ALLOWED_ENV_KEYS,
-        allowlistWarnings
-      );
+  const allowedEnvKeys = parseEnvAllowlistByMode({
+    strictAllowlist,
+    value: input.allowedEnvKeysRaw,
+    errors: allowlistErrors,
+    warnings: allowlistWarnings,
+  });
 
   if (strictAllowlist && allowlistErrors.length > 0) {
-    const bootConfigHint = input.bootSourcePath
-      ? `Loaded boot config from: ${input.bootSourcePath}`
-      : `No settings.json boot config found. Searched: ${input.bootSearchedPaths.join(", ")}`;
-    const configInputHint =
-      input.bootMode === "compiled"
-        ? 'Compiled mode ignores env var overrides. Configure these in settings.json under "boot".'
-        : "You can configure these via env vars or settings.json (boot.ALLOWED_*).";
-    throw new Error(
-      [
-        "[Config] Invalid required allowlist configuration:",
-        ...allowlistErrors.map((error) => `- ${error}`),
-        'Policy format: ALLOWED_*_COMMAND_POLICIES=\'[{"command":"/usr/local/bin/codex","allowAnyArgs":true}]\'',
-        "Legacy format (non-strict only): ALLOWED_*_COMMANDS=item1,item2,item3",
-        configInputHint,
-        bootConfigHint,
-      ].join("\n")
-    );
+    throw new Error(buildAllowlistErrorMessage(input, allowlistErrors));
   }
 
   if (!strictAllowlist && allowlistWarnings.length > 0) {

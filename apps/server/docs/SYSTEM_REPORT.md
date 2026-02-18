@@ -147,6 +147,10 @@ Drizzle schema/db: `src/platform/storage/sqlite-schema.ts`, `src/platform/storag
 Application data mặc định lưu theo storage policy:
 
 - `ERAGEAR_STORAGE_DIR` (nếu set, path phải writable).
+- `ERAGEAR_STORAGE_DIR` (nếu set, path phải writable và pass storage safety guard).
+- Storage safety guard dùng `realpath + statfs` với local filesystem allowlist.
+- fs type không nhận diện bị reject mặc định (fail-closed); chỉ cho phép qua
+  `STORAGE_ALLOW_UNKNOWN_FS=true`.
 - Nếu không set: chọn giữa platform config dir `Eragear` và legacy `.eragear/`
   dựa trên nơi đã có dữ liệu; nếu cả hai chưa có dữ liệu, chọn candidate
   writable đầu tiên.

@@ -11,7 +11,8 @@ import type {
   AppConfig,
   Settings,
   UiSettings,
-} from "../../../shared/types/settings.types";
+} from "@/shared/types/settings.types";
+import { normalizeProjectRootsForSettings } from "@/shared/utils/project-roots.util";
 
 /**
  * SettingsAggregate
@@ -45,10 +46,10 @@ export class SettingsAggregate {
    * Creates a SettingsAggregate from a Settings configuration
    */
   constructor(config: Settings) {
-    this.ui = config.ui;
-    this.projectRoots = config.projectRoots;
-    this.mcpServers = config.mcpServers;
-    this.app = config.app;
+    this.ui = { ...config.ui };
+    this.projectRoots = [...config.projectRoots];
+    this.mcpServers = config.mcpServers ? [...config.mcpServers] : undefined;
+    this.app = { ...config.app };
   }
 
   /**
@@ -67,10 +68,7 @@ export class SettingsAggregate {
    * @throws Error if roots array is empty
    */
   setProjectRoots(roots: string[]): void {
-    if (!roots || roots.length === 0) {
-      throw new Error("At least one project root is required");
-    }
-    this.projectRoots = roots;
+    this.projectRoots = normalizeProjectRootsForSettings(roots);
   }
 
   /**
@@ -99,6 +97,10 @@ export class SettingsAggregate {
       throw new Error("Must keep at least one project root");
     }
     this.projectRoots = this.projectRoots.filter((r) => r !== root);
+  }
+
+  setMcpServers(servers: Settings["mcpServers"]): void {
+    this.mcpServers = servers ? [...servers] : undefined;
   }
 
   /**
