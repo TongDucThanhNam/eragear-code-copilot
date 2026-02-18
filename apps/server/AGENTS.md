@@ -44,7 +44,7 @@ Mục tiêu của file này là ngắn gọn. Chỉ giữ quy tắc cốt lõi v
 - UI message contract: `docs/ui-message-normalization.md`
 - useChat client contract: `docs/ui-message-usechat-client.md`
 - ACP protocol refs: `docs/acp/*`
-- Runtime bootstrap: `src/index.ts`, `src/bootstrap/server.ts`, `src/bootstrap/container.ts`
+- Runtime bootstrap: `src/index.ts`, `src/bootstrap/server.ts`, `src/bootstrap/composition.ts`
 - Config source: `src/config/environment.ts`
 
 ## 6. Build/Check

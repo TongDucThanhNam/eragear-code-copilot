@@ -102,26 +102,27 @@ describe("SessionSqliteRepository.create", () => {
     expect(page.messages).toHaveLength(0);
   });
 
-  test("rolls back session row when message insert mapping fails", async () => {
+  test("truncates oversized message payloads instead of rejecting create", async () => {
     const repo = new SessionSqliteRepository();
-    const chatId = "chat-create-rolls-back-on-message-failure";
+    const chatId = "chat-create-truncates-oversized-message";
     const base = Date.now();
     const oversizedContent = "x".repeat(2 * 1024 * 1024 + 1);
 
-    await expect(
-      repo.create(
-        createSession(
-          chatId,
-          [createMessage("m-oversized", "assistant", oversizedContent, base)],
-          base
-        )
+    await repo.create(
+      createSession(
+        chatId,
+        [createMessage("m-oversized", "assistant", oversizedContent, base)],
+        base
       )
-    ).rejects.toMatchObject({
-      name: "StorageTransactionError",
-    });
+    );
 
-    const stored = await repo.findById(chatId, "user-1");
-    expect(stored).toBeUndefined();
+    const page = await repo.getMessagesPage(chatId, "user-1", {
+      limit: 10,
+      includeCompacted: true,
+    });
+    expect(page.messages).toHaveLength(1);
+    expect(page.messages[0]?.isCompacted).toBe(true);
+    expect(page.messages[0]?.content.length).toBeGreaterThan(0);
   });
 
   test("persists messages through appendMessage after initial save", async () => {

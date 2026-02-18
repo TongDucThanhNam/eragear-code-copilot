@@ -22,10 +22,12 @@ import type {
 } from "@/modules/service-factories";
 import type {
   SessionAcpPort,
+  SessionEventOutboxPort,
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
 import {
+  createSessionEventOutbox,
   createSessionRepository,
   createSessionRuntimeStore,
   SessionAcpAdapter,
@@ -99,6 +101,7 @@ export type ResolveAuthContext = (req?: {
 
 export interface AppDependencies {
   eventBus: EventBusPort;
+  sessionEventOutbox: SessionEventOutboxPort;
   sessionRuntime: SessionRuntimePort;
   logStore: LogStorePort;
   appLogger: LoggerPort;
@@ -186,10 +189,21 @@ function resolveAppRuntimeConfig(): AppRuntimeConfig {
       wsHost: ENV.wsHost,
       wsPort: ENV.wsPort,
       wsMaxPayloadBytes: ENV.wsMaxPayloadBytes,
+      httpMaxBodyBytes: ENV.httpMaxBodyBytes,
       corsStrictOrigin: ENV.corsStrictOrigin,
       authAllowSignup: ENV.authAllowSignup,
+      authRequireCloudflareAccess: ENV.authRequireCloudflareAccess,
+      authCloudflareAccessClientId: ENV.authCloudflareAccessClientId,
+      authCloudflareAccessClientSecret: ENV.authCloudflareAccessClientSecret,
+      authCloudflareAccessJwtPublicKeyPem:
+        ENV.authCloudflareAccessJwtPublicKeyPem,
+      authCloudflareAccessJwtAudience: ENV.authCloudflareAccessJwtAudience,
+      authCloudflareAccessJwtIssuer: ENV.authCloudflareAccessJwtIssuer,
       isDev: ENV.isDev,
       defaultAdminUsername: ENV.authAdminUsername ?? "admin",
+      runtimeNodeRole: ENV.runtimeNodeRole,
+      runtimeWriterUrl: ENV.runtimeWriterUrl,
+      runtimeInternalToken: ENV.runtimeInternalToken,
     },
   };
 }
@@ -236,6 +250,7 @@ function createCoreDependencies(policy: {
   sessionEventBusPublishMaxQueuePerChat: number;
 }): {
   eventBus: EventBusPort;
+  sessionEventOutbox: SessionEventOutboxPort;
   sessionRuntime: SessionRuntimePort;
   logStore: LogStorePort;
   appLogger: LoggerPort;
@@ -244,10 +259,12 @@ function createCoreDependencies(policy: {
 } {
   const appLogger = createAppLogger("Server");
   const eventBus = new EventBus(appLogger);
+  const sessionEventOutbox = createSessionEventOutbox();
   return {
     eventBus,
+    sessionEventOutbox,
     sessionRuntime: createSessionRuntimeStore({
-      eventBus,
+      outbox: sessionEventOutbox,
       policy: {
         sessionBufferLimit: policy.sessionBufferLimit,
         lockAcquireTimeoutMs: policy.sessionLockAcquireTimeoutMs,
@@ -390,6 +407,8 @@ async function createAppCompositionWithRuntimeConfig(
     agentRuntime: agentRuntimeAdapter,
     sessionRuntime: core.sessionRuntime,
     sessionRepo: persistence.sessionRepo,
+    sessionEventOutbox: core.sessionEventOutbox,
+    eventBus: core.eventBus,
     sessionServices,
     appConfig: appConfigService,
     policy: runtimeConfig.lifecyclePolicy,
@@ -397,6 +416,7 @@ async function createAppCompositionWithRuntimeConfig(
   });
   const deps: AppDependencies = {
     eventBus: core.eventBus,
+    sessionEventOutbox: core.sessionEventOutbox,
     sessionRuntime: core.sessionRuntime,
     logStore: core.logStore,
     appLogger: core.appLogger,

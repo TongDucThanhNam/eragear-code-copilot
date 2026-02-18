@@ -113,7 +113,9 @@ async function stopRuntimeSession(
     });
   }
 
-  const termination = await terminateProcessGracefully(session.proc);
+  const termination = await terminateProcessGracefully(session.proc, {
+    forceWindowsTreeTermination: true,
+  });
   if (!termination.exited) {
     logger.warn("Session process did not exit after forced termination", {
       chatId: session.id,

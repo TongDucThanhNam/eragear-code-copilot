@@ -6,7 +6,7 @@
     "build": "tsdown && bun run ui:build",
     "check": "bun run check-types && bun run lint && bun run test",
     "check-types": "tsc -b --noEmit",
-    "compile": "bun run build && bun build --compile --minify --sourcemap ./src/index.ts --outfile dist/server && cp ./settings.example.json ./dist/settings.json && mkdir -p ./dist/drizzle && cp -r ./drizzle/* ./dist/drizzle/",
+    "compile": "bun run ./scripts/compile.ts",
     "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
     "dev": "bun run ./scripts/dev.ts",
     "lint": "bunx biome lint --only=style/noRestrictedImports --diagnostic-level=error src",
@@ -16,14 +16,13 @@
     "start": "bun run dist/index.js",
     "test:auth-dashboard": "bun test ./src/platform/auth/auth-dashboard.integration.test.ts ./src/transport/http/utils/response-headers.test.ts",
     "ui": "bun run ui:watch",
-    "ui:build": "mkdir -p ./public/dashboard && bun build ./src/presentation/dashboard/client/index.tsx --outfile ./public/dashboard/client.js --target browser --format esm --minify && cp ./src/presentation/dashboard/styles.css ./public/dashboard/styles.css && cp ./src/presentation/dashboard/login.css ./public/dashboard/login.css && cp ./src/presentation/dashboard/login.js ./public/dashboard/login.js",
+    "ui:build": "bun run ./scripts/build-dashboard-assets.ts",
     "ui:watch": "bun run ./scripts/watch-dashboard-assets.ts",
-    "test": "bun test src/platform/storage/sqlite-store.test.ts src/platform/storage/sqlite-write-queue.test.ts src/platform/storage/storage-path.test.ts && bun test src/platform/auth/auth-dashboard.integration.test.ts src/transport/http/utils/response-headers.test.ts"
+    "test": "bun test src/platform/storage/sqlite-store.test.ts src/platform/storage/sqlite-write-queue.test.ts src/platform/storage/storage-path.test.ts && bun test src/platform/auth/auth-dashboard.integration.test.ts src/transport/http/utils/response-headers.test.ts && bun test src/bootstrap/server.cloudflare-access.test.ts src/bootstrap/server-route-policy.test.ts src/shared/utils/path.util.test.ts src/transport/http/cors.test.ts src/config/environment.test.ts src/platform/acp/tool-calls.test.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.14.1",
     "@eragear-code-copilot/env": "workspace:*",
-    "@hono/node-server": "^1.17.1",
     "@hono/react-renderer": "^1.0.1",
     "@repo/shared": "workspace:*",
     "@trpc/server": "^11.8.1",

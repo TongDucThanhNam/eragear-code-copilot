@@ -26,9 +26,20 @@ export const DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS = 250;
 export const DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT = 512;
 /** Dev fallback allowlist for spawning configured agent commands */
 export const DEFAULT_DEV_ALLOWED_AGENT_COMMANDS = [process.execPath] as const;
+function resolveDefaultWindowsShellPath(): string {
+  const comSpec = process.env.ComSpec ?? process.env.COMSPEC;
+  if (typeof comSpec === "string" && comSpec.trim().length > 0) {
+    return comSpec;
+  }
+  const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
+  if (typeof systemRoot === "string" && systemRoot.trim().length > 0) {
+    return `${systemRoot}\\System32\\cmd.exe`;
+  }
+  return "C:\\Windows\\System32\\cmd.exe";
+}
 /** Dev fallback allowlist for terminal tool command execution */
 export const DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS = [
-  process.platform === "win32" ? process.execPath : "/bin/sh",
+  process.platform === "win32" ? resolveDefaultWindowsShellPath() : "/bin/sh",
 ] as const;
 /** Dev fallback allowlist for inherited environment variable keys */
 export const DEFAULT_DEV_ALLOWED_ENV_KEYS = [
@@ -44,6 +55,8 @@ export const DEFAULT_DEV_ALLOWED_ENV_KEYS = [
 export const DEFAULT_WS_HEARTBEAT_INTERVAL_MS = 30_000;
 /** Default maximum WebSocket payload size: 16 MiB */
 export const DEFAULT_WS_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
+/** Default maximum HTTP request body size for JSON API endpoints */
+export const DEFAULT_HTTP_MAX_BODY_BYTES = 2 * 1024 * 1024;
 /** Default in-memory log buffer size */
 export const DEFAULT_LOG_BUFFER_LIMIT = 2000;
 /** Default log query limit for UI requests */
@@ -80,6 +93,8 @@ export const DEFAULT_STORAGE_MAX_DB_SIZE_MB = 2048;
 export const DEFAULT_STORAGE_BUSY_MAX_RETRIES = 5;
 /** Base delay for storage busy retry backoff */
 export const DEFAULT_STORAGE_BUSY_RETRY_BASE_DELAY_MS = 25;
+/** Max pending SQLite write tasks before rejecting new enqueues */
+export const DEFAULT_SQLITE_WRITE_QUEUE_MAX_PENDING = 5000;
 /** Default max storage bind parameters per statement */
 export const DEFAULT_STORAGE_MAX_BIND_PARAMS = 900;
 /** Default max ACP request attempts for transient transport errors */
@@ -136,3 +151,5 @@ export const DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS = 30 * 60 * 1000;
 export const DEFAULT_AUTH_BOOTSTRAP_CACHE_MAX_USERS = 10_000;
 /** Default max in-flight ensure-defaults tasks tracked for auth bootstrap */
 export const DEFAULT_AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS = 2000;
+/** Require Cloudflare Access auth headers on WebSocket/tRPC handshakes */
+export const DEFAULT_AUTH_REQUIRE_CLOUDFLARE_ACCESS = false;

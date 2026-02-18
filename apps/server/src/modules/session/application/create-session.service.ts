@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
+import {
+  type ProcessTerminationPolicy,
+  terminateProcessGracefully,
+} from "@/shared/utils/process-termination.util";
 import type { BootstrapSessionConnectionService } from "./bootstrap-session-connection.service";
 import type { CreateSessionParams } from "./create-session.types";
 import type { PersistSessionBootstrapService } from "./persist-session-bootstrap.service";
@@ -15,19 +19,28 @@ export class CreateSessionService {
   private readonly bootstrapSessionConnection: BootstrapSessionConnectionService;
   private readonly persistSessionBootstrap: PersistSessionBootstrapService;
   private readonly logger: LoggerPort;
+  private readonly terminateProcess: (
+    proc: ChatSession["proc"],
+    policy?: ProcessTerminationPolicy
+  ) => Promise<unknown>;
 
   constructor(
     projectContextResolver: SessionProjectContextResolverService,
     spawnSessionProcess: SpawnSessionProcessService,
     bootstrapSessionConnection: BootstrapSessionConnectionService,
     persistSessionBootstrap: PersistSessionBootstrapService,
-    logger: LoggerPort
+    logger: LoggerPort,
+    terminateProcess: (
+      proc: ChatSession["proc"],
+      policy?: ProcessTerminationPolicy
+    ) => Promise<unknown> = terminateProcessGracefully
   ) {
     this.projectContextResolver = projectContextResolver;
     this.spawnSessionProcess = spawnSessionProcess;
     this.bootstrapSessionConnection = bootstrapSessionConnection;
     this.persistSessionBootstrap = persistSessionBootstrap;
     this.logger = logger;
+    this.terminateProcess = terminateProcess;
   }
 
   async execute(params: CreateSessionParams): Promise<ChatSession> {
@@ -66,24 +79,31 @@ export class CreateSessionService {
       agentEnv,
     });
 
-    const { chatSession } = await this.bootstrapSessionConnection.execute({
-      chatId,
-      projectId,
-      projectRoot,
-      params,
-      proc,
-    });
+    try {
+      const { chatSession } = await this.bootstrapSessionConnection.execute({
+        chatId,
+        projectId,
+        projectRoot,
+        params,
+        proc,
+      });
 
-    await this.persistSessionBootstrap.execute({
-      chatId,
-      projectRoot,
-      params,
-      chatSession,
-      agentCommand,
-      agentArgs,
-      agentEnv,
-    });
+      await this.persistSessionBootstrap.execute({
+        chatId,
+        projectRoot,
+        params,
+        chatSession,
+        agentCommand,
+        agentArgs,
+        agentEnv,
+      });
 
-    return chatSession;
+      return chatSession;
+    } catch (error) {
+      await this.terminateProcess(proc, { forceWindowsTreeTermination: true }).catch(
+        () => undefined
+      );
+      throw error;
+    }
   }
 }

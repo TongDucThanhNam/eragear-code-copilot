@@ -33,7 +33,9 @@ export class StopSessionService {
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
         status: "inactive",
       });
-      await terminateProcessGracefully(session.proc);
+      await terminateProcessGracefully(session.proc, {
+        forceWindowsTreeTermination: true,
+      });
       // Remove from runtime so getSessionState returns "stopped"
       this.sessionRuntime.delete(chatId);
     }

@@ -69,6 +69,7 @@ export interface HttpRouteDependencies {
   runtime: {
     isDev: boolean;
     defaultAdminUsername: string;
+    httpMaxBodyBytes: number;
   };
   resolveAuthContext(input: {
     headers: Headers | Record<string, string | string[] | undefined>;

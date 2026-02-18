@@ -17,6 +17,14 @@ const staticAssets = [
     label: "styles.css",
   },
   {
+    source: resolve(
+      process.cwd(),
+      "src/presentation/dashboard/styles-enhanced.css"
+    ),
+    out: resolve(outDir, "styles-enhanced.css"),
+    label: "styles-enhanced.css",
+  },
+  {
     source: resolve(process.cwd(), "src/presentation/dashboard/login.css"),
     out: resolve(outDir, "login.css"),
     label: "login.css",

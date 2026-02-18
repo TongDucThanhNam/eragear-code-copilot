@@ -65,7 +65,9 @@ export class DeleteSessionService {
     const session = this.sessionRuntime.get(chatId);
     if (session?.userId === userId) {
       await terminateSessionTerminals(session);
-      await terminateProcessGracefully(session.proc);
+      await terminateProcessGracefully(session.proc, {
+        forceWindowsTreeTermination: true,
+      });
       this.sessionRuntime.delete(chatId);
     }
     const stored = await this.sessionRepo.findById(chatId, userId);

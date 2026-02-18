@@ -53,7 +53,9 @@ export function createSessionIdleCleanupTask(params: {
         }
 
         await terminateSessionTerminals(session);
-        await terminateProcessGracefully(session.proc);
+        await terminateProcessGracefully(session.proc, {
+          forceWindowsTreeTermination: true,
+        });
         try {
           await sessionRepo.updateStatus(session.id, session.userId, "stopped");
           sessionRuntime.delete(session.id);

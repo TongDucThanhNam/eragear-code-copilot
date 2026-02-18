@@ -50,6 +50,22 @@ interface InitializeCapabilities {
   };
 }
 
+function supportsUnstableResume(conn: unknown): conn is ResumeConnection {
+  if (!conn || typeof conn !== "object") {
+    return false;
+  }
+  const candidate = conn as Partial<ResumeConnection>;
+  return typeof candidate.unstable_resumeSession === "function";
+}
+
+function supportsSetSessionModel(conn: unknown): conn is SessionModelConnection {
+  if (!conn || typeof conn !== "object") {
+    return false;
+  }
+  const candidate = conn as Partial<SessionModelConnection>;
+  return typeof candidate.unstable_setSessionModel === "function";
+}
+
 export interface BootstrapSessionInput {
   chatId: string;
   chatSession: ChatSession;
@@ -263,10 +279,38 @@ export class SessionAcpBootstrapService {
         chatId,
         sessionIdToLoad,
       });
-      const conn = chatSession.conn as unknown as ResumeConnection;
+      const resumeConn = chatSession.conn as unknown;
+      if (!supportsUnstableResume(resumeConn)) {
+        this.logger.warn(
+          "Agent reported unstable resume support but method is unavailable; falling back to loadSession",
+          {
+            chatId,
+            sessionIdToLoad,
+          }
+        );
+        chatSession.isReplayingHistory = true;
+        loadResult = await chatSession.conn.loadSession({
+          sessionId: sessionIdToLoad,
+          cwd: projectRoot,
+          mcpServers: acpMcpServers,
+        });
+        chatSession.useUnstableResume = false;
+        chatSession.isReplayingHistory = false;
+        chatSession.modes = loadResult.modes ?? undefined;
+        chatSession.models = loadResult.models ?? undefined;
+        const currentModeId = chatSession.modes?.currentModeId;
+        if (currentModeId) {
+          await this.sessionRuntime.broadcast(chatId, {
+            type: "current_mode_update",
+            modeId: currentModeId,
+          });
+        }
+        await this.historyReplay.broadcastPromptEnd(chatId, buffer);
+        return;
+      }
 
       try {
-        loadResult = await conn.unstable_resumeSession({
+        loadResult = await resumeConn.unstable_resumeSession({
           sessionId: sessionIdToLoad,
           cwd: projectRoot,
           mcpServers: acpMcpServers,
@@ -394,11 +438,19 @@ export class SessionAcpBootstrapService {
     if (!chatSession.sessionId) {
       return;
     }
+    if (!supportsSetSessionModel(chatSession.conn)) {
+      this.logger.warn(
+        "Agent reported model switching support but unstable_setSessionModel is unavailable",
+        {
+          chatId,
+          defaultModel: configuredDefaultModel,
+        }
+      );
+      return;
+    }
 
     try {
-      await (
-        chatSession.conn as unknown as SessionModelConnection
-      ).unstable_setSessionModel({
+      await chatSession.conn.unstable_setSessionModel({
         sessionId: chatSession.sessionId,
         modelId: matchedModel.modelId,
       });
@@ -425,6 +477,8 @@ export class SessionAcpBootstrapService {
     if (this.sessionRuntime.has(chatId)) {
       this.sessionRuntime.delete(chatId);
     }
-    await terminateProcessGracefully(chatSession.proc);
+    await terminateProcessGracefully(chatSession.proc, {
+      forceWindowsTreeTermination: true,
+    });
   }
 }

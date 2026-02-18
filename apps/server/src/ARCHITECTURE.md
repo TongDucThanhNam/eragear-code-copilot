@@ -10,8 +10,7 @@ Server đóng vai trò ACP client và backend cho web/native:
 - Chuẩn hóa stream thành `UIMessage` để broadcast realtime.
 - Persist state/messages vào SQLite (`eragear.sqlite`).
 - Runtime mục tiêu: **Bun-only** (sử dụng Bun runtime APIs như `bun:sqlite`, `hono/bun`).
-- Production support target: Linux/macOS với Bun stable; Windows không phải
-  production target hiện tại.
+- Production support target: Linux/Windows/macOS với Bun stable.
 
 ## Layers
 
@@ -94,13 +93,15 @@ Invariant quan trọng:
 
 - Storage path source-of-truth: `src/platform/storage/storage-path.ts`.
 - SQLite bootstrap + migration: `src/platform/storage/sqlite-store.ts`.
+- SQLite init process lock (multi-instance guard): `src/platform/storage/sqlite-process-lock.ts`.
+- SQLite write backpressure queue: `src/platform/storage/sqlite-write-queue.ts`.
 - Drizzle DB/schema: `src/platform/storage/sqlite-db.ts`, `src/platform/storage/sqlite-schema.ts`.
 - Session/project/agent/settings repos trong `src/modules/*/infra/*.repository.sqlite.ts`.
 - Storage dir policy:
-  - `ERAGEAR_STORAGE_DIR` override (bắt buộc writable).
+  - `ERAGEAR_STORAGE_DIR` override (bắt buộc writable và không phải risky/network mount).
+  - Nếu `ERAGEAR_STORAGE_DIR` risky hoặc không writable: fail-fast (không fallback tự động sang `/tmp`).
   - Nếu không có override, chọn giữa platform config dir `Eragear` và legacy
-    `.eragear/` theo dữ liệu đã tồn tại; nếu không có dữ liệu thì chọn candidate
-    writable đầu tiên.
+    `.eragear/` theo dữ liệu đã tồn tại; chỉ nhận candidate local-safe.
 
 ## Main Flows
 
@@ -146,7 +147,15 @@ Lưu ý:
 Config đọc từ `src/config/environment.ts`:
 
 - Network: `WS_HOST`, `WS_PORT`, `WS_HEARTBEAT_INTERVAL_MS`.
-- Security/auth: `AUTH_*`.
+- Request limits: `WS_MAX_PAYLOAD_BYTES`, `HTTP_MAX_BODY_BYTES`.
+- Security/auth: `AUTH_*`, `AUTH_REQUIRE_CLOUDFLARE_ACCESS`.
+  - Khi bật `AUTH_REQUIRE_CLOUDFLARE_ACCESS=true`, phải cấu hình ít nhất một
+    trong hai verifier:
+    - Service token: `AUTH_CLOUDFLARE_ACCESS_CLIENT_ID`,
+      `AUTH_CLOUDFLARE_ACCESS_CLIENT_SECRET`
+    - JWT verifier: `AUTH_CLOUDFLARE_ACCESS_JWT_PUBLIC_KEY_PEM`,
+      `AUTH_CLOUDFLARE_ACCESS_JWT_AUDIENCE`,
+      `AUTH_CLOUDFLARE_ACCESS_JWT_ISSUER`
 - Process/tool policy:
   `ALLOWED_AGENT_COMMAND_POLICIES`, `ALLOWED_TERMINAL_COMMAND_POLICIES`,
   `ALLOWED_ENV_KEYS`,
@@ -154,6 +163,7 @@ Config đọc từ `src/config/environment.ts`:
 - Pagination policy:
   `SESSION_LIST_PAGE_MAX_LIMIT`, `SESSION_MESSAGES_PAGE_MAX_LIMIT`.
 - Timeout: `SESSION_IDLE_TIMEOUT_MS`, `AGENT_TIMEOUT_MS`, `TERMINAL_TIMEOUT_MS`.
+- Storage queue/backpressure: `SQLITE_WRITE_QUEUE_MAX_PENDING`.
 
 Policy invariants:
 

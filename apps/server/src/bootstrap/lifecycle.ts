@@ -1,6 +1,7 @@
 import type { SessionServiceFactory } from "@/modules/service-factories";
 import type {
   AgentRuntimePort,
+  SessionEventOutboxPort,
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
@@ -10,9 +11,11 @@ import type { AuthRuntime } from "../platform/auth/auth";
 import {
   BackgroundRunner,
   createCachePruneTask,
+  createSessionEventOutboxDispatchTask,
   createSessionIdleCleanupTask,
   createSqliteStorageMaintenanceTask,
 } from "../platform/background";
+import type { EventBusPort } from "../shared/ports/event-bus.port";
 import { createLogger } from "../platform/logging/structured-logger";
 import { executeServerShutdown } from "./lifecycle-shutdown";
 import { prepareServerStartup } from "./lifecycle-startup";
@@ -39,6 +42,8 @@ export interface ServerLifecycleDependencies {
   agentRuntime: AgentRuntimePort;
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
+  sessionEventOutbox: SessionEventOutboxPort;
+  eventBus: EventBusPort;
   sessionServices: SessionServiceFactory;
   appConfig: AppConfigService;
   policy: ServerLifecyclePolicy;
@@ -67,6 +72,12 @@ class DefaultServerLifecycle implements ServerLifecycle {
         sessionRepo: deps.sessionRepo,
         sessionRuntime: deps.sessionRuntime,
         compactSessionMessages: deps.sessionServices.compactSessionMessages(),
+      })
+    );
+    this.backgroundRunner.register(
+      createSessionEventOutboxDispatchTask({
+        outbox: deps.sessionEventOutbox,
+        eventBus: deps.eventBus,
       })
     );
     this.backgroundRunner.register(createCachePruneTask());

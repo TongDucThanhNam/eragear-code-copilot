@@ -43,10 +43,14 @@ export function ProjectsTab() {
 
         <div className="grid max-h-[calc(100dvh-480px)] min-h-[200px] gap-0 overflow-y-auto md:grid-cols-2">
           {projects.length === 0 ? (
-            <div className="empty-state">No projects registered yet.</div>
+            <div className="empty-state stagger-item col-span-full">
+              No projects registered yet.
+            </div>
           ) : (
             projects.map((project) => (
-              <ProjectCard key={project.id} project={project} />
+              <div className="stagger-item border-ink border-b border-r last:border-b-0 even:border-r-0" key={project.id}>
+                <ProjectCard project={project} />
+              </div>
             ))
           )}
         </div>

@@ -78,6 +78,31 @@ const SESSION_METADATA_WRITERS: MetadataWriter = {
 const SESSION_METADATA_UPDATE_KEYS = Object.keys(
   SESSION_METADATA_WRITERS
 ) as SessionMetadataUpdateKey[];
+const CONTENT_TRUNCATION_NOTICE = "\n\n[truncated to fit storage budget]";
+const SQLITE_SAFE_TEXT_PAYLOAD_MAX_BYTES = 1_500_000;
+
+function truncateUtf8ToBudget(value: string, maxBytes: number): string {
+  if (maxBytes <= 0) {
+    return "";
+  }
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) {
+    return value;
+  }
+
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = value.slice(0, mid);
+    if (Buffer.byteLength(candidate, "utf8") <= maxBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return value.slice(0, low);
+}
 
 export class SessionSqliteMapper extends SessionSqliteReadMapper {
   toSessionInsert(session: StoredSession): SessionInsert {
@@ -112,20 +137,20 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
   }
 
   toMessageInsert(sessionId: string, message: StoredMessage): MessageInsert {
-    this.assertMessagePayloadBudget(message);
+    const payload = this.normalizeMessagePayload(message);
     return {
       sessionId,
       messageId: message.id,
       role: message.role,
-      content: message.content,
+      content: payload.content,
       contentBlocksJson: toSqliteJson(message.contentBlocks),
       timestamp: message.timestamp,
       toolCallsJson: toSqliteJson(message.toolCalls),
       reasoning: message.reasoning ?? null,
       reasoningBlocksJson: toSqliteJson(message.reasoningBlocks),
-      partsJson: toSqliteJson(message.parts),
+      partsJson: payload.partsJson,
       storageTier: "hot",
-      retainedPayload: 1,
+      retainedPayload: payload.retainedPayload,
       compactedAt: null,
     };
   }
@@ -142,22 +167,41 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
     return setValues;
   }
 
-  private assertMessagePayloadBudget(message: StoredMessage): void {
-    const contentBytes = Buffer.byteLength(message.content ?? "", "utf8");
-    if (contentBytes > ENV.messageContentMaxBytes) {
-      throw new Error(
-        `Message content exceeds max size: ${contentBytes} bytes > ${ENV.messageContentMaxBytes}`
-      );
+  private normalizeMessagePayload(message: StoredMessage): {
+    content: string;
+    partsJson: string | null;
+    retainedPayload: number;
+  } {
+    let content = message.content ?? "";
+    let retainedPayload = 1;
+    const contentBudgetBytes = Math.min(
+      ENV.messageContentMaxBytes,
+      SQLITE_SAFE_TEXT_PAYLOAD_MAX_BYTES
+    );
+    const partsBudgetBytes = Math.min(
+      ENV.messagePartsMaxBytes,
+      SQLITE_SAFE_TEXT_PAYLOAD_MAX_BYTES
+    );
+
+    const contentBytes = Buffer.byteLength(content, "utf8");
+    if (contentBytes > contentBudgetBytes) {
+      const noticeBytes = Buffer.byteLength(CONTENT_TRUNCATION_NOTICE, "utf8");
+      if (noticeBytes < contentBudgetBytes) {
+        const contentBudget = contentBudgetBytes - noticeBytes;
+        content = `${truncateUtf8ToBudget(content, contentBudget)}${CONTENT_TRUNCATION_NOTICE}`;
+      } else {
+        content = truncateUtf8ToBudget(content, contentBudgetBytes);
+      }
+      retainedPayload = 0;
     }
 
-    const partsBytes = Buffer.byteLength(
-      JSON.stringify(message.parts ?? []),
-      "utf8"
-    );
-    if (partsBytes > ENV.messagePartsMaxBytes) {
-      throw new Error(
-        `Message parts payload exceeds max size: ${partsBytes} bytes > ${ENV.messagePartsMaxBytes}`
-      );
+    let partsJson = toSqliteJson(message.parts);
+    const partsBytes = Buffer.byteLength(partsJson ?? "[]", "utf8");
+    if (partsBytes > partsBudgetBytes) {
+      partsJson = null;
+      retainedPayload = 0;
     }
+
+    return { content, partsJson, retainedPayload };
   }
 }

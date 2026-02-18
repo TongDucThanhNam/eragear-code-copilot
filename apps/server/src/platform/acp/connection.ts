@@ -52,7 +52,9 @@ function terminateAgentAfterTransportFailure(
   logger.error("ACP stream guard triggered, terminating process", error, {
     pid: proc.pid,
   });
-  terminateProcessGracefully(proc)
+  terminateProcessGracefully(proc, {
+    forceWindowsTreeTermination: true,
+  })
     .then((result) => {
       if (!result.exited) {
         logger.warn(

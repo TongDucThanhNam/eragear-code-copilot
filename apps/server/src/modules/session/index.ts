@@ -30,6 +30,12 @@ export type {
   SessionBufferingPort,
 } from "./application/ports/session-acp.port";
 export type { SessionRepositoryPort } from "./application/ports/session-repository.port";
+export type {
+  SessionEventOutboxDispatchPolicy,
+  SessionEventOutboxDispatchResult,
+  SessionEventOutboxEnqueueInput,
+  SessionEventOutboxPort,
+} from "./application/ports/session-event-outbox.port";
 export type { SessionRuntimePort } from "./application/ports/session-runtime.port";
 export { ReconcileSessionStatusService } from "./application/reconcile-session-status.service";
 export { ResumeSessionService } from "./application/resume-session.service";

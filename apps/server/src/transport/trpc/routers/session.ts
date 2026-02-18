@@ -18,15 +18,8 @@ import {
   UpdateSessionMetaInputSchema,
 } from "@/modules/session";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
+import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
-
-function requireUserId(ctx: { auth?: { userId?: string } | null }): string {
-  const userId = ctx.auth?.userId;
-  if (!userId) {
-    throw new Error("Unauthorized");
-  }
-  return userId;
-}
 
 export const sessionRouter = router({
   /** Create a new session for a project */
@@ -35,7 +28,7 @@ export const sessionRouter = router({
     .mutation(async ({ input, ctx }) => {
       const service = ctx.sessionServices.createSession();
       const res = await service.execute({
-        userId: requireUserId(ctx),
+        userId: getRequiredUserId(ctx),
         projectId: input.projectId,
         command: input.command,
         args: input.args,
@@ -58,7 +51,7 @@ export const sessionRouter = router({
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.sessionServices.stopSession();
-      return await service.execute(requireUserId(ctx), input.chatId);
+      return await service.execute(getRequiredUserId(ctx), input.chatId);
     }),
 
   /** Resume a stopped session */
@@ -66,7 +59,7 @@ export const sessionRouter = router({
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.sessionServices.resumeSession();
-      return await service.execute(requireUserId(ctx), input.chatId);
+      return await service.execute(getRequiredUserId(ctx), input.chatId);
     }),
 
   /** Delete a session */
@@ -74,7 +67,7 @@ export const sessionRouter = router({
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.sessionServices.deleteSession();
-      return await service.execute(requireUserId(ctx), input.chatId);
+      return await service.execute(getRequiredUserId(ctx), input.chatId);
     }),
 
   /** Get current session state */
@@ -82,7 +75,7 @@ export const sessionRouter = router({
     .input(SessionChatIdInputSchema)
     .query(async ({ input, ctx }) => {
       const service = ctx.sessionServices.getSessionState();
-      return await service.execute(requireUserId(ctx), input.chatId);
+      return await service.execute(getRequiredUserId(ctx), input.chatId);
     }),
 
   /** List sessions (paginated) */
@@ -92,7 +85,7 @@ export const sessionRouter = router({
       const runtimeConfig = ctx.appConfig.getConfig();
       const service = ctx.sessionServices.listSessions();
       return await service.execute(
-        requireUserId(ctx),
+        getRequiredUserId(ctx),
         {
           limit: input?.limit,
           offset: input?.offset,
@@ -108,7 +101,7 @@ export const sessionRouter = router({
       const runtimeConfig = ctx.appConfig.getConfig();
       const service = ctx.sessionServices.listSessions();
       return await service.executePage(
-        requireUserId(ctx),
+        getRequiredUserId(ctx),
         {
           limit: input?.limit,
           cursor: input?.cursor,
@@ -122,7 +115,10 @@ export const sessionRouter = router({
     .input(UpdateSessionMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.sessionServices.updateSessionMeta();
-      return await service.execute({ ...input, userId: requireUserId(ctx) });
+      return await service.execute({
+        ...input,
+        userId: getRequiredUserId(ctx),
+      });
     }),
 
   /** Get paginated session message history */
@@ -132,7 +128,7 @@ export const sessionRouter = router({
       const runtimeConfig = ctx.appConfig.getConfig();
       const service = ctx.sessionServices.getSessionMessagesPage();
       return await service.execute({
-        userId: requireUserId(ctx),
+        userId: getRequiredUserId(ctx),
         chatId: input.chatId,
         cursor: input.cursor,
         limit: input.limit,
@@ -155,7 +151,7 @@ export const sessionRouter = router({
       return observable<BroadcastEvent>((emit) => {
         let subscription: ReturnType<typeof service.execute> | undefined;
         try {
-          subscription = service.execute(requireUserId(ctx), input.chatId);
+          subscription = service.execute(getRequiredUserId(ctx), input.chatId);
         } catch (error) {
           emit.error(
             error instanceof Error ? error : new Error("Chat not found")

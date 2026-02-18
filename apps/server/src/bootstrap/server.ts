@@ -8,284 +8,97 @@
  * @module bootstrap/server
  */
 
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage } from "node:http";
 import { createServer } from "node:http";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { reactRenderer } from "@hono/react-renderer";
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { createElement, Fragment } from "react";
 import { WebSocketServer } from "ws";
-import { ENV } from "../config/environment";
 import { installConsoleLogger } from "../platform/logging/logger";
 import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
 import { withTimeout } from "../shared/utils/timeout.util";
-import { createAuthContextResolverWithBootstrap } from "../transport/auth/auth-context.bootstrap";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
 import { requestIdMiddleware } from "../transport/http/request-id";
 import { registerHttpRoutes } from "../transport/http/routes";
 import { registerDashboardUiRoutes } from "../transport/http/routes/dashboard";
 import type { HttpRouteDependencies } from "../transport/http/routes/deps";
-import { applyFetchHeadersToNodeResponse } from "../transport/http/utils/response-headers";
 import {
-  createTrpcContext,
-  type TrpcContextDependencies,
-} from "../transport/trpc/context";
+  isJsonBodyParseError,
+  parseJsonBodyWithLimit,
+} from "../transport/http/routes/helpers";
+import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
 import {
   type AppComposition,
-  type AppDependencies,
   createAppCompositionFromSettings,
 } from "./composition";
+import {
+  type CloudflareAccessHandshakePolicy,
+  hasCloudflareAccessHandshakeAuth as hasCloudflareAccessHandshakeAuthInternal,
+  validateCloudflareAccessHandshakeAuth,
+} from "./server-cloudflare-access";
+import {
+  createBootstrappedAuthResolver,
+  createHttpRouteDependencies,
+  createTrpcContextDependencies,
+} from "./server-dependencies";
+import {
+  handleNodeHttpRequest,
+  INTERNAL_REMOTE_ADDRESS_HEADER,
+} from "./server-http-bridge";
+import {
+  isPublicApiRoute,
+  shouldForwardToRuntimeWriter,
+} from "./server-route-policy";
+import {
+  forwardRequestToRuntimeWriter,
+  RUNTIME_INTERNAL_TOKEN_HEADER,
+  RUNTIME_WRITER_URL_HEADER,
+} from "./server-runtime-forwarding";
+import type { ServerRuntimePolicy as RuntimePolicy } from "./server-runtime-policy";
 
 const logger = createLogger("Server");
 const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 15_000;
 const TRPC_WS_PATH = "/trpc";
 
-interface PublicApiRouteRule {
-  methods: readonly string[];
-  pattern: RegExp;
+export type ServerRuntimePolicy = RuntimePolicy;
+
+function toCloudflareAccessHandshakePolicy(
+  runtimePolicy: RuntimePolicy
+): CloudflareAccessHandshakePolicy {
+  const hasJwtVerifier =
+    Boolean(runtimePolicy.authCloudflareAccessJwtPublicKeyPem) &&
+    Boolean(runtimePolicy.authCloudflareAccessJwtAudience) &&
+    Boolean(runtimePolicy.authCloudflareAccessJwtIssuer);
+  return {
+    clientId: runtimePolicy.authCloudflareAccessClientId,
+    clientSecret: runtimePolicy.authCloudflareAccessClientSecret,
+    jwt: hasJwtVerifier
+      ? {
+          publicKeyPem: runtimePolicy.authCloudflareAccessJwtPublicKeyPem ?? "",
+          audience: runtimePolicy.authCloudflareAccessJwtAudience ?? "",
+          issuer: runtimePolicy.authCloudflareAccessJwtIssuer ?? "",
+        }
+      : undefined,
+  };
 }
 
-const INTERNAL_REMOTE_ADDRESS_HEADER = "x-eragear-remote-address";
-
-interface FetchHandlerApp {
-  fetch(request: Request): Response | Promise<Response>;
+export function hasCloudflareAccessHandshakeAuth(
+  headers: IncomingMessage["headers"],
+  runtimePolicy: RuntimePolicy
+) {
+  return hasCloudflareAccessHandshakeAuthInternal(
+    headers,
+    toCloudflareAccessHandshakePolicy(runtimePolicy)
+  );
 }
 
 interface ShutdownTaskState {
   firstError: Error | null;
-}
-
-const PUBLIC_API_ROUTE_ALLOWLIST: readonly PublicApiRouteRule[] = [
-  {
-    methods: ["GET", "HEAD", "OPTIONS"],
-    pattern: /^\/api\/health\/?$/,
-  },
-  {
-    methods: ["POST", "OPTIONS"],
-    pattern: /^\/api\/auth\/sign-in(?:\/[^/]+)?\/?$/,
-  },
-  {
-    methods: ["POST", "OPTIONS"],
-    pattern: /^\/api\/auth\/sign-up(?:\/[^/]+)?\/?$/,
-  },
-  {
-    methods: ["POST", "OPTIONS"],
-    pattern: /^\/api\/auth\/sign-out\/?$/,
-  },
-  {
-    methods: ["POST", "OPTIONS"],
-    pattern: /^\/api\/auth\/is-username-available\/?$/,
-  },
-  {
-    methods: ["GET", "POST", "OPTIONS"],
-    pattern: /^\/api\/auth\/(?:get-session|session|list-sessions)\/?$/,
-  },
-  {
-    methods: ["POST", "OPTIONS"],
-    pattern: /^\/api\/auth\/revoke-session\/?$/,
-  },
-  {
-    methods: ["POST", "OPTIONS"],
-    pattern: /^\/api\/auth\/api-key\/verify\/?$/,
-  },
-  {
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    pattern: /^\/api\/auth\/api-key\/(?:create|list|update|delete|revoke)\/?$/,
-  },
-  {
-    methods: ["GET", "POST", "OPTIONS"],
-    pattern: /^\/api\/auth\/callback\/[^/]+\/?$/,
-  },
-];
-
-function isPublicApiRoute(method: string | undefined, path: string): boolean {
-  const normalizedMethod = (method ?? "GET").toUpperCase();
-  return PUBLIC_API_ROUTE_ALLOWLIST.some(
-    (rule) => rule.methods.includes(normalizedMethod) && rule.pattern.test(path)
-  );
-}
-
-export interface ServerRuntimePolicy {
-  wsHost: string;
-  wsPort: number;
-  wsMaxPayloadBytes: number;
-  corsStrictOrigin: boolean;
-  authAllowSignup: boolean;
-  isDev: boolean;
-  defaultAdminUsername: string;
-}
-
-function createHttpRouteDependencies(
-  deps: AppDependencies,
-  runtimePolicy: ServerRuntimePolicy,
-  resolveAuthContext: HttpRouteDependencies["resolveAuthContext"]
-): HttpRouteDependencies {
-  return {
-    sessionServices: deps.sessionServices,
-    projectServices: deps.projectServices,
-    agentServices: deps.agentServices,
-    settingsServices: deps.settingsServices,
-    appConfig: deps.appConfig,
-    opsServices: deps.opsServices,
-    eventBus: deps.eventBus,
-    logStore: deps.logStore,
-    logger: deps.appLogger,
-    auth: deps.auth,
-    authState: deps.authRuntime.authState,
-    runtime: {
-      isDev: runtimePolicy.isDev,
-      defaultAdminUsername: runtimePolicy.defaultAdminUsername,
-    },
-    resolveAuthContext,
-  };
-}
-
-function createTrpcContextDependencies(
-  deps: AppDependencies,
-  resolveAuthContext: TrpcContextDependencies["resolveAuthContext"]
-): TrpcContextDependencies {
-  return {
-    sessionServices: deps.sessionServices,
-    aiServices: deps.aiServices,
-    projectServices: deps.projectServices,
-    agentServices: deps.agentServices,
-    toolingServices: deps.toolingServices,
-    settingsServices: deps.settingsServices,
-    authServices: deps.authServices,
-    appConfig: deps.appConfig,
-    resolveAuthContext,
-  };
-}
-
-function createBootstrappedAuthResolver(deps: AppDependencies) {
-  return createAuthContextResolverWithBootstrap(
-    {
-      resolveAuthContext: deps.resolveAuthContext,
-      ensureUserDefaults: async (userId) => {
-        await deps.agentServices.ensureAgentDefaults().execute(userId);
-      },
-      onEnsureUserDefaultsError: ({ userId, error }) => {
-        logger.warn("Failed to ensure user defaults during auth bootstrap", {
-          userId,
-          error: error.message,
-        });
-      },
-    },
-    {
-      ensureUserDefaultsTtlMs: ENV.authBootstrapEnsureDefaultsTtlMs,
-      cacheMaxUsers: ENV.authBootstrapCacheMaxUsers,
-      inFlightMaxUsers: ENV.authBootstrapInFlightMaxUsers,
-    }
-  );
-}
-
-async function pipeResponseBody(
-  res: ServerResponse,
-  response: Response
-): Promise<void> {
-  const body = response.body;
-  if (!body) {
-    res.end();
-    return;
-  }
-
-  const fromWeb = (
-    Readable as typeof Readable & {
-      fromWeb?: (stream: ReadableStream) => NodeJS.ReadableStream;
-    }
-  ).fromWeb;
-  if (typeof fromWeb !== "function") {
-    throw new Error(
-      "Readable.fromWeb is unavailable. Bun runtime requirements are not met."
-    );
-  }
-
-  const stream = fromWeb(body as unknown as ReadableStream);
-  await pipeline(stream as NodeJS.ReadableStream, res);
-}
-
-function buildFetchRequestFromNode(
-  req: IncomingMessage,
-  runtimePolicy: ServerRuntimePolicy
-): Request {
-  const host =
-    req.headers.host ?? `${runtimePolicy.wsHost}:${runtimePolicy.wsPort}`;
-  const url = new URL(req.url ?? "/", `http://${host}`);
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (Array.isArray(value)) {
-      headers.set(key, value.join(","));
-      continue;
-    }
-    if (value !== undefined) {
-      headers.set(key, value);
-    }
-  }
-  const remoteAddress = req.socket.remoteAddress;
-  if (typeof remoteAddress === "string" && remoteAddress.trim().length > 0) {
-    headers.set(INTERNAL_REMOTE_ADDRESS_HEADER, remoteAddress.trim());
-  }
-  const requestInit: RequestInit & { duplex?: "half" } = {
-    method: req.method,
-    headers,
-    body:
-      req.method && req.method !== "GET" && req.method !== "HEAD"
-        ? (req as unknown as BodyInit)
-        : undefined,
-    duplex: "half",
-  };
-  return new Request(url, requestInit);
-}
-
-async function writeFetchResponseToNode(
-  req: IncomingMessage,
-  res: ServerResponse,
-  response: Response
-): Promise<void> {
-  res.statusCode = response.status;
-  applyFetchHeadersToNodeResponse(res, response.headers);
-  if (req.method === "HEAD" || response.status === 204) {
-    res.end();
-    return;
-  }
-  await pipeResponseBody(res, response);
-}
-
-async function handleNodeHttpRequest(params: {
-  app: FetchHandlerApp;
-  req: IncomingMessage;
-  res: ServerResponse;
-  runtimePolicy: ServerRuntimePolicy;
-}): Promise<void> {
-  const { app, req, res, runtimePolicy } = params;
-  try {
-    const request = buildFetchRequestFromNode(req, runtimePolicy);
-    const response = await app.fetch(request);
-    await writeFetchResponseToNode(req, res, response);
-  } catch (error) {
-    const normalizedError =
-      error instanceof Error ? error : new Error(String(error));
-    logger.error("HTTP request handling failed", normalizedError, {
-      method: req.method ?? "GET",
-      path: req.url ?? "/",
-    });
-
-    if (!(res.headersSent || res.writableEnded || res.destroyed)) {
-      res.statusCode = 500;
-      res.setHeader("content-type", "application/json; charset=utf-8");
-      res.end(JSON.stringify({ error: "Internal Server Error" }));
-      return;
-    }
-    if (!(res.writableEnded || res.destroyed)) {
-      res.destroy(normalizedError);
-    }
-  }
 }
 
 function captureShutdownError(state: ShutdownTaskState, error: unknown): void {
@@ -337,6 +150,48 @@ export function createApp(
   app.use(requestIdMiddleware());
   app.use(createRequestLogger());
 
+  app.use("/api/*", async (c, next) => {
+    const contentLengthHeader = c.req.header("content-length");
+    if (contentLengthHeader) {
+      const contentLength = Number(contentLengthHeader);
+      if (!Number.isFinite(contentLength) || contentLength < 0) {
+        return c.json({ error: "Invalid content-length header" }, 400);
+      }
+      const normalizedContentLength = Math.trunc(contentLength);
+      if (normalizedContentLength > runtimePolicy.httpMaxBodyBytes) {
+        return c.json(
+          {
+            error: `Request payload exceeds limit (${normalizedContentLength} > ${runtimePolicy.httpMaxBodyBytes} bytes)`,
+          },
+          413
+        );
+      }
+    }
+    return await next();
+  });
+
+  app.use("/api/*", async (c, next) => {
+    const forwarded = c.req.header("x-eragear-runtime-forwarded");
+    if (forwarded !== "1") {
+      return await next();
+    }
+    if (runtimePolicy.runtimeNodeRole !== "writer") {
+      return c.json({ error: "Runtime forwarded request denied" }, 403);
+    }
+    const expectedToken = runtimePolicy.runtimeInternalToken;
+    if (!expectedToken) {
+      return c.json(
+        { error: "Runtime internal forwarding token is not configured" },
+        503
+      );
+    }
+    const providedToken = c.req.header(RUNTIME_INTERNAL_TOKEN_HEADER);
+    if (providedToken !== expectedToken) {
+      return c.json({ error: "Invalid runtime forwarding token" }, 403);
+    }
+    return await next();
+  });
+
   // Response timing middleware for performance monitoring
   app.use(async (c, next) => {
     const start = Date.now();
@@ -370,6 +225,19 @@ export function createApp(
     return corsMiddleware.api(c, next);
   });
 
+  app.use("/api/*", async (c, next) => {
+    if (runtimePolicy.runtimeNodeRole !== "reader") {
+      return await next();
+    }
+    if (!shouldForwardToRuntimeWriter(c.req.method, c.req.path)) {
+      return await next();
+    }
+    return await forwardRequestToRuntimeWriter({
+      request: c.req.raw,
+      runtimePolicy,
+    });
+  });
+
   app.all("/api/auth/*", async (c) => {
     const path = c.req.path;
     const method = c.req.method;
@@ -390,12 +258,28 @@ export function createApp(
 
     if (path === "/api/auth/api-key/verify" && c.req.method === "POST") {
       try {
-        const body = await c.req.json();
+        const body = await parseJsonBodyWithLimit<Record<string, unknown>>(
+          c.req.raw,
+          runtimePolicy.httpMaxBodyBytes
+        );
+        const payload = body as {
+          key: string;
+          permissions?: Record<string, string[]>;
+        };
+        if (
+          typeof payload.key !== "string" ||
+          payload.key.trim().length === 0
+        ) {
+          return c.json({ error: "key is required" }, 400);
+        }
         const result = await authRuntime.auth.api.verifyApiKey({
-          body,
+          body: payload,
         });
         return c.json(result);
       } catch (error) {
+        if (isJsonBodyParseError(error)) {
+          return c.json({ error: error.message }, error.statusCode);
+        }
         logger.error("Failed to verify API key", error as Error);
         return c.json(
           {
@@ -448,7 +332,7 @@ export function createApp(
   app.notFound((c) => c.json({ error: "Not found" }, 404));
 
   // Error handler for unhandled exceptions
-  app.onError(createErrorHandler());
+  app.onError(createErrorHandler({ logger }));
 
   return app;
 }
@@ -483,6 +367,20 @@ export async function startServer() {
     maxPayload: runtimePolicy.wsMaxPayloadBytes,
   });
   server.on("upgrade", (req, socket, head) => {
+    if (runtimePolicy.runtimeNodeRole === "reader") {
+      const writerHint = runtimePolicy.runtimeWriterUrl;
+      const headers = [
+        "HTTP/1.1 503 Service Unavailable",
+        "Connection: close",
+        "Content-Type: text/plain; charset=utf-8",
+      ];
+      if (writerHint) {
+        headers.push(`${RUNTIME_WRITER_URL_HEADER}: ${writerHint}`);
+      }
+      socket.write(`${headers.join("\r\n")}\r\n\r\nRuntime writer required`);
+      socket.destroy();
+      return;
+    }
     try {
       const host =
         req.headers.host ?? `${runtimePolicy.wsHost}:${runtimePolicy.wsPort}`;
@@ -496,6 +394,27 @@ export async function startServer() {
       socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
+    }
+    if (runtimePolicy.authRequireCloudflareAccess) {
+      const authCheck = validateCloudflareAccessHandshakeAuth(
+        req.headers,
+        toCloudflareAccessHandshakePolicy(runtimePolicy)
+      );
+      if (!authCheck.ok) {
+        logger.warn(
+          "Rejected WebSocket handshake without Cloudflare Access auth",
+          {
+            path: req.url ?? TRPC_WS_PATH,
+            remoteAddress: req.socket.remoteAddress,
+            reason: authCheck.reason ?? "unknown",
+          }
+        );
+        socket.write(
+          "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nCloudflare Access authentication required"
+        );
+        socket.destroy();
+        return;
+      }
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);

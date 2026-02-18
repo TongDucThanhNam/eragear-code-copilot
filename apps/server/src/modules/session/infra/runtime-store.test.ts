@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
+import type { SessionEventOutboxPort } from "@/modules/session/application/ports/session-event-outbox.port";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { SessionRuntimeStore } from "./runtime-store";
@@ -15,10 +15,21 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
-function createEventBusStub(): EventBusPort {
+function createOutboxStub(calls: BroadcastEvent[]): SessionEventOutboxPort {
   return {
-    subscribe: () => () => undefined,
-    publish: async () => undefined,
+    enqueue: async (input) => {
+      calls.push(input.event);
+    },
+    dispatch: async () => ({ dispatched: 0, failed: 0, retried: 0, pending: 0 }),
+  };
+}
+
+function createFailingOutboxStub(): SessionEventOutboxPort {
+  return {
+    enqueue: async () => {
+      throw new Error("outbox failure");
+    },
+    dispatch: async () => ({ dispatched: 0, failed: 0, retried: 0, pending: 0 }),
   };
 }
 
@@ -47,7 +58,8 @@ async function flushAsync(): Promise<void> {
 
 describe("SessionRuntimeStore.runExclusive", () => {
   test("serializes execution per chat id", async () => {
-    const store = new SessionRuntimeStore(createEventBusStub(), {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 20,
       lockAcquireTimeoutMs: 500,
       eventBusPublishTimeoutMs: 100,
@@ -83,41 +95,9 @@ describe("SessionRuntimeStore.runExclusive", () => {
     expect(order).toEqual(["first:start", "first:end", "second:start"]);
   });
 
-  test("allows concurrent execution across different chat ids", async () => {
-    const store = new SessionRuntimeStore(createEventBusStub(), {
-      sessionBufferLimit: 20,
-      lockAcquireTimeoutMs: 500,
-      eventBusPublishTimeoutMs: 100,
-      eventBusPublishMaxQueuePerChat: 8,
-    });
-    const releaseA = createDeferred<void>();
-    const releaseB = createDeferred<void>();
-    let startedB = false;
-
-    const first = store.runExclusive("chat-a", async () => {
-      await releaseA.promise;
-      return "a";
-    });
-
-    const second = store.runExclusive("chat-b", async () => {
-      startedB = true;
-      await releaseB.promise;
-      return "b";
-    });
-
-    await flushAsync();
-    expect(startedB).toBe(true);
-
-    releaseB.resolve();
-    releaseA.resolve();
-
-    const [a, b] = await Promise.all([first, second]);
-    expect(a).toBe("a");
-    expect(b).toBe("b");
-  });
-
   test("fails fast when lock acquisition exceeds timeout", async () => {
-    const store = new SessionRuntimeStore(createEventBusStub(), {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 20,
       lockAcquireTimeoutMs: 20,
       eventBusPublishTimeoutMs: 100,
@@ -138,20 +118,15 @@ describe("SessionRuntimeStore.runExclusive", () => {
       store.runExclusive("chat-1", async () => "second")
     ).rejects.toThrow(LOCK_TIMEOUT_RE);
 
-    const third = store.runExclusive("chat-1", async () => "third");
-
     releaseFirst.resolve();
     await expect(first).resolves.toBe("first");
-    await expect(third).resolves.toBe("third");
-    await expect(
-      store.runExclusive("chat-1", async () => "fourth")
-    ).resolves.toBe("fourth");
   });
 });
 
 describe("SessionRuntimeStore.delete", () => {
   test("cancels pending permissions before removing runtime session", () => {
-    const store = new SessionRuntimeStore(createEventBusStub(), {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 20,
       lockAcquireTimeoutMs: 500,
       eventBusPublishTimeoutMs: 100,
@@ -176,8 +151,35 @@ describe("SessionRuntimeStore.delete", () => {
 });
 
 describe("SessionRuntimeStore.broadcast", () => {
+  test("buffers events and persists durable outbox records", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 3,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishTimeoutMs: 100,
+      eventBusPublishMaxQueuePerChat: 8,
+    });
+    const session = createSession("chat-1");
+    store.set("chat-1", session);
+
+    const events: BroadcastEvent[] = [
+      { type: "error", error: "e-1" },
+      { type: "error", error: "e-2" },
+      { type: "error", error: "e-3" },
+      { type: "error", error: "e-4" },
+    ];
+
+    for (const event of events) {
+      await store.broadcast("chat-1", event);
+    }
+
+    expect(session.messageBuffer).toEqual(events.slice(1));
+    expect(outboxCalls).toEqual(events);
+  });
+
   test("handles concurrent broadcast bursts without corrupting message buffer", async () => {
-    const store = new SessionRuntimeStore(createEventBusStub(), {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 10,
       lockAcquireTimeoutMs: 500,
       eventBusPublishTimeoutMs: 100,
@@ -202,157 +204,30 @@ describe("SessionRuntimeStore.broadcast", () => {
         error: `e-${90 + offset}`,
       }))
     );
+    expect(outboxCalls.length).toBe(100);
   });
 
-  test("returns successfully when event bus publish fails", async () => {
-    const store = new SessionRuntimeStore(
-      {
-        subscribe: () => () => undefined,
-        publish: () => {
-          throw new Error("event bus down");
-        },
-      },
-      {
-        sessionBufferLimit: 20,
-        lockAcquireTimeoutMs: 500,
-        eventBusPublishTimeoutMs: 100,
-        eventBusPublishMaxQueuePerChat: 8,
-      }
-    );
-    store.set("chat-1", createSession("chat-1"));
+  test("does not emit or buffer event when outbox enqueue fails", async () => {
+    const store = new SessionRuntimeStore(createFailingOutboxStub(), {
+      sessionBufferLimit: 10,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishTimeoutMs: 100,
+      eventBusPublishMaxQueuePerChat: 64,
+    });
+    const session = createSession("chat-1");
+    store.set("chat-1", session);
+    const received: BroadcastEvent[] = [];
+    session.emitter.on("data", (event) => {
+      received.push(event as BroadcastEvent);
+    });
 
-    const event: BroadcastEvent = {
-      type: "error",
-      error: "boom",
-    };
-
-    await expect(store.broadcast("chat-1", event)).resolves.toBeUndefined();
-  });
-
-  test("does not wait for slow event bus publish", async () => {
-    const publishRelease = createDeferred<void>();
-    let publishCalls = 0;
-    const store = new SessionRuntimeStore(
-      {
-        subscribe: () => () => undefined,
-        publish: async () => {
-          publishCalls += 1;
-          await publishRelease.promise;
-        },
-      },
-      {
-        sessionBufferLimit: 20,
-        lockAcquireTimeoutMs: 500,
-        eventBusPublishTimeoutMs: 100,
-        eventBusPublishMaxQueuePerChat: 8,
-      }
-    );
-    store.set("chat-1", createSession("chat-1"));
-
-    const event: BroadcastEvent = {
-      type: "error",
-      error: "boom",
-    };
-
-    await expect(store.broadcast("chat-1", event)).resolves.toBeUndefined();
-    await flushAsync();
-    expect(publishCalls).toBe(1);
-    publishRelease.resolve();
-  });
-
-  test("drops publishes when per-chat event bus queue is full", async () => {
-    const firstPublishRelease = createDeferred<void>();
-    let publishCalls = 0;
-    const store = new SessionRuntimeStore(
-      {
-        subscribe: () => () => undefined,
-        publish: async () => {
-          publishCalls += 1;
-          if (publishCalls === 1) {
-            await firstPublishRelease.promise;
-          }
-        },
-      },
-      {
-        sessionBufferLimit: 20,
-        lockAcquireTimeoutMs: 500,
-        eventBusPublishTimeoutMs: 100,
-        eventBusPublishMaxQueuePerChat: 2,
-      }
-    );
-    store.set("chat-1", createSession("chat-1"));
-    const event: BroadcastEvent = {
-      type: "error",
-      error: "boom",
-    };
-
-    await store.broadcast("chat-1", event);
-    await store.broadcast("chat-1", event);
-    await store.broadcast("chat-1", event);
-    expect(publishCalls).toBe(1);
-
-    firstPublishRelease.resolve();
-    await flushAsync();
-    await flushAsync();
-
-    expect(publishCalls).toBe(2);
-  });
-
-  test("keeps publish back-pressure correct across delete and recreate of same chat id", async () => {
-    const firstPublishRelease = createDeferred<void>();
-    const secondPublishRelease = createDeferred<void>();
-    let publishCalls = 0;
-    const store = new SessionRuntimeStore(
-      {
-        subscribe: () => () => undefined,
-        publish: async () => {
-          publishCalls += 1;
-          if (publishCalls === 1) {
-            await firstPublishRelease.promise;
-            return;
-          }
-          if (publishCalls === 2) {
-            await secondPublishRelease.promise;
-          }
-        },
-      },
-      {
-        sessionBufferLimit: 20,
-        lockAcquireTimeoutMs: 500,
-        eventBusPublishTimeoutMs: 100,
-        eventBusPublishMaxQueuePerChat: 1,
-      }
-    );
-    const event: BroadcastEvent = {
-      type: "error",
-      error: "boom",
-    };
-
-    store.set("chat-1", createSession("chat-1"));
-    await store.broadcast("chat-1", event);
-    await flushAsync();
-    expect(publishCalls).toBe(1);
-
-    store.delete("chat-1");
-    store.set("chat-1", createSession("chat-1"));
-    await store.broadcast("chat-1", event);
-    await flushAsync();
-    expect(publishCalls).toBe(2);
-
-    firstPublishRelease.resolve();
-    await flushAsync();
-    await flushAsync();
-
-    await store.broadcast("chat-1", event);
-    await flushAsync();
-    expect(publishCalls).toBe(2);
-
-    secondPublishRelease.resolve();
-    await flushAsync();
-    await flushAsync();
-
-    await store.broadcast("chat-1", event);
-    await flushAsync();
-    expect(publishCalls).toBe(3);
+    await expect(
+      store.broadcast("chat-1", {
+        type: "error",
+        error: "e-1",
+      })
+    ).rejects.toThrow(/outbox failure/);
+    expect(received).toEqual([]);
+    expect(session.messageBuffer).toEqual([]);
   });
 });

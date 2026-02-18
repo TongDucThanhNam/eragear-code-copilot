@@ -48,6 +48,7 @@ export function Document({
         />
 
         <link href={assets.stylesHref} rel="stylesheet" />
+        <link href={assets.stylesEnhancedHref} rel="stylesheet" />
 
         {head}
       </head>

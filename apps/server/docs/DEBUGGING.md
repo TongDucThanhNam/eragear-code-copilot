@@ -67,7 +67,7 @@ Khi debug lỗi, luôn ghi nhận bộ 3:
 ### 4.4 Auth failures
 
 - `src/platform/auth/*`
-- `src/transport/http/utils/auth.ts`
+- `src/transport/auth/auth-context.bootstrap.ts`
 - `src/transport/trpc/context.ts`
 
 ## 5. Debug Playbook

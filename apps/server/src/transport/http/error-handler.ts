@@ -9,8 +9,6 @@
 
 import type { Context } from "hono";
 import { ENV } from "@/config/environment";
-// biome-ignore lint/style/noRestrictedImports: transport error boundary needs server logger sink.
-import { createLogger } from "@/platform/logging/structured-logger";
 import { isAppError } from "@/shared/errors";
 import { getObservabilityContext } from "@/shared/utils/observability-context.util";
 
@@ -78,9 +76,16 @@ function resolvePublicMessage(statusCode: number): string {
 
 export interface ErrorHandlerPolicy {
   exposeInternalDetails?: boolean;
+  logger?: ErrorHandlerLogger;
 }
 
-const logger = createLogger("Server");
+interface ErrorHandlerLogger {
+  error(
+    message: string,
+    error: Error,
+    context?: Record<string, unknown>
+  ): void;
+}
 
 /**
  * Creates an error handler middleware for Hono
@@ -91,6 +96,7 @@ const logger = createLogger("Server");
  */
 export function createErrorHandler(policy: ErrorHandlerPolicy = {}) {
   const exposeInternalDetails = policy.exposeInternalDetails ?? ENV.isDev;
+  const logger = policy.logger;
 
   return (err: Error, c: Context) => {
     const context = getObservabilityContext();
@@ -111,7 +117,7 @@ export function createErrorHandler(policy: ErrorHandlerPolicy = {}) {
         }
       : resolveFallbackErrorShape(err);
 
-    logger.error("HTTP request failed", err, {
+    logger?.error("HTTP request failed", err, {
       requestId,
       method,
       path,

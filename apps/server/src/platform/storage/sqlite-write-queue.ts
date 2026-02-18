@@ -10,6 +10,7 @@ type SqliteWritePriority = "high" | "low";
 interface SqliteWriteQueuePolicy {
   busyMaxRetries: number;
   busyRetryBaseDelayMs: number;
+  maxPending: number;
 }
 
 function readPolicyFromEnv(): SqliteWriteQueuePolicy {
@@ -19,7 +20,14 @@ function readPolicyFromEnv(): SqliteWriteQueuePolicy {
       1,
       Math.trunc(ENV.sqliteBusyRetryBaseDelayMs)
     ),
+    maxPending: Math.max(1, Math.trunc(ENV.sqliteWriteQueueMaxPending)),
   };
+}
+
+let sqliteWriteQueuePolicyOverride: SqliteWriteQueuePolicy | null = null;
+
+function resolveQueuePolicy(): SqliteWriteQueuePolicy {
+  return sqliteWriteQueuePolicyOverride ?? readPolicyFromEnv();
 }
 
 function isSqliteBusyError(error: unknown): boolean {
@@ -36,6 +44,7 @@ export interface SqliteWriteQueueStats {
   pendingTotal: number;
   pendingHigh: number;
   pendingLow: number;
+  rejectedOverload: number;
   busyRetryCount: number;
   headBlockedMs: number;
   maxHeadWaitMs: number;
@@ -49,35 +58,45 @@ export interface EnqueueSqliteWriteOptions {
   priority?: SqliteWritePriority;
 }
 
-interface EnqueuedWriteTask {
+interface QueuedWriteTask<T> {
   operation: string;
+  task: () => Promise<T> | T;
+  policy: SqliteWriteQueuePolicy;
   priority: SqliteWritePriority;
-  run: () => Promise<unknown>;
   resolve: (value: unknown) => void;
   reject: (error: unknown) => void;
-  attempt: number;
-  maxAttempts: number;
-  retryBaseDelayMs: number;
-  notBeforeMs: number;
+}
+
+export class SqliteWriteQueueOverloadedError extends Error {
+  readonly pending: number;
+  readonly maxPending: number;
+
+  constructor(params: { pending: number; maxPending: number }) {
+    super(
+      `[Storage] SQLite write queue overloaded (${params.pending} pending, max ${params.maxPending})`
+    );
+    this.name = "SqliteWriteQueueOverloadedError";
+    this.pending = params.pending;
+    this.maxPending = params.maxPending;
+  }
 }
 
 class SqliteWriteQueue {
-  private readonly queue: EnqueuedWriteTask[] = [];
   private readonly clock: ClockPort;
-
-  private drainScheduled = false;
-  private delayedDrainTimer: ReturnType<typeof setTimeout> | null = null;
-  private delayedDrainAtMs: number | null = null;
-  private running = false;
 
   private pendingHigh = 0;
   private pendingLow = 0;
+  private rejectedOverload = 0;
   private busyRetryCount = 0;
   private maxHeadWaitMs = 0;
   private maxDepth = 0;
   private totalEnqueued = 0;
   private totalCompleted = 0;
   private totalFailed = 0;
+  private readonly pendingPromises = new Set<Promise<unknown>>();
+  private readonly highPriorityQueue: QueuedWriteTask<unknown>[] = [];
+  private readonly lowPriorityQueue: QueuedWriteTask<unknown>[] = [];
+  private processingLoop: Promise<void> | null = null;
 
   constructor(clock: ClockPort = systemClock) {
     this.clock = clock;
@@ -89,24 +108,46 @@ class SqliteWriteQueue {
     options?: EnqueueSqliteWriteOptions
   ): Promise<T> {
     const priority = options?.priority ?? "high";
-    this.incrementPending(priority);
-    const policy = readPolicyFromEnv();
-
-    return new Promise<T>((resolve, reject) => {
-      const queuedTask: EnqueuedWriteTask = {
+    const policy = resolveQueuePolicy();
+    const pendingNow = this.pendingTotal();
+    if (pendingNow >= policy.maxPending) {
+      this.rejectedOverload += 1;
+      const overloadError = new SqliteWriteQueueOverloadedError({
+        pending: pendingNow,
+        maxPending: policy.maxPending,
+      });
+      logger.warn("Rejected SQLite write enqueue due to queue overload", {
         operation,
-        priority,
-        run: async () => await task(),
-        resolve: (value) => resolve(value as T),
-        reject: (error) => reject(error),
-        attempt: 1,
-        maxAttempts: policy.busyMaxRetries,
-        retryBaseDelayMs: policy.busyRetryBaseDelayMs,
-        notBeforeMs: this.clock.nowMs(),
-      };
-      this.pushTask(queuedTask);
-      this.scheduleImmediateDrain();
+        pending: pendingNow,
+        maxPending: policy.maxPending,
+      });
+      return Promise.reject(overloadError);
+    }
+
+    this.incrementPending(priority);
+
+    let resolveTask: (value: T) => void = () => undefined;
+    let rejectTask: (error: unknown) => void = () => undefined;
+
+    const operationPromise = new Promise<T>((resolve, reject) => {
+      resolveTask = resolve;
+      rejectTask = reject;
+    }).finally(() => {
+      this.pendingPromises.delete(operationPromise);
+      this.decrementPending(priority);
     });
+
+    this.pendingPromises.add(operationPromise);
+    this.enqueueTask({
+      operation,
+      task,
+      policy,
+      priority,
+      resolve: (value) => resolveTask(value as T),
+      reject: rejectTask,
+    });
+    this.startProcessingLoop();
+    return operationPromise;
   }
 
   private incrementPending(priority: SqliteWritePriority): void {
@@ -131,230 +172,143 @@ class SqliteWriteQueue {
     return this.pendingHigh + this.pendingLow;
   }
 
-  private hasPendingQueue(): boolean {
-    return this.queue.length > 0;
-  }
-
-  private getEarliestNotBeforeMs(): number | null {
-    let earliest: number | null = null;
-    for (const task of this.queue) {
-      if (earliest === null || task.notBeforeMs < earliest) {
-        earliest = task.notBeforeMs;
-      }
-    }
-    return earliest;
-  }
-
-  private pushTask(task: EnqueuedWriteTask): void {
-    this.queue.push(task);
-  }
-
-  private dequeueRunnableTask(nowMs: number): EnqueuedWriteTask | undefined {
-    let selectedIndex = -1;
-
-    for (let i = 0; i < this.queue.length; i += 1) {
-      const task = this.queue[i];
-      if (!task) {
-        continue;
-      }
-      if (!(task.priority === "high" && task.notBeforeMs <= nowMs)) {
-        continue;
-      }
-      selectedIndex = i;
-      break;
-    }
-
-    if (selectedIndex < 0) {
-      for (let i = 0; i < this.queue.length; i += 1) {
-        const task = this.queue[i];
-        if (!task) {
-          continue;
-        }
-        if (task.notBeforeMs > nowMs) {
-          continue;
-        }
-        selectedIndex = i;
-        break;
-      }
-    }
-
-    if (selectedIndex < 0) {
-      return undefined;
-    }
-
-    const selectedTask = this.queue[selectedIndex];
-    this.queue.splice(selectedIndex, 1);
-    return selectedTask;
-  }
-
-  private scheduleImmediateDrain(): void {
-    if (this.delayedDrainTimer) {
-      clearTimeout(this.delayedDrainTimer);
-      this.delayedDrainTimer = null;
-      this.delayedDrainAtMs = null;
-    }
-    if (this.drainScheduled) {
+  private enqueueTask(task: QueuedWriteTask<unknown>): void {
+    if (task.priority === "high") {
+      this.highPriorityQueue.push(task);
       return;
     }
-    this.drainScheduled = true;
-    queueMicrotask(() => {
-      this.drainScheduled = false;
-      this.drain().catch((error) => {
-        logger.error(
-          "SQLite write queue drain failed",
-          error instanceof Error ? error : new Error(String(error))
-        );
-      });
+    this.lowPriorityQueue.push(task);
+  }
+
+  private dequeueTask(): QueuedWriteTask<unknown> | undefined {
+    if (this.highPriorityQueue.length > 0) {
+      return this.highPriorityQueue.shift();
+    }
+    if (this.lowPriorityQueue.length > 0) {
+      return this.lowPriorityQueue.shift();
+    }
+    return undefined;
+  }
+
+  private startProcessingLoop(): void {
+    if (this.processingLoop) {
+      return;
+    }
+    this.processingLoop = this.processQueuedTasks().finally(() => {
+      this.processingLoop = null;
+      if (this.pendingTotal() > 0) {
+        this.startProcessingLoop();
+      }
     });
   }
 
-  private scheduleDelayedDrain(runAtMs: number): void {
-    const nowMs = this.clock.nowMs();
-    const delayMs = Math.max(1, Math.trunc(runAtMs - nowMs));
-    if (
-      this.delayedDrainAtMs !== null &&
-      this.delayedDrainAtMs <= runAtMs &&
-      this.delayedDrainTimer
-    ) {
-      return;
+  private async processQueuedTasks(): Promise<void> {
+    while (true) {
+      const queuedTask = this.dequeueTask();
+      if (!queuedTask) {
+        return;
+      }
+      await this.runQueuedTask(queuedTask);
     }
-    if (this.delayedDrainTimer) {
-      clearTimeout(this.delayedDrainTimer);
-    }
-    this.delayedDrainAtMs = runAtMs;
-    this.delayedDrainTimer = setTimeout(() => {
-      this.delayedDrainTimer = null;
-      this.delayedDrainAtMs = null;
-      this.scheduleImmediateDrain();
-    }, delayMs);
   }
 
-  private async drain(): Promise<void> {
-    if (this.running) {
-      return;
-    }
-
-    this.running = true;
+  private async runQueuedTask(task: QueuedWriteTask<unknown>): Promise<void> {
     try {
-      while (true) {
-        const nowMs = this.clock.nowMs();
-        const nextTask = this.dequeueRunnableTask(nowMs);
-        if (!nextTask) {
-          const earliestNotBeforeMs = this.getEarliestNotBeforeMs();
-          if (earliestNotBeforeMs !== null) {
-            const headBlockedMs = Math.max(
-              0,
-              Math.trunc(earliestNotBeforeMs - nowMs)
-            );
-            this.maxHeadWaitMs = Math.max(this.maxHeadWaitMs, headBlockedMs);
-            this.scheduleDelayedDrain(earliestNotBeforeMs);
-          }
-          break;
-        }
-
-        const startedAt = this.clock.nowMs();
-        try {
-          const result = await nextTask.run();
-          const durationMs = this.clock.nowMs() - startedAt;
-          if (nextTask.attempt > 1) {
-            logger.warn("SQLite write succeeded after busy retries", {
-              operation: nextTask.operation,
-              attempt: nextTask.attempt,
-              maxAttempts: nextTask.maxAttempts,
-              durationMs,
-              queueDepth: this.pendingTotal(),
-            });
-          }
-          this.totalCompleted += 1;
-          this.decrementPending(nextTask.priority);
-          nextTask.resolve(result);
-        } catch (error) {
-          this.handleTaskFailure(nextTask, error);
-        }
-      }
-    } finally {
-      this.running = false;
-      if (this.hasPendingQueue()) {
-        const nowMs = this.clock.nowMs();
-        const hasRunnableTask = this.queue.some(
-          (task) => task.notBeforeMs <= nowMs
-        );
-        if (hasRunnableTask) {
-          this.scheduleImmediateDrain();
-        } else {
-          const earliestNotBeforeMs = this.getEarliestNotBeforeMs();
-          if (earliestNotBeforeMs !== null) {
-            const headBlockedMs = Math.max(
-              0,
-              Math.trunc(earliestNotBeforeMs - nowMs)
-            );
-            this.maxHeadWaitMs = Math.max(this.maxHeadWaitMs, headBlockedMs);
-            this.scheduleDelayedDrain(earliestNotBeforeMs);
-          }
-        }
-      }
+      const result = await this.runWithBusyRetry(
+        task.operation,
+        task.task,
+        task.policy
+      );
+      this.totalCompleted += 1;
+      task.resolve(result);
+    } catch (error) {
+      this.totalFailed += 1;
+      task.reject(error);
     }
   }
 
-  private handleTaskFailure(task: EnqueuedWriteTask, error: unknown): void {
-    if (isSqliteBusyError(error) && task.attempt < task.maxAttempts) {
-      const delayMs = task.retryBaseDelayMs * 2 ** (task.attempt - 1);
-      logger.warn("SQLite busy encountered during write; retrying", {
-        operation: task.operation,
-        attempt: task.attempt,
-        maxAttempts: task.maxAttempts,
-        delayMs,
-        queueDepth: this.pendingTotal(),
-      });
-      this.busyRetryCount += 1;
-      task.attempt += 1;
-      task.notBeforeMs = this.clock.nowMs() + delayMs;
-      this.pushTask(task);
-      return;
-    }
+  private async runWithBusyRetry<T>(
+    operation: string,
+    task: () => Promise<T> | T,
+    policy: SqliteWriteQueuePolicy
+  ): Promise<T> {
+    let attempt = 1;
 
-    logger.error(
-      "SQLite write failed",
-      error instanceof Error ? error : new Error(String(error)),
-      {
-        operation: task.operation,
-        attempt: task.attempt,
-        maxAttempts: task.maxAttempts,
-        queueDepth: this.pendingTotal(),
+    while (true) {
+      const startedAt = this.clock.nowMs();
+      try {
+        return await task();
+      } catch (error) {
+        if (!isSqliteBusyError(error) || attempt >= policy.busyMaxRetries) {
+          logger.error(
+            "SQLite write failed",
+            error instanceof Error ? error : new Error(String(error)),
+            {
+              operation,
+              attempt,
+              maxAttempts: policy.busyMaxRetries,
+              pendingTotal: this.pendingTotal(),
+            }
+          );
+          throw error;
+        }
+
+        const delayMs = policy.busyRetryBaseDelayMs * 2 ** (attempt - 1);
+        this.busyRetryCount += 1;
+        this.maxHeadWaitMs = Math.max(this.maxHeadWaitMs, delayMs);
+        logger.warn("SQLite busy encountered during write; retrying", {
+          operation,
+          attempt,
+          maxAttempts: policy.busyMaxRetries,
+          delayMs,
+          durationMs: this.clock.nowMs() - startedAt,
+          pendingTotal: this.pendingTotal(),
+        });
+
+        attempt += 1;
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delayMs);
+          timer.unref?.();
+        });
       }
-    );
-    this.totalFailed += 1;
-    this.decrementPending(task.priority);
-    task.reject(error);
+    }
   }
 
   getStats(): SqliteWriteQueueStats {
     const pending = this.pendingTotal();
-    const nowMs = this.clock.nowMs();
-    const hasRunnableTask = this.queue.some(
-      (task) => task.notBeforeMs <= nowMs
-    );
-    const earliestNotBeforeMs = this.getEarliestNotBeforeMs();
-    const headBlockedMs =
-      !hasRunnableTask &&
-      earliestNotBeforeMs !== null &&
-      earliestNotBeforeMs > nowMs
-        ? Math.max(0, Math.trunc(earliestNotBeforeMs - nowMs))
-        : 0;
     return {
       pending,
       writeQueueDepth: pending,
       pendingTotal: pending,
       pendingHigh: this.pendingHigh,
       pendingLow: this.pendingLow,
+      rejectedOverload: this.rejectedOverload,
       busyRetryCount: this.busyRetryCount,
-      headBlockedMs,
+      headBlockedMs: 0,
       maxHeadWaitMs: this.maxHeadWaitMs,
       maxDepth: this.maxDepth,
       totalEnqueued: this.totalEnqueued,
       totalCompleted: this.totalCompleted,
       totalFailed: this.totalFailed,
     };
+  }
+
+  async flush(timeoutMs = 30_000): Promise<boolean> {
+    const normalizedTimeoutMs = Math.max(1, Math.trunc(timeoutMs));
+    const startedAt = this.clock.nowMs();
+
+    while (true) {
+      if (this.pendingPromises.size === 0 && this.pendingTotal() === 0) {
+        return true;
+      }
+      if (this.clock.nowMs() - startedAt >= normalizedTimeoutMs) {
+        return false;
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 5);
+        timer.unref?.();
+      });
+    }
   }
 }
 
@@ -370,4 +324,34 @@ export function enqueueSqliteWrite<T>(
 
 export function getSqliteWriteQueueStats(): SqliteWriteQueueStats {
   return sqliteWriteQueue.getStats();
+}
+
+export async function flushSqliteWriteQueue(
+  timeoutMs?: number
+): Promise<boolean> {
+  return await sqliteWriteQueue.flush(timeoutMs);
+}
+
+export function setSqliteWriteQueuePolicyForTests(
+  policy: Partial<SqliteWriteQueuePolicy> | null
+): void {
+  if (!policy) {
+    sqliteWriteQueuePolicyOverride = null;
+    return;
+  }
+  const base = readPolicyFromEnv();
+  sqliteWriteQueuePolicyOverride = {
+    busyMaxRetries:
+      policy.busyMaxRetries === undefined
+        ? base.busyMaxRetries
+        : Math.max(1, Math.trunc(policy.busyMaxRetries)),
+    busyRetryBaseDelayMs:
+      policy.busyRetryBaseDelayMs === undefined
+        ? base.busyRetryBaseDelayMs
+        : Math.max(1, Math.trunc(policy.busyRetryBaseDelayMs)),
+    maxPending:
+      policy.maxPending === undefined
+        ? base.maxPending
+        : Math.max(1, Math.trunc(policy.maxPending)),
+  };
 }

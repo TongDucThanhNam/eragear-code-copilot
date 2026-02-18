@@ -152,7 +152,9 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
     session.activeTurnId = undefined;
     session.activePromptTask = undefined;
     if (killProcess) {
-      await terminateProcessGracefully(session.proc);
+      await terminateProcessGracefully(session.proc, {
+        forceWindowsTreeTermination: true,
+      });
     }
     this.sessionRuntime.delete(chatId);
   }

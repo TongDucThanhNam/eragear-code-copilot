@@ -5,6 +5,7 @@ import {
   appMeta,
   appSettings,
   projects,
+  sessionEventOutbox,
   sessionMessages,
   sessions,
   userSettings,
@@ -24,6 +25,7 @@ const sqliteSchema = {
   agents,
   sessions,
   sessionMessages,
+  sessionEventOutbox,
 };
 
 type SqliteOrmDb = BunSQLiteDatabase<typeof sqliteSchema>;

@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type AgentsResponse,
+  type ApiKeyCreateEnvelope,
+  type ApiKeysResponse,
+  type DashboardProjectsResponse,
+  type DashboardSessionsResponse,
+  type DashboardStatsResponse,
+  type DeviceSessionsResponse,
+  FALLBACK_SETTINGS,
+  fetchJson,
+  type SettingsResponse,
+} from "@/presentation/dashboard/client/dashboard-app.api";
+import {
   type ApiKeyCreateResponse,
   type DashboardData,
   EMPTY_DASHBOARD_DATA,
@@ -16,70 +28,6 @@ import type { Settings } from "@/shared/types/settings.types";
 
 interface DashboardAppProps {
   bootstrap?: DashboardBootstrap | null;
-}
-
-interface DashboardStatsResponse {
-  stats?: DashboardData["stats"];
-}
-
-interface DashboardProjectsResponse {
-  projects?: DashboardData["projects"];
-}
-
-interface DashboardSessionsResponse {
-  sessions?: DashboardData["sessions"];
-}
-
-interface AgentsResponse {
-  agents?: DashboardData["agents"];
-}
-
-interface ApiKeysResponse {
-  keys?: DashboardData["apiKeys"];
-}
-
-interface DeviceSessionsResponse {
-  sessions?: DashboardData["deviceSessions"];
-}
-
-interface SettingsResponse extends Settings {
-  requiresRestart?: string[];
-}
-
-const FALLBACK_SETTINGS: Settings = {
-  ui: {
-    theme: "system",
-    accentColor: "#2563eb",
-    density: "comfortable",
-    fontScale: 1,
-  },
-  projectRoots: [],
-  mcpServers: [],
-  app: {
-    sessionIdleTimeoutMs: 10 * 60 * 1000,
-    sessionListPageMaxLimit: 500,
-    sessionMessagesPageMaxLimit: 200,
-    logLevel: "info",
-    maxTokens: 8192,
-    defaultModel: "",
-  },
-};
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    let message = `HTTP ${response.status}`;
-    try {
-      const body = (await response.json()) as { error?: string };
-      if (body?.error) {
-        message = body.error;
-      }
-    } catch {
-      // Ignore JSON parse errors.
-    }
-    throw new Error(message);
-  }
-  return (await response.json()) as T;
 }
 
 export function DashboardApp({ bootstrap }: DashboardAppProps) {
@@ -389,7 +337,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
           typeof expiresInDays === "number" && expiresInDays > 0
             ? Math.round(expiresInDays * 86_400)
             : undefined;
-        const response = await fetchJson<{ apiKey: ApiKeyCreateResponse }>(
+        const response = await fetchJson<ApiKeyCreateEnvelope>(
           "/api/admin/api-keys",
           {
             method: "POST",

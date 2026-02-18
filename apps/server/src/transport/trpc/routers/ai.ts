@@ -13,15 +13,8 @@ import {
   SetModeInputSchema,
   SetModelInputSchema,
 } from "@/modules/ai";
+import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
-
-function requireUserId(ctx: { auth?: { userId?: string } | null }): string {
-  const userId = ctx.auth?.userId;
-  if (!userId) {
-    throw new Error("Unauthorized");
-  }
-  return userId;
-}
 
 export const aiRouter = router({
   /** Send a message to an agent session */
@@ -29,7 +22,10 @@ export const aiRouter = router({
     .input(SendMessageInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.aiServices.sendMessage();
-      return await service.execute({ ...input, userId: requireUserId(ctx) });
+      return await service.execute({
+        ...input,
+        userId: getRequiredUserId(ctx),
+      });
     }),
 
   /** Set the active model for a session */
@@ -38,7 +34,7 @@ export const aiRouter = router({
     .mutation(async ({ input, ctx }) => {
       const service = ctx.aiServices.setModel();
       return await service.execute(
-        requireUserId(ctx),
+        getRequiredUserId(ctx),
         input.chatId,
         input.modelId
       );
@@ -50,7 +46,7 @@ export const aiRouter = router({
     .mutation(async ({ input, ctx }) => {
       const service = ctx.aiServices.setMode();
       return await service.execute(
-        requireUserId(ctx),
+        getRequiredUserId(ctx),
         input.chatId,
         input.modeId
       );
@@ -61,6 +57,6 @@ export const aiRouter = router({
     .input(CancelPromptInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.aiServices.cancelPrompt();
-      return await service.execute(requireUserId(ctx), input.chatId);
+      return await service.execute(getRequiredUserId(ctx), input.chatId);
     }),
 });

@@ -13,21 +13,14 @@ import {
   SetActiveProjectInputSchema,
   UpdateProjectInputSchema,
 } from "@/modules/project";
+import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
-
-function requireUserId(ctx: { auth?: { userId?: string } | null }): string {
-  const userId = ctx.auth?.userId;
-  if (!userId) {
-    throw new Error("Unauthorized");
-  }
-  return userId;
-}
 
 export const projectRouter = router({
   /** List all projects */
   listProjects: protectedProcedure.query(async ({ ctx }) => {
     const service = ctx.projectServices.listProjects();
-    return await service.execute(requireUserId(ctx));
+    return await service.execute(getRequiredUserId(ctx));
   }),
 
   /** Create a new project */
@@ -35,7 +28,7 @@ export const projectRouter = router({
     .input(CreateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.projectServices.createProject();
-      return await service.execute(requireUserId(ctx), input);
+      return await service.execute(getRequiredUserId(ctx), input);
     }),
 
   /** Update an existing project */
@@ -43,7 +36,7 @@ export const projectRouter = router({
     .input(UpdateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.projectServices.updateProject();
-      return await service.execute(requireUserId(ctx), input);
+      return await service.execute(getRequiredUserId(ctx), input);
     }),
 
   /** Delete a project */
@@ -51,7 +44,7 @@ export const projectRouter = router({
     .input(DeleteProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.projectServices.deleteProject();
-      return await service.execute(requireUserId(ctx), input.id);
+      return await service.execute(getRequiredUserId(ctx), input.id);
     }),
 
   /** Set the active project (for UI state) */
@@ -59,6 +52,6 @@ export const projectRouter = router({
     .input(SetActiveProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.projectServices.setActiveProject();
-      return await service.execute(requireUserId(ctx), input.id);
+      return await service.execute(getRequiredUserId(ctx), input.id);
     }),
 });

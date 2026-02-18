@@ -147,17 +147,34 @@ export class EventBus implements EventBusPort {
     listener: EventBusListener,
     event: DomainEvent
   ): Promise<void> {
-    const listenerPromise = Promise.resolve().then(() => listener(event));
+    const abortController = new AbortController();
+    const listenerPromise = Promise.resolve().then(() =>
+      listener(event, { signal: abortController.signal })
+    );
     listenerPromise.catch(() => undefined);
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
+        timedOut = true;
+        abortController.abort();
         reject(new EventBusListenerTimeoutError(this.listenerTimeoutMs));
       }, this.listenerTimeoutMs);
       timer.unref?.();
     });
     try {
       await Promise.race([listenerPromise, timeoutPromise]);
+    } catch (error) {
+      if (timedOut) {
+        await Promise.race([
+          listenerPromise.catch(() => undefined),
+          new Promise((resolve) => {
+            const settleTimer = setTimeout(resolve, 50);
+            settleTimer.unref?.();
+          }),
+        ]);
+      }
+      throw error;
     } finally {
       if (timer !== undefined) {
         clearTimeout(timer);

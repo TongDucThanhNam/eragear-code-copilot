@@ -1,6 +1,7 @@
 import type { ProjectRepositoryPort } from "@/modules/project";
 import type { SettingsRepositoryPort } from "@/modules/settings";
 import { NotFoundError, ValidationError } from "@/shared/errors";
+import { resolveProjectPath } from "@/shared/utils/project-roots.util";
 
 const OP = "session.lifecycle.create";
 
@@ -42,10 +43,25 @@ export class SessionProjectContextResolverService {
           details: { projectId: params.projectId },
         });
       }
-      return {
-        projectId: project.id,
-        projectRoot: project.path,
-      };
+      const { projectRoots } = await this.settingsRepo.get();
+      try {
+        return {
+          projectId: project.id,
+          projectRoot: resolveProjectPath(project.path, projectRoots),
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Stored project path is outside configured project roots";
+        throw new ValidationError(message, {
+          module: "session",
+          op: OP,
+          details: {
+            projectId: project.id,
+          },
+        });
+      }
     }
 
     if (!params.projectRoot) {
@@ -59,9 +75,22 @@ export class SessionProjectContextResolverService {
     }
 
     const { projectRoots } = await this.settingsRepo.get();
-    if (!projectRoots || projectRoots.length === 0) {
-      return { projectRoot: params.projectRoot };
+    try {
+      return {
+        projectRoot: resolveProjectPath(params.projectRoot, projectRoots),
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Invalid projectRoot outside configured project roots";
+      throw new ValidationError(message, {
+        module: "session",
+        op: OP,
+        details: {
+          projectRoot: params.projectRoot,
+        },
+      });
     }
-    return { projectRoot: params.projectRoot };
   }
 }

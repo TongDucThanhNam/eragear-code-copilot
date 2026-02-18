@@ -177,4 +177,52 @@ describe("CreateSessionService", () => {
       agentEnv: { MODE: "strict" },
     });
   });
+
+  test("terminates spawned process when bootstrap fails", async () => {
+    const proc = {} as ChatSession["proc"];
+    const terminateCalls: Array<{
+      proc: ChatSession["proc"];
+      forceWindowsTreeTermination?: boolean;
+    }> = [];
+
+    const service = new CreateSessionService(
+      {
+        resolve: async () => ({
+          projectId: "project-3",
+          projectRoot: "/repo",
+        }),
+      } as unknown as SessionProjectContextResolverService,
+      {
+        execute: () => proc,
+      } as unknown as SpawnSessionProcessService,
+      {
+        execute: async () => {
+          throw new Error("bootstrap failed");
+        },
+      } as unknown as BootstrapSessionConnectionService,
+      {
+        execute: async () => undefined,
+      } as unknown as PersistSessionBootstrapService,
+      createLoggerStub(),
+      async (targetProc, policy) => {
+        terminateCalls.push({
+          proc: targetProc,
+          forceWindowsTreeTermination: policy?.forceWindowsTreeTermination,
+        });
+      }
+    );
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        projectId: "project-3",
+      })
+    ).rejects.toThrow(/bootstrap failed/);
+    expect(terminateCalls).toEqual([
+      {
+        proc,
+        forceWindowsTreeTermination: true,
+      },
+    ]);
+  });
 });

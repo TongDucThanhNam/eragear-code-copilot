@@ -164,3 +164,26 @@ export const sessionMessages = sqliteTable(
     ).on(table.sessionId, table.retainedPayload, table.seq),
   })
 );
+
+export const sessionEventOutbox = sqliteTable(
+  "session_event_outbox",
+  {
+    id: text("id").primaryKey(),
+    chatId: text("chat_id").notNull(),
+    userId: text("user_id").notNull(),
+    eventJson: text("event_json").notNull(),
+    status: text("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: integer("next_attempt_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+    publishedAt: integer("published_at"),
+    lastError: text("last_error"),
+  },
+  (table) => ({
+    statusNextAttemptIdx: index("idx_outbox_status_next_attempt").on(
+      table.status,
+      table.nextAttemptAt
+    ),
+    createdAtIdx: index("idx_outbox_created_at").on(table.createdAt),
+  })
+);

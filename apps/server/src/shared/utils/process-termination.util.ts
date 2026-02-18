@@ -7,6 +7,7 @@ export interface ProcessTerminationPolicy {
   termTimeoutMs?: number;
   killTimeoutMs?: number;
   processGroupId?: number;
+  forceWindowsTreeTermination?: boolean;
 }
 
 export interface ProcessTerminationResult {
@@ -187,7 +188,14 @@ export async function terminateProcessGracefully(
   const processGroupAlive =
     hasProcessGroup && hasProcessGroupAlive(processGroupId);
 
-  if (hasProcessExited(proc) && !processGroupAlive) {
+  const forceWindowsTreeTermination =
+    process.platform === "win32" && policy.forceWindowsTreeTermination === true;
+
+  if (
+    hasProcessExited(proc) &&
+    !processGroupAlive &&
+    !forceWindowsTreeTermination
+  ) {
     return { exited: true, signalSent: "none" };
   }
 

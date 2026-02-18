@@ -11,6 +11,7 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import type { Client } from "@agentclientprotocol/sdk";
 import type { AgentRuntimePort } from "@/modules/session";
+import { createLogger } from "@/platform/logging/structured-logger";
 import {
   type CommandPolicy,
   type CommandPolicyRegistry,
@@ -23,11 +24,14 @@ import {
   hasProcessGroupAlive,
   terminateProcessGracefully,
 } from "@/shared/utils/process-termination.util";
+import { normalizeTimeoutMs } from "@/shared/utils/timeout.util";
 import { createAcpConnectionAdapter } from "../acp/connection";
 
 const TERMINATION_DRAIN_PASSES = 6;
 const PROCESS_RECORD_PRUNE_THRESHOLD = 4096;
 const PROCESS_RECORD_PRUNE_TARGET = 2048;
+const WINDOWS_TREE_TERMINATION_GRACE_MS = 10_000;
+const logger = createLogger("Server");
 
 export interface AgentRuntimePolicy {
   allowedAgentCommandPolicies: CommandPolicy[];
@@ -39,6 +43,7 @@ interface TrackedProcess {
   proc: ChildProcess;
   pid: number | null;
   processGroupId?: number;
+  windowsTreeTerminationDeadlineMs?: number;
 }
 
 /**
@@ -68,6 +73,10 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
         detached && process.platform !== "win32" && pid !== null
           ? pid
           : undefined,
+      windowsTreeTerminationDeadlineMs:
+        process.platform === "win32" && pid !== null
+          ? Date.now() + WINDOWS_TREE_TERMINATION_GRACE_MS
+          : undefined,
     };
     const pruneIfSettled = () => {
       if (!this.shouldAttemptTermination(tracked)) {
@@ -85,6 +94,13 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
 
   private shouldAttemptTermination(record: TrackedProcess): boolean {
     if (!hasProcessExited(record.proc)) {
+      return true;
+    }
+    if (
+      process.platform === "win32" &&
+      typeof record.windowsTreeTerminationDeadlineMs === "number" &&
+      Date.now() < record.windowsTreeTerminationDeadlineMs
+    ) {
       return true;
     }
     if (
@@ -147,13 +163,21 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
 
     const timeoutMs = this.agentTimeoutMs;
     if (timeoutMs !== undefined) {
+      const normalizedTimeout = normalizeTimeoutMs(timeoutMs);
+      if (normalizedTimeout.clamped) {
+        logger.warn("Configured agent timeout exceeded runtime timer limit", {
+          configuredTimeoutMs: timeoutMs,
+          clampedTimeoutMs: normalizedTimeout.timeoutMs,
+        });
+      }
       const timer = setTimeout(() => {
         if (!hasProcessExited(proc)) {
           terminateProcessGracefully(proc, {
             processGroupId: tracked.processGroupId,
+            forceWindowsTreeTermination: true,
           }).catch(() => undefined);
         }
-      }, timeoutMs);
+      }, normalizedTimeout.timeoutMs);
       timer.unref?.();
       proc.on("exit", () => clearTimeout(timer));
       proc.on("error", () => clearTimeout(timer));
@@ -202,6 +226,7 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
           attempted.add(record);
           const result = await terminateProcessGracefully(record.proc, {
             processGroupId: record.processGroupId,
+            forceWindowsTreeTermination: true,
           });
           if (result.exited) {
             terminated += 1;

@@ -14,15 +14,8 @@ import {
   SetActiveAgentInputSchema,
   UpdateAgentInputSchema,
 } from "@/modules/agent";
+import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
-
-function requireUserId(ctx: { auth?: { userId?: string } | null }): string {
-  const userId = ctx.auth?.userId;
-  if (!userId) {
-    throw new Error("Unauthorized");
-  }
-  return userId;
-}
 
 export const agentsRouter = router({
   /** List all agents, optionally filtered by project ID */
@@ -30,7 +23,7 @@ export const agentsRouter = router({
     .input(ListAgentsInputSchema)
     .query(async ({ input, ctx }) => {
       const service = ctx.agentServices.listAgents();
-      return await service.execute(requireUserId(ctx), input?.projectId);
+      return await service.execute(getRequiredUserId(ctx), input?.projectId);
     }),
 
   /** Create a new agent configuration */
@@ -38,7 +31,7 @@ export const agentsRouter = router({
     .input(CreateAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.agentServices.createAgent();
-      return await service.execute(requireUserId(ctx), input);
+      return await service.execute(getRequiredUserId(ctx), input);
     }),
 
   /** Update an existing agent configuration */
@@ -46,7 +39,7 @@ export const agentsRouter = router({
     .input(UpdateAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.agentServices.updateAgent();
-      return await service.execute(requireUserId(ctx), input);
+      return await service.execute(getRequiredUserId(ctx), input);
     }),
 
   /** Delete an agent configuration */
@@ -54,7 +47,7 @@ export const agentsRouter = router({
     .input(DeleteAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.agentServices.deleteAgent();
-      return await service.execute(requireUserId(ctx), input.id);
+      return await service.execute(getRequiredUserId(ctx), input.id);
     }),
 
   /** Set the active agent (for UI state) */
@@ -62,6 +55,6 @@ export const agentsRouter = router({
     .input(SetActiveAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.agentServices.setActiveAgent();
-      return await service.execute(requireUserId(ctx), input.id);
+      return await service.execute(getRequiredUserId(ctx), input.id);
     }),
 });

@@ -8,11 +8,6 @@
  * @module transport/http/cors
  */
 
-// biome-ignore lint/style/noRestrictedImports: transport CORS boundary needs server logger sink.
-import { createLogger } from "@/platform/logging/structured-logger";
-
-const logger = createLogger("Auth");
-
 /**
  * Normalizes and validates an origin URL
  *
@@ -56,10 +51,8 @@ export function getForwardedProto(headers: Headers): string | null {
       if (parsed.scheme) {
         return parsed.scheme;
       }
-    } catch (error) {
-      logger.warn("Failed to parse CF-Visitor header", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      // Invalid reverse-proxy metadata should not break request handling.
     }
   }
 
@@ -103,17 +96,11 @@ export function resolveRequestOrigin(headers: Headers): string | null {
 
   if (originHeader) {
     if (hostOrigin && originHeader !== hostOrigin) {
-      logger.debug("Origin mismatch detected", {
-        originHeader,
-        hostOrigin,
-      });
       return null;
     }
-    logger.debug("Using origin from request header", { originHeader });
     return originHeader;
   }
 
-  logger.debug("Using host-origin fallback", { hostOrigin });
   return hostOrigin;
 }
 
@@ -144,12 +131,8 @@ export function resolveCorsOrigin(
       return normalized;
     }
     if (strict) {
-      logger.warn("CORS denied because origin is not trusted", { normalized });
       return undefined;
     }
-    logger.warn("CORS permissive mode allowing untrusted origin", {
-      normalized,
-    });
     return normalized;
   }
 
@@ -162,12 +145,8 @@ export function resolveCorsOrigin(
   }
 
   if (strict) {
-    logger.warn("CORS denied because trusted origin mismatch", { normalized });
     return undefined;
   }
 
-  logger.warn("CORS permissive mode allowing unmatched origin", {
-    normalized,
-  });
   return normalized;
 }

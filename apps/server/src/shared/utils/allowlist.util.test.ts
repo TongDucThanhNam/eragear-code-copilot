@@ -8,8 +8,7 @@ import {
 
 const DUPLICATE_POLICY_REGEX = /Duplicate command policy/i;
 const ABSOLUTE_PATH_REGEX = /absolute path/i;
-const ANCHORED_REGEX = /anchored/i;
-const SAFE_SUBSET_REGEX = /must not include/i;
+const SAFE_SUBSET_REGEX = /supported wildcard tokens|must only use supported/i;
 
 describe("isCommandAllowed", () => {
   test("denies when allowlist is empty", () => {
@@ -59,11 +58,11 @@ describe("command policy invocation", () => {
     );
   });
 
-  test("allows regex-based arg patterns", () => {
+  test("allows deterministic wildcard arg patterns", () => {
     const policies = compileCommandPolicies([
       {
         command: process.execPath,
-        allowedArgPatterns: ["^--model=[a-z0-9-]+$", "^--config=[a-z0-9-]+$"],
+        allowedArgPatterns: ["--model=*", "--config=*"],
       },
     ]);
 
@@ -77,6 +76,19 @@ describe("command policy invocation", () => {
     expect(
       isCommandInvocationAllowed(process.execPath, ["--unsafe"], policies)
     ).toBe(false);
+  });
+
+  test("supports legacy anchored patterns by converting to wildcard", () => {
+    const policies = compileCommandPolicies([
+      {
+        command: process.execPath,
+        allowedArgPatterns: ["^--model=*$"],
+      },
+    ]);
+
+    expect(
+      isCommandInvocationAllowed(process.execPath, ["--model=gpt-5"], policies)
+    ).toBe(true);
   });
 
   test("supports explicit allowAnyArgs only when configured", () => {
@@ -124,36 +136,51 @@ describe("command policy invocation", () => {
     );
   });
 
-  test("rejects non-anchored arg patterns", () => {
+  test("rejects unsupported pattern characters", () => {
     expect(() =>
       compileCommandPolicies([
         {
           command: process.execPath,
-          allowedArgPatterns: ["--model=.*"],
-        },
-      ])
-    ).toThrow(ANCHORED_REGEX);
-  });
-
-  test("rejects grouping and alternation in arg patterns", () => {
-    expect(() =>
-      compileCommandPolicies([
-        {
-          command: process.execPath,
-          allowedArgPatterns: ["^(foo|bar)+$"],
+          allowedArgPatterns: ["--model=(foo|bar)"],
         },
       ])
     ).toThrow(SAFE_SUBSET_REGEX);
   });
 
-  test("rejects consecutive quantifiers in arg patterns", () => {
+  test("rejects patterns with excessive wildcard tokens", () => {
+    const wildcardPattern = `--model=${"*".repeat(65)}`;
     expect(() =>
       compileCommandPolicies([
         {
           command: process.execPath,
-          allowedArgPatterns: ["^a++$"],
+          allowedArgPatterns: [wildcardPattern],
         },
       ])
-    ).toThrow(SAFE_SUBSET_REGEX);
+    ).toThrow(/wildcard tokens/i);
+  });
+
+  test("rejects policy with too many allowed args", () => {
+    expect(() =>
+      compileCommandPolicies([
+        {
+          command: process.execPath,
+          allowedArgs: Array.from({ length: 300 }, (_, index) => `--arg-${index}`),
+        },
+      ])
+    ).toThrow(/Allowed args/i);
+  });
+
+  test("rejects invocation args that exceed max length", () => {
+    const policies = compileCommandPolicies([
+      {
+        command: process.execPath,
+        allowedArgPatterns: ["--payload=*"],
+      },
+    ]);
+
+    const longArg = `--payload=${"a".repeat(3000)}`;
+    expect(
+      isCommandInvocationAllowed(process.execPath, [longArg], policies)
+    ).toBe(false);
   });
 });

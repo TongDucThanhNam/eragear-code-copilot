@@ -25,20 +25,68 @@ import {
   StringRecordSchema,
 } from "./session-sqlite.mapper.types";
 
+function requireNonEmptyString(
+  value: unknown,
+  field: string,
+  sessionId: string
+): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Session ${sessionId} has invalid ${field}`);
+  }
+  return value;
+}
+
+function assertValidTimestamp(
+  value: unknown,
+  field: string,
+  sessionId: string
+): number {
+  if (!Number.isFinite(Number(value)) || Number(value) < 0) {
+    throw new Error(`Session ${sessionId} has invalid ${field}`);
+  }
+  return Math.trunc(Number(value));
+}
+
+function assertValidStatus(value: unknown, sessionId: string): "running" | "stopped" {
+  if (value === "running" || value === "stopped") {
+    return value;
+  }
+  throw new Error(`Session ${sessionId} has invalid status`);
+}
+
+function assertValidMessageCount(value: unknown, sessionId: string): number {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized < 0) {
+    throw new Error(`Session ${sessionId} has invalid message count`);
+  }
+  return Math.trunc(normalized);
+}
+
 export class SessionSqliteReadMapper {
   private readonly listJsonDecodeCache = new Map<string, unknown>();
 
   mapSessionListRow(row: SessionListRow): StoredSession {
-    if (!row.userId) {
-      throw new Error(`Session ${row.id} is missing owner`);
-    }
+    const userId = requireNonEmptyString(row.userId, "owner", row.id);
+    const projectRoot = requireNonEmptyString(
+      row.projectRoot,
+      "projectRoot",
+      row.id
+    );
+    const createdAt = assertValidTimestamp(row.createdAt, "createdAt", row.id);
+    const lastActiveAt = assertValidTimestamp(
+      row.lastActiveAt,
+      "lastActiveAt",
+      row.id
+    );
+    const status = assertValidStatus(row.status, row.id);
+    const messageCount = assertValidMessageCount(row.messageCount, row.id);
     return {
       id: row.id,
-      userId: row.userId,
+      userId,
       name: row.name ?? undefined,
       sessionId: row.sessionId ?? undefined,
       projectId: row.projectId ?? undefined,
-      projectRoot: row.projectRoot,
+      projectRoot,
       command: undefined,
       args: undefined,
       env: undefined,
@@ -50,15 +98,15 @@ export class SessionSqliteReadMapper {
         row.agentInfoJson,
         OptionalAgentInfoSchema
       ),
-      status: row.status === "running" ? "running" : "stopped",
+      status,
       pinned: fromSqliteBoolean(row.pinned),
       archived: fromSqliteBoolean(row.archived),
-      createdAt: row.createdAt,
-      lastActiveAt: row.lastActiveAt,
+      createdAt,
+      lastActiveAt,
       modeId: row.modeId ?? undefined,
       modelId: row.modelId ?? undefined,
       messages: [],
-      messageCount: row.messageCount,
+      messageCount,
       plan: this.parseListJsonWithSchema(row.planJson, OptionalPlanSchema),
       commands: undefined,
       agentCapabilities: this.parseListJsonWithSchema(
@@ -73,16 +121,27 @@ export class SessionSqliteReadMapper {
   }
 
   mapSessionRow(row: SessionRow): StoredSession {
-    if (!row.userId) {
-      throw new Error(`Session ${row.id} is missing owner`);
-    }
+    const userId = requireNonEmptyString(row.userId, "owner", row.id);
+    const projectRoot = requireNonEmptyString(
+      row.projectRoot,
+      "projectRoot",
+      row.id
+    );
+    const createdAt = assertValidTimestamp(row.createdAt, "createdAt", row.id);
+    const lastActiveAt = assertValidTimestamp(
+      row.lastActiveAt,
+      "lastActiveAt",
+      row.id
+    );
+    const status = assertValidStatus(row.status, row.id);
+    const messageCount = assertValidMessageCount(row.messageCount, row.id);
     return {
       id: row.id,
-      userId: row.userId,
+      userId,
       name: row.name ?? undefined,
       sessionId: row.sessionId ?? undefined,
       projectId: row.projectId ?? undefined,
-      projectRoot: row.projectRoot,
+      projectRoot,
       command: row.command ?? undefined,
       args: fromSqliteJsonWithSchema(row.argsJson, [], StringArraySchema, {
         table: "sessions",
@@ -105,15 +164,15 @@ export class SessionSqliteReadMapper {
           column: "agent_info_json",
         }
       ),
-      status: row.status === "running" ? "running" : "stopped",
+      status,
       pinned: fromSqliteBoolean(row.pinned),
       archived: fromSqliteBoolean(row.archived),
-      createdAt: row.createdAt,
-      lastActiveAt: row.lastActiveAt,
+      createdAt,
+      lastActiveAt,
       modeId: row.modeId ?? undefined,
       modelId: row.modelId ?? undefined,
       messages: [],
-      messageCount: row.messageCount,
+      messageCount,
       plan: fromSqliteJsonWithSchema(
         row.planJson,
         undefined,

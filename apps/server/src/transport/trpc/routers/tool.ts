@@ -8,6 +8,7 @@
  */
 
 import { RespondPermissionInputSchema } from "@/modules/tooling";
+import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
 
 export const toolRouter = router({
@@ -16,6 +17,6 @@ export const toolRouter = router({
     .input(RespondPermissionInputSchema)
     .mutation(({ input, ctx }) => {
       const service = ctx.toolingServices.respondPermission();
-      return service.execute(input);
+      return service.execute({ ...input, userId: getRequiredUserId(ctx) });
     }),
 });

@@ -6,6 +6,8 @@
  * @module shared/utils/path.util
  */
 
+import { fileURLToPath } from "node:url";
+
 /**
  * Converts a file URI to a filesystem path
  *
@@ -19,8 +21,25 @@
  * ```
  */
 export function fileUriToPath(uri: string) {
-  if (uri.startsWith("file://")) {
-    return decodeURIComponent(uri.replace("file://", ""));
+  if (!uri.startsWith("file://")) {
+    return uri;
   }
-  return uri;
+
+  try {
+    return fileURLToPath(uri);
+  } catch (error) {
+    if (process.platform === "win32") {
+      // Support UNC-host file URLs consistently on Windows.
+      const parsed = new URL(uri);
+      if (parsed.hostname.length > 0) {
+        const normalizedPath = decodeURIComponent(parsed.pathname).replace(
+          /\//g,
+          "\\"
+        );
+        return `\\\\${parsed.hostname}${normalizedPath}`;
+      }
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid file URI: ${uri}. ${message}`);
+  }
 }

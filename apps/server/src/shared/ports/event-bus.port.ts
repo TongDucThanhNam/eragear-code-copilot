@@ -1,6 +1,13 @@
 import type { DomainEvent } from "../types/domain-events.types";
 
-export type EventBusListener = (event: DomainEvent) => void | Promise<void>;
+export interface EventBusPublishContext {
+  signal: AbortSignal;
+}
+
+export type EventBusListener = (
+  event: DomainEvent,
+  context: EventBusPublishContext
+) => void | Promise<void>;
 
 /**
  * Port for event bus operations.

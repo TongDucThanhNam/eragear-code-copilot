@@ -13,6 +13,7 @@
 import type { Context, Hono } from "hono";
 import { isAppError } from "../../../shared/errors";
 import type { HttpRouteDependencies } from "./deps";
+import { isJsonBodyParseError, parseJsonBodyWithLimit } from "./helpers";
 
 /**
  * Registers project-related HTTP routes
@@ -21,10 +22,10 @@ export function registerProjectRoutes(
   api: Hono,
   deps: Pick<
     HttpRouteDependencies,
-    "projectServices" | "logger" | "resolveAuthContext"
+    "projectServices" | "logger" | "resolveAuthContext" | "runtime"
   >
 ): void {
-  const { projectServices, logger, resolveAuthContext } = deps;
+  const { projectServices, logger, resolveAuthContext, runtime } = deps;
 
   // =========================================================================
   // API Routes
@@ -43,29 +44,36 @@ export function registerProjectRoutes(
       if (!auth) {
         return c.json({ error: "Unauthorized" }, 401);
       }
-      const body = await c.req.json();
-      const { name, path, description, tags } = body as {
+      const { name, path, description, tags } = await parseJsonBodyWithLimit<{
         name: string;
         path: string;
         description?: string;
         tags?: string[];
-      };
+      }>(c.req.raw, runtime.httpMaxBodyBytes);
+      const parsedTags = Array.isArray(tags) ? tags : [];
+      const parsedDescription =
+        typeof description === "string" ? description : undefined;
+      const parsedName = typeof name === "string" ? name : "";
+      const parsedPath = typeof path === "string" ? path : "";
 
-      if (!(name && path)) {
+      if (!(parsedName && parsedPath)) {
         return c.json({ error: "name and path are required" }, 400);
       }
 
       const service = projectServices.createProject();
       const project = await service.execute(auth.userId, {
-        name,
-        path,
-        description: description || null,
-        tags: tags || [],
+        name: parsedName,
+        path: parsedPath,
+        description: parsedDescription || null,
+        tags: parsedTags,
         favorite: false,
       });
 
       return c.json({ ok: true, project });
     } catch (error) {
+      if (isJsonBodyParseError(error)) {
+        return c.json({ error: error.message }, error.statusCode);
+      }
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }

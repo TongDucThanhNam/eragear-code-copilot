@@ -17,6 +17,16 @@ import { createToolCallHandlers } from "./tool-calls";
 
 const OUTSIDE_PROJECT_ROOT_REGEX = /outside project root/i;
 const FILE_NOT_FOUND_REGEX = /File not found/i;
+const TERMINAL_COMMAND = process.execPath;
+const LONG_OUTPUT_SCRIPT_4096 = "process.stdout.write('x'.repeat(4096));";
+const LONG_OUTPUT_SCRIPT_1024 = "process.stdout.write('x'.repeat(1024));";
+const EXIT_WITH_CODE_7_SCRIPT = "process.exit(7);";
+const EXIT_WITH_CODE_0_SCRIPT = "process.exit(0);";
+const KEEP_PROCESS_ALIVE_SCRIPT = "setInterval(() => undefined, 1000);";
+
+function nodeEvalArgs(script: string): string[] {
+  return ["-e", script];
+}
 
 function createSession(chatId: string, projectRoot: string): ChatSession {
   return {
@@ -117,7 +127,7 @@ describe("createToolCallHandlers", () => {
     tmpDir = await mkdtemp(path.join(os.tmpdir(), "eragear-tool-calls-"));
     ENV.allowedTerminalCommandPolicies = [
       {
-        command: "/bin/sh",
+        command: TERMINAL_COMMAND,
         allowAnyArgs: true,
       },
     ];
@@ -150,11 +160,8 @@ describe("createToolCallHandlers", () => {
 
     const created = await handlers.createTerminal(session.id, {
       sessionId: session.id,
-      command: "/bin/sh",
-      args: [
-        "-lc",
-        "i=0; while [ $i -lt 4096 ]; do printf x; i=$((i+1)); done",
-      ],
+      command: TERMINAL_COMMAND,
+      args: nodeEvalArgs(LONG_OUTPUT_SCRIPT_4096),
     });
     await withTimeout(
       handlers.waitForTerminalExit(session.id, {
@@ -179,11 +186,8 @@ describe("createToolCallHandlers", () => {
 
     const created = await handlers.createTerminal(session.id, {
       sessionId: session.id,
-      command: "/bin/sh",
-      args: [
-        "-lc",
-        "i=0; while [ $i -lt 1024 ]; do printf x; i=$((i+1)); done",
-      ],
+      command: TERMINAL_COMMAND,
+      args: nodeEvalArgs(LONG_OUTPUT_SCRIPT_1024),
       outputByteLimit: 10_000,
     });
     await withTimeout(
@@ -208,8 +212,8 @@ describe("createToolCallHandlers", () => {
 
     const created = await handlers.createTerminal(session.id, {
       sessionId: session.id,
-      command: "/bin/sh",
-      args: ["-lc", "exit 7"],
+      command: TERMINAL_COMMAND,
+      args: nodeEvalArgs(EXIT_WITH_CODE_7_SCRIPT),
     });
     const status = await withTimeout(
       handlers.waitForTerminalExit(session.id, {
@@ -231,8 +235,8 @@ describe("createToolCallHandlers", () => {
 
     const created = await handlers.createTerminal(session.id, {
       sessionId: session.id,
-      command: "/bin/sh",
-      args: ["-lc", "exit 0"],
+      command: TERMINAL_COMMAND,
+      args: nodeEvalArgs(EXIT_WITH_CODE_0_SCRIPT),
     });
     const terminal = session.terminals.get(created.terminalId) as
       | TerminalState
@@ -272,7 +276,7 @@ describe("createToolCallHandlers", () => {
   test("rejects terminal invocation when args violate command policy", async () => {
     ENV.allowedTerminalCommandPolicies = [
       {
-        command: "/bin/sh",
+        command: TERMINAL_COMMAND,
         allowedArgs: ["--version"],
       },
     ];
@@ -283,8 +287,8 @@ describe("createToolCallHandlers", () => {
     await expect(
       handlers.createTerminal(session.id, {
         sessionId: session.id,
-        command: "/bin/sh",
-        args: ["-lc", "echo blocked"],
+        command: TERMINAL_COMMAND,
+        args: nodeEvalArgs("process.stdout.write('blocked');"),
       })
     ).rejects.toThrow("Command invocation not allowed");
   });
@@ -356,8 +360,8 @@ describe("createToolCallHandlers", () => {
 
     const created = await handlers.createTerminal(session.id, {
       sessionId: session.id,
-      command: "/bin/sh",
-      args: ["-lc", "sleep 5"],
+      command: TERMINAL_COMMAND,
+      args: nodeEvalArgs(KEEP_PROCESS_ALIVE_SCRIPT),
     });
     const term = session.terminals.get(created.terminalId) as
       | TerminalState
@@ -378,5 +382,46 @@ describe("createToolCallHandlers", () => {
     );
     expect(term.killTimer).toBeUndefined();
     expect(session.terminals.has(created.terminalId)).toBe(false);
+  });
+
+  test("coalesces concurrent kill requests for the same terminal", async () => {
+    ENV.terminalTimeoutMs = 1000;
+    const session = createSession("chat-kill-concurrent", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+
+    const created = await handlers.createTerminal(session.id, {
+      sessionId: session.id,
+      command: TERMINAL_COMMAND,
+      args: nodeEvalArgs(KEEP_PROCESS_ALIVE_SCRIPT),
+    });
+    const term = session.terminals.get(created.terminalId) as
+      | TerminalState
+      | undefined;
+    expect(term).toBeDefined();
+    if (!term) {
+      return;
+    }
+
+    await Promise.all([
+      handlers.killTerminal(session.id, {
+        sessionId: session.id,
+        terminalId: created.terminalId,
+      }),
+      handlers.killTerminal(session.id, {
+        sessionId: session.id,
+        terminalId: created.terminalId,
+      }),
+    ]);
+    expect(term.killTimer).toBeUndefined();
+    expect(term.terminationPromise).toBeUndefined();
+
+    const status = await withTimeout(
+      handlers.waitForTerminalExit(session.id, {
+        sessionId: session.id,
+        terminalId: created.terminalId,
+      })
+    );
+    expect(status.exitCode === null || status.exitCode !== 0).toBe(true);
   });
 });

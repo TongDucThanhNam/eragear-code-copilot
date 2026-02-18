@@ -28,6 +28,7 @@ const OP = "tooling.permission.respond";
  * ```typescript
  * const service = new RespondPermissionService(sessionRuntime);
  * const response = service.execute({
+ *   userId: "user-1",
  *   chatId: "chat-123",
  *   requestId: "req-456",
  *   decision: "allow"
@@ -54,6 +55,8 @@ export class RespondPermissionService {
    * @throws Error if the resolver is invalid
    */
   async execute(input: {
+    /** The owning user identifier */
+    userId: string;
     /** The chat session identifier */
     chatId: string;
     /** The permission request identifier */
@@ -62,7 +65,7 @@ export class RespondPermissionService {
     decision: string;
   }): Promise<acp.RequestPermissionResponse> {
     const session = this.sessionRuntime.get(input.chatId);
-    if (!session) {
+    if (!session || session.userId !== input.userId) {
       throw new NotFoundError("Chat not found", {
         module: "tooling",
         op: OP,

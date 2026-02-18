@@ -17,9 +17,11 @@
 import type { Context, Hono } from "hono";
 import type { HttpRouteDependencies } from "./deps";
 import {
+  isJsonBodyParseError,
   normalizeApiKeyCreateResponse,
   normalizeApiKeyItem,
   normalizeDeviceSessionItem,
+  parseJsonBodyWithLimit,
 } from "./helpers";
 
 /**
@@ -27,9 +29,9 @@ import {
  */
 export function registerAdminRoutes(
   api: Hono,
-  deps: Pick<HttpRouteDependencies, "auth" | "logger">
+  deps: Pick<HttpRouteDependencies, "auth" | "logger" | "runtime">
 ): void {
-  const { auth, logger } = deps;
+  const { auth, logger, runtime } = deps;
 
   // =========================================================================
   // API Routes - API Keys
@@ -60,12 +62,11 @@ export function registerAdminRoutes(
    */
   api.post("/admin/api-keys", async (c: Context) => {
     try {
-      const body = await c.req.json();
-      const { name, prefix, expiresIn } = body as {
+      const { name, prefix, expiresIn } = await parseJsonBodyWithLimit<{
         name?: string;
         prefix?: string;
         expiresIn?: number;
-      };
+      }>(c.req.raw, runtime.httpMaxBodyBytes);
 
       const session = await auth.api.getSession({
         headers: c.req.raw.headers,
@@ -96,6 +97,9 @@ export function registerAdminRoutes(
 
       return c.json({ apiKey });
     } catch (error) {
+      if (isJsonBodyParseError(error)) {
+        return c.json({ error: error.message }, error.statusCode);
+      }
       logger.error("Failed to create API key", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -108,8 +112,10 @@ export function registerAdminRoutes(
    */
   api.delete("/admin/api-keys", async (c: Context) => {
     try {
-      const body = await c.req.json();
-      const { keyId, id } = body as { keyId?: string; id?: string };
+      const { keyId, id } = await parseJsonBodyWithLimit<{
+        keyId?: string;
+        id?: string;
+      }>(c.req.raw, runtime.httpMaxBodyBytes);
       const resolvedKeyId = keyId ?? id;
       if (!resolvedKeyId) {
         return c.json({ error: "keyId is required" }, 400);
@@ -121,6 +127,9 @@ export function registerAdminRoutes(
       });
       return c.json({ result });
     } catch (error) {
+      if (isJsonBodyParseError(error)) {
+        return c.json({ error: error.message }, error.statusCode);
+      }
       logger.error("Failed to delete API key", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -157,8 +166,9 @@ export function registerAdminRoutes(
    */
   api.post("/admin/device-sessions/revoke", async (c: Context) => {
     try {
-      const body = await c.req.json();
-      const { sessionToken } = body as { sessionToken?: string };
+      const { sessionToken } = await parseJsonBodyWithLimit<{
+        sessionToken?: string;
+      }>(c.req.raw, runtime.httpMaxBodyBytes);
       if (!sessionToken) {
         return c.json({ error: "sessionToken is required" }, 400);
       }
@@ -169,6 +179,9 @@ export function registerAdminRoutes(
       });
       return c.json({ result });
     } catch (error) {
+      if (isJsonBodyParseError(error)) {
+        return c.json({ error: error.message }, error.statusCode);
+      }
       logger.error("Failed to revoke device session", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -181,8 +194,9 @@ export function registerAdminRoutes(
    */
   api.post("/admin/device-sessions/activate", async (c: Context) => {
     try {
-      const body = await c.req.json();
-      const { sessionToken } = body as { sessionToken?: string };
+      const { sessionToken } = await parseJsonBodyWithLimit<{
+        sessionToken?: string;
+      }>(c.req.raw, runtime.httpMaxBodyBytes);
       if (!sessionToken) {
         return c.json({ error: "sessionToken is required" }, 400);
       }
@@ -193,6 +207,9 @@ export function registerAdminRoutes(
       });
       return c.json({ session: result });
     } catch (error) {
+      if (isJsonBodyParseError(error)) {
+        return c.json({ error: error.message }, error.statusCode);
+      }
       logger.error("Failed to set active session", {
         error: error instanceof Error ? error.message : String(error),
       });

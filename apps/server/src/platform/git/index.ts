@@ -8,17 +8,56 @@
  * @module infra/git
  */
 
-import { exec } from "node:child_process";
-import { readdir, readFile } from "node:fs/promises";
-import { dirname, join, normalize, relative } from "node:path";
+import { execFile } from "node:child_process";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { GitPort } from "@/modules/tooling";
 import { createLogger } from "@/platform/logging/structured-logger";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const logger = createLogger("Storage");
-/** Regex to prevent path traversal attacks */
-const PATHTraversal_REGEX = /^(\.\.(\/|\\|$))+/;
+const GIT_EXEC_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+const EMPTY_DIFF_FILE_PREFIX = "eragear-git-empty-diff-";
+
+interface ExecFileFailure extends Error {
+  code?: number | string | null;
+  stdout?: string;
+}
+
+function isPathOutsideRoot(rootPath: string, targetPath: string): boolean {
+  const rel = relative(rootPath, targetPath);
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+}
+
+function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    ((error as NodeJS.ErrnoException).code === "ENOENT" ||
+      (error as NodeJS.ErrnoException).code === "ENOTDIR")
+  );
+}
+
+async function runGitCommand(params: {
+  cwd: string;
+  args: string[];
+  maxBuffer?: number;
+}): Promise<{ stdout: string; stderr: string }> {
+  return await execFileAsync("git", params.args, {
+    cwd: params.cwd,
+    maxBuffer: params.maxBuffer ?? GIT_EXEC_MAX_BUFFER_BYTES,
+  });
+}
 
 /**
  * Recursively scans a directory for files
@@ -88,9 +127,10 @@ export class GitAdapter implements GitPort {
 
     try {
       // Try git ls-files first for tracked files
-      const { stdout } = await execAsync("git ls-files", {
+      const { stdout } = await runGitCommand({
         cwd: scanRoot,
-        maxBuffer: 10 * 1024 * 1024,
+        args: ["ls-files"],
+        maxBuffer: GIT_EXEC_MAX_BUFFER_BYTES,
       });
       files = stdout.split("\n").filter((f) => f.trim().length > 0);
 
@@ -132,8 +172,9 @@ export class GitAdapter implements GitPort {
 
       // Get diff for tracked changes
       try {
-        const { stdout } = await execAsync("git diff HEAD", {
+        const { stdout } = await runGitCommand({
           cwd: projectRoot,
+          args: ["diff", "HEAD"],
         });
         combinedPatch += stdout;
       } catch {
@@ -141,26 +182,49 @@ export class GitAdapter implements GitPort {
       }
 
       // Get diff for untracked files
-      const { stdout: untrackedFilesOutput } = await execAsync(
-        "git ls-files --others --exclude-standard",
-        { cwd: projectRoot }
-      );
+      const { stdout: untrackedFilesOutput } = await runGitCommand({
+        cwd: projectRoot,
+        args: ["ls-files", "--others", "--exclude-standard"],
+      });
       const untrackedFiles = untrackedFilesOutput
         .split("\n")
         .filter((filePath) => filePath.trim().length > 0);
 
-      for (const filePath of untrackedFiles) {
-        try {
-          await execAsync(
-            `git --no-pager diff --no-index /dev/null "${filePath}"`,
-            { cwd: projectRoot }
-          );
-        } catch (error) {
-          const execError = error as { stdout?: string };
-          if (execError.stdout) {
-            combinedPatch += `\n${execError.stdout}`;
+      const tempDir = await mkdtemp(join(tmpdir(), EMPTY_DIFF_FILE_PREFIX));
+      const emptyFilePath = join(tempDir, "empty.txt");
+      await writeFile(emptyFilePath, "", "utf8");
+      try {
+        for (const filePath of untrackedFiles) {
+          try {
+            await runGitCommand({
+              cwd: projectRoot,
+              args: [
+                "--no-pager",
+                "diff",
+                "--no-index",
+                "--src-prefix",
+                "a/dev/null/",
+                "--dst-prefix",
+                "b/",
+                "--",
+                emptyFilePath,
+                filePath,
+              ],
+            });
+          } catch (error) {
+            const execError = error as ExecFileFailure;
+            if (execError.stdout) {
+              combinedPatch += `\n${execError.stdout}`;
+              continue;
+            }
+            if (execError.code === 1) {
+              continue;
+            }
+            throw error;
           }
         }
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
       }
 
       return combinedPatch;
@@ -182,18 +246,34 @@ export class GitAdapter implements GitPort {
     projectRoot: string,
     relativePath: string
   ): Promise<string> {
-    const safePath = normalize(relativePath).replace(PATHTraversal_REGEX, "");
-    const fullPath = join(projectRoot, safePath);
-
-    if (!fullPath.startsWith(projectRoot)) {
+    if (typeof relativePath !== "string" || relativePath.trim().length === 0) {
+      throw new Error("Access denied: Path is required");
+    }
+    if (isAbsolute(relativePath)) {
+      throw new Error("Access denied: Path must be relative to project root");
+    }
+    const canonicalRoot = await realpath(projectRoot);
+    const resolvedPath = resolve(canonicalRoot, relativePath);
+    if (isPathOutsideRoot(canonicalRoot, resolvedPath)) {
+      throw new Error("Access denied: Path outside project root");
+    }
+    let canonicalTargetPath = resolvedPath;
+    try {
+      canonicalTargetPath = await realpath(resolvedPath);
+    } catch (error) {
+      if (!isMissingPathError(error)) {
+        throw error;
+      }
+    }
+    if (isPathOutsideRoot(canonicalRoot, canonicalTargetPath)) {
       throw new Error("Access denied: Path outside project root");
     }
 
     try {
-      return await readFile(fullPath, "utf8");
+      return await readFile(canonicalTargetPath, "utf8");
     } catch (error) {
       logger.error("Failed to read file within project root", error as Error, {
-        fullPath,
+        fullPath: canonicalTargetPath,
       });
       throw new Error(`Failed to read file: ${error}`);
     }

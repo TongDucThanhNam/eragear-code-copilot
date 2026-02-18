@@ -149,6 +149,69 @@ describe("environment worker invariants", () => {
     expect(result.stdout.trim()).toBe(String(16 * 1024 * 1024));
   });
 
+  test("parses AUTH_REQUIRE_CLOUDFLARE_ACCESS from environment", () => {
+    const result = readEnvironmentValueInSubprocess(
+      {
+        AUTH_REQUIRE_CLOUDFLARE_ACCESS: "true",
+        AUTH_CLOUDFLARE_ACCESS_CLIENT_ID: "client-id",
+        AUTH_CLOUDFLARE_ACCESS_CLIENT_SECRET: "client-secret",
+      },
+      "authRequireCloudflareAccess"
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("true");
+  });
+
+  test("fails fast when Cloudflare Access is required without verification config", () => {
+    const result = importEnvironmentInSubprocess({
+      AUTH_REQUIRE_CLOUDFLARE_ACCESS: "true",
+      AUTH_CLOUDFLARE_ACCESS_CLIENT_ID: "",
+      AUTH_CLOUDFLARE_ACCESS_CLIENT_SECRET: "",
+      AUTH_CLOUDFLARE_ACCESS_JWT_PUBLIC_KEY_PEM: "",
+      AUTH_CLOUDFLARE_ACCESS_JWT_AUDIENCE: "",
+      AUTH_CLOUDFLARE_ACCESS_JWT_ISSUER: "",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "requires either service-token credentials or JWT verification configuration"
+    );
+  });
+
+  test("fails fast when Cloudflare Access service token config is partial", () => {
+    const result = importEnvironmentInSubprocess({
+      AUTH_CLOUDFLARE_ACCESS_CLIENT_ID: "client-id",
+      AUTH_CLOUDFLARE_ACCESS_CLIENT_SECRET: "",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("must both be set together");
+  });
+
+  test("fails fast when production sets CORS_STRICT_ORIGIN=false", () => {
+    const result = importEnvironmentInSubprocess({
+      NODE_ENV: "production",
+      CORS_STRICT_ORIGIN: "false",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "CORS_STRICT_ORIGIN must be true in production runtime"
+    );
+  });
+
+  test("fails fast when CORS_STRICT_ORIGIN uses invalid literal", () => {
+    const result = importEnvironmentInSubprocess({
+      CORS_STRICT_ORIGIN: "tru",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "CORS_STRICT_ORIGIN must be a strict boolean"
+    );
+  });
+
   test("falls back to defaults when positive-only numeric configs are negative", () => {
     const result = runEnvironmentSubprocess({
       code: "import { ENV } from './src/config/environment.ts'; console.log(String(ENV.sessionBufferLimit) + ':' + String(ENV.wsMaxPayloadBytes));",

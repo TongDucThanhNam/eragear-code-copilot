@@ -26,14 +26,13 @@ import {
   DEFAULT_AUTH_BOOTSTRAP_CACHE_MAX_USERS,
   DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS,
   DEFAULT_AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS,
+  DEFAULT_AUTH_REQUIRE_CLOUDFLARE_ACCESS,
   DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
   DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
   DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_BACKGROUND_TASK_TIMEOUT_MS,
   DEFAULT_BACKGROUND_TICK_MS,
-  DEFAULT_DEV_ALLOWED_AGENT_COMMANDS,
-  DEFAULT_DEV_ALLOWED_ENV_KEYS,
-  DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS,
+  DEFAULT_HTTP_MAX_BODY_BYTES,
   DEFAULT_LOG_BUFFER_LIMIT,
   DEFAULT_LOG_FLUSH_INTERVAL_MS,
   DEFAULT_MESSAGE_CONTENT_MAX_BYTES,
@@ -45,6 +44,7 @@ import {
   DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
   DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS,
   DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
+  DEFAULT_SQLITE_WRITE_QUEUE_MAX_PENDING,
   DEFAULT_STORAGE_BUSY_MAX_RETRIES,
   DEFAULT_STORAGE_BUSY_RETRY_BASE_DELAY_MS,
   DEFAULT_STORAGE_BUSY_TIMEOUT_MS,
@@ -69,12 +69,10 @@ import {
   HARD_MAX_STORAGE_MAX_BIND_PARAMS,
   HARD_MAX_STORAGE_RETENTION_COMPACTION_BATCH_SIZE,
 } from "./constants";
+import { resolveAllowlistConfig } from "./environment.allowlist";
+import { resolveAuthTrustedOrigins } from "./environment.auth";
 import {
   firstNonEmpty,
-  parseAllowlistWithFallback,
-  parseCommandPoliciesWithLegacyFallback,
-  parseRequiredAllowlist,
-  parseRequiredCommandPolicies,
   toBoolean,
   toBoundedPositiveInt,
   toList,
@@ -82,6 +80,7 @@ import {
   toOptionalNumber,
   toPortNumber,
   toPositiveInt,
+  toStrictBoolean,
   toTrimmedString,
 } from "./environment.parsers";
 import { type EnvKey, envSchema } from "./environment.schema";
@@ -139,6 +138,23 @@ const normalizedAuthHost = wsHost === "0.0.0.0" ? "localhost" : wsHost;
 const runtimeEnv = env.NODE_ENV ?? env.BUN_ENV ?? "production";
 const isProd = runtimeEnv === "production";
 const isDev = !isProd;
+const runtimeNodeRoleRaw = toTrimmedString(env.RUNTIME_NODE_ROLE, "writer")
+  .toLowerCase()
+  .trim();
+const runtimeNodeRole: "writer" | "reader" =
+  runtimeNodeRoleRaw === "reader" ? "reader" : "writer";
+const runtimeWriterUrl = toTrimmedString(env.RUNTIME_WRITER_URL, "");
+if (runtimeNodeRole === "reader" && runtimeWriterUrl.length === 0) {
+  throw new Error(
+    "[Config] RUNTIME_WRITER_URL is required when RUNTIME_NODE_ROLE=reader."
+  );
+}
+const runtimeInternalToken = toTrimmedString(env.RUNTIME_INTERNAL_TOKEN, "");
+if (runtimeNodeRole === "reader" && runtimeInternalToken.length === 0) {
+  throw new Error(
+    "[Config] RUNTIME_INTERNAL_TOKEN is required when RUNTIME_NODE_ROLE=reader."
+  );
+}
 const sqliteWorkerEnabled = toBoolean(
   env.STORAGE_WORKER_ENABLED,
   DEFAULT_STORAGE_WORKER_ENABLED
@@ -152,113 +168,101 @@ const defaultApiKeyRateLimitWindowMs = 60_000;
 const defaultApiKeyRateLimitMaxRequests = 3000;
 const authBaseUrl =
   env.AUTH_BASE_URL ?? `http://${normalizedAuthHost}:${wsPort}`;
-const allowInsecureDevDefaults = toBoolean(
-  env.ALLOW_INSECURE_DEV_DEFAULTS,
-  false
-);
-if (allowInsecureDevDefaults && isProd) {
-  throw new Error(
-    "[Config] ALLOW_INSECURE_DEV_DEFAULTS must be false in production runtime."
-  );
-}
-const strictAllowlistRequested = toBoolean(env.CONFIG_STRICT_ALLOWLIST, true);
-if (!(strictAllowlistRequested || allowInsecureDevDefaults)) {
-  throw new Error(
-    "[Config] CONFIG_STRICT_ALLOWLIST=false requires ALLOW_INSECURE_DEV_DEFAULTS=true (development-only)."
-  );
-}
-const strictAllowlist =
-  bootConfig.mode === "compiled" ? true : !allowInsecureDevDefaults;
-const allowlistErrors: string[] = [];
-const allowlistWarnings: string[] = [];
-const allowedAgentCommandPolicies = strictAllowlist
-  ? parseRequiredCommandPolicies(
-      "ALLOWED_AGENT_COMMAND_POLICIES",
-      env.ALLOWED_AGENT_COMMAND_POLICIES,
-      allowlistErrors
-    )
-  : parseCommandPoliciesWithLegacyFallback({
-      policyName: "ALLOWED_AGENT_COMMAND_POLICIES",
-      policyValue: env.ALLOWED_AGENT_COMMAND_POLICIES,
-      legacyName: "ALLOWED_AGENT_COMMANDS",
-      legacyValue: env.ALLOWED_AGENT_COMMANDS,
-      legacyFallback: DEFAULT_DEV_ALLOWED_AGENT_COMMANDS,
-      warnings: allowlistWarnings,
-    });
-const allowedTerminalCommandPolicies = strictAllowlist
-  ? parseRequiredCommandPolicies(
-      "ALLOWED_TERMINAL_COMMAND_POLICIES",
-      env.ALLOWED_TERMINAL_COMMAND_POLICIES,
-      allowlistErrors
-    )
-  : parseCommandPoliciesWithLegacyFallback({
-      policyName: "ALLOWED_TERMINAL_COMMAND_POLICIES",
-      policyValue: env.ALLOWED_TERMINAL_COMMAND_POLICIES,
-      legacyName: "ALLOWED_TERMINAL_COMMANDS",
-      legacyValue: env.ALLOWED_TERMINAL_COMMANDS,
-      legacyFallback: DEFAULT_DEV_ALLOWED_TERMINAL_COMMANDS,
-      warnings: allowlistWarnings,
-    });
-const allowedAgentCommands = [
-  ...new Set(allowedAgentCommandPolicies.map((policy) => policy.command)),
-];
-const allowedTerminalCommands = [
-  ...new Set(allowedTerminalCommandPolicies.map((policy) => policy.command)),
-];
-const allowedEnvKeys = strictAllowlist
-  ? parseRequiredAllowlist(
-      "ALLOWED_ENV_KEYS",
-      env.ALLOWED_ENV_KEYS,
-      allowlistErrors
-    )
-  : parseAllowlistWithFallback(
-      "ALLOWED_ENV_KEYS",
-      env.ALLOWED_ENV_KEYS,
-      DEFAULT_DEV_ALLOWED_ENV_KEYS,
-      allowlistWarnings
-    );
-if (strictAllowlist && allowlistErrors.length > 0) {
-  const bootConfigHint = bootConfig.sourcePath
-    ? `Loaded boot config from: ${bootConfig.sourcePath}`
-    : `No settings.json boot config found. Searched: ${bootConfig.searchedPaths.join(", ")}`;
-  const configInputHint =
-    bootConfig.mode === "compiled"
-      ? 'Compiled mode ignores env var overrides. Configure these in settings.json under "boot".'
-      : "You can configure these via env vars or settings.json (boot.ALLOWED_*).";
-  throw new Error(
-    [
-      "[Config] Invalid required allowlist configuration:",
-      ...allowlistErrors.map((error) => `- ${error}`),
-      'Policy format: ALLOWED_*_COMMAND_POLICIES=\'[{"command":"/usr/local/bin/codex","allowAnyArgs":true}]\'',
-      "Legacy format (non-strict only): ALLOWED_*_COMMANDS=item1,item2,item3",
-      configInputHint,
-      bootConfigHint,
-    ].join("\n")
-  );
-}
-if (!strictAllowlist && allowlistWarnings.length > 0) {
-  for (const warning of allowlistWarnings) {
-    console.warn(`[Config] ${warning}`);
-  }
-}
-const authTrustedOrigins = toList(env.AUTH_TRUSTED_ORIGINS);
+const allowlistConfig = resolveAllowlistConfig({
+  bootMode: bootConfig.mode,
+  isProd,
+  allowInsecureDevDefaultsRaw: env.ALLOW_INSECURE_DEV_DEFAULTS,
+  strictAllowlistRaw: env.CONFIG_STRICT_ALLOWLIST,
+  allowedAgentCommandPoliciesRaw: env.ALLOWED_AGENT_COMMAND_POLICIES,
+  allowedAgentCommandsRaw: env.ALLOWED_AGENT_COMMANDS,
+  allowedTerminalCommandPoliciesRaw: env.ALLOWED_TERMINAL_COMMAND_POLICIES,
+  allowedTerminalCommandsRaw: env.ALLOWED_TERMINAL_COMMANDS,
+  allowedEnvKeysRaw: env.ALLOWED_ENV_KEYS,
+  bootSourcePath: bootConfig.sourcePath,
+  bootSearchedPaths: bootConfig.searchedPaths,
+});
+const allowInsecureDevDefaults = allowlistConfig.allowInsecureDevDefaults;
+const strictAllowlist = allowlistConfig.strictAllowlist;
+const allowedAgentCommandPolicies = allowlistConfig.allowedAgentCommandPolicies;
+const allowedTerminalCommandPolicies =
+  allowlistConfig.allowedTerminalCommandPolicies;
+const allowedAgentCommands = allowlistConfig.allowedAgentCommands;
+const allowedTerminalCommands = allowlistConfig.allowedTerminalCommands;
+const allowedEnvKeys = allowlistConfig.allowedEnvKeys;
+const authTrustedOrigins = resolveAuthTrustedOrigins({
+  configuredOrigins: toList(env.AUTH_TRUSTED_ORIGINS),
+  authBaseUrl,
+  wsPort,
+});
 const authTrustedProxyIps = toList(env.AUTH_TRUSTED_PROXY_IPS);
-if (authTrustedOrigins[0] !== "*") {
-  const defaultDevOrigins = [
-    `http://localhost:${wsPort}`,
-    `http://127.0.0.1:${wsPort}`,
-    `http://0.0.0.0:${wsPort}`,
-    "http://localhost:5173",
-    "http://localhost:4173",
-  ];
-  for (const origin of defaultDevOrigins) {
-    if (!authTrustedOrigins.includes(origin)) {
-      authTrustedOrigins.push(origin);
-    }
-  }
-  if (!authTrustedOrigins.includes(authBaseUrl)) {
-    authTrustedOrigins.unshift(authBaseUrl);
-  }
+const authRequireCloudflareAccess = toBoolean(
+  env.AUTH_REQUIRE_CLOUDFLARE_ACCESS,
+  DEFAULT_AUTH_REQUIRE_CLOUDFLARE_ACCESS
+);
+const cloudflareAccessClientId = toTrimmedString(
+  env.AUTH_CLOUDFLARE_ACCESS_CLIENT_ID,
+  ""
+);
+const cloudflareAccessClientSecret = toTrimmedString(
+  env.AUTH_CLOUDFLARE_ACCESS_CLIENT_SECRET,
+  ""
+);
+const cloudflareAccessJwtPublicKeyPem = toTrimmedString(
+  env.AUTH_CLOUDFLARE_ACCESS_JWT_PUBLIC_KEY_PEM,
+  ""
+).replace(/\\n/g, "\n");
+const cloudflareAccessJwtAudience = toTrimmedString(
+  env.AUTH_CLOUDFLARE_ACCESS_JWT_AUDIENCE,
+  ""
+);
+const cloudflareAccessJwtIssuer = toTrimmedString(
+  env.AUTH_CLOUDFLARE_ACCESS_JWT_ISSUER,
+  ""
+);
+const hasCloudflareServiceTokenConfig =
+  cloudflareAccessClientId.length > 0 &&
+  cloudflareAccessClientSecret.length > 0;
+const hasCloudflareJwtConfig =
+  cloudflareAccessJwtPublicKeyPem.length > 0 &&
+  cloudflareAccessJwtAudience.length > 0 &&
+  cloudflareAccessJwtIssuer.length > 0;
+if (
+  (cloudflareAccessClientId.length > 0 ||
+    cloudflareAccessClientSecret.length > 0) &&
+  !hasCloudflareServiceTokenConfig
+) {
+  throw new Error(
+    "[Config] AUTH_CLOUDFLARE_ACCESS_CLIENT_ID and AUTH_CLOUDFLARE_ACCESS_CLIENT_SECRET must both be set together."
+  );
+}
+if (
+  (cloudflareAccessJwtPublicKeyPem.length > 0 ||
+    cloudflareAccessJwtAudience.length > 0 ||
+    cloudflareAccessJwtIssuer.length > 0) &&
+  !hasCloudflareJwtConfig
+) {
+  throw new Error(
+    "[Config] AUTH_CLOUDFLARE_ACCESS_JWT_PUBLIC_KEY_PEM, AUTH_CLOUDFLARE_ACCESS_JWT_AUDIENCE, and AUTH_CLOUDFLARE_ACCESS_JWT_ISSUER must all be set together."
+  );
+}
+if (
+  authRequireCloudflareAccess &&
+  !hasCloudflareServiceTokenConfig &&
+  !hasCloudflareJwtConfig
+) {
+  throw new Error(
+    "[Config] AUTH_REQUIRE_CLOUDFLARE_ACCESS=true requires either service-token credentials or JWT verification configuration."
+  );
+}
+const corsStrictOrigin = toStrictBoolean(
+  env.CORS_STRICT_ORIGIN,
+  true,
+  "CORS_STRICT_ORIGIN"
+);
+if (isProd && !corsStrictOrigin) {
+  throw new Error(
+    "[Config] CORS_STRICT_ORIGIN must be true in production runtime."
+  );
 }
 
 /**
@@ -272,6 +276,13 @@ export const ENV = {
   isCompiledConfigMode: bootConfig.mode === "compiled",
   /** Runtime environment */
   runtimeEnv,
+  /** Runtime node role for single-writer topologies */
+  runtimeNodeRole,
+  /** Optional writer base URL used by reader nodes */
+  runtimeWriterUrl: runtimeWriterUrl.length > 0 ? runtimeWriterUrl : undefined,
+  /** Optional bearer token used for internal runtime forwarding */
+  runtimeInternalToken:
+    runtimeInternalToken.length > 0 ? runtimeInternalToken : undefined,
   /** Strict enforcement mode for required ALLOWED_* allowlists */
   strictAllowlist,
   /** Explicit development-only override for insecure allowlist defaults */
@@ -314,6 +325,11 @@ export const ENV = {
   wsMaxPayloadBytes: toPositiveInt(
     env.WS_MAX_PAYLOAD_BYTES,
     DEFAULT_WS_MAX_PAYLOAD_BYTES
+  ),
+  /** Maximum accepted HTTP request body size for JSON API endpoints */
+  httpMaxBodyBytes: toPositiveInt(
+    env.HTTP_MAX_BODY_BYTES,
+    DEFAULT_HTTP_MAX_BODY_BYTES
   ),
   /** WebSocket server port */
   wsPort,
@@ -360,8 +376,33 @@ export const ENV = {
   authTrustedOrigins,
   /** Trusted reverse-proxy source IPs allowed to provide forwarded client IP headers */
   authTrustedProxyIps,
+  /** Require Cloudflare Access auth headers for WS/tRPC handshake */
+  authRequireCloudflareAccess,
+  /** Expected Cloudflare Access service token client ID for WS handshake auth */
+  authCloudflareAccessClientId:
+    cloudflareAccessClientId.length > 0 ? cloudflareAccessClientId : undefined,
+  /** Expected Cloudflare Access service token client secret for WS handshake auth */
+  authCloudflareAccessClientSecret:
+    cloudflareAccessClientSecret.length > 0
+      ? cloudflareAccessClientSecret
+      : undefined,
+  /** Optional PEM public key for validating Cloudflare Access JWT assertions */
+  authCloudflareAccessJwtPublicKeyPem:
+    cloudflareAccessJwtPublicKeyPem.length > 0
+      ? cloudflareAccessJwtPublicKeyPem
+      : undefined,
+  /** Required JWT audience when Cloudflare Access JWT verification is enabled */
+  authCloudflareAccessJwtAudience:
+    cloudflareAccessJwtAudience.length > 0
+      ? cloudflareAccessJwtAudience
+      : undefined,
+  /** Required JWT issuer when Cloudflare Access JWT verification is enabled */
+  authCloudflareAccessJwtIssuer:
+    cloudflareAccessJwtIssuer.length > 0
+      ? cloudflareAccessJwtIssuer
+      : undefined,
   /** Enforce strict CORS origin allowlist across environments */
-  corsStrictOrigin: toBoolean(env.CORS_STRICT_ORIGIN, true),
+  corsStrictOrigin,
   /** Optional admin bootstrap username */
   authAdminUsername: env.AUTH_ADMIN_USERNAME,
   /** Optional admin bootstrap password */
@@ -472,6 +513,11 @@ export const ENV = {
   sqliteBusyRetryBaseDelayMs: toPositiveInt(
     env.STORAGE_BUSY_RETRY_BASE_DELAY_MS,
     DEFAULT_STORAGE_BUSY_RETRY_BASE_DELAY_MS
+  ),
+  /** Maximum pending SQLite write tasks before enqueue rejection */
+  sqliteWriteQueueMaxPending: toPositiveInt(
+    env.SQLITE_WRITE_QUEUE_MAX_PENDING,
+    DEFAULT_SQLITE_WRITE_QUEUE_MAX_PENDING
   ),
   /** Maximum SQLite bind parameters per statement */
   sqliteMaxBindParams: toBoundedPositiveInt(

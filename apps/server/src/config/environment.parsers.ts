@@ -104,6 +104,29 @@ export function toBoolean(value: string | undefined, fallback: boolean) {
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+/**
+ * Parses a strict boolean value and fails on invalid literals.
+ */
+export function toStrictBoolean(
+  value: string | undefined,
+  fallback: boolean,
+  configKey: string
+): boolean {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  throw new Error(
+    `[Config] ${configKey} must be a strict boolean (true/false, 1/0, yes/no, on/off).`
+  );
+}
+
 const LOG_LEVEL_SET = new Set(LOG_LEVELS);
 
 export function toLogLevel(

@@ -65,18 +65,21 @@ export function SessionsTab() {
 
         <div className="max-h-[calc(100dvh-480px)] min-h-[200px] overflow-y-auto p-4">
           {sorted.length === 0 ? (
-            <div className="empty-state">
+            <div className="empty-state stagger-item">
               No sessions yet. Start a chat from the UI.
             </div>
           ) : (
-            sorted.map((session) => (
-              <SessionRow
-                key={session.id}
-                onDeleteSession={onDeleteSession}
-                onStopSession={onStopSession}
-                session={session}
-              />
-            ))
+            <div className="flex flex-col gap-2">
+              {sorted.map((session, index) => (
+                <div className="stagger-item" key={session.id}>
+                  <SessionRow
+                    onDeleteSession={onDeleteSession}
+                    onStopSession={onStopSession}
+                    session={session}
+                  />
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </section>

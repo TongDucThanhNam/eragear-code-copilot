@@ -39,7 +39,9 @@ export class CleanupProjectSessionsService {
       const runtimeSession = this.sessionRuntime.get(session.id);
       if (runtimeSession) {
         await terminateSessionTerminals(runtimeSession);
-        await terminateProcessGracefully(runtimeSession.proc);
+        await terminateProcessGracefully(runtimeSession.proc, {
+          forceWindowsTreeTermination: true,
+        });
         this.sessionRuntime.delete(session.id);
         terminatedRuntimeCount += 1;
       }

@@ -7,11 +7,13 @@ import {
 
 export interface UiAssets {
   stylesHref: string;
+  stylesEnhancedHref: string;
   clientEntry?: string;
 }
 
 const DASHBOARD_ASSET_FILES = [
   "styles.css",
+  "styles-enhanced.css",
   "client.js",
   "login.css",
   "login.js",
@@ -41,6 +43,7 @@ export function getUiAssets(): UiAssets {
   const assetVersion = getDashboardAssetVersion();
   return {
     stylesHref: `${DASHBOARD_ASSET_PATH}/styles.css?v=${assetVersion}`,
+    stylesEnhancedHref: `${DASHBOARD_ASSET_PATH}/styles-enhanced.css?v=${assetVersion}`,
     clientEntry: `${DASHBOARD_ASSET_PATH}/client.js?v=${assetVersion}`,
   };
 }

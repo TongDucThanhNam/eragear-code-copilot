@@ -16,15 +16,16 @@ import { isAppError } from "../../../shared/errors";
 import type { Settings } from "../../../shared/types/settings.types";
 import { parseUiSettingsForm } from "../../../shared/utils/ui-settings.util";
 import type { HttpRouteDependencies } from "./deps";
+import { isJsonBodyParseError, parseJsonBodyWithLimit } from "./helpers";
 
 /**
  * Registers settings-related HTTP routes
  */
 export function registerSettingsRoutes(
   api: Hono,
-  deps: Pick<HttpRouteDependencies, "settingsServices" | "logger">
+  deps: Pick<HttpRouteDependencies, "settingsServices" | "logger" | "runtime">
 ): void {
-  const { settingsServices, logger } = deps;
+  const { settingsServices, logger, runtime } = deps;
 
   // =========================================================================
   // API Routes
@@ -51,7 +52,10 @@ export function registerSettingsRoutes(
         | undefined;
 
       if (contentType.includes("application/json")) {
-        const patch = (await c.req.json()) as Partial<Settings>;
+        const patch = await parseJsonBodyWithLimit<Partial<Settings>>(
+          c.req.raw,
+          runtime.httpMaxBodyBytes
+        );
         result = await updateSettings.execute(patch);
       } else {
         const body = await c.req.parseBody();
@@ -73,6 +77,9 @@ export function registerSettingsRoutes(
     } catch (error) {
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
+      }
+      if (isJsonBodyParseError(error)) {
+        return c.json({ error: error.message }, error.statusCode);
       }
       if (error instanceof Error) {
         logger.error("Failed to parse settings update payload", {

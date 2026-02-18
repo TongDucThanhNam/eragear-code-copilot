@@ -3,7 +3,7 @@
 Tài liệu điều hướng nhanh cho `apps/server`.
 
 Runtime support: `apps/server` chạy trên **Bun** (không hỗ trợ Node.js runtime).
-Production target hiện tại: **Linux/macOS**.
+Production target hiện tại: **Linux/Windows/macOS**.
 
 ## 1. Read First
 
@@ -69,6 +69,9 @@ Các file sau là nguồn chuẩn khi docs và thực tế có khác biệt:
   - non-browser client gửi `CF-Access-Client-Id` và `CF-Access-Client-Secret`
     ở WebSocket handshake headers.
   - `connectionParams` chỉ là app-level auth (`apiKey`), không thay Access.
+  - khi bật `AUTH_REQUIRE_CLOUDFLARE_ACCESS=true`, server chỉ chấp nhận
+    handshake nếu headers/JWT được verify bằng cấu hình Cloudflare Access
+    verifier trong env (`AUTH_CLOUDFLARE_ACCESS_*`).
 - API key không được truyền qua query string; chỉ dùng header hoặc WS `connectionParams`.
 
 ## 6. Development Commands

@@ -1,5 +1,6 @@
 import type { ChatSession } from "@/shared/types/session.types";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
+import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import type { CreateSessionParams } from "./create-session.types";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -45,37 +46,50 @@ export class BootstrapSessionConnectionService {
   ): Promise<BootstrapSessionConnectionOutput> {
     const { chatId, projectId, projectRoot, params, proc } = input;
 
-    const storedSession = params.chatId
-      ? await this.sessionRepo.findById(chatId, params.userId)
-      : undefined;
+    let chatSession: ChatSession | undefined;
 
-    const { chatSession, buffer } = await this.runtimeBootstrap.prepare({
-      chatId,
-      userId: params.userId,
-      proc,
-      projectId,
-      projectRoot,
-      sessionIdToLoad: params.sessionIdToLoad,
-      plan: storedSession?.plan,
-    });
+    try {
+      const storedSession = params.chatId
+        ? await this.sessionRepo.findById(chatId, params.userId)
+        : undefined;
 
-    await this.acpBootstrap.bootstrap({
-      chatId,
-      chatSession,
-      buffer,
-      projectRoot,
-      sessionIdToLoad: params.sessionIdToLoad,
-    });
+      const prepared = await this.runtimeBootstrap.prepare({
+        chatId,
+        userId: params.userId,
+        proc,
+        projectId,
+        projectRoot,
+        sessionIdToLoad: params.sessionIdToLoad,
+        plan: storedSession?.plan,
+      });
+      chatSession = prepared.chatSession;
 
-    await updateChatStatus({
-      chatId,
-      session: chatSession,
-      broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-      status: "ready",
-    });
+      await this.acpBootstrap.bootstrap({
+        chatId,
+        chatSession,
+        buffer: prepared.buffer,
+        projectRoot,
+        sessionIdToLoad: params.sessionIdToLoad,
+      });
 
-    this.processLifecycle.attach(proc, chatId);
+      await updateChatStatus({
+        chatId,
+        session: chatSession,
+        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+        status: "ready",
+      });
 
-    return { chatSession };
+      this.processLifecycle.attach(proc, chatId);
+
+      return { chatSession };
+    } catch (error) {
+      if (chatSession && this.sessionRuntime.has(chatId)) {
+        this.sessionRuntime.delete(chatId);
+      }
+      await terminateProcessGracefully(proc, {
+        forceWindowsTreeTermination: true,
+      }).catch(() => undefined);
+      throw error;
+    }
   }
 }

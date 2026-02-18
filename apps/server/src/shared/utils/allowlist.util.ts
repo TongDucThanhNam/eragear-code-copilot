@@ -18,15 +18,57 @@ export interface CommandPolicy {
 interface CompiledCommandPolicy {
   allowAnyArgs: boolean;
   allowedArgs: Set<string>;
-  allowedArgPatterns: RegExp[];
+  allowedArgPatterns: string[];
 }
 
 export type CommandPolicyRegistry = Map<string, CompiledCommandPolicy>;
 
 const MAX_ALLOWED_ARG_PATTERN_LENGTH = 256;
-const REGEX_BACKREFERENCE_PATTERN = /\\[1-9]/;
-const REGEX_CONSECUTIVE_QUANTIFIERS_PATTERN =
-  /(\*|\+|\?|\{[^}]+\})(\*|\+|\?|\{)/;
+const MAX_COMMAND_ARG_LENGTH = 2048;
+const MAX_ALLOWED_ARG_PATTERNS_PER_COMMAND = 64;
+const MAX_ALLOWED_ARGS_PER_COMMAND = 256;
+const MAX_WILDCARDS_PER_PATTERN = 64;
+const SAFE_PATTERN_CHARSET = /^[A-Za-z0-9_ ./:=@,%+\-*?]+$/;
+
+/**
+ * Deterministic wildcard matcher supporting `*` and `?` only.
+ *
+ * - `*` matches any run of characters (including empty).
+ * - `?` matches one character.
+ */
+function wildcardMatch(pattern: string, input: string): boolean {
+  let p = 0;
+  let s = 0;
+  let starIdx = -1;
+  let matchIdx = 0;
+
+  while (s < input.length) {
+    if (p < pattern.length && (pattern[p] === "?" || pattern[p] === input[s])) {
+      p += 1;
+      s += 1;
+      continue;
+    }
+    if (p < pattern.length && pattern[p] === "*") {
+      starIdx = p;
+      matchIdx = s;
+      p += 1;
+      continue;
+    }
+    if (starIdx !== -1) {
+      p = starIdx + 1;
+      matchIdx += 1;
+      s = matchIdx;
+      continue;
+    }
+    return false;
+  }
+
+  while (p < pattern.length && pattern[p] === "*") {
+    p += 1;
+  }
+
+  return p === pattern.length;
+}
 
 /**
  * Exact command allowlist matcher.
@@ -61,34 +103,23 @@ function normalizeArgToken(token: string): string {
   return token.trim();
 }
 
-function assertSafeArgPatternSubset(
-  command: string,
-  pattern: string,
-  index: number
-): void {
+function assertSafeArgPattern(command: string, pattern: string, index: number): void {
   if (pattern.length > MAX_ALLOWED_ARG_PATTERN_LENGTH) {
     throw new Error(
       `Allowed arg pattern for ${command} at index ${index} exceeds ${MAX_ALLOWED_ARG_PATTERN_LENGTH} characters`
     );
   }
-  if (pattern.includes("|")) {
+  if (!SAFE_PATTERN_CHARSET.test(pattern)) {
     throw new Error(
-      `Allowed arg pattern for ${command} at index ${index} must not include alternation (|)`
+      `Allowed arg pattern for ${command} at index ${index} must only use supported wildcard tokens (*, ?) and safe characters`
     );
   }
-  if (pattern.includes("(") || pattern.includes(")")) {
+  const wildcardCount = [...pattern].filter(
+    (token) => token === "*" || token === "?"
+  ).length;
+  if (wildcardCount > MAX_WILDCARDS_PER_PATTERN) {
     throw new Error(
-      `Allowed arg pattern for ${command} at index ${index} must not include grouping constructs`
-    );
-  }
-  if (REGEX_BACKREFERENCE_PATTERN.test(pattern)) {
-    throw new Error(
-      `Allowed arg pattern for ${command} at index ${index} must not include backreferences`
-    );
-  }
-  if (REGEX_CONSECUTIVE_QUANTIFIERS_PATTERN.test(pattern)) {
-    throw new Error(
-      `Allowed arg pattern for ${command} at index ${index} must not include consecutive quantifiers`
+      `Allowed arg pattern for ${command} at index ${index} exceeds ${MAX_WILDCARDS_PER_PATTERN} wildcard tokens`
     );
   }
 }
@@ -105,27 +136,28 @@ function compileAllowedArgPattern(
   command: string,
   pattern: string,
   index: number
-): RegExp {
+): string {
   const normalizedPattern = normalizeArgToken(pattern);
   if (normalizedPattern.length === 0) {
     throw new Error(
       `Allowed arg pattern for ${command} at index ${index} must be a non-empty string`
     );
   }
-  if (!(normalizedPattern.startsWith("^") && normalizedPattern.endsWith("$"))) {
-    throw new Error(
-      `Allowed arg pattern for ${command} at index ${index} must be anchored with ^...$`
-    );
-  }
-  assertSafeArgPatternSubset(command, normalizedPattern, index);
 
-  try {
-    return new RegExp(normalizedPattern);
-  } catch {
+  // Backward compatibility: strip legacy ^...$ anchors if present.
+  const wildcardPattern =
+    normalizedPattern.startsWith("^") && normalizedPattern.endsWith("$")
+      ? normalizedPattern.slice(1, -1)
+      : normalizedPattern;
+
+  if (wildcardPattern.length === 0) {
     throw new Error(
-      `Allowed arg pattern for ${command} at index ${index} is not a valid regex`
+      `Allowed arg pattern for ${command} at index ${index} must be non-empty after normalization`
     );
   }
+  assertSafeArgPattern(command, wildcardPattern, index);
+
+  return wildcardPattern;
 }
 
 function assertUniqueCommandPolicy(
@@ -153,6 +185,19 @@ export function compileCommandPolicies(
     assertUniqueCommandPolicy(registry, normalizedCommand);
 
     const allowAnyArgs = policy.allowAnyArgs === true;
+    if ((policy.allowedArgs?.length ?? 0) > MAX_ALLOWED_ARGS_PER_COMMAND) {
+      throw new Error(
+        `Allowed args for ${normalizedCommand} exceed ${MAX_ALLOWED_ARGS_PER_COMMAND} entries`
+      );
+    }
+    if (
+      (policy.allowedArgPatterns?.length ?? 0) >
+      MAX_ALLOWED_ARG_PATTERNS_PER_COMMAND
+    ) {
+      throw new Error(
+        `Allowed arg patterns for ${normalizedCommand} exceed ${MAX_ALLOWED_ARG_PATTERNS_PER_COMMAND} entries`
+      );
+    }
     const allowedArgs = new Set(
       (policy.allowedArgs ?? [])
         .map((entry) => normalizeArgToken(entry))
@@ -209,11 +254,16 @@ export function isCommandInvocationAllowed(
     if (normalizedArg.length === 0) {
       return false;
     }
+    if (normalizedArg.length > MAX_COMMAND_ARG_LENGTH) {
+      return false;
+    }
     if (policy.allowedArgs.has(normalizedArg)) {
       continue;
     }
     if (
-      policy.allowedArgPatterns.some((pattern) => pattern.test(normalizedArg))
+      policy.allowedArgPatterns.some((pattern) =>
+        wildcardMatch(pattern, normalizedArg)
+      )
     ) {
       continue;
     }
@@ -224,28 +274,30 @@ export function isCommandInvocationAllowed(
 }
 
 /**
- * Filters env keys by allowlist while dropping undefined values.
+ * Filters env vars to allowed keys only.
  */
 export function filterEnvAllowlist(
-  env: Record<string, string | undefined>,
-  allowlist: string[]
+  sourceEnv: Record<string, string | undefined>,
+  allowedKeys: string[]
 ): Record<string, string> {
-  if (allowlist.length === 0) {
+  if (allowedKeys.length === 0) {
     return {};
   }
 
-  const filtered: Record<string, string> = {};
-  const allowed = new Set(allowlist);
+  const result: Record<string, string> = {};
+  const keySet = new Set(
+    allowedKeys.map((key) => key.trim()).filter((key) => key.length > 0)
+  );
 
-  for (const [key, value] of Object.entries(env)) {
+  for (const [key, value] of Object.entries(sourceEnv)) {
+    if (!keySet.has(key)) {
+      continue;
+    }
     if (typeof value !== "string") {
       continue;
     }
-    if (!allowed.has(key)) {
-      continue;
-    }
-    filtered[key] = value;
+    result[key] = value;
   }
 
-  return filtered;
+  return result;
 }

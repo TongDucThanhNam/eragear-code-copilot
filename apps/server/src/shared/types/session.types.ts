@@ -438,6 +438,10 @@ export interface TerminalState {
   exitStatus?: WaitForTerminalExitResponse;
   /** Optional kill timer for enforcing terminal timeouts */
   killTimer?: ReturnType<typeof setTimeout>;
+  /** In-flight termination operation for kill/release/timeout coordination */
+  terminationPromise?: Promise<void>;
+  /** Terminal lifecycle state for race-safe exit/kill transitions */
+  lifecycleState?: "running" | "terminating" | "exited";
   /** Promise resolving when terminal exits or fails to start */
   exitPromise: Promise<WaitForTerminalExitResponse>;
   /** Internal resolver for exitPromise */

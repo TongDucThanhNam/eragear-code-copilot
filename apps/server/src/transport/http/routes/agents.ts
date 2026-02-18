@@ -16,6 +16,7 @@ import type { Context, Hono } from "hono";
 import { isAppError } from "../../../shared/errors";
 import { parseArgsInput } from "../../../shared/utils/cli-args.util";
 import type { HttpRouteDependencies } from "./deps";
+import { isJsonBodyParseError, parseJsonBodyWithLimit } from "./helpers";
 
 /** Valid agent types */
 const VALID_AGENT_TYPES = [
@@ -27,6 +28,23 @@ const VALID_AGENT_TYPES = [
 ] as const;
 type AgentType = (typeof VALID_AGENT_TYPES)[number];
 
+function resolveAgentArgs(input: { args?: string[]; argsInput?: string }): {
+  args: string[] | undefined;
+  error?: string;
+} {
+  if (Array.isArray(input.args)) {
+    return { args: input.args };
+  }
+  if (!input.argsInput) {
+    return { args: undefined };
+  }
+  const parsed = parseArgsInput(input.argsInput);
+  if (parsed.error) {
+    return { args: undefined, error: parsed.error };
+  }
+  return { args: parsed.args };
+}
+
 /**
  * Registers agent-related HTTP routes
  */
@@ -34,10 +52,10 @@ export function registerAgentRoutes(
   api: Hono,
   deps: Pick<
     HttpRouteDependencies,
-    "agentServices" | "logger" | "resolveAuthContext"
+    "agentServices" | "logger" | "resolveAuthContext" | "runtime"
   >
 ): void {
-  const { agentServices, logger, resolveAuthContext } = deps;
+  const { agentServices, logger, resolveAuthContext, runtime } = deps;
 
   // =========================================================================
   // API Routes
@@ -73,16 +91,16 @@ export function registerAgentRoutes(
       if (!auth) {
         return c.json({ error: "Unauthorized" }, 401);
       }
-      const body = await c.req.json();
-      const { name, type, command, args, argsInput, env, projectId } = body as {
-        name: string;
-        type: AgentType;
-        command: string;
-        args?: string[];
-        argsInput?: string;
-        env?: Record<string, string>;
-        projectId?: string | null;
-      };
+      const { name, type, command, args, argsInput, env, projectId } =
+        await parseJsonBodyWithLimit<{
+          name: string;
+          type: AgentType;
+          command: string;
+          args?: string[];
+          argsInput?: string;
+          env?: Record<string, string>;
+          projectId?: string | null;
+        }>(c.req.raw, runtime.httpMaxBodyBytes);
 
       if (!(name && type && command)) {
         return c.json({ error: "name, type, and command are required" }, 400);
@@ -95,13 +113,9 @@ export function registerAgentRoutes(
         );
       }
 
-      let resolvedArgs = Array.isArray(args) ? args : undefined;
-      if (!resolvedArgs && argsInput) {
-        const parsed = parseArgsInput(argsInput);
-        if (parsed.error) {
-          return c.json({ error: parsed.error }, 400);
-        }
-        resolvedArgs = parsed.args;
+      const parsedArgs = resolveAgentArgs({ args, argsInput });
+      if (parsedArgs.error) {
+        return c.json({ error: parsedArgs.error }, 400);
       }
 
       const service = agentServices.createAgent();
@@ -109,13 +123,16 @@ export function registerAgentRoutes(
         name,
         type,
         command,
-        args: resolvedArgs,
+        args: parsedArgs.args,
         env,
         projectId,
       });
 
       return c.json({ ok: true, agent });
     } catch (error) {
+      if (isJsonBodyParseError(error)) {
+        return c.json({ error: error.message }, error.statusCode);
+      }
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }
@@ -139,9 +156,8 @@ export function registerAgentRoutes(
       if (!auth) {
         return c.json({ error: "Unauthorized" }, 401);
       }
-      const body = await c.req.json();
       const { id, name, type, command, args, argsInput, env, projectId } =
-        body as {
+        await parseJsonBodyWithLimit<{
           id: string;
           name?: string;
           type?: AgentType;
@@ -150,7 +166,7 @@ export function registerAgentRoutes(
           argsInput?: string;
           env?: Record<string, string>;
           projectId?: string | null;
-        };
+        }>(c.req.raw, runtime.httpMaxBodyBytes);
 
       if (!id) {
         return c.json({ error: "id is required" }, 400);
@@ -163,13 +179,9 @@ export function registerAgentRoutes(
         );
       }
 
-      let resolvedArgs = Array.isArray(args) ? args : undefined;
-      if (!resolvedArgs && argsInput) {
-        const parsed = parseArgsInput(argsInput);
-        if (parsed.error) {
-          return c.json({ error: parsed.error }, 400);
-        }
-        resolvedArgs = parsed.args;
+      const parsedArgs = resolveAgentArgs({ args, argsInput });
+      if (parsedArgs.error) {
+        return c.json({ error: parsedArgs.error }, 400);
       }
 
       const service = agentServices.updateAgent();
@@ -178,13 +190,16 @@ export function registerAgentRoutes(
         name,
         type,
         command,
-        args: resolvedArgs,
+        args: parsedArgs.args,
         env,
         projectId,
       });
 
       return c.json({ ok: true, agent });
     } catch (error) {
+      if (isJsonBodyParseError(error)) {
+        return c.json({ error: error.message }, error.statusCode);
+      }
       if (isAppError(error)) {
         return c.json({ error: error.message }, error.statusCode as 400 | 404);
       }

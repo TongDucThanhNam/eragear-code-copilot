@@ -8,7 +8,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { readFile, realpath, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
@@ -20,225 +20,24 @@ import {
   isCommandInvocationAllowed,
 } from "@/shared/utils/allowlist.util";
 import { createId } from "@/shared/utils/id.util";
-import { fileUriToPath } from "@/shared/utils/path.util";
-import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
+import { normalizeTimeoutMs } from "@/shared/utils/timeout.util";
 import { ENV } from "../../config/environment";
-import type {
-  ChatSession,
-  TerminalState,
-} from "../../shared/types/session.types";
+import type { TerminalState } from "../../shared/types/session.types";
+import {
+  clearTerminalKillTimer,
+  envArrayToRecord,
+  getSessionOrThrow,
+  getTerminalOrThrow,
+  isPosixRuntime,
+  LINE_SPLITTER_REGEX,
+  requireString,
+  resolveOutputLimit,
+  resolvePathInSession,
+  shouldSkipTimedTermination,
+  terminateTerminalProcess,
+} from "./tool-calls.helpers";
 
-/** Regex for splitting text into lines across platforms */
-const LINE_SPLITTER_REGEX = /\r?\n/;
 const logger = createLogger("Debug");
-
-function resolveOutputLimit(limit: bigint | number | null | undefined): number {
-  if (limit === null || limit === undefined) {
-    return ENV.terminalOutputHardCapBytes;
-  }
-
-  let normalized = 0;
-  if (typeof limit === "bigint") {
-    if (limit <= 0n) {
-      throw RequestError.invalidParams(
-        { outputByteLimit: limit },
-        "outputByteLimit must be a positive number"
-      );
-    }
-    const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);
-    normalized = Number(limit > maxSafe ? maxSafe : limit);
-  } else {
-    if (!Number.isFinite(limit) || limit <= 0) {
-      throw RequestError.invalidParams(
-        { outputByteLimit: limit },
-        "outputByteLimit must be a positive finite number"
-      );
-    }
-    normalized = Math.trunc(limit);
-  }
-
-  if (normalized <= 0) {
-    throw RequestError.invalidParams(
-      { outputByteLimit: limit },
-      "outputByteLimit must be a positive number"
-    );
-  }
-
-  return Math.min(normalized, ENV.terminalOutputHardCapBytes);
-}
-
-function requireString(
-  value: unknown,
-  field: string,
-  options?: { allowEmpty?: boolean }
-): string {
-  if (typeof value !== "string") {
-    throw RequestError.invalidParams(
-      { [field]: value },
-      `${field} must be a string`
-    );
-  }
-  if (!options?.allowEmpty && value.trim().length === 0) {
-    throw RequestError.invalidParams(
-      { [field]: value },
-      `${field} is required`
-    );
-  }
-  return value;
-}
-
-/**
- * Converts environment variable array to a record object
- *
- * @param env - Array of environment variables
- * @returns Record of environment variable names to values
- */
-function envArrayToRecord(env?: acp.EnvVariable[] | null) {
-  if (!env || env.length === 0) {
-    return {};
-  }
-  const record: Record<string, string> = {};
-  for (const variable of env) {
-    record[variable.name] = variable.value;
-  }
-  return record;
-}
-
-/**
- * Gets a session from the runtime or throws if not found
- *
- * @param sessionRuntime - The session runtime port
- * @param chatId - The session identifier
- * @returns The chat session
- * @throws Error if session not found
- */
-function getSessionOrThrow(sessionRuntime: SessionRuntimePort, chatId: string) {
-  const session = sessionRuntime.get(chatId);
-  if (!session) {
-    throw new Error("Session not found");
-  }
-  return session;
-}
-
-/**
- * Gets a terminal from a session or throws if not found
- *
- * @param session - The chat session
- * @param terminalId - The terminal identifier
- * @returns The terminal state
- * @throws Error if terminal not found
- */
-function getTerminalOrThrow(
-  session: ChatSession,
-  terminalId: string
-): TerminalState {
-  const terminal = session.terminals.get(terminalId);
-  if (!terminal) {
-    throw new Error("Terminal not found");
-  }
-  return terminal as TerminalState;
-}
-
-function clearTerminalKillTimer(term: TerminalState): void {
-  if (!term.killTimer) {
-    return;
-  }
-  clearTimeout(term.killTimer);
-  term.killTimer = undefined;
-}
-
-function isPosixRuntime(): boolean {
-  return process.platform !== "win32";
-}
-
-async function terminateTerminalProcess(term: TerminalState): Promise<void> {
-  await terminateProcessGracefully(term.process, {
-    processGroupId: term.processGroupId,
-  });
-}
-
-/**
- * Resolves a file path within a session's project root with security checks
- *
- * @param session - The chat session containing project root
- * @param inputPath - The input path (may be file:// URI or relative path)
- * @returns Resolved absolute path within project root
- * @throws Error if path is outside project root
- */
-async function resolvePathInSession(
-  session: ChatSession,
-  inputPath: string
-): Promise<string> {
-  const rawPath = fileUriToPath(inputPath);
-  const configuredRoot = path.resolve(session.projectRoot);
-  let canonicalRoot = configuredRoot;
-  try {
-    canonicalRoot = await realpath(configuredRoot);
-  } catch {
-    throw new Error(`Invalid project root: ${configuredRoot}`);
-  }
-
-  const resolvedPath = path.isAbsolute(rawPath)
-    ? path.resolve(rawPath)
-    : path.resolve(canonicalRoot, rawPath);
-  const canonicalPath = await canonicalizeTargetPath(resolvedPath);
-
-  if (isPathOutsideRoot(canonicalRoot, canonicalPath)) {
-    throw new Error(
-      `Access denied (outside project root): ${canonicalPath} (root: ${canonicalRoot})`
-    );
-  }
-
-  return canonicalPath;
-}
-
-function isPathOutsideRoot(rootPath: string, targetPath: string): boolean {
-  const relative = path.relative(rootPath, targetPath);
-  return (
-    relative === ".." ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-  );
-}
-
-function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
-  if (!error || typeof error !== "object" || !("code" in error)) {
-    return false;
-  }
-  const code = (error as NodeJS.ErrnoException).code;
-  return code === "ENOENT" || code === "ENOTDIR";
-}
-
-async function canonicalizeTargetPath(resolvedPath: string): Promise<string> {
-  try {
-    return await realpath(resolvedPath);
-  } catch (error) {
-    if (!isMissingPathError(error)) {
-      throw error;
-    }
-  }
-
-  const pathSuffix: string[] = [];
-  let cursor = resolvedPath;
-
-  while (true) {
-    try {
-      const canonicalAncestor = await realpath(cursor);
-      return path.resolve(canonicalAncestor, ...pathSuffix);
-    } catch (error) {
-      if (!isMissingPathError(error)) {
-        throw error;
-      }
-
-      const parent = path.dirname(cursor);
-      if (parent === cursor) {
-        throw error;
-      }
-      pathSuffix.unshift(path.basename(cursor));
-      cursor = parent;
-    }
-  }
-}
 
 /**
  * Creates tool call handlers for a session runtime
@@ -384,6 +183,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       id: termId,
       process: termProc,
       processGroupId,
+      lifecycleState: "running",
       outputBuffer: "",
       outputBufferBytes: Buffer.alloc(0),
       outputByteLimit,
@@ -399,6 +199,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
         return;
       }
       termState.exitStatus = status;
+      termState.lifecycleState = "exited";
       termState.resolveExit?.(status);
       termState.resolveExit = undefined;
       clearTerminalKillTimer(termState);
@@ -451,8 +252,20 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
 
     const terminalTimeoutMs = ENV.terminalTimeoutMs;
     if (terminalTimeoutMs !== undefined) {
+      const normalizedTimeout = normalizeTimeoutMs(terminalTimeoutMs);
+      if (normalizedTimeout.clamped) {
+        logger.warn(
+          "Configured terminal timeout exceeded runtime timer limit",
+          {
+            chatId,
+            terminalId: termId,
+            configuredTimeoutMs: terminalTimeoutMs,
+            clampedTimeoutMs: normalizedTimeout.timeoutMs,
+          }
+        );
+      }
       termState.killTimer = setTimeout(() => {
-        if (termState.exitStatus || termProc.killed) {
+        if (shouldSkipTimedTermination(termState)) {
           return;
         }
         terminateTerminalProcess(termState).catch((error) => {
@@ -462,7 +275,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
             error: error instanceof Error ? error.message : String(error),
           });
         });
-      }, terminalTimeoutMs);
+      }, normalizedTimeout.timeoutMs);
     }
 
     return { terminalId: termId };

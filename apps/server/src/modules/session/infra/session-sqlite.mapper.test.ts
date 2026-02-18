@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ENV } from "@/config/environment";
 import type { StoredSession } from "@/modules/session/domain/stored-session.types";
 import {
   type SessionListRow,
@@ -87,5 +88,38 @@ describe("SessionSqliteMapper list-row decoding cache", () => {
     } finally {
       JSON.parse = originalParse;
     }
+  });
+});
+
+describe("SessionSqliteMapper message payload normalization", () => {
+  test("marks oversized content as compacted instead of throwing", () => {
+    const mapper = new SessionSqliteMapper();
+    const oversizedContent = "x".repeat(ENV.messageContentMaxBytes + 1);
+
+    const insert = mapper.toMessageInsert("session-1", {
+      id: "message-1",
+      role: "assistant",
+      content: oversizedContent,
+      timestamp: Date.now(),
+    });
+
+    expect(insert.retainedPayload).toBe(0);
+    expect(insert.content.length).toBeGreaterThan(0);
+    expect(Buffer.byteLength(insert.content, "utf8")).toBeLessThanOrEqual(
+      ENV.messageContentMaxBytes
+    );
+  });
+});
+
+describe("SessionSqliteMapper row invariants", () => {
+  test("throws when session row contains invalid status", () => {
+    const mapper = new ExposedSessionSqliteMapper();
+    const row = createSessionListRow();
+    const invalidRow = {
+      ...row,
+      status: "unknown",
+    } as SessionListRow;
+
+    expect(() => mapper.mapListRowForTest(invalidRow)).toThrow(/invalid status/i);
   });
 });

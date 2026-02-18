@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { withTimeout } from "./timeout.util";
+import {
+  MAX_SET_TIMEOUT_MS,
+  normalizeTimeoutMs,
+  withTimeout,
+} from "./timeout.util";
 
 describe("withTimeout", () => {
   test("returns resolved value when work completes within timeout", async () => {
@@ -14,5 +18,16 @@ describe("withTimeout", () => {
         unref: false,
       })
     ).rejects.toThrow("timeout exceeded");
+  });
+
+  test("clamps oversized timeout values", () => {
+    expect(normalizeTimeoutMs(Number.POSITIVE_INFINITY)).toEqual({
+      timeoutMs: MAX_SET_TIMEOUT_MS,
+      clamped: true,
+    });
+    expect(normalizeTimeoutMs(MAX_SET_TIMEOUT_MS + 1)).toEqual({
+      timeoutMs: MAX_SET_TIMEOUT_MS,
+      clamped: true,
+    });
   });
 });

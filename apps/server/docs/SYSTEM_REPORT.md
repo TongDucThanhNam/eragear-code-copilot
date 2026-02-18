@@ -16,9 +16,7 @@ chạy trên máy người dùng và có quyền filesystem/terminal.
 Runtime scope:
 
 - Server runtime là **Bun-only**.
-- Production target: Linux/macOS.
-- Windows path conventions vẫn được mô tả cho storage/auth, nhưng không đồng
-  nghĩa production runtime support.
+- Production target: Linux/Windows/macOS.
 
 ## 2. Architecture
 
@@ -200,6 +198,12 @@ Khi public local server qua tunnel:
 - non-browser client phải gửi `CF-Access-Client-Id` +
   `CF-Access-Client-Secret` ở handshake headers.
 - `connectionParams` của tRPC là app-level auth, không thay thế Access headers.
+- khi bật `AUTH_REQUIRE_CLOUDFLARE_ACCESS=true`, server chỉ chấp nhận handshake
+  đã verify thành công theo service token (`AUTH_CLOUDFLARE_ACCESS_CLIENT_ID`,
+  `AUTH_CLOUDFLARE_ACCESS_CLIENT_SECRET`) hoặc JWT verifier
+  (`AUTH_CLOUDFLARE_ACCESS_JWT_PUBLIC_KEY_PEM`,
+  `AUTH_CLOUDFLARE_ACCESS_JWT_AUDIENCE`,
+  `AUTH_CLOUDFLARE_ACCESS_JWT_ISSUER`).
 
 ## 7. Configuration (Environment)
 
@@ -210,7 +214,7 @@ Nhóm biến chính:
 - Networking: `WS_HOST`, `WS_PORT`, `WS_HEARTBEAT_INTERVAL_MS`
 - Timeouts: `SESSION_IDLE_TIMEOUT_MS`, `AGENT_TIMEOUT_MS`, `TERMINAL_TIMEOUT_MS`
 - Policy (strict/canonical): `ALLOWED_AGENT_COMMAND_POLICIES`, `ALLOWED_TERMINAL_COMMAND_POLICIES`, `ALLOWED_ENV_KEYS`, `CORS_STRICT_ORIGIN`, `TERMINAL_OUTPUT_HARD_CAP_BYTES`, `SESSION_LIST_PAGE_MAX_LIMIT`, `SESSION_MESSAGES_PAGE_MAX_LIMIT`
-- Auth: `AUTH_SECRET`, `AUTH_BASE_URL`, `AUTH_TRUSTED_ORIGINS`, `AUTH_ALLOW_SIGNUP`, `AUTH_BOOTSTRAP_API_KEY`, `AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS`, `AUTH_BOOTSTRAP_CACHE_MAX_USERS`, `AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS`, `AUTH_API_KEY_PREFIX`, `AUTH_API_KEY_RATE_LIMIT_*`
+- Auth: `AUTH_SECRET`, `AUTH_BASE_URL`, `AUTH_TRUSTED_ORIGINS`, `AUTH_ALLOW_SIGNUP`, `AUTH_BOOTSTRAP_API_KEY`, `AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS`, `AUTH_BOOTSTRAP_CACHE_MAX_USERS`, `AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS`, `AUTH_API_KEY_PREFIX`, `AUTH_API_KEY_RATE_LIMIT_*`, `AUTH_REQUIRE_CLOUDFLARE_ACCESS`, `AUTH_CLOUDFLARE_ACCESS_*`
 - Logging: `LOG_*`
 - Background: `BACKGROUND_*`
 

@@ -36,11 +36,16 @@ export async function terminateSessionTerminals(
         clearTimeout(termState.killTimer);
         termState.killTimer = undefined;
       }
+      if (termState.terminationPromise) {
+        await termState.terminationPromise;
+        return;
+      }
       if (!termState.process || hasProcessExited(termState.process)) {
         return;
       }
       await terminateProcessGracefully(termState.process, {
         processGroupId: termState.processGroupId,
+        forceWindowsTreeTermination: true,
       });
     })
   );

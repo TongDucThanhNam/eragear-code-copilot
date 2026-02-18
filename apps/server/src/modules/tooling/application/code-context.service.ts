@@ -25,9 +25,9 @@ const OP_FILE_CONTENT = "tooling.code-context.file-content";
  * @example
  * ```typescript
  * const service = new CodeContextService(gitAdapter, sessionRuntime);
- * const context = await service.getProjectContext("chat-123");
- * const diff = await service.getGitDiff("chat-123");
- * const file = await service.getFileContent("chat-123", "src/index.ts");
+ * const context = await service.getProjectContext("user-1", "chat-123");
+ * const diff = await service.getGitDiff("user-1", "chat-123");
+ * const file = await service.getFileContent("user-1", "chat-123", "src/index.ts");
  * ```
  */
 export class CodeContextService {
@@ -51,9 +51,9 @@ export class CodeContextService {
    * @returns The project context from git operations
    * @throws Error if session is not found
    */
-  async getProjectContext(chatId: string) {
+  async getProjectContext(userId: string, chatId: string) {
     const session = this.sessionRuntime.get(chatId);
-    if (!session) {
+    if (!session || session.userId !== userId) {
       throw new NotFoundError("Chat not found", {
         module: MODULE,
         op: OP_PROJECT_CONTEXT,
@@ -71,9 +71,9 @@ export class CodeContextService {
    * @returns The git diff output
    * @throws Error if session is not found
    */
-  async getGitDiff(chatId: string) {
+  async getGitDiff(userId: string, chatId: string) {
     const session = this.sessionRuntime.get(chatId);
-    if (!session) {
+    if (!session || session.userId !== userId) {
       throw new NotFoundError("Chat not found", {
         module: MODULE,
         op: OP_GIT_DIFF,
@@ -91,9 +91,9 @@ export class CodeContextService {
    * @returns Object containing the file content
    * @throws Error if session is not found
    */
-  async getFileContent(chatId: string, path: string) {
+  async getFileContent(userId: string, chatId: string, path: string) {
     const session = this.sessionRuntime.get(chatId);
-    if (!session) {
+    if (!session || session.userId !== userId) {
       throw new NotFoundError("Chat not found", {
         module: MODULE,
         op: OP_FILE_CONTENT,

@@ -36,6 +36,13 @@
       "when": 1770691199000,
       "tag": "0004_tenant_ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1771800000000,
+      "tag": "0005_session_event_outbox",
+      "breakpoints": true
     }
   ]
 }

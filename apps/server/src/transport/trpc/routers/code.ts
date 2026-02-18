@@ -11,6 +11,7 @@ import {
   CodeChatIdInputSchema,
   CodeFileContentInputSchema,
 } from "@/modules/tooling";
+import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
 
 export const codeRouter = router({
@@ -19,7 +20,7 @@ export const codeRouter = router({
     .input(CodeChatIdInputSchema)
     .query(({ input, ctx }) => {
       const service = ctx.toolingServices.codeContext();
-      return service.getProjectContext(input.chatId);
+      return service.getProjectContext(getRequiredUserId(ctx), input.chatId);
     }),
 
   /** Get git diff for the project's working directory */
@@ -27,7 +28,7 @@ export const codeRouter = router({
     .input(CodeChatIdInputSchema)
     .query(({ input, ctx }) => {
       const service = ctx.toolingServices.codeContext();
-      return service.getGitDiff(input.chatId);
+      return service.getGitDiff(getRequiredUserId(ctx), input.chatId);
     }),
 
   /** Get file content from the project */
@@ -35,6 +36,10 @@ export const codeRouter = router({
     .input(CodeFileContentInputSchema)
     .query(async ({ input, ctx }) => {
       const service = ctx.toolingServices.codeContext();
-      return await service.getFileContent(input.chatId, input.path);
+      return await service.getFileContent(
+        getRequiredUserId(ctx),
+        input.chatId,
+        input.path
+      );
     }),
 });

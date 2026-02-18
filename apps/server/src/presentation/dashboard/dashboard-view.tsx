@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { TabKey } from "@/presentation/dashboard/dashboard-data";
 import { DashboardViewProvider } from "@/presentation/dashboard/dashboard-view.context";
 import type {
   DashboardViewActions,
@@ -8,8 +9,10 @@ import { AddAgentModal } from "./components/add-agent-modal";
 import { AddProjectModal } from "./components/add-project-modal";
 import { AgentsTab } from "./components/agents-tab";
 import { AuthTab } from "./components/auth-tab";
+import { DashboardAlerts } from "./components/dashboard-alerts";
 import { DashboardFooter } from "./components/dashboard-footer";
 import { DashboardHeader } from "./components/dashboard-header";
+import { DashboardLoading } from "./components/dashboard-loading";
 import { EditAgentModals } from "./components/edit-agent-modals";
 import { LogsTab } from "./components/logs-tab";
 import { MarqueeTicker } from "./components/marquee-ticker";
@@ -24,98 +27,92 @@ interface DashboardViewProps {
 }
 
 export function DashboardView({ state, actions }: DashboardViewProps) {
-  const { activeTab, success, notice, errors, requiresRestart } = state;
-  const mainRef = useRef<HTMLElement | null>(null);
+  const { activeTab, isLoading } = state;
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const prevActiveTabRef = useRef<TabKey | null>(null);
 
   useEffect(() => {
-    // Reposition when tab changes so each section starts at the top.
-    if (!activeTab) {
+    // Reposition when tab changes so each section starts at the top
+    if (!(activeTab && prevActiveTabRef.current)) {
+      prevActiveTabRef.current = activeTab;
       return;
     }
-    mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
+
+    // Only scroll if tab actually changed
+    if (activeTab !== prevActiveTabRef.current) {
+      // Scroll the container, not the main element if we change the layout
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      prevActiveTabRef.current = activeTab;
+    }
   }, [activeTab]);
 
   return (
     <DashboardViewProvider actions={actions} state={state}>
-      {/* Dot Grid Texture */}
-      <div className="newsprint-dots pointer-events-none fixed inset-0 z-0 opacity-10" />
+      <div
+        className={`newsprint-dots pointer-events-none fixed inset-0 z-0 opacity-10 transition-opacity duration-300 ${
+          isLoading ? "opacity-5" : "opacity-10"
+        }`}
+      />
 
       <div
-        className="relative z-10 mx-auto flex min-h-screen max-w-screen-xl flex-col bg-paper px-4 shadow-[0_0_50px_rgba(0,0,0,0.1)]"
-        id="main-content"
+        className="fixed inset-0 z-10 overflow-y-auto scroll-smooth"
+        ref={scrollContainerRef}
       >
-        <DashboardHeader />
+        <div
+          className={`relative mx-auto flex min-h-screen w-full max-w-[1360px] flex-col bg-paper px-3 pb-8 shadow-[0_0_50px_rgba(0,0,0,0.1)] transition-all duration-300 sm:px-5 lg:px-6 ${
+            isLoading ? "opacity-90" : "opacity-100"
+          }`}
+          id="main-content"
+        >
+          <DashboardHeader />
 
-        <MarqueeTicker />
-
-        <div className="mt-4 flex flex-col gap-4">
-          {success && (
-            <div className="fade-in flex border-2 border-ink bg-[#CC0000] p-0 font-mono text-paper text-sm shadow-news">
-              <div className="bg-ink px-4 py-2 font-black uppercase tracking-widest">
-                Update
-              </div>
-              <div className="flex-1 px-4 py-2 italic tracking-tight">
-                {notice || "Settings saved successfully!"}
-              </div>
+          {!isLoading && (
+            <div className="mt-2 sm:mt-3">
+              <MarqueeTicker />
             </div>
           )}
 
-          {notice && !success && (
-            <div className="fade-in flex border-2 border-ink bg-[#CC0000] p-0 font-mono text-paper text-sm shadow-news">
-              <div className="bg-ink px-4 py-2 font-black uppercase tracking-widest">
-                Notice
-              </div>
-              <div className="flex-1 px-4 py-2 italic tracking-tight">
-                {notice}
-              </div>
-            </div>
-          )}
+          <DashboardAlerts />
 
-          {errors?.general && (
-            <div className="fade-in flex border-2 border-ink bg-[#CC0000] p-0 font-mono text-paper text-sm shadow-news">
-              <div className="bg-ink px-4 py-2 font-black uppercase tracking-widest">
-                Alert
-              </div>
-              <div className="flex-1 px-4 py-2 italic tracking-tight">
-                {errors.general}
-              </div>
-            </div>
-          )}
+          <main
+            aria-busy={isLoading}
+            className="relative mt-5 flex-1 sm:mt-6 lg:mt-8"
+          >
+            <DashboardLoading />
 
-          {requiresRestart && requiresRestart.length > 0 && (
-            <div className="fade-in flex border-2 border-ink bg-[#CC0000] p-0 font-mono text-paper text-sm shadow-news">
-              <div className="bg-ink px-4 py-2 font-black uppercase tracking-widest">
-                Restart
-              </div>
-              <div className="flex-1 px-4 py-2 italic tracking-tight">
-                Changes to {requiresRestart.join(", ")} require server restart.
-              </div>
+            <div
+              className={`dashboard-grid grid min-h-0 border-ink border-t-4 bg-paper transition-all duration-300 ${
+                activeTab === "logs" ? "lg:grid-cols-1" : "lg:grid-cols-12"
+              } ${isLoading ? "pointer-events-none opacity-50" : "opacity-100"}`}
+              data-active-tab={activeTab}
+            >
+              <section
+                className={`dashboard-main flex min-w-0 flex-col border-ink border-b-2 bg-paper p-3 transition-all duration-300 sm:p-4 lg:p-5 ${
+                  activeTab === "logs"
+                    ? "lg:col-span-1 lg:border-r-0"
+                    : "lg:col-span-8 lg:border-r-4 lg:border-b-0"
+                }`}
+              >
+                <SessionsTab />
+                <ProjectsTab />
+                <AgentsTab />
+                <AuthTab />
+                <SettingsTab />
+                <LogsTab />
+              </section>
+
+              {activeTab !== "logs" && (
+                <aside className="dashboard-side flex flex-col border-ink border-b-2 bg-[#f3f3ef] p-3 transition-all duration-300 sm:p-4 lg:col-span-4 lg:border-b-0 lg:p-5">
+                  <div className="lg:sticky lg:top-[132px] lg:self-start">
+                    <OverviewStats />
+                  </div>
+                </aside>
+              )}
             </div>
-          )}
+          </main>
+
+          <DashboardFooter />
         </div>
-
-        {/* Main Content - Takes remaining space and scrolls when overflow */}
-        <main className="mt-6 flex-1 overflow-y-auto" ref={mainRef}>
-          {/* Main Grid Layout */}
-          <div className="dashboard-grid grid min-h-0 border-ink border-t-2 lg:grid-cols-12">
-            {/* Left Column - Tabs & Content */}
-            <div className="dashboard-main flex min-w-0 flex-col border-ink border-b-2 lg:col-span-8 lg:border-r-2 lg:border-b-0">
-              <SessionsTab />
-              <ProjectsTab />
-              <AgentsTab />
-              <AuthTab />
-              <SettingsTab />
-              <LogsTab />
-            </div>
-
-            {/* Right Column - Overview Stats (Inverted Section) */}
-            <div className="dashboard-side flex flex-col lg:col-span-4">
-              <OverviewStats />
-            </div>
-          </div>
-        </main>
-
-        <DashboardFooter />
       </div>
 
       <AddProjectModal />

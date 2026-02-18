@@ -1,18 +1,14 @@
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  unlinkSync,
-} from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createLogger } from "@/platform/logging/structured-logger";
+import { fileURLToPath } from "node:url";
 
 const APP_DIR_NAME = "Eragear";
 const SQLITE_FILE_NAME = "eragear.sqlite";
-const LEGACY_STORAGE_DIR = path.join(process.cwd(), ".eragear");
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_ROOT_DIR = path.resolve(MODULE_DIR, "../../..");
+const LEGACY_STORAGE_DIR = path.join(SERVER_ROOT_DIR, ".eragear");
 const LEGACY_JSON_FILES = [
   "projects.json",
   "sessions.json",
@@ -24,11 +20,8 @@ const STORAGE_DIR_ENV_KEY = "ERAGEAR_STORAGE_DIR";
 let storageDir: string | null = null;
 let storageResolution: {
   path: string;
-  origin: "env" | "default" | "fallback_from_network";
-  rejectedPath?: string;
-  reason?: string;
+  origin: "env" | "default";
 } | null = null;
-const logger = createLogger("Storage");
 
 function getPlatformConfigDir(): string {
   if (process.platform === "win32") {
@@ -41,7 +34,7 @@ function getPlatformConfigDir(): string {
 }
 
 function resolveStorageDirFromEnv(value: string): string {
-  return path.isAbsolute(value) ? value : path.resolve(process.cwd(), value);
+  return path.isAbsolute(value) ? value : path.resolve(SERVER_ROOT_DIR, value);
 }
 
 function pathExistsSync(filePath: string): boolean {
@@ -51,15 +44,8 @@ function pathExistsSync(filePath: string): boolean {
 function ensureWritableDirectorySync(dir: string): boolean {
   try {
     mkdirSync(dir, { recursive: true });
-    const probePath = path.join(
-      dir,
-      `.eragear-write-probe-${process.pid}-${Date.now()}-${Math.random()
-        .toString(16)
-        .slice(2)}`
-    );
-    const probeFd = openSync(probePath, "wx", 0o600);
-    closeSync(probeFd);
-    unlinkSync(probePath);
+    accessSync(dir, constants.W_OK);
+    accessSync(dir, constants.X_OK);
     return true;
   } catch {
     return false;
@@ -96,14 +82,6 @@ function getDefaultStorageCandidates(): string[] {
   return [platformDir, LEGACY_STORAGE_DIR];
 }
 
-function getSafeFallbackCandidates(excluded: string[]): string[] {
-  const defaults = getDefaultStorageCandidates();
-  const emergency = path.join(os.tmpdir(), APP_DIR_NAME);
-  return [...new Set([...defaults, emergency])].filter(
-    (candidate) => !excluded.includes(candidate)
-  );
-}
-
 function detectStorageRiskReason(dir: string): string | undefined {
   const resolved = path.resolve(dir);
   const normalized = resolved.replace(/\\/g, "/").toLowerCase();
@@ -120,20 +98,6 @@ function detectStorageRiskReason(dir: string): string | undefined {
     normalized.startsWith("/afs/")
   ) {
     return "network_mount";
-  }
-  return undefined;
-}
-
-function resolveSafeFallback(excluded: string[]): string | undefined {
-  const candidates = getSafeFallbackCandidates(excluded);
-  for (const candidate of candidates) {
-    if (!ensureWritableDirectorySync(candidate)) {
-      continue;
-    }
-    if (detectStorageRiskReason(candidate)) {
-      continue;
-    }
-    return candidate;
   }
   return undefined;
 }
@@ -161,30 +125,12 @@ export function getStorageDirPathSync(): string {
       return resolved;
     }
 
-    const fallback = resolveSafeFallback([resolved]);
-    if (!fallback) {
-      throw new Error(
-        `[Storage] ${STORAGE_DIR_ENV_KEY} points to a risky path (${riskReason}) and no safe local fallback is available: ${resolved}`
-      );
-    }
-
-    logger.warn("Configured storage path rejected due risk; falling back", {
-      envKey: STORAGE_DIR_ENV_KEY,
-      rejectedPath: resolved,
-      fallbackPath: fallback,
-      reason: riskReason,
-    });
-    storageDir = fallback;
-    storageResolution = {
-      path: fallback,
-      origin: "fallback_from_network",
-      rejectedPath: resolved,
-      reason: riskReason,
-    };
-    return fallback;
+    throw new Error(
+      `[Storage] ${STORAGE_DIR_ENV_KEY} points to a risky path (${riskReason}): ${resolved}`
+    );
   }
 
-  const candidates = getSafeFallbackCandidates([]);
+  const candidates = getDefaultStorageCandidates();
   const rejected: Array<{ candidate: string; reason: string }> = [];
   for (const candidate of candidates) {
     if (!ensureWritableDirectorySync(candidate)) {
@@ -241,9 +187,7 @@ export function getStorageFile(filename: string): Promise<string> {
 
 export function getStoragePathResolutionInfo(): {
   path: string;
-  origin: "env" | "default" | "fallback_from_network";
-  rejectedPath?: string;
-  reason?: string;
+  origin: "env" | "default";
 } | null {
   if (!storageResolution) {
     return null;

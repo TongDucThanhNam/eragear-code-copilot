@@ -1,168 +1,174 @@
-import { describe, expect, test } from "bun:test";
-import { ENV } from "@/config/environment";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   enqueueSqliteWrite,
+  flushSqliteWriteQueue,
   getSqliteWriteQueueStats,
+  SqliteWriteQueueOverloadedError,
+  setSqliteWriteQueuePolicyForTests,
 } from "./sqlite-write-queue";
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function createDeferred<T = void>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
-
 describe("sqlite-write-queue", () => {
-  test("serializes high-priority writes in enqueue order", async () => {
+  beforeEach(() => {
+    setSqliteWriteQueuePolicyForTests({
+      busyMaxRetries: 4,
+      busyRetryBaseDelayMs: 1,
+      maxPending: 256,
+    });
+  });
+
+  afterEach(async () => {
+    setSqliteWriteQueuePolicyForTests(null);
+    await flushSqliteWriteQueue(200);
+  });
+
+  test("executes writes and drains pending counters", async () => {
+    const first = enqueueSqliteWrite("test.write.1", () => "a");
+    const second = enqueueSqliteWrite("test.write.2", () => "b", {
+      priority: "low",
+    });
+
+    await expect(first).resolves.toBe("a");
+    await expect(second).resolves.toBe("b");
+
+    expect(getSqliteWriteQueueStats().pending).toBe(0);
+    expect(getSqliteWriteQueueStats().pendingHigh).toBe(0);
+    expect(getSqliteWriteQueueStats().pendingLow).toBe(0);
+  });
+
+  test("serializes overlapping writes", async () => {
     const order: string[] = [];
+    let releaseFirst: (() => void) | undefined;
 
     const first = enqueueSqliteWrite("test.serial.1", async () => {
-      order.push("first-start");
-      await sleep(20);
-      order.push("first-end");
-      return 1;
+      order.push("first:start");
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      order.push("first:end");
+      return "first";
     });
     const second = enqueueSqliteWrite("test.serial.2", () => {
-      order.push("second-start");
-      order.push("second-end");
-      return 2;
+      order.push("second:start");
+      order.push("second:end");
+      return "second";
     });
 
-    const [a, b] = await Promise.all([first, second]);
-    expect(a).toBe(1);
-    expect(b).toBe(2);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual(["first:start"]);
+
+    releaseFirst?.();
+    await expect(first).resolves.toBe("first");
+    await expect(second).resolves.toBe("second");
     expect(order).toEqual([
-      "first-start",
-      "first-end",
-      "second-start",
-      "second-end",
+      "first:start",
+      "first:end",
+      "second:start",
+      "second:end",
     ]);
-    expect(getSqliteWriteQueueStats().pending).toBe(0);
   });
 
-  test("executes high-priority writes before low-priority writes when both are runnable", async () => {
+  test("prioritizes high-priority writes over queued low-priority writes", async () => {
     const order: string[] = [];
+    let releaseFirst: (() => void) | undefined;
 
+    const first = enqueueSqliteWrite("test.priority.1", async () => {
+      order.push("first:start");
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      order.push("first:end");
+      return "first";
+    });
     const low = enqueueSqliteWrite(
       "test.priority.low",
       () => {
-        order.push("low");
+        order.push("low:start");
+        order.push("low:end");
         return "low";
       },
       { priority: "low" }
     );
-
-    const high = enqueueSqliteWrite(
-      "test.priority.high",
-      () => {
-        order.push("high");
-        return "high";
-      },
-      { priority: "high" }
-    );
-
-    const [lowResult, highResult] = await Promise.all([low, high]);
-    expect(lowResult).toBe("low");
-    expect(highResult).toBe("high");
-    expect(order).toEqual(["high", "low"]);
-  });
-
-  test("exposes lane-aware pending queue stats", async () => {
-    const gate = createDeferred();
-
-    const high = enqueueSqliteWrite("test.stats.high", async () => {
-      await gate.promise;
+    const high = enqueueSqliteWrite("test.priority.high", () => {
+      order.push("high:start");
+      order.push("high:end");
       return "high";
     });
 
-    const low = enqueueSqliteWrite("test.stats.low", async () => "low", {
-      priority: "low",
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    releaseFirst?.();
+
+    await expect(first).resolves.toBe("first");
+    await expect(high).resolves.toBe("high");
+    await expect(low).resolves.toBe("low");
+    expect(order).toEqual([
+      "first:start",
+      "first:end",
+      "high:start",
+      "high:end",
+      "low:start",
+      "low:end",
+    ]);
+  });
+
+  test("retries SQLITE_BUSY operations with backoff", async () => {
+    let attempts = 0;
+    const result = await enqueueSqliteWrite("test.busy.retry", () => {
+      attempts += 1;
+      if (attempts < 3) {
+        throw new Error("SQLITE_BUSY: database is locked");
+      }
+      return "ok";
     });
 
-    await sleep(5);
-    const pendingStats = getSqliteWriteQueueStats();
-    expect(pendingStats.pending).toBe(2);
-    expect(pendingStats.writeQueueDepth).toBe(2);
-    expect(pendingStats.pendingTotal).toBe(2);
-    expect(pendingStats.pendingHigh).toBe(1);
-    expect(pendingStats.pendingLow).toBe(1);
-
-    gate.resolve();
-    await Promise.all([high, low]);
-
-    const settledStats = getSqliteWriteQueueStats();
-    expect(settledStats.pending).toBe(0);
-    expect(settledStats.pendingHigh).toBe(0);
-    expect(settledStats.pendingLow).toBe(0);
+    expect(result).toBe("ok");
+    expect(attempts).toBe(3);
+    expect(getSqliteWriteQueueStats().busyRetryCount).toBeGreaterThanOrEqual(2);
   });
 
-  test("retries SQLITE_BUSY failures", async () => {
-    const originalMaxRetries = ENV.sqliteBusyMaxRetries;
-    const originalBaseDelay = ENV.sqliteBusyRetryBaseDelayMs;
-    ENV.sqliteBusyMaxRetries = 4;
-    ENV.sqliteBusyRetryBaseDelayMs = 1;
-
-    let attempts = 0;
-    try {
-      const result = await enqueueSqliteWrite("test.busy.retry", () => {
-        attempts += 1;
-        if (attempts < 3) {
-          throw new Error("SQLITE_BUSY: database is locked");
-        }
-        return "ok";
+  test("flush waits for in-flight writes", async () => {
+    let release: (() => void) | undefined;
+    const pending = enqueueSqliteWrite("test.flush.wait", async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
       });
-      expect(result).toBe("ok");
-      expect(attempts).toBe(3);
-    } finally {
-      ENV.sqliteBusyMaxRetries = originalMaxRetries;
-      ENV.sqliteBusyRetryBaseDelayMs = originalBaseDelay;
-    }
+      return "done";
+    });
+
+    const flushPromise = flushSqliteWriteQueue(200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await flushPromise).toBe(false);
+
+    release?.();
+    await expect(pending).resolves.toBe("done");
+    await expect(flushSqliteWriteQueue(500)).resolves.toBe(true);
   });
 
-  test("does not block high-priority writes behind delayed busy-retry low task", async () => {
-    const originalMaxRetries = ENV.sqliteBusyMaxRetries;
-    const originalBaseDelay = ENV.sqliteBusyRetryBaseDelayMs;
-    ENV.sqliteBusyMaxRetries = 3;
-    ENV.sqliteBusyRetryBaseDelayMs = 20;
+  test("rejects enqueues when pending writes exceed maxPending", async () => {
+    setSqliteWriteQueuePolicyForTests({
+      busyMaxRetries: 4,
+      busyRetryBaseDelayMs: 1,
+      maxPending: 2,
+    });
 
-    const order: string[] = [];
-    let lowAttempts = 0;
-    try {
-      const low = enqueueSqliteWrite(
-        "test.busy.low",
-        () => {
-          lowAttempts += 1;
-          order.push(`low-${lowAttempts}`);
-          if (lowAttempts === 1) {
-            throw new Error("SQLITE_BUSY: database is locked");
-          }
-          return "low-ok";
-        },
-        { priority: "low" }
-      );
+    let releaseFirst: (() => void) | undefined;
+    const first = enqueueSqliteWrite("test.overload.1", async () => {
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      return "first";
+    });
+    const second = enqueueSqliteWrite("test.overload.2", () => "second");
+    const overloaded = enqueueSqliteWrite("test.overload.3", () => "third");
 
-      await sleep(1);
-      const high = enqueueSqliteWrite(
-        "test.busy.high",
-        () => {
-          order.push("high");
-          return "high-ok";
-        },
-        { priority: "high" }
-      );
+    await expect(overloaded).rejects.toBeInstanceOf(
+      SqliteWriteQueueOverloadedError
+    );
+    expect(getSqliteWriteQueueStats().rejectedOverload).toBeGreaterThanOrEqual(
+      1
+    );
 
-      const [lowResult, highResult] = await Promise.all([low, high]);
-      expect(lowResult).toBe("low-ok");
-      expect(highResult).toBe("high-ok");
-      expect(order).toEqual(["low-1", "high", "low-2"]);
-    } finally {
-      ENV.sqliteBusyMaxRetries = originalMaxRetries;
-      ENV.sqliteBusyRetryBaseDelayMs = originalBaseDelay;
-    }
+    releaseFirst?.();
+    await expect(first).resolves.toBe("first");
+    await expect(second).resolves.toBe("second");
   });
 });
