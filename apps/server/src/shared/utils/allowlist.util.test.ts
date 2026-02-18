@@ -164,7 +164,10 @@ describe("command policy invocation", () => {
       compileCommandPolicies([
         {
           command: process.execPath,
-          allowedArgs: Array.from({ length: 300 }, (_, index) => `--arg-${index}`),
+          allowedArgs: Array.from(
+            { length: 300 },
+            (_, index) => `--arg-${index}`
+          ),
         },
       ])
     ).toThrow(/Allowed args/i);

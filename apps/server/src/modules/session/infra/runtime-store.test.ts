@@ -18,18 +18,28 @@ function createDeferred<T>() {
 function createOutboxStub(calls: BroadcastEvent[]): SessionEventOutboxPort {
   return {
     enqueue: async (input) => {
-      calls.push(input.event);
+      await calls.push(input.event);
     },
-    dispatch: async () => ({ dispatched: 0, failed: 0, retried: 0, pending: 0 }),
+    dispatch: async () => ({
+      dispatched: 0,
+      failed: 0,
+      retried: 0,
+      pending: 0,
+    }),
   };
 }
 
 function createFailingOutboxStub(): SessionEventOutboxPort {
   return {
-    enqueue: async () => {
+    enqueue: () => {
       throw new Error("outbox failure");
     },
-    dispatch: async () => ({ dispatched: 0, failed: 0, retried: 0, pending: 0 }),
+    dispatch: async () => ({
+      dispatched: 0,
+      failed: 0,
+      retried: 0,
+      pending: 0,
+    }),
   };
 }
 

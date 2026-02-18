@@ -3,10 +3,12 @@ import { useDashboardState } from "@/presentation/dashboard/dashboard-view.conte
 export function DashboardLoading() {
   const { isLoading } = useDashboardState();
 
-  if (!isLoading) return null;
+  if (!isLoading) {
+    return null;
+  }
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-paper/90 backdrop-blur-sm fade-in">
+    <div className="fade-in absolute inset-0 z-50 flex items-center justify-center bg-paper/90 backdrop-blur-sm">
       <div className="flex flex-col items-center gap-6">
         {/* Enhanced Loading Animation */}
         <div className="relative">
@@ -21,10 +23,10 @@ export function DashboardLoading() {
 
         {/* Loading Text with Progress */}
         <div className="flex flex-col items-center gap-2">
-          <p className="font-mono text-sm uppercase tracking-widest text-ink font-semibold">
+          <p className="font-mono font-semibold text-ink text-sm uppercase tracking-widest">
             Loading Edition...
           </p>
-          <p className="font-serif text-xs italic text-muted">
+          <p className="font-serif text-muted text-xs italic">
             Gathering latest stories
           </p>
         </div>

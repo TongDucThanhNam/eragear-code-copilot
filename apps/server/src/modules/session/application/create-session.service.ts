@@ -100,9 +100,9 @@ export class CreateSessionService {
 
       return chatSession;
     } catch (error) {
-      await this.terminateProcess(proc, { forceWindowsTreeTermination: true }).catch(
-        () => undefined
-      );
+      await this.terminateProcess(proc, {
+        forceWindowsTreeTermination: true,
+      }).catch(() => undefined);
       throw error;
     }
   }

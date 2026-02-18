@@ -63,7 +63,10 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   /** Maximum time waiting to acquire a per-chat lock */
   private readonly lockAcquireTimeoutMs: number;
 
-  constructor(eventOutbox: SessionEventOutboxPort, policy: SessionRuntimeStorePolicy) {
+  constructor(
+    eventOutbox: SessionEventOutboxPort,
+    policy: SessionRuntimeStorePolicy
+  ) {
     this.eventOutbox = eventOutbox;
     const normalizedPolicy = normalizePolicy(policy);
     this.sessionBufferLimit = normalizedPolicy.sessionBufferLimit;

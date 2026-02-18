@@ -140,20 +140,20 @@ function verifyCloudflareJwtAssertion(
   }
 
   const [headerSegment, payloadSegment, signatureSegment] = segments;
-  if (!headerSegment || !payloadSegment || !signatureSegment) {
+  if (!(headerSegment && payloadSegment && signatureSegment)) {
     return false;
   }
 
   const headerBuffer = decodeBase64UrlSegment(headerSegment);
   const payloadBuffer = decodeBase64UrlSegment(payloadSegment);
   const signatureBuffer = decodeBase64UrlSegment(signatureSegment);
-  if (!headerBuffer || !payloadBuffer || !signatureBuffer) {
+  if (!(headerBuffer && payloadBuffer && signatureBuffer)) {
     return false;
   }
 
   const header = parseJsonObject<JwtHeader>(headerBuffer);
   const claims = parseJsonObject<JwtClaims>(payloadBuffer);
-  if (!header || !claims) {
+  if (!(header && claims)) {
     return false;
   }
 
@@ -231,12 +231,17 @@ export function validateCloudflareAccessHandshakeAuth(
   const providedClientSecret = readHeaderValue(
     headers[CLOUDFLARE_ACCESS_CLIENT_SECRET_HEADER]
   );
-  if ((providedClientId && !providedClientSecret) || (!providedClientId && providedClientSecret)) {
+  if (
+    (providedClientId && !providedClientSecret) ||
+    (!providedClientId && providedClientSecret)
+  ) {
     return { ok: false, reason: "partial_service_token_headers" };
   }
 
   if (providedClientId && providedClientSecret) {
-    if (!serviceTokenConfigured || !configuredClientId || !configuredClientSecret) {
+    if (
+      !(serviceTokenConfigured && configuredClientId && configuredClientSecret)
+    ) {
       return { ok: false, reason: "service_token_not_configured" };
     }
     const clientIdMatches = timingSafeStringEqual(
@@ -247,7 +252,7 @@ export function validateCloudflareAccessHandshakeAuth(
       providedClientSecret,
       configuredClientSecret
     );
-    if (!clientIdMatches || !clientSecretMatches) {
+    if (!(clientIdMatches && clientSecretMatches)) {
       return { ok: false, reason: "invalid_service_token" };
     }
     return { ok: true };
@@ -255,7 +260,7 @@ export function validateCloudflareAccessHandshakeAuth(
 
   const jwtAssertion = readHeaderValue(headers[CLOUDFLARE_ACCESS_JWT_HEADER]);
   if (jwtAssertion) {
-    if (!jwtConfigured || !policy.jwt) {
+    if (!(jwtConfigured && policy.jwt)) {
       return { ok: false, reason: "jwt_not_configured" };
     }
     const isValid = verifyCloudflareJwtAssertion(jwtAssertion, policy.jwt);

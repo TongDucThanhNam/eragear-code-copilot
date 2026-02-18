@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { cp, copyFile, mkdir } from "node:fs/promises";
+import { copyFile, cp, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 async function runCommand(command: string, args: string[]): Promise<void> {

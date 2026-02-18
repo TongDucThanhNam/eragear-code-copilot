@@ -120,6 +120,8 @@ describe("SessionSqliteMapper row invariants", () => {
       status: "unknown",
     } as SessionListRow;
 
-    expect(() => mapper.mapListRowForTest(invalidRow)).toThrow(/invalid status/i);
+    expect(() => mapper.mapListRowForTest(invalidRow)).toThrow(
+      /invalid status/i
+    );
   });
 });

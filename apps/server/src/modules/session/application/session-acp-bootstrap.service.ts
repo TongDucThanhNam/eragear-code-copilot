@@ -58,7 +58,9 @@ function supportsUnstableResume(conn: unknown): conn is ResumeConnection {
   return typeof candidate.unstable_resumeSession === "function";
 }
 
-function supportsSetSessionModel(conn: unknown): conn is SessionModelConnection {
+function supportsSetSessionModel(
+  conn: unknown
+): conn is SessionModelConnection {
   if (!conn || typeof conn !== "object") {
     return false;
   }

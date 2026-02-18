@@ -53,7 +53,7 @@ describe("CodeContextService", () => {
       {
         getProjectContext: async (scanRoot: string) => {
           calls.push(`context:${scanRoot}`);
-          return {
+          return await {
             projectRules: [],
             activeTabs: [],
             files: [],
@@ -61,11 +61,11 @@ describe("CodeContextService", () => {
         },
         getDiff: async (projectRoot: string) => {
           calls.push(`diff:${projectRoot}`);
-          return "diff";
+          return await "diff";
         },
         readFileWithinRoot: async (projectRoot: string, filePath: string) => {
           calls.push(`file:${projectRoot}:${filePath}`);
-          return "content";
+          return await "content";
         },
       } as unknown as GitPort,
       {
@@ -73,9 +73,9 @@ describe("CodeContextService", () => {
       } as unknown as SessionRuntimePort
     );
 
-    await expect(service.getProjectContext("user-1", "chat-1")).resolves.toEqual(
-      { projectRules: [], activeTabs: [], files: [] }
-    );
+    await expect(
+      service.getProjectContext("user-1", "chat-1")
+    ).resolves.toEqual({ projectRules: [], activeTabs: [], files: [] });
     await expect(service.getGitDiff("user-1", "chat-1")).resolves.toBe("diff");
     await expect(
       service.getFileContent("user-1", "chat-1", "README.md")

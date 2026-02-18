@@ -19,32 +19,32 @@ export function OverviewStats() {
 
       {/* Stats Grid */}
       <div className="overview-grid">
-        <div className="overview-cell group/cell hover:bg-paper transition-colors duration-200">
-          <div className="overview-value group-hover/cell:scale-110 transition-transform duration-200">
+        <div className="overview-cell group/cell transition-colors duration-200 hover:bg-paper">
+          <div className="overview-value transition-transform duration-200 group-hover/cell:scale-110">
             {stats.totalProjects || 0}
           </div>
           <div className="overview-label">Projects</div>
         </div>
-        <div className="overview-cell group/cell hover:bg-paper transition-colors duration-200">
-          <div className="overview-value group-hover/cell:scale-110 transition-transform duration-200">
+        <div className="overview-cell group/cell transition-colors duration-200 hover:bg-paper">
+          <div className="overview-value transition-transform duration-200 group-hover/cell:scale-110">
             {stats.totalSessions || 0}
           </div>
           <div className="overview-label">Sessions</div>
         </div>
         <div className="overview-cell overview-cell-active group/cell">
-          <div className="overview-value group-hover/cell:scale-110 transition-transform duration-200">
+          <div className="overview-value transition-transform duration-200 group-hover/cell:scale-110">
             {stats.activeSessions || 0}
           </div>
           <div className="overview-label">Active Now</div>
         </div>
-        <div className="overview-cell group/cell hover:bg-paper transition-colors duration-200">
-          <div className="overview-value group-hover/cell:scale-110 transition-transform duration-200">
+        <div className="overview-cell group/cell transition-colors duration-200 hover:bg-paper">
+          <div className="overview-value transition-transform duration-200 group-hover/cell:scale-110">
             {stats.recentSessions24h || 0}
           </div>
           <div className="overview-label">Last 24h</div>
         </div>
         <div className="overview-cell overview-cell-uptime group/cell">
-          <div className="overview-value overview-value-uptime group-hover/cell:scale-105 transition-transform duration-200">
+          <div className="overview-value overview-value-uptime transition-transform duration-200 group-hover/cell:scale-105">
             {formatUptime(stats.serverUptime)}
           </div>
           <div className="overview-label">Server Uptime</div>
@@ -57,7 +57,7 @@ export function OverviewStats() {
       {/* Weekly Stats */}
       <div className="overview-weekly">
         <p className="overview-label">This Week</p>
-        <p className="overview-weekly-value group-hover:scale-105 transition-transform duration-200">
+        <p className="overview-weekly-value transition-transform duration-200 group-hover:scale-105">
           {stats.weeklySessions || 0}
         </p>
         <p className="overview-label">Sessions Completed</p>

@@ -18,7 +18,9 @@ export function SessionRow({
   const badgeClass = isRunning ? "badge-success" : "badge-warning";
 
   return (
-    <div className={`session-item card-enhanced stagger-item ${session.isActive ? "active" : ""}`}>
+    <div
+      className={`session-item card-enhanced stagger-item ${session.isActive ? "active" : ""}`}
+    >
       <div className="session-info flex items-center gap-3">
         <span className={`status-dot ${statusClass}`} />
         <div className="session-info-content">
@@ -38,19 +40,19 @@ export function SessionRow({
         <span className={`badge ${badgeClass}`}>{session.status}</span>
         <div className="session-actions">
           <button
+            aria-label={`Stop session ${session.projectName}`}
             className="session-action-btn btn-enhanced stop"
             disabled={!canStop}
             onClick={() => onStopSession(session.id)}
             type="button"
-            aria-label={`Stop session ${session.projectName}`}
           >
             Stop
           </button>
           <button
+            aria-label={`Delete session ${session.projectName}`}
             className="session-action-btn btn-enhanced delete"
             onClick={() => onDeleteSession(session.id)}
             type="button"
-            aria-label={`Delete session ${session.projectName}`}
           >
             Delete
           </button>

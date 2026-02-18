@@ -80,11 +80,7 @@ export interface ErrorHandlerPolicy {
 }
 
 interface ErrorHandlerLogger {
-  error(
-    message: string,
-    error: Error,
-    context?: Record<string, unknown>
-  ): void;
+  error(message: string, error: Error, context?: Record<string, unknown>): void;
 }
 
 /**

@@ -17,19 +17,21 @@ export function AgentCard({ agent, onDeleteAgent }: AgentCardProps) {
 
   return (
     <div className="card agent-card card-enhanced stagger-item mb-2 flex items-center justify-between gap-4">
-      <div className="min-w-0 flex-1 agent-info">
+      <div className="agent-info min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2">
-          <span className="truncate font-semibold agent-name">{agent.name}</span>
+          <span className="agent-name truncate font-semibold">
+            {agent.name}
+          </span>
           <span className={`badge ${typeClass} text-[10px]`}>{agent.type}</span>
         </div>
-        <code className="block truncate font-mono text-muted text-xs agent-command">
+        <code className="agent-command block truncate font-mono text-muted text-xs">
           {agent.command}
           {agent.args && agent.args.length > 0
             ? ` ${agent.args.join(" ")}`
             : ""}
         </code>
       </div>
-      <div className="flex gap-2 agent-actions">
+      <div className="agent-actions flex gap-2">
         <a
           className="btn btn-sm btn-secondary btn-enhanced"
           href={`#edit-agent-${agent.id}`}
@@ -37,10 +39,10 @@ export function AgentCard({ agent, onDeleteAgent }: AgentCardProps) {
           Edit
         </a>
         <button
+          aria-label={`Delete agent ${agent.name}`}
           className="btn btn-sm btn-danger btn-enhanced"
           onClick={() => onDeleteAgent(agent.id)}
           type="button"
-          aria-label={`Delete agent ${agent.name}`}
         >
           Delete
         </button>

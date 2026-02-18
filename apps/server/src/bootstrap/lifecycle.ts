@@ -15,8 +15,8 @@ import {
   createSessionIdleCleanupTask,
   createSqliteStorageMaintenanceTask,
 } from "../platform/background";
-import type { EventBusPort } from "../shared/ports/event-bus.port";
 import { createLogger } from "../platform/logging/structured-logger";
+import type { EventBusPort } from "../shared/ports/event-bus.port";
 import { executeServerShutdown } from "./lifecycle-shutdown";
 import { prepareServerStartup } from "./lifecycle-startup";
 

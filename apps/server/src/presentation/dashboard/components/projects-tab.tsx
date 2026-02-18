@@ -48,7 +48,10 @@ export function ProjectsTab() {
             </div>
           ) : (
             projects.map((project) => (
-              <div className="stagger-item border-ink border-b border-r last:border-b-0 even:border-r-0" key={project.id}>
+              <div
+                className="stagger-item border-ink border-r border-b last:border-b-0 even:border-r-0"
+                key={project.id}
+              >
                 <ProjectCard project={project} />
               </div>
             ))

@@ -103,7 +103,11 @@ function normalizeArgToken(token: string): string {
   return token.trim();
 }
 
-function assertSafeArgPattern(command: string, pattern: string, index: number): void {
+function assertSafeArgPattern(
+  command: string,
+  pattern: string,
+  index: number
+): void {
   if (pattern.length > MAX_ALLOWED_ARG_PATTERN_LENGTH) {
     throw new Error(
       `Allowed arg pattern for ${command} at index ${index} exceeds ${MAX_ALLOWED_ARG_PATTERN_LENGTH} characters`

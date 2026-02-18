@@ -1,7 +1,7 @@
 import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
-import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
 import { getSqliteDb } from "@/platform/storage/sqlite-store";
+import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { DomainEvent } from "@/shared/types/domain-events.types";
 import { createId } from "@/shared/utils/id.util";
@@ -172,7 +172,12 @@ export class SessionEventOutboxSqliteAdapter implements SessionEventOutboxPort {
                last_error = ?,
                next_attempt_at = ?
            WHERE id = ?`
-        ).run(nextAttempt, errorMessage, Date.now() + toRetryDelayMs(nextAttempt), row.id);
+        ).run(
+          nextAttempt,
+          errorMessage,
+          Date.now() + toRetryDelayMs(nextAttempt),
+          row.id
+        );
       }
     }
 

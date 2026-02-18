@@ -197,7 +197,7 @@ describe("CreateSessionService", () => {
       } as unknown as SpawnSessionProcessService,
       {
         execute: async () => {
-          throw new Error("bootstrap failed");
+          throw await new Error("bootstrap failed");
         },
       } as unknown as BootstrapSessionConnectionService,
       {
@@ -205,7 +205,7 @@ describe("CreateSessionService", () => {
       } as unknown as PersistSessionBootstrapService,
       createLoggerStub(),
       async (targetProc, policy) => {
-        terminateCalls.push({
+        await terminateCalls.push({
           proc: targetProc,
           forceWindowsTreeTermination: policy?.forceWindowsTreeTermination,
         });

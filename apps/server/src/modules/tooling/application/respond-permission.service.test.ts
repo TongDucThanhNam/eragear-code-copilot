@@ -78,7 +78,9 @@ describe("RespondPermissionService", () => {
     ).resolves.toEqual({
       outcome: { outcome: "selected", optionId: "allow-once" },
     });
-    expect(decisions).toEqual([{ outcome: { outcome: "selected", optionId: "allow-once" } }]);
+    expect(decisions).toEqual([
+      { outcome: { outcome: "selected", optionId: "allow-once" } },
+    ]);
     expect(session.pendingPermissions.size).toBe(0);
   });
 });

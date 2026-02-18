@@ -47,7 +47,10 @@ function assertValidTimestamp(
   return Math.trunc(Number(value));
 }
 
-function assertValidStatus(value: unknown, sessionId: string): "running" | "stopped" {
+function assertValidStatus(
+  value: unknown,
+  sessionId: string
+): "running" | "stopped" {
   if (value === "running" || value === "stopped") {
     return value;
   }

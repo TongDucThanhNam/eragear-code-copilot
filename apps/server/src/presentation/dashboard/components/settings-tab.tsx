@@ -16,7 +16,8 @@ export function SettingsTab() {
     const formData = new FormData(event.currentTarget);
 
     // Identify which button was clicked
-    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const submitter = (event.nativeEvent as SubmitEvent)
+      .submitter as HTMLButtonElement | null;
     if (submitter?.name) {
       formData.set(submitter.name, submitter.value);
     }

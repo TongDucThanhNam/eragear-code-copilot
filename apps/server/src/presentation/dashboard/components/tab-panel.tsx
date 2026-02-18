@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import type { TabKey } from "@/presentation/dashboard/dashboard-data";
 
 interface TabPanelProps {
@@ -42,7 +42,6 @@ export function TabPanel({
 
   return (
     <div
-      ref={panelRef}
       aria-hidden={isActive ? undefined : "true"}
       aria-labelledby={`tab-btn-${tab}`}
       className={`${panelClassName} transition-opacity duration-300 ${
@@ -51,6 +50,7 @@ export function TabPanel({
       data-tab-panel={tab}
       hidden={!isActive}
       id={`tab-${tab}`}
+      ref={panelRef}
       role="tabpanel"
       style={{
         animation: isActive ? "tabPanelFadeIn 0.4s ease-out" : "none",

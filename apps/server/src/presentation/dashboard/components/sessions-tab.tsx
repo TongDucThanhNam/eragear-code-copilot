@@ -70,7 +70,7 @@ export function SessionsTab() {
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {sorted.map((session, index) => (
+              {sorted.map((session) => (
                 <div className="stagger-item" key={session.id}>
                   <SessionRow
                     onDeleteSession={onDeleteSession}
