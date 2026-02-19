@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { SessionRuntimePort } from "@/modules/session";
-import type { ChatSession } from "@/shared/types/session.types";
+import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { RespondPermissionService } from "./respond-permission.service";
 
@@ -26,6 +26,23 @@ function createSession(userId: string): ChatSession {
   };
 }
 
+function createRuntime(
+  session: ChatSession,
+  events: BroadcastEvent[] = []
+): SessionRuntimePort {
+  return {
+    get: () => session,
+    set: () => undefined,
+    delete: () => undefined,
+    has: () => true,
+    getAll: () => [session],
+    runExclusive: async (_chatId, work) => await work(),
+    broadcast: async (_chatId, event) => {
+      events.push(event);
+    },
+  } as SessionRuntimePort;
+}
+
 describe("RespondPermissionService", () => {
   test("rejects cross-user permission response", async () => {
     const session = createSession("user-2");
@@ -33,15 +50,7 @@ describe("RespondPermissionService", () => {
       resolve: () => undefined,
       options: [],
     });
-    const service = new RespondPermissionService({
-      get: () => session,
-      set: () => undefined,
-      delete: () => undefined,
-      has: () => true,
-      getAll: () => [session],
-      runExclusive: async (_chatId, work) => await work(),
-      broadcast: async () => undefined,
-    } as SessionRuntimePort);
+    const service = new RespondPermissionService(createRuntime(session));
 
     await expect(
       service.execute({
@@ -60,15 +69,7 @@ describe("RespondPermissionService", () => {
       resolve: (decision) => decisions.push(decision),
       options: [],
     });
-    const service = new RespondPermissionService({
-      get: () => session,
-      set: () => undefined,
-      delete: () => undefined,
-      has: () => true,
-      getAll: () => [session],
-      runExclusive: async (_chatId, work) => await work(),
-      broadcast: async () => undefined,
-    } as SessionRuntimePort);
+    const service = new RespondPermissionService(createRuntime(session));
 
     await expect(
       service.execute({
@@ -84,5 +85,59 @@ describe("RespondPermissionService", () => {
       { outcome: { outcome: "selected", optionId: "allow-once" } },
     ]);
     expect(session.pendingPermissions.size).toBe(0);
+  });
+
+  test("sets ready when final permission resolves without active turn", async () => {
+    const session = createSession("user-1");
+    const events: BroadcastEvent[] = [];
+    session.chatStatus = "awaiting_permission";
+    session.pendingPermissions.set("req-1", {
+      resolve: () => undefined,
+      options: [],
+    });
+    const service = new RespondPermissionService(createRuntime(session, events));
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      requestId: "req-1",
+      decision: "allow",
+    });
+
+    expect(session.chatStatus as ChatSession["chatStatus"]).toBe("ready");
+    expect(events).toContainEqual({
+      type: "chat_status",
+      status: "ready",
+    });
+  });
+
+  test("sets streaming when final permission resolves with active turn", async () => {
+    const session = createSession("user-1");
+    const events: BroadcastEvent[] = [];
+    session.chatStatus = "awaiting_permission";
+    session.activeTurnId = "turn-1";
+    session.activePromptTask = {
+      turnId: "turn-1",
+      promise: Promise.resolve(),
+    };
+    session.pendingPermissions.set("req-1", {
+      resolve: () => undefined,
+      options: [],
+    });
+    const service = new RespondPermissionService(createRuntime(session, events));
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      requestId: "req-1",
+      decision: "allow",
+    });
+
+    expect(session.chatStatus as ChatSession["chatStatus"]).toBe("streaming");
+    expect(events).toContainEqual({
+      type: "chat_status",
+      status: "streaming",
+      turnId: "turn-1",
+    });
   });
 });

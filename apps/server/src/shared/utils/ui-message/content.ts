@@ -1,3 +1,4 @@
+import path from "node:path";
 import type {
   DataUIPart,
   FileUIPart,
@@ -242,14 +243,24 @@ function filenameFromUri(uri?: string | null): string | undefined {
   if (!uri) {
     return undefined;
   }
-  try {
-    const parsed = new URL(uri);
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    return segments.at(-1);
-  } catch {
-    const segments = uri.split("/").filter(Boolean);
-    return segments.at(-1);
+  const normalizedUri = uri.trim();
+  if (!normalizedUri) {
+    return undefined;
   }
+  try {
+    const parsed = new URL(normalizedUri);
+    return toFilename(parsed.pathname);
+  } catch {
+    return toFilename(normalizedUri);
+  }
+}
+
+function toFilename(pathLike: string): string | undefined {
+  const basename = path.win32.basename(pathLike);
+  if (basename === "" || basename === "." || basename === "..") {
+    return undefined;
+  }
+  return basename;
 }
 
 function toDataUrl(

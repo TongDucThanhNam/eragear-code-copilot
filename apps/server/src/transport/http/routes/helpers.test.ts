@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isJsonBodyParseError,
   parseJsonBodyWithLimit,
+  parseLogQueryParams,
   parseSessionPaginationParams,
 } from "./helpers";
 
@@ -22,6 +23,34 @@ describe("parseSessionPaginationParams", () => {
       limit: 17,
       offset: 2,
     });
+  });
+});
+
+describe("parseLogQueryParams", () => {
+  test("parses acpOnly and source filters", () => {
+    const result = parseLogQueryParams({
+      acpOnly: "true",
+      sources: "acp,console",
+      levels: "debug,info",
+      order: "desc",
+    });
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+    expect(result.query.acpOnly).toBe(true);
+    expect(result.query.sources).toEqual(["acp", "console"]);
+    expect(result.query.levels).toEqual(["debug", "info"]);
+  });
+
+  test("rejects invalid acpOnly value", () => {
+    const result = parseLogQueryParams({
+      acpOnly: "maybe",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toContain("acpOnly");
   });
 });
 

@@ -16,6 +16,7 @@ import type {
   LogQuery,
   LogStats,
 } from "@/shared/types/log.types";
+import { matchesLogQuery } from "@/shared/utils/log-query.util";
 
 const LOG_DIR_NAME = "logs";
 const LOG_FILE_PREFIX = "logs-";
@@ -28,21 +29,6 @@ function createLevelCounts(): Record<LogLevel, number> {
     warn: 0,
     error: 0,
   };
-}
-
-function matchesSearch(entry: LogEntry, search: string): boolean {
-  const base = [
-    entry.message,
-    entry.source ?? "",
-    entry.request?.method ?? "",
-    entry.request?.path ?? "",
-    entry.request?.host ?? "",
-    entry.request?.status?.toString() ?? "",
-    entry.error?.message ?? "",
-  ]
-    .join(" ")
-    .toLowerCase();
-  return base.includes(search);
 }
 
 function formatDate(value: Date): string {
@@ -243,27 +229,14 @@ export class LogStore implements LogStorePort {
 
   list(query?: LogQuery): LogListResult {
     const entries = this.toArray();
-    const levels =
-      query?.levels && query.levels.length > 0 ? new Set(query.levels) : null;
-    const search = query?.search?.trim().toLowerCase();
-    const from = query?.from;
-    const to = query?.to;
-    const order = query?.order ?? "desc";
+    const resolvedQuery = query ?? {};
+    const order = resolvedQuery.order ?? "desc";
 
     const filtered: LogEntry[] = [];
     const filteredCounts = createLevelCounts();
 
     for (const entry of entries) {
-      if (from !== undefined && entry.timestamp < from) {
-        continue;
-      }
-      if (to !== undefined && entry.timestamp > to) {
-        continue;
-      }
-      if (levels && !levels.has(entry.level)) {
-        continue;
-      }
-      if (search && !matchesSearch(entry, search)) {
+      if (!matchesLogQuery(entry, resolvedQuery)) {
         continue;
       }
       filteredCounts[entry.level] += 1;
@@ -274,7 +247,7 @@ export class LogStore implements LogStorePort {
       filtered.reverse();
     }
 
-    const limit = query?.limit;
+    const limit = resolvedQuery.limit;
     const limited =
       typeof limit === "number" ? filtered.slice(0, limit) : filtered;
 

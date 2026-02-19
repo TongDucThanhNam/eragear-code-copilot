@@ -178,5 +178,5 @@ AUTH_DB_PATH=/path/to/auth.sqlite
 
 ## Related docs
 - `docs/server/auth-usage.md`
-- `docs/acp/acp-overview.md`
+- `apps/server/docs/acp/acp-overview.md`
 - `docs/trpc/trpc-websocket.md`

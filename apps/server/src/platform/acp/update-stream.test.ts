@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type {
-  SessionRepositoryPort,
   SessionBufferingPort,
+  SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
-import type {
-  SessionBroadcastOptions,
-} from "@/modules/session/application/ports/session-runtime.port";
+import type { SessionBroadcastOptions } from "@/modules/session/application/ports/session-runtime.port";
 import type {
   BroadcastEvent,
   ChatSession,
@@ -14,7 +12,10 @@ import type {
 } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { SessionBuffering } from "./update-buffer";
-import { handleBufferedMessage } from "./update-stream";
+import {
+  handleBufferedMessage,
+  STREAM_DELTA_SNAPSHOT_INTERVAL,
+} from "./update-stream";
 import type { SessionUpdate } from "./update-types";
 
 function createSession(chatId: string): ChatSession {
@@ -49,12 +50,13 @@ function createRuntimeStub(session: ChatSession): {
   }> = [];
   const runtime = {
     get: (chatId: string) => (chatId === session.id ? session : undefined),
-    broadcast: async (
+    broadcast: (
       _chatId: string,
       event: BroadcastEvent,
       options?: SessionBroadcastOptions
     ) => {
       calls.push({ event, options });
+      return Promise.resolve();
     },
     runExclusive: async <T>(
       _chatId: string,
@@ -69,11 +71,16 @@ function createContext(params: {
   buffer: SessionBufferingPort;
   runtime: SessionRuntimePort;
   update: SessionUpdate;
+  isReplayingHistory?: boolean;
+  suppressReplayBroadcast?: boolean;
 }) {
+  const isReplayingHistory = params.isReplayingHistory ?? false;
+  const suppressReplayBroadcast = params.suppressReplayBroadcast ?? false;
   return {
     chatId: params.chatId,
     buffer: params.buffer,
-    isReplayingHistory: false,
+    isReplayingHistory,
+    suppressReplayBroadcast,
     update: params.update,
     sessionRuntime: params.runtime,
     sessionRepo: {} as SessionRepositoryPort,
@@ -81,7 +88,9 @@ function createContext(params: {
   };
 }
 
-function firstTextPart(message: Extract<BroadcastEvent, { type: "ui_message" }>["message"]) {
+function firstTextPart(
+  message: Extract<BroadcastEvent, { type: "ui_message" }>["message"]
+) {
   return message.parts.find((part) => part.type === "text");
 }
 
@@ -126,7 +135,9 @@ describe("handleBufferedMessage", () => {
       event: {
         type: "ui_message_delta",
         messageId:
-          calls[0]?.event.type === "ui_message" ? calls[0].event.message.id : "",
+          calls[0]?.event.type === "ui_message"
+            ? calls[0].event.message.id
+            : "",
         partType: "text",
         delta: " world",
       },
@@ -183,7 +194,9 @@ describe("handleBufferedMessage", () => {
       event: {
         type: "ui_message_delta",
         messageId:
-          calls[0]?.event.type === "ui_message" ? calls[0].event.message.id : "",
+          calls[0]?.event.type === "ui_message"
+            ? calls[0].event.message.id
+            : "",
         partType: "reasoning",
         delta: " step-2",
       },
@@ -232,9 +245,229 @@ describe("handleBufferedMessage", () => {
     expect(calls[0]?.event.type).toBe("ui_message");
     expect(calls[0]?.options).toBeUndefined();
     if (calls[0]?.event.type === "ui_message") {
-      expect(calls[0].event.message.parts.some((part) => part.type === "source-url")).toBe(
-        true
+      expect(
+        calls[0].event.message.parts.some((part) => part.type === "source-url")
+      ).toBe(true);
+    }
+  });
+
+  test("keeps one assistant message id across mixed stream chunks in a turn", async () => {
+    const session = createSession("chat-stream-stable-id");
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Hello" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "Think:" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: " step-2" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " world" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "!" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    const snapshotIds = calls
+      .filter(
+        (
+          call
+        ): call is {
+          event: Extract<BroadcastEvent, { type: "ui_message" }>;
+          options?: SessionBroadcastOptions;
+        } => call.event.type === "ui_message"
+      )
+      .map((call) => call.event.message.id);
+    expect(snapshotIds.length).toBeGreaterThanOrEqual(1);
+    const firstSnapshotId = snapshotIds[0];
+    expect(firstSnapshotId).toBeDefined();
+    if (!firstSnapshotId) {
+      return;
+    }
+    for (const id of snapshotIds) {
+      expect(id).toBe(firstSnapshotId);
+    }
+
+    const deltaIds = calls
+      .filter(
+        (
+          call
+        ): call is {
+          event: Extract<BroadcastEvent, { type: "ui_message_delta" }>;
+          options?: SessionBroadcastOptions;
+        } => call.event.type === "ui_message_delta"
+      )
+      .map((call) => call.event.messageId);
+    expect(deltaIds.length).toBeGreaterThanOrEqual(1);
+    for (const id of deltaIds) {
+      expect(id).toBe(firstSnapshotId);
+    }
+
+    expect(session.uiState.currentAssistantId).toBe(firstSnapshotId);
+    expect(buffer.getMessageId()).toBe(firstSnapshotId);
+    expect(buffer.flush()?.id).toBe(firstSnapshotId);
+  });
+
+  test("emits periodic snapshot anchors after many deltas", async () => {
+    const session = createSession("chat-stream-periodic-anchor");
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "A" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    for (let index = 0; index < STREAM_DELTA_SNAPSHOT_INTERVAL - 1; index += 1) {
+      await handleBufferedMessage(
+        createContext({
+          chatId: session.id,
+          buffer,
+          runtime,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "b" } as StoredContentBlock,
+          } as SessionUpdate,
+        })
       );
+    }
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "c" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "d" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    const snapshots = calls.filter(
+      (
+        call
+      ): call is {
+        event: Extract<BroadcastEvent, { type: "ui_message" }>;
+        options?: SessionBroadcastOptions;
+      } => call.event.type === "ui_message"
+    );
+    const deltas = calls.filter(
+      (
+        call
+      ): call is {
+        event: Extract<BroadcastEvent, { type: "ui_message_delta" }>;
+        options?: SessionBroadcastOptions;
+      } => call.event.type === "ui_message_delta"
+    );
+    expect(snapshots).toHaveLength(2);
+    expect(deltas).toHaveLength(STREAM_DELTA_SNAPSHOT_INTERVAL);
+    expect(calls.at(-1)?.event.type).toBe("ui_message_delta");
+  });
+
+  test("applies replay chunks to ui state while suppressing replay broadcast", async () => {
+    const session = createSession("chat-stream-replay-suppressed");
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        isReplayingHistory: true,
+        suppressReplayBroadcast: true,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Hello" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        isReplayingHistory: true,
+        suppressReplayBroadcast: true,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " world" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    expect(calls).toHaveLength(0);
+    const assistantId = session.uiState.currentAssistantId;
+    expect(assistantId).toBeDefined();
+    const message = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    const textPart = message?.parts.find((part) => part.type === "text");
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe("Hello world");
+      expect(textPart.state).toBe("done");
     }
   });
 });

@@ -138,6 +138,26 @@ export function upsertMessage(
   return updated;
 }
 
+function warnDroppedDelta(params: {
+  event: Extract<BroadcastEvent, { type: "ui_message_delta" }>;
+  reason: "message_not_found" | "part_not_found";
+  currentMessages: UIMessage[];
+}): void {
+  if (typeof console === "undefined" || typeof console.warn !== "function") {
+    return;
+  }
+  console.warn("[Chat] Dropped ui_message_delta", {
+    reason: params.reason,
+    messageId: params.event.messageId,
+    partType: params.event.partType,
+    deltaLength: params.event.delta.length,
+    messageCount: params.currentMessages.length,
+    knownMessageIds: params.currentMessages
+      .slice(Math.max(0, params.currentMessages.length - 20))
+      .map((message) => message.id),
+  });
+}
+
 function applyMessageDelta(params: {
   message: UIMessage;
   partType: "text" | "reasoning";
@@ -267,6 +287,11 @@ export function processSessionEvent(
         callbacks.getMessageById?.(event.messageId) ??
         currentMessages.find((m) => m.id === event.messageId);
       if (!prev) {
+        warnDroppedDelta({
+          event,
+          reason: "message_not_found",
+          currentMessages,
+        });
         return currentMessages;
       }
 
@@ -276,6 +301,11 @@ export function processSessionEvent(
         delta: event.delta,
       });
       if (!nextMessage) {
+        warnDroppedDelta({
+          event,
+          reason: "part_not_found",
+          currentMessages,
+        });
         return currentMessages;
       }
 

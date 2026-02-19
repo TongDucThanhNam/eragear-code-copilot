@@ -193,4 +193,66 @@ describe("createSessionUpdateHandler", () => {
     expect(metadataCalls).toHaveLength(0);
     expect(events).toHaveLength(0);
   });
+
+  test("keeps replay update pipeline active while suppressing replay broadcasts", async () => {
+    const session = createSession("chat-replay-suppressed");
+    session.suppressReplayBroadcast = true;
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: true,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Replay text" },
+      },
+    });
+
+    expect(events).toHaveLength(0);
+    const assistantId = session.uiState.currentAssistantId;
+    expect(assistantId).toBeDefined();
+    const replayMessage = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    expect(replayMessage).toBeDefined();
+    const textPart = replayMessage?.parts.find((part) => part.type === "text");
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe("Replay text");
+      expect(textPart.state).toBe("done");
+    }
+  });
+
+  test("does not mark chat as streaming when no active turn is present", async () => {
+    const session = createSession("chat-no-active-turn");
+    session.chatStatus = "ready";
+    session.activeTurnId = undefined;
+    session.activePromptTask = undefined;
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "late chunk" },
+      },
+    });
+
+    expect(session.chatStatus).toBe("ready");
+    const statusEvents = events.filter(
+      (event): event is { type: "chat_status"; status: string } =>
+        typeof event === "object" &&
+        event !== null &&
+        "type" in event &&
+        (event as { type?: string }).type === "chat_status"
+    );
+    expect(statusEvents).toHaveLength(0);
+  });
 });

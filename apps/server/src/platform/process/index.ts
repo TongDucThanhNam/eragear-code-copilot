@@ -35,6 +35,7 @@ const PROCESS_RECORD_RETENTION_MS = 60_000;
 const WINDOWS_TREE_TERMINATION_GRACE_MS = 10_000;
 const FINAL_TERMINATION_TERM_TIMEOUT_MS = 100;
 const FINAL_TERMINATION_KILL_TIMEOUT_MS = 1500;
+const WINDOWS_SHELL_REQUIRED_EXTENSIONS = new Set([".bat", ".cmd"]);
 const logger = createLogger("Server");
 
 export interface AgentRuntimePolicy {
@@ -50,6 +51,17 @@ interface TrackedProcess {
   settledAtMs?: number;
   processGroupId?: number;
   windowsTreeTerminationDeadlineMs?: number;
+}
+
+export function shouldUseWindowsShellFallback(
+  command: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  if (platform !== "win32") {
+    return false;
+  }
+  const extension = path.extname(command).toLowerCase();
+  return WINDOWS_SHELL_REQUIRED_EXTENSIONS.has(extension);
 }
 
 /**
@@ -233,12 +245,14 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
       this.allowedEnvKeys
     );
     const detached = isPosix();
+    const shell = shouldUseWindowsShellFallback(resolvedCommand);
 
     const proc = spawn(resolvedCommand, args, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env,
       detached,
+      shell,
     });
     const tracked = this.trackProcess(proc, detached);
 

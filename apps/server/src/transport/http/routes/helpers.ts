@@ -229,6 +229,124 @@ export function normalizeDeviceSessionItem(item: {
 // =============================================================================
 
 const LOG_LEVEL_SET = new Set(LOG_LEVELS);
+const LOG_BOOLEAN_TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
+const LOG_BOOLEAN_FALSE_VALUES = new Set(["0", "false", "no", "off"]);
+
+type ParseParamResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string };
+
+function parseLogLevelsParam(
+  raw: string | undefined
+): ParseParamResult<LogLevel[] | undefined> {
+  const levelsRaw = raw?.trim();
+  if (!levelsRaw) {
+    return { ok: true, value: undefined };
+  }
+  const parsed = levelsRaw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const invalid = parsed.filter(
+    (value) => !LOG_LEVEL_SET.has(value as LogLevel)
+  );
+  if (invalid.length > 0) {
+    return {
+      ok: false,
+      error: `Invalid log levels: ${invalid.join(", ")}`,
+    };
+  }
+  return { ok: true, value: parsed as LogLevel[] };
+}
+
+function parseLogLimitParam(raw: string | undefined): ParseParamResult<number> {
+  if (!raw) {
+    return { ok: true, value: DEFAULT_LOG_QUERY_LIMIT };
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return { ok: false, error: "limit must be a positive number" };
+  }
+  return { ok: true, value: Math.min(parsed, MAX_LOG_QUERY_LIMIT) };
+}
+
+function parseTimestampParam(
+  name: "from" | "to",
+  raw: string | undefined
+): ParseParamResult<number | undefined> {
+  if (!raw) {
+    return { ok: true, value: undefined };
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { ok: false, error: `${name} must be a positive timestamp` };
+  }
+  return { ok: true, value: parsed };
+}
+
+function parseOrderParam(
+  raw: string | undefined
+): ParseParamResult<LogQuery["order"] | undefined> {
+  if (!raw) {
+    return { ok: true, value: undefined };
+  }
+  if (raw !== "asc" && raw !== "desc") {
+    return { ok: false, error: "order must be asc or desc" };
+  }
+  return { ok: true, value: raw };
+}
+
+function parseSearchParam(
+  raw: string | undefined
+): ParseParamResult<string | undefined> {
+  const search = raw?.trim();
+  if (!search) {
+    return { ok: true, value: undefined };
+  }
+  if (search.length > 200) {
+    return { ok: false, error: "search is too long" };
+  }
+  return { ok: true, value: search };
+}
+
+function parseSourcesParam(
+  raw: string | undefined
+): ParseParamResult<string[] | undefined> {
+  const sourcesRaw = raw?.trim();
+  if (!sourcesRaw) {
+    return { ok: true, value: undefined };
+  }
+  const parsed = sourcesRaw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!parsed.length) {
+    return { ok: false, error: "sources must contain at least one value" };
+  }
+  return {
+    ok: true,
+    value: [...new Set(parsed.map((value) => value.toLowerCase()))],
+  };
+}
+
+function parseAcpOnlyParam(
+  raw: string | undefined
+): ParseParamResult<boolean | undefined> {
+  const normalized = raw?.trim().toLowerCase();
+  if (!normalized) {
+    return { ok: true, value: undefined };
+  }
+  if (LOG_BOOLEAN_TRUE_VALUES.has(normalized)) {
+    return { ok: true, value: true };
+  }
+  if (LOG_BOOLEAN_FALSE_VALUES.has(normalized)) {
+    return { ok: true, value: false };
+  }
+  return {
+    ok: false,
+    error: "acpOnly must be one of: 1,0,true,false,yes,no,on,off",
+  };
+}
 
 /**
  * Parses and validates log query parameters
@@ -236,70 +354,57 @@ const LOG_LEVEL_SET = new Set(LOG_LEVELS);
 export function parseLogQueryParams(
   params: Record<string, string | undefined>
 ): LogQueryResult {
-  const levelsRaw = params.levels?.trim();
-  let levels: LogLevel[] | undefined;
-  if (levelsRaw) {
-    const parsed = levelsRaw
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    const invalid = parsed.filter(
-      (value) => !LOG_LEVEL_SET.has(value as LogLevel)
-    );
-    if (invalid.length) {
-      return {
-        ok: false,
-        error: `Invalid log levels: ${invalid.join(", ")}`,
-      };
-    }
-    levels = parsed as LogLevel[];
+  const levelsResult = parseLogLevelsParam(params.levels);
+  if (!levelsResult.ok) {
+    return levelsResult;
   }
-
-  const limitRaw = params.limit;
-  let limit = DEFAULT_LOG_QUERY_LIMIT;
-  if (limitRaw) {
-    const parsed = Number(limitRaw);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-      return { ok: false, error: "limit must be a positive number" };
-    }
-    limit = Math.min(parsed, MAX_LOG_QUERY_LIMIT);
+  const limitResult = parseLogLimitParam(params.limit);
+  if (!limitResult.ok) {
+    return limitResult;
   }
-
-  const fromRaw = params.from;
-  const from = fromRaw ? Number(fromRaw) : undefined;
-  if (fromRaw && from !== undefined && (!Number.isFinite(from) || from < 0)) {
-    return { ok: false, error: "from must be a positive timestamp" };
+  const fromResult = parseTimestampParam("from", params.from);
+  if (!fromResult.ok) {
+    return fromResult;
   }
-
-  const toRaw = params.to;
-  const to = toRaw ? Number(toRaw) : undefined;
-  if (toRaw && to !== undefined && (!Number.isFinite(to) || to < 0)) {
-    return { ok: false, error: "to must be a positive timestamp" };
+  const toResult = parseTimestampParam("to", params.to);
+  if (!toResult.ok) {
+    return toResult;
   }
-
-  if (from !== undefined && to !== undefined && from > to) {
+  if (
+    fromResult.value !== undefined &&
+    toResult.value !== undefined &&
+    fromResult.value > toResult.value
+  ) {
     return { ok: false, error: "from must be <= to" };
   }
-
-  const order = params.order;
-  if (order && order !== "asc" && order !== "desc") {
-    return { ok: false, error: "order must be asc or desc" };
+  const orderResult = parseOrderParam(params.order);
+  if (!orderResult.ok) {
+    return orderResult;
   }
-
-  const search = params.search?.trim();
-  if (search && search.length > 200) {
-    return { ok: false, error: "search is too long" };
+  const searchResult = parseSearchParam(params.search);
+  if (!searchResult.ok) {
+    return searchResult;
+  }
+  const sourcesResult = parseSourcesParam(params.sources);
+  if (!sourcesResult.ok) {
+    return sourcesResult;
+  }
+  const acpOnlyResult = parseAcpOnlyParam(params.acpOnly);
+  if (!acpOnlyResult.ok) {
+    return acpOnlyResult;
   }
 
   return {
     ok: true,
     query: {
-      levels,
-      search: search || undefined,
-      from,
-      to,
-      limit,
-      order: (order as LogQuery["order"]) ?? "desc",
+      levels: levelsResult.value,
+      sources: sourcesResult.value,
+      acpOnly: acpOnlyResult.value,
+      search: searchResult.value,
+      from: fromResult.value,
+      to: toResult.value,
+      limit: limitResult.value,
+      order: orderResult.value ?? "desc",
     },
   };
 }

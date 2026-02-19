@@ -9,6 +9,7 @@ import { shouldEmitRuntimeLog } from "./runtime-log-level";
 type ConsoleMethod = "log" | "info" | "warn" | "error" | "debug" | "trace";
 
 type NativeConsole = Record<ConsoleMethod, (...args: unknown[]) => void>;
+type LogMetaValue = string | number | boolean | null;
 
 const nativeConsole: NativeConsole = {
   log: console.log.bind(console),
@@ -18,6 +19,8 @@ const nativeConsole: NativeConsole = {
   debug: (console.debug ?? console.log).bind(console),
   trace: (console.trace ?? console.log).bind(console),
 };
+
+const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
 
 function findError(args: unknown[]): Error | undefined {
   for (const arg of args) {
@@ -39,6 +42,84 @@ function resolveMethod(level: LogLevel): ConsoleMethod {
     default:
       return "info";
   }
+}
+
+function isLogLevel(value: unknown): value is LogLevel {
+  return typeof value === "string" && LOG_LEVELS.has(value as LogLevel);
+}
+
+function normalizeMetaValue(value: unknown): LogMetaValue {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function normalizeMetaRecord(
+  input: unknown
+): Record<string, LogMetaValue> | undefined {
+  if (!input || typeof input !== "object") {
+    return undefined;
+  }
+  const result: Record<string, LogMetaValue> = {};
+  for (const [key, value] of Object.entries(input)) {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      continue;
+    }
+    result[normalizedKey] = normalizeMetaValue(value);
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function parseStructuredConsolePayload(message: string): {
+  level?: LogLevel;
+  tag?: string;
+  message: string;
+  context?: Record<string, LogMetaValue>;
+  chatId?: string;
+} | null {
+  try {
+    const parsed = JSON.parse(message) as Record<string, unknown>;
+    const payloadMessage =
+      typeof parsed.message === "string" ? parsed.message : null;
+    if (!payloadMessage) {
+      return null;
+    }
+    const payloadLevel = isLogLevel(parsed.level) ? parsed.level : undefined;
+    const payloadTag = typeof parsed.tag === "string" ? parsed.tag : undefined;
+    const payloadContext = normalizeMetaRecord(parsed.context);
+    const chatId =
+      parsed.context &&
+      typeof parsed.context === "object" &&
+      typeof (parsed.context as { chatId?: unknown }).chatId === "string"
+        ? ((parsed.context as { chatId?: string }).chatId ?? undefined)
+        : undefined;
+    return {
+      level: payloadLevel,
+      tag: payloadTag,
+      message: payloadMessage,
+      context: payloadContext,
+      chatId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isAcpMessage(message: string): boolean {
+  return message.toLowerCase().includes("acp");
 }
 
 export class Logger {
@@ -69,14 +150,75 @@ export class Logger {
     }
     const error = findError(args);
     const message = format(...args);
+    const normalizedError =
+      context?.error ??
+      (error ? { message: error.message, stack: error.stack } : undefined);
+
+    if (context?.source === "console") {
+      this.appendConsoleEntry({
+        level,
+        message,
+        context,
+        normalizedError,
+      });
+      nativeConsole[method](...args);
+      return;
+    }
+
     const entry = this.buildEntry(level, message, {
       ...context,
-      error:
-        context?.error ??
-        (error ? { message: error.message, stack: error.stack } : undefined),
+      error: normalizedError,
     });
     this.store.append(entry);
     nativeConsole[method](...args);
+  }
+
+  private appendConsoleEntry(params: {
+    level: LogLevel;
+    message: string;
+    context?: Partial<LogEntry>;
+    normalizedError?: LogEntry["error"];
+  }): void {
+    const { level, message, context, normalizedError } = params;
+    const payload = parseStructuredConsolePayload(message);
+    if (payload) {
+      const resolvedLevel = payload.level ?? level;
+      const acpRelated = isAcpMessage(payload.message);
+      if (acpRelated || resolvedLevel === "warn" || resolvedLevel === "error") {
+        const mergedMeta = {
+          ...(context?.meta ?? {}),
+          ...(payload.context ?? {}),
+          ...(payload.tag ? { structuredTag: payload.tag } : {}),
+        };
+        const entry = this.buildEntry(resolvedLevel, payload.message, {
+          ...context,
+          source: acpRelated ? "acp" : context?.source,
+          chatId: context?.chatId ?? payload.chatId,
+          meta: mergedMeta,
+          error: normalizedError,
+        });
+        this.store.append(entry);
+      }
+      return;
+    }
+
+    if (level === "warn" || level === "error") {
+      const entry = this.buildEntry(level, message, {
+        ...context,
+        error: normalizedError,
+      });
+      this.store.append(entry);
+      return;
+    }
+
+    if (isAcpMessage(message)) {
+      const entry = this.buildEntry(level, message, {
+        ...context,
+        source: "acp",
+        error: normalizedError,
+      });
+      this.store.append(entry);
+    }
   }
 
   private buildEntry(

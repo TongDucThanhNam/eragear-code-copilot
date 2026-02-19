@@ -18,9 +18,36 @@ import {
   SessionMessagesPageInputSchema,
   UpdateSessionMetaInputSchema,
 } from "@/modules/session";
+import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
+import { createLogger } from "@/platform/logging/structured-logger";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
 import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
+
+const logger = createLogger("tRPC");
+
+function shouldLogStreamEvent(event: BroadcastEvent): boolean {
+  return event.type === "ui_message" || event.type === "ui_message_delta";
+}
+
+function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown> {
+  if (event.type === "ui_message") {
+    return {
+      messageId: event.message.id,
+      partsCount: event.message.parts.length,
+    };
+  }
+  if (event.type === "ui_message_delta") {
+    return {
+      messageId: event.messageId,
+      partType: event.partType,
+      deltaLength: event.delta.length,
+    };
+  }
+  return {
+    eventType: event.type,
+  };
+}
 
 export const sessionRouter = router({
   /** Create a new session for a project */
@@ -162,10 +189,17 @@ export const sessionRouter = router({
     .subscription(({ input, ctx }) => {
       const service = ctx.sessionServices.subscribeSessionEvents();
       return observable<BroadcastEvent>((emit) => {
+        const userId = getRequiredUserId(ctx);
         let subscription: ReturnType<typeof service.execute> | undefined;
         try {
-          subscription = service.execute(getRequiredUserId(ctx), input.chatId);
+          subscription = service.execute(userId, input.chatId);
         } catch (error) {
+          if (shouldEmitRuntimeLog("debug")) {
+            logger.debug("tRPC onSessionEvents subscribe failed", {
+              chatId: input.chatId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
           emit.error(
             error instanceof Error ? error : new Error("Chat not found")
           );
@@ -175,6 +209,14 @@ export const sessionRouter = router({
         if (!subscription) {
           emit.error(new Error("Chat not found"));
           return;
+        }
+        if (shouldEmitRuntimeLog("debug")) {
+          logger.debug("tRPC onSessionEvents subscribed", {
+            chatId: input.chatId,
+            bufferedEvents: subscription.bufferedEvents.length,
+            chatStatus: subscription.chatStatus,
+            activeTurnId: subscription.activeTurnId,
+          });
         }
 
         emit.next({ type: "connected" });
@@ -187,14 +229,33 @@ export const sessionRouter = router({
         });
 
         for (const event of subscription.bufferedEvents) {
+          if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
+            logger.debug("tRPC onSessionEvents buffered event", {
+              chatId: input.chatId,
+              eventType: event.type,
+              ...buildStreamEventContext(event),
+            });
+          }
           emit.next(event);
         }
 
         const unsubscribe = subscription.subscribe((event) => {
+          if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
+            logger.debug("tRPC onSessionEvents live event", {
+              chatId: input.chatId,
+              eventType: event.type,
+              ...buildStreamEventContext(event),
+            });
+          }
           emit.next(event);
         });
 
         return () => {
+          if (shouldEmitRuntimeLog("debug")) {
+            logger.debug("tRPC onSessionEvents unsubscribed", {
+              chatId: input.chatId,
+            });
+          }
           unsubscribe();
           subscription.release();
         };

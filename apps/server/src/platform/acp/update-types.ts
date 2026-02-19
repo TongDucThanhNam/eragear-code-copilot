@@ -11,12 +11,16 @@ export interface SessionUpdateContext {
   chatId: string;
   buffer: SessionBufferingPort;
   isReplayingHistory: boolean;
+  suppressReplayBroadcast: boolean;
   update: SessionUpdate;
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
   finalizeStreamingForCurrentAssistant: (
     chatId: string,
-    sessionRuntime: SessionRuntimePort
+    sessionRuntime: SessionRuntimePort,
+    options?: {
+      suppressBroadcast?: boolean;
+    }
   ) => Promise<void>;
 }
 

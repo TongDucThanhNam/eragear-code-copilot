@@ -1,0 +1,49 @@
+name: Server Windows Smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/server-windows-smoke.yml"
+      - "apps/server/**"
+      - "packages/**"
+      - "package.json"
+      - "bun.lock"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/server-windows-smoke.yml"
+      - "apps/server/**"
+      - "packages/**"
+      - "package.json"
+      - "bun.lock"
+
+jobs:
+  server-windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.0"
+
+      - name: Install dependencies
+        shell: bash
+        run: bun install --frozen-lockfile
+
+      - name: Type check server
+        shell: bash
+        working-directory: apps/server
+        run: bun run check-types
+
+      - name: Run targeted server tests
+        shell: bash
+        working-directory: apps/server
+        run: |
+          bun test src/platform/process/index.test.ts
+          bun test src/platform/acp/update-stream.test.ts
+          bun test src/shared/utils/ui-message/content.test.ts

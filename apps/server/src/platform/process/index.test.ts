@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AgentRuntimeAdapter } from "./index";
+import { AgentRuntimeAdapter, shouldUseWindowsShellFallback } from "./index";
 
 const AMBIGUOUS_ALIAS_REGEX = /alias is ambiguous/i;
 const INVOCATION_NOT_ALLOWED_REGEX = /invocation not allowed/i;
@@ -20,6 +20,21 @@ function createAdapter() {
 }
 
 describe("AgentRuntimeAdapter", () => {
+  test("enables shell fallback only for .cmd/.bat on win32", () => {
+    expect(
+      shouldUseWindowsShellFallback("C:\\Tools\\claude-code-acp.cmd", "win32")
+    ).toBe(true);
+    expect(
+      shouldUseWindowsShellFallback("C:\\Tools\\claude-code-acp.BAT", "win32")
+    ).toBe(true);
+    expect(
+      shouldUseWindowsShellFallback("C:\\Tools\\claude-code-acp.exe", "win32")
+    ).toBe(false);
+    expect(
+      shouldUseWindowsShellFallback("/usr/local/bin/claude-code-acp", "linux")
+    ).toBe(false);
+  });
+
   test("denies invocations that do not match allowed args", () => {
     const adapter = new AgentRuntimeAdapter({
       allowedAgentCommandPolicies: [

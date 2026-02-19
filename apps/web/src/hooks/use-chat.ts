@@ -97,6 +97,21 @@ const USER_MESSAGE_FALLBACK_TIMEOUT_MS = 1500;
 const USER_MESSAGE_FALLBACK_RETRY_DELAY_MS = 300;
 const USER_MESSAGE_FALLBACK_MAX_ATTEMPTS = 2;
 
+function shouldLogChatStreamDebug(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const debugFlag = (
+    window as typeof window & {
+      __ERAGEAR_CHAT_DEBUG__?: boolean;
+    }
+  ).__ERAGEAR_CHAT_DEBUG__;
+  if (typeof debugFlag === "boolean") {
+    return debugFlag;
+  }
+  return import.meta.env.DEV;
+}
+
 type RawDataUIPart = {
   type: `data-${string}`;
   id?: string;
@@ -741,6 +756,30 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const handleSessionEvent = useCallback(
     (rawEvent: BroadcastEvent) => {
       const event = normalizeBroadcastEvent(rawEvent);
+      if (shouldLogChatStreamDebug()) {
+        if (event.type === "ui_message") {
+          console.debug("[Chat] Received ui_message", {
+            chatId: activeChatIdRef.current,
+            messageId: event.message.id,
+            partsCount: event.message.parts.length,
+            knownMessages: messageStateRef.current.order.length,
+          });
+        } else if (event.type === "ui_message_delta") {
+          const baseMessage = messageStateRef.current.byId.get(event.messageId);
+          const hasPart =
+            baseMessage?.parts.some((part) => part.type === event.partType) ??
+            false;
+          console.debug("[Chat] Received ui_message_delta", {
+            chatId: activeChatIdRef.current,
+            messageId: event.messageId,
+            partType: event.partType,
+            deltaLength: event.delta.length,
+            hasBaseMessage: Boolean(baseMessage),
+            hasPart,
+            knownMessages: messageStateRef.current.order.length,
+          });
+        }
+      }
       if (event.type === "ui_message") {
         clearPendingUserMessageFallback(event.message.id);
       }

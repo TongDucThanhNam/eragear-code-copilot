@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
@@ -109,5 +110,53 @@ describe("SubscribeSessionEventsService", () => {
 
     expect(subscription.chatStatus).toBe("streaming");
     expect(subscription.activeTurnId).toBe(activeTurnId);
+  });
+
+  test("adds active assistant snapshot when replay buffer is missing it", () => {
+    const uiState = createUiMessageState();
+    const assistantMessage: UIMessage = {
+      id: "msg-active",
+      role: "assistant",
+      parts: [{ type: "text", text: "streaming text", state: "streaming" }],
+    };
+    uiState.messages.set(assistantMessage.id, assistantMessage);
+    uiState.currentAssistantId = assistantMessage.id;
+    const session = createSession({ uiState, messageBuffer: [] });
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime);
+
+    const subscription = service.execute("user-1", "chat-1");
+
+    expect(subscription.bufferedEvents).toEqual([
+      {
+        type: "ui_message",
+        message: assistantMessage,
+      },
+    ]);
+  });
+
+  test("does not duplicate active assistant snapshot when already buffered", () => {
+    const uiState = createUiMessageState();
+    const assistantMessage: UIMessage = {
+      id: "msg-active",
+      role: "assistant",
+      parts: [{ type: "text", text: "ready text", state: "done" }],
+    };
+    uiState.messages.set(assistantMessage.id, assistantMessage);
+    uiState.currentAssistantId = assistantMessage.id;
+    const session = createSession({
+      uiState,
+      messageBuffer: [{ type: "ui_message", message: assistantMessage }],
+    });
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime);
+
+    const subscription = service.execute("user-1", "chat-1");
+
+    expect(subscription.bufferedEvents).toHaveLength(1);
+    expect(subscription.bufferedEvents[0]).toEqual({
+      type: "ui_message",
+      message: assistantMessage,
+    });
   });
 });

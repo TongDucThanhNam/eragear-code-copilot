@@ -10,6 +10,7 @@ const LOGS_ENDPOINT = "/api/logs";
 const LOGS_STREAM_ENDPOINT = "/api/logs/stream";
 
 const DEFAULT_RANGE = "all";
+const DEFAULT_ACP_ONLY = true;
 const DEFAULT_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
 const DEFAULT_STATUSES = ["2xx", "3xx", "4xx", "5xx", "system"] as const;
 
@@ -78,6 +79,7 @@ export function LogsTab() {
   const [rawEntries, setRawEntries] = useState<LogEntry[]>([]);
   const [search, setSearch] = useState("");
   const [range, setRange] = useState(DEFAULT_RANGE);
+  const [acpOnly, setAcpOnly] = useState(DEFAULT_ACP_ONLY);
   const [levels, setLevels] = useState<Set<LogLevel>>(
     () => new Set(DEFAULT_LEVELS)
   );
@@ -100,6 +102,9 @@ export function LogsTab() {
     const params = new URLSearchParams();
     params.set("limit", String(LOG_LIMIT));
     params.set("order", "desc");
+    if (acpOnly) {
+      params.set("acpOnly", "1");
+    }
     const from = rangeToFrom(range);
     if (from) {
       params.set("from", String(from));
@@ -121,7 +126,7 @@ export function LogsTab() {
     } finally {
       setLoading(false);
     }
-  }, [range]);
+  }, [acpOnly, range]);
 
   useEffect(() => {
     if (activeTab === "logs") {
@@ -134,7 +139,15 @@ export function LogsTab() {
       return;
     }
 
-    const source = new EventSource(LOGS_STREAM_ENDPOINT);
+    const streamParams = new URLSearchParams();
+    if (acpOnly) {
+      streamParams.set("acpOnly", "1");
+    }
+    const streamUrl =
+      streamParams.size > 0
+        ? `${LOGS_STREAM_ENDPOINT}?${streamParams.toString()}`
+        : LOGS_STREAM_ENDPOINT;
+    const source = new EventSource(streamUrl);
     source.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data) as LogEntry;
@@ -159,7 +172,7 @@ export function LogsTab() {
     return () => {
       source.close();
     };
-  }, [activeTab, live]);
+  }, [acpOnly, activeTab, live]);
 
   const handleLevelToggle = (level: LogLevel) => {
     setLevels((prev) => {
@@ -188,6 +201,7 @@ export function LogsTab() {
   const handleReset = () => {
     setSearch("");
     setRange(DEFAULT_RANGE);
+    setAcpOnly(DEFAULT_ACP_ONLY);
     setLevels(new Set(DEFAULT_LEVELS));
     setStatuses(new Set(DEFAULT_STATUSES));
     if (range === DEFAULT_RANGE) {
@@ -302,6 +316,7 @@ export function LogsTab() {
               </span>
               <span className="border border-ink px-3 py-1 font-mono text-xs tracking-widest">
                 Showing {filteredEntries.length}/{rawEntries.length} buffered
+                {acpOnly ? " • ACP only" : ""}
               </span>
             </div>
           </div>
@@ -348,6 +363,16 @@ export function LogsTab() {
                   type="button"
                 >
                   Reset
+                </button>
+                <button
+                  aria-pressed={acpOnly}
+                  className={`log-btn btn-newsprint-primary ${
+                    acpOnly ? "is-live" : ""
+                  }`}
+                  onClick={() => setAcpOnly((prev) => !prev)}
+                  type="button"
+                >
+                  ACP Focus
                 </button>
                 <button
                   aria-pressed={live}

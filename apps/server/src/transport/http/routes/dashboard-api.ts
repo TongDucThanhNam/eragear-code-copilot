@@ -15,6 +15,7 @@
  */
 
 import type { Context, Hono } from "hono";
+import { matchesLogQuery } from "@/shared/utils/log-query.util";
 import type { HttpRouteDependencies } from "./deps";
 import { parseLogQueryParams, parseSessionPaginationParams } from "./helpers";
 
@@ -117,6 +118,11 @@ export function registerDashboardApiRoutes(
    * GET /api/logs/stream - Real-time log streaming (SSE)
    */
   api.get("/logs/stream", (c: Context) => {
+    const parsed = parseLogQueryParams(c.req.query());
+    if (!parsed.ok) {
+      return c.json({ error: parsed.error }, 400);
+    }
+    const query = parsed.query;
     const encoder = new TextEncoder();
 
     let unsubscribe: (() => void) | null = null;
@@ -157,6 +163,9 @@ export function registerDashboardApiRoutes(
 
         unsubscribe = logStore.subscribe((entry) => {
           if (closed) {
+            return;
+          }
+          if (!matchesLogQuery(entry, query)) {
             return;
           }
           send(`data: ${JSON.stringify(entry)}\n\n`);

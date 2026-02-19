@@ -491,9 +491,9 @@ bun run build
 
 ## 12. Tài Liệu Liên Quan
 
-- [ACP Protocol Overview](../docs/acp/acp-overview.md)
-- [ACP Session](../docs/acp/acp-session.md)
-- [ACP Tool Calls](../docs/acp/acp-tool-call.md)
+- [ACP Protocol Overview](apps/server/docs/acp/acp-overview.md)
+- [ACP Session Setup](apps/server/docs/acp/acp-session-setup.md)
+- [ACP Tool Calls](apps/server/docs/acp/acp-tool-call.md)
 - [Server Docs](apps/server/docs/)
 - [Web App Docs](apps/web/docs/)
 - [Mobile App Docs](apps/native/docs/)

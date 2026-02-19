@@ -29,8 +29,10 @@ const logger = createLogger("Debug");
 
 async function finalizeStreamingForCurrentAssistant(
   chatId: string,
-  sessionRuntime: SessionRuntimePort
+  sessionRuntime: SessionRuntimePort,
+  options?: { suppressBroadcast?: boolean }
 ): Promise<void> {
+  const suppressBroadcast = options?.suppressBroadcast === true;
   const session = sessionRuntime.get(chatId);
   if (!session?.uiState.currentAssistantId) {
     return;
@@ -50,7 +52,9 @@ async function finalizeStreamingForCurrentAssistant(
     return;
   }
   finalizeStreamingParts(message);
-  await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+  if (!suppressBroadcast) {
+    await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+  }
 }
 
 function summarizeUpdate(update: SessionUpdate) {
@@ -128,10 +132,15 @@ function summarizeUpdate(update: SessionUpdate) {
 async function handleModeUpdate(
   context: Pick<
     SessionUpdateContext,
-    "chatId" | "update" | "sessionRuntime" | "sessionRepo"
+    | "chatId"
+    | "update"
+    | "sessionRuntime"
+    | "sessionRepo"
+    | "suppressReplayBroadcast"
   >
 ): Promise<boolean> {
-  const { chatId, update, sessionRuntime, sessionRepo } = context;
+  const { chatId, update, sessionRuntime, sessionRepo, suppressReplayBroadcast } =
+    context;
   if (update.sessionUpdate !== "current_mode_update") {
     return false;
   }
@@ -149,20 +158,27 @@ async function handleModeUpdate(
     chatId,
     modeId: update.currentModeId,
   });
-  await sessionRuntime.broadcast(chatId, {
-    type: "current_mode_update",
-    modeId: update.currentModeId,
-  });
+  if (!suppressReplayBroadcast) {
+    await sessionRuntime.broadcast(chatId, {
+      type: "current_mode_update",
+      modeId: update.currentModeId,
+    });
+  }
   return true;
 }
 
 async function handleCommandsUpdate(
   context: Pick<
     SessionUpdateContext,
-    "chatId" | "update" | "sessionRuntime" | "sessionRepo"
+    | "chatId"
+    | "update"
+    | "sessionRuntime"
+    | "sessionRepo"
+    | "suppressReplayBroadcast"
   >
 ): Promise<boolean> {
-  const { chatId, update, sessionRuntime, sessionRepo } = context;
+  const { chatId, update, sessionRuntime, sessionRepo, suppressReplayBroadcast } =
+    context;
   if (update.sessionUpdate !== "available_commands_update") {
     return false;
   }
@@ -180,10 +196,12 @@ async function handleCommandsUpdate(
     chatId,
     availableCommandsCount: update.availableCommands.length,
   });
-  await sessionRuntime.broadcast(chatId, {
-    type: "available_commands_update",
-    availableCommands: update.availableCommands,
-  });
+  if (!suppressReplayBroadcast) {
+    await sessionRuntime.broadcast(chatId, {
+      type: "available_commands_update",
+      availableCommands: update.availableCommands,
+    });
+  }
   return true;
 }
 
@@ -219,13 +237,12 @@ export function createSessionUpdateHandler(
     }
     if (suppressReplay) {
       if (isDebugEnabled && summary) {
-        logger.debug("ACP replay update suppressed (stored history exists)", {
+        logger.debug("ACP replay update broadcast suppressed", {
           chatId,
           replayEventCount: buffer.replayEventCount,
           ...summary,
         });
       }
-      return;
     }
 
     await sessionRuntime.runExclusive(chatId, async () => {
@@ -240,6 +257,7 @@ export function createSessionUpdateHandler(
         chatId,
         buffer,
         isReplayingHistory,
+        suppressReplayBroadcast: suppressReplay,
         update,
         sessionRuntime,
         sessionRepo,
@@ -295,6 +313,17 @@ async function maybeMarkStreaming(
   }
   const session = sessionRuntime.get(chatId);
   if (!session || session.chatStatus === "cancelling") {
+    return;
+  }
+  const hasActiveTurn = Boolean(session.activeTurnId || session.activePromptTask);
+  if (!hasActiveTurn) {
+    if (shouldEmitRuntimeLog("debug")) {
+      logger.debug("Skip streaming status update without active turn", {
+        chatId,
+        sessionUpdate: update.sessionUpdate,
+        chatStatus: session.chatStatus,
+      });
+    }
     return;
   }
   await updateChatStatus({

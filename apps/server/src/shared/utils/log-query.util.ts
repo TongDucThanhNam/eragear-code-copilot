@@ -1,0 +1,71 @@
+import type { LogEntry, LogQuery } from "@/shared/types/log.types";
+
+function normalizeSource(source?: string): string {
+  return source?.trim().toLowerCase() ?? "";
+}
+
+function includesNormalized(text: string, query: string): boolean {
+  return text.toLowerCase().includes(query);
+}
+
+export function getLogSearchText(entry: LogEntry): string {
+  return [
+    entry.message,
+    entry.source ?? "",
+    entry.request?.method ?? "",
+    entry.request?.path ?? "",
+    entry.request?.host ?? "",
+    entry.request?.status?.toString() ?? "",
+    entry.error?.message ?? "",
+    entry.requestId ?? "",
+    entry.traceId ?? "",
+    entry.chatId ?? "",
+    entry.taskName ?? "",
+    entry.taskRunId ?? "",
+    entry.id,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+export function isAcpRelatedLogEntry(entry: LogEntry): boolean {
+  const source = normalizeSource(entry.source);
+  if (source === "acp" || source.startsWith("acp:")) {
+    return true;
+  }
+  return includesNormalized(entry.message, "acp");
+}
+
+export function matchesLogQuery(
+  entry: LogEntry,
+  query: LogQuery = {}
+): boolean {
+  if (query.from !== undefined && entry.timestamp < query.from) {
+    return false;
+  }
+  if (query.to !== undefined && entry.timestamp > query.to) {
+    return false;
+  }
+
+  if (query.levels?.length && !query.levels.includes(entry.level)) {
+    return false;
+  }
+
+  if (query.sources?.length) {
+    const source = normalizeSource(entry.source);
+    if (!query.sources.some((allowed) => normalizeSource(allowed) === source)) {
+      return false;
+    }
+  }
+
+  if (query.acpOnly && !isAcpRelatedLogEntry(entry)) {
+    return false;
+  }
+
+  const normalizedSearch = query.search?.trim().toLowerCase();
+  if (normalizedSearch && !getLogSearchText(entry).includes(normalizedSearch)) {
+    return false;
+  }
+
+  return true;
+}

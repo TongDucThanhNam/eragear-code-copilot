@@ -147,7 +147,10 @@ export class RespondPermissionService {
     if (session.pendingPermissions.size > 0) {
       nextStatus = "awaiting_permission";
     } else if (session.chatStatus === "awaiting_permission") {
-      nextStatus = "streaming";
+      const hasActiveTurn = Boolean(
+        session.activeTurnId || session.activePromptTask
+      );
+      nextStatus = hasActiveTurn ? "streaming" : "ready";
     }
     if (nextStatus !== session.chatStatus) {
       await updateChatStatus({

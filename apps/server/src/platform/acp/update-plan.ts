@@ -40,6 +40,7 @@ export async function handlePlanUpdate(
     | "update"
     | "sessionRuntime"
     | "sessionRepo"
+    | "suppressReplayBroadcast"
     | "finalizeStreamingForCurrentAssistant"
   >
 ): Promise<boolean> {
@@ -48,13 +49,16 @@ export async function handlePlanUpdate(
     update,
     sessionRuntime,
     sessionRepo,
+    suppressReplayBroadcast,
     finalizeStreamingForCurrentAssistant,
   } = context;
   if (update.sessionUpdate !== "plan") {
     return false;
   }
 
-  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
+  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, {
+    suppressBroadcast: suppressReplayBroadcast,
+  });
 
   const plan = extractPlan(update);
   if (!plan) {
@@ -85,7 +89,7 @@ export async function handlePlanUpdate(
       state: session.uiState,
       part: planTool,
     });
-    if (shouldBroadcast) {
+    if (shouldBroadcast && !suppressReplayBroadcast) {
       await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
     }
   }

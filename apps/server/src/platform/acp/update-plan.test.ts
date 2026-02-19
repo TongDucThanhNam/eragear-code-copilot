@@ -87,6 +87,7 @@ describe("handlePlanUpdate", () => {
       },
       sessionRuntime: runtime,
       sessionRepo: repo,
+      suppressReplayBroadcast: false,
       finalizeStreamingForCurrentAssistant: async () => undefined,
     });
 
@@ -115,6 +116,7 @@ describe("handlePlanUpdate", () => {
       },
       sessionRuntime: runtime,
       sessionRepo: repo,
+      suppressReplayBroadcast: false,
       finalizeStreamingForCurrentAssistant: async () => undefined,
     });
 
@@ -137,6 +139,7 @@ describe("handlePlanUpdate", () => {
       },
       sessionRuntime: runtime,
       sessionRepo: repo,
+      suppressReplayBroadcast: false,
       finalizeStreamingForCurrentAssistant: async () => undefined,
     });
 

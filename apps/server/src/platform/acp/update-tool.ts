@@ -16,13 +16,16 @@ export async function handleToolCallCreate(
     chatId,
     update,
     sessionRuntime,
+    suppressReplayBroadcast,
     finalizeStreamingForCurrentAssistant,
   } = context;
   if (!isToolCallCreate(update)) {
     return false;
   }
 
-  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime);
+  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, {
+    suppressBroadcast: suppressReplayBroadcast,
+  });
 
   const { sessionUpdate: _sessionUpdate, ...toolCall } = update;
   const sanitizedToolCall: acp.ToolCall = {
@@ -48,18 +51,23 @@ export async function handleToolCallCreate(
           messageId: message.id,
         })
       : message;
-    await sessionRuntime.broadcast(chatId, {
-      type: "ui_message",
-      message: messageWithLocations ?? message,
-    });
+    if (!suppressReplayBroadcast) {
+      await sessionRuntime.broadcast(chatId, {
+        type: "ui_message",
+        message: messageWithLocations ?? message,
+      });
+    }
   }
   return true;
 }
 
 export async function handleToolCallUpdate(
-  context: Pick<SessionUpdateContext, "chatId" | "update" | "sessionRuntime">
+  context: Pick<
+    SessionUpdateContext,
+    "chatId" | "update" | "sessionRuntime" | "suppressReplayBroadcast"
+  >
 ): Promise<boolean> {
-  const { chatId, update, sessionRuntime } = context;
+  const { chatId, update, sessionRuntime, suppressReplayBroadcast } = context;
   if (!isToolCallUpdate(update)) {
     return false;
   }
@@ -105,10 +113,12 @@ export async function handleToolCallUpdate(
       locations: nextLocations,
       messageId: message.id,
     });
-    await sessionRuntime.broadcast(chatId, {
-      type: "ui_message",
-      message: messageWithLocations ?? message,
-    });
+    if (!suppressReplayBroadcast) {
+      await sessionRuntime.broadcast(chatId, {
+        type: "ui_message",
+        message: messageWithLocations ?? message,
+      });
+    }
   }
   return true;
 }

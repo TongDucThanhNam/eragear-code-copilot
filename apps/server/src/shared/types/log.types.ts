@@ -33,6 +33,8 @@ export interface LogEntry {
 
 export interface LogQuery {
   levels?: LogLevel[];
+  sources?: string[];
+  acpOnly?: boolean;
   search?: string;
   from?: number;
   to?: number;
