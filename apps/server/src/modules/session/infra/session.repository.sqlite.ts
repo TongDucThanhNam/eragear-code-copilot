@@ -442,6 +442,35 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     };
   }
 
+  async getMessageById(
+    id: string,
+    userId: string,
+    messageId: string
+  ): Promise<StoredMessage | undefined> {
+    const db = await this.ormProvider();
+    const row = db
+      .select()
+      .from(sqliteSchema.sessionMessages)
+      .innerJoin(
+        sqliteSchema.sessions,
+        eq(sqliteSchema.sessionMessages.sessionId, sqliteSchema.sessions.id)
+      )
+      .where(
+        and(
+          eq(sqliteSchema.sessionMessages.sessionId, id),
+          eq(sqliteSchema.sessions.userId, userId),
+          eq(sqliteSchema.sessionMessages.messageId, messageId)
+        )
+      )
+      .limit(1)
+      .get();
+
+    if (!row) {
+      return undefined;
+    }
+    return this.mapper.mapMessageRow(row.session_messages);
+  }
+
   compactMessages(
     input: SessionMessageCompactionInput
   ): Promise<{ compacted: number }> {

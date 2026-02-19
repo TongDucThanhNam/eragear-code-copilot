@@ -65,7 +65,7 @@ function ChatWrapper({
     <>
       <div
         className={
-          selectedFile ? "hidden" : "flex h-dvh flex-col overflow-hidden"
+          selectedFile ? "hidden" : "flex h-dvh min-h-0 flex-col overflow-hidden"
         }
       >
         <ChatInterface

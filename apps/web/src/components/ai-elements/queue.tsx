@@ -212,19 +212,17 @@ export const QueueSectionTrigger = ({
   className,
   ...props
 }: QueueSectionTriggerProps) => (
-  <CollapsibleTrigger
-    render={
-      <button
-        className={cn(
-          "group flex w-full items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-left font-medium text-muted-foreground text-sm transition-colors hover:bg-muted",
-          className
-        )}
-        type="button"
-        {...props}
-      />
-    }
-  >
-    {children}
+  <CollapsibleTrigger asChild>
+    <button
+      className={cn(
+        "group flex w-full items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-left font-medium text-muted-foreground text-sm transition-colors hover:bg-muted",
+        className
+      )}
+      type="button"
+      {...props}
+    >
+      {children}
+    </button>
   </CollapsibleTrigger>
 );
 
@@ -268,7 +266,7 @@ export type QueueProps = ComponentProps<"div">;
 export const Queue = ({ className, ...props }: QueueProps) => (
   <div
     className={cn(
-      "flex flex-col gap-2 rounded-xl border border-border bg-background px-3 pt-2 pb-2 shadow-xs",
+      "flex flex-col gap-2 border border-border bg-background px-3 pt-2 pb-2 shadow-xs",
       className
     )}
     {...props}

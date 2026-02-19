@@ -78,3 +78,12 @@ Khi debug lỗi, luôn ghi nhận bộ 3:
 4. Mở đúng use-case file từ module public API (`src/modules/<module>/index.ts`)
 5. Nếu lỗi liên quan IO/protocol, chuyển sang `src/platform/*`
 6. Xác nhận mapping status/code ở transport layer
+
+## 6. Quality Gate (Source of Truth)
+
+- Local/CI check chuẩn:
+  - `bun run check:ci` (typecheck + Biome strict + full test suite)
+- Check nhanh trước khi commit:
+  - `bun run check:quick` (typecheck + Biome strict)
+- Không dùng báo cáo lint cũ (`biome_report.txt`) để kết luận trạng thái gate.
+- Khi có khác biệt giữa report thủ công và script, ưu tiên script canonical trong `package.json`.

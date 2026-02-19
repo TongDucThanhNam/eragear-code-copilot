@@ -35,7 +35,7 @@ export interface ToolHeaderProps {
   className?: string;
 }
 
-const getStatusBadge = (state: ToolHeaderProps["state"]) => {
+export const getStatusBadge = (state: ToolHeaderProps["state"]) => {
   const labels: Record<ToolHeaderProps["state"], string> = {
     pending: "Pending",
     running: "Running",

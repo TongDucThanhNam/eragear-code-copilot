@@ -13,6 +13,14 @@ const STOP_REASON_TO_FINISH_REASON: Record<string, ChatFinishReason> = {
   cancelled: "other",
 };
 
+const BUSY_CHAT_STATUS = [
+  "submitted",
+  "streaming",
+  "awaiting_permission",
+  "cancelling",
+] as const satisfies readonly ChatStatus[];
+const BUSY_CHAT_STATUS_SET = new Set<ChatStatus>(BUSY_CHAT_STATUS);
+
 export function mapStopReasonToFinishReason(
   stopReason?: string
 ): ChatFinishReason {
@@ -20,6 +28,31 @@ export function mapStopReasonToFinishReason(
     return "other";
   }
   return STOP_REASON_TO_FINISH_REASON[stopReason] ?? "other";
+}
+
+export function isBusyChatStatus(status: ChatStatus): boolean {
+  return BUSY_CHAT_STATUS_SET.has(status);
+}
+
+/**
+ * Reconcile stale runtime state before a new subscriber receives the snapshot.
+ * Busy states without an active turn should never persist after reconnect.
+ */
+export function reconcileChatStatusForSubscription(
+  session: ChatSession
+): ChatStatus {
+  if (!isBusyChatStatus(session.chatStatus)) {
+    return session.chatStatus;
+  }
+  if (session.activeTurnId || session.activePromptTask) {
+    return session.chatStatus;
+  }
+  if (session.pendingPermissions.size > 0) {
+    session.chatStatus = "awaiting_permission";
+    return session.chatStatus;
+  }
+  session.chatStatus = "ready";
+  return session.chatStatus;
 }
 
 export function updateChatStatus(params: {

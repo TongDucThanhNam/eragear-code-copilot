@@ -138,6 +138,34 @@ export function upsertMessage(
   return updated;
 }
 
+function applyMessageDelta(params: {
+  message: UIMessage;
+  partType: "text" | "reasoning";
+  delta: string;
+}): UIMessage | null {
+  const { message, partType, delta } = params;
+  if (!delta) {
+    return message;
+  }
+
+  for (let index = message.parts.length - 1; index >= 0; index -= 1) {
+    const part = message.parts[index];
+    if (part?.type !== partType) {
+      continue;
+    }
+
+    const updatedPart = { ...part, text: `${part.text}${delta}` };
+    const updatedParts = [...message.parts];
+    updatedParts[index] = updatedPart;
+    return {
+      ...message,
+      parts: updatedParts,
+    };
+  }
+
+  return null;
+}
+
 // ============================================================================
 // Event Processing
 // ============================================================================
@@ -160,9 +188,10 @@ export interface EventProcessingCallbacks {
   onFinish?: (payload: {
     stopReason: string;
     finishReason: string;
-    messageId: string;
+    messageId?: string;
     message?: UIMessage;
     isAbort: boolean;
+    turnId?: string;
   }) => void;
   onStreamingChange?: (
     wasStreaming: boolean,
@@ -191,7 +220,18 @@ export function processSessionEvent(
 
     case "chat_finish":
       callbacks.onStatusChange?.("ready");
-      callbacks.onFinish?.(event);
+      callbacks.onFinish?.({
+        stopReason: event.stopReason,
+        finishReason: event.finishReason,
+        messageId: event.messageId,
+        message:
+          event.message ??
+          (event.messageId
+            ? callbacks.getMessageById?.(event.messageId)
+            : undefined),
+        isAbort: event.isAbort,
+        turnId: event.turnId,
+      });
       return currentMessages;
 
     case "ui_message": {
@@ -219,6 +259,37 @@ export function processSessionEvent(
         callbacks.onPendingPermissionChange?.(pendingPermission);
       }
 
+      return newMessages ?? currentMessages;
+    }
+
+    case "ui_message_delta": {
+      const prev =
+        callbacks.getMessageById?.(event.messageId) ??
+        currentMessages.find((m) => m.id === event.messageId);
+      if (!prev) {
+        return currentMessages;
+      }
+
+      const nextMessage = applyMessageDelta({
+        message: prev,
+        partType: event.partType,
+        delta: event.delta,
+      });
+      if (!nextMessage) {
+        return currentMessages;
+      }
+
+      const wasStreaming = isMessageStreaming(prev);
+      const nowStreaming = isMessageStreaming(nextMessage);
+      let newMessages: UIMessage[] | null = null;
+
+      if (callbacks.onMessageUpsert) {
+        callbacks.onMessageUpsert(nextMessage);
+      } else {
+        newMessages = upsertMessage(currentMessages, nextMessage);
+        callbacks.onMessagesChange?.(newMessages);
+      }
+      callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
       return newMessages ?? currentMessages;
     }
 

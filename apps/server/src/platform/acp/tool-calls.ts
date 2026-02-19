@@ -53,10 +53,6 @@ const logger = createLogger("Debug");
  * ```
  */
 export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
-  const terminalCommandPolicies = compileCommandPolicies(
-    ENV.allowedTerminalCommandPolicies
-  );
-
   /**
    * Reads a text file within a chat session
    */
@@ -140,7 +136,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       !isCommandInvocationAllowed(
         params.command,
         params.args ?? [],
-        terminalCommandPolicies
+        compileCommandPolicies(ENV.allowedTerminalCommandPolicies)
       )
     ) {
       throw RequestError.invalidParams(

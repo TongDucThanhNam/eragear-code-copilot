@@ -54,6 +54,11 @@ interface StorageSafetyResult {
   resolvedPath: string;
 }
 
+interface RejectedStorageCandidate {
+  candidate: string;
+  reason: string;
+}
+
 function resolveStorageDirFromEnv(value: string): string {
   return path.isAbsolute(value) ? value : path.resolve(SERVER_ROOT_DIR, value);
 }
@@ -225,36 +230,31 @@ function resolveStorageSafety(dir: string): StorageSafetyResult {
   };
 }
 
-export function getStorageDirPathSync(): string {
-  if (storageDir) {
-    return storageDir;
-  }
+function formatStorageSafetyReason(safety: StorageSafetyResult): string {
+  return `${safety.reason}${typeof safety.fsType === "number" ? `, fsType=${safety.fsType}` : ""}`;
+}
 
-  const configuredDir = process.env[STORAGE_DIR_ENV_KEY]?.trim();
-  if (configuredDir) {
-    const resolved = resolveStorageDirFromEnv(configuredDir);
-    if (!ensureWritableDirectorySync(resolved)) {
-      throw new Error(
-        `[Storage] ${STORAGE_DIR_ENV_KEY} is not writable: ${resolved}`
-      );
-    }
-    const safety = resolveStorageSafety(resolved);
-    if (safety.safe) {
-      storageDir = safety.resolvedPath;
-      storageResolution = {
-        path: safety.resolvedPath,
-        origin: "env",
-      };
-      return safety.resolvedPath;
-    }
-
+function resolveConfiguredStorageDirectory(configuredDir: string): string {
+  const resolved = resolveStorageDirFromEnv(configuredDir);
+  if (!ensureWritableDirectorySync(resolved)) {
     throw new Error(
-      `[Storage] ${STORAGE_DIR_ENV_KEY} points to an unsafe path (${safety.reason}${typeof safety.fsType === "number" ? `, fsType=${safety.fsType}` : ""}): ${safety.resolvedPath}`
+      `[Storage] ${STORAGE_DIR_ENV_KEY} is not writable: ${resolved}`
     );
   }
+  const safety = resolveStorageSafety(resolved);
+  if (!safety.safe) {
+    throw new Error(
+      `[Storage] ${STORAGE_DIR_ENV_KEY} points to an unsafe path (${formatStorageSafetyReason(safety)}): ${safety.resolvedPath}`
+    );
+  }
+  return safety.resolvedPath;
+}
 
-  const candidates = getDefaultStorageCandidates();
-  const rejected: Array<{ candidate: string; reason: string }> = [];
+function resolveDefaultStorageDirectory(candidates: string[]): {
+  resolvedPath: string | null;
+  rejected: RejectedStorageCandidate[];
+} {
+  const rejected: RejectedStorageCandidate[] = [];
   for (const candidate of candidates) {
     if (!ensureWritableDirectorySync(candidate)) {
       continue;
@@ -263,21 +263,52 @@ export function getStorageDirPathSync(): string {
     if (!safety.safe) {
       rejected.push({
         candidate: safety.resolvedPath,
-        reason: `${safety.reason}${typeof safety.fsType === "number" ? `, fsType=${safety.fsType}` : ""}`,
+        reason: formatStorageSafetyReason(safety),
       });
       continue;
     }
-    storageDir = safety.resolvedPath;
+    return {
+      resolvedPath: safety.resolvedPath,
+      rejected,
+    };
+  }
+
+  return {
+    resolvedPath: null,
+    rejected,
+  };
+}
+
+export function getStorageDirPathSync(): string {
+  if (storageDir) {
+    return storageDir;
+  }
+
+  const configuredDir = process.env[STORAGE_DIR_ENV_KEY]?.trim();
+  if (configuredDir) {
+    const resolvedPath = resolveConfiguredStorageDirectory(configuredDir);
+    storageDir = resolvedPath;
     storageResolution = {
-      path: safety.resolvedPath,
+      path: resolvedPath,
+      origin: "env",
+    };
+    return resolvedPath;
+  }
+
+  const candidates = getDefaultStorageCandidates();
+  const resolution = resolveDefaultStorageDirectory(candidates);
+  if (resolution.resolvedPath) {
+    storageDir = resolution.resolvedPath;
+    storageResolution = {
+      path: resolution.resolvedPath,
       origin: "default",
     };
-    return safety.resolvedPath;
+    return resolution.resolvedPath;
   }
 
   const rejectedText =
-    rejected.length > 0
-      ? ` Rejected risky candidates: ${rejected
+    resolution.rejected.length > 0
+      ? ` Rejected risky candidates: ${resolution.rejected
           .map((entry) => `${entry.candidate} (${entry.reason})`)
           .join(", ")}.`
       : "";

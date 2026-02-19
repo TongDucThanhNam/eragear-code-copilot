@@ -218,6 +218,13 @@ export function createSessionUpdateHandler(
       });
     }
     if (suppressReplay) {
+      if (isDebugEnabled && summary) {
+        logger.debug("ACP replay update suppressed (stored history exists)", {
+          chatId,
+          replayEventCount: buffer.replayEventCount,
+          ...summary,
+        });
+      }
       return;
     }
 

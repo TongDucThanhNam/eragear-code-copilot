@@ -9,6 +9,7 @@
 
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { Client } from "@agentclientprotocol/sdk";
 import type { AgentRuntimePort } from "@/modules/session";
 import { createLogger } from "@/platform/logging/structured-logger";
@@ -29,9 +30,11 @@ import { normalizeTimeoutMs } from "@/shared/utils/timeout.util";
 import { createAcpConnectionAdapter } from "../acp/connection";
 
 const TERMINATION_DRAIN_PASSES = 6;
-const PROCESS_RECORD_PRUNE_THRESHOLD = 4096;
-const PROCESS_RECORD_PRUNE_TARGET = 2048;
+const PROCESS_RECORD_RETENTION_MAX = 128;
+const PROCESS_RECORD_RETENTION_MS = 60_000;
 const WINDOWS_TREE_TERMINATION_GRACE_MS = 10_000;
+const FINAL_TERMINATION_TERM_TIMEOUT_MS = 100;
+const FINAL_TERMINATION_KILL_TIMEOUT_MS = 1500;
 const logger = createLogger("Server");
 
 export interface AgentRuntimePolicy {
@@ -43,6 +46,8 @@ export interface AgentRuntimePolicy {
 interface TrackedProcess {
   proc: ChildProcess;
   pid: number | null;
+  trackedAtMs: number;
+  settledAtMs?: number;
   processGroupId?: number;
   windowsTreeTerminationDeadlineMs?: number;
 }
@@ -52,34 +57,92 @@ interface TrackedProcess {
  */
 export class AgentRuntimeAdapter implements AgentRuntimePort {
   private readonly trackedProcesses = new Set<TrackedProcess>();
-  private readonly commandPolicies: CommandPolicyRegistry;
-  private readonly allowedEnvKeys: string[];
+  private commandPolicies: CommandPolicyRegistry = new Map();
+  private allowedEnvKeys: string[] = [];
   private readonly agentTimeoutMs: number | undefined;
   private isShuttingDown = false;
 
   constructor(policy: AgentRuntimePolicy) {
+    this.updateInvocationPolicy({
+      allowedAgentCommandPolicies: policy.allowedAgentCommandPolicies,
+      allowedEnvKeys: policy.allowedEnvKeys,
+    });
+    this.agentTimeoutMs = policy.agentTimeoutMs;
+  }
+
+  updateInvocationPolicy(policy: {
+    allowedAgentCommandPolicies: CommandPolicy[];
+    allowedEnvKeys: string[];
+  }): void {
     this.commandPolicies = compileCommandPolicies(
       policy.allowedAgentCommandPolicies
     );
     this.allowedEnvKeys = [...policy.allowedEnvKeys];
-    this.agentTimeoutMs = policy.agentTimeoutMs;
+  }
+
+  private normalizeCommandAlias(value: string): string {
+    const normalized = value.trim();
+    if (normalized.length === 0) {
+      return normalized;
+    }
+    return isWindows() ? normalized.toLowerCase() : normalized;
+  }
+
+  private isBasenameCommand(command: string): boolean {
+    return path.basename(command) === command;
+  }
+
+  private resolveAllowedCommandAlias(command: string): string {
+    if (path.isAbsolute(command)) {
+      return command;
+    }
+    if (!this.isBasenameCommand(command)) {
+      return command;
+    }
+
+    const alias = this.normalizeCommandAlias(command);
+    if (!alias) {
+      return command;
+    }
+
+    let matchedCommand: string | null = null;
+    for (const allowedCommand of this.commandPolicies.keys()) {
+      const allowedAlias = this.normalizeCommandAlias(
+        path.basename(allowedCommand)
+      );
+      if (allowedAlias !== alias) {
+        continue;
+      }
+      if (matchedCommand !== null) {
+        throw new Error(
+          `Agent command alias is ambiguous and not allowed: ${command}`
+        );
+      }
+      matchedCommand = allowedCommand;
+    }
+
+    return matchedCommand ?? command;
   }
 
   private trackProcess(proc: ChildProcess, detached: boolean): TrackedProcess {
     const pid = typeof proc.pid === "number" && proc.pid > 0 ? proc.pid : null;
+    const trackedAtMs = Date.now();
     const tracked: TrackedProcess = {
       proc,
       pid,
+      trackedAtMs,
       processGroupId: detached && isPosix() && pid !== null ? pid : undefined,
       windowsTreeTerminationDeadlineMs:
         isWindows() && pid !== null
-          ? Date.now() + WINDOWS_TREE_TERMINATION_GRACE_MS
+          ? trackedAtMs + WINDOWS_TREE_TERMINATION_GRACE_MS
           : undefined,
     };
     const pruneIfSettled = () => {
+      this.markProcessSettled(tracked);
       if (!this.shouldAttemptTermination(tracked)) {
         this.trackedProcesses.delete(tracked);
       }
+      this.pruneCompletedProcessRecords();
     };
     proc.on("exit", pruneIfSettled);
     proc.on("close", pruneIfSettled);
@@ -110,18 +173,35 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     return false;
   }
 
-  private pruneCompletedProcessRecords(): void {
-    if (this.trackedProcesses.size < PROCESS_RECORD_PRUNE_THRESHOLD) {
-      return;
+  private markProcessSettled(record: TrackedProcess): void {
+    if (record.settledAtMs === undefined && hasProcessExited(record.proc)) {
+      record.settledAtMs = Date.now();
     }
+  }
+
+  private pruneCompletedProcessRecords(options?: { force?: boolean }): void {
+    const now = Date.now();
+    const removableRecords: TrackedProcess[] = [];
+
     for (const record of this.trackedProcesses) {
       if (this.shouldAttemptTermination(record)) {
         continue;
       }
-      this.trackedProcesses.delete(record);
-      if (this.trackedProcesses.size <= PROCESS_RECORD_PRUNE_TARGET) {
-        break;
+
+      this.markProcessSettled(record);
+      const settledAtMs = record.settledAtMs ?? record.trackedAtMs;
+      const overCapacity =
+        this.trackedProcesses.size - removableRecords.length >
+        PROCESS_RECORD_RETENTION_MAX;
+      const expired = now - settledAtMs >= PROCESS_RECORD_RETENTION_MS;
+
+      if (options?.force || overCapacity || expired) {
+        removableRecords.push(record);
       }
+    }
+
+    for (const record of removableRecords) {
+      this.trackedProcesses.delete(record);
     }
   }
 
@@ -141,7 +221,10 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     if (this.isShuttingDown) {
       throw new Error("Agent runtime is shutting down; spawn is disabled");
     }
-    if (!isCommandInvocationAllowed(command, args, this.commandPolicies)) {
+    const resolvedCommand = this.resolveAllowedCommandAlias(command);
+    if (
+      !isCommandInvocationAllowed(resolvedCommand, args, this.commandPolicies)
+    ) {
       throw new Error(`Agent command invocation not allowed: ${command}`);
     }
 
@@ -151,7 +234,7 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     );
     const detached = isPosix();
 
-    const proc = spawn(command, args, {
+    const proc = spawn(resolvedCommand, args, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env,
@@ -204,9 +287,8 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     failed: number;
     lingeringPids: number[];
   }> {
-    let terminated = 0;
-    let failed = 0;
     const attempted = new Set<TrackedProcess>();
+    const terminatedRecords = new Set<TrackedProcess>();
     const failedRecords = new Set<TrackedProcess>();
     const records = [...this.trackedProcesses];
 
@@ -227,10 +309,35 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
             forceWindowsTreeTermination: true,
           });
           if (result.exited) {
-            terminated += 1;
+            this.markProcessSettled(record);
+            terminatedRecords.add(record);
+            failedRecords.delete(record);
             return;
           }
-          failed += 1;
+          failedRecords.add(record);
+        })
+      );
+    }
+
+    const pendingFinalPass = records.filter((record) =>
+      this.shouldAttemptTermination(record)
+    );
+    if (pendingFinalPass.length > 0) {
+      await Promise.all(
+        pendingFinalPass.map(async (record) => {
+          attempted.add(record);
+          const result = await terminateProcessGracefully(record.proc, {
+            processGroupId: record.processGroupId,
+            forceWindowsTreeTermination: true,
+            termTimeoutMs: FINAL_TERMINATION_TERM_TIMEOUT_MS,
+            killTimeoutMs: FINAL_TERMINATION_KILL_TIMEOUT_MS,
+          });
+          if (result.exited) {
+            this.markProcessSettled(record);
+            terminatedRecords.add(record);
+            failedRecords.delete(record);
+            return;
+          }
           failedRecords.add(record);
         })
       );
@@ -239,15 +346,33 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     const lingeringRecords = records.filter((record) =>
       this.shouldAttemptTermination(record)
     );
+    for (const lingeringRecord of lingeringRecords) {
+      failedRecords.add(lingeringRecord);
+    }
     const lingeringPids = lingeringRecords
       .map((record) => record.pid)
       .filter((pid): pid is number => typeof pid === "number" && pid > 0);
-    for (const lingeringRecord of lingeringRecords) {
-      if (!failedRecords.has(lingeringRecord)) {
-        failed += 1;
-      }
+    const summary = {
+      terminated: terminatedRecords.size,
+      failed: failedRecords.size,
+      lingeringPids,
+    };
+
+    if (summary.failed > 0 || lingeringPids.length > 0) {
+      logger.warn("Agent runtime shutdown completed with lingering processes", {
+        attempted: attempted.size,
+        terminated: summary.terminated,
+        failed: summary.failed,
+        lingeringPids,
+      });
+    } else {
+      logger.info("Agent runtime shutdown completed", {
+        attempted: attempted.size,
+        terminated: summary.terminated,
+      });
     }
 
-    return { terminated, failed, lingeringPids };
+    this.pruneCompletedProcessRecords({ force: true });
+    return summary;
   }
 }

@@ -15,6 +15,7 @@ import type {
   SessionRuntimePort,
 } from "@/modules/session";
 import { createLogger } from "@/platform/logging/structured-logger";
+import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { createPermissionHandler } from "./permission";
 import { createToolCallHandlers } from "./tool-calls";
 import { createSessionUpdateHandler } from "./update";
@@ -74,12 +75,35 @@ export function createSessionHandlers(params: {
         hasUpdate: true,
         updateType: validatedUpdate.sessionUpdate,
       });
-      await handleSessionUpdate({
-        chatId,
-        buffer,
-        isReplayingHistory: getIsReplaying(),
-        update: validatedUpdate,
-      });
+      try {
+        await handleSessionUpdate({
+          chatId,
+          buffer,
+          isReplayingHistory: getIsReplaying(),
+          update: validatedUpdate,
+        });
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        logger.error("ACP session update pipeline failed", undefined, {
+          chatId,
+          updateType: validatedUpdate.sessionUpdate,
+          error: errorMessage,
+        });
+        await sessionRuntime
+          .broadcast(chatId, {
+            type: "error",
+            error: `Session update failed: ${errorMessage}`,
+          })
+          .catch(() => undefined);
+        const session = sessionRuntime.get(chatId);
+        await updateChatStatus({
+          chatId,
+          session,
+          broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+          status: "error",
+        }).catch(() => undefined);
+      }
     },
 
     /** Handles permission requests from the agent */

@@ -5,6 +5,7 @@ import {
   CompactSessionMessagesService,
   CreateSessionService,
   DeleteSessionService,
+  GetSessionMessageByIdService,
   GetSessionMessagesService,
   GetSessionStateService,
   GetSessionStorageStatsService,
@@ -117,6 +118,9 @@ export function createSessionServices(
   const getSessionMessagesService = new GetSessionMessagesService(
     deps.sessionRepo
   );
+  const getSessionMessageByIdService = new GetSessionMessageByIdService(
+    deps.sessionRepo
+  );
   const getSessionStorageStatsService = new GetSessionStorageStatsService(
     deps.sessionRepo
   );
@@ -144,6 +148,7 @@ export function createSessionServices(
     listSessions: () => listSessionsService,
     updateSessionMeta: () => updateSessionMetaService,
     getSessionMessagesPage: () => getSessionMessagesService,
+    getSessionMessageById: () => getSessionMessageByIdService,
     getSessionStorageStats: () => getSessionStorageStatsService,
     subscribeSessionEvents: () => subscribeSessionEventsService,
     cleanupProjectSessions: () => cleanupProjectSessionsService,

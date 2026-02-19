@@ -40,6 +40,8 @@ Production target hiện tại: **Linux/Windows/macOS**.
   - `docs/ui-message-normalization.md`
 - Client-side useChat contract:
   - `docs/ui-message-usechat-client.md`
+- Client migration map (Web + Native):
+  - `docs/client-web-native-migration-map.md`
 - Auth/dashboard release gate:
   - `docs/auth-dashboard-validation.md`
 - ACP protocol references:

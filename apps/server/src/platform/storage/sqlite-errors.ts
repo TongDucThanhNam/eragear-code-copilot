@@ -4,6 +4,7 @@ const SQLITE_UNIQUE_CONSTRAINT_CODE = "SQLITE_CONSTRAINT_UNIQUE";
 const SQLITE_PRIMARY_KEY_CONSTRAINT_CODE = "SQLITE_CONSTRAINT_PRIMARYKEY";
 const SQLITE_UNIQUE_CONSTRAINT_ERRNO = 2067;
 const SQLITE_PRIMARY_KEY_CONSTRAINT_ERRNO = 1555;
+const SQLITE_BUSY_ERRNO = 5;
 
 interface ErrorLikeRecord {
   code?: unknown;
@@ -104,6 +105,28 @@ export function isSqliteUniqueConstraint(error: unknown): boolean {
       text.includes("SQLITE_CONSTRAINT_PRIMARYKEY") ||
       text.includes("UNIQUE CONSTRAINT FAILED")
     ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function isSqliteBusyError(error: unknown): boolean {
+  const sqliteError = unwrapSqliteError(error);
+  if (
+    sqliteError?.code === "SQLITE_BUSY" ||
+    sqliteError?.code?.startsWith("SQLITE_BUSY_")
+  ) {
+    return true;
+  }
+  if (sqliteError?.errno === SQLITE_BUSY_ERRNO) {
+    return true;
+  }
+
+  for (const candidate of collectErrorCandidates(error)) {
+    const text = `${candidate.name} ${candidate.message}`.toUpperCase();
+    if (text.includes("SQLITE_BUSY") || text.includes("DATABASE IS LOCKED")) {
       return true;
     }
   }

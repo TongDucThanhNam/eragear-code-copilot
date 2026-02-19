@@ -15,8 +15,8 @@ export interface ChatMessagesProps {
 }
 
 const ChatMessagesBase = ({ messages, terminalOutputs }: ChatMessagesProps) => (
-  <Conversation className="min-h-0 flex-1 overflow-y-hidden">
-    <ConversationContent>
+  <Conversation className="h-full min-h-0">
+    <ConversationContent className="mx-auto w-full max-w-4xl gap-6 px-3 pb-4 pt-4 sm:px-5">
       {messages.map((message) => (
         <AgenticMessage
           key={message.id}
@@ -25,7 +25,7 @@ const ChatMessagesBase = ({ messages, terminalOutputs }: ChatMessagesProps) => (
         />
       ))}
     </ConversationContent>
-    <ConversationScrollButton />
+    <ConversationScrollButton className="bottom-5 z-10 shadow-sm" />
   </Conversation>
 );
 

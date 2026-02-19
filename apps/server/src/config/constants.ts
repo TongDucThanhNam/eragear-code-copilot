@@ -19,7 +19,7 @@ export const DEFAULT_WS_PORT = 3000;
 export const DEFAULT_WS_HOST = "127.0.0.1";
 /** Default maximum number of messages to buffer per session */
 export const DEFAULT_SESSION_BUFFER_LIMIT = 500;
-/** Default timeout while waiting to acquire a per-chat runtime lock */
+/** Default warning threshold for per-chat runtime lock wait latency */
 export const DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS = 15_000;
 /** Max time budget for one event bus publish attempt from session runtime */
 export const DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS = 250;

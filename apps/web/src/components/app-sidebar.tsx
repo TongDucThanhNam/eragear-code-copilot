@@ -115,6 +115,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             agentInfo: s.agentInfo,
             agentCapabilities: s.agentCapabilities,
             authMethods: s.authMethods,
+            pinned: s.pinned,
+            lastActiveAt: s.lastActiveAt,
             fullData: s,
           }))}
         />

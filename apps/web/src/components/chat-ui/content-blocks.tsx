@@ -80,7 +80,7 @@ const MIME_LANGUAGE_MAP: Record<string, BundledLanguage> = {
   "text/javascript": "javascript",
   "text/typescript": "typescript",
   "text/markdown": "markdown",
-  "text/plain": "plaintext",
+  "text/plain": "log",
   "text/html": "html",
   "text/css": "css",
   "text/x-python": "python",
@@ -154,7 +154,7 @@ const guessLanguage = (mimeType?: string, uri?: string): BundledLanguage => {
       return EXT_LANGUAGE_MAP[ext];
     }
   }
-  return "plaintext";
+  return "log";
 };
 
 const getBlockKey = (block: StoredContentBlock, index: number) => {

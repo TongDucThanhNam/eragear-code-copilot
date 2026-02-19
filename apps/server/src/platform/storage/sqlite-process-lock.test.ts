@@ -10,23 +10,54 @@ const LOCK_ACQUIRE_FAILED_REGEX =
 
 describe("sqlite-process-lock", () => {
   const originalBusyTimeoutMs = ENV.sqliteBusyTimeoutMs;
+  const originalBusyRetryBaseDelayMs = ENV.sqliteBusyRetryBaseDelayMs;
 
   afterEach(() => {
     ENV.sqliteBusyTimeoutMs = originalBusyTimeoutMs;
+    ENV.sqliteBusyRetryBaseDelayMs = originalBusyRetryBaseDelayMs;
   });
 
   test("serializes initialization while lock is held", async () => {
-    ENV.sqliteBusyTimeoutMs = 25;
+    ENV.sqliteBusyTimeoutMs = 50;
+    ENV.sqliteBusyRetryBaseDelayMs = 5;
     const storageDir = await mkdtemp(path.join(os.tmpdir(), "eragear-lock-"));
     try {
       const first = await acquireSqliteProcessInitLock(storageDir);
-      expect(() => acquireSqliteProcessInitLock(storageDir)).toThrowError(
-        LOCK_ACQUIRE_FAILED_REGEX
-      );
+      await expect(
+        acquireSqliteProcessInitLock(storageDir)
+      ).rejects.toThrowError(LOCK_ACQUIRE_FAILED_REGEX);
       await first.release();
 
       const second = await acquireSqliteProcessInitLock(storageDir);
       await second.release();
+    } finally {
+      await rm(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test("yields between lock retries instead of blocking event loop until timeout", async () => {
+    ENV.sqliteBusyTimeoutMs = 120;
+    ENV.sqliteBusyRetryBaseDelayMs = 5;
+    const storageDir = await mkdtemp(path.join(os.tmpdir(), "eragear-lock-"));
+    try {
+      const first = await acquireSqliteProcessInitLock(storageDir);
+      let secondSettled = false;
+      const blockedAcquire = acquireSqliteProcessInitLock(storageDir).finally(
+        () => {
+          secondSettled = true;
+        }
+      );
+
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 10);
+        timer.unref?.();
+      });
+
+      expect(secondSettled).toBe(false);
+      await expect(blockedAcquire).rejects.toThrowError(
+        LOCK_ACQUIRE_FAILED_REGEX
+      );
+      await first.release();
     } finally {
       await rm(storageDir, { recursive: true, force: true });
     }

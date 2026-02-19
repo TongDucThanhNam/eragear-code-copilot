@@ -101,16 +101,23 @@ export interface PermissionRequest {
 
 export type BroadcastEvent =
   | { type: "connected" }
-  | { type: "chat_status"; status: ChatStatus }
+  | { type: "chat_status"; status: ChatStatus; turnId?: string }
   | {
       type: "chat_finish";
       stopReason: string;
       finishReason: string;
-      messageId: string;
+      messageId?: string;
       message?: UIMessage;
       isAbort: boolean;
+      turnId?: string;
     }
   | { type: "ui_message"; message: UIMessage }
+  | {
+      type: "ui_message_delta";
+      messageId: string;
+      partType: "text" | "reasoning";
+      delta: string;
+    }
   | {
       type: "available_commands_update";
       availableCommands: Array<{
@@ -134,9 +141,10 @@ export interface UseChatOptions {
   onFinish?: (payload: {
     stopReason: string;
     finishReason: string;
-    messageId: string;
+    messageId?: string;
     message?: UIMessage;
     isAbort: boolean;
+    turnId?: string;
   }) => void;
   onError?: (message: string) => void;
 }

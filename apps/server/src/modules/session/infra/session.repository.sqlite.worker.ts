@@ -82,6 +82,18 @@ export class SessionSqliteWorkerRepository implements SessionRepositoryPort {
     return callSqliteWorker("session", "appendMessage", [id, userId, message]);
   }
 
+  getMessageById(
+    id: string,
+    userId: string,
+    messageId: string
+  ): Promise<StoredMessage | undefined> {
+    return callSqliteWorker("session", "getMessageById", [
+      id,
+      userId,
+      messageId,
+    ]);
+  }
+
   getMessagesPage(
     id: string,
     userId: string,

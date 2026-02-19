@@ -3,6 +3,7 @@ import {
   useDashboardActions,
   useDashboardState,
 } from "@/presentation/dashboard/dashboard-view.context";
+import { BootAllowlistsPanel } from "./boot-allowlists-panel";
 import { TabPanel } from "./tab-panel";
 
 export function SettingsTab() {
@@ -11,23 +12,20 @@ export function SettingsTab() {
     settings: { onSaveSettings },
   } = useDashboardActions();
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const handleSettingsSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-
-    // Identify which button was clicked
     const submitter = (event.nativeEvent as SubmitEvent)
       .submitter as HTMLButtonElement | null;
     if (submitter?.name) {
       formData.set(submitter.name, submitter.value);
     }
-
     await onSaveSettings(formData);
   };
 
   return (
     <TabPanel activeTab={activeTab} scrollable tab="settings">
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSettingsSubmit}>
         <section className="border-2 border-ink bg-paper shadow-news">
           <div className="flex items-start justify-between border-ink border-b-2 p-6">
             <div>
@@ -217,6 +215,7 @@ export function SettingsTab() {
           </p>
         </div>
       </form>
+      <BootAllowlistsPanel />
     </TabPanel>
   );
 }

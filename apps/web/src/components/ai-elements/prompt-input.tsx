@@ -299,19 +299,15 @@ export function PromptInputAttachment({
 
   return (
     <PromptInputHoverCard>
-      <HoverCardTrigger
-        nativeButton={false}
-        render={
-          <div
-            className={cn(
-              "group relative flex h-8 cursor-pointer select-none items-center gap-1.5 rounded-md border border-border px-1.5 font-medium text-sm transition-all hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
-              className
-            )}
-            key={data.id}
-            {...props}
-          />
-        }
-      >
+      <HoverCardTrigger asChild>
+        <div
+          className={cn(
+            "group relative flex h-8 cursor-pointer select-none items-center gap-1.5 rounded-md border border-border px-1.5 font-medium text-sm transition-all hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+            className
+          )}
+          key={data.id}
+          {...props}
+        >
         <div className="relative size-5 shrink-0">
           <div className="absolute inset-0 flex size-5 items-center justify-center overflow-hidden rounded bg-background transition-opacity group-hover:opacity-0">
             {isImage ? (
@@ -343,6 +339,7 @@ export function PromptInputAttachment({
           </Button>
         </div>
         <span className="flex-1 truncate">{attachmentLabel}</span>
+        </div>
       </HoverCardTrigger>
       <PromptInputHoverCardContent className="w-auto p-2">
         <div className="w-auto space-y-3">

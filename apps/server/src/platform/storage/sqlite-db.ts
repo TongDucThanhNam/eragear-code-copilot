@@ -33,11 +33,22 @@ type SqliteOrmDb = BunSQLiteDatabase<typeof sqliteSchema>;
 let sqliteOrmDb: SqliteOrmDb | null = null;
 let sqliteOrmClient: Database | null = null;
 
+function assertSingleSqliteClient(db: Database): void {
+  if (!sqliteOrmClient || sqliteOrmClient === db) {
+    return;
+  }
+  throw new Error(
+    "[Storage] SQLite ORM client changed without resetting ORM cache. Multiple concurrent SQLite clients are not supported."
+  );
+}
+
 function getOrCreateSqliteOrm(db: Database): SqliteOrmDb {
-  if (!sqliteOrmDb || sqliteOrmClient !== db) {
+  if (!sqliteOrmDb) {
     sqliteOrmDb = drizzle({ client: db, schema: sqliteSchema });
     sqliteOrmClient = db;
+    return sqliteOrmDb;
   }
+  assertSingleSqliteClient(db);
   return sqliteOrmDb;
 }
 

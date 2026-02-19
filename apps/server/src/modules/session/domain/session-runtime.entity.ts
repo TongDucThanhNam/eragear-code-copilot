@@ -6,6 +6,7 @@ import type {
   ChatStatus,
 } from "@/shared/types/session.types";
 import {
+  isBusyChatStatus,
   maybeBroadcastChatFinish,
   setChatFinishStopReason,
   updateChatStatus,
@@ -96,11 +97,18 @@ export class SessionRuntimeEntity {
     );
   }
 
-  markReadyIfSubmitted(
+  markReadyAfterTurnCompletion(
     context: BroadcastContext,
     turnId?: string
   ): Promise<void> {
-    if (this.session.chatStatus !== SESSION_RUNTIME_CHAT_STATUS.SUBMITTED) {
+    const currentStatus = this.session.chatStatus;
+    if (
+      currentStatus === SESSION_RUNTIME_CHAT_STATUS.ERROR ||
+      currentStatus === "inactive"
+    ) {
+      return Promise.resolve();
+    }
+    if (!isBusyChatStatus(currentStatus)) {
       return Promise.resolve();
     }
     return this.updateStatus(

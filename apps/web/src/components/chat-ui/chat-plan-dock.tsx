@@ -187,7 +187,7 @@ const ChatPlanDockBase = ({ messages }: ChatPlanDockProps) => {
   }
 
   return (
-    <div className="mt-2 -mb-2 px-4">
+    <div className="mt-2 px-2">
       <Queue className={cn("bg-background/90")}>
         <QueueSection onOpenChange={setIsOpen} open={isOpen}>
           <QueueSectionTrigger>

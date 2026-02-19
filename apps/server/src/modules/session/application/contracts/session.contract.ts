@@ -58,6 +58,11 @@ export const SessionMessagesPageInputSchema = z.object({
   includeCompacted: z.boolean().optional(),
 });
 
+export const SessionMessageByIdInputSchema = z.object({
+  chatId: z.string(),
+  messageId: z.string().min(1),
+});
+
 export type SessionChatIdInput = z.infer<typeof SessionChatIdInputSchema>;
 export type CreateSessionInput = z.infer<typeof CreateSessionInputSchema>;
 export type ListSessionsInput = z.infer<typeof ListSessionsInputSchema>;
@@ -67,4 +72,7 @@ export type UpdateSessionMetaInput = z.infer<
 >;
 export type SessionMessagesPageInput = z.infer<
   typeof SessionMessagesPageInputSchema
+>;
+export type SessionMessageByIdInput = z.infer<
+  typeof SessionMessageByIdInputSchema
 >;

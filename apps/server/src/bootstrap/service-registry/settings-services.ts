@@ -1,5 +1,9 @@
 import type { SettingsServiceFactory } from "@/modules/service-factories";
-import { GetSettingsService, UpdateSettingsService } from "@/modules/settings";
+import {
+  GetSettingsService,
+  ManageBootAllowlistsService,
+  UpdateSettingsService,
+} from "@/modules/settings";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
 export function createSettingsServices(
@@ -11,9 +15,14 @@ export function createSettingsServices(
     deps.eventBus,
     deps.appConfigService
   );
+  const manageBootAllowlistsService = new ManageBootAllowlistsService(
+    deps.eventBus,
+    deps.agentRuntimeAdapter
+  );
 
   return {
     getSettings: () => getSettingsService,
     updateSettings: () => updateSettingsService,
+    manageBootAllowlists: () => manageBootAllowlistsService,
   };
 }

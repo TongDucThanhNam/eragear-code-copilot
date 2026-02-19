@@ -5,7 +5,6 @@ import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { SessionRuntimeStore } from "./runtime-store";
 
-const LOCK_TIMEOUT_RE = /Lock acquisition timed out/;
 const OUTBOX_FAILURE_RE = /outbox failure/;
 const MUTATION_QUEUE_OVERFLOW_RE = /Pending mutation queue overflow/;
 
@@ -106,7 +105,7 @@ describe("SessionRuntimeStore.runExclusive", () => {
     expect(order).toEqual(["first:start", "first:end", "second:start"]);
   });
 
-  test("fails fast when lock acquisition exceeds timeout", async () => {
+  test("queues pending mutations instead of timing out under lock contention", async () => {
     const outboxCalls: BroadcastEvent[] = [];
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 20,
@@ -124,11 +123,10 @@ describe("SessionRuntimeStore.runExclusive", () => {
 
     await firstStarted.promise;
 
-    await expect(
-      store.runExclusive("chat-1", async () => "second")
-    ).rejects.toThrow(LOCK_TIMEOUT_RE);
+    const second = store.runExclusive("chat-1", async () => "second");
 
     releaseFirst.resolve();
+    await expect(second).resolves.toBe("second");
     await expect(first).resolves.toBe("first");
   });
 
@@ -155,6 +153,63 @@ describe("SessionRuntimeStore.runExclusive", () => {
 
     releaseFirst.resolve();
     await expect(first).resolves.toBe("first");
+  });
+
+  test("allows re-entrant lock acquisition for the same chat within one async flow", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 20,
+      eventBusPublishMaxQueuePerChat: 1,
+    });
+    const order: string[] = [];
+
+    const result = await store.runExclusive("chat-1", async () => {
+      order.push("outer:start");
+      await store.runExclusive("chat-1", async () => {
+        order.push("inner:start");
+      });
+      order.push("outer:end");
+      return "ok";
+    });
+
+    expect(result).toBe("ok");
+    expect(order).toEqual(["outer:start", "inner:start", "outer:end"]);
+  });
+
+  test("processes queued mutations in-order under sustained contention", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 20,
+      eventBusPublishMaxQueuePerChat: 256,
+    });
+    const firstStarted = createDeferred<void>();
+    const releaseFirst = createDeferred<void>();
+    const executionOrder: number[] = [];
+
+    const first = store.runExclusive("chat-1", async () => {
+      firstStarted.resolve();
+      await releaseFirst.promise;
+      return -1;
+    });
+    await firstStarted.promise;
+
+    const queued = Array.from({ length: 64 }, (_, index) =>
+      store.runExclusive("chat-1", async () => {
+        executionOrder.push(index);
+        return index;
+      })
+    );
+
+    releaseFirst.resolve();
+    await expect(first).resolves.toBe(-1);
+    await expect(Promise.all(queued)).resolves.toEqual(
+      Array.from({ length: 64 }, (_, index) => index)
+    );
+    expect(executionOrder).toEqual(
+      Array.from({ length: 64 }, (_, index) => index)
+    );
   });
 });
 
@@ -260,5 +315,45 @@ describe("SessionRuntimeStore.broadcast", () => {
     ).rejects.toThrow(OUTBOX_FAILURE_RE);
     expect(received).toEqual([]);
     expect(session.messageBuffer).toEqual([]);
+  });
+
+  test("supports ephemeral broadcasts that skip outbox and replay buffer", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 10,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 64,
+    });
+    const session = createSession("chat-1");
+    store.set("chat-1", session);
+    const received: BroadcastEvent[] = [];
+    session.emitter.on("data", (event) => {
+      received.push(event as BroadcastEvent);
+    });
+
+    await store.broadcast(
+      "chat-1",
+      {
+        type: "ui_message_delta",
+        messageId: "msg-1",
+        partType: "text",
+        delta: "hello",
+      },
+      {
+        durable: false,
+        retainInBuffer: false,
+      }
+    );
+
+    expect(outboxCalls).toEqual([]);
+    expect(session.messageBuffer).toEqual([]);
+    expect(received).toEqual([
+      {
+        type: "ui_message_delta",
+        messageId: "msg-1",
+        partType: "text",
+        delta: "hello",
+      },
+    ]);
   });
 });

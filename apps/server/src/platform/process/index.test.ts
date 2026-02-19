@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { AgentRuntimeAdapter } from "./index";
 
+const AMBIGUOUS_ALIAS_REGEX = /alias is ambiguous/i;
 const INVOCATION_NOT_ALLOWED_REGEX = /invocation not allowed/i;
+const PATH_SPLIT_REGEX = /[\\/]/;
 const SHUTTING_DOWN_REGEX = /shutting down/i;
 
 function createAdapter() {
@@ -38,6 +40,54 @@ describe("AgentRuntimeAdapter", () => {
     ).toThrow(INVOCATION_NOT_ALLOWED_REGEX);
   });
 
+  test("resolves unique basename aliases to allowed absolute commands", () => {
+    const adapter = createAdapter();
+    const alias =
+      process.execPath.split(PATH_SPLIT_REGEX).pop() ?? process.execPath;
+    const proc = adapter.spawn(alias, ["--version"], {
+      cwd: process.cwd(),
+      env: {},
+    });
+    expect(typeof proc.pid).toBe("number");
+  });
+
+  test("rejects ambiguous basename aliases", () => {
+    const adapter = new AgentRuntimeAdapter({
+      allowedAgentCommandPolicies: [
+        {
+          command: "/tmp/bin/claude-code-acp",
+          allowAnyArgs: true,
+        },
+        {
+          command: "/opt/tools/claude-code-acp",
+          allowAnyArgs: true,
+        },
+      ],
+      allowedEnvKeys: ["PATH"],
+      agentTimeoutMs: undefined,
+    });
+
+    expect(() =>
+      adapter.spawn("claude-code-acp", ["--version"], {
+        cwd: process.cwd(),
+        env: {},
+      })
+    ).toThrow(AMBIGUOUS_ALIAS_REGEX);
+  });
+
+  test("rejects non-basename command alias invocations", () => {
+    const adapter = createAdapter();
+    const alias =
+      process.execPath.split(PATH_SPLIT_REGEX).pop() ?? process.execPath;
+
+    expect(() =>
+      adapter.spawn(`./${alias}`, ["--version"], {
+        cwd: process.cwd(),
+        env: {},
+      })
+    ).toThrow(INVOCATION_NOT_ALLOWED_REGEX);
+  });
+
   test("rejects spawn after shutdown begins", () => {
     const adapter = createAdapter();
     adapter.beginShutdown();
@@ -48,6 +98,26 @@ describe("AgentRuntimeAdapter", () => {
         env: {},
       })
     ).toThrow(SHUTTING_DOWN_REGEX);
+  });
+
+  test("applies updated invocation policy for subsequent spawns", () => {
+    const adapter = createAdapter();
+    adapter.updateInvocationPolicy?.({
+      allowedAgentCommandPolicies: [
+        {
+          command: "/bin/echo",
+          allowAnyArgs: true,
+        },
+      ],
+      allowedEnvKeys: ["PATH"],
+    });
+
+    expect(() =>
+      adapter.spawn(process.execPath, ["--version"], {
+        cwd: process.cwd(),
+        env: {},
+      })
+    ).toThrow(INVOCATION_NOT_ALLOWED_REGEX);
   });
 
   test("terminates active processes and returns empty lingering list", async () => {
@@ -92,5 +162,20 @@ describe("AgentRuntimeAdapter", () => {
     const tracked = (adapter as unknown as { trackedProcesses: Set<unknown> })
       .trackedProcesses;
     expect(tracked.size).toBe(0);
+  });
+
+  test("keeps tracked process records bounded under spawn churn", async () => {
+    const adapter = createAdapter();
+    for (let index = 0; index < 300; index += 1) {
+      adapter.spawn(process.execPath, ["-e", "process.exit(0)"], {
+        cwd: process.cwd(),
+        env: {},
+      });
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const tracked = (adapter as unknown as { trackedProcesses: Set<unknown> })
+      .trackedProcesses;
+    expect(tracked.size).toBeLessThanOrEqual(128);
   });
 });

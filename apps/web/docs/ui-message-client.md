@@ -12,14 +12,16 @@ upsert theo `message.id` và render theo `UIMessagePart`.
   - `available_commands_update`
   - `current_mode_update`
   - `terminal_output`
-- `getSessionMessages`: trả về **`UIMessage[]`**
+- `getSessionMessagesPage`: trả về page **`UIMessage[]`**
+- `getSessionMessageById`: fallback đọc 1 message theo `messageId` khi miss realtime event
 
 ## Điểm tích hợp chính
 
 - `apps/web/src/components/chat-ui/chat-interface.tsx`
   - Upsert `UIMessage` theo id
+  - Hiển thị diagnostic empty-state khi session active nhưng chưa có message
   - Tính trạng thái streaming từ `part.state`
-  - Đồng bộ status từ `chat_status`
+  - Đồng bộ status từ `chat_status` (không gate cứng theo `turnId`)
 - `apps/web/src/components/chat-ui/chat-messages.tsx`
   - Render các `UIMessagePart`
   - Parse tool output (diff/terminal/content)

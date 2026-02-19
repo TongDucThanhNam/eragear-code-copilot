@@ -3,14 +3,16 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { createWSClient, wsLink } from "@trpc/client";
 import { useEffect, useMemo } from "react";
 import ReactDOM from "react-dom/client";
-
+import { ConnectionSetupDialog } from "./components/connection-setup-dialog";
 import Loader from "./components/loader";
+import { ThemeProvider } from "./components/theme-provider";
+import { Toaster } from "./components/ui/sonner";
+import { buildTrpcWsUrl } from "./lib/server-url";
 import { trpc } from "./lib/trpc";
 import { routeTree } from "./routeTree.gen";
 import { useServerConfigStore } from "./store/server-config-store";
 
 const DEFAULT_SERVER_URL = "ws://localhost:3000";
-const WS_PROTOCOL_REGEX = /^http/;
 
 const router = createRouter({
   routeTree,
@@ -37,22 +39,45 @@ if (!rootElement.innerHTML) {
 }
 
 function App() {
-  const queryClient = useMemo(() => new QueryClient(), []);
-  const { serverUrl, apiKey } = useServerConfigStore();
+  const { serverUrl, apiKey, isConfigured } = useServerConfigStore();
+  const hasConnectionConfig =
+    isConfigured && Boolean(serverUrl.trim()) && Boolean(apiKey.trim());
 
-  const wsUrl = useMemo(() => {
-    const baseUrl = (serverUrl || DEFAULT_SERVER_URL).replace(
-      WS_PROTOCOL_REGEX,
-      "ws"
+  if (!hasConnectionConfig) {
+    return (
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        disableTransitionOnChange
+        storageKey="vite-ui-theme"
+      >
+        <Toaster richColors />
+        <ConnectionSetupDialog />
+      </ThemeProvider>
     );
-    return baseUrl;
-  }, [serverUrl, apiKey]);
+  }
+
+  return <ConfiguredApp apiKey={apiKey} serverUrl={serverUrl} />;
+}
+
+function ConfiguredApp({
+  serverUrl,
+  apiKey,
+}: {
+  serverUrl: string;
+  apiKey: string;
+}) {
+  const queryClient = useMemo(() => new QueryClient(), []);
+  const wsUrl = useMemo(
+    () => buildTrpcWsUrl(serverUrl || DEFAULT_SERVER_URL),
+    [serverUrl]
+  );
 
   const wsClient = useMemo(() => {
     return createWSClient({
       url: wsUrl,
       connectionParams: async () => {
-        const key = apiKey?.trim();
+        const key = apiKey.trim();
         if (!key) {
           return {};
         }
@@ -81,7 +106,7 @@ function App() {
     <trpc.Provider
       client={trpcClient}
       queryClient={queryClient}
-      key={`${wsUrl}|${apiKey?.trim() ?? ""}`}
+      key={`${wsUrl}|${apiKey.trim()}`}
     >
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />

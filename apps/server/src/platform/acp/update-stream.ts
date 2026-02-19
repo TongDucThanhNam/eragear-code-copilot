@@ -120,10 +120,32 @@ async function appendAssistantChunk(params: {
     const messageId = buffer.ensureMessageId(preferredMessageId);
     const message = getOrCreateAssistantMessage(session.uiState, messageId);
     const block = toStoredContentBlock(update.content);
+    const shouldBroadcastSnapshot = shouldBroadcastMessageSnapshot({
+      message,
+      partState,
+      chunkType: "message",
+      blockType: block.type,
+    });
     appendContentBlock(message, block, partState, providerMetadata);
 
     if (!isReplayingHistory) {
-      await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+      if (shouldBroadcastSnapshot) {
+        await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+      } else if (block.type === "text" && block.text.length > 0) {
+        await sessionRuntime.broadcast(
+          chatId,
+          {
+            type: "ui_message_delta",
+            messageId,
+            partType: "text",
+            delta: block.text,
+          },
+          {
+            durable: false,
+            retainInBuffer: false,
+          }
+        );
+      }
     }
     return;
   }
@@ -134,7 +156,35 @@ async function appendAssistantChunk(params: {
   if (block.type !== "text") {
     return;
   }
+  const shouldBroadcastSnapshot = shouldBroadcastMessageSnapshot({
+    message,
+    partState,
+    chunkType: "reasoning",
+    blockType: block.type,
+  });
   appendReasoningBlock(message, block, partState, providerMetadata);
+  if (isReplayingHistory) {
+    return;
+  }
+  if (shouldBroadcastSnapshot) {
+    await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    return;
+  }
+  if (block.text.length > 0) {
+    await sessionRuntime.broadcast(
+      chatId,
+      {
+        type: "ui_message_delta",
+        messageId,
+        partType: "reasoning",
+        delta: block.text,
+      },
+      {
+        durable: false,
+        retainInBuffer: false,
+      }
+    );
+  }
 }
 
 async function updateAssistantChunkType(params: {
@@ -173,4 +223,26 @@ export function isStreamingUpdate(update: SessionUpdate) {
     update.sessionUpdate === "tool_call_update" ||
     update.sessionUpdate === "plan"
   );
+}
+
+function shouldBroadcastMessageSnapshot(params: {
+  message: ReturnType<typeof getOrCreateAssistantMessage>;
+  partState: "streaming" | "done";
+  chunkType: "message" | "reasoning";
+  blockType: ReturnType<typeof toStoredContentBlock>["type"];
+}) {
+  const { message, partState, chunkType, blockType } = params;
+  if (blockType !== "text") {
+    return true;
+  }
+
+  const lastPart = message.parts.at(-1);
+  if (chunkType === "message") {
+    if (lastPart?.type !== "text") {
+      return true;
+    }
+    return lastPart.state !== partState;
+  }
+
+  return lastPart?.type !== "reasoning";
 }

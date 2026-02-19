@@ -7,6 +7,9 @@
  * - GET  /api/ui-settings     - Get current settings
  * - PUT  /api/ui-settings     - Update settings (API)
  * - POST /api/ui-settings     - Update settings (API)
+ * - GET  /api/boot-allowlists - Get boot/runtime allowlist config
+ * - PUT  /api/boot-allowlists - Update boot/runtime allowlist config
+ * - POST /api/boot-allowlists - Update boot/runtime allowlist config
  *
  * @module transport/http/routes/settings
  */
@@ -96,4 +99,48 @@ export function registerSettingsRoutes(
 
   api.put("/ui-settings", handleApiUpdate);
   api.post("/ui-settings", handleApiUpdate);
+
+  /**
+   * GET /api/boot-allowlists - Get boot config allowlists
+   */
+  api.get("/boot-allowlists", async (c: Context) => {
+    const service = settingsServices.manageBootAllowlists();
+    const snapshot = await service.get();
+    return c.json(snapshot);
+  });
+
+  /**
+   * PUT/POST /api/boot-allowlists - Update boot config allowlists
+   */
+  const handleBootAllowlistUpdate = async (c: Context) => {
+    try {
+      const payload = await parseJsonBodyWithLimit<unknown>(
+        c.req.raw,
+        runtime.httpMaxBodyBytes
+      );
+      const service = settingsServices.manageBootAllowlists();
+      const snapshot = await service.update(payload);
+      return c.json(snapshot);
+    } catch (error) {
+      if (isAppError(error)) {
+        return c.json({ error: error.message }, error.statusCode as 400 | 404);
+      }
+      if (isJsonBodyParseError(error)) {
+        return c.json({ error: error.message }, error.statusCode);
+      }
+      if (error instanceof Error) {
+        logger.error("Failed to update boot allowlist payload", {
+          error: error.message,
+        });
+        return c.json({ error: error.message }, 400);
+      }
+      logger.error("Failed to update boot allowlist payload", {
+        error: String(error),
+      });
+      return c.json({ error: "Failed to update boot allowlists" }, 400);
+    }
+  };
+
+  api.put("/boot-allowlists", handleBootAllowlistUpdate);
+  api.post("/boot-allowlists", handleBootAllowlistUpdate);
 }

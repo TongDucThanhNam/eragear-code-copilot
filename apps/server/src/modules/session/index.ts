@@ -4,6 +4,7 @@ export { CompactSessionMessagesService } from "./application/compact-session-mes
 export type {
   CreateSessionInput,
   ListSessionsInput,
+  SessionMessageByIdInput,
   SessionChatIdInput,
   SessionListPageInput,
   SessionMessagesPageInput,
@@ -12,6 +13,7 @@ export type {
 export {
   CreateSessionInputSchema,
   ListSessionsInputSchema,
+  SessionMessageByIdInputSchema,
   SessionChatIdInputSchema,
   SessionListPageInputSchema,
   SessionMessagesPageInputSchema,
@@ -19,6 +21,7 @@ export {
 } from "./application/contracts/session.contract";
 export { CreateSessionService } from "./application/create-session.service";
 export { DeleteSessionService } from "./application/delete-session.service";
+export { GetSessionMessageByIdService } from "./application/get-session-message-by-id.service";
 export { GetSessionMessagesService } from "./application/get-session-messages.service";
 export { GetSessionStateService } from "./application/get-session-state.service";
 export { GetSessionStorageStatsService } from "./application/get-session-storage-stats.service";

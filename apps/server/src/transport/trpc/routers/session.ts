@@ -14,6 +14,7 @@ import {
   ListSessionsInputSchema,
   SessionChatIdInputSchema,
   SessionListPageInputSchema,
+  SessionMessageByIdInputSchema,
   SessionMessagesPageInputSchema,
   UpdateSessionMetaInputSchema,
 } from "@/modules/session";
@@ -137,6 +138,18 @@ export const sessionRouter = router({
       });
     }),
 
+  /** Get a single session message by id */
+  getSessionMessageById: protectedProcedure
+    .input(SessionMessageByIdInputSchema)
+    .query(async ({ input, ctx }) => {
+      const service = ctx.sessionServices.getSessionMessageById();
+      return await service.execute({
+        userId: getRequiredUserId(ctx),
+        chatId: input.chatId,
+        messageId: input.messageId,
+      });
+    }),
+
   /** Get current SQLite storage statistics */
   getStorageStats: protectedProcedure.query(async ({ ctx }) => {
     const service = ctx.sessionServices.getSessionStorageStats();
@@ -165,7 +178,13 @@ export const sessionRouter = router({
         }
 
         emit.next({ type: "connected" });
-        emit.next({ type: "chat_status", status: subscription.chatStatus });
+        emit.next({
+          type: "chat_status",
+          status: subscription.chatStatus,
+          ...(subscription.activeTurnId
+            ? { turnId: subscription.activeTurnId }
+            : {}),
+        });
 
         for (const event of subscription.bufferedEvents) {
           emit.next(event);

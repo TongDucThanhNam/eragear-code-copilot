@@ -7,13 +7,24 @@
  * @module modules/session/infra/runtime-store
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import type { SessionEventOutboxPort } from "../application/ports/session-event-outbox.port";
-import type { SessionRuntimePort } from "../application/ports/session-runtime.port";
+import type {
+  SessionBroadcastOptions,
+  SessionRuntimePort,
+} from "../application/ports/session-runtime.port";
 
-const logger = createLogger("Debug");
-const MIN_LOCK_ACQUIRE_TIMEOUT_MS = 100;
+let loggerInstance: ReturnType<typeof createLogger> | null = null;
+const MIN_LOCK_WAIT_WARNING_MS = 100;
+
+function getLogger() {
+  if (!loggerInstance) {
+    loggerInstance = createLogger("Debug");
+  }
+  return loggerInstance;
+}
 
 export interface SessionRuntimeStorePolicy {
   sessionBufferLimit: number;
@@ -23,13 +34,13 @@ export interface SessionRuntimeStorePolicy {
 
 function normalizePolicy(policy: SessionRuntimeStorePolicy): {
   sessionBufferLimit: number;
-  lockAcquireTimeoutMs: number;
+  lockWaitWarningMs: number;
   maxQueuedMutationsPerChat: number;
 } {
   return {
     sessionBufferLimit: Math.max(1, Math.trunc(policy.sessionBufferLimit)),
-    lockAcquireTimeoutMs: Math.max(
-      MIN_LOCK_ACQUIRE_TIMEOUT_MS,
+    lockWaitWarningMs: Math.max(
+      MIN_LOCK_WAIT_WARNING_MS,
       Math.trunc(policy.lockAcquireTimeoutMs)
     ),
     maxQueuedMutationsPerChat: Math.max(
@@ -37,15 +48,6 @@ function normalizePolicy(policy: SessionRuntimeStorePolicy): {
       Math.trunc(policy.eventBusPublishMaxQueuePerChat)
     ),
   };
-}
-
-class SessionLockAcquireTimeoutError extends Error {
-  constructor(chatId: string, timeoutMs: number) {
-    super(
-      `[SessionRuntimeStore] Lock acquisition timed out for chat "${chatId}" after ${timeoutMs}ms`
-    );
-    this.name = "SessionLockAcquireTimeoutError";
-  }
 }
 
 class SessionMutationQueueOverflowError extends Error {
@@ -73,12 +75,16 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   private readonly eventOutbox: SessionEventOutboxPort;
   /** Maximum retained buffered events per session */
   private readonly sessionBufferLimit: number;
-  /** Maximum time waiting to acquire a per-chat lock */
-  private readonly lockAcquireTimeoutMs: number;
+  /** Warning threshold when lock acquisition latency is high */
+  private readonly lockWaitWarningMs: number;
   /** Maximum queued state mutations per chat to cap memory growth */
   private readonly maxQueuedMutationsPerChat: number;
   /** Number of queued state mutations per chat */
   private readonly queuedMutationsPerChat = new Map<string, number>();
+  /** Per-request lock re-entry context keyed by chat id */
+  private readonly lockContextStorage = new AsyncLocalStorage<
+    Map<string, number>
+  >();
 
   constructor(
     eventOutbox: SessionEventOutboxPort,
@@ -87,7 +93,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     this.eventOutbox = eventOutbox;
     const normalizedPolicy = normalizePolicy(policy);
     this.sessionBufferLimit = normalizedPolicy.sessionBufferLimit;
-    this.lockAcquireTimeoutMs = normalizedPolicy.lockAcquireTimeoutMs;
+    this.lockWaitWarningMs = normalizedPolicy.lockWaitWarningMs;
     this.maxQueuedMutationsPerChat = normalizedPolicy.maxQueuedMutationsPerChat;
   }
 
@@ -106,7 +112,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
         try {
           pending.resolve({ outcome: { outcome: "cancelled" } });
         } catch (error) {
-          logger.warn(
+          getLogger().warn(
             "Failed to resolve pending permission during session delete",
             {
               chatId,
@@ -131,6 +137,22 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   }
 
   async runExclusive<T>(chatId: string, work: () => Promise<T>): Promise<T> {
+    const activeContext = this.lockContextStorage.getStore();
+    const activeDepth = activeContext?.get(chatId) ?? 0;
+    if (activeContext && activeDepth > 0) {
+      activeContext.set(chatId, activeDepth + 1);
+      try {
+        return await work();
+      } finally {
+        const nextDepth = (activeContext.get(chatId) ?? 1) - 1;
+        if (nextDepth <= 0) {
+          activeContext.delete(chatId);
+        } else {
+          activeContext.set(chatId, nextDepth);
+        }
+      }
+    }
+
     this.reserveQueuedMutationSlot(chatId);
     const previousTail = this.chatLockTails.get(chatId) ?? Promise.resolve();
     let releaseLock: () => void = () => undefined;
@@ -142,18 +164,28 @@ export class SessionRuntimeStore implements SessionRuntimePort {
       () => lockSignal
     );
     this.chatLockTails.set(chatId, nextTail);
+    const scopedContext = activeContext
+      ? new Map(activeContext)
+      : new Map<string, number>();
+    scopedContext.set(chatId, 1);
+    const waitStartedAt = Date.now();
 
     try {
-      await this.waitForLock(previousTail, chatId);
-      return await work();
-    } catch (error) {
-      if (error instanceof SessionLockAcquireTimeoutError) {
-        logger.warn("Session lock timed out", {
+      await previousTail.catch(() => undefined);
+      const waitMs = Date.now() - waitStartedAt;
+      if (waitMs > this.lockWaitWarningMs) {
+        getLogger().warn("Session lock acquisition latency exceeded threshold", {
           chatId,
-          timeoutMs: this.lockAcquireTimeoutMs,
+          waitMs,
+          thresholdMs: this.lockWaitWarningMs,
         });
-      } else if (error instanceof SessionMutationQueueOverflowError) {
-        logger.warn("Session mutation queue overflow", {
+      }
+      return await this.lockContextStorage.run(scopedContext, async () => {
+        return await work();
+      });
+    } catch (error) {
+      if (error instanceof SessionMutationQueueOverflowError) {
+        getLogger().warn("Session mutation queue overflow", {
           chatId,
           maxPending: this.maxQueuedMutationsPerChat,
         });
@@ -192,46 +224,35 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     this.queuedMutationsPerChat.set(chatId, pending - 1);
   }
 
-  private async waitForLock(
-    previousTail: Promise<void>,
-    chatId: string
+  async broadcast(
+    chatId: string,
+    event: BroadcastEvent,
+    options?: SessionBroadcastOptions
   ): Promise<void> {
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<void>((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        reject(
-          new SessionLockAcquireTimeoutError(chatId, this.lockAcquireTimeoutMs)
-        );
-      }, this.lockAcquireTimeoutMs);
-    });
-    try {
-      await Promise.race([previousTail.catch(() => undefined), timeoutPromise]);
-    } finally {
-      if (timeoutHandle !== undefined) {
-        clearTimeout(timeoutHandle);
-      }
-    }
-  }
-
-  async broadcast(chatId: string, event: BroadcastEvent): Promise<void> {
+    const durable = options?.durable !== false;
+    const retainInBuffer = options?.retainInBuffer !== false;
     await this.runExclusive(chatId, async () => {
       const session = this.sessions.get(chatId);
       if (!session) {
         return;
       }
 
-      await this.eventOutbox.enqueue({
-        chatId,
-        userId: session.userId,
-        event,
-      });
+      if (durable) {
+        await this.eventOutbox.enqueue({
+          chatId,
+          userId: session.userId,
+          event,
+        });
+      }
 
-      session.messageBuffer.push(event);
-      if (session.messageBuffer.length > this.sessionBufferLimit) {
-        session.messageBuffer.splice(
-          0,
-          session.messageBuffer.length - this.sessionBufferLimit
-        );
+      if (retainInBuffer) {
+        session.messageBuffer.push(event);
+        if (session.messageBuffer.length > this.sessionBufferLimit) {
+          session.messageBuffer.splice(
+            0,
+            session.messageBuffer.length - this.sessionBufferLimit
+          );
+        }
       }
 
       session.emitter.emit("data", event);

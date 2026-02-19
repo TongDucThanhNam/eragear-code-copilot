@@ -98,6 +98,12 @@ export interface SessionRepositoryPort {
     userId: string,
     message: StoredMessage
   ): Promise<{ appended: true }>;
+  /** Get one message by message id for a session */
+  getMessageById(
+    id: string,
+    userId: string,
+    messageId: string
+  ): Promise<StoredMessage | undefined>;
   /** Get a paginated page of messages for a session */
   getMessagesPage(
     id: string,

@@ -55,16 +55,11 @@ interface SpeechRecognitionErrorEvent extends Event {
   error: string;
 }
 
-declare global {
-  interface Window {
-    SpeechRecognition: {
-      new (): SpeechRecognition;
-    };
-    webkitSpeechRecognition: {
-      new (): SpeechRecognition;
-    };
-  }
-}
+type SpeechRecognitionConstructor = new () => SpeechRecognition;
+type SpeechRecognitionWindow = Window & {
+  SpeechRecognition?: unknown;
+  webkitSpeechRecognition?: unknown;
+};
 
 type SpeechInputMode = "speech-recognition" | "media-recorder" | "none";
 
@@ -85,7 +80,11 @@ const detectSpeechInputMode = (): SpeechInputMode => {
     return "none";
   }
 
-  if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
+  const speechWindow = window as SpeechRecognitionWindow;
+  const ctor =
+    speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+
+  if (typeof ctor === "function") {
     return "speech-recognition";
   }
 
@@ -95,6 +94,23 @@ const detectSpeechInputMode = (): SpeechInputMode => {
 
   return "none";
 };
+
+const getSpeechRecognitionConstructor =
+  (): SpeechRecognitionConstructor | null => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const speechWindow = window as SpeechRecognitionWindow;
+    const ctor =
+      speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+
+    if (typeof ctor !== "function") {
+      return null;
+    }
+
+    return ctor as SpeechRecognitionConstructor;
+  };
 
 export const SpeechInput = ({
   className,
@@ -124,8 +140,12 @@ export const SpeechInput = ({
       return;
     }
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = getSpeechRecognitionConstructor();
+    if (!SpeechRecognition) {
+      setMode("none");
+      return;
+    }
+
     const speechRecognition = new SpeechRecognition();
 
     speechRecognition.continuous = true;

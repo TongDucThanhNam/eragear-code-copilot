@@ -12,9 +12,55 @@ import {
   buildAssistantMessageFromBlocks,
   buildUserMessageFromBlocks,
 } from "@/shared/utils/ui-message.util";
+import type { UIMessage } from "@repo/shared";
+import type { StoredMessage } from "../domain/stored-session.types";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
 const OP = "session.messages.get";
+const USER_COMPACTED_TEXT = "[User message compacted for local retention]";
+const ASSISTANT_COMPACTED_TEXT =
+  "[Assistant message compacted for local retention]";
+
+export function mapStoredMessageToUiMessage(message: StoredMessage): UIMessage {
+  if (message.parts && message.parts.length > 0) {
+    return {
+      id: message.id,
+      role: message.role,
+      parts: message.parts,
+    };
+  }
+
+  const contentBlocks =
+    message.contentBlocks ??
+    (message.content
+      ? [{ type: "text", text: message.content }]
+      : message.isCompacted
+        ? [
+            {
+              type: "text",
+              text:
+                message.role === "assistant"
+                  ? ASSISTANT_COMPACTED_TEXT
+                  : USER_COMPACTED_TEXT,
+            },
+          ]
+        : []);
+  const reasoningBlocks =
+    message.reasoningBlocks ??
+    (message.reasoning ? [{ type: "text", text: message.reasoning }] : []);
+
+  if (message.role === "user") {
+    return buildUserMessageFromBlocks({
+      messageId: message.id,
+      contentBlocks,
+    });
+  }
+  return buildAssistantMessageFromBlocks({
+    messageId: message.id,
+    contentBlocks,
+    reasoningBlocks,
+  });
+}
 
 /**
  * GetSessionMessagesService
@@ -82,43 +128,9 @@ export class GetSessionMessagesService {
       }
     );
 
-    const messages = page.messages.map((message) => {
-      if (message.parts && message.parts.length > 0) {
-        return {
-          id: message.id,
-          role: message.role,
-          parts: message.parts,
-        };
-      }
-      const compactedText =
-        message.role === "assistant"
-          ? "[Assistant message compacted for local retention]"
-          : "[User message compacted for local retention]";
-      let contentBlocks = message.contentBlocks;
-      if (!contentBlocks) {
-        if (message.content) {
-          contentBlocks = [{ type: "text", text: message.content }];
-        } else if (message.isCompacted) {
-          contentBlocks = [{ type: "text", text: compactedText }];
-        } else {
-          contentBlocks = [];
-        }
-      }
-      const reasoningBlocks =
-        message.reasoningBlocks ??
-        (message.reasoning ? [{ type: "text", text: message.reasoning }] : []);
-      if (message.role === "user") {
-        return buildUserMessageFromBlocks({
-          messageId: message.id,
-          contentBlocks,
-        });
-      }
-      return buildAssistantMessageFromBlocks({
-        messageId: message.id,
-        contentBlocks,
-        reasoningBlocks,
-      });
-    });
+    const messages = page.messages.map((message) =>
+      mapStoredMessageToUiMessage(message)
+    );
 
     return {
       messages,

@@ -1,11 +1,13 @@
 import { NotFoundError } from "@/shared/errors";
 import type { BroadcastEvent, ChatStatus } from "@/shared/types/session.types";
+import { reconcileChatStatusForSubscription } from "@/shared/utils/chat-events.util";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 const OP = "session.events.subscribe";
 
 export interface SessionEventSubscription {
   chatStatus: ChatStatus;
+  activeTurnId?: string;
   bufferedEvents: BroadcastEvent[];
   subscribe(listener: (event: BroadcastEvent) => void): () => void;
   release(): void;
@@ -30,9 +32,11 @@ export class SubscribeSessionEventsService {
 
     session.idleSinceAt = undefined;
     session.subscriberCount += 1;
+    const chatStatus = reconcileChatStatusForSubscription(session);
 
     return {
-      chatStatus: session.chatStatus,
+      chatStatus,
+      activeTurnId: session.activeTurnId,
       bufferedEvents: [...session.messageBuffer],
       subscribe(listener) {
         session.emitter.on("data", listener);

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
@@ -7,10 +13,14 @@ import { ChatPlanDock } from "@/components/chat-ui/chat-plan-dock";
 import { ChatMessages } from "@/components/chat-ui/chat-messages";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
+import { Button } from "@/components/ui/button";
 import { useChat } from "@/hooks/use-chat";
 import { prepareImageForPrompt } from "@/lib/image-prompt";
 import { trpc } from "@/lib/trpc";
-import { useChatStatusStore } from "@/store/chat-status-store";
+import {
+  type SessionBootstrapPhase,
+  useChatStatusStore,
+} from "@/store/chat-status-store";
 import { useDiffStore } from "@/store/diff-store";
 import { useFileStore } from "@/store/file-store";
 import { useProjectStore } from "@/store/project-store";
@@ -20,12 +30,27 @@ interface ChatInterfaceProps {
   onChatIdChange?: (chatId: string | null) => void;
 }
 
+function getBootstrapPhaseLabel(phase: SessionBootstrapPhase): string {
+  switch (phase) {
+    case "creating_session":
+      return "Creating session...";
+    case "initializing_agent":
+      return "Initializing agent...";
+    case "restoring_history":
+      return "Restoring history...";
+    case "idle":
+    default:
+      return "Loading session...";
+  }
+}
+
 export function ChatInterface({
   initialChatId,
   onChatIdChange,
 }: ChatInterfaceProps) {
   const utils = trpc.useUtils();
-  const { data: agentsData } = trpc.agents.list.useQuery();
+  const { data: agentsData, isLoading: isAgentsLoading } =
+    trpc.agents.list.useQuery();
   const { data: sessionsData } = trpc.getSessions.useQuery();
   const activeAgentId = agentsData?.activeAgentId;
   const agentModels = useMemo(
@@ -44,12 +69,23 @@ export function ChatInterface({
       return acc;
     }, {});
   }, [projects]);
+  const sessionBootstrapPhase = useChatStatusStore(
+    (state) => state.sessionBootstrapPhase
+  );
+  const setSessionBootstrapPhase = useChatStatusStore(
+    (state) => state.setSessionBootstrapPhase
+  );
 
-  // Chat ID state (local, synced with initial prop)
-  const [chatId, setChatId] = useState<string | null>(initialChatId || null);
+  const [uncontrolledChatId, setUncontrolledChatId] = useState<string | null>(
+    initialChatId || null
+  );
+  const isChatIdControlled = typeof onChatIdChange === "function";
+  const chatId = isChatIdControlled
+    ? (initialChatId ?? null)
+    : uncontrolledChatId;
   const [isQuickSwitchOpen, setIsQuickSwitchOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const chatIdRef = useRef<string | null>(initialChatId || null);
+  const chatIdRef = useRef<string | null>(chatId);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const handledPermissionIdRef = useRef<string | null>(null);
   const lastPermissionIdRef = useRef<string | null>(null);
@@ -75,8 +111,8 @@ export function ChatInterface({
     respondToPermission,
     stopSession,
     resumeSession,
+    refreshHistory,
     setMessages,
-    restoreSessionState,
     setConnStatus,
     setStatus,
   } = useChat({
@@ -150,7 +186,11 @@ export function ChatInterface({
   const selectSession = useCallback(
     (id: string) => {
       setIsQuickSwitchOpen(false);
-      onChatIdChange?.(id);
+      if (onChatIdChange) {
+        onChatIdChange(id);
+        return;
+      }
+      setUncontrolledChatId(id);
     },
     [onChatIdChange]
   );
@@ -198,7 +238,11 @@ export function ChatInterface({
               quickSwitchSessions.length;
         const nextSession = quickSwitchSessions[nextIndex];
         if (nextSession) {
-          onChatIdChange?.(nextSession.id);
+          if (onChatIdChange) {
+            onChatIdChange(nextSession.id);
+          } else {
+            setUncontrolledChatId(nextSession.id);
+          }
         }
       }
     };
@@ -207,27 +251,9 @@ export function ChatInterface({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onChatIdChange, quickSwitchSessions]);
 
-  // Sync chatId from prop changes
   useEffect(() => {
-    if (initialChatId && initialChatId !== chatId) {
-      utils.getSessionState.invalidate({ chatId: chatId || "" });
-      utils.getSessionMessages.invalidate({ chatId: chatId || "" });
-      setMessages([]);
-      setChatId(initialChatId);
-      chatIdRef.current = initialChatId;
-      setConnStatus("connecting");
-      setStatus("connecting");
-    } else if (!initialChatId && chatId) {
-      utils.getSessionState.invalidate({ chatId });
-      utils.getSessionMessages.invalidate({ chatId });
-      setChatId(null);
-      chatIdRef.current = null;
-      setConnStatus("idle");
-      setMessages([]);
-      setStatus("inactive");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialChatId]);
+    chatIdRef.current = chatId;
+  }, [chatId]);
 
   // Mutations for session creation
   const createSessionMutation = trpc.createSession.useMutation();
@@ -353,6 +379,7 @@ export function ChatInterface({
         return;
       }
 
+      setSessionBootstrapPhase("creating_session");
       setConnStatus("connecting");
       setStatus("connecting");
       try {
@@ -363,46 +390,25 @@ export function ChatInterface({
           env: agent?.env,
         });
 
-        setChatId(data.chatId);
-        chatIdRef.current = data.chatId;
-
+        setSessionBootstrapPhase("initializing_agent");
         if (onChatIdChange) {
           onChatIdChange(data.chatId);
+        } else {
+          setUncontrolledChatId(data.chatId);
         }
-
-        // Apply session state from creation response
-        restoreSessionState({
-          chatStatus: data.chatStatus,
-          modes: data.modes
-            ? {
-                currentModeId: data.modes.currentModeId || "",
-                availableModes: data.modes.availableModes,
-              }
-            : undefined,
-          models: data.models
-            ? {
-                currentModelId: data.models.currentModelId || "",
-                availableModels: data.models.availableModels,
-              }
-            : undefined,
-          promptCapabilities: data.promptCapabilities,
-          loadSessionSupported: data.loadSessionSupported ?? false,
-          agentInfo: data.agentInfo ?? null,
-        });
-
-        setConnStatus("connected");
       } catch (e) {
         console.error("Failed to init chat", e);
         setConnStatus("error");
         setStatus("error");
+        setSessionBootstrapPhase("idle");
       }
     },
     [
+      setSessionBootstrapPhase,
       createSessionMutation,
       onChatIdChange,
       agentModels,
       activeAgentId,
-      restoreSessionState,
       setConnStatus,
       setStatus,
     ]
@@ -411,18 +417,18 @@ export function ChatInterface({
   const handleNewChat = useCallback(
     (agentId: string) => {
       setMessages([]);
-      setChatId(null);
-      chatIdRef.current = null;
       useDiffStore.getState().clearDiffs();
 
       if (onChatIdChange) {
         onChatIdChange(null);
+      } else {
+        setUncontrolledChatId(null);
       }
 
       setActiveAgentMutation.mutate({ id: agentId });
       initChat(agentId);
     },
-    [initChat, onChatIdChange, setActiveAgentMutation, setChatId, setMessages]
+    [initChat, onChatIdChange, setActiveAgentMutation, setMessages]
   );
 
   const handleStopChat = useCallback(async () => {
@@ -432,16 +438,16 @@ export function ChatInterface({
     }
     try {
       await stopSession();
-      setChatId(null);
-      chatIdRef.current = null;
 
       if (onChatIdChange) {
         onChatIdChange(null);
+      } else {
+        setUncontrolledChatId(null);
       }
     } catch (e) {
       console.error("Failed to stop chat", e);
     }
-  }, [onChatIdChange, setChatId, stopSession]);
+  }, [onChatIdChange, stopSession]);
 
   const handleCancel = useCallback(async () => {
     if (!chatId) {
@@ -649,6 +655,56 @@ export function ChatInterface({
     }
   }, [projectContext, setFiles]);
 
+  useEffect(() => {
+    if (!chatId) {
+      return;
+    }
+    if (
+      connStatus === "connecting" &&
+      sessionBootstrapPhase !== "restoring_history"
+    ) {
+      setSessionBootstrapPhase("restoring_history");
+      return;
+    }
+    if (connStatus === "connected" && sessionBootstrapPhase !== "idle") {
+      setSessionBootstrapPhase("idle");
+      return;
+    }
+    if (connStatus === "error" && sessionBootstrapPhase !== "idle") {
+      setSessionBootstrapPhase("idle");
+    }
+  }, [chatId, connStatus, sessionBootstrapPhase, setSessionBootstrapPhase]);
+
+  const isSessionBootstrapping = sessionBootstrapPhase !== "idle";
+  const shouldShowBootstrapState =
+    (!chatId && isSessionBootstrapping) ||
+    (Boolean(initialChatId) && isAgentsLoading && !chatId);
+  const bootstrapLabel = isSessionBootstrapping
+    ? getBootstrapPhaseLabel(sessionBootstrapPhase)
+    : "Loading session...";
+  const connectionOverlayLabel =
+    sessionBootstrapPhase === "initializing_agent"
+      ? "Initializing agent..."
+      : "Restoring history...";
+  const shouldShowDiagnosticEmptyState =
+    Boolean(chatId) &&
+    messages.length === 0 &&
+    connStatus !== "idle" &&
+    connStatus !== "connecting";
+  const diagnosticEmptyStateLabel =
+    status === "error"
+      ? "Chat stream was interrupted before messages arrived."
+      : "Session is running but no messages were synced yet.";
+
+  if (shouldShowBootstrapState) {
+    return (
+      <div className="flex size-full flex-col items-center justify-center gap-2 p-8 text-center">
+        <div className="size-6 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-foreground" />
+        <p className="text-muted-foreground text-sm">{bootstrapLabel}</p>
+      </div>
+    );
+  }
+
   // Empty state
   if (!chatId) {
     return (
@@ -692,7 +748,7 @@ export function ChatInterface({
   }
 
   return (
-    <div className="relative flex size-full flex-col divide-y overflow-hidden">
+    <div className="relative flex size-full flex-col overflow-hidden">
       <ChatHeader
         activeAgentId={activeAgentId || null}
         agentModels={agentModels}
@@ -706,12 +762,43 @@ export function ChatInterface({
         sessionAgentInfo={sessionAgentInfo}
       />
 
-      <ChatMessages
-        messages={messages}
-        terminalOutputs={terminalOutputs}
-      />
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <ChatMessages
+          messages={messages}
+          terminalOutputs={terminalOutputs}
+        />
+        {connStatus === "connecting" && messages.length === 0 && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/35 backdrop-blur-[1px]">
+            <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 shadow-sm">
+              <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-foreground" />
+              <span className="text-muted-foreground text-xs">
+                {connectionOverlayLabel}
+              </span>
+            </div>
+          </div>
+        )}
+        {shouldShowDiagnosticEmptyState && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/40 backdrop-blur-[1px]">
+            <div className="flex max-w-sm flex-col items-center gap-3 rounded-lg border bg-background px-4 py-4 text-center shadow-sm">
+              <p className="text-muted-foreground text-sm">
+                {diagnosticEmptyStateLabel}
+              </p>
+              <Button
+                onClick={() => {
+                  void refreshHistory();
+                }}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                Reload history
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
-      <div className="relative">
+      <div className="relative border-t bg-background/95 pb-[max(env(safe-area-inset-bottom),0px)] backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <ChatPlanDock messages={messages} />
         <ChatInput
           activeTabs={projectContext?.activeTabs}

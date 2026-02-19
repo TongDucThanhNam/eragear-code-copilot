@@ -583,7 +583,7 @@ export class PromptTaskRunner {
       turnId,
     });
 
-    await aggregate.markReadyIfSubmitted({ chatId, broadcast }, turnId);
+    await aggregate.markReadyAfterTurnCompletion({ chatId, broadcast }, turnId);
     if (session.chatStatus === SESSION_RUNTIME_CHAT_STATUS.READY) {
       this.logger.debug("SendMessageService chat status ready", {
         chatId,

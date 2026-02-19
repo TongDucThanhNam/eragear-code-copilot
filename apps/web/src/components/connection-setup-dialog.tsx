@@ -2,10 +2,78 @@
 
 import { AlertCircle, Globe, Key, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { createBetterAuthClient } from "@/lib/auth-client";
+import {
+  buildHttpApiUrl,
+  buildTrpcWsUrl,
+  normalizeServerUrl,
+} from "@/lib/server-url";
 import { useServerConfigStore } from "@/store/server-config-store";
 
-const WS_PROTOCOL_REGEX = /^ws/;
+interface ApiKeyVerifyResponse {
+  valid?: boolean;
+  error?: { message?: string; code?: string } | null;
+  key?: { userId?: string } | null;
+}
+
+const verifyApiKeyViaHttp = async (serverUrl: string, apiKey: string) => {
+  const response = await fetch(buildHttpApiUrl(serverUrl, "/api/auth/api-key/verify"), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ key: apiKey }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API key verification failed (${response.status})`);
+  }
+
+  const payload = (await response.json()) as ApiKeyVerifyResponse;
+  if (!payload.valid) {
+    const message = payload.error?.message || "Invalid API key";
+    throw new Error(message);
+  }
+
+  return payload;
+};
+
+const verifyWebSocketEndpoint = async (serverUrl: string, timeoutMs = 5000) => {
+  const wsUrl = buildTrpcWsUrl(serverUrl);
+  await new Promise<void>((resolve, reject) => {
+    const socket = new WebSocket(wsUrl);
+    const timer = window.setTimeout(() => {
+      socket.close();
+      reject(new Error("WebSocket connection timed out"));
+    }, timeoutMs);
+
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      socket.removeEventListener("open", handleOpen);
+      socket.removeEventListener("error", handleError);
+      socket.removeEventListener("close", handleClose);
+    };
+
+    const handleOpen = () => {
+      cleanup();
+      socket.close();
+      resolve();
+    };
+
+    const handleError = () => {
+      cleanup();
+      reject(new Error("WebSocket endpoint is unreachable"));
+    };
+
+    const handleClose = () => {
+      cleanup();
+      reject(new Error("WebSocket endpoint rejected the connection"));
+    };
+
+    socket.addEventListener("open", handleOpen);
+    socket.addEventListener("error", handleError);
+    socket.addEventListener("close", handleClose);
+  });
+};
 
 export function ConnectionSetupDialog() {
   const {
@@ -72,19 +140,20 @@ export function ConnectionSetupDialog() {
 
     setStatus("connecting");
     setErrorMessage(null);
+    setConfigured(false);
+    setApiKey("");
 
     // Don't persist config until verification succeeds.
 
     setTimeout(async () => {
       try {
-        const baseUrl = localUrl.replace(WS_PROTOCOL_REGEX, "http");
         const healthController = new AbortController();
         const healthTimer = window.setTimeout(
           () => healthController.abort(),
           5000
         );
         try {
-          const healthRes = await fetch(`${baseUrl}/api/health`, {
+          const healthRes = await fetch(buildHttpApiUrl(localUrl, "/api/health"), {
             signal: healthController.signal,
           });
           if (!healthRes.ok) {
@@ -93,35 +162,14 @@ export function ConnectionSetupDialog() {
         } finally {
           window.clearTimeout(healthTimer);
         }
-        const authClient = createBetterAuthClient(baseUrl);
-        const verifyResponse = await authClient.apiKey.verify({
-          key: normalizedApiKey,
-        });
-        const result =
-          verifyResponse && "data" in verifyResponse
-            ? (
-                verifyResponse as {
-                  data?: { valid?: boolean; error?: { message?: string } };
-                }
-              ).data
-            : (verifyResponse as {
-                valid?: boolean;
-                error?: { message?: string };
-              });
-        const error =
-          verifyResponse && "error" in verifyResponse
-            ? (verifyResponse as { error?: { message?: string } }).error
-            : undefined;
-        if (!result?.valid) {
-          throw new Error(
-            result?.error?.message || error?.message || "Invalid API key"
-          );
-        }
+        const result = await verifyApiKeyViaHttp(localUrl, normalizedApiKey);
+        await verifyWebSocketEndpoint(localUrl);
+        const normalizedServerUrl = normalizeServerUrl(localUrl);
 
         console.info("[Connect] API key verified", {
           userId: result.key?.userId,
         });
-        setServerUrl(localUrl);
+        setServerUrl(normalizedServerUrl);
         setApiKey(normalizedApiKey);
         setConfigured(true);
         console.info("[Connect] Stored server config");
@@ -139,9 +187,9 @@ export function ConnectionSetupDialog() {
         const msg =
           err instanceof Error ? err.message : "Authentication failed";
         setErrorMessage(
-          msg.includes("UNAUTHORIZED") || msg.toLowerCase().includes("auth")
+          msg.toLowerCase().includes("key")
             ? "Invalid API key. Please check your credentials."
-            : "Connection failed. Please check the server URL."
+            : msg
         );
       }
     }, 500);

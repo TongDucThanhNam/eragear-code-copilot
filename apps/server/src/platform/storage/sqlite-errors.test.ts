@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isSqliteBusyError,
   isSqliteForeignKeyConstraint,
   unwrapSqliteError,
 } from "./sqlite-errors";
@@ -38,5 +39,24 @@ describe("sqlite-errors helpers", () => {
     error.errno = 2067;
 
     expect(isSqliteForeignKeyConstraint(error)).toBe(false);
+  });
+
+  test("detects SQLite busy errors by code and errno", () => {
+    const error = new Error("database is locked") as Error & {
+      code?: string;
+      errno?: number;
+    };
+    error.code = "SQLITE_BUSY_TIMEOUT";
+    error.errno = 5;
+
+    expect(isSqliteBusyError(error)).toBe(true);
+  });
+
+  test("detects SQLite busy errors through nested causes", () => {
+    const nested = new Error("database is locked");
+    const outer = new Error("write failed");
+    Object.assign(outer, { cause: nested });
+
+    expect(isSqliteBusyError(outer)).toBe(true);
   });
 });

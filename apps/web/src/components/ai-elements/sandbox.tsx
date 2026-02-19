@@ -36,6 +36,24 @@ export interface SandboxHeaderProps {
   className?: string;
 }
 
+type ToolBadgeState = Parameters<typeof getStatusBadge>[0];
+
+const toToolBadgeState = (state: ToolUIPart["state"]): ToolBadgeState => {
+  switch (state) {
+    case "input-streaming":
+    case "input-available":
+      return "running";
+    case "approval-requested":
+      return "approval-requested";
+    case "approval-responded":
+    case "output-available":
+      return "completed";
+    case "output-error":
+    case "output-denied":
+      return "error";
+  }
+};
+
 export const SandboxHeader = ({
   className,
   title,
@@ -52,7 +70,7 @@ export const SandboxHeader = ({
     <div className="flex items-center gap-2">
       <Code className="size-4 text-muted-foreground" />
       <span className="font-medium text-sm">{title}</span>
-      {getStatusBadge(state)}
+      {getStatusBadge(toToolBadgeState(state))}
     </div>
     <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
   </CollapsibleTrigger>

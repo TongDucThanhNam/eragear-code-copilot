@@ -304,7 +304,7 @@ export const ENV = {
     env.SESSION_BUFFER_LIMIT,
     DEFAULT_SESSION_BUFFER_LIMIT
   ),
-  /** Timeout while waiting to acquire per-chat session lock */
+  /** Warning threshold for per-chat session lock acquisition latency */
   sessionLockAcquireTimeoutMs: toPositiveInt(
     env.SESSION_LOCK_ACQUIRE_TIMEOUT_MS,
     DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS

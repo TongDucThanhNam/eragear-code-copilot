@@ -11,7 +11,10 @@ import { createLogger } from "@/platform/logging/structured-logger";
 import { toError } from "@/shared/utils/error.util";
 import { stringifyJson } from "@/shared/utils/json.util";
 import { migrateLegacyJsonIfNeeded } from "./sqlite-legacy-migration";
-import { acquireSqliteProcessInitLock } from "./sqlite-process-lock";
+import {
+  acquireSqliteProcessInitLock,
+  SqliteProcessInitLockTimeoutError,
+} from "./sqlite-process-lock";
 import {
   callSqliteWorker,
   getSqliteWorkerStats,
@@ -438,7 +441,22 @@ function persistStorageResolutionMeta(db: Database): void {
 async function initializeSqliteDb(): Promise<Database> {
   const storageDir = await getStorageDirPath();
   await mkdir(storageDir, { recursive: true });
-  const initLock = await acquireSqliteProcessInitLock(storageDir);
+  let initLock: Awaited<
+    ReturnType<typeof acquireSqliteProcessInitLock>
+  > | null = null;
+  try {
+    initLock = await acquireSqliteProcessInitLock(storageDir);
+  } catch (error) {
+    if (error instanceof SqliteProcessInitLockTimeoutError) {
+      logger.warn("SQLite init lock acquisition timed out", {
+        lockPath: error.lockPath,
+        attempts: error.attempts,
+        timeoutMs: error.timeoutMs,
+      });
+    }
+    throw error;
+  }
+
   const dbPath = path.join(storageDir, SQLITE_FILE_NAME);
   let db: Database | null = null;
   try {
@@ -467,7 +485,7 @@ async function initializeSqliteDb(): Promise<Database> {
     }
     throw error;
   } finally {
-    await initLock.release();
+    initLock?.release();
   }
 }
 

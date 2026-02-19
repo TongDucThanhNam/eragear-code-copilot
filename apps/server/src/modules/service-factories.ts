@@ -33,6 +33,7 @@ import type {
   CompactSessionMessagesService,
   CreateSessionService,
   DeleteSessionService,
+  GetSessionMessageByIdService,
   GetSessionMessagesService,
   GetSessionStateService,
   GetSessionStorageStatsService,
@@ -45,6 +46,7 @@ import type {
 } from "@/modules/session";
 import type {
   GetSettingsService,
+  ManageBootAllowlistsService,
   UpdateSettingsService,
 } from "@/modules/settings";
 import type {
@@ -67,6 +69,7 @@ export interface SessionServiceFactory {
   listSessions(): ServicePort<ListSessionsService>;
   updateSessionMeta(): ServicePort<UpdateSessionMetaService>;
   getSessionMessagesPage(): ServicePort<GetSessionMessagesService>;
+  getSessionMessageById(): ServicePort<GetSessionMessageByIdService>;
   getSessionStorageStats(): ServicePort<GetSessionStorageStatsService>;
   subscribeSessionEvents(): ServicePort<SubscribeSessionEventsService>;
   cleanupProjectSessions(): ServicePort<CleanupProjectSessionsService>;
@@ -101,6 +104,7 @@ export interface AgentServiceFactory {
 export interface SettingsServiceFactory {
   getSettings(): ServicePort<GetSettingsService>;
   updateSettings(): ServicePort<UpdateSettingsService>;
+  manageBootAllowlists(): ServicePort<ManageBootAllowlistsService>;
 }
 
 export interface ToolingServiceFactory {

@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import type { Client, ClientSideConnection } from "@agentclientprotocol/sdk";
+import type { CommandPolicy } from "@/shared/utils/allowlist.util";
 
 /**
  * Port for agent runtime operations.
@@ -24,4 +25,9 @@ export interface AgentRuntimePort {
     failed: number;
     lingeringPids: number[];
   }>;
+  /** Hot-update invocation policy for future process spawns. */
+  updateInvocationPolicy?(policy: {
+    allowedAgentCommandPolicies: CommandPolicy[];
+    allowedEnvKeys: string[];
+  }): void;
 }

@@ -92,6 +92,8 @@ Client có thể fallback bằng cách lookup `messageId` trong state nếu `mes
   promptCapabilities, loadSessionSupported, supportsModelSwitching, agentInfo, plan
 - `getSessionMessagesPage({ chatId, cursor?, limit?, includeCompacted? })` →
   `{ messages: UIMessage[], nextCursor?, hasMore }` (**primary history API**)
+- `getSessionMessageById({ chatId, messageId })` → `{ message?: UIMessage }`
+  (fallback read path for missed realtime `ui_message` event)
 - `onSessionEvents({ chatId })` → stream `BroadcastEvent`
 
 ### 4.2 Prompt / Mode / Model
@@ -116,8 +118,13 @@ Client có thể fallback bằng cách lookup `messageId` trong state nếu `mes
 ### 5.1 Order guarantees
 
 - `connected` luôn là event đầu tiên.
-- Server sẽ replay buffer `messageBuffer` sau `connected`.
+- Snapshot `chat_status` được emit ngay sau `connected` (kèm `turnId` nếu có
+  active turn).
+- Server sẽ replay buffer `messageBuffer` sau snapshot.
 - `chat_status` được emit khi status đổi.
+- Trước khi emit snapshot, server có thể reconcile trạng thái busy bị stale:
+  nếu không còn active turn và không còn pending permission thì chuyển về
+  `ready`.
 
 ### 5.2 ui_message updates
 
@@ -161,6 +168,9 @@ ANY → (error) → ERROR
 
 Notes:
 - `STREAMING` có thể đến từ tool/plan updates ngay cả khi chưa có text chunks.
+- Khi prompt kết thúc, server phải thoát khỏi mọi busy status hợp lệ
+  (`submitted` | `streaming` | `awaiting_permission` | `cancelling`) để về
+  `ready` trừ khi session đã vào `error`/`inactive`.
 - `ERROR` nghĩa là session mất khả năng xử lý tiếp; client nên disable input.
 
 ## 7) Resume / Replay
@@ -199,7 +209,9 @@ với `apps/server`.
 ### 10.2 Chat Status & Finish
 
 - [ ] Map `chat_status` → UI state (`inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`).
+- [ ] Không drop `chat_status` chỉ vì `turnId` mismatch; status là session-level snapshot.
 - [ ] Lắng nghe `chat_finish` để kết thúc turn (onFinish kiểu AI SDK).
+- [ ] Có thể gate `chat_finish` theo `turnId` để bỏ qua stale turn completion.
 - [ ] `isAbort === true` khi `stopReason === cancelled`.
 
 ### 10.3 Send Message

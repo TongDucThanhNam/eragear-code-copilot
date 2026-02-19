@@ -84,6 +84,15 @@ export const getAttachmentLabel = (data: AttachmentData): string => {
   return data.filename || (category === "image" ? "Image" : "Attachment");
 };
 
+export const getAttachmentMediaType = (
+  data: AttachmentData
+): string | undefined => {
+  if (data.type === "file" || data.type === "source-document") {
+    return data.mediaType;
+  }
+  return undefined;
+};
+
 // ============================================================================
 // Contexts
 // ============================================================================
@@ -298,6 +307,7 @@ export const AttachmentInfo = ({
 }: AttachmentInfoProps) => {
   const { data, variant } = useAttachmentContext();
   const label = getAttachmentLabel(data);
+  const mediaType = getAttachmentMediaType(data);
 
   if (variant === "grid") {
     return null;
@@ -306,9 +316,9 @@ export const AttachmentInfo = ({
   return (
     <div className={cn("min-w-0 flex-1", className)} {...props}>
       <span className="block truncate">{label}</span>
-      {showMediaType && data.mediaType && (
+      {showMediaType && mediaType && (
         <span className="block truncate text-muted-foreground text-xs">
-          {data.mediaType}
+          {mediaType}
         </span>
       )}
     </div>

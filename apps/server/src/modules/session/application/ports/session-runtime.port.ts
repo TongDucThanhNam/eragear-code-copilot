@@ -1,4 +1,11 @@
-import type { ChatSession } from "@/shared/types/session.types";
+import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
+
+export interface SessionBroadcastOptions {
+  /** Persist to durable outbox for eventual cross-component fan-out. */
+  durable?: boolean;
+  /** Retain in in-memory replay buffer for late subscribers/reconnect. */
+  retainInBuffer?: boolean;
+}
 
 /**
  * Port for runtime session management.
@@ -17,5 +24,9 @@ export interface SessionRuntimePort {
   /** Execute work under a per-chat exclusive lock */
   runExclusive<T>(chatId: string, work: () => Promise<T>): Promise<T>;
   /** Broadcast an event locally and enqueue durable outbox fan-out */
-  broadcast(chatId: string, event: unknown): Promise<void>;
+  broadcast(
+    chatId: string,
+    event: BroadcastEvent,
+    options?: SessionBroadcastOptions
+  ): Promise<void>;
 }

@@ -3,6 +3,7 @@ import { createLogger } from "@/platform/logging/structured-logger";
 import { systemClock } from "@/platform/time/system-clock";
 import { isAppError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
+import { isSqliteBusyError } from "./sqlite-errors";
 
 const logger = createLogger("Storage");
 
@@ -29,14 +30,6 @@ let sqliteWriteQueuePolicyOverride: SqliteWriteQueuePolicy | null = null;
 
 function resolveQueuePolicy(): SqliteWriteQueuePolicy {
   return sqliteWriteQueuePolicyOverride ?? readPolicyFromEnv();
-}
-
-function isSqliteBusyError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const text = `${error.name} ${error.message}`.toUpperCase();
-  return text.includes("SQLITE_BUSY") || text.includes("DATABASE IS LOCKED");
 }
 
 export interface SqliteWriteQueueStats {
@@ -117,7 +110,7 @@ class SqliteWriteQueue {
         pending: pendingNow,
         maxPending: policy.maxPending,
       });
-      logger.warn("Rejected SQLite write enqueue due to queue overload", {
+      logger.info("Rejected SQLite write enqueue due to queue overload", {
         operation,
         pending: pendingNow,
         maxPending: policy.maxPending,
@@ -250,7 +243,7 @@ class SqliteWriteQueue {
             pendingTotal: this.pendingTotal(),
           };
           if (isAppError(error) && error.statusCode < 500) {
-            logger.warn("SQLite write rejected by application invariant", {
+            logger.info("SQLite write rejected by application invariant", {
               ...context,
               code: error.code,
               statusCode: error.statusCode,
@@ -265,7 +258,7 @@ class SqliteWriteQueue {
         const delayMs = policy.busyRetryBaseDelayMs * 2 ** (attempt - 1);
         this.busyRetryCount += 1;
         this.maxHeadWaitMs = Math.max(this.maxHeadWaitMs, delayMs);
-        logger.warn("SQLite busy encountered during write; retrying", {
+        logger.debug("SQLite busy encountered during write; retrying", {
           operation,
           attempt,
           maxAttempts: policy.busyMaxRetries,

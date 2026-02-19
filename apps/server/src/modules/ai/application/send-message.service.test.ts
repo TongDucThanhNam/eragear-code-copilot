@@ -14,6 +14,7 @@ import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
   BroadcastEvent,
+  ChatStatus,
   ChatSession,
   StoredMessage,
   StoredSession,
@@ -139,6 +140,14 @@ class InMemorySessionRepo implements SessionRepositoryPort {
       }));
     }
     return Promise.resolve({ appended: true as const });
+  }
+
+  getMessageById(
+    _id: string,
+    _userId: string,
+    _messageId: string
+  ): Promise<StoredMessage | undefined> {
+    return Promise.resolve(undefined);
   }
 
   getMessagesPage(
@@ -379,6 +388,44 @@ describe("SendMessageService", () => {
       expect(readyEvent.turnId).toBe(result.turnId);
     }
     expect(session.activeTurnId).toBeUndefined();
+  });
+
+  test("returns to ready after completion from any busy status", async () => {
+    const busyStatuses: ChatStatus[] = [
+      "streaming",
+      "awaiting_permission",
+      "cancelling",
+    ];
+
+    for (const busyStatus of busyStatuses) {
+      const repo = new InMemorySessionRepo();
+      const events: BroadcastEvent[] = [];
+      let session!: ChatSession;
+      session = createChatSession({
+        prompt: async () => {
+          session.chatStatus = busyStatus;
+          return { stopReason: "end_turn" };
+        },
+      });
+      const runtime = createSessionRuntime("chat-1", session, events);
+      const service = createService(repo, runtime);
+
+      const result = await service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        text: `turn from ${busyStatus}`,
+      });
+      await flushAsync();
+
+      const readyEvent = events.find(
+        (event): event is Extract<BroadcastEvent, { type: "chat_status" }> =>
+          event.type === "chat_status" &&
+          event.status === "ready" &&
+          event.turnId === result.turnId
+      );
+      expect(readyEvent).toBeDefined();
+      expect(session.chatStatus).toBe("ready");
+    }
   });
 
   test("ignores stale turn completion after a newer turn starts", async () => {

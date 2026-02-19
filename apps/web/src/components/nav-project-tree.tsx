@@ -1,7 +1,7 @@
 "use client";
 
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Folder, Pin, Plus } from "lucide-react";
+import { ChevronRight, Folder, Loader2, Pin, Plus } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -45,6 +45,7 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { trpc } from "@/lib/trpc";
+import { useChatStatusStore } from "@/store/chat-status-store";
 import { useProjectStore } from "@/store/project-store";
 import {
   ContextMenu,
@@ -175,6 +176,12 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   >(null);
   const [deleteSessionTarget, setDeleteSessionTarget] =
     useState<SessionItem | null>(null);
+  const [pendingCreateSessionKey, setPendingCreateSessionKey] = useState<
+    string | null
+  >(null);
+  const setSessionBootstrapPhase = useChatStatusStore(
+    (state) => state.setSessionBootstrapPhase
+  );
 
   // Fetch projects
   // Fetch projects and agents
@@ -202,6 +209,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       toast.error(err.message || "Failed to create session");
     },
   });
+  const isCreatingSession = createSessionMutation.isPending;
   const trpcUtils = trpc.useUtils();
   const updateSessionMetaMutation = trpc.updateSessionMeta.useMutation({
     onSuccess: () => {
@@ -392,6 +400,47 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     setDeleteSessionTarget(session);
   };
 
+  const handleCreateSession = async (params: {
+    projectId: string;
+    agent: {
+      id: string;
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+    };
+  }) => {
+    if (isCreatingSession) {
+      return;
+    }
+    const requestKey = `${params.projectId}:${params.agent.id}`;
+    let didNavigate = false;
+    setPendingCreateSessionKey(requestKey);
+    setSessionBootstrapPhase("creating_session");
+    try {
+      setActiveProjectId(params.projectId);
+      await setActiveMutation.mutateAsync({ id: params.projectId });
+      const newSession = await createSessionMutation.mutateAsync({
+        projectId: params.projectId,
+        command: params.agent.command,
+        args: params.agent.args,
+        env: params.agent.env,
+      });
+      setSessionBootstrapPhase("initializing_agent");
+      navigate({
+        to: "/",
+        search: { chatId: newSession.chatId },
+      });
+      didNavigate = true;
+    } catch {
+      // Error is handled by mutation onError callbacks.
+    } finally {
+      setPendingCreateSessionKey(null);
+      if (!didNavigate) {
+        setSessionBootstrapPhase("idle");
+      }
+    }
+  };
+
   const isLoading = listQuery.isLoading;
 
   return (
@@ -445,38 +494,45 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
                     {/* New Agent Session */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <SidebarMenuAction showOnHover title="New Session">
-                          <Plus />
+                        <SidebarMenuAction
+                          disabled={isCreatingSession}
+                          showOnHover
+                          title="New Session"
+                        >
+                          {isCreatingSession ? (
+                            <Loader2 className="animate-spin" />
+                          ) : (
+                            <Plus />
+                          )}
                         </SidebarMenuAction>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
-                        {agents.map((agent) => (
-                          <DropdownMenuItem
-                            key={agent.id}
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              setActiveProjectId(project.id);
-                              await setActiveMutation.mutateAsync({
-                                id: project.id,
-                              });
-
-                              const newSession =
-                                await createSessionMutation.mutateAsync({
+                        {agents.map((agent) => {
+                          const requestKey = `${project.id}:${agent.id}`;
+                          const isPending =
+                            isCreatingSession &&
+                            pendingCreateSessionKey === requestKey;
+                          return (
+                            <DropdownMenuItem
+                              disabled={isCreatingSession}
+                              key={agent.id}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                await handleCreateSession({
                                   projectId: project.id,
-                                  command: agent.command,
-                                  args: agent.args,
-                                  env: agent.env,
+                                  agent,
                                 });
-
-                              navigate({
-                                to: "/",
-                                search: { chatId: newSession.chatId },
-                              });
-                            }}
-                          >
-                            <span>{agent.name}</span>
-                          </DropdownMenuItem>
-                        ))}
+                              }}
+                            >
+                              {isPending ? (
+                                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                              ) : null}
+                              <span>
+                                {isPending ? "Creating session..." : agent.name}
+                              </span>
+                            </DropdownMenuItem>
+                          );
+                        })}
                       </DropdownMenuContent>
                     </DropdownMenu>
 

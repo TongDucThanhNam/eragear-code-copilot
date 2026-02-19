@@ -5,6 +5,8 @@
   "scripts": {
     "build": "tsdown && bun run ui:build",
     "check": "bun run check-types && bunx biome check src --error-on-warnings && bun run test",
+    "check:ci": "bun run check-types && bunx biome check src --error-on-warnings && bun test src",
+    "check:quick": "bun run check-types && bunx biome check src --error-on-warnings",
     "check-types": "tsc -b --noEmit",
     "compile": "bun run ./scripts/compile.ts",
     "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
