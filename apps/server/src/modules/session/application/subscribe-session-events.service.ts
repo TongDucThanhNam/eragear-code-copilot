@@ -6,6 +6,10 @@ import type {
   ChatSession,
   ChatStatus,
 } from "@/shared/types/session.types";
+import {
+  cloneBroadcastEvent,
+  cloneBroadcastEvents,
+} from "@/shared/utils/broadcast-event.util";
 import { reconcileChatStatusForSubscription } from "@/shared/utils/chat-events.util";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
@@ -66,7 +70,7 @@ export class SubscribeSessionEventsService {
               ...buildStreamEventContext(event),
             });
           }
-          listener(event);
+          listener(cloneBroadcastEvent(event));
         };
         session.emitter.on("data", wrappedListener);
         return () => {
@@ -123,7 +127,7 @@ function buildBufferedEvents(session: ChatSession): {
   events: BroadcastEvent[];
   forcedActiveSnapshot: boolean;
 } {
-  const bufferedEvents = [...session.messageBuffer];
+  const bufferedEvents = cloneBroadcastEvents(session.messageBuffer);
   const activeAssistantId = session.uiState.currentAssistantId;
   if (!activeAssistantId) {
     return {
@@ -144,10 +148,10 @@ function buildBufferedEvents(session: ChatSession): {
   );
   let forcedActiveSnapshot = false;
   if (!hasSnapshotInBuffer) {
-    bufferedEvents.push({
+    bufferedEvents.push(cloneBroadcastEvent({
       type: "ui_message",
       message: activeAssistantMessage,
-    });
+    }));
     forcedActiveSnapshot = true;
   }
   return {

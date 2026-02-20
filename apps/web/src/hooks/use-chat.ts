@@ -24,6 +24,9 @@ import {
   applySessionState,
   findPendingPermission,
   isChatBusyStatus,
+  parseBroadcastEventStrict,
+  parseUiMessageArrayStrict,
+  parseUiMessageStrict,
   processSessionEvent,
 } from "@repo/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -117,32 +120,6 @@ function shouldLogChatStreamDebug(): boolean {
   return import.meta.env.DEV;
 }
 
-type RawDataUIPart = {
-  type: `data-${string}`;
-  id?: string;
-  data?: unknown;
-};
-
-type WithOptionalInput<T> = T extends { input: infer TInput }
-  ? Omit<T, "input"> & { input?: TInput }
-  : T;
-
-type RawToolUIPart = WithOptionalInput<
-  Extract<UIMessage["parts"][number], { type: `tool-${string}` }>
->;
-
-type RawUIMessagePart =
-  | Exclude<
-      UIMessage["parts"][number],
-      { type: `data-${string}` } | { type: `tool-${string}` }
-    >
-  | RawDataUIPart
-  | RawToolUIPart;
-
-type RawUIMessage = Omit<UIMessage, "parts"> & {
-  parts?: RawUIMessagePart[] | null;
-};
-
 type RawAgentInfo = {
   name?: string;
   title?: string;
@@ -161,49 +138,21 @@ type RawSessionStateData = Omit<
   agentInfo?: RawAgentInfo;
 };
 
-const isRawDataUIPart = (part: RawUIMessagePart): part is RawDataUIPart =>
-  part.type.startsWith("data-");
-
-const isRawToolUIPart = (part: RawUIMessagePart): part is RawToolUIPart =>
-  part.type.startsWith("tool-");
-
-const normalizeMessagePart = (
-  part: RawUIMessagePart
-): UIMessage["parts"][number] => {
-  if (isRawDataUIPart(part)) {
-    return {
-      type: part.type,
-      ...(part.id ? { id: part.id } : {}),
-      data: Object.prototype.hasOwnProperty.call(part, "data")
-        ? part.data
-        : null,
-    };
+const normalizeMessage = (message: unknown): UIMessage => {
+  const parsed = parseUiMessageStrict(message);
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
   }
-
-  if (isRawToolUIPart(part)) {
-    return {
-      ...part,
-      input: Object.prototype.hasOwnProperty.call(part, "input")
-        ? part.input
-        : undefined,
-    } as UIMessage["parts"][number];
-  }
-
-  return part;
+  return parsed.value;
 };
 
-const normalizeMessage = (message: RawUIMessage): UIMessage => {
-  const parts = Array.isArray(message.parts) ? message.parts : [];
-  return {
-    id: message.id,
-    role: message.role,
-    ...(message.metadata !== undefined ? { metadata: message.metadata } : {}),
-    parts: parts.map(normalizeMessagePart),
-  };
+const normalizeMessages = (messages: unknown): UIMessage[] => {
+  const parsed = parseUiMessageArrayStrict(messages);
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
+  }
+  return parsed.value;
 };
-
-const normalizeMessages = (messages: RawUIMessage[]): UIMessage[] =>
-  messages.map(normalizeMessage);
 
 const normalizeAgentInfo = (
   agentInfo: RawAgentInfo | undefined
@@ -245,22 +194,12 @@ const normalizeSessionStateData = (
   return normalized;
 };
 
-const normalizeBroadcastEvent = (event: BroadcastEvent): BroadcastEvent => {
-  if (event.type === "ui_message") {
-    return {
-      ...event,
-      message: normalizeMessage(event.message),
-    };
+const parseBroadcastEvent = (event: unknown): BroadcastEvent => {
+  const parsed = parseBroadcastEventStrict(event);
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
   }
-
-  if (event.type === "chat_finish" && event.message) {
-    return {
-      ...event,
-      message: normalizeMessage(event.message),
-    };
-  }
-
-  return event;
+  return parsed.value;
 };
 
 // ============================================================================
@@ -316,6 +255,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const pendingUserMessageFallbackTimersRef = useRef<
     Map<string, ReturnType<typeof setTimeout>>
   >(new Map());
+  const pendingUserMessageFallbackAbortRef = useRef(new AbortController());
+  const pendingUserMessageFallbackGenerationRef = useRef(0);
   const previousStreamLifecycleRef = useRef<StreamLifecycle>(streamLifecycle);
   const statusRef = useRef<ChatStatus>(status);
   // Batched updates for performance
@@ -323,6 +264,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const batchUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+  const resetPendingUserMessageFallbackController = useCallback(() => {
+    pendingUserMessageFallbackAbortRef.current.abort();
+    pendingUserMessageFallbackAbortRef.current = new AbortController();
+    pendingUserMessageFallbackGenerationRef.current += 1;
+  }, []);
   const messages = useMemo(() => getOrderedMessages(messageState), [messageState]);
   // Keep refs in sync
   useEffect(() => {
@@ -346,6 +292,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       clearTimeout(timer);
     }
     pendingUserMessageFallbackTimersRef.current.clear();
+    resetPendingUserMessageFallbackController();
     if (batchUpdateTimerRef.current) {
       clearTimeout(batchUpdateTimerRef.current);
       batchUpdateTimerRef.current = null;
@@ -380,7 +327,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       setConnStatus("connecting");
       setStatus("connecting");
     }
-  }, [chatId, readOnly]);
+  }, [chatId, readOnly, resetPendingUserMessageFallbackController]);
   useEffect(() => {
     if (connStatus === "connecting") {
       historyAppliedRef.current = false;
@@ -393,12 +340,13 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         clearTimeout(timer);
       }
       pendingUserMessageFallbackTimersRef.current.clear();
+      resetPendingUserMessageFallbackController();
       if (batchUpdateTimerRef.current) {
         clearTimeout(batchUpdateTimerRef.current);
       }
       historyLoadVersionRef.current += 1;
     };
-  }, []);
+  }, [resetPendingUserMessageFallbackController]);
   useEffect(() => {
     setPendingPermission(findPendingPermission(messages));
   }, [messages]);
@@ -461,7 +409,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       clearTimeout(timer);
     }
     pendingUserMessageFallbackTimersRef.current.clear();
-  }, []);
+    resetPendingUserMessageFallbackController();
+  }, [resetPendingUserMessageFallbackController]);
   const recoverMissingSentMessage = useCallback(
     function recoverMissingSentMessageInternal(
       activeChatId: string,
@@ -469,6 +418,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       attempt = 1,
       trigger: "initial" | "retry" | "chat_finish" = "initial"
     ) {
+      const generation = pendingUserMessageFallbackGenerationRef.current;
+      const abortSignal = pendingUserMessageFallbackAbortRef.current.signal;
       if (activeChatIdRef.current !== activeChatId || readOnly) {
         return;
       }
@@ -481,7 +432,12 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           messageId,
         })
         .then((result) => {
-          if (activeChatIdRef.current !== activeChatId || readOnly) {
+          if (
+            abortSignal.aborted ||
+            generation !== pendingUserMessageFallbackGenerationRef.current ||
+            activeChatIdRef.current !== activeChatId ||
+            readOnly
+          ) {
             return;
           }
           const message = result.message;
@@ -495,6 +451,12 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
               });
               clearPendingUserMessageFallback(messageId);
               const retryTimer = setTimeout(() => {
+                if (
+                  abortSignal.aborted ||
+                  generation !== pendingUserMessageFallbackGenerationRef.current
+                ) {
+                  return;
+                }
                 pendingUserMessageFallbackTimersRef.current.delete(messageId);
                 recoverMissingSentMessageInternal(
                   activeChatId,
@@ -513,7 +475,23 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           if (messageStateRef.current.byId.has(message.id)) {
             return;
           }
-          const normalizedMessage = normalizeMessage(message);
+          let normalizedMessage: UIMessage;
+          try {
+            normalizedMessage = normalizeMessage(message);
+          } catch (parseError) {
+            const parseErrorMessage =
+              parseError instanceof Error
+                ? parseError.message
+                : "Invalid fallback session message payload";
+            console.warn("[Chat] Dropping invalid recovered message", {
+              chatId: activeChatId,
+              messageId,
+              error: parseErrorMessage,
+            });
+            setError(parseErrorMessage);
+            onError?.(parseErrorMessage);
+            return;
+          }
           updateMessagesState((prev) =>
             upsertMessageIntoState(prev, normalizedMessage)
           );
@@ -533,6 +511,12 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
             });
             clearPendingUserMessageFallback(messageId);
             const retryTimer = setTimeout(() => {
+              if (
+                abortSignal.aborted ||
+                generation !== pendingUserMessageFallbackGenerationRef.current
+              ) {
+                return;
+              }
               pendingUserMessageFallbackTimersRef.current.delete(messageId);
               recoverMissingSentMessageInternal(
                 activeChatId,
@@ -558,6 +542,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     },
     [
       clearPendingUserMessageFallback,
+      onError,
       readOnly,
       updateMessagesState,
       utils,
@@ -657,9 +642,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
             cursor,
             includeCompacted: true,
           });
-          const normalizedPageMessages = normalizeMessages(
-            page.messages as RawUIMessage[]
-          );
+          const normalizedPageMessages = normalizeMessages(page.messages);
           if (normalizedPageMessages.length > 0) {
             mergedMessageCount += normalizedPageMessages.length;
             updateMessagesState((prev) =>
@@ -691,7 +674,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
             includeCompacted: true,
           });
           const normalizedRecoveryMessages = normalizeMessages(
-            recoveryPage.messages as RawUIMessage[]
+            recoveryPage.messages
           );
           if (normalizedRecoveryMessages.length > 0) {
             updateMessagesState((prev) =>
@@ -770,8 +753,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   }, []);
   // Event handler
   const handleSessionEvent = useCallback(
-    (rawEvent: BroadcastEvent) => {
-      const event = normalizeBroadcastEvent(rawEvent);
+    (event: BroadcastEvent) => {
       if (shouldLogChatStreamDebug()) {
         if (event.type === "ui_message") {
           console.debug("[Chat] Received ui_message", {
@@ -782,13 +764,14 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           });
         } else if (event.type === "ui_message_delta") {
           const baseMessage = messageStateRef.current.byId.get(event.messageId);
+          const deltaTargetPart = baseMessage?.parts[event.partIndex];
           const hasPart =
-            baseMessage?.parts.some((part) => part.type === event.partType) ??
-            false;
+            deltaTargetPart?.type === "text" ||
+            deltaTargetPart?.type === "reasoning";
           console.debug("[Chat] Received ui_message_delta", {
             chatId: activeChatIdRef.current,
             messageId: event.messageId,
-            partType: event.partType,
+            partIndex: event.partIndex,
             deltaLength: event.delta.length,
             hasBaseMessage: Boolean(baseMessage),
             hasPart,
@@ -893,8 +876,23 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     { chatId: chatId || "" },
     {
       enabled: subscriptionEnabled,
-      onData(event: unknown) {
-        handleSessionEvent(event as BroadcastEvent);
+      onData(rawEvent: unknown) {
+        try {
+          const event = parseBroadcastEvent(rawEvent);
+          handleSessionEvent(event);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Received invalid chat event payload";
+          console.error("[Client] Dropped invalid session event", {
+            error: message,
+          });
+          setConnStatus("error");
+          setError(message);
+          setStatus("error");
+          onError?.(message);
+        }
       },
       onError(err) {
         console.error("[Client] Subscription error:", err);

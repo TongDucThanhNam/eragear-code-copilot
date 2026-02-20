@@ -51,9 +51,15 @@ async function finalizeStreamingForCurrentAssistant(
   if (!hasStreaming) {
     return;
   }
-  finalizeStreamingParts(message);
+  const finalizedMessage = finalizeStreamingParts(message);
+  if (finalizedMessage !== message) {
+    session.uiState.messages.set(finalizedMessage.id, finalizedMessage);
+  }
   if (!suppressBroadcast) {
-    await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    await sessionRuntime.broadcast(chatId, {
+      type: "ui_message",
+      message: finalizedMessage,
+    });
   }
 }
 

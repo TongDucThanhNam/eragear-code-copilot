@@ -51,10 +51,13 @@ export class SessionHistoryReplayService {
 
     const message = session.uiState.messages.get(currentMessageId);
     if (message) {
-      finalizeStreamingParts(message);
+      const finalizedMessage = finalizeStreamingParts(message);
+      if (finalizedMessage !== message) {
+        session.uiState.messages.set(finalizedMessage.id, finalizedMessage);
+      }
       await this.sessionRuntime.broadcast(chatId, {
         type: "ui_message",
-        message,
+        message: finalizedMessage,
       });
     }
     session.uiState.currentAssistantId = undefined;

@@ -91,8 +91,11 @@ describe("contentBlockToParts filename normalization", () => {
 
 describe("append text sanitization", () => {
   test("escapes HTML tags in text parts", () => {
-    const message = createAssistantMessage("msg-text");
-    appendTextPart(message, "<script>alert(1)</script>", "streaming");
+    const message = appendTextPart(
+      createAssistantMessage("msg-text"),
+      "<script>alert(1)</script>",
+      "streaming"
+    );
 
     const textPart = message.parts[0];
     expect(textPart?.type).toBe("text");
@@ -102,8 +105,11 @@ describe("append text sanitization", () => {
   });
 
   test("escapes HTML tags in reasoning parts", () => {
-    const message = createAssistantMessage("msg-reasoning");
-    appendReasoningPart(message, "<b>reasoning</b>", "streaming");
+    const message = appendReasoningPart(
+      createAssistantMessage("msg-reasoning"),
+      "<b>reasoning</b>",
+      "streaming"
+    );
 
     const reasoningPart = message.parts[0];
     expect(reasoningPart?.type).toBe("reasoning");

@@ -111,29 +111,41 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
           messageId: session.uiState.currentAssistantId,
           part: toolPart,
         });
-        const optionList = options;
-        if (optionList.length > 0) {
-          const existingOptions = message.parts.find(
+        let messageWithPermissionOptions = message;
+        if (options.length > 0) {
+          const optionsPart = {
+            type: "data-permission-options" as const,
+            data: {
+              requestId,
+              toolCallId: toolCall.toolCallId,
+              options,
+            },
+          };
+          const existingOptionsPartIndex = message.parts.findIndex(
             (part) =>
               part.type === "data-permission-options" &&
               typeof part.data === "object" &&
               part.data !== null &&
               (part.data as { requestId?: string }).requestId === requestId
           );
-          if (!existingOptions) {
-            message.parts.push({
-              type: "data-permission-options",
-              data: {
-                requestId,
-                toolCallId: toolCall.toolCallId,
-                options,
-              },
-            });
+          const nextParts = [...message.parts];
+          if (existingOptionsPartIndex >= 0) {
+            nextParts[existingOptionsPartIndex] = optionsPart;
+          } else {
+            nextParts.push(optionsPart);
           }
+          messageWithPermissionOptions = {
+            ...message,
+            parts: nextParts,
+          };
+          session.uiState.messages.set(
+            messageWithPermissionOptions.id,
+            messageWithPermissionOptions
+          );
         }
         await sessionRuntime.broadcast(chatId, {
           type: "ui_message",
-          message,
+          message: messageWithPermissionOptions,
         });
       };
       publishPermissionRequest().catch((error) => {

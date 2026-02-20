@@ -135,7 +135,7 @@ describe("handleBufferedMessage", () => {
           calls[0]?.event.type === "ui_message"
             ? calls[0].event.message.id
             : "",
-        partType: "text",
+        partIndex: 0,
         delta: " world",
       },
       options: {
@@ -194,7 +194,7 @@ describe("handleBufferedMessage", () => {
           calls[0]?.event.type === "ui_message"
             ? calls[0].event.message.id
             : "",
-        partType: "reasoning",
+        partIndex: 0,
         delta: " step-2",
       },
       options: {

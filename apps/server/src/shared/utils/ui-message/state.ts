@@ -3,6 +3,7 @@ import type {
   DataUIPart,
   ToolUIPart,
   UIMessage,
+  UIMessagePart,
   UIMessageRole,
 } from "@repo/shared";
 import type { UiMessageState } from "@/shared/types/session.types";
@@ -36,16 +37,25 @@ export function getOrCreateUserMessage(
   return message;
 }
 
-export function finalizeStreamingParts(message: UIMessage) {
-  message.parts = message.parts.map((part) => {
+export function finalizeStreamingParts(message: UIMessage): UIMessage {
+  let changed = false;
+  const nextParts = message.parts.map((part) => {
     if (
       (part.type === "text" || part.type === "reasoning") &&
       part.state === "streaming"
     ) {
+      changed = true;
       return { ...part, state: "done" as const };
     }
     return part;
   });
+  if (!changed) {
+    return message;
+  }
+  return {
+    ...message,
+    parts: nextParts,
+  };
 }
 
 export function upsertToolPart(params: {
@@ -58,17 +68,43 @@ export function upsertToolPart(params: {
   if (existing) {
     const existingMessage = state.messages.get(existing.messageId);
     if (existingMessage) {
-      existingMessage.parts[existing.partIndex] = part;
-      return { message: existingMessage, part };
+      let targetPartIndex = existing.partIndex;
+      if (
+        !isToolPartWithCallId(
+          existingMessage.parts[targetPartIndex],
+          part.toolCallId
+        )
+      ) {
+        targetPartIndex = existingMessage.parts.findIndex((messagePart) =>
+          isToolPartWithCallId(messagePart, part.toolCallId)
+        );
+      }
+      if (targetPartIndex >= 0) {
+        const updatedParts = [...existingMessage.parts];
+        updatedParts[targetPartIndex] = part;
+        const updatedMessage = setMessage(state, {
+          ...existingMessage,
+          parts: updatedParts,
+        });
+        state.toolPartIndex.set(part.toolCallId, {
+          messageId: updatedMessage.id,
+          partIndex: targetPartIndex,
+        });
+        return { message: updatedMessage, part };
+      }
     }
+    state.toolPartIndex.delete(part.toolCallId);
   }
   const message = getOrCreateAssistantMessage(state, messageId);
-  message.parts.push(part);
-  state.toolPartIndex.set(part.toolCallId, {
-    messageId: message.id,
-    partIndex: message.parts.length - 1,
+  const updatedMessage = setMessage(state, {
+    ...message,
+    parts: [...message.parts, part],
   });
-  return { message, part };
+  state.toolPartIndex.set(part.toolCallId, {
+    messageId: updatedMessage.id,
+    partIndex: updatedMessage.parts.length - 1,
+  });
+  return { message: updatedMessage, part };
 }
 
 export function upsertToolLocationsPart(params: {
@@ -92,17 +128,21 @@ export function upsertToolLocationsPart(params: {
     existingMessage ?? getOrCreateAssistantMessage(state, messageId);
   const index = message.parts.findIndex(
     (part) =>
-      part.type === "data-tool-locations" &&
+      isToolLocationsDataPart(part) &&
       typeof part.data === "object" &&
       part.data !== null &&
       (part.data as { toolCallId?: string }).toolCallId === toolCallId
   );
 
   if (!hasLocations) {
-    if (index >= 0) {
-      message.parts.splice(index, 1);
+    if (index < 0) {
+      return message;
     }
-    return message;
+    const updatedMessage = setMessage(state, {
+      ...message,
+      parts: message.parts.filter((_, partIndex) => partIndex !== index),
+    });
+    return updatedMessage;
   }
 
   const dataPart: DataUIPart = {
@@ -113,12 +153,16 @@ export function upsertToolLocationsPart(params: {
     },
   };
 
+  const updatedParts = [...message.parts];
   if (index >= 0) {
-    message.parts[index] = dataPart;
+    updatedParts[index] = dataPart;
   } else {
-    message.parts.push(dataPart);
+    updatedParts.push(dataPart);
   }
-  return message;
+  return setMessage(state, {
+    ...message,
+    parts: updatedParts,
+  });
 }
 
 function ensureMessage(
@@ -133,4 +177,24 @@ function ensureMessage(
   const message: UIMessage = { id: messageId, role, parts: [] };
   state.messages.set(messageId, message);
   return message;
+}
+
+function setMessage(state: UiMessageState, message: UIMessage): UIMessage {
+  state.messages.set(message.id, message);
+  return message;
+}
+
+function isToolPartWithCallId(
+  part: UIMessagePart | undefined,
+  toolCallId: string
+): part is ToolUIPart {
+  return Boolean(
+    part &&
+      "toolCallId" in part &&
+      part.toolCallId === toolCallId
+  );
+}
+
+function isToolLocationsDataPart(part: UIMessagePart): part is DataUIPart {
+  return part.type === "data-tool-locations";
 }

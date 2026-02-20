@@ -13,12 +13,12 @@ import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 
 const logger = createLogger("Debug");
 
-type DeltaPartType = "text" | "reasoning";
 type SnapshotReason =
   | "replay_chunk"
   | "non_text_block"
   | "first_part"
-  | "part_state_transition";
+  | "part_state_transition"
+  | "delta_target_missing";
 type SuppressReason = "replay_suppressed";
 
 interface SnapshotDecision {
@@ -76,9 +76,20 @@ async function handleUiChunkUpdate(
     const providerMetadata = buildProviderMetadataFromMeta(
       "_meta" in update ? update._meta : undefined
     );
-    appendContentBlock(message, block, partState, providerMetadata);
+    const updatedMessage = appendContentBlock(
+      message,
+      block,
+      partState,
+      providerMetadata
+    );
+    if (updatedMessage !== message) {
+      session.uiState.messages.set(updatedMessage.id, updatedMessage);
+    }
     if (!suppressReplayBroadcast) {
-      await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+      await sessionRuntime.broadcast(chatId, {
+        type: "ui_message",
+        message: updatedMessage,
+      });
     }
     return;
   }
@@ -150,7 +161,21 @@ async function appendAssistantChunk(params: {
       chunkType: "message",
       blockType: block.type,
     });
-    appendContentBlock(message, block, partState, providerMetadata);
+    const updatedMessage = appendContentBlock(
+      message,
+      block,
+      partState,
+      providerMetadata
+    );
+    if (updatedMessage !== message) {
+      session.uiState.messages.set(updatedMessage.id, updatedMessage);
+    }
+    const deltaPartIndex = updatedMessage.parts.length - 1;
+    const deltaPart = updatedMessage.parts[deltaPartIndex];
+    const shouldFallbackToSnapshotForDelta =
+      block.type === "text" &&
+      block.text.length > 0 &&
+      (deltaPartIndex < 0 || deltaPart?.type !== "text");
 
     if (suppressReplayBroadcast) {
       logSuppressedChunk({
@@ -167,12 +192,27 @@ async function appendAssistantChunk(params: {
         chunkType: "message",
         reason: snapshotDecision.reason,
       });
-      await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+      await sessionRuntime.broadcast(chatId, {
+        type: "ui_message",
+        message: updatedMessage,
+      });
+    } else if (shouldFallbackToSnapshotForDelta) {
+      logSnapshotDecision({
+        chatId,
+        isReplayingHistory,
+        messageId,
+        chunkType: "message",
+        reason: "delta_target_missing",
+      });
+      await sessionRuntime.broadcast(chatId, {
+        type: "ui_message",
+        message: updatedMessage,
+      });
     } else if (block.type === "text" && block.text.length > 0) {
       logDeltaDecision({
         chatId,
         messageId,
-        partType: "text",
+        partIndex: deltaPartIndex,
         deltaLength: block.text.length,
       });
       await sessionRuntime.broadcast(
@@ -180,7 +220,7 @@ async function appendAssistantChunk(params: {
         {
           type: "ui_message_delta",
           messageId,
-          partType: "text",
+          partIndex: deltaPartIndex,
           delta: block.text,
         },
         {
@@ -205,7 +245,20 @@ async function appendAssistantChunk(params: {
     chunkType: "reasoning",
     blockType: block.type,
   });
-  appendReasoningBlock(message, block, partState, providerMetadata);
+  const updatedMessage = appendReasoningBlock(
+    message,
+    block,
+    partState,
+    providerMetadata
+  );
+  if (updatedMessage !== message) {
+    session.uiState.messages.set(updatedMessage.id, updatedMessage);
+  }
+  const deltaPartIndex = updatedMessage.parts.length - 1;
+  const deltaPart = updatedMessage.parts[deltaPartIndex];
+  const shouldFallbackToSnapshotForDelta =
+    block.text.length > 0 &&
+    (deltaPartIndex < 0 || deltaPart?.type !== "reasoning");
   if (suppressReplayBroadcast) {
     logSuppressedChunk({
       chatId,
@@ -223,14 +276,31 @@ async function appendAssistantChunk(params: {
       chunkType: "reasoning",
       reason: snapshotDecision.reason,
     });
-    await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    await sessionRuntime.broadcast(chatId, {
+      type: "ui_message",
+      message: updatedMessage,
+    });
+    return;
+  }
+  if (shouldFallbackToSnapshotForDelta) {
+    logSnapshotDecision({
+      chatId,
+      isReplayingHistory,
+      messageId,
+      chunkType: "reasoning",
+      reason: "delta_target_missing",
+    });
+    await sessionRuntime.broadcast(chatId, {
+      type: "ui_message",
+      message: updatedMessage,
+    });
     return;
   }
   if (block.text.length > 0) {
     logDeltaDecision({
       chatId,
       messageId,
-      partType: "reasoning",
+      partIndex: deltaPartIndex,
       deltaLength: block.text.length,
     });
     await sessionRuntime.broadcast(
@@ -238,7 +308,7 @@ async function appendAssistantChunk(params: {
       {
         type: "ui_message_delta",
         messageId,
-        partType: "reasoning",
+        partIndex: deltaPartIndex,
         delta: block.text,
       },
       {
@@ -351,7 +421,7 @@ function logSnapshotDecision(params: {
 function logDeltaDecision(params: {
   chatId: string;
   messageId: string;
-  partType: DeltaPartType;
+  partIndex: number;
   deltaLength: number;
 }): void {
   if (!shouldEmitRuntimeLog("debug")) {
@@ -360,7 +430,7 @@ function logDeltaDecision(params: {
   logger.debug("ACP ui delta emitted", {
     chatId: params.chatId,
     messageId: params.messageId,
-    partType: params.partType,
+    partIndex: params.partIndex,
     deltaLength: params.deltaLength,
   });
 }

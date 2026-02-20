@@ -28,26 +28,40 @@ export function appendTextPart(
   text: string,
   state: TextUIPart["state"],
   providerMetadata?: ProviderMetadata
-) {
+): UIMessage {
   const escapedText = escapeHtmlText(text);
   if (!escapedText) {
-    return;
+    return message;
   }
-  const last = message.parts.at(-1);
+  const lastIndex = message.parts.length - 1;
+  const last = message.parts[lastIndex];
   if (last?.type === "text" && last.state === state) {
-    last.text += escapedText;
-    if (providerMetadata) {
-      last.providerMetadata = mergeProviderMetadata(
-        last.providerMetadata,
-        providerMetadata
-      );
-    }
-    return;
+    const updatedLast: TextUIPart = {
+      ...last,
+      text: `${last.text}${escapedText}`,
+      ...(providerMetadata
+        ? {
+            providerMetadata: mergeProviderMetadata(
+              last.providerMetadata,
+              providerMetadata
+            ),
+          }
+        : {}),
+    };
+    const nextParts = [...message.parts];
+    nextParts[lastIndex] = updatedLast;
+    return {
+      ...message,
+      parts: nextParts,
+    };
   }
   const part: TextUIPart = providerMetadata
     ? { type: "text", text: escapedText, state, providerMetadata }
     : { type: "text", text: escapedText, state };
-  message.parts.push(part);
+  return {
+    ...message,
+    parts: [...message.parts, part],
+  };
 }
 
 export function appendReasoningPart(
@@ -55,27 +69,41 @@ export function appendReasoningPart(
   text: string,
   state: ReasoningUIPart["state"],
   providerMetadata?: ProviderMetadata
-) {
+): UIMessage {
   const escapedText = escapeHtmlText(text);
   if (!escapedText) {
-    return;
+    return message;
   }
-  const last = message.parts.at(-1);
+  const lastIndex = message.parts.length - 1;
+  const last = message.parts[lastIndex];
   if (last?.type === "reasoning") {
-    last.text += escapedText;
-    last.state = state;
-    if (providerMetadata) {
-      last.providerMetadata = mergeProviderMetadata(
-        last.providerMetadata,
-        providerMetadata
-      );
-    }
-    return;
+    const updatedLast: ReasoningUIPart = {
+      ...last,
+      text: `${last.text}${escapedText}`,
+      state,
+      ...(providerMetadata
+        ? {
+            providerMetadata: mergeProviderMetadata(
+              last.providerMetadata,
+              providerMetadata
+            ),
+          }
+        : {}),
+    };
+    const nextParts = [...message.parts];
+    nextParts[lastIndex] = updatedLast;
+    return {
+      ...message,
+      parts: nextParts,
+    };
   }
   const part: ReasoningUIPart = providerMetadata
     ? { type: "reasoning", text: escapedText, state, providerMetadata }
     : { type: "reasoning", text: escapedText, state };
-  message.parts.push(part);
+  return {
+    ...message,
+    parts: [...message.parts, part],
+  };
 }
 
 export function appendReasoningBlock(
@@ -83,15 +111,15 @@ export function appendReasoningBlock(
   block: StoredContentBlock,
   state: ReasoningUIPart["state"],
   providerMetadata?: ProviderMetadata
-) {
+): UIMessage {
   if (block.type !== "text") {
-    return;
+    return message;
   }
   const combinedMetadata = mergeProviderMetadata(
     getBlockProviderMetadata(block),
     providerMetadata
   );
-  appendReasoningPart(message, block.text, state, combinedMetadata);
+  return appendReasoningPart(message, block.text, state, combinedMetadata);
 }
 
 export function appendContentBlock(
@@ -99,19 +127,22 @@ export function appendContentBlock(
   block: StoredContentBlock,
   state: TextUIPart["state"],
   providerMetadata?: ProviderMetadata
-) {
+): UIMessage {
   if (block.type === "text") {
     const combinedMetadata = mergeProviderMetadata(
       getBlockProviderMetadata(block),
       providerMetadata
     );
-    appendTextPart(message, block.text, state, combinedMetadata);
-    return;
+    return appendTextPart(message, block.text, state, combinedMetadata);
   }
   const parts = contentBlockToParts(block, providerMetadata);
   if (parts.length > 0) {
-    message.parts.push(...parts);
+    return {
+      ...message,
+      parts: [...message.parts, ...parts],
+    };
   }
+  return message;
 }
 
 export function contentBlockToParts(
@@ -181,13 +212,13 @@ export function buildUserMessageFromBlocks(params: {
   messageId: string;
   contentBlocks: StoredContentBlock[];
 }): UIMessage {
-  const message: UIMessage = {
+  let message: UIMessage = {
     id: params.messageId,
     role: "user",
     parts: [],
   };
   for (const block of params.contentBlocks) {
-    appendContentBlock(message, block, "done");
+    message = appendContentBlock(message, block, "done");
   }
   return message;
 }
@@ -197,16 +228,16 @@ export function buildAssistantMessageFromBlocks(params: {
   contentBlocks: StoredContentBlock[];
   reasoningBlocks?: StoredContentBlock[];
 }): UIMessage {
-  const message: UIMessage = {
+  let message: UIMessage = {
     id: params.messageId,
     role: "assistant",
     parts: [],
   };
   for (const block of params.reasoningBlocks ?? []) {
-    appendReasoningBlock(message, block, "done");
+    message = appendReasoningBlock(message, block, "done");
   }
   for (const block of params.contentBlocks) {
-    appendContentBlock(message, block, "done");
+    message = appendContentBlock(message, block, "done");
   }
   return message;
 }

@@ -9,6 +9,8 @@ import type { BroadcastEvent, UIMessage, UseChatOptions } from "@repo/shared";
 import {
   applySessionState,
   findPendingPermission,
+  parseBroadcastEventStrict,
+  parseUiMessageArrayStrict,
   processSessionEvent,
 } from "@repo/shared";
 import { NotificationFeedbackType, notificationAsync } from "expo-haptics";
@@ -214,8 +216,14 @@ export function useChat(options: UseChatOptions = {}) {
     const store = useChatStore.getState();
     const history = sessionMessagesQuery.data;
     if (Array.isArray(history)) {
-      store.setMessages(history);
-      store.setPendingPermission(findPendingPermission(history));
+      const parsedHistory = parseUiMessageArrayStrict(history);
+      if (!parsedHistory.ok) {
+        store.setError(parsedHistory.error);
+        onErrorRef.current?.(parsedHistory.error);
+      } else {
+        store.setMessages(parsedHistory.value);
+        store.setPendingPermission(findPendingPermission(parsedHistory.value));
+      }
     }
 
     if (data.status === "stopped") {
@@ -363,7 +371,18 @@ export function useChat(options: UseChatOptions = {}) {
     { chatId: activeChatId || "" },
     {
       enabled: shouldSubscribe,
-      onData: (data) => handleSessionEvent(data as BroadcastEvent),
+      onData(data: unknown) {
+        const parsed = parseBroadcastEventStrict(data);
+        if (!parsed.ok) {
+          const store = useChatStore.getState();
+          store.setConnStatus("error");
+          store.setStatus("error");
+          store.setError(parsed.error);
+          onErrorRef.current?.(parsed.error);
+          return;
+        }
+        handleSessionEvent(parsed.value);
+      },
       onError(err) {
         console.error("Subscription error:", err);
         const store = useChatStore.getState();
@@ -550,8 +569,14 @@ export function useChat(options: UseChatOptions = {}) {
         utils.getSessionMessages.fetch({ chatId }),
       ]);
       if (Array.isArray(history)) {
-        store.setMessages(history);
-        store.setPendingPermission(findPendingPermission(history));
+        const parsedHistory = parseUiMessageArrayStrict(history);
+        if (!parsedHistory.ok) {
+          store.setError(parsedHistory.error);
+          onErrorRef.current?.(parsedHistory.error);
+        } else {
+          store.setMessages(parsedHistory.value);
+          store.setPendingPermission(findPendingPermission(parsedHistory.value));
+        }
       }
       if (state.status === "stopped") {
         if (state.agentInfo !== undefined) {

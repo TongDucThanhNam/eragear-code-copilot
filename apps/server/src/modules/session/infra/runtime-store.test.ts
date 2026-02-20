@@ -62,6 +62,17 @@ function createSession(chatId = "chat-1"): ChatSession {
   };
 }
 
+function getFirstTextPartText(event: BroadcastEvent): string | null {
+  if (event.type !== "ui_message") {
+    return null;
+  }
+  const firstTextPart = event.message.parts.find((part) => part.type === "text");
+  if (!firstTextPart || firstTextPart.type !== "text") {
+    return null;
+  }
+  return firstTextPart.text;
+}
+
 async function flushAsync(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -345,7 +356,7 @@ describe("SessionRuntimeStore.broadcast", () => {
       {
         type: "ui_message_delta",
         messageId: "msg-1",
-        partType: "text",
+        partIndex: 0,
         delta: "hello",
       },
       {
@@ -360,9 +371,61 @@ describe("SessionRuntimeStore.broadcast", () => {
       {
         type: "ui_message_delta",
         messageId: "msg-1",
-        partType: "text",
+        partIndex: 0,
         delta: "hello",
       },
     ]);
+  });
+
+  test("clones broadcast events across outbox, replay buffer, and listeners", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 10,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 64,
+    });
+    const session = createSession("chat-1");
+    store.set("chat-1", session);
+
+    const listenerEvents: BroadcastEvent[] = [];
+    session.emitter.on("data", (event) => {
+      const typed = event as BroadcastEvent;
+      listenerEvents.push(typed);
+      if (typed.type === "ui_message") {
+        const firstTextPart = typed.message.parts.find(
+          (part) => part.type === "text"
+        );
+        if (firstTextPart?.type === "text") {
+          firstTextPart.text = "listener-mutated";
+        }
+      }
+    });
+
+    const event: BroadcastEvent = {
+      type: "ui_message",
+      message: {
+        id: "msg-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "original", state: "streaming" }],
+      },
+    };
+
+    await store.broadcast("chat-1", event);
+
+    if (event.type === "ui_message") {
+      const firstTextPart = event.message.parts.find((part) => part.type === "text");
+      if (firstTextPart?.type === "text") {
+        firstTextPart.text = "caller-mutated";
+      }
+    }
+
+    expect(getFirstTextPartText(outboxCalls[0] as BroadcastEvent)).toBe("original");
+    expect(getFirstTextPartText(session.messageBuffer[0] as BroadcastEvent)).toBe(
+      "original"
+    );
+    expect(getFirstTextPartText(event)).toBe("caller-mutated");
+    expect(getFirstTextPartText(listenerEvents[0] as BroadcastEvent)).toBe(
+      "listener-mutated"
+    );
   });
 });

@@ -11,6 +11,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
+import { cloneBroadcastEvent } from "@/shared/utils/broadcast-event.util";
 import type { SessionEventOutboxPort } from "../application/ports/session-event-outbox.port";
 import type {
   SessionBroadcastOptions,
@@ -309,12 +310,12 @@ export class SessionRuntimeStore implements SessionRuntimePort {
         await this.eventOutbox.enqueue({
           chatId,
           userId: session.userId,
-          event,
+          event: cloneBroadcastEvent(event),
         });
       }
 
       if (retainInBuffer) {
-        session.messageBuffer.push(event);
+        session.messageBuffer.push(cloneBroadcastEvent(event));
         if (session.messageBuffer.length > this.sessionBufferLimit) {
           session.messageBuffer.splice(
             0,
@@ -334,7 +335,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
           ...buildStreamEventContext(event),
         });
       }
-      session.emitter.emit("data", event);
+      session.emitter.emit("data", cloneBroadcastEvent(event));
     });
   }
 }

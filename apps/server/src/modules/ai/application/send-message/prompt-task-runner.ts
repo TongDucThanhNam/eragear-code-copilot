@@ -557,15 +557,18 @@ export class PromptTaskRunner {
 
     const current = aggregate.currentStreamingAssistantMessage();
     if (current) {
-      finalizeStreamingParts(current);
+      const finalizedMessage = finalizeStreamingParts(current);
+      if (finalizedMessage !== current) {
+        session.uiState.messages.set(finalizedMessage.id, finalizedMessage);
+      }
       await broadcast(chatId, {
         type: "ui_message",
-        message: current,
+        message: finalizedMessage,
       });
       this.logger.debug("SendMessageService finalized streaming message", {
         chatId,
-        messageId: current.id,
-        parts: current.parts.length,
+        messageId: finalizedMessage.id,
+        parts: finalizedMessage.parts.length,
         turnId,
       });
       aggregate.clearCurrentStreamingAssistantId();

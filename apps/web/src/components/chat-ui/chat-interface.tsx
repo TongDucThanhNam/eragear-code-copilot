@@ -35,7 +35,7 @@ function getBootstrapPhaseLabel(phase: SessionBootstrapPhase): string {
     case "creating_session":
       return "Creating session...";
     case "initializing_agent":
-      return "Initializing agent...";
+      return "ACP agent initializing...";
     case "restoring_history":
       return "Restoring history...";
     case "idle":
@@ -735,10 +735,14 @@ export function ChatInterface({
     ? getBootstrapPhaseLabel(sessionBootstrapPhase)
     : "Loading session...";
   const connectionOverlayLabel =
-    sessionBootstrapPhase === "initializing_agent" || status === "connecting"
-      ? "Initializing agent..."
-      : "Restoring history...";
+    sessionBootstrapPhase === "creating_session"
+      ? "Creating session..."
+      : sessionBootstrapPhase === "initializing_agent" ||
+          status === "connecting"
+        ? "ACP agent initializing..."
+        : "Restoring history...";
   const shouldShowConnectionOverlay =
+    sessionBootstrapPhase === "creating_session" ||
     sessionBootstrapPhase === "initializing_agent" ||
     sessionBootstrapPhase === "restoring_history" ||
     connStatus === "connecting" ||
