@@ -2,6 +2,7 @@ import {
   CancelPromptService,
   PromptTaskRunner,
   SendMessageService,
+  SetConfigOptionService,
   SetModelService,
   SetModeService,
 } from "@/modules/ai";
@@ -46,6 +47,10 @@ export function createAiServices(
     acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
     acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
   });
+  const setConfigOptionService = new SetConfigOptionService(sessionGateway, {
+    acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
+    acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
+  });
   const cancelPromptService = new CancelPromptService(
     deps.sessionRuntime,
     sessionGateway
@@ -55,6 +60,7 @@ export function createAiServices(
     sendMessage: () => sendMessageService,
     setModel: () => setModelService,
     setMode: () => setModeService,
+    setConfigOption: () => setConfigOptionService,
     cancelPrompt: () => cancelPromptService,
   };
 }

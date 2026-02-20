@@ -15,6 +15,8 @@ import type {
   PermissionOptions,
   PermissionRequest,
   PromptCapabilities,
+  SessionConfigOption,
+  SessionInfo,
   SessionModelState,
   SessionModeState,
 } from "./types";
@@ -149,7 +151,7 @@ function warnDroppedDelta(params: {
   console.warn("[Chat] Dropped ui_message_delta", {
     reason: params.reason,
     messageId: params.event.messageId,
-    partType: params.event.partType,
+    partIndex: params.event.partIndex,
     deltaLength: params.event.delta.length,
     messageCount: params.currentMessages.length,
     knownMessageIds: params.currentMessages
@@ -160,30 +162,24 @@ function warnDroppedDelta(params: {
 
 function applyMessageDelta(params: {
   message: UIMessage;
-  partType: "text" | "reasoning";
+  partIndex: number;
   delta: string;
 }): UIMessage | null {
-  const { message, partType, delta } = params;
+  const { message, partIndex, delta } = params;
   if (!delta) {
     return message;
   }
-
-  for (let index = message.parts.length - 1; index >= 0; index -= 1) {
-    const part = message.parts[index];
-    if (part?.type !== partType) {
-      continue;
-    }
-
-    const updatedPart = { ...part, text: `${part.text}${delta}` };
-    const updatedParts = [...message.parts];
-    updatedParts[index] = updatedPart;
-    return {
-      ...message,
-      parts: updatedParts,
-    };
+  const part = message.parts[partIndex];
+  if (!part || (part.type !== "text" && part.type !== "reasoning")) {
+    return null;
   }
-
-  return null;
+  const updatedPart = { ...part, text: `${part.text}${delta}` };
+  const updatedParts = [...message.parts];
+  updatedParts[partIndex] = updatedPart;
+  return {
+    ...message,
+    parts: updatedParts,
+  };
 }
 
 // ============================================================================
@@ -200,6 +196,8 @@ export interface EventProcessingCallbacks {
   onModesChange?: (modes: SessionModeState | null) => void;
   onModelsChange?: (models: SessionModelState | null) => void;
   onCommandsChange?: (commands: AvailableCommand[]) => void;
+  onConfigOptionsChange?: (configOptions: SessionConfigOption[]) => void;
+  onSessionInfoChange?: (sessionInfo: SessionInfo | null) => void;
   onPromptCapabilitiesChange?: (caps: PromptCapabilities | null) => void;
   onAgentInfoChange?: (info: AgentInfo | null) => void;
   onTerminalOutput?: (terminalId: string, data: string) => void;
@@ -297,7 +295,7 @@ export function processSessionEvent(
 
       const nextMessage = applyMessageDelta({
         message: prev,
-        partType: event.partType,
+        partIndex: event.partIndex,
         delta: event.delta,
       });
       if (!nextMessage) {
@@ -332,6 +330,14 @@ export function processSessionEvent(
       callbacks.onCommandsChange?.(commands);
       return currentMessages;
     }
+
+    case "config_options_update":
+      callbacks.onConfigOptionsChange?.(event.configOptions || []);
+      return currentMessages;
+
+    case "session_info_update":
+      callbacks.onSessionInfoChange?.(event.sessionInfo ?? null);
+      return currentMessages;
 
     case "current_mode_update": {
       if (currentModes) {
@@ -379,6 +385,8 @@ export interface SessionStateData {
     description: string;
     input?: { hint: string } | null;
   }>;
+  configOptions?: SessionConfigOption[];
+  sessionInfo?: SessionInfo | null;
   promptCapabilities?: PromptCapabilities | null;
   loadSessionSupported?: boolean;
   agentInfo?: AgentInfo | null;
@@ -395,6 +403,8 @@ export function applySessionState(
     onModelsChange?: (models: SessionModelState | null) => void;
     onSupportsModelSwitchingChange?: (supported: boolean) => void;
     onCommandsChange?: (commands: AvailableCommand[]) => void;
+    onConfigOptionsChange?: (configOptions: SessionConfigOption[]) => void;
+    onSessionInfoChange?: (sessionInfo: SessionInfo | null) => void;
     onPromptCapabilitiesChange?: (caps: PromptCapabilities | null) => void;
     onLoadSessionSupportedChange?: (supported: boolean | undefined) => void;
     onAgentInfoChange?: (info: AgentInfo | null) => void;
@@ -432,6 +442,12 @@ export function applySessionState(
       input: cmd.input === null ? undefined : cmd.input,
     }));
     callbacks.onCommandsChange?.(commands);
+  }
+  if (data.configOptions) {
+    callbacks.onConfigOptionsChange?.(data.configOptions);
+  }
+  if (data.sessionInfo !== undefined) {
+    callbacks.onSessionInfoChange?.(data.sessionInfo);
   }
   if (data.promptCapabilities !== undefined) {
     callbacks.onPromptCapabilitiesChange?.(data.promptCapabilities);

@@ -9,6 +9,7 @@ import type {
 import type {
   CancelPromptService,
   SendMessageService,
+  SetConfigOptionService,
   SetModelService,
   SetModeService,
 } from "@/modules/ai";
@@ -81,6 +82,7 @@ export interface AiServiceFactory {
   sendMessage(): ServicePort<SendMessageService>;
   setModel(): ServicePort<SetModelService>;
   setMode(): ServicePort<SetModeService>;
+  setConfigOption(): ServicePort<SetConfigOptionService>;
   cancelPrompt(): ServicePort<CancelPromptService>;
 }
 

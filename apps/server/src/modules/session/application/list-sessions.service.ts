@@ -137,6 +137,7 @@ export class ListSessionsService {
         const agentCapabilities =
           activeSession?.agentCapabilities ?? session.agentCapabilities;
         const authMethods = activeSession?.authMethods ?? session.authMethods;
+        const runtimeTitle = activeSession?.sessionInfo?.title ?? undefined;
         const supportsModelSwitching =
           activeSession?.supportsModelSwitching ??
           session.supportsModelSwitching ??
@@ -153,7 +154,7 @@ export class ListSessionsService {
 
         return {
           id: session.id,
-          name: session.name,
+          name: session.name ?? runtimeTitle,
           sessionId: activeSession?.sessionId ?? session.sessionId,
           projectId: derivedProjectId ?? session.projectId ?? null,
           projectRoot: session.projectRoot,

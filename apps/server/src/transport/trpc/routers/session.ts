@@ -40,7 +40,7 @@ function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown>
   if (event.type === "ui_message_delta") {
     return {
       messageId: event.messageId,
-      partType: event.partType,
+      partIndex: event.partIndex,
       deltaLength: event.delta.length,
     };
   }
@@ -68,6 +68,8 @@ export const sessionRouter = router({
         chatStatus: res.chatStatus,
         modes: res.modes,
         models: res.models,
+        configOptions: res.configOptions ?? null,
+        sessionInfo: res.sessionInfo ?? null,
         promptCapabilities: res.promptCapabilities,
         loadSessionSupported: res.loadSessionSupported ?? false,
         agentInfo: res.agentInfo ?? null,

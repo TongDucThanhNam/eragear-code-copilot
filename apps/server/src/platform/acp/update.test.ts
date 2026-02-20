@@ -145,8 +145,83 @@ describe("createSessionUpdateHandler", () => {
     });
   });
 
-  test("ignores unhandled updates without crashing", async () => {
-    const session = createSession("chat-unhandled");
+  test("applies config_option_update and syncs legacy mode/model metadata", async () => {
+    const session = createSession("chat-config-options");
+    session.models = {
+      currentModelId: "model-old",
+      availableModels: [{ modelId: "model-old", name: "Old model" }],
+    };
+    const { runtime, events } = createRuntime(session);
+    const { repo, metadataCalls } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "mode-new",
+            options: [{ value: "mode-new", name: "New mode" }],
+          },
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "model-new",
+            options: [{ value: "model-new", name: "New model" }],
+          },
+        ],
+      },
+    });
+
+    expect(session.configOptions).toHaveLength(2);
+    expect(session.modes?.currentModeId).toBe("mode-new");
+    expect(session.models?.currentModelId).toBe("model-new");
+    expect(metadataCalls).toContainEqual({
+      chatId: "chat-config-options",
+      userId: "user-1",
+      updates: {
+        modeId: "mode-new",
+        modelId: "model-new",
+      },
+    });
+    expect(events).toContainEqual({
+      type: "config_options_update",
+      configOptions: [
+        {
+          id: "mode",
+          name: "Mode",
+          category: "mode",
+          type: "select",
+          currentValue: "mode-new",
+          options: [{ value: "mode-new", name: "New mode" }],
+        },
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "model-new",
+          options: [{ value: "model-new", name: "New model" }],
+        },
+      ],
+    });
+    expect(events).toContainEqual({
+      type: "current_mode_update",
+      modeId: "mode-new",
+    });
+  });
+
+  test("applies session_info_update and broadcasts metadata update", async () => {
+    const session = createSession("chat-session-info");
     const { runtime, events } = createRuntime(session);
     const { repo, metadataCalls } = createRepo();
     const handler = createSessionUpdateHandler(runtime, repo);
@@ -158,8 +233,41 @@ describe("createSessionUpdateHandler", () => {
         isReplayingHistory: false,
         update: {
           sessionUpdate: "session_info_update",
-          title: "noop",
+          title: "ACP title",
+          updatedAt: "2026-01-01T00:00:00Z",
         },
+      })
+    ).resolves.toBeUndefined();
+
+    expect(session.sessionInfo).toEqual({
+      title: "ACP title",
+      updatedAt: "2026-01-01T00:00:00Z",
+    });
+    expect(metadataCalls).toHaveLength(0);
+    expect(events).toContainEqual({
+      type: "session_info_update",
+      sessionInfo: {
+        title: "ACP title",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    });
+  });
+
+  test("ignores unsupported updates without crashing", async () => {
+    const session = createSession("chat-unhandled");
+    const { runtime, events } = createRuntime(session);
+    const { repo, metadataCalls } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await expect(
+      handler({
+        chatId: session.id,
+        buffer: new SessionBuffering(),
+        isReplayingHistory: false,
+        update: {
+          sessionUpdate: "usage_update",
+          _meta: {},
+        } as never,
       })
     ).resolves.toBeUndefined();
 

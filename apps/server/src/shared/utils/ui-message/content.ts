@@ -11,6 +11,7 @@ import type {
   UIMessagePart,
 } from "@repo/shared";
 import type { StoredContentBlock } from "@/shared/types/session.types";
+import { escapeHtmlText } from "../html.util";
 import {
   getBlockProviderMetadata,
   getOptionalAnnotations,
@@ -19,18 +20,22 @@ import {
   mergeProviderMetadata,
 } from "./metadata";
 
+const WINDOWS_DRIVE_PATH_RE = /^[a-zA-Z]:[\\/]/;
+const WINDOWS_UNC_PATH_RE = /^\\\\[^\\]+\\[^\\]+/;
+
 export function appendTextPart(
   message: UIMessage,
   text: string,
   state: TextUIPart["state"],
   providerMetadata?: ProviderMetadata
 ) {
-  if (!text) {
+  const escapedText = escapeHtmlText(text);
+  if (!escapedText) {
     return;
   }
   const last = message.parts.at(-1);
   if (last?.type === "text" && last.state === state) {
-    last.text += text;
+    last.text += escapedText;
     if (providerMetadata) {
       last.providerMetadata = mergeProviderMetadata(
         last.providerMetadata,
@@ -40,8 +45,8 @@ export function appendTextPart(
     return;
   }
   const part: TextUIPart = providerMetadata
-    ? { type: "text", text, state, providerMetadata }
-    : { type: "text", text, state };
+    ? { type: "text", text: escapedText, state, providerMetadata }
+    : { type: "text", text: escapedText, state };
   message.parts.push(part);
 }
 
@@ -51,12 +56,13 @@ export function appendReasoningPart(
   state: ReasoningUIPart["state"],
   providerMetadata?: ProviderMetadata
 ) {
-  if (!text) {
+  const escapedText = escapeHtmlText(text);
+  if (!escapedText) {
     return;
   }
   const last = message.parts.at(-1);
   if (last?.type === "reasoning") {
-    last.text += text;
+    last.text += escapedText;
     last.state = state;
     if (providerMetadata) {
       last.providerMetadata = mergeProviderMetadata(
@@ -67,8 +73,8 @@ export function appendReasoningPart(
     return;
   }
   const part: ReasoningUIPart = providerMetadata
-    ? { type: "reasoning", text, state, providerMetadata }
-    : { type: "reasoning", text, state };
+    ? { type: "reasoning", text: escapedText, state, providerMetadata }
+    : { type: "reasoning", text: escapedText, state };
   message.parts.push(part);
 }
 
@@ -247,6 +253,9 @@ function filenameFromUri(uri?: string | null): string | undefined {
   if (!normalizedUri) {
     return undefined;
   }
+  if (isWindowsPathLike(normalizedUri)) {
+    return toFilename(normalizedUri);
+  }
   try {
     const parsed = new URL(normalizedUri);
     return toFilename(parsed.pathname);
@@ -256,11 +265,19 @@ function filenameFromUri(uri?: string | null): string | undefined {
 }
 
 function toFilename(pathLike: string): string | undefined {
-  const basename = path.win32.basename(pathLike);
+  const basename = isWindowsPathLike(pathLike)
+    ? path.win32.basename(pathLike)
+    : path.posix.basename(pathLike);
   if (basename === "" || basename === "." || basename === "..") {
     return undefined;
   }
   return basename;
+}
+
+function isWindowsPathLike(pathLike: string): boolean {
+  return (
+    WINDOWS_DRIVE_PATH_RE.test(pathLike) || WINDOWS_UNC_PATH_RE.test(pathLike)
+  );
 }
 
 function toDataUrl(

@@ -96,6 +96,12 @@ export const SetModeInputSchema = z.object({
   modeId: z.string(),
 });
 
+export const SetConfigOptionInputSchema = z.object({
+  chatId: z.string(),
+  configId: z.string().min(1),
+  value: z.string().min(1),
+});
+
 export const CancelPromptInputSchema = z.object({
   chatId: z.string(),
 });
@@ -103,4 +109,5 @@ export const CancelPromptInputSchema = z.object({
 export type SendMessageInput = z.infer<typeof SendMessageInputSchema>;
 export type SetModelInput = z.infer<typeof SetModelInputSchema>;
 export type SetModeInput = z.infer<typeof SetModeInputSchema>;
+export type SetConfigOptionInput = z.infer<typeof SetConfigOptionInputSchema>;
 export type CancelPromptInput = z.infer<typeof CancelPromptInputSchema>;

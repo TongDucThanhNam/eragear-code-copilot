@@ -15,6 +15,7 @@ import type {
   EmbeddedResource,
   ImageContent,
   ResourceLink,
+  SessionConfigOption as AcpSessionConfigOption,
   TextContent,
   ToolCall,
   WaitForTerminalExitResponse,
@@ -110,6 +111,18 @@ export interface PromptCapabilities {
   audio?: boolean;
   /** Whether embedded context is supported */
   embeddedContext?: boolean;
+}
+
+export type SessionConfigOption = AcpSessionConfigOption;
+
+/**
+ * Session info metadata synchronized from ACP session_info_update.
+ */
+export interface SessionInfo {
+  /** Human-readable title for the session. */
+  title?: string | null;
+  /** ISO 8601 timestamp of latest activity. */
+  updatedAt?: string | null;
 }
 
 /**
@@ -251,13 +264,15 @@ export type BroadcastEvent =
       type: "ui_message_delta";
       messageId: string;
       delta: string;
-      partType: "text" | "reasoning";
+      partIndex: number;
     }
   | { type: "current_mode_update"; modeId: string }
   | {
       type: "available_commands_update";
       availableCommands: AvailableCommand[];
     }
+  | { type: "config_options_update"; configOptions: SessionConfigOption[] }
+  | { type: "session_info_update"; sessionInfo: SessionInfo }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string }
   | { type: "terminal_output"; terminalId: string; data: string };
@@ -356,8 +371,12 @@ export interface ChatSession {
   models?: SessionModelState;
   /** Available commands */
   commands?: AvailableCommand[];
+  /** Session configuration options (preferred over modes when available). */
+  configOptions?: SessionConfigOption[];
   /** Agent metadata */
   agentInfo?: DomainAgentInfo;
+  /** Session metadata updates from ACP. */
+  sessionInfo?: SessionInfo;
   /** Prompt capabilities */
   promptCapabilities?: PromptCapabilities;
   /** Current plan */

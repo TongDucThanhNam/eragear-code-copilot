@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { UIMessage } from "@repo/shared";
 import type { StoredContentBlock } from "@/shared/types/session.types";
-import { contentBlockToParts } from "./content";
+import {
+  appendReasoningPart,
+  appendTextPart,
+  contentBlockToParts,
+} from "./content";
 
 function getSourceDocumentFilename(uri: string): string | undefined {
   const block = {
@@ -33,6 +38,14 @@ function getFilePartFilename(uri: string): string | undefined {
     return undefined;
   }
   return filePart.filename;
+}
+
+function createAssistantMessage(id: string): UIMessage {
+  return {
+    id,
+    role: "assistant",
+    parts: [],
+  };
 }
 
 describe("contentBlockToParts filename normalization", () => {
@@ -69,5 +82,33 @@ describe("contentBlockToParts filename normalization", () => {
     expect(getFilePartFilename("C:\\Users\\Admin\\screenshot.png")).toBe(
       "screenshot.png"
     );
+  });
+
+  test("keeps backslashes for non-windows linux-like filenames", () => {
+    expect(getSourceDocumentFilename("/tmp/notes\\v1.md")).toBe("notes\\v1.md");
+  });
+});
+
+describe("append text sanitization", () => {
+  test("escapes HTML tags in text parts", () => {
+    const message = createAssistantMessage("msg-text");
+    appendTextPart(message, "<script>alert(1)</script>", "streaming");
+
+    const textPart = message.parts[0];
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe("&lt;script&gt;alert(1)&lt;/script&gt;");
+    }
+  });
+
+  test("escapes HTML tags in reasoning parts", () => {
+    const message = createAssistantMessage("msg-reasoning");
+    appendReasoningPart(message, "<b>reasoning</b>", "streaming");
+
+    const reasoningPart = message.parts[0];
+    expect(reasoningPart?.type).toBe("reasoning");
+    if (reasoningPart?.type === "reasoning") {
+      expect(reasoningPart.text).toBe("&lt;b&gt;reasoning&lt;/b&gt;");
+    }
   });
 });

@@ -2,6 +2,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import type { ToolUIPart } from "@repo/shared";
 import type { Plan } from "@/shared/types/session.types";
 import { toStoredToolCallContent } from "@/shared/utils/content-block.util";
+import { escapeHtmlText, sanitizeStringValues } from "@/shared/utils/html.util";
 import { buildProviderMetadata } from "./metadata";
 
 const TOOL_FALLBACK_NAME = "tool";
@@ -244,9 +245,9 @@ function normalizeToolOutput(
 ): unknown {
   const sanitized = toStoredToolCallContent(content);
   if (sanitized !== undefined) {
-    return sanitized;
+    return sanitizeStringValues(sanitized);
   }
-  return rawOutput;
+  return sanitizeStringValues(rawOutput);
 }
 
 function stringifyError(rawOutput?: unknown) {
@@ -254,12 +255,12 @@ function stringifyError(rawOutput?: unknown) {
     return null;
   }
   if (typeof rawOutput === "string") {
-    return rawOutput;
+    return escapeHtmlText(rawOutput);
   }
   if (typeof rawOutput === "object" && rawOutput && "error" in rawOutput) {
     const err = (rawOutput as { error?: unknown }).error;
     if (typeof err === "string") {
-      return err;
+      return escapeHtmlText(err);
     }
   }
   return null;

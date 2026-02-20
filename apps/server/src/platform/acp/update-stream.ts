@@ -1,4 +1,3 @@
-import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
@@ -13,27 +12,19 @@ import {
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 
 const logger = createLogger("Debug");
-const DELTA_SNAPSHOT_INTERVAL = 20;
-export const STREAM_DELTA_SNAPSHOT_INTERVAL = DELTA_SNAPSHOT_INTERVAL;
 
 type DeltaPartType = "text" | "reasoning";
 type SnapshotReason =
   | "replay_chunk"
   | "non_text_block"
   | "first_part"
-  | "part_state_transition"
-  | "periodic_anchor";
+  | "part_state_transition";
 type SuppressReason = "replay_suppressed";
 
 interface SnapshotDecision {
   shouldBroadcastSnapshot: boolean;
   reason?: SnapshotReason;
 }
-
-const deltaCountsByMessage = new WeakMap<
-  UIMessage,
-  { text: number; reasoning: number }
->();
 
 export async function handleBufferedMessage(
   context: SessionUpdateContext
@@ -161,47 +152,42 @@ async function appendAssistantChunk(params: {
     });
     appendContentBlock(message, block, partState, providerMetadata);
 
-    if (!suppressReplayBroadcast) {
-      if (snapshotDecision.shouldBroadcastSnapshot) {
-        resetDeltaCount(message, "text");
-        logSnapshotDecision({
-          chatId,
-          isReplayingHistory,
-          messageId,
-          chunkType: "message",
-          reason: snapshotDecision.reason,
-        });
-        await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
-      } else if (block.type === "text" && block.text.length > 0) {
-        const deltaCount = incrementDeltaCount(message, "text");
-        logDeltaDecision({
-          chatId,
-          messageId,
-          partType: "text",
-          deltaLength: block.text.length,
-          deltaCount,
-        });
-        await sessionRuntime.broadcast(
-          chatId,
-          {
-            type: "ui_message_delta",
-            messageId,
-            partType: "text",
-            delta: block.text,
-          },
-          {
-            durable: false,
-            retainInBuffer: false,
-          }
-        );
-      }
-    } else {
+    if (suppressReplayBroadcast) {
       logSuppressedChunk({
         chatId,
         messageId,
         chunkType: "message",
         suppressReason: "replay_suppressed",
       });
+    } else if (snapshotDecision.shouldBroadcastSnapshot) {
+      logSnapshotDecision({
+        chatId,
+        isReplayingHistory,
+        messageId,
+        chunkType: "message",
+        reason: snapshotDecision.reason,
+      });
+      await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+    } else if (block.type === "text" && block.text.length > 0) {
+      logDeltaDecision({
+        chatId,
+        messageId,
+        partType: "text",
+        deltaLength: block.text.length,
+      });
+      await sessionRuntime.broadcast(
+        chatId,
+        {
+          type: "ui_message_delta",
+          messageId,
+          partType: "text",
+          delta: block.text,
+        },
+        {
+          durable: false,
+          retainInBuffer: false,
+        }
+      );
     }
     return;
   }
@@ -230,7 +216,6 @@ async function appendAssistantChunk(params: {
     return;
   }
   if (snapshotDecision.shouldBroadcastSnapshot) {
-    resetDeltaCount(message, "reasoning");
     logSnapshotDecision({
       chatId,
       isReplayingHistory,
@@ -242,13 +227,11 @@ async function appendAssistantChunk(params: {
     return;
   }
   if (block.text.length > 0) {
-    const deltaCount = incrementDeltaCount(message, "reasoning");
     logDeltaDecision({
       chatId,
       messageId,
       partType: "reasoning",
       deltaLength: block.text.length,
-      deltaCount,
     });
     await sessionRuntime.broadcast(
       chatId,
@@ -331,9 +314,6 @@ function decideSnapshotBroadcast(params: {
         reason: "part_state_transition",
       };
     }
-    if (nextDeltaCount(message, "text") >= DELTA_SNAPSHOT_INTERVAL) {
-      return { shouldBroadcastSnapshot: true, reason: "periodic_anchor" };
-    }
     return { shouldBroadcastSnapshot: false };
   }
 
@@ -346,45 +326,7 @@ function decideSnapshotBroadcast(params: {
       reason: "part_state_transition",
     };
   }
-  if (nextDeltaCount(message, "reasoning") >= DELTA_SNAPSHOT_INTERVAL) {
-    return { shouldBroadcastSnapshot: true, reason: "periodic_anchor" };
-  }
   return { shouldBroadcastSnapshot: false };
-}
-
-function nextDeltaCount(message: UIMessage, partType: DeltaPartType): number {
-  const current = deltaCountsByMessage.get(message);
-  const count = current?.[partType] ?? 0;
-  return count + 1;
-}
-
-function incrementDeltaCount(
-  message: UIMessage,
-  partType: DeltaPartType
-): number {
-  const current = deltaCountsByMessage.get(message);
-  if (current) {
-    current[partType] += 1;
-    return current[partType];
-  }
-  const initialState = {
-    text: partType === "text" ? 1 : 0,
-    reasoning: partType === "reasoning" ? 1 : 0,
-  };
-  deltaCountsByMessage.set(message, initialState);
-  return initialState[partType];
-}
-
-function resetDeltaCount(message: UIMessage, partType: DeltaPartType): void {
-  const current = deltaCountsByMessage.get(message);
-  if (current) {
-    current[partType] = 0;
-    return;
-  }
-  deltaCountsByMessage.set(message, {
-    text: 0,
-    reasoning: 0,
-  });
 }
 
 function logSnapshotDecision(params: {
@@ -411,7 +353,6 @@ function logDeltaDecision(params: {
   messageId: string;
   partType: DeltaPartType;
   deltaLength: number;
-  deltaCount: number;
 }): void {
   if (!shouldEmitRuntimeLog("debug")) {
     return;
@@ -421,7 +362,6 @@ function logDeltaDecision(params: {
     messageId: params.messageId,
     partType: params.partType,
     deltaLength: params.deltaLength,
-    deltaCount: params.deltaCount,
   });
 }
 

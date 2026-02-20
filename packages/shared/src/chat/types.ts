@@ -67,6 +67,39 @@ export interface AgentInfo {
   version: string;
 }
 
+export type SessionConfigOptionCategory =
+  | "mode"
+  | "model"
+  | "thought_level"
+  | string;
+
+export interface SessionConfigSelectOption {
+  value: string;
+  name: string;
+  description?: string | null;
+}
+
+export interface SessionConfigSelectGroup {
+  group: string;
+  name: string;
+  options: SessionConfigSelectOption[];
+}
+
+export interface SessionConfigOption {
+  id: string;
+  name: string;
+  description?: string | null;
+  category?: SessionConfigOptionCategory | null;
+  type: "select";
+  currentValue: string;
+  options: SessionConfigSelectOption[] | SessionConfigSelectGroup[];
+}
+
+export interface SessionInfo {
+  title?: string | null;
+  updatedAt?: string | null;
+}
+
 // ============================================================================
 // Permission Types
 // ============================================================================
@@ -115,7 +148,7 @@ export type BroadcastEvent =
   | {
       type: "ui_message_delta";
       messageId: string;
-      partType: "text" | "reasoning";
+      partIndex: number;
       delta: string;
     }
   | {
@@ -125,6 +158,14 @@ export type BroadcastEvent =
         description: string;
         input?: { hint: string } | null;
       }>;
+    }
+  | {
+      type: "config_options_update";
+      configOptions: SessionConfigOption[];
+    }
+  | {
+      type: "session_info_update";
+      sessionInfo: SessionInfo;
     }
   | { type: "current_mode_update"; modeId: string }
   | { type: "terminal_output"; terminalId: string; data: string }
@@ -159,6 +200,8 @@ export interface UseChatState {
   models: SessionModelState | null;
   supportsModelSwitching: boolean;
   commands: AvailableCommand[];
+  configOptions: SessionConfigOption[];
+  sessionInfo: SessionInfo | null;
   promptCapabilities: PromptCapabilities | null;
   agentInfo: AgentInfo | null;
   loadSessionSupported: boolean | undefined;
@@ -177,6 +220,7 @@ export interface UseChatActions {
   cancelPrompt: () => Promise<void>;
   setMode: (modeId: string) => Promise<void>;
   setModel: (modelId: string) => Promise<void>;
+  setConfigOption: (configId: string, value: string) => Promise<void>;
   respondToPermission: (requestId: string, decision: string) => Promise<void>;
   stopSession: () => Promise<void>;
   resumeSession: (chatId: string) => Promise<unknown>;

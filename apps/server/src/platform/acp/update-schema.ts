@@ -77,16 +77,49 @@ const CurrentModeUpdateSchema = z
   })
   .passthrough();
 
+const ConfigOptionValueSchema = z
+  .object({
+    value: z.string(),
+    name: z.string(),
+    description: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const ConfigOptionGroupSchema = z
+  .object({
+    group: z.string(),
+    name: z.string(),
+    options: z.array(ConfigOptionValueSchema),
+  })
+  .passthrough();
+
+const SessionConfigOptionSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    type: z.literal("select"),
+    currentValue: z.string(),
+    options: z.union([
+      z.array(ConfigOptionValueSchema),
+      z.array(ConfigOptionGroupSchema),
+    ]),
+    category: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+  })
+  .passthrough();
+
 const ConfigOptionUpdateSchema = z
   .object({
     sessionUpdate: z.literal("config_option_update"),
-    configOptions: z.array(z.unknown()),
+    configOptions: z.array(SessionConfigOptionSchema),
   })
   .passthrough();
 
 const SessionInfoUpdateSchema = z
   .object({
     sessionUpdate: z.literal("session_info_update"),
+    title: z.string().nullable().optional(),
+    updatedAt: z.string().nullable().optional(),
   })
   .passthrough();
 

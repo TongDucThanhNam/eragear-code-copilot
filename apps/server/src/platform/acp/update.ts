@@ -205,6 +205,127 @@ async function handleCommandsUpdate(
   return true;
 }
 
+async function handleConfigOptionsUpdate(
+  context: Pick<
+    SessionUpdateContext,
+    | "chatId"
+    | "update"
+    | "sessionRuntime"
+    | "sessionRepo"
+    | "suppressReplayBroadcast"
+  >
+): Promise<boolean> {
+  const { chatId, update, sessionRuntime, sessionRepo, suppressReplayBroadcast } =
+    context;
+  if (update.sessionUpdate !== "config_option_update") {
+    return false;
+  }
+
+  const session = sessionRuntime.get(chatId);
+  if (!session) {
+    return true;
+  }
+
+  const configOptions = update.configOptions.map((option) => ({
+    ...option,
+  }));
+  session.configOptions = configOptions;
+
+  const modeOption = configOptions.find((option) => option.category === "mode");
+  const modelOption = configOptions.find((option) => option.category === "model");
+
+  let broadcastModeId: string | null = null;
+  if (
+    modeOption &&
+    session.modes &&
+    session.modes.currentModeId !== modeOption.currentValue
+  ) {
+    session.modes.currentModeId = modeOption.currentValue;
+    broadcastModeId = modeOption.currentValue;
+  }
+  if (
+    modelOption &&
+    session.models &&
+    session.models.currentModelId !== modelOption.currentValue
+  ) {
+    session.models.currentModelId = modelOption.currentValue;
+  }
+
+  if (session.userId && (modeOption || modelOption)) {
+    await sessionRepo.updateMetadata(chatId, session.userId, {
+      ...(modeOption ? { modeId: modeOption.currentValue } : {}),
+      ...(modelOption ? { modelId: modelOption.currentValue } : {}),
+    });
+  }
+
+  logger.debug("ACP config options update", {
+    chatId,
+    configOptionsCount: configOptions.length,
+    hasModeOption: Boolean(modeOption),
+    hasModelOption: Boolean(modelOption),
+  });
+
+  if (!suppressReplayBroadcast) {
+    await sessionRuntime.broadcast(chatId, {
+      type: "config_options_update",
+      configOptions,
+    });
+    if (broadcastModeId) {
+      await sessionRuntime.broadcast(chatId, {
+        type: "current_mode_update",
+        modeId: broadcastModeId,
+      });
+    }
+  }
+
+  return true;
+}
+
+async function handleSessionInfoUpdate(
+  context: Pick<
+    SessionUpdateContext,
+    "chatId" | "update" | "sessionRuntime" | "suppressReplayBroadcast"
+  >
+): Promise<boolean> {
+  const { chatId, update, sessionRuntime, suppressReplayBroadcast } = context;
+  if (update.sessionUpdate !== "session_info_update") {
+    return false;
+  }
+
+  const session = sessionRuntime.get(chatId);
+  if (!session) {
+    return true;
+  }
+
+  const hasTitle = Object.prototype.hasOwnProperty.call(update, "title");
+  const hasUpdatedAt = Object.prototype.hasOwnProperty.call(update, "updatedAt");
+  if (!hasTitle && !hasUpdatedAt) {
+    return true;
+  }
+
+  const sessionInfo = {
+    ...(session.sessionInfo ?? {}),
+    ...(hasTitle ? { title: update.title ?? null } : {}),
+    ...(hasUpdatedAt ? { updatedAt: update.updatedAt ?? null } : {}),
+  };
+  session.sessionInfo = sessionInfo;
+
+  logger.debug("ACP session info update", {
+    chatId,
+    hasTitle,
+    hasUpdatedAt,
+  });
+
+  if (!suppressReplayBroadcast) {
+    await sessionRuntime.broadcast(chatId, {
+      type: "session_info_update",
+      sessionInfo,
+    });
+  }
+
+  return true;
+}
+
 /**
  * Creates a session update handler for processing updates from agent processes.
  */
@@ -270,6 +391,12 @@ export function createSessionUpdateHandler(
         return;
       }
       if (await handleCommandsUpdate(context)) {
+        return;
+      }
+      if (await handleConfigOptionsUpdate(context)) {
+        return;
+      }
+      if (await handleSessionInfoUpdate(context)) {
         return;
       }
       if (await handlePlanUpdate(context)) {

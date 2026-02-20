@@ -12,6 +12,8 @@ import type {
   ConnectionStatus,
   PermissionRequest,
   PromptCapabilities,
+  SessionConfigOption,
+  SessionInfo,
   SessionStateData,
   SessionModelState,
   SessionModeState,
@@ -60,6 +62,8 @@ export interface UseChatResult {
   models: SessionModelState | null;
   supportsModelSwitching: boolean;
   commands: AvailableCommand[];
+  configOptions: SessionConfigOption[];
+  sessionInfo: SessionInfo | null;
   promptCapabilities: PromptCapabilities | null;
   agentInfo: AgentInfo | null;
   loadSessionSupported: boolean | undefined;
@@ -80,6 +84,7 @@ export interface UseChatResult {
   cancelPrompt: () => Promise<void>;
   setMode: (modeId: string) => Promise<void>;
   setModel: (modelId: string) => Promise<void>;
+  setConfigOption: (configId: string, value: string) => Promise<void>;
   respondToPermission: (requestId: string, decision: string) => Promise<void>;
   stopSession: () => Promise<void>;
   resumeSession: () => Promise<void>;
@@ -146,11 +151,13 @@ type RawAgentInfo = {
 
 type RawSessionStateData = Omit<
   SessionStateData,
-  "modes" | "models" | "commands" | "agentInfo"
+  "modes" | "models" | "commands" | "configOptions" | "sessionInfo" | "agentInfo"
 > & {
   modes?: SessionModeState | null;
   models?: SessionModelState | null;
   commands?: SessionStateData["commands"] | null;
+  configOptions?: SessionStateData["configOptions"] | null;
+  sessionInfo?: SessionStateData["sessionInfo"] | null;
   agentInfo?: RawAgentInfo;
 };
 
@@ -226,6 +233,8 @@ const normalizeSessionStateData = (
     modes: data.modes ?? undefined,
     models: data.models ?? undefined,
     commands: data.commands ?? undefined,
+    configOptions: data.configOptions ?? undefined,
+    sessionInfo: data.sessionInfo ?? null,
   };
 
   const agentInfo = normalizeAgentInfo(rawAgentInfo);
@@ -287,6 +296,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const [models, setModels] = useState<SessionModelState | null>(null);
   const [supportsModelSwitching, setSupportsModelSwitching] = useState(false);
   const [commands, setCommands] = useState<AvailableCommand[]>([]);
+  const [configOptions, setConfigOptions] = useState<SessionConfigOption[]>([]);
+  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
   const [promptCapabilities, setPromptCapabilities] =
     useState<PromptCapabilities | null>(null);
   const [agentInfo, setAgentInfo] = useState<AgentInfo | null>(null);
@@ -351,6 +362,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setModels(null);
     setSupportsModelSwitching(false);
     setCommands([]);
+    setConfigOptions([]);
+    setSessionInfo(null);
     setPromptCapabilities(null);
     setAgentInfo(null);
     setLoadSessionSupported(undefined);
@@ -582,6 +595,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const cancelPromptMutation = trpc.cancelPrompt.useMutation();
   const setModeMutation = trpc.setMode.useMutation();
   const setModelMutation = trpc.setModel.useMutation();
+  const setConfigOptionMutation = trpc.setConfigOption.useMutation();
   const stopSessionMutation = trpc.stopSession.useMutation();
   const resumeSessionMutation = trpc.resumeSession.useMutation();
   const permissionResponseMutation =
@@ -597,6 +611,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       onModelsChange: setModels,
       onSupportsModelSwitchingChange: setSupportsModelSwitching,
       onCommandsChange: setCommands,
+      onConfigOptionsChange: setConfigOptions,
+      onSessionInfoChange: setSessionInfo,
       onPromptCapabilitiesChange: setPromptCapabilities,
       onLoadSessionSupportedChange: setLoadSessionSupported,
       onAgentInfoChange: setAgentInfo,
@@ -818,6 +834,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
             modesRef.current = m;
           },
           onCommandsChange: setCommands,
+          onConfigOptionsChange: setConfigOptions,
+          onSessionInfoChange: setSessionInfo,
           onTerminalOutput: (terminalId, data) => {
             setTerminalOutputs((prev) => ({
               ...prev,
@@ -984,6 +1002,35 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     },
     [chatId, setModelMutation, models]
   );
+  const setConfigOption = useCallback(
+    async (configId: string, value: string) => {
+      if (!chatId) {
+        return;
+      }
+      try {
+        const result = await setConfigOptionMutation.mutateAsync({
+          chatId,
+          configId,
+          value,
+        });
+        if (Array.isArray(result?.configOptions)) {
+          setConfigOptions(result.configOptions);
+        } else {
+          setConfigOptions((prev) =>
+            prev.map((option) =>
+              option.id === configId
+                ? { ...option, currentValue: value }
+                : option
+            )
+          );
+        }
+      } catch (configError) {
+        console.error("Failed to set config option", configError);
+        setError((configError as Error).message);
+      }
+    },
+    [chatId, setConfigOptionMutation]
+  );
   const respondToPermission = useCallback(
     async (requestId: string, decision: string) => {
       if (!chatId) {
@@ -1087,6 +1134,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     models,
     supportsModelSwitching,
     commands,
+    configOptions,
+    sessionInfo,
     promptCapabilities,
     agentInfo,
     loadSessionSupported,
@@ -1100,6 +1149,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     cancelPrompt,
     setMode,
     setModel,
+    setConfigOption,
     respondToPermission,
     stopSession,
     resumeSession,

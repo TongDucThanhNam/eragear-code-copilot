@@ -4,6 +4,7 @@ import { AppError, ValidationError } from "@/shared/errors";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
   ChatSession,
+  SessionConfigOption,
   SessionModelState,
   SessionModeState,
 } from "@/shared/types/session.types";
@@ -23,6 +24,7 @@ const OP = "session.lifecycle.create";
 interface SessionConnectionResult {
   modes?: SessionModeState | null;
   models?: SessionModelState | null;
+  configOptions?: SessionConfigOption[] | null;
 }
 
 interface SessionModelConnection {
@@ -300,6 +302,7 @@ export class SessionAcpBootstrapService {
         chatSession.isReplayingHistory = false;
         chatSession.modes = loadResult.modes ?? undefined;
         chatSession.models = loadResult.models ?? undefined;
+        chatSession.configOptions = loadResult.configOptions ?? undefined;
         const currentModeId = chatSession.modes?.currentModeId;
         if (currentModeId) {
           await this.sessionRuntime.broadcast(chatId, {
@@ -353,6 +356,7 @@ export class SessionAcpBootstrapService {
     chatSession.isReplayingHistory = false;
     chatSession.modes = loadResult.modes ?? undefined;
     chatSession.models = loadResult.models ?? undefined;
+    chatSession.configOptions = loadResult.configOptions ?? undefined;
 
     const currentModeId = chatSession.modes?.currentModeId;
     if (currentModeId) {
@@ -380,6 +384,7 @@ export class SessionAcpBootstrapService {
     chatSession.sessionId = newResult.sessionId;
     chatSession.modes = newResult.modes ?? undefined;
     chatSession.models = newResult.models ?? undefined;
+    chatSession.configOptions = newResult.configOptions ?? undefined;
     await this.applyDefaultModel(chatId, chatSession);
 
     if (chatSession.modes?.currentModeId) {

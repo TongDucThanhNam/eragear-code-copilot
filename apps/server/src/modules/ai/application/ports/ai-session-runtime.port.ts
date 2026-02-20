@@ -1,4 +1,7 @@
-import type { ContentBlock } from "@agentclientprotocol/sdk";
+import type {
+  ContentBlock,
+  SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 import type { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import type { ChatSession } from "@/shared/types/session.types";
 
@@ -62,6 +65,11 @@ export interface AiSessionRuntimePort {
   cancelPrompt(session: ChatSession): Promise<void>;
   setSessionMode(session: ChatSession, modeId: string): Promise<void>;
   setSessionModel(session: ChatSession, modelId: string): Promise<void>;
+  setSessionConfigOption(
+    session: ChatSession,
+    configId: string,
+    value: string
+  ): Promise<SessionConfigOption[]>;
   stopAndCleanup(input: AiStopSessionInput): Promise<void>;
   clearPendingPermissionsAsCancelled(session: ChatSession): void;
 }

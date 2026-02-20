@@ -23,7 +23,7 @@ export const DEFAULT_SESSION_BUFFER_LIMIT = 500;
 export const DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS = 15_000;
 /** Max time budget for one event bus publish attempt from session runtime */
 export const DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS = 250;
-/** Max queued event bus publish jobs per chat before dropping new jobs */
+/** Max queued event bus publish jobs per chat before applying backpressure */
 export const DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT = 512;
 /** Dev fallback allowlist for spawning configured agent commands */
 export const DEFAULT_DEV_ALLOWED_AGENT_COMMANDS = [process.execPath] as const;

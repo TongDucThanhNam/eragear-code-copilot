@@ -8,6 +8,7 @@ export const AI_OP = {
   PROMPT_CANCEL: "ai.prompt.cancel",
   SESSION_MODE_SET: "ai.session.mode.set",
   SESSION_MODEL_SET: "ai.session.model.set",
+  SESSION_CONFIG_OPTION_SET: "ai.session.config_option.set",
 } as const;
 
 export const HTTP_STATUS = {

@@ -12,10 +12,7 @@ import type {
 } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { SessionBuffering } from "./update-buffer";
-import {
-  handleBufferedMessage,
-  STREAM_DELTA_SNAPSHOT_INTERVAL,
-} from "./update-stream";
+import { handleBufferedMessage } from "./update-stream";
 import type { SessionUpdate } from "./update-types";
 
 function createSession(chatId: string): ChatSession {
@@ -352,10 +349,11 @@ describe("handleBufferedMessage", () => {
     expect(buffer.flush()?.id).toBe(firstSnapshotId);
   });
 
-  test("emits periodic snapshot anchors after many deltas", async () => {
-    const session = createSession("chat-stream-periodic-anchor");
+  test("keeps streaming text on deltas without periodic snapshot anchors", async () => {
+    const session = createSession("chat-stream-many-deltas");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
+    const deltaChunks = 64;
 
     await handleBufferedMessage(
       createContext({
@@ -368,7 +366,7 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
-    for (let index = 0; index < STREAM_DELTA_SNAPSHOT_INTERVAL - 1; index += 1) {
+    for (let index = 0; index < deltaChunks; index += 1) {
       await handleBufferedMessage(
         createContext({
           chatId: session.id,
@@ -381,29 +379,6 @@ describe("handleBufferedMessage", () => {
         })
       );
     }
-    await handleBufferedMessage(
-      createContext({
-        chatId: session.id,
-        buffer,
-        runtime,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: "c" } as StoredContentBlock,
-        } as SessionUpdate,
-      })
-    );
-    await handleBufferedMessage(
-      createContext({
-        chatId: session.id,
-        buffer,
-        runtime,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: "d" } as StoredContentBlock,
-        } as SessionUpdate,
-      })
-    );
-
     const snapshots = calls.filter(
       (
         call
@@ -420,8 +395,8 @@ describe("handleBufferedMessage", () => {
         options?: SessionBroadcastOptions;
       } => call.event.type === "ui_message_delta"
     );
-    expect(snapshots).toHaveLength(2);
-    expect(deltas).toHaveLength(STREAM_DELTA_SNAPSHOT_INTERVAL);
+    expect(snapshots).toHaveLength(1);
+    expect(deltas).toHaveLength(deltaChunks);
     expect(calls.at(-1)?.event.type).toBe("ui_message_delta");
   });
 

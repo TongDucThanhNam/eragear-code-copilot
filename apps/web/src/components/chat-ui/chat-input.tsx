@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { SessionConfigOption } from "@repo/shared";
 import { toast } from "sonner";
 import {
   ModelSelector,
@@ -92,6 +93,8 @@ export interface ChatInputProps {
   availableModels: { modelId: string; name: string; description?: string }[];
   currentModelId: string | null;
   onModelChange: (modelId: string) => void;
+  availableConfigOptions: SessionConfigOption[];
+  onConfigOptionChange: (configId: string, value: string) => void;
   onSubmit: (message: PromptInputMessage) => void | Promise<void>;
   // Context Props
   activeTabs?: { path: string }[];
@@ -159,6 +162,68 @@ const findMentionTrigger = (value: string, cursor: number) => {
 
   return { start: atIndex, query };
 };
+
+type RenderableConfigValue = {
+  value: string;
+  name: string;
+  description?: string | null;
+  groupLabel?: string;
+};
+
+function normalizeConfigOptions(
+  options: SessionConfigOption[]
+): Array<{
+  id: string;
+  name: string;
+  category?: string | null;
+  currentValue: string;
+  values: RenderableConfigValue[];
+}> {
+  const output: Array<{
+    id: string;
+    name: string;
+    category?: string | null;
+    currentValue: string;
+    values: RenderableConfigValue[];
+  }> = [];
+
+  for (const option of options) {
+    if (option.type !== "select") {
+      continue;
+    }
+    const values: RenderableConfigValue[] = [];
+    for (const item of option.options) {
+      if ("options" in item) {
+        for (const nested of item.options) {
+          values.push({
+            value: nested.value,
+            name: nested.name,
+            description: nested.description,
+            groupLabel: item.name,
+          });
+        }
+        continue;
+      }
+      values.push({
+        value: item.value,
+        name: item.name,
+        description: item.description,
+      });
+    }
+    if (values.length === 0) {
+      continue;
+    }
+    output.push({
+      id: option.id,
+      name: option.name,
+      category: option.category,
+      currentValue: option.currentValue,
+      values,
+    });
+  }
+
+  return output;
+}
 
 function MentionMenu({
   open,
@@ -284,6 +349,8 @@ const ChatInputBase = ({
   availableModels,
   currentModelId,
   onModelChange,
+  availableConfigOptions,
+  onConfigOptionChange,
   onSubmit,
   activeTabs = [],
   projectRules = [],
@@ -349,6 +416,16 @@ const ChatInputBase = ({
           providers: [fallbackProvider],
         }
       : undefined);
+  const configSelectors = useMemo(
+    () => normalizeConfigOptions(availableConfigOptions),
+    [availableConfigOptions]
+  );
+  const hasModeConfigOption = configSelectors.some(
+    (option) => option.category === "mode"
+  );
+  const hasModelConfigOption = configSelectors.some(
+    (option) => option.category === "model"
+  );
 
   const mentionItems = useMemo(() => {
     const normalized = mentionQuery.trim().toLowerCase();
@@ -594,7 +671,35 @@ const ChatInputBase = ({
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
 
-          {connStatus === "connected" && availableModes.length > 0 && (
+          {connStatus === "connected" &&
+            configSelectors.map((option) => (
+              <PromptInputSelect
+                key={option.id}
+                onValueChange={(nextValue: string) =>
+                  onConfigOptionChange(option.id, nextValue)
+                }
+                value={option.currentValue}
+              >
+                <PromptInputSelectTrigger className="h-8 min-w-20 px-2 py-0">
+                  <PromptInputSelectValue placeholder={option.name} />
+                </PromptInputSelectTrigger>
+                <PromptInputSelectContent>
+                  {option.values.map((value) => (
+                    <PromptInputSelectItem
+                      key={`${value.groupLabel ?? "value"}:${value.value}`}
+                      value={value.value}
+                    >
+                      {value.groupLabel ? `${value.groupLabel} / ` : ""}
+                      {value.name}
+                    </PromptInputSelectItem>
+                  ))}
+                </PromptInputSelectContent>
+              </PromptInputSelect>
+            ))}
+
+          {connStatus === "connected" &&
+            availableModes.length > 0 &&
+            !hasModeConfigOption && (
             <PromptInputSelect
               onValueChange={(val: string) => onModeChange(val)}
               value={currentModeId || ""}
@@ -612,7 +717,9 @@ const ChatInputBase = ({
             </PromptInputSelect>
           )}
 
-          {connStatus === "connected" && availableModels.length > 0 && (
+          {connStatus === "connected" &&
+            availableModels.length > 0 &&
+            !hasModelConfigOption && (
             <ModelSelector
               onOpenChange={setModelSelectorOpen}
               open={modelSelectorOpen}

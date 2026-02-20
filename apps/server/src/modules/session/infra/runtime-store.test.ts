@@ -6,7 +6,6 @@ import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { SessionRuntimeStore } from "./runtime-store";
 
 const OUTBOX_FAILURE_RE = /outbox failure/;
-const MUTATION_QUEUE_OVERFLOW_RE = /Pending mutation queue overflow/;
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -130,7 +129,7 @@ describe("SessionRuntimeStore.runExclusive", () => {
     await expect(first).resolves.toBe("first");
   });
 
-  test("fails fast when pending mutation queue exceeds per-chat limit", async () => {
+  test("applies backpressure when pending mutation queue reaches per-chat limit", async () => {
     const outboxCalls: BroadcastEvent[] = [];
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 20,
@@ -139,20 +138,29 @@ describe("SessionRuntimeStore.runExclusive", () => {
     });
     const firstStarted = createDeferred<void>();
     const releaseFirst = createDeferred<void>();
+    const order: string[] = [];
 
     const first = store.runExclusive("chat-1", async () => {
+      order.push("first:start");
       firstStarted.resolve();
       await releaseFirst.promise;
+      order.push("first:end");
       return "first";
     });
     await firstStarted.promise;
 
-    await expect(
-      store.runExclusive("chat-1", async () => "second")
-    ).rejects.toThrow(MUTATION_QUEUE_OVERFLOW_RE);
+    const second = store.runExclusive("chat-1", () => {
+      order.push("second:start");
+      return Promise.resolve("second");
+    });
+
+    await flushAsync();
+    expect(order).toEqual(["first:start"]);
 
     releaseFirst.resolve();
+    await expect(second).resolves.toBe("second");
     await expect(first).resolves.toBe("first");
+    expect(order).toEqual(["first:start", "first:end", "second:start"]);
   });
 
   test("allows re-entrant lock acquisition for the same chat within one async flow", async () => {
@@ -166,8 +174,9 @@ describe("SessionRuntimeStore.runExclusive", () => {
 
     const result = await store.runExclusive("chat-1", async () => {
       order.push("outer:start");
-      await store.runExclusive("chat-1", async () => {
+      await store.runExclusive("chat-1", () => {
         order.push("inner:start");
+        return Promise.resolve();
       });
       order.push("outer:end");
       return "ok";
@@ -196,9 +205,9 @@ describe("SessionRuntimeStore.runExclusive", () => {
     await firstStarted.promise;
 
     const queued = Array.from({ length: 64 }, (_, index) =>
-      store.runExclusive("chat-1", async () => {
+      store.runExclusive("chat-1", () => {
         executionOrder.push(index);
-        return index;
+        return Promise.resolve(index);
       })
     );
 

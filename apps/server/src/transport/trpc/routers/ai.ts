@@ -10,6 +10,7 @@
 import {
   CancelPromptInputSchema,
   SendMessageInputSchema,
+  SetConfigOptionInputSchema,
   SetModeInputSchema,
   SetModelInputSchema,
 } from "@/modules/ai";
@@ -49,6 +50,19 @@ export const aiRouter = router({
         getRequiredUserId(ctx),
         input.chatId,
         input.modeId
+      );
+    }),
+
+  /** Set a session configuration option */
+  setConfigOption: protectedProcedure
+    .input(SetConfigOptionInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const service = ctx.aiServices.setConfigOption();
+      return await service.execute(
+        getRequiredUserId(ctx),
+        input.chatId,
+        input.configId,
+        input.value
       );
     }),
 

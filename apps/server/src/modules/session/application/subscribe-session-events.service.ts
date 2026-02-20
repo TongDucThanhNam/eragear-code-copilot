@@ -97,7 +97,7 @@ function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown>
   if (event.type === "ui_message_delta") {
     return {
       messageId: event.messageId,
-      partType: event.partType,
+      partIndex: event.partIndex,
       deltaLength: event.delta.length,
     };
   }

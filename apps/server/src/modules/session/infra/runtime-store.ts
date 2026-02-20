@@ -19,6 +19,7 @@ import type {
 
 let loggerInstance: ReturnType<typeof createLogger> | null = null;
 const MIN_LOCK_WAIT_WARNING_MS = 100;
+const QUEUE_PRESSURE_LOG_INTERVAL_MS = 1000;
 
 function getLogger() {
   if (!loggerInstance) {
@@ -31,7 +32,9 @@ function shouldLogStreamEvent(event: BroadcastEvent): boolean {
   return event.type === "ui_message" || event.type === "ui_message_delta";
 }
 
-function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown> {
+function buildStreamEventContext(
+  event: BroadcastEvent
+): Record<string, unknown> {
   if (event.type === "ui_message") {
     return {
       messageId: event.message.id,
@@ -41,7 +44,7 @@ function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown>
   if (event.type === "ui_message_delta") {
     return {
       messageId: event.messageId,
-      partType: event.partType,
+      partIndex: event.partIndex,
       deltaLength: event.delta.length,
     };
   }
@@ -74,15 +77,6 @@ function normalizePolicy(policy: SessionRuntimeStorePolicy): {
   };
 }
 
-class SessionMutationQueueOverflowError extends Error {
-  constructor(chatId: string, pending: number, maxPending: number) {
-    super(
-      `[SessionRuntimeStore] Pending mutation queue overflow for chat "${chatId}" (${pending} >= ${maxPending})`
-    );
-    this.name = "SessionMutationQueueOverflowError";
-  }
-}
-
 /**
  * SessionRuntimeStore
  *
@@ -105,6 +99,10 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   private readonly maxQueuedMutationsPerChat: number;
   /** Number of queued state mutations per chat */
   private readonly queuedMutationsPerChat = new Map<string, number>();
+  /** Waiters blocked on per-chat queued mutation backpressure */
+  private readonly queuedMutationWaiters = new Map<string, Array<() => void>>();
+  /** Last queue pressure warning timestamp per chat */
+  private readonly lastQueuePressureLogAt = new Map<string, number>();
   /** Per-request lock re-entry context keyed by chat id */
   private readonly lockContextStorage = new AsyncLocalStorage<
     Map<string, number>
@@ -150,6 +148,8 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     this.sessions.delete(chatId);
     this.chatLockTails.delete(chatId);
     this.queuedMutationsPerChat.delete(chatId);
+    this.lastQueuePressureLogAt.delete(chatId);
+    this.resolveQueuedMutationWaiters(chatId);
   }
 
   has(chatId: string): boolean {
@@ -177,7 +177,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
       }
     }
 
-    this.reserveQueuedMutationSlot(chatId);
+    await this.reserveQueuedMutationSlot(chatId);
     const previousTail = this.chatLockTails.get(chatId) ?? Promise.resolve();
     let releaseLock: () => void = () => undefined;
     const lockSignal = new Promise<void>((resolve) => {
@@ -198,23 +198,18 @@ export class SessionRuntimeStore implements SessionRuntimePort {
       await previousTail.catch(() => undefined);
       const waitMs = Date.now() - waitStartedAt;
       if (waitMs > this.lockWaitWarningMs) {
-        getLogger().warn("Session lock acquisition latency exceeded threshold", {
-          chatId,
-          waitMs,
-          thresholdMs: this.lockWaitWarningMs,
-        });
+        getLogger().warn(
+          "Session lock acquisition latency exceeded threshold",
+          {
+            chatId,
+            waitMs,
+            thresholdMs: this.lockWaitWarningMs,
+          }
+        );
       }
       return await this.lockContextStorage.run(scopedContext, async () => {
         return await work();
       });
-    } catch (error) {
-      if (error instanceof SessionMutationQueueOverflowError) {
-        getLogger().warn("Session mutation queue overflow", {
-          chatId,
-          maxPending: this.maxQueuedMutationsPerChat,
-        });
-      }
-      throw error;
     } finally {
       releaseLock();
       this.releaseQueuedMutationSlot(chatId);
@@ -224,16 +219,16 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     }
   }
 
-  private reserveQueuedMutationSlot(chatId: string): void {
-    const pending = this.queuedMutationsPerChat.get(chatId) ?? 0;
-    if (pending >= this.maxQueuedMutationsPerChat) {
-      throw new SessionMutationQueueOverflowError(
-        chatId,
-        pending,
-        this.maxQueuedMutationsPerChat
-      );
+  private async reserveQueuedMutationSlot(chatId: string): Promise<void> {
+    while (true) {
+      const pending = this.queuedMutationsPerChat.get(chatId) ?? 0;
+      if (pending < this.maxQueuedMutationsPerChat) {
+        this.queuedMutationsPerChat.set(chatId, pending + 1);
+        return;
+      }
+      this.logQueuePressure(chatId, pending);
+      await this.waitForQueuedMutationSlot(chatId);
     }
-    this.queuedMutationsPerChat.set(chatId, pending + 1);
   }
 
   private releaseQueuedMutationSlot(chatId: string): void {
@@ -241,11 +236,60 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     if (pending === undefined) {
       return;
     }
-    if (pending <= 1) {
+    const nextPending = pending - 1;
+    if (nextPending <= 0) {
       this.queuedMutationsPerChat.delete(chatId);
+    } else {
+      this.queuedMutationsPerChat.set(chatId, nextPending);
+    }
+    if (nextPending < this.maxQueuedMutationsPerChat) {
+      this.resolveNextQueuedMutationWaiter(chatId);
+    }
+  }
+
+  private waitForQueuedMutationSlot(chatId: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const current = this.queuedMutationWaiters.get(chatId) ?? [];
+      current.push(resolve);
+      this.queuedMutationWaiters.set(chatId, current);
+    });
+  }
+
+  private resolveNextQueuedMutationWaiter(chatId: string): void {
+    const waiters = this.queuedMutationWaiters.get(chatId);
+    if (!waiters || waiters.length === 0) {
       return;
     }
-    this.queuedMutationsPerChat.set(chatId, pending - 1);
+    const next = waiters.shift();
+    if (waiters.length === 0) {
+      this.queuedMutationWaiters.delete(chatId);
+    }
+    next?.();
+  }
+
+  private resolveQueuedMutationWaiters(chatId: string): void {
+    const waiters = this.queuedMutationWaiters.get(chatId);
+    if (!waiters || waiters.length === 0) {
+      return;
+    }
+    this.queuedMutationWaiters.delete(chatId);
+    for (const waiter of waiters) {
+      waiter();
+    }
+  }
+
+  private logQueuePressure(chatId: string, pending: number): void {
+    const now = Date.now();
+    const lastLoggedAt = this.lastQueuePressureLogAt.get(chatId) ?? 0;
+    if (now - lastLoggedAt < QUEUE_PRESSURE_LOG_INTERVAL_MS) {
+      return;
+    }
+    this.lastQueuePressureLogAt.set(chatId, now);
+    getLogger().warn("Session mutation queue backpressure engaged", {
+      chatId,
+      pending,
+      maxPending: this.maxQueuedMutationsPerChat,
+    });
   }
 
   async broadcast(

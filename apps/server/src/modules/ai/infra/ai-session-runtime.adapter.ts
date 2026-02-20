@@ -1,4 +1,7 @@
-import type { ContentBlock } from "@agentclientprotocol/sdk";
+import type {
+  ContentBlock,
+  SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 import type {
   SessionRepositoryPort,
   SessionRuntimePort,
@@ -133,6 +136,23 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
         }),
       { classifyMethodNotSupported: true }
     );
+  }
+
+  async setSessionConfigOption(
+    session: ChatSession,
+    configId: string,
+    value: string
+  ): Promise<SessionConfigOption[]> {
+    const response = await this.wrapAcpCall(
+      () =>
+        session.conn.setSessionConfigOption({
+          sessionId: session.sessionId ?? "",
+          configId,
+          value,
+        }),
+      { classifyMethodNotSupported: true }
+    );
+    return response.configOptions ?? [];
   }
 
   async stopAndCleanup(input: AiStopSessionInput): Promise<void> {

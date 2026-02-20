@@ -23,9 +23,16 @@ const STDERR_SAMPLE_CHAR_LIMIT = 2000;
 const STDERR_SAMPLE_LINE_LIMIT = 12;
 const PARSE_ERROR_SAMPLE_LIMIT = 256;
 
-interface NdJsonGuardPolicy {
+export interface NdJsonGuardPolicy {
   maxLineBytes: number;
   maxBufferedBytes: number;
+}
+
+class AcpProtocolParseError extends Error {
+  constructor() {
+    super("ACP protocol parse error: malformed NDJSON payload");
+    this.name = "AcpProtocolParseError";
+  }
 }
 
 function truncate(value: string, maxChars: number): string {
@@ -49,6 +56,7 @@ function terminateAgentAfterTransportFailure(
   proc: ChildProcess,
   error: Error
 ): void {
+  emitTransportFailure(proc, error);
   logger.error("ACP stream guard triggered, terminating process", error, {
     pid: proc.pid,
   });
@@ -78,6 +86,20 @@ function terminateAgentAfterTransportFailure(
     });
 }
 
+function emitTransportFailure(proc: ChildProcess, error: Error): void {
+  if (proc.listenerCount("error") === 0) {
+    logger.error(
+      "ACP transport failure without process error listener",
+      error,
+      {
+        pid: proc.pid,
+      }
+    );
+    return;
+  }
+  proc.emit("error", error);
+}
+
 function assertNdJsonLimit(
   reason: "line_limit" | "buffer_limit",
   currentBytes: number,
@@ -101,11 +123,13 @@ function decodeChunkIntoLines(
   };
 }
 
-function enqueueNdJsonLines(
-  lines: string[],
-  policy: NdJsonGuardPolicy,
-  controller: ReadableStreamDefaultController<unknown>
-): void {
+async function enqueueNdJsonLines(params: {
+  lines: string[];
+  policy: NdJsonGuardPolicy;
+  controller: ReadableStreamDefaultController<unknown>;
+  waitForCapacity: () => Promise<void>;
+}): Promise<void> {
+  const { lines, policy, controller, waitForCapacity } = params;
   for (const line of lines) {
     const lineBytes = Buffer.byteLength(line, "utf8");
     assertNdJsonLimit("line_limit", lineBytes, policy.maxLineBytes);
@@ -115,14 +139,19 @@ function enqueueNdJsonLines(
       continue;
     }
 
+    let parsedLine: unknown;
     try {
-      controller.enqueue(JSON.parse(trimmedLine));
+      parsedLine = JSON.parse(trimmedLine);
     } catch (error) {
-      logger.warn("Failed to parse ACP JSON line; dropping line", {
+      const parseError = new AcpProtocolParseError();
+      logger.warn("Failed to parse ACP JSON line", {
         lineSample: truncate(trimmedLine, PARSE_ERROR_SAMPLE_LIMIT),
         error: error instanceof Error ? error.message : String(error),
       });
+      throw parseError;
     }
+    await waitForCapacity();
+    controller.enqueue(parsedLine);
   }
 }
 
@@ -174,7 +203,7 @@ function appendStderrSample(input: {
   };
 }
 
-function createGuardedNdJsonStream(
+export function createGuardedNdJsonStream(
   output: WritableStream<Uint8Array>,
   input: ReadableStream<Uint8Array>,
   policy: NdJsonGuardPolicy,
@@ -182,12 +211,30 @@ function createGuardedNdJsonStream(
 ): Stream {
   const textEncoder = new TextEncoder();
   const textDecoder = new TextDecoder();
+  const pullWaiters: Array<() => void> = [];
+  const resolvePullWaiters = () => {
+    while (pullWaiters.length > 0) {
+      const waiter = pullWaiters.shift();
+      waiter?.();
+    }
+  };
 
   const readable = new ReadableStream({
     async start(controller) {
       let content = "";
       const reader = input.getReader();
       let didError = false;
+      const waitForReadableCapacity = async () => {
+        while (true) {
+          const desiredSize = controller.desiredSize;
+          if (desiredSize === null || desiredSize > 0) {
+            return;
+          }
+          await new Promise<void>((resolve) => {
+            pullWaiters.push(resolve);
+          });
+        }
+      };
 
       try {
         while (true) {
@@ -213,7 +260,12 @@ function createGuardedNdJsonStream(
             policy.maxBufferedBytes
           );
           assertNdJsonLimit("line_limit", bufferedBytes, policy.maxLineBytes);
-          enqueueNdJsonLines(decoded.lines, policy, controller);
+          await enqueueNdJsonLines({
+            lines: decoded.lines,
+            policy,
+            controller,
+            waitForCapacity: waitForReadableCapacity,
+          });
         }
       } catch (error) {
         const overflowError = toError(error, "ACP NDJSON stream guard failure");
@@ -222,6 +274,7 @@ function createGuardedNdJsonStream(
         controller.error(overflowError);
       } finally {
         reader.releaseLock();
+        resolvePullWaiters();
         if (!didError) {
           try {
             controller.close();
@@ -232,6 +285,12 @@ function createGuardedNdJsonStream(
           }
         }
       }
+    },
+    pull() {
+      resolvePullWaiters();
+    },
+    cancel() {
+      resolvePullWaiters();
     },
   });
 

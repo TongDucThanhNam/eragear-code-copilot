@@ -86,6 +86,8 @@ export function ChatInterface({
   const [isQuickSwitchOpen, setIsQuickSwitchOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatIdRef = useRef<string | null>(chatId);
+  const bootstrapPendingChatIdRef = useRef<string | null>(null);
+  const bootstrapSawConnectingRef = useRef(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const handledPermissionIdRef = useRef<string | null>(null);
   const lastPermissionIdRef = useRef<string | null>(null);
@@ -100,6 +102,7 @@ export function ChatInterface({
     modes,
     models,
     commands,
+    configOptions,
     promptCapabilities,
     agentInfo: sessionAgentInfo,
     loadSessionSupported,
@@ -108,6 +111,7 @@ export function ChatInterface({
     cancelPrompt,
     setMode: handleSetModeAction,
     setModel: handleSetModelAction,
+    setConfigOption: handleSetConfigOptionAction,
     respondToPermission,
     stopSession,
     resumeSession,
@@ -509,6 +513,27 @@ export function ChatInterface({
     [chatId, connStatus, handleSetModelAction]
   );
 
+  const handleSetConfigOption = useCallback(
+    async (configId: string, value: string) => {
+      if (!chatId) {
+        return;
+      }
+      if (connStatus !== "connected") {
+        toast.error("Session is not connected");
+        return;
+      }
+      try {
+        await handleSetConfigOptionAction(configId, value);
+      } catch (e) {
+        console.error("Failed to set config option", e);
+        toast.error(
+          e instanceof Error ? e.message : "Failed to set config option"
+        );
+      }
+    },
+    [chatId, connStatus, handleSetConfigOptionAction]
+  );
+
   // Handle submit
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
@@ -650,6 +675,18 @@ export function ChatInterface({
   }, [connStatus, isStreaming, setIsStreamingStatus]);
 
   useEffect(() => {
+    if (!chatId || sessionBootstrapPhase !== "initializing_agent") {
+      bootstrapPendingChatIdRef.current = null;
+      bootstrapSawConnectingRef.current = false;
+      return;
+    }
+    if (bootstrapPendingChatIdRef.current !== chatId) {
+      bootstrapPendingChatIdRef.current = chatId;
+      bootstrapSawConnectingRef.current = false;
+    }
+  }, [chatId, sessionBootstrapPhase]);
+
+  useEffect(() => {
     if (projectContext?.files) {
       setFiles(projectContext.files);
     }
@@ -659,15 +696,30 @@ export function ChatInterface({
     if (!chatId) {
       return;
     }
-    if (
-      connStatus === "connecting" &&
-      sessionBootstrapPhase !== "restoring_history"
-    ) {
-      setSessionBootstrapPhase("restoring_history");
+    if (sessionBootstrapPhase === "creating_session") {
       return;
     }
-    if (connStatus === "connected" && sessionBootstrapPhase !== "idle") {
-      setSessionBootstrapPhase("idle");
+    if (connStatus === "connecting") {
+      bootstrapSawConnectingRef.current = true;
+      if (
+        sessionBootstrapPhase !== "initializing_agent" &&
+        sessionBootstrapPhase !== "restoring_history"
+      ) {
+        setSessionBootstrapPhase("restoring_history");
+      }
+      return;
+    }
+    if (connStatus === "connected") {
+      if (sessionBootstrapPhase === "initializing_agent") {
+        const isPendingBootstrapChat =
+          bootstrapPendingChatIdRef.current === chatId;
+        if (isPendingBootstrapChat && !bootstrapSawConnectingRef.current) {
+          return;
+        }
+      }
+      if (sessionBootstrapPhase !== "idle") {
+        setSessionBootstrapPhase("idle");
+      }
       return;
     }
     if (connStatus === "error" && sessionBootstrapPhase !== "idle") {
@@ -683,9 +735,14 @@ export function ChatInterface({
     ? getBootstrapPhaseLabel(sessionBootstrapPhase)
     : "Loading session...";
   const connectionOverlayLabel =
-    sessionBootstrapPhase === "initializing_agent"
+    sessionBootstrapPhase === "initializing_agent" || status === "connecting"
       ? "Initializing agent..."
       : "Restoring history...";
+  const shouldShowConnectionOverlay =
+    sessionBootstrapPhase === "initializing_agent" ||
+    sessionBootstrapPhase === "restoring_history" ||
+    connStatus === "connecting" ||
+    status === "connecting";
   const shouldShowDiagnosticEmptyState =
     Boolean(chatId) &&
     messages.length === 0 &&
@@ -767,7 +824,7 @@ export function ChatInterface({
           messages={messages}
           terminalOutputs={terminalOutputs}
         />
-        {connStatus === "connecting" && messages.length === 0 && (
+        {shouldShowConnectionOverlay && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/35 backdrop-blur-[1px]">
             <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 shadow-sm">
               <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-foreground" />
@@ -803,12 +860,14 @@ export function ChatInterface({
         <ChatInput
           activeTabs={projectContext?.activeTabs}
           availableCommands={availableCommands}
+          availableConfigOptions={configOptions}
           availableModels={availableModels}
           availableModes={availableModes}
           connStatus={connStatus}
           currentModeId={currentModeId}
           currentModelId={currentModelId}
           onCancel={handleCancel}
+          onConfigOptionChange={handleSetConfigOption}
           onModeChange={handleSetMode}
           onModelChange={handleSetModel}
           onSubmit={handleSubmit}
