@@ -1,5 +1,6 @@
 "use client";
 
+import type { SessionConfigOption } from "@repo/shared";
 import {
   CheckIcon,
   ChevronDown,
@@ -18,7 +19,6 @@ import {
   useRef,
   useState,
 } from "react";
-import type { SessionConfigOption } from "@repo/shared";
 import { toast } from "sonner";
 import {
   ModelSelector,
@@ -137,11 +137,11 @@ function SlashCommandMenuItem({
   );
 }
 
-type MentionItem = {
+interface MentionItem {
   path: string;
   name: string;
   dir: string;
-};
+}
 
 const findMentionTrigger = (value: string, cursor: number) => {
   const upToCursor = value.slice(0, cursor);
@@ -163,16 +163,14 @@ const findMentionTrigger = (value: string, cursor: number) => {
   return { start: atIndex, query };
 };
 
-type RenderableConfigValue = {
+interface RenderableConfigValue {
   value: string;
   name: string;
   description?: string | null;
   groupLabel?: string;
-};
+}
 
-function normalizeConfigOptions(
-  options: SessionConfigOption[]
-): Array<{
+function normalizeConfigOptions(options: SessionConfigOption[]): Array<{
   id: string;
   name: string;
   category?: string | null;
@@ -700,83 +698,90 @@ const ChatInputBase = ({
           {connStatus === "connected" &&
             availableModes.length > 0 &&
             !hasModeConfigOption && (
-            <PromptInputSelect
-              onValueChange={(val: string) => onModeChange(val)}
-              value={currentModeId || ""}
-            >
-              <PromptInputSelectTrigger className="h-8 min-w-17.5 px-2 py-0">
-                <PromptInputSelectValue />
-              </PromptInputSelectTrigger>
-              <PromptInputSelectContent>
-                {availableModes.map((mode) => (
-                  <PromptInputSelectItem key={mode.id} value={mode.id}>
-                    {mode.name}
-                  </PromptInputSelectItem>
-                ))}
-              </PromptInputSelectContent>
-            </PromptInputSelect>
-          )}
+              <PromptInputSelect
+                onValueChange={(val: string) => onModeChange(val)}
+                value={currentModeId || ""}
+              >
+                <PromptInputSelectTrigger className="h-8 min-w-17.5 px-2 py-0">
+                  <PromptInputSelectValue />
+                </PromptInputSelectTrigger>
+                <PromptInputSelectContent>
+                  {availableModes.map((mode) => (
+                    <PromptInputSelectItem key={mode.id} value={mode.id}>
+                      {mode.name}
+                    </PromptInputSelectItem>
+                  ))}
+                </PromptInputSelectContent>
+              </PromptInputSelect>
+            )}
 
           {connStatus === "connected" &&
             availableModels.length > 0 &&
             !hasModelConfigOption && (
-            <ModelSelector
-              onOpenChange={setModelSelectorOpen}
-              open={modelSelectorOpen}
-            >
-              <ModelSelectorTrigger asChild>
-                <Button className="h-8 w-50 justify-between" variant="outline">
-                  {selectedModelData?.chefSlug && (
-                    <ModelSelectorLogo provider={selectedModelData.chefSlug} />
-                  )}
-                  {selectedModelData?.name && (
-                    <ModelSelectorName>
-                      {selectedModelData.name}
-                    </ModelSelectorName>
-                  )}
-                  <ChevronDown className="ml-auto h-4 w-4 opacity-50" />
-                </Button>
-              </ModelSelectorTrigger>
-              <ModelSelectorContent>
-                <ModelSelectorInput placeholder="Search models..." />
-                <ModelSelectorList>
-                  <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                  {chefs.map((chef) => (
-                    <ModelSelectorGroup heading={chef} key={chef}>
-                      {modelsWithDetails
-                        .filter((model) => model.chef === chef)
-                        .map((model) => (
-                          <ModelSelectorItem
-                            key={model.id}
-                            onSelect={() => {
-                              onModelChange(model.id);
-                              setModelSelectorOpen(false);
-                            }}
-                            value={model.id}
-                          >
-                            <ModelSelectorLogo provider={model.chefSlug} />
-                            <ModelSelectorName>{model.name}</ModelSelectorName>
-                            <ModelSelectorLogoGroup>
-                              {model.providers.map((provider) => (
-                                <ModelSelectorLogo
-                                  key={provider}
-                                  provider={provider}
-                                />
-                              ))}
-                            </ModelSelectorLogoGroup>
-                            {currentModelId === model.id ? (
-                              <CheckIcon className="ml-auto size-4" />
-                            ) : (
-                              <div className="ml-auto size-4" />
-                            )}
-                          </ModelSelectorItem>
-                        ))}
-                    </ModelSelectorGroup>
-                  ))}
-                </ModelSelectorList>
-              </ModelSelectorContent>
-            </ModelSelector>
-          )}
+              <ModelSelector
+                onOpenChange={setModelSelectorOpen}
+                open={modelSelectorOpen}
+              >
+                <ModelSelectorTrigger asChild>
+                  <Button
+                    className="h-8 w-50 justify-between"
+                    variant="outline"
+                  >
+                    {selectedModelData?.chefSlug && (
+                      <ModelSelectorLogo
+                        provider={selectedModelData.chefSlug}
+                      />
+                    )}
+                    {selectedModelData?.name && (
+                      <ModelSelectorName>
+                        {selectedModelData.name}
+                      </ModelSelectorName>
+                    )}
+                    <ChevronDown className="ml-auto h-4 w-4 opacity-50" />
+                  </Button>
+                </ModelSelectorTrigger>
+                <ModelSelectorContent>
+                  <ModelSelectorInput placeholder="Search models..." />
+                  <ModelSelectorList>
+                    <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+                    {chefs.map((chef) => (
+                      <ModelSelectorGroup heading={chef} key={chef}>
+                        {modelsWithDetails
+                          .filter((model) => model.chef === chef)
+                          .map((model) => (
+                            <ModelSelectorItem
+                              key={model.id}
+                              onSelect={() => {
+                                onModelChange(model.id);
+                                setModelSelectorOpen(false);
+                              }}
+                              value={model.id}
+                            >
+                              <ModelSelectorLogo provider={model.chefSlug} />
+                              <ModelSelectorName>
+                                {model.name}
+                              </ModelSelectorName>
+                              <ModelSelectorLogoGroup>
+                                {model.providers.map((provider) => (
+                                  <ModelSelectorLogo
+                                    key={provider}
+                                    provider={provider}
+                                  />
+                                ))}
+                              </ModelSelectorLogoGroup>
+                              {currentModelId === model.id ? (
+                                <CheckIcon className="ml-auto size-4" />
+                              ) : (
+                                <div className="ml-auto size-4" />
+                              )}
+                            </ModelSelectorItem>
+                          ))}
+                      </ModelSelectorGroup>
+                    ))}
+                  </ModelSelectorList>
+                </ModelSelectorContent>
+              </ModelSelector>
+            )}
         </PromptInputTools>
         <PromptInputSubmit
           disabled={connStatus !== "connected"}
