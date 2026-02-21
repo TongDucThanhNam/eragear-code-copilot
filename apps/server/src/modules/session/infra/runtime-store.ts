@@ -130,23 +130,46 @@ export class SessionRuntimeStore implements SessionRuntimePort {
 
   delete(chatId: string): void {
     const session = this.sessions.get(chatId);
-    if (session) {
-      for (const [, pending] of session.pendingPermissions) {
-        try {
-          pending.resolve({ outcome: { outcome: "cancelled" } });
-        } catch (error) {
-          getLogger().warn(
-            "Failed to resolve pending permission during session delete",
-            {
-              chatId,
-              error: error instanceof Error ? error.message : String(error),
-            }
-          );
-        }
-      }
-      session.pendingPermissions.clear();
-    }
+    this.cleanupSessionBeforeDelete(chatId, session);
     this.sessions.delete(chatId);
+    this.clearRuntimeIndexes(chatId);
+  }
+
+  deleteIfMatch(chatId: string, expectedSession: ChatSession): boolean {
+    const current = this.sessions.get(chatId);
+    if (!current || current !== expectedSession) {
+      return false;
+    }
+    this.cleanupSessionBeforeDelete(chatId, current);
+    this.sessions.delete(chatId);
+    this.clearRuntimeIndexes(chatId);
+    return true;
+  }
+
+  private cleanupSessionBeforeDelete(
+    chatId: string,
+    session: ChatSession | undefined
+  ): void {
+    if (!session) {
+      return;
+    }
+    for (const [, pending] of session.pendingPermissions) {
+      try {
+        pending.resolve({ outcome: { outcome: "cancelled" } });
+      } catch (error) {
+        getLogger().warn(
+          "Failed to resolve pending permission during session delete",
+          {
+            chatId,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+      }
+    }
+    session.pendingPermissions.clear();
+  }
+
+  private clearRuntimeIndexes(chatId: string): void {
     this.chatLockTails.delete(chatId);
     this.queuedMutationsPerChat.delete(chatId);
     this.lastQueuePressureLogAt.delete(chatId);
@@ -218,6 +241,11 @@ export class SessionRuntimeStore implements SessionRuntimePort {
         this.chatLockTails.delete(chatId);
       }
     }
+  }
+
+  isLockHeld(chatId: string): boolean {
+    const activeContext = this.lockContextStorage.getStore();
+    return (activeContext?.get(chatId) ?? 0) > 0;
   }
 
   private async reserveQueuedMutationSlot(chatId: string): Promise<void> {

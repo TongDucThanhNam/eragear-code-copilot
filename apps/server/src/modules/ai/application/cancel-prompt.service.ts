@@ -8,7 +8,9 @@
  */
 
 import type { SessionRuntimePort } from "@/modules/session";
+import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError } from "@/shared/errors";
+import type { ChatSession } from "@/shared/types/session.types";
 import { AI_OP, HTTP_STATUS } from "./ai.constants";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { AiSessionRuntimeError } from "./ports/ai-session-runtime.port";
@@ -28,20 +30,30 @@ export class CancelPromptService {
   }
 
   async execute(userId: string, chatId: string) {
-    const aggregate = this.sessionGateway.requireAuthorizedRuntime({
-      userId,
+    const activeSession = await this.sessionRuntime.runExclusive(
       chatId,
-      module: "ai",
-      op: OP,
-    });
-    const session = aggregate.raw;
-    await aggregate.markCancelling({
-      chatId,
-      broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-    });
+      async (): Promise<ChatSession> => {
+        assertSessionMutationLock({
+          sessionRuntime: this.sessionRuntime,
+          chatId,
+          op: OP,
+        });
+        const aggregate = this.sessionGateway.requireAuthorizedRuntime({
+          userId,
+          chatId,
+          module: "ai",
+          op: OP,
+        });
+        await aggregate.markCancelling({
+          chatId,
+          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+        });
+        return aggregate.raw;
+      }
+    );
 
     try {
-      await this.sessionGateway.cancelPrompt(session);
+      await this.sessionGateway.cancelPrompt(activeSession);
     } catch (error) {
       if (
         error instanceof AiSessionRuntimeError &&
@@ -50,9 +62,9 @@ export class CancelPromptService {
       ) {
         await this.sessionGateway.stopAndCleanup({
           chatId,
-          session,
+          session: activeSession,
           reason: error.message || "Failed to cancel prompt",
-          turnId: session.activeTurnId,
+          turnId: activeSession.activeTurnId,
           killProcess: error.kind === "process_exited",
         });
         return { ok: true };
@@ -72,7 +84,18 @@ export class CancelPromptService {
       });
     }
 
-    this.sessionGateway.clearPendingPermissionsAsCancelled(session);
+    await this.sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime: this.sessionRuntime,
+        chatId,
+        op: OP,
+      });
+      const currentSession = this.sessionRuntime.get(chatId);
+      if (!currentSession || currentSession !== activeSession) {
+        return;
+      }
+      this.sessionGateway.clearPendingPermissionsAsCancelled(currentSession);
+    });
     return { ok: true };
   }
 }

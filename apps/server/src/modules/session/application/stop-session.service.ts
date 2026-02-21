@@ -3,6 +3,7 @@ import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import { updateChatStatus } from "../../../shared/utils/chat-events.util";
 import { terminateProcessGracefully } from "../../../shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
+import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
@@ -24,8 +25,20 @@ export class StopSessionService {
   }
 
   async execute(userId: string, chatId: string): Promise<{ ok: true }> {
-    const session = this.sessionRuntime.get(chatId);
-    if (session?.userId === userId) {
+    let runtimeSession:
+      | NonNullable<ReturnType<SessionRuntimePort["get"]>>
+      | undefined;
+    await this.sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime: this.sessionRuntime,
+        chatId,
+        op: OP,
+      });
+      const session = this.sessionRuntime.get(chatId);
+      if (!session || session.userId !== userId) {
+        return;
+      }
+      runtimeSession = session;
       await terminateSessionTerminals(session);
       await updateChatStatus({
         chatId,
@@ -33,12 +46,23 @@ export class StopSessionService {
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
         status: "inactive",
       });
-      await terminateProcessGracefully(session.proc, {
+    });
+
+    if (runtimeSession) {
+      const sessionToDelete = runtimeSession;
+      await terminateProcessGracefully(sessionToDelete.proc, {
         forceWindowsTreeTermination: true,
       });
-      // Remove from runtime so getSessionState returns "stopped"
-      this.sessionRuntime.delete(chatId);
+      await this.sessionRuntime.runExclusive(chatId, async () => {
+        assertSessionMutationLock({
+          sessionRuntime: this.sessionRuntime,
+          chatId,
+          op: OP,
+        });
+        this.sessionRuntime.deleteIfMatch(chatId, sessionToDelete);
+      });
     }
+
     const stored = await this.sessionRepo.findById(chatId, userId);
     if (!stored) {
       throw new NotFoundError("Chat not found", {

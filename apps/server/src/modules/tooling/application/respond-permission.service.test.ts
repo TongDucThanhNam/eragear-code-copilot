@@ -34,9 +34,11 @@ function createRuntime(
     get: () => session,
     set: () => undefined,
     delete: () => undefined,
+    deleteIfMatch: () => true,
     has: () => true,
     getAll: () => [session],
     runExclusive: async (_chatId, work) => await work(),
+    isLockHeld: () => true,
     broadcast: async (_chatId, event) => {
       events.push(event);
     },
@@ -85,6 +87,111 @@ describe("RespondPermissionService", () => {
       { outcome: { outcome: "selected", optionId: "allow-once" } },
     ]);
     expect(session.pendingPermissions.size).toBe(0);
+  });
+
+  test("maps allow-style decision text to allow option when options exist", async () => {
+    const session = createSession("user-1");
+    const decisions: unknown[] = [];
+    session.pendingPermissions.set("req-1", {
+      resolve: (decision) => decisions.push(decision),
+      options: [
+        { optionId: "accept_once", name: "Accept once", kind: "allow_once" },
+        { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+      ],
+    });
+    const service = new RespondPermissionService(createRuntime(session));
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        requestId: "req-1",
+        decision: "allow",
+      })
+    ).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "accept_once" },
+    });
+    expect(decisions).toEqual([
+      { outcome: { outcome: "selected", optionId: "accept_once" } },
+    ]);
+  });
+
+  test("accepts decision by option name token (case-insensitive)", async () => {
+    const session = createSession("user-1");
+    const decisions: unknown[] = [];
+    session.pendingPermissions.set("req-1", {
+      resolve: (decision) => decisions.push(decision),
+      options: [
+        { optionId: "allow_once", name: "Allow once", kind: "allow_once" },
+        { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+      ],
+    });
+    const service = new RespondPermissionService(createRuntime(session));
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        requestId: "req-1",
+        decision: "Allow once",
+      })
+    ).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "allow_once" },
+    });
+    expect(decisions).toEqual([
+      { outcome: { outcome: "selected", optionId: "allow_once" } },
+    ]);
+  });
+
+  test("treats allow option ids with 'no' substrings as approved via kind", async () => {
+    const session = createSession("user-1");
+    const events: BroadcastEvent[] = [];
+    session.pendingPermissions.set("req-1", {
+      resolve: () => undefined,
+      options: [
+        {
+          optionId: "allow_for_now",
+          name: "Allow for now",
+          kind: "allow_once",
+        },
+        { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+      ],
+      toolCallId: "tool-1",
+      toolName: "bash",
+    });
+    const service = new RespondPermissionService(createRuntime(session, events));
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        requestId: "req-1",
+        decision: "allow_for_now",
+      })
+    ).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "allow_for_now" },
+    });
+
+    const uiMessageEvent = events.find(
+      (event) => event.type === "ui_message"
+    );
+    expect(uiMessageEvent).toBeDefined();
+    if (!uiMessageEvent || uiMessageEvent.type !== "ui_message") {
+      throw new Error("Expected ui_message event");
+    }
+    const toolPart = uiMessageEvent.message.parts.find((part) => {
+      return part.type === "tool-bash" && "toolCallId" in part;
+    });
+    expect(toolPart).toMatchObject({
+      type: "tool-bash",
+      toolCallId: "tool-1",
+      state: "approval-responded",
+      approval: {
+        id: "req-1",
+        approved: true,
+        reason: "allow_for_now",
+      },
+    });
   });
 
   test("sets ready when final permission resolves without active turn", async () => {

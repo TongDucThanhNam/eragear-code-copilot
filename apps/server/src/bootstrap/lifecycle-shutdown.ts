@@ -124,7 +124,7 @@ async function stopRuntimeSession(
     });
   }
 
-  sessionRuntime.delete(session.id);
+  sessionRuntime.deleteIfMatch(session.id, session);
   await sessionRepo.updateStatus(session.id, session.userId, "stopped");
 }
 

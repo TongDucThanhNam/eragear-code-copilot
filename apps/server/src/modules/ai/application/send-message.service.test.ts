@@ -14,8 +14,8 @@ import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
   BroadcastEvent,
-  ChatStatus,
   ChatSession,
+  ChatStatus,
   StoredMessage,
   StoredSession,
 } from "@/shared/types/session.types";
@@ -209,6 +209,14 @@ function createSessionRuntime(
     delete(id) {
       sessions.delete(id);
     },
+    deleteIfMatch(id, expectedSession) {
+      const current = sessions.get(id);
+      if (!current || current !== expectedSession) {
+        return false;
+      }
+      sessions.delete(id);
+      return true;
+    },
     has(id) {
       return sessions.has(id);
     },
@@ -235,6 +243,9 @@ function createSessionRuntime(
           lockTails.delete(id);
         }
       }
+    },
+    isLockHeld(id) {
+      return lockTails.has(id);
     },
     broadcast(id, event) {
       if (!sessions.has(id)) {
@@ -402,9 +413,9 @@ describe("SendMessageService", () => {
       const events: BroadcastEvent[] = [];
       let session!: ChatSession;
       session = createChatSession({
-        prompt: async () => {
+        prompt: () => {
           session.chatStatus = busyStatus;
-          return { stopReason: "end_turn" };
+          return Promise.resolve({ stopReason: "end_turn" });
         },
       });
       const runtime = createSessionRuntime("chat-1", session, events);
@@ -428,111 +439,14 @@ describe("SendMessageService", () => {
     }
   });
 
-  test("ignores stale turn completion after a newer turn starts", async () => {
+  test("rejects send when a prompt turn is already active", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
     const first = createDeferred<{ stopReason: string }>();
-    const second = createDeferred<{ stopReason: string }>();
-    let promptCallCount = 0;
-    const session = createChatSession({
-      prompt: () => {
-        promptCallCount += 1;
-        if (promptCallCount === 1) {
-          return first.promise;
-        }
-        return second.promise;
-      },
-    });
-    const runtime = createSessionRuntime("chat-1", session, events);
-    const service = createService(repo, runtime);
-
-    const turn1 = await service.execute({
-      userId: "user-1",
-      chatId: "chat-1",
-      text: "first",
-    });
-    const turn2 = await service.execute({
-      userId: "user-1",
-      chatId: "chat-1",
-      text: "second",
-    });
-
-    expect(turn1.turnId).not.toBe(turn2.turnId);
-    expect(session.activeTurnId).toBe(turn2.turnId);
-
-    first.resolve({ stopReason: "end_turn" });
-    await flushAsync();
-    const staleFinishEvent = events
-      .filter(
-        (event): event is Extract<BroadcastEvent, { type: "chat_finish" }> =>
-          event.type === "chat_finish"
-      )
-      .find((event) => event.turnId === turn1.turnId);
-    expect(staleFinishEvent).toBeUndefined();
-
-    second.resolve({ stopReason: "end_turn" });
-    await flushAsync();
-    const activeFinishEvent = events
-      .filter(
-        (event): event is Extract<BroadcastEvent, { type: "chat_finish" }> =>
-          event.type === "chat_finish"
-      )
-      .find((event) => event.turnId === turn2.turnId);
-    expect(activeFinishEvent).toBeDefined();
-    expect(session.activeTurnId).toBeUndefined();
-  });
-
-  test("stops retrying transport errors after turn becomes stale", async () => {
-    const repo = new InMemorySessionRepo();
-    const events: BroadcastEvent[] = [];
-    let promptCalls = 0;
-    const session = createChatSession({
-      prompt: () => {
-        promptCalls += 1;
-        if (promptCalls === 1) {
-          return Promise.reject(
-            new Error("ProcessTransport is not ready for writing")
-          );
-        }
-        return Promise.resolve({ stopReason: "end_turn" });
-      },
-      cancel: async () => undefined,
-    });
-    const runtime = createSessionRuntime("chat-1", session, events);
-    const service = createService(repo, runtime, {
-      acpRetryMaxAttempts: 4,
-      acpRetryBaseDelayMs: 60,
-    });
-
-    await service.execute({
-      userId: "user-1",
-      chatId: "chat-1",
-      text: "first",
-    });
-    await service.execute({
-      userId: "user-1",
-      chatId: "chat-1",
-      text: "second",
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 140));
-    expect(promptCalls).toBe(2);
-  });
-
-  test("cancels active prompt before replacing with a new turn", async () => {
-    const repo = new InMemorySessionRepo();
-    const events: BroadcastEvent[] = [];
-    const first = createDeferred<{ stopReason: string }>();
-    const second = createDeferred<{ stopReason: string }>();
-    let promptCallCount = 0;
     let cancelCallCount = 0;
     const session = createChatSession({
       prompt: () => {
-        promptCallCount += 1;
-        if (promptCallCount === 1) {
-          return first.promise;
-        }
-        return second.promise;
+        return first.promise;
       },
       cancel: () => {
         cancelCallCount += 1;
@@ -547,26 +461,28 @@ describe("SendMessageService", () => {
       chatId: "chat-1",
       text: "first",
     });
-    const turn2 = await service.execute({
-      userId: "user-1",
-      chatId: "chat-1",
-      text: "second",
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        text: "second",
+      })
+    ).rejects.toMatchObject({
+      code: "PROMPT_BUSY",
+      statusCode: 409,
     });
 
-    expect(turn1.turnId).not.toBe(turn2.turnId);
-    expect(cancelCallCount).toBe(1);
-    expect(session.activeTurnId).toBe(turn2.turnId);
+    expect(cancelCallCount).toBe(0);
+    expect(session.activeTurnId).toBe(turn1.turnId);
 
-    second.resolve({ stopReason: "end_turn" });
     first.resolve({ stopReason: "end_turn" });
     await flushAsync();
   });
 
-  test("serializes same-chat concurrent submits and preserves turn ordering", async () => {
+  test("serializes same-chat concurrent submits and rejects busy queued submit", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
     const firstPrompt = createDeferred<{ stopReason: string }>();
-    const secondPrompt = createDeferred<{ stopReason: string }>();
     const firstAppendBlocked = createDeferred<void>();
     const releaseFirstAppend = createDeferred<void>();
     let promptCallCount = 0;
@@ -582,7 +498,7 @@ describe("SendMessageService", () => {
         if (promptCallCount === 1) {
           return firstPrompt.promise;
         }
-        return secondPrompt.promise;
+        return Promise.resolve({ stopReason: "end_turn" });
       },
     });
     const runtime = createSessionRuntime("chat-1", session, events);
@@ -605,23 +521,15 @@ describe("SendMessageService", () => {
 
     releaseFirstAppend.resolve();
     const turn1 = await firstSubmit;
-    const turn2 = await secondSubmit;
-    expect(turn1.turnId).not.toBe(turn2.turnId);
-    expect(session.activeTurnId).toBe(turn2.turnId);
+    await expect(secondSubmit).rejects.toMatchObject({
+      code: "PROMPT_BUSY",
+      statusCode: 409,
+    });
+    expect(promptCallCount).toBe(1);
+    expect(session.activeTurnId).toBe(turn1.turnId);
 
     firstPrompt.resolve({ stopReason: "end_turn" });
     await flushAsync();
-    secondPrompt.resolve({ stopReason: "end_turn" });
-    await flushAsync();
-
-    const finishTurns = events
-      .filter(
-        (event): event is Extract<BroadcastEvent, { type: "chat_finish" }> =>
-          event.type === "chat_finish"
-      )
-      .map((event) => event.turnId)
-      .filter(Boolean);
-    expect(finishTurns).toContain(turn2.turnId);
   });
 
   test("uses canonical msg IDs from createId utility", async () => {
@@ -638,6 +546,8 @@ describe("SendMessageService", () => {
       chatId: "chat-1",
       text: "first",
     });
+    await flushAsync();
+    await flushAsync();
     const second = await service.execute({
       userId: "user-1",
       chatId: "chat-1",

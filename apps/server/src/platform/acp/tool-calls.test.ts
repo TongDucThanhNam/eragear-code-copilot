@@ -60,6 +60,14 @@ function createRuntime(session: ChatSession): SessionRuntimePort {
     delete(chatId) {
       sessions.delete(chatId);
     },
+    deleteIfMatch(chatId, expectedSession) {
+      const current = sessions.get(chatId);
+      if (!current || current !== expectedSession) {
+        return false;
+      }
+      sessions.delete(chatId);
+      return true;
+    },
     has(chatId) {
       return sessions.has(chatId);
     },
@@ -86,6 +94,9 @@ function createRuntime(session: ChatSession): SessionRuntimePort {
           lockTails.delete(chatId);
         }
       }
+    },
+    isLockHeld(chatId) {
+      return lockTails.has(chatId);
     },
     broadcast() {
       // no-op
@@ -290,7 +301,7 @@ describe("createToolCallHandlers", () => {
         command: TERMINAL_COMMAND,
         args: nodeEvalArgs("process.stdout.write('blocked');"),
       })
-    ).rejects.toThrow("Command invocation not allowed");
+    ).rejects.toThrow("Command invocation blocked by server policy");
   });
 
   test("denies symlink escape on non-existing write paths", async () => {

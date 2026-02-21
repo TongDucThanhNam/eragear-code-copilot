@@ -49,6 +49,7 @@ export const UpdateSessionMetaInputSchema = z.object({
 export const SessionMessagesPageInputSchema = z.object({
   chatId: z.string(),
   cursor: z.number().int().min(0).optional(),
+  direction: z.enum(["forward", "backward"]).optional(),
   limit: z
     .number()
     .int()

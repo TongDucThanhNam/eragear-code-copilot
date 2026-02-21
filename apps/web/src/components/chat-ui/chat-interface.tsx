@@ -21,6 +21,11 @@ import {
   type SessionBootstrapPhase,
   useChatStatusStore,
 } from "@/store/chat-status-store";
+import {
+  useChatMessageCount,
+  useChatMessages,
+  useChatTerminalOutputs,
+} from "@/store/chat-stream-store";
 import { useDiffStore } from "@/store/diff-store";
 import { useFileStore } from "@/store/file-store";
 import { useProjectStore } from "@/store/project-store";
@@ -28,6 +33,37 @@ import { useProjectStore } from "@/store/project-store";
 interface ChatInterfaceProps {
   initialChatId?: string | null;
   onChatIdChange?: (chatId: string | null) => void;
+}
+
+interface ChatMessagesPaneProps {
+  chatId: string | null;
+  canLoadOlder: boolean;
+  isLoadingOlder: boolean;
+  onLoadOlder: () => void;
+}
+
+function ChatMessagesPane({
+  chatId,
+  canLoadOlder,
+  isLoadingOlder,
+  onLoadOlder,
+}: ChatMessagesPaneProps) {
+  const messages = useChatMessages(chatId);
+  const terminalOutputs = useChatTerminalOutputs(chatId);
+  return (
+    <ChatMessages
+      canLoadOlder={canLoadOlder}
+      isLoadingOlder={isLoadingOlder}
+      messages={messages}
+      onLoadOlder={onLoadOlder}
+      terminalOutputs={terminalOutputs}
+    />
+  );
+}
+
+function ChatPlanDockPane({ chatId }: { chatId: string | null }) {
+  const messages = useChatMessages(chatId);
+  return <ChatPlanDock messages={messages} />;
 }
 
 function getBootstrapPhaseLabel(phase: SessionBootstrapPhase): string {
@@ -93,12 +129,10 @@ export function ChatInterface({
   const lastPermissionIdRef = useRef<string | null>(null);
   // Use the unified useChat hook
   const {
-    messages,
     status,
     connStatus,
     isStreaming,
     pendingPermission,
-    terminalOutputs,
     modes,
     models,
     commands,
@@ -107,6 +141,8 @@ export function ChatInterface({
     agentInfo: sessionAgentInfo,
     loadSessionSupported,
     isResuming,
+    hasMoreHistory,
+    isLoadingOlderHistory,
     sendMessage,
     cancelPrompt,
     setMode: handleSetModeAction,
@@ -116,6 +152,7 @@ export function ChatInterface({
     stopSession,
     resumeSession,
     refreshHistory,
+    loadOlderHistory,
     setMessages,
     setConnStatus,
     setStatus,
@@ -126,6 +163,7 @@ export function ChatInterface({
       toast.error(err);
     },
   });
+  const messageCount = useChatMessageCount(chatId);
 
   // Derived state for UI
   const availableModes = useMemo(() => {
@@ -297,16 +335,47 @@ export function ChatInterface({
     if (list.length === 0) {
       return fallback;
     }
+    const rejectKeywords = new Set([
+      "reject",
+      "rejected",
+      "deny",
+      "denied",
+      "block",
+      "blocked",
+      "cancel",
+      "cancelled",
+      "decline",
+      "declined",
+      "disallow",
+      "no",
+    ]);
+    const hasRejectKeyword = (value: string): boolean => {
+      const normalized = value.trim().toLowerCase();
+      if (normalized.length === 0) {
+        return false;
+      }
+      const tokens = [
+        normalized,
+        ...normalized.split(/[^a-z0-9]+/).filter((part) => part.length > 0),
+      ];
+      return tokens.some((token) => rejectKeywords.has(token));
+    };
     const rejectOption = list.find((option) => {
-      const id = String(
-        option.optionId ??
-          option.id ??
-          option.kind ??
-          option.name ??
-          option.label ??
-          ""
-      ).toLowerCase();
-      return id.includes("reject") || id.includes("deny") || id.includes("no");
+      const kind = String(option.kind ?? "").trim().toLowerCase();
+      if (kind.startsWith("reject_")) {
+        return true;
+      }
+      const values = [
+        option.optionId,
+        option.id,
+        option.kind,
+        option.name,
+        option.label,
+      ]
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+      return values.some((value) => hasRejectKeyword(value));
     });
     if (!rejectOption) {
       return fallback;
@@ -474,6 +543,10 @@ export function ChatInterface({
       console.error("Failed to resume chat", e);
     }
   }, [chatId, resumeSession]);
+
+  const handleLoadOlderHistory = useCallback(() => {
+    void loadOlderHistory();
+  }, [loadOlderHistory]);
 
   const handleSetMode = useCallback(
     async (modeId: string) => {
@@ -727,29 +800,36 @@ export function ChatInterface({
     }
   }, [chatId, connStatus, sessionBootstrapPhase, setSessionBootstrapPhase]);
 
-  const isSessionBootstrapping = sessionBootstrapPhase !== "idle";
+  const effectiveBootstrapPhase: SessionBootstrapPhase =
+    createSessionMutation.isPending && sessionBootstrapPhase === "idle"
+      ? "creating_session"
+      : sessionBootstrapPhase;
+  const isSessionBootstrapping =
+    effectiveBootstrapPhase !== "idle" || createSessionMutation.isPending;
   const shouldShowBootstrapState =
     (!chatId && isSessionBootstrapping) ||
     (Boolean(initialChatId) && isAgentsLoading && !chatId);
   const bootstrapLabel = isSessionBootstrapping
-    ? getBootstrapPhaseLabel(sessionBootstrapPhase)
+    ? getBootstrapPhaseLabel(effectiveBootstrapPhase)
     : "Loading session...";
   const connectionOverlayLabel =
-    sessionBootstrapPhase === "creating_session"
+    createSessionMutation.isPending ||
+    effectiveBootstrapPhase === "creating_session"
       ? "Creating session..."
-      : sessionBootstrapPhase === "initializing_agent" ||
+      : effectiveBootstrapPhase === "initializing_agent" ||
           status === "connecting"
         ? "ACP agent initializing..."
         : "Restoring history...";
   const shouldShowConnectionOverlay =
-    sessionBootstrapPhase === "creating_session" ||
-    sessionBootstrapPhase === "initializing_agent" ||
-    sessionBootstrapPhase === "restoring_history" ||
+    createSessionMutation.isPending ||
+    effectiveBootstrapPhase === "creating_session" ||
+    effectiveBootstrapPhase === "initializing_agent" ||
+    effectiveBootstrapPhase === "restoring_history" ||
     connStatus === "connecting" ||
     status === "connecting";
   const shouldShowDiagnosticEmptyState =
     Boolean(chatId) &&
-    messages.length === 0 &&
+    messageCount === 0 &&
     connStatus !== "idle" &&
     connStatus !== "connecting";
   const diagnosticEmptyStateLabel =
@@ -824,9 +904,11 @@ export function ChatInterface({
       />
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <ChatMessages
-          messages={messages}
-          terminalOutputs={terminalOutputs}
+        <ChatMessagesPane
+          chatId={chatId}
+          canLoadOlder={hasMoreHistory}
+          isLoadingOlder={isLoadingOlderHistory}
+          onLoadOlder={handleLoadOlderHistory}
         />
         {shouldShowConnectionOverlay && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/35 backdrop-blur-[1px]">
@@ -860,7 +942,7 @@ export function ChatInterface({
       </div>
 
       <div className="relative border-t bg-background/95 pb-[max(env(safe-area-inset-bottom),0px)] backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <ChatPlanDock messages={messages} />
+        <ChatPlanDockPane chatId={chatId} />
         <ChatInput
           activeTabs={projectContext?.activeTabs}
           availableCommands={availableCommands}

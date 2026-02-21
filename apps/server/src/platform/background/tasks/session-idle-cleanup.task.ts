@@ -37,38 +37,52 @@ export function createSessionIdleCleanupTask(params: {
 
       for (const session of sessionRuntime.getAll()) {
         checked += 1;
+        await sessionRuntime.runExclusive(session.id, async () => {
+          const currentSession = sessionRuntime.get(session.id);
+          if (!currentSession || currentSession !== session) {
+            return;
+          }
 
-        if (session.subscriberCount > 0) {
-          session.idleSinceAt = undefined;
-          continue;
-        }
+          if (currentSession.subscriberCount > 0) {
+            currentSession.idleSinceAt = undefined;
+            return;
+          }
 
-        if (!session.idleSinceAt) {
-          session.idleSinceAt = now;
-          continue;
-        }
+          if (!currentSession.idleSinceAt) {
+            currentSession.idleSinceAt = now;
+            return;
+          }
 
-        if (now - session.idleSinceAt < runtimeConfig.sessionIdleTimeoutMs) {
-          continue;
-        }
+          if (
+            now - currentSession.idleSinceAt <
+            runtimeConfig.sessionIdleTimeoutMs
+          ) {
+            return;
+          }
 
-        await terminateSessionTerminals(session);
-        await terminateProcessGracefully(session.proc, {
-          forceWindowsTreeTermination: true,
-        });
-        try {
-          await sessionRepo.updateStatus(session.id, session.userId, "stopped");
-          sessionRuntime.delete(session.id);
-          cleaned += 1;
-        } catch (error) {
-          logger.error(
-            "Failed to persist stopped session during idle cleanup",
-            error as Error,
-            {
-              chatId: session.id,
+          await terminateSessionTerminals(currentSession);
+          await terminateProcessGracefully(currentSession.proc, {
+            forceWindowsTreeTermination: true,
+          });
+          try {
+            await sessionRepo.updateStatus(
+              currentSession.id,
+              currentSession.userId,
+              "stopped"
+            );
+            if (sessionRuntime.deleteIfMatch(currentSession.id, currentSession)) {
+              cleaned += 1;
             }
-          );
-        }
+          } catch (error) {
+            logger.error(
+              "Failed to persist stopped session during idle cleanup",
+              error as Error,
+              {
+                chatId: currentSession.id,
+              }
+            );
+          }
+        });
       }
 
       return { checked, cleaned };

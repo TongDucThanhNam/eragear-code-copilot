@@ -83,8 +83,8 @@ export class BootstrapSessionConnectionService {
 
       return { chatSession };
     } catch (error) {
-      if (chatSession && this.sessionRuntime.has(chatId)) {
-        this.sessionRuntime.delete(chatId);
+      if (chatSession) {
+        this.sessionRuntime.deleteIfMatch(chatId, chatSession);
       }
       await terminateProcessGracefully(proc, {
         forceWindowsTreeTermination: true,

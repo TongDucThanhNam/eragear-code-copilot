@@ -12,6 +12,7 @@ import {
 } from "@/shared/utils/broadcast-event.util";
 import { reconcileChatStatusForSubscription } from "@/shared/utils/chat-events.util";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const OP = "session.events.subscribe";
 const logger = createLogger("Debug");
@@ -21,7 +22,7 @@ export interface SessionEventSubscription {
   activeTurnId?: string;
   bufferedEvents: BroadcastEvent[];
   subscribe(listener: (event: BroadcastEvent) => void): () => void;
-  release(): void;
+  release(): Promise<void>;
 }
 
 export class SubscribeSessionEventsService {
@@ -31,9 +32,54 @@ export class SubscribeSessionEventsService {
     this.sessionRuntime = sessionRuntime;
   }
 
-  execute(userId: string, chatId: string): SessionEventSubscription {
-    const session = this.sessionRuntime.get(chatId);
-    if (!session || session.userId !== userId) {
+  async execute(userId: string, chatId: string): Promise<SessionEventSubscription> {
+    const sessionRuntime = this.sessionRuntime;
+    let snapshot:
+      | {
+          session: ChatSession;
+          chatStatus: ChatStatus;
+          activeTurnId?: string;
+          bufferedEvents: BroadcastEvent[];
+          forcedActiveSnapshot: boolean;
+          subscriberCount: number;
+        }
+      | undefined;
+
+    await sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime,
+        chatId,
+        op: OP,
+      });
+      const session = sessionRuntime.get(chatId);
+      if (!session || session.userId !== userId) {
+        throw new NotFoundError("Chat not found", {
+          module: "session",
+          op: OP,
+          details: { chatId },
+        });
+      }
+
+      session.idleSinceAt = undefined;
+      session.subscriberCount += 1;
+      const nextChatStatus = reconcileChatStatusForSubscription(session);
+      if (nextChatStatus !== session.chatStatus) {
+        session.chatStatus = nextChatStatus;
+      }
+
+      const bufferedState = buildBufferedEvents(session);
+      const bufferedEvents = bufferedState.events;
+      snapshot = {
+        session,
+        chatStatus: nextChatStatus,
+        activeTurnId: session.activeTurnId,
+        bufferedEvents,
+        forcedActiveSnapshot: bufferedState.forcedActiveSnapshot,
+        subscriberCount: session.subscriberCount,
+      };
+    });
+
+    if (!snapshot) {
       throw new NotFoundError("Chat not found", {
         module: "session",
         op: OP,
@@ -41,26 +87,25 @@ export class SubscribeSessionEventsService {
       });
     }
 
-    session.idleSinceAt = undefined;
-    session.subscriberCount += 1;
-    const chatStatus = reconcileChatStatusForSubscription(session);
-    const bufferedState = buildBufferedEvents(session);
-    const bufferedEvents = bufferedState.events;
     if (shouldEmitRuntimeLog("debug")) {
       logger.debug("Session event subscription prepared", {
         chatId,
-        bufferedEvents: bufferedEvents.length,
-        bufferedSnapshots: countEventType(bufferedEvents, "ui_message"),
-        bufferedDeltas: countEventType(bufferedEvents, "ui_message_delta"),
-        forcedActiveSnapshot: bufferedState.forcedActiveSnapshot,
-        subscriberCount: session.subscriberCount,
+        bufferedEvents: snapshot.bufferedEvents.length,
+        bufferedSnapshots: countEventType(snapshot.bufferedEvents, "ui_message"),
+        bufferedDeltas: countEventType(
+          snapshot.bufferedEvents,
+          "ui_message_delta"
+        ),
+        forcedActiveSnapshot: snapshot.forcedActiveSnapshot,
+        subscriberCount: snapshot.subscriberCount,
       });
     }
 
+    const session = snapshot.session;
     return {
-      chatStatus,
-      activeTurnId: session.activeTurnId,
-      bufferedEvents,
+      chatStatus: snapshot.chatStatus,
+      activeTurnId: snapshot.activeTurnId,
+      bufferedEvents: snapshot.bufferedEvents,
       subscribe(listener) {
         const wrappedListener = (event: BroadcastEvent) => {
           if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
@@ -77,11 +122,22 @@ export class SubscribeSessionEventsService {
           session.emitter.off("data", wrappedListener);
         };
       },
-      release() {
-        session.subscriberCount = Math.max(0, session.subscriberCount - 1);
-        if (session.subscriberCount <= 0) {
-          session.idleSinceAt = Date.now();
-        }
+      async release() {
+        await sessionRuntime.runExclusive(chatId, async () => {
+          assertSessionMutationLock({
+            sessionRuntime,
+            chatId,
+            op: OP,
+          });
+          const current = sessionRuntime.get(chatId);
+          if (!current || current !== session) {
+            return;
+          }
+          current.subscriberCount = Math.max(0, current.subscriberCount - 1);
+          if (current.subscriberCount <= 0) {
+            current.idleSinceAt = Date.now();
+          }
+        });
       },
     };
   }

@@ -481,9 +481,7 @@ export class SessionAcpBootstrapService {
     chatId: string,
     chatSession: ChatSession
   ): Promise<void> {
-    if (this.sessionRuntime.has(chatId)) {
-      this.sessionRuntime.delete(chatId);
-    }
+    this.sessionRuntime.deleteIfMatch(chatId, chatSession);
     await terminateProcessGracefully(chatSession.proc, {
       forceWindowsTreeTermination: true,
     });

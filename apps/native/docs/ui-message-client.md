@@ -7,6 +7,7 @@ Mục tiêu là chỉ xử lý `ui_message` và các event cấp cao, không par
 
 - tRPC `onSessionEvents`:
   - `ui_message` (chính)
+  - `ui_message_delta` (append incremental cho text/reasoning)
   - `chat_status` (trạng thái: `inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`)
   - `chat_finish` (stopReason + finishReason cho `onFinish`)
   - `available_commands_update`
@@ -19,6 +20,8 @@ Mục tiêu là chỉ xử lý `ui_message` và các event cấp cao, không par
 - `useChatStore.messageIds`: thứ tự message id
 - `useChatStore.messagesById`: map `messageId -> UIMessage`
 - `upsertMessage(message)`: update theo `message.id` (map + id list)
+- `ui_message_delta`: append theo `messageId` + `partIndex` cho `text/reasoning`;
+  nếu không apply được thì drop an toàn và chờ snapshot kế tiếp
 - `pendingPermission` được suy ra từ:
   - `ToolUIPart.state === "approval-requested"`
   - `DataUIPart(type="data-permission-options")` để lấy options

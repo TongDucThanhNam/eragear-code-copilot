@@ -48,11 +48,9 @@ export function reconcileChatStatusForSubscription(
     return session.chatStatus;
   }
   if (session.pendingPermissions.size > 0) {
-    session.chatStatus = "awaiting_permission";
-    return session.chatStatus;
+    return "awaiting_permission";
   }
-  session.chatStatus = "ready";
-  return session.chatStatus;
+  return "ready";
 }
 
 export function updateChatStatus(params: {

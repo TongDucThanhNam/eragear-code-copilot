@@ -13,6 +13,7 @@ import { terminateProcessGracefully } from "../../../shared/utils/process-termin
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const OP = "session.lifecycle.delete";
 
@@ -62,13 +63,35 @@ export class DeleteSessionService {
    * ```
    */
   async execute(userId: string, chatId: string): Promise<{ ok: true }> {
-    const session = this.sessionRuntime.get(chatId);
-    if (session?.userId === userId) {
+    let runtimeSession:
+      | NonNullable<ReturnType<SessionRuntimePort["get"]>>
+      | undefined;
+    await this.sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime: this.sessionRuntime,
+        chatId,
+        op: OP,
+      });
+      const session = this.sessionRuntime.get(chatId);
+      if (!session || session.userId !== userId) {
+        return;
+      }
+      runtimeSession = session;
       await terminateSessionTerminals(session);
-      await terminateProcessGracefully(session.proc, {
+    });
+    if (runtimeSession) {
+      const sessionToDelete = runtimeSession;
+      await terminateProcessGracefully(sessionToDelete.proc, {
         forceWindowsTreeTermination: true,
       });
-      this.sessionRuntime.delete(chatId);
+      await this.sessionRuntime.runExclusive(chatId, async () => {
+        assertSessionMutationLock({
+          sessionRuntime: this.sessionRuntime,
+          chatId,
+          op: OP,
+        });
+        this.sessionRuntime.deleteIfMatch(chatId, sessionToDelete);
+      });
     }
     const stored = await this.sessionRepo.findById(chatId, userId);
     if (!stored) {

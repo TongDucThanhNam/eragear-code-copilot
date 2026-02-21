@@ -110,6 +110,8 @@ function createSettingsRepoStub(roots: string[]): SettingsRepositoryPort {
         logLevel: "info",
         maxTokens: 8192,
         defaultModel: "",
+        acpPromptMetaPolicy: "allowlist",
+        acpPromptMetaAllowlist: [],
       },
     }),
     update: (_patch) => Promise.reject(new Error("Not implemented")),

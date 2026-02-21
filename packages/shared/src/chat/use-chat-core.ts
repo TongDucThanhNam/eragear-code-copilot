@@ -143,7 +143,6 @@ export function upsertMessage(
 function warnDroppedDelta(params: {
   event: Extract<BroadcastEvent, { type: "ui_message_delta" }>;
   reason: "message_not_found" | "part_not_found";
-  currentMessages: UIMessage[];
 }): void {
   if (typeof console === "undefined" || typeof console.warn !== "function") {
     return;
@@ -153,10 +152,6 @@ function warnDroppedDelta(params: {
     messageId: params.event.messageId,
     partIndex: params.event.partIndex,
     deltaLength: params.event.delta.length,
-    messageCount: params.currentMessages.length,
-    knownMessageIds: params.currentMessages
-      .slice(Math.max(0, params.currentMessages.length - 20))
-      .map((message) => message.id),
   });
 }
 
@@ -173,13 +168,56 @@ function applyMessageDelta(params: {
   if (!part || (part.type !== "text" && part.type !== "reasoning")) {
     return null;
   }
-  const updatedPart = { ...part, text: `${part.text}${delta}` };
+  const updatedPart = { ...part, text: `${part.text ?? ""}${delta}` };
   const updatedParts = [...message.parts];
   updatedParts[partIndex] = updatedPart;
   return {
     ...message,
     parts: updatedParts,
   };
+}
+
+export function normalizeAvailableCommands(
+  commands:
+    | Array<{
+        name: string;
+        description: string;
+        input?: { hint: string } | null;
+      }>
+    | null
+    | undefined
+): AvailableCommand[] {
+  return (commands ?? []).map((cmd) => ({
+    name: cmd.name,
+    description: cmd.description,
+    input: cmd.input === null ? undefined : cmd.input,
+  }));
+}
+
+export function areAvailableCommandsEqual(
+  left: AvailableCommand[] | null | undefined,
+  right: AvailableCommand[] | null | undefined
+): boolean {
+  const leftCommands = left ?? [];
+  const rightCommands = right ?? [];
+  if (leftCommands.length !== rightCommands.length) {
+    return false;
+  }
+  for (let i = 0; i < leftCommands.length; i += 1) {
+    const leftCommand = leftCommands[i];
+    const rightCommand = rightCommands[i];
+    if (!leftCommand || !rightCommand) {
+      return false;
+    }
+    if (
+      leftCommand.name !== rightCommand.name ||
+      leftCommand.description !== rightCommand.description ||
+      leftCommand.input?.hint !== rightCommand.input?.hint
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ============================================================================
@@ -193,6 +231,7 @@ export interface EventProcessingCallbacks {
   onMessageUpsert?: (message: UIMessage) => void;
   getMessageById?: (messageId: string) => UIMessage | undefined;
   getMessagesForPermission?: () => Iterable<UIMessage>;
+  getCommands?: () => AvailableCommand[] | undefined;
   onModesChange?: (modes: SessionModeState | null) => void;
   onModelsChange?: (models: SessionModelState | null) => void;
   onCommandsChange?: (commands: AvailableCommand[]) => void;
@@ -218,23 +257,46 @@ export interface EventProcessingCallbacks {
   ) => void;
 }
 
+export interface EventProcessingContext {
+  currentModes: SessionModeState | null;
+}
+
+function materializeMessages(messages: Iterable<UIMessage>): UIMessage[] {
+  return Array.isArray(messages) ? messages : [...messages];
+}
+
+function upsertMessageFromCallbackState(
+  callbacks: EventProcessingCallbacks,
+  nextMessage: UIMessage
+): UIMessage[] | null {
+  if (!callbacks.onMessagesChange) {
+    return null;
+  }
+  const source = callbacks.getMessagesForPermission?.();
+  if (!source) {
+    return null;
+  }
+  const nextMessages = upsertMessage(materializeMessages(source), nextMessage);
+  callbacks.onMessagesChange(nextMessages);
+  return nextMessages;
+}
+
 /**
  * Process a session event and call appropriate callbacks
  */
 export function processSessionEvent(
   event: BroadcastEvent,
-  currentMessages: UIMessage[],
-  currentModes: SessionModeState | null,
+  context: EventProcessingContext,
   callbacks: EventProcessingCallbacks
-): UIMessage[] {
+): void {
   switch (event.type) {
     case "connected":
       callbacks.onConnStatusChange?.("connected");
-      return currentMessages;
+      return;
 
     case "chat_status":
       callbacks.onStatusChange?.(event.status);
-      return currentMessages;
+      return;
 
     case "chat_finish":
       callbacks.onStatusChange?.("ready");
@@ -250,12 +312,10 @@ export function processSessionEvent(
         isAbort: event.isAbort,
         turnId: event.turnId,
       });
-      return currentMessages;
+      return;
 
     case "ui_message": {
-      const prev =
-        callbacks.getMessageById?.(event.message.id) ??
-        currentMessages.find((m) => m.id === event.message.id);
+      const prev = callbacks.getMessageById?.(event.message.id);
       const wasStreaming = prev ? isMessageStreaming(prev) : false;
       const nowStreaming = isMessageStreaming(event.message);
 
@@ -263,8 +323,7 @@ export function processSessionEvent(
       if (callbacks.onMessageUpsert) {
         callbacks.onMessageUpsert(event.message);
       } else {
-        newMessages = upsertMessage(currentMessages, event.message);
-        callbacks.onMessagesChange?.(newMessages);
+        newMessages = upsertMessageFromCallbackState(callbacks, event.message);
       }
       callbacks.onStreamingChange?.(wasStreaming, nowStreaming, event.message);
 
@@ -272,25 +331,20 @@ export function processSessionEvent(
       if (callbacks.onPendingPermissionChange) {
         const permissionSource =
           callbacks.getMessagesForPermission?.() ??
-          (newMessages ?? currentMessages);
+          newMessages ??
+          [];
         const pendingPermission = findPendingPermission(permissionSource);
         callbacks.onPendingPermissionChange?.(pendingPermission);
       }
 
-      return newMessages ?? currentMessages;
+      return;
     }
 
     case "ui_message_delta": {
-      const prev =
-        callbacks.getMessageById?.(event.messageId) ??
-        currentMessages.find((m) => m.id === event.messageId);
+      const prev = callbacks.getMessageById?.(event.messageId);
       if (!prev) {
-        warnDroppedDelta({
-          event,
-          reason: "message_not_found",
-          currentMessages,
-        });
-        return currentMessages;
+        warnDroppedDelta({ event, reason: "message_not_found" });
+        return;
       }
 
       const nextMessage = applyMessageDelta({
@@ -299,74 +353,67 @@ export function processSessionEvent(
         delta: event.delta,
       });
       if (!nextMessage) {
-        warnDroppedDelta({
-          event,
-          reason: "part_not_found",
-          currentMessages,
-        });
-        return currentMessages;
+        warnDroppedDelta({ event, reason: "part_not_found" });
+        return;
       }
 
       const wasStreaming = isMessageStreaming(prev);
       const nowStreaming = isMessageStreaming(nextMessage);
-      let newMessages: UIMessage[] | null = null;
 
       if (callbacks.onMessageUpsert) {
         callbacks.onMessageUpsert(nextMessage);
       } else {
-        newMessages = upsertMessage(currentMessages, nextMessage);
-        callbacks.onMessagesChange?.(newMessages);
+        upsertMessageFromCallbackState(callbacks, nextMessage);
       }
       callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
-      return newMessages ?? currentMessages;
+      return;
     }
 
     case "available_commands_update": {
-      const commands = (event.availableCommands || []).map((cmd) => ({
-        name: cmd.name,
-        description: cmd.description,
-        input: cmd.input === null ? undefined : cmd.input,
-      }));
+      const commands = normalizeAvailableCommands(event.availableCommands);
+      if (areAvailableCommandsEqual(callbacks.getCommands?.(), commands)) {
+        return;
+      }
       callbacks.onCommandsChange?.(commands);
-      return currentMessages;
+      return;
     }
 
     case "config_options_update":
       callbacks.onConfigOptionsChange?.(event.configOptions || []);
-      return currentMessages;
+      return;
 
     case "session_info_update":
       callbacks.onSessionInfoChange?.(event.sessionInfo ?? null);
-      return currentMessages;
+      return;
 
     case "current_mode_update": {
-      if (currentModes) {
+      if (context.currentModes) {
         callbacks.onModesChange?.({
-          ...currentModes,
+          ...context.currentModes,
           currentModeId: event.modeId,
         });
       }
-      return currentMessages;
+      return;
     }
 
     case "terminal_output": {
       if (event.terminalId && event.data) {
         callbacks.onTerminalOutput?.(event.terminalId, event.data);
       }
-      return currentMessages;
+      return;
     }
 
     case "error":
       callbacks.onConnStatusChange?.("error");
       callbacks.onError?.(event.error);
-      return currentMessages;
+      return;
 
     case "heartbeat":
       // No action needed
-      return currentMessages;
+      return;
 
     default:
-      return currentMessages;
+      return;
   }
 }
 
@@ -402,6 +449,7 @@ export function applySessionState(
     onModesChange?: (modes: SessionModeState | null) => void;
     onModelsChange?: (models: SessionModelState | null) => void;
     onSupportsModelSwitchingChange?: (supported: boolean) => void;
+    getCommands?: () => AvailableCommand[] | undefined;
     onCommandsChange?: (commands: AvailableCommand[]) => void;
     onConfigOptionsChange?: (configOptions: SessionConfigOption[]) => void;
     onSessionInfoChange?: (sessionInfo: SessionInfo | null) => void;
@@ -436,12 +484,10 @@ export function applySessionState(
     );
   }
   if (data.commands) {
-    const commands = data.commands.map((cmd) => ({
-      name: cmd.name,
-      description: cmd.description,
-      input: cmd.input === null ? undefined : cmd.input,
-    }));
-    callbacks.onCommandsChange?.(commands);
+    const commands = normalizeAvailableCommands(data.commands);
+    if (!areAvailableCommandsEqual(callbacks.getCommands?.(), commands)) {
+      callbacks.onCommandsChange?.(commands);
+    }
   }
   if (data.configOptions) {
     callbacks.onConfigOptionsChange?.(data.configOptions);

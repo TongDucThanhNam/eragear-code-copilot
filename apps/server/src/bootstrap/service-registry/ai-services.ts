@@ -15,7 +15,16 @@ export function createAiServices(
 ): AiServiceFactory {
   const sessionGateway = new AiSessionRuntimeAdapter(
     deps.sessionRuntime,
-    deps.sessionRepo
+    deps.sessionRepo,
+    {
+      promptMetaPolicyProvider: () => {
+        const config = deps.appConfigService.getConfig();
+        return {
+          acpPromptMetaPolicy: config.acpPromptMetaPolicy,
+          acpPromptMetaAllowlist: config.acpPromptMetaAllowlist,
+        };
+      },
+    }
   );
   const promptTaskRunner = new PromptTaskRunner({
     sessionRepo: deps.sessionRepo,

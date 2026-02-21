@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/sidebar";
 import { trpc } from "@/lib/trpc";
 import { useChatStatusStore } from "@/store/chat-status-store";
+import { useChatStreamStore } from "@/store/chat-stream-store";
 import { useProjectStore } from "@/store/project-store";
 import {
   ContextMenu,
@@ -259,7 +260,8 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   });
 
   const deleteSessionMutation = trpc.deleteSession.useMutation({
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
+      useChatStreamStore.getState().clearChat(variables.chatId);
       trpcUtils.getSessions.invalidate();
       toast.success("Session deleted");
     },

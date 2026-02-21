@@ -87,6 +87,7 @@ export class GetSessionMessagesService {
     userId: string;
     chatId: string;
     cursor?: number;
+    direction?: "forward" | "backward";
     limit?: number;
     maxLimit: number;
     includeCompacted?: boolean;
@@ -121,6 +122,7 @@ export class GetSessionMessagesService {
       input.userId,
       {
         cursor: input.cursor,
+        direction: input.direction,
         limit:
           input.limit ??
           Math.min(DEFAULT_SESSION_MESSAGES_PAGE_LIMIT, normalizedMaxLimit),

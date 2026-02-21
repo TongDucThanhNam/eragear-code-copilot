@@ -21,6 +21,7 @@ export interface SessionListPageResult {
 
 export interface SessionMessagesPageQuery {
   cursor?: number;
+  direction?: "forward" | "backward";
   limit?: number;
   includeCompacted?: boolean;
 }

@@ -154,19 +154,20 @@ async function appendAssistantChunk(params: {
     const messageId = buffer.ensureMessageId(preferredMessageId);
     const message = getOrCreateAssistantMessage(session.uiState, messageId);
     const block = toStoredContentBlock(update.content);
-    const snapshotDecision = decideSnapshotBroadcast({
-      message,
-      isReplayingHistory,
-      partState,
-      chunkType: "message",
-      blockType: block.type,
-    });
     const updatedMessage = appendContentBlock(
       message,
       block,
       partState,
       providerMetadata
     );
+    const snapshotDecision = decideSnapshotBroadcast({
+      isReplayingHistory,
+      previousMessage: message,
+      updatedMessage,
+      partState,
+      expectedPartType: "text",
+      blockType: block.type,
+    });
     if (updatedMessage !== message) {
       session.uiState.messages.set(updatedMessage.id, updatedMessage);
     }
@@ -238,19 +239,20 @@ async function appendAssistantChunk(params: {
   if (block.type !== "text") {
     return;
   }
-  const snapshotDecision = decideSnapshotBroadcast({
-    message,
-    isReplayingHistory,
-    partState,
-    chunkType: "reasoning",
-    blockType: block.type,
-  });
   const updatedMessage = appendReasoningBlock(
     message,
     block,
     partState,
     providerMetadata
   );
+  const snapshotDecision = decideSnapshotBroadcast({
+    isReplayingHistory,
+    previousMessage: message,
+    updatedMessage,
+    partState,
+    expectedPartType: "reasoning",
+    blockType: block.type,
+  });
   if (updatedMessage !== message) {
     session.uiState.messages.set(updatedMessage.id, updatedMessage);
   }
@@ -359,13 +361,20 @@ export function isStreamingUpdate(update: SessionUpdate) {
 
 function decideSnapshotBroadcast(params: {
   isReplayingHistory: boolean;
-  message: ReturnType<typeof getOrCreateAssistantMessage>;
+  previousMessage: ReturnType<typeof getOrCreateAssistantMessage>;
+  updatedMessage: ReturnType<typeof getOrCreateAssistantMessage>;
   partState: "streaming" | "done";
-  chunkType: "message" | "reasoning";
+  expectedPartType: "text" | "reasoning";
   blockType: ReturnType<typeof toStoredContentBlock>["type"];
 }): SnapshotDecision {
-  const { isReplayingHistory, message, partState, chunkType, blockType } =
-    params;
+  const {
+    isReplayingHistory,
+    previousMessage,
+    updatedMessage,
+    partState,
+    expectedPartType,
+    blockType,
+  } = params;
   if (isReplayingHistory) {
     return { shouldBroadcastSnapshot: true, reason: "replay_chunk" };
   }
@@ -373,24 +382,32 @@ function decideSnapshotBroadcast(params: {
     return { shouldBroadcastSnapshot: true, reason: "non_text_block" };
   }
 
-  const lastPart = message.parts.at(-1);
-  if (chunkType === "message") {
-    if (lastPart?.type !== "text") {
-      return { shouldBroadcastSnapshot: true, reason: "first_part" };
-    }
-    if (lastPart.state !== partState) {
-      return {
-        shouldBroadcastSnapshot: true,
-        reason: "part_state_transition",
-      };
-    }
-    return { shouldBroadcastSnapshot: false };
+  const previousLastPart = previousMessage.parts.at(-1);
+  const nextPart = updatedMessage.parts.at(-1);
+  if (nextPart?.type !== expectedPartType) {
+    return { shouldBroadcastSnapshot: true, reason: "delta_target_missing" };
   }
 
-  if (lastPart?.type !== "reasoning") {
+  const partCountChanged =
+    updatedMessage.parts.length !== previousMessage.parts.length;
+  if (partCountChanged) {
+    if (previousLastPart?.type !== expectedPartType) {
+      return { shouldBroadcastSnapshot: true, reason: "first_part" };
+    }
+    return {
+      shouldBroadcastSnapshot: true,
+      reason: "part_state_transition",
+    };
+  }
+
+  if (previousLastPart?.type !== expectedPartType) {
     return { shouldBroadcastSnapshot: true, reason: "first_part" };
   }
-  if (lastPart.state !== partState) {
+  if (
+    expectedPartType === "text" &&
+    previousLastPart.state !== partState &&
+    nextPart.state === partState
+  ) {
     return {
       shouldBroadcastSnapshot: true,
       reason: "part_state_transition",

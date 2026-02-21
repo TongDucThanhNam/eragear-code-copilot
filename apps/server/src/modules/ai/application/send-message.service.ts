@@ -10,15 +10,18 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
-import { ValidationError } from "@/shared/errors";
+import { AppError, ValidationError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
-import { mapStopReasonToFinishReason } from "@/shared/utils/chat-events.util";
+import {
+  isBusyChatStatus,
+  mapStopReasonToFinishReason,
+} from "@/shared/utils/chat-events.util";
 import { toStoredContentBlocks } from "@/shared/utils/content-block.util";
 import { createId } from "@/shared/utils/id.util";
 import { buildUserMessageFromBlocks } from "@/shared/utils/ui-message.util";
-import { AI_OP } from "./ai.constants";
+import { AI_OP, HTTP_STATUS } from "./ai.constants";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { buildPrompt } from "./prompt.builder";
 import { PayloadBudgetGuard } from "./send-message/payload-budget.guard";
@@ -126,24 +129,28 @@ export class SendMessageService {
           this.sessionRuntime
         );
 
-        if (aggregate.activePromptTask) {
-          this.logger.warn(
-            "SendMessageService replacing active prompt task with a new turn",
-            {
+        if (
+          aggregate.activePromptTask ||
+          session.activeTurnId ||
+          isBusyChatStatus(session.chatStatus)
+        ) {
+          throw new AppError({
+            message: "A prompt is already in progress for this session",
+            code: "PROMPT_BUSY",
+            statusCode: HTTP_STATUS.CONFLICT,
+            module: "ai",
+            op: OP,
+            details: {
               chatId: input.chatId,
-              previousTurnId: aggregate.activePromptTask.turnId,
-            }
-          );
+              activeTurnId: session.activeTurnId,
+              activePromptTurnId: aggregate.activePromptTask?.turnId,
+              chatStatus: session.chatStatus,
+            },
+          });
         }
 
         const turnId = createId("turn");
         aggregate.startTurn(turnId);
-
-        await this.promptTaskRunner.cancelActivePrompt({
-          chatId: input.chatId,
-          aggregate,
-          broadcast,
-        });
 
         await aggregate.markSubmitted(
           {

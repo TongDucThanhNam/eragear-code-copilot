@@ -1,3 +1,4 @@
+import path from "node:path";
 import type {
   ContentBlock,
   SessionConfigOption,
@@ -6,11 +7,14 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { AppError, NotFoundError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
+import type { AppConfig } from "@/shared/types/settings.types";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
+import { normalizeExecutablePathForPlatform } from "@/shared/utils/runtime-platform.util";
 import type {
   AiAssertSessionRunningInput,
   AiRequireSessionInput,
@@ -31,16 +35,78 @@ interface ConnWithUnstableModel {
   }) => Promise<void>;
 }
 
+interface PromptMetaPolicySnapshot {
+  acpPromptMetaPolicy: AppConfig["acpPromptMetaPolicy"];
+  acpPromptMetaAllowlist: string[];
+}
+
+interface AiSessionRuntimeAdapterOptions {
+  promptMetaPolicyProvider?: () => PromptMetaPolicySnapshot;
+}
+
+const DEFAULT_PROMPT_META_POLICY: PromptMetaPolicySnapshot = {
+  acpPromptMetaPolicy: "allowlist",
+  acpPromptMetaAllowlist: [],
+};
+const PROMPT_META_COMPATIBILITY_ERROR_PATTERNS = [
+  "prompt parameter was not received normally",
+  "invalid params",
+  "unknown field",
+  "unexpected property",
+  "validation",
+  "_meta",
+] as const;
+
+function normalizePromptMetaAllowlistEntry(entry: string): string {
+  const normalized = entry.trim();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.includes("/") || normalized.includes("\\")) {
+    return normalizeExecutablePathForPlatform(normalized);
+  }
+  return normalized.toLowerCase();
+}
+
+function buildPromptMetaIdentifiers(session: ChatSession): string[] {
+  const identifiers: string[] = [];
+  const push = (value: string | undefined) => {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      return;
+    }
+    identifiers.push(normalizePromptMetaAllowlistEntry(value));
+  };
+
+  if (typeof session.proc.spawnfile === "string") {
+    push(session.proc.spawnfile);
+    push(path.basename(session.proc.spawnfile));
+  }
+  const firstSpawnArg = Array.isArray(session.proc.spawnargs)
+    ? session.proc.spawnargs[0]
+    : undefined;
+  if (typeof firstSpawnArg === "string") {
+    push(firstSpawnArg);
+    push(path.basename(firstSpawnArg));
+  }
+  push(session.agentInfo?.name);
+  return [...new Set(identifiers)];
+}
+
 export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionRepo: SessionRepositoryPort;
+  private readonly promptMetaPolicyProvider: () => PromptMetaPolicySnapshot;
+  private readonly promptMetaDisabledSessions = new WeakSet<ChatSession>();
 
   constructor(
     sessionRuntime: SessionRuntimePort,
-    sessionRepo: SessionRepositoryPort
+    sessionRepo: SessionRepositoryPort,
+    options?: AiSessionRuntimeAdapterOptions
   ) {
     this.sessionRuntime = sessionRuntime;
     this.sessionRepo = sessionRepo;
+    this.promptMetaPolicyProvider =
+      options?.promptMetaPolicyProvider ?? (() => DEFAULT_PROMPT_META_POLICY);
   }
 
   requireAuthorizedSession(input: AiRequireSessionInput): ChatSession {
@@ -81,7 +147,7 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
     }
   }
 
-  prompt(
+  async prompt(
     session: ChatSession,
     prompt: ContentBlock[],
     options?: { maxTokens?: number }
@@ -97,13 +163,29 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
             max_tokens: maxTokens,
           }
         : undefined;
-    return this.wrapAcpCall(() =>
-      session.conn.prompt({
-        sessionId: session.sessionId ?? "",
-        prompt,
-        ...(meta ? { _meta: meta } : {}),
-      })
-    );
+    const promptRequest = {
+      sessionId: session.sessionId ?? "",
+      prompt,
+    };
+    const shouldAttachMeta =
+      meta !== undefined && this.shouldAttachPromptMeta(session);
+    if (!shouldAttachMeta) {
+      return await this.wrapAcpCall(() => session.conn.prompt(promptRequest));
+    }
+    try {
+      return await this.wrapAcpCall(() =>
+        session.conn.prompt({
+          ...promptRequest,
+          _meta: meta,
+        })
+      );
+    } catch (error) {
+      if (!this.shouldRetryPromptWithoutMeta(error)) {
+        throw error;
+      }
+      this.promptMetaDisabledSessions.add(session);
+      return await this.wrapAcpCall(() => session.conn.prompt(promptRequest));
+    }
   }
 
   async cancelPrompt(session: ChatSession): Promise<void> {
@@ -157,26 +239,48 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
 
   async stopAndCleanup(input: AiStopSessionInput): Promise<void> {
     const { chatId, session, reason, killProcess, turnId } = input;
-    await this.sessionRuntime.broadcast(chatId, {
-      type: "error",
-      error: reason,
+    await this.sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime: this.sessionRuntime,
+        chatId,
+        op: "ai.session.stop_and_cleanup",
+      });
+      const currentSession = this.sessionRuntime.get(chatId);
+      if (!currentSession || currentSession !== session) {
+        return;
+      }
+      await this.sessionRuntime.broadcast(chatId, {
+        type: "error",
+        error: reason,
+      });
+      await updateChatStatus({
+        chatId,
+        session: currentSession,
+        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+        status: "error",
+        ...(turnId ? { turnId } : {}),
+      });
+      await this.sessionRepo.updateStatus(
+        chatId,
+        currentSession.userId,
+        "stopped"
+      );
+      currentSession.activeTurnId = undefined;
+      currentSession.activePromptTask = undefined;
     });
-    await updateChatStatus({
-      chatId,
-      session,
-      broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-      status: "error",
-      ...(turnId ? { turnId } : {}),
-    });
-    await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
-    session.activeTurnId = undefined;
-    session.activePromptTask = undefined;
     if (killProcess) {
       await terminateProcessGracefully(session.proc, {
         forceWindowsTreeTermination: true,
       });
     }
-    this.sessionRuntime.delete(chatId);
+    await this.sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime: this.sessionRuntime,
+        chatId,
+        op: "ai.session.stop_and_cleanup",
+      });
+      this.sessionRuntime.deleteIfMatch(chatId, session);
+    });
   }
 
   clearPendingPermissionsAsCancelled(session: ChatSession): void {
@@ -237,5 +341,41 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
         (error instanceof Error ? error.message : "Unknown ACP failure"),
       cause: error,
     });
+  }
+
+  private shouldAttachPromptMeta(session: ChatSession): boolean {
+    if (this.promptMetaDisabledSessions.has(session)) {
+      return false;
+    }
+    const policy = this.promptMetaPolicyProvider();
+    if (policy.acpPromptMetaPolicy === "never") {
+      return false;
+    }
+    if (policy.acpPromptMetaPolicy === "always") {
+      return true;
+    }
+    const allowlist = new Set(
+      policy.acpPromptMetaAllowlist
+        .map((entry) => normalizePromptMetaAllowlistEntry(entry))
+        .filter((entry) => entry.length > 0)
+    );
+    if (allowlist.size === 0) {
+      return false;
+    }
+    const identifiers = buildPromptMetaIdentifiers(session);
+    return identifiers.some((identifier) => allowlist.has(identifier));
+  }
+
+  private shouldRetryPromptWithoutMeta(error: unknown): boolean {
+    if (!(error instanceof AiSessionRuntimeError)) {
+      return false;
+    }
+    if (error.kind !== "unknown") {
+      return false;
+    }
+    const text = error.message.toLowerCase();
+    return PROMPT_META_COMPATIBILITY_ERROR_PATTERNS.some((pattern) =>
+      text.includes(pattern)
+    );
   }
 }

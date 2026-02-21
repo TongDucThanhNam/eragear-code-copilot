@@ -32,6 +32,7 @@ function createRuntimeStub(session: ChatSession): {
   deleteCalls: number;
 } {
   const sessions = new Map<string, ChatSession>([[session.id, session]]);
+  const lockDepthByChat = new Map<string, number>();
   const events: BroadcastEvent[] = [];
   let deleteCalls = 0;
 
@@ -46,14 +47,35 @@ function createRuntimeStub(session: ChatSession): {
       deleteCalls += 1;
       sessions.delete(chatId);
     },
+    deleteIfMatch(chatId: string, expectedSession: ChatSession) {
+      const current = sessions.get(chatId);
+      if (!current || current !== expectedSession) {
+        return false;
+      }
+      deleteCalls += 1;
+      sessions.delete(chatId);
+      return true;
+    },
     has(chatId: string) {
       return sessions.has(chatId);
     },
     getAll() {
       return [...sessions.values()];
     },
-    runExclusive<T>(_chatId: string, work: () => Promise<T>) {
-      return work();
+    runExclusive<T>(chatId: string, work: () => Promise<T>) {
+      const depth = lockDepthByChat.get(chatId) ?? 0;
+      lockDepthByChat.set(chatId, depth + 1);
+      return Promise.resolve(work()).finally(() => {
+        const nextDepth = (lockDepthByChat.get(chatId) ?? 1) - 1;
+        if (nextDepth <= 0) {
+          lockDepthByChat.delete(chatId);
+        } else {
+          lockDepthByChat.set(chatId, nextDepth);
+        }
+      });
+    },
+    isLockHeld(chatId: string) {
+      return (lockDepthByChat.get(chatId) ?? 0) > 0;
     },
     async broadcast(_chatId: string, event: BroadcastEvent) {
       events.push(event);

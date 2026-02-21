@@ -8,6 +8,13 @@ import {
 import { LOG_LEVELS } from "@/shared/types/log.types";
 
 const MAX_SESSION_IDLE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_PROMPT_META_ALLOWLIST_ITEMS = 128;
+const MAX_PROMPT_META_ALLOWLIST_ITEM_LENGTH = 256;
+const ACP_PROMPT_META_POLICIES = [
+  "allowlist",
+  "always",
+  "never",
+] as const;
 
 export const UiSettingsSchema = z.object({
   theme: z.enum(["light", "dark", "system"]),
@@ -35,6 +42,10 @@ export const AppConfigSchema = z.object({
   logLevel: z.enum(LOG_LEVELS),
   maxTokens: z.number().int().min(1).max(HARD_MAX_APP_MAX_TOKENS),
   defaultModel: z.string().trim().max(MAX_APP_DEFAULT_MODEL_LENGTH),
+  acpPromptMetaPolicy: z.enum(ACP_PROMPT_META_POLICIES),
+  acpPromptMetaAllowlist: z
+    .array(z.string().trim().min(1).max(MAX_PROMPT_META_ALLOWLIST_ITEM_LENGTH))
+    .max(MAX_PROMPT_META_ALLOWLIST_ITEMS),
 });
 
 export const AppConfigPatchSchema = AppConfigSchema.partial();

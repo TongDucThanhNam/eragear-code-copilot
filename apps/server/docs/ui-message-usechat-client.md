@@ -15,6 +15,7 @@ Các API chính để build `useChat`:
 Event types quan trọng:
 
 - `ui_message` → UIMessage đã chuẩn hóa (snapshot).
+- `ui_message_delta` → append incremental cho part `text`/`reasoning`.
 - `chat_status` → `submitted` | `streaming` | `ready` | `error` (và các trạng thái khác), có thể kèm `turnId`.
 - `chat_finish` → stopReason/finishReason/isAbort (kết thúc turn), có thể kèm `turnId`.
 - `terminal_output` → output realtime theo `terminalId`.
@@ -23,6 +24,10 @@ Event types quan trọng:
 ## Streaming Contract
 
 - `ui_message` là **snapshot đầy đủ** cho `message.id`, client phải **upsert theo id**.
+- `ui_message_delta` là append-only cho `text`/`reasoning` part:
+  - tìm message theo `messageId`
+  - append vào `parts[partIndex].text`
+  - nếu thiếu message/part thì drop delta và chờ snapshot kế tiếp
 - Không tự parse raw ACP ở client.
 - Message có thể được gửi lặp lại nhiều lần trong streaming. Upsert là idempotent.
 - `sendMessage` mutation trả `turnId`; client nên dùng `turnId` để correlate HTTP ack với `chat_status`/`chat_finish` cho cùng turn.
@@ -112,9 +117,12 @@ const chatStatus = useStore(chatStore, (s) => s.chatStatus);
 2. On `ui_message`:
    - Nếu `message.id` chưa có → append vào `messageOrder`.
    - Upsert `messages.set(id, message)` (replace toàn bộ message).
-3. On `chat_status`:
+3. On `ui_message_delta`:
+   - Append delta vào đúng part, giữ nguyên message order.
+   - Nếu không apply được thì bỏ qua (server sẽ fallback snapshot khi cần).
+4. On `chat_status`:
    - Update state UI tổng (loading/streaming).
-4. On `chat_finish`:
+5. On `chat_finish`:
    - Tắt trạng thái streaming.
    - Có thể trigger haptics/analytics ở client.
 

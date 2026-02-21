@@ -20,6 +20,7 @@ liệu, không phải tự parse raw ACP.
 ## BroadcastEvent (từ server)
 
 - `ui_message`: sự kiện chính, chứa UIMessage đã chuẩn hóa
+- `ui_message_delta`: append incremental cho `text`/`reasoning` (không durable)
 - `chat_status`: trạng thái chat (`inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`)
 - `chat_finish`: stopReason + finishReason (map theo AI SDK UI)
 - `available_commands_update`: danh sách slash commands

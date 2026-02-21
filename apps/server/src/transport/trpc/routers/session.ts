@@ -161,6 +161,7 @@ export const sessionRouter = router({
         userId: getRequiredUserId(ctx),
         chatId: input.chatId,
         cursor: input.cursor,
+        direction: input.direction,
         limit: input.limit,
         maxLimit: runtimeConfig.sessionMessagesPageMaxLimit,
         includeCompacted: input.includeCompacted ?? true,
@@ -192,74 +193,98 @@ export const sessionRouter = router({
       const service = ctx.sessionServices.subscribeSessionEvents();
       return observable<BroadcastEvent>((emit) => {
         const userId = getRequiredUserId(ctx);
-        let subscription: ReturnType<typeof service.execute> | undefined;
-        try {
-          subscription = service.execute(userId, input.chatId);
-        } catch (error) {
+        let subscription:
+          | Awaited<ReturnType<typeof service.execute>>
+          | undefined;
+        let unsubscribe: (() => void) | undefined;
+        let disposed = false;
+
+        const start = async () => {
+          try {
+            subscription = await service.execute(userId, input.chatId);
+          } catch (error) {
+            if (shouldEmitRuntimeLog("debug")) {
+              logger.debug("tRPC onSessionEvents subscribe failed", {
+                chatId: input.chatId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+            if (!disposed) {
+              emit.error(
+                error instanceof Error ? error : new Error("Chat not found")
+              );
+            }
+            return;
+          }
+
+          if (disposed || !subscription) {
+            if (subscription) {
+              await subscription.release().catch(() => undefined);
+            }
+            return;
+          }
+
           if (shouldEmitRuntimeLog("debug")) {
-            logger.debug("tRPC onSessionEvents subscribe failed", {
+            logger.debug("tRPC onSessionEvents subscribed", {
               chatId: input.chatId,
-              error: error instanceof Error ? error.message : String(error),
+              bufferedEvents: subscription.bufferedEvents.length,
+              chatStatus: subscription.chatStatus,
+              activeTurnId: subscription.activeTurnId,
             });
           }
-          emit.error(
-            error instanceof Error ? error : new Error("Chat not found")
-          );
-          return;
-        }
 
-        if (!subscription) {
-          emit.error(new Error("Chat not found"));
-          return;
-        }
-        if (shouldEmitRuntimeLog("debug")) {
-          logger.debug("tRPC onSessionEvents subscribed", {
-            chatId: input.chatId,
-            bufferedEvents: subscription.bufferedEvents.length,
-            chatStatus: subscription.chatStatus,
-            activeTurnId: subscription.activeTurnId,
+          emit.next({ type: "connected" });
+          emit.next({
+            type: "chat_status",
+            status: subscription.chatStatus,
+            ...(subscription.activeTurnId
+              ? { turnId: subscription.activeTurnId }
+              : {}),
           });
-        }
 
-        emit.next({ type: "connected" });
-        emit.next({
-          type: "chat_status",
-          status: subscription.chatStatus,
-          ...(subscription.activeTurnId
-            ? { turnId: subscription.activeTurnId }
-            : {}),
-        });
-
-        for (const event of subscription.bufferedEvents) {
-          if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
-            logger.debug("tRPC onSessionEvents buffered event", {
-              chatId: input.chatId,
-              eventType: event.type,
-              ...buildStreamEventContext(event),
-            });
+          for (const event of subscription.bufferedEvents) {
+            if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
+              logger.debug("tRPC onSessionEvents buffered event", {
+                chatId: input.chatId,
+                eventType: event.type,
+                ...buildStreamEventContext(event),
+              });
+            }
+            emit.next(event);
           }
-          emit.next(event);
-        }
 
-        const unsubscribe = subscription.subscribe((event) => {
-          if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
-            logger.debug("tRPC onSessionEvents live event", {
-              chatId: input.chatId,
-              eventType: event.type,
-              ...buildStreamEventContext(event),
-            });
-          }
-          emit.next(event);
-        });
+          unsubscribe = subscription.subscribe((event) => {
+            if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
+              logger.debug("tRPC onSessionEvents live event", {
+                chatId: input.chatId,
+                eventType: event.type,
+                ...buildStreamEventContext(event),
+              });
+            }
+            emit.next(event);
+          });
+        };
+
+        void start();
 
         return () => {
+          disposed = true;
           if (shouldEmitRuntimeLog("debug")) {
             logger.debug("tRPC onSessionEvents unsubscribed", {
               chatId: input.chatId,
             });
           }
-          unsubscribe();
-          subscription.release();
+          unsubscribe?.();
+          if (subscription) {
+            void subscription.release().catch((error) => {
+              if (shouldEmitRuntimeLog("debug")) {
+                logger.debug("tRPC onSessionEvents release failed", {
+                  chatId: input.chatId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+            });
+          }
         };
       });
     }),

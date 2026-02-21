@@ -21,6 +21,8 @@ function createSettingsFixture(): Settings {
       logLevel: "info",
       maxTokens: 8192,
       defaultModel: "gpt-4.1",
+      acpPromptMetaPolicy: "allowlist",
+      acpPromptMetaAllowlist: ["/usr/local/bin/codex"],
     },
   };
 }
@@ -36,6 +38,9 @@ describe("parseUiSettingsForm", () => {
         "app.logLevel": "warn",
         "app.maxTokens": "4096",
         "app.defaultModel": "  claude-4  ",
+        "app.acpPromptMetaPolicy": "always",
+        "app.acpPromptMetaAllowlist":
+          "/usr/local/bin/codex\n/usr/local/bin/claude-code",
       },
       current
     );
@@ -47,6 +52,11 @@ describe("parseUiSettingsForm", () => {
       logLevel: "warn",
       maxTokens: 4096,
       defaultModel: "claude-4",
+      acpPromptMetaPolicy: "always",
+      acpPromptMetaAllowlist: [
+        "/usr/local/bin/codex",
+        "/usr/local/bin/claude-code",
+      ],
     });
   });
 
@@ -60,6 +70,12 @@ describe("parseUiSettingsForm", () => {
     );
 
     expect(parsed.app.defaultModel).toBe(current.app.defaultModel);
+    expect(parsed.app.acpPromptMetaPolicy).toBe(
+      current.app.acpPromptMetaPolicy
+    );
+    expect(parsed.app.acpPromptMetaAllowlist).toEqual(
+      current.app.acpPromptMetaAllowlist
+    );
   });
 
   test("clears defaultModel when explicit blank value is submitted", () => {

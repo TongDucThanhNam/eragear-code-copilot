@@ -190,6 +190,7 @@ export function useChat(options: UseChatOptions = {}) {
         onModesChange: store.setModes,
         onModelsChange: store.setModels,
         onSupportsModelSwitchingChange: store.setSupportsModelSwitching,
+        getCommands: () => useChatStore.getState().commands,
         onCommandsChange: (cmds) => {
           const normalized = cmds.map((cmd) => ({
             name: cmd.name,
@@ -317,36 +318,41 @@ export function useChat(options: UseChatOptions = {}) {
         ? scheduleMessagesUpdate
         : applyMessagesImmediate;
 
-      processSessionEvent(event, [], currentModes, {
-        onStatusChange: store.setStatus,
-        onConnStatusChange: store.setConnStatus,
-        onMessageUpsert,
-        getMessageById,
-        onModesChange: store.setModes,
-        onCommandsChange: (cmds) => {
-          const normalized = cmds.map((cmd) => ({
-            name: cmd.name,
-            description: cmd.description,
-            input: cmd.input,
-          }));
-          store.setCommands(normalized);
-        },
-        onTerminalOutput: store.appendTerminalOutput,
-        onError: (err) => {
-          store.setError(err);
-          store.setStatus("error");
-          onErrorRef.current?.(err);
-        },
-        onFinish: (payload) => {
-          onFinishRef.current?.(payload);
-        },
-        onStreamingChange: (wasStreaming, nowStreaming, message) => {
-          // Trigger haptic when streaming ends
-          if (wasStreaming && !nowStreaming && message.role === "assistant") {
-            triggerStreamEndHaptic(message.id);
-          }
-        },
-      });
+      processSessionEvent(
+        event,
+        { currentModes },
+        {
+          onStatusChange: store.setStatus,
+          onConnStatusChange: store.setConnStatus,
+          onMessageUpsert,
+          getMessageById,
+          getCommands: () => useChatStore.getState().commands,
+          onModesChange: store.setModes,
+          onCommandsChange: (cmds) => {
+            const normalized = cmds.map((cmd) => ({
+              name: cmd.name,
+              description: cmd.description,
+              input: cmd.input,
+            }));
+            store.setCommands(normalized);
+          },
+          onTerminalOutput: store.appendTerminalOutput,
+          onError: (err) => {
+            store.setError(err);
+            store.setStatus("error");
+            onErrorRef.current?.(err);
+          },
+          onFinish: (payload) => {
+            onFinishRef.current?.(payload);
+          },
+          onStreamingChange: (wasStreaming, nowStreaming, message) => {
+            // Trigger haptic when streaming ends
+            if (wasStreaming && !nowStreaming && message.role === "assistant") {
+              triggerStreamEndHaptic(message.id);
+            }
+          },
+        }
+      );
     },
     [
       isStreamingUiMessage,
@@ -564,32 +570,6 @@ export function useChat(options: UseChatOptions = {}) {
       const res = await resumeSessionMutation.mutateAsync({ chatId });
       await utils.getSessionState.invalidate({ chatId });
       await utils.getSessionMessages.invalidate({ chatId });
-      const [state, history] = await Promise.all([
-        utils.getSessionState.fetch({ chatId }),
-        utils.getSessionMessages.fetch({ chatId }),
-      ]);
-      if (Array.isArray(history)) {
-        const parsedHistory = parseUiMessageArrayStrict(history);
-        if (!parsedHistory.ok) {
-          store.setError(parsedHistory.error);
-          onErrorRef.current?.(parsedHistory.error);
-        } else {
-          store.setMessages(parsedHistory.value);
-          store.setPendingPermission(findPendingPermission(parsedHistory.value));
-        }
-      }
-      if (state.status === "stopped") {
-        if (state.agentInfo !== undefined) {
-          store.setAgentInfo(state.agentInfo);
-        }
-        if (state.loadSessionSupported !== undefined) {
-          store.setLoadSessionSupported(state.loadSessionSupported);
-        }
-        applyStateToStore(state);
-        isResumingRef.current = false;
-        return res;
-      }
-      applyStateToStore(state);
       if (res?.promptCapabilities !== undefined) {
         store.setPromptCapabilities(res.promptCapabilities);
       }

@@ -14,6 +14,34 @@ function createAssistantMessage(
   };
 }
 
+function applyEventWithMessages(
+  event: BroadcastEvent,
+  initialMessages: UIMessage[]
+): UIMessage[] {
+  const ordered = [...initialMessages];
+  const byId = new Map(ordered.map((message) => [message.id, message]));
+
+  processSessionEvent(
+    event,
+    { currentModes: null },
+    {
+      getMessageById: (messageId) => byId.get(messageId),
+      getMessagesForPermission: () => ordered,
+      onMessageUpsert: (nextMessage) => {
+        const index = ordered.findIndex((message) => message.id === nextMessage.id);
+        if (index >= 0) {
+          ordered[index] = nextMessage;
+        } else {
+          ordered.push(nextMessage);
+        }
+        byId.set(nextMessage.id, nextMessage);
+      },
+    }
+  );
+
+  return ordered;
+}
+
 describe("processSessionEvent ui_message_delta", () => {
   test("applies text delta to the existing assistant message", () => {
     const initialMessage = createAssistantMessage("msg-1", [
@@ -26,7 +54,7 @@ describe("processSessionEvent ui_message_delta", () => {
       delta: " world",
     };
 
-    const next = processSessionEvent(event, [initialMessage], null, {});
+    const next = applyEventWithMessages(event, [initialMessage]);
     expect(next).toHaveLength(1);
     expect(next[0]?.parts[0]).toEqual({
       type: "text",
@@ -48,7 +76,7 @@ describe("processSessionEvent ui_message_delta", () => {
       delta: " / Step 3",
     };
 
-    const next = processSessionEvent(event, [initialMessage], null, {});
+    const next = applyEventWithMessages(event, [initialMessage]);
     expect(next).toHaveLength(1);
     expect(next[0]?.parts[0]).toEqual({
       type: "reasoning",
@@ -62,6 +90,28 @@ describe("processSessionEvent ui_message_delta", () => {
     });
   });
 
+  test("treats missing base text as empty string when applying delta", () => {
+    const malformedMessage = createAssistantMessage("msg-1", [
+      {
+        type: "text",
+        state: "streaming",
+      } as unknown as UIMessage["parts"][number],
+    ]);
+    const event: BroadcastEvent = {
+      type: "ui_message_delta",
+      messageId: "msg-1",
+      partIndex: 0,
+      delta: "hello",
+    };
+
+    const next = applyEventWithMessages(event, [malformedMessage]);
+    expect(next[0]?.parts[0]).toEqual({
+      type: "text",
+      text: "hello",
+      state: "streaming",
+    });
+  });
+
   test("ignores delta updates when target message is missing", () => {
     const currentMessages: UIMessage[] = [];
     const event: BroadcastEvent = {
@@ -71,8 +121,7 @@ describe("processSessionEvent ui_message_delta", () => {
       delta: "x",
     };
 
-    const next = processSessionEvent(event, currentMessages, null, {});
-    expect(next).toBe(currentMessages);
+    const next = applyEventWithMessages(event, currentMessages);
     expect(next).toEqual([]);
   });
 
@@ -86,8 +135,7 @@ describe("processSessionEvent ui_message_delta", () => {
       partIndex: 5,
       delta: "x",
     };
-    const next = processSessionEvent(event, currentMessages, null, {});
-    expect(next).toBe(currentMessages);
+    const next = applyEventWithMessages(event, currentMessages);
     expect(next[0]?.parts[0]).toEqual({
       type: "text",
       text: "a",
@@ -112,12 +160,11 @@ describe("processSessionEvent config/session-info updates", () => {
       configOptions,
     };
     const received: typeof configOptions[] = [];
-    const next = processSessionEvent(event, [], null, {
+    processSessionEvent(event, { currentModes: null }, {
       onConfigOptionsChange: (options) => {
         received.push(options);
       },
     });
-    expect(next).toEqual([]);
     expect(received).toEqual([configOptions]);
   });
 
@@ -136,5 +183,113 @@ describe("processSessionEvent config/session-info updates", () => {
     );
     expect(connected).toBe(true);
     expect(info).toEqual({ title: "Agent title" });
+  });
+
+  test("skips command callback when session state commands are unchanged", () => {
+    const currentCommands = [
+      {
+        name: "read_file",
+        description: "Read file",
+        input: { hint: "path" },
+      },
+    ];
+    const received: typeof currentCommands[] = [];
+
+    applySessionState(
+      {
+        status: "running",
+        commands: [
+          {
+            name: "read_file",
+            description: "Read file",
+            input: { hint: "path" },
+          },
+        ],
+      },
+      {
+        getCommands: () => currentCommands,
+        onCommandsChange: (next) => {
+          received.push(next);
+        },
+      }
+    );
+
+    expect(received).toEqual([]);
+  });
+});
+
+describe("processSessionEvent available_commands_update", () => {
+  test("skips callback when commands are semantically unchanged", () => {
+    const currentCommands = [
+      {
+        name: "read_file",
+        description: "Read file",
+        input: { hint: "path" },
+      },
+    ];
+    const received: typeof currentCommands[] = [];
+
+    processSessionEvent(
+      {
+        type: "available_commands_update",
+        availableCommands: [
+          {
+            name: "read_file",
+            description: "Read file",
+            input: { hint: "path" },
+          },
+        ],
+      },
+      { currentModes: null },
+      {
+        getCommands: () => currentCommands,
+        onCommandsChange: (next) => {
+          received.push(next);
+        },
+      }
+    );
+
+    expect(received).toEqual([]);
+  });
+
+  test("forwards callback when command payload changes", () => {
+    const currentCommands = [
+      {
+        name: "read_file",
+        description: "Read file",
+        input: { hint: "path" },
+      },
+    ];
+    const received: typeof currentCommands[] = [];
+
+    processSessionEvent(
+      {
+        type: "available_commands_update",
+        availableCommands: [
+          {
+            name: "read_file",
+            description: "Read file",
+            input: { hint: "new-path" },
+          },
+        ],
+      },
+      { currentModes: null },
+      {
+        getCommands: () => currentCommands,
+        onCommandsChange: (next) => {
+          received.push(next);
+        },
+      }
+    );
+
+    expect(received).toEqual([
+      [
+        {
+          name: "read_file",
+          description: "Read file",
+          input: { hint: "new-path" },
+        },
+      ],
+    ]);
   });
 });

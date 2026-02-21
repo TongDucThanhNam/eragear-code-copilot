@@ -1,11 +1,11 @@
 "use client";
 
-import { memo, useMemo } from "react";
 import type {
   PermissionOption,
   PermissionOptions,
   PermissionRequest,
 } from "@repo/shared";
+import { memo, useMemo } from "react";
 import { CodeBlock } from "@/components/ai-elements/code-block";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,25 +18,118 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
-type NormalizedOption = {
+interface NormalizedOption {
   id: string;
   label: string;
   description?: string;
   isAllow: boolean;
+}
+
+const TITLE_PREVIEW_MAX_CHARS = 180;
+type PermissionIntent = "allow" | "reject";
+
+const ALLOW_KEYWORDS = [
+  "allow",
+  "approve",
+  "approved",
+  "accept",
+  "accepted",
+  "grant",
+  "granted",
+  "yes",
+  "ok",
+];
+const REJECT_KEYWORDS = [
+  "reject",
+  "rejected",
+  "deny",
+  "denied",
+  "block",
+  "blocked",
+  "cancel",
+  "cancelled",
+  "decline",
+  "declined",
+  "disallow",
+  "no",
+];
+
+const formatTitlePreview = (value: string): string => {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= TITLE_PREVIEW_MAX_CHARS) {
+    return normalized;
+  }
+  return `${normalized.slice(0, TITLE_PREVIEW_MAX_CHARS)}...`;
+};
+
+const normalizeToken = (value: unknown): string => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().toLowerCase();
+};
+
+const tokenize = (value: string): string[] => {
+  if (value.length === 0) {
+    return [];
+  }
+  const words = value.split(/[^a-z0-9]+/).filter((part) => part.length > 0);
+  return [value, ...words];
+};
+
+const includesKeyword = (value: string, keywords: readonly string[]) => {
+  const tokens = tokenize(normalizeToken(value));
+  return keywords.some((keyword) => tokens.includes(keyword));
+};
+
+const inferIntentFromKind = (kind?: string): PermissionIntent | null => {
+  const normalizedKind = normalizeToken(kind);
+  if (normalizedKind.startsWith("allow_")) {
+    return "allow";
+  }
+  if (normalizedKind.startsWith("reject_")) {
+    return "reject";
+  }
+  return null;
+};
+
+const inferIntentFromOption = (
+  option: PermissionOption
+): PermissionIntent | null => {
+  const kindIntent = inferIntentFromKind(option.kind);
+  if (kindIntent) {
+    return kindIntent;
+  }
+
+  const values = [option.optionId, option.id, option.name, option.label]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => normalizeToken(value))
+    .filter((value) => value.length > 0);
+  for (const value of values) {
+    if (includesKeyword(value, REJECT_KEYWORDS)) {
+      return "reject";
+    }
+    if (includesKeyword(value, ALLOW_KEYWORDS)) {
+      return "allow";
+    }
+  }
+
+  return null;
 };
 
 const normalizePermissionOptions = (
   options?: PermissionOptions
 ): NormalizedOption[] => {
   const list = Array.isArray(options) ? options : (options?.options ?? []);
-  return list.map((option: PermissionOption, index) => {
+  return list.map((option: PermissionOption) => {
+    const optionIntent = inferIntentFromOption(option);
+    const isAllow = optionIntent === "allow";
+
     const optionId =
       option.optionId ??
       option.id ??
       option.kind ??
-      option.name ??
-      option.label ??
-      `option-${index}`;
+      (isAllow ? "allow" : "reject");
     const label =
       option.label ??
       option.name ??
@@ -44,11 +137,6 @@ const normalizePermissionOptions = (
       option.id ??
       option.kind ??
       "Option";
-    const normalized = String(optionId).toLowerCase();
-    const isAllow =
-      normalized.includes("allow") ||
-      normalized.includes("yes") ||
-      normalized.includes("approve");
     return {
       id: String(optionId),
       label: String(label),
@@ -70,11 +158,14 @@ const formatInput = (input: unknown) => {
 };
 
 const PermissionDialogHeader = memo(({ title }: { title: string }) => (
-  <DialogHeader>
+  <DialogHeader className="min-w-0 pr-8">
     <DialogTitle>Permission required</DialogTitle>
-    <DialogDescription>
-      Allow &quot;{title}&quot; to execute this step? Closing the dialog will
-      reject the request.
+    <DialogDescription className="max-h-24 overflow-y-auto pr-1 [overflow-wrap:anywhere]">
+      Allow{" "}
+      <span className="text-foreground [overflow-wrap:anywhere]" title={title}>
+        &quot;{formatTitlePreview(title)}&quot;
+      </span>{" "}
+      to execute this step? Closing the dialog will reject the request.
     </DialogDescription>
   </DialogHeader>
 ));
@@ -89,8 +180,12 @@ const PermissionDialogInput = memo(({ input }: { input: string | null }) => {
       <div className="text-muted-foreground text-xs uppercase tracking-wide">
         Parameters
       </div>
-      <div className="overflow-hidden rounded-md bg-muted/50">
-        <CodeBlock code={input} language="json" />
+      <div className="max-h-[40vh] min-w-0 overflow-auto rounded-md bg-muted/50">
+        <CodeBlock
+          className="[&_pre]:max-w-full"
+          code={input}
+          language="json"
+        />
       </div>
     </div>
   );
@@ -107,12 +202,12 @@ const PermissionDialogActions = memo(
     onApprove: (decision: string) => void;
     onReject: (decision?: string) => void;
   }) => (
-    <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+    <DialogFooter className="flex shrink-0 flex-col-reverse gap-2 border-border/60 border-t pt-3 sm:flex-row sm:flex-wrap sm:justify-end">
       {options.length > 0 ? (
         options.map((option) => (
           <Button
             className={cn(
-              "h-auto px-3 py-2 text-left",
+              "h-auto max-w-full whitespace-normal px-3 py-2 text-left [overflow-wrap:anywhere]",
               option.description && "items-start"
             )}
             key={option.id}
@@ -122,10 +217,12 @@ const PermissionDialogActions = memo(
             type="button"
             variant={option.isAllow ? "default" : "outline"}
           >
-            <span className="flex flex-col gap-0.5 text-left">
-              <span className="text-sm">{option.label}</span>
+            <span className="flex min-w-0 max-w-full flex-col gap-0.5 text-left">
+              <span className="text-sm [overflow-wrap:anywhere]">
+                {option.label}
+              </span>
               {option.description && (
-                <span className="text-muted-foreground text-xs">
+                <span className="text-muted-foreground text-xs [overflow-wrap:anywhere]">
                   {option.description}
                 </span>
               )}
@@ -134,7 +231,11 @@ const PermissionDialogActions = memo(
         ))
       ) : (
         <>
-          <Button onClick={() => onReject("reject")} type="button" variant="outline">
+          <Button
+            onClick={() => onReject("reject")}
+            type="button"
+            variant="outline"
+          >
             Reject
           </Button>
           <Button onClick={() => onApprove("allow")} type="button">
@@ -166,7 +267,10 @@ const PermissionDialogBase = ({
     () => normalizePermissionOptions(request?.options),
     [request?.options]
   );
-  const inputText = useMemo(() => formatInput(request?.input), [request?.input]);
+  const inputText = useMemo(
+    () => formatInput(request?.input),
+    [request?.input]
+  );
   const hasInput = Boolean(inputText?.trim());
 
   if (!request) {
@@ -176,15 +280,17 @@ const PermissionDialogBase = ({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="max-h-[80vh] max-w-xl !flex !flex-col"
+        className="!flex !flex-col max-h-[85vh] w-[calc(100vw-2rem)] min-w-0 max-w-[42rem] overflow-hidden"
         showCloseButton={true}
       >
-        <PermissionDialogHeader title={request.title} />
-        {hasInput ? (
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            <PermissionDialogInput input={inputText} />
-          </div>
-        ) : null}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+          <PermissionDialogHeader title={request.title} />
+          {hasInput ? (
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+              <PermissionDialogInput input={inputText} />
+            </div>
+          ) : null}
+        </div>
         <PermissionDialogActions
           onApprove={onApprove}
           onReject={onReject}

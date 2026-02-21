@@ -30,7 +30,9 @@ export const ToolMessagePart = memo(
       tool.state === "output-error"
         ? tool.errorText
         : tool.state === "output-denied"
-          ? "Denied"
+          ? `Permission denied${
+              tool.approval?.reason ? ` (${tool.approval.reason})` : ""
+            }`
           : undefined;
     return (
       <Tool className="mb-0" defaultOpen={false}>

@@ -28,6 +28,7 @@ function createSession(overrides?: Partial<ChatSession>): ChatSession {
 
 function createSessionRuntime(session: ChatSession): SessionRuntimePort {
   const sessions = new Map<string, ChatSession>([[session.id, session]]);
+  const lockDepthByChat = new Map<string, number>();
   return {
     set(chatId, nextSession) {
       sessions.set(chatId, nextSession);
@@ -38,6 +39,14 @@ function createSessionRuntime(session: ChatSession): SessionRuntimePort {
     delete(chatId) {
       sessions.delete(chatId);
     },
+    deleteIfMatch(chatId, expectedSession) {
+      const current = sessions.get(chatId);
+      if (!current || current !== expectedSession) {
+        return false;
+      }
+      sessions.delete(chatId);
+      return true;
+    },
     has(chatId) {
       return sessions.has(chatId);
     },
@@ -45,7 +54,19 @@ function createSessionRuntime(session: ChatSession): SessionRuntimePort {
       return [...sessions.values()];
     },
     runExclusive(_chatId, work) {
-      return work();
+      const depth = lockDepthByChat.get(_chatId) ?? 0;
+      lockDepthByChat.set(_chatId, depth + 1);
+      return Promise.resolve(work()).finally(() => {
+        const nextDepth = (lockDepthByChat.get(_chatId) ?? 1) - 1;
+        if (nextDepth <= 0) {
+          lockDepthByChat.delete(_chatId);
+        } else {
+          lockDepthByChat.set(_chatId, nextDepth);
+        }
+      });
+    },
+    isLockHeld(chatId) {
+      return (lockDepthByChat.get(chatId) ?? 0) > 0;
     },
     broadcast() {
       return Promise.resolve();
@@ -54,21 +75,21 @@ function createSessionRuntime(session: ChatSession): SessionRuntimePort {
 }
 
 describe("SubscribeSessionEventsService", () => {
-  test("reconciles orphan busy status to ready", () => {
+  test("reconciles orphan busy status to ready", async () => {
     const session = createSession({
       chatStatus: "streaming",
     });
     const runtime = createSessionRuntime(session);
     const service = new SubscribeSessionEventsService(runtime);
 
-    const subscription = service.execute("user-1", "chat-1");
+    const subscription = await service.execute("user-1", "chat-1");
 
     expect(subscription.chatStatus).toBe("ready");
     expect(subscription.activeTurnId).toBeUndefined();
     expect(session.chatStatus).toBe("ready");
   });
 
-  test("keeps awaiting permission when pending permission exists", () => {
+  test("keeps awaiting permission when pending permission exists", async () => {
     const pendingPermissions = new Map<
       string,
       {
@@ -87,13 +108,13 @@ describe("SubscribeSessionEventsService", () => {
     const runtime = createSessionRuntime(session);
     const service = new SubscribeSessionEventsService(runtime);
 
-    const subscription = service.execute("user-1", "chat-1");
+    const subscription = await service.execute("user-1", "chat-1");
 
     expect(subscription.chatStatus).toBe("awaiting_permission");
     expect(session.chatStatus).toBe("awaiting_permission");
   });
 
-  test("does not reconcile active busy turn", () => {
+  test("does not reconcile active busy turn", async () => {
     const activeTurnId = "turn-1";
     const session = createSession({
       chatStatus: "streaming",
@@ -106,13 +127,13 @@ describe("SubscribeSessionEventsService", () => {
     const runtime = createSessionRuntime(session);
     const service = new SubscribeSessionEventsService(runtime);
 
-    const subscription = service.execute("user-1", "chat-1");
+    const subscription = await service.execute("user-1", "chat-1");
 
     expect(subscription.chatStatus).toBe("streaming");
     expect(subscription.activeTurnId).toBe(activeTurnId);
   });
 
-  test("adds active assistant snapshot when replay buffer is missing it", () => {
+  test("adds active assistant snapshot when replay buffer is missing it", async () => {
     const uiState = createUiMessageState();
     const assistantMessage: UIMessage = {
       id: "msg-active",
@@ -125,7 +146,7 @@ describe("SubscribeSessionEventsService", () => {
     const runtime = createSessionRuntime(session);
     const service = new SubscribeSessionEventsService(runtime);
 
-    const subscription = service.execute("user-1", "chat-1");
+    const subscription = await service.execute("user-1", "chat-1");
 
     expect(subscription.bufferedEvents).toEqual([
       {
@@ -135,7 +156,7 @@ describe("SubscribeSessionEventsService", () => {
     ]);
   });
 
-  test("does not duplicate active assistant snapshot when already buffered", () => {
+  test("does not duplicate active assistant snapshot when already buffered", async () => {
     const uiState = createUiMessageState();
     const assistantMessage: UIMessage = {
       id: "msg-active",
@@ -151,7 +172,7 @@ describe("SubscribeSessionEventsService", () => {
     const runtime = createSessionRuntime(session);
     const service = new SubscribeSessionEventsService(runtime);
 
-    const subscription = service.execute("user-1", "chat-1");
+    const subscription = await service.execute("user-1", "chat-1");
 
     expect(subscription.bufferedEvents).toHaveLength(1);
     expect(subscription.bufferedEvents[0]).toEqual({

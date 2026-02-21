@@ -14,24 +14,27 @@ import type {
   PromptCapabilities,
   SessionConfigOption,
   SessionInfo,
-  SessionStateData,
   SessionModelState,
   SessionModeState,
+  SessionStateData,
   UIMessage,
-  UseChatOptions as SharedUseChatOptions,
 } from "@repo/shared";
 import {
   applySessionState,
   findPendingPermission,
   isChatBusyStatus,
-  parseBroadcastEventStrict,
-  parseUiMessageArrayStrict,
-  parseUiMessageStrict,
   processSessionEvent,
 } from "@repo/shared";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import {
+  getChatMessageStateSnapshot,
+  getChatTerminalOutputsSnapshot,
+  useChatMessages,
+  useChatStreamStore,
+  useChatTerminalOutputs,
+} from "@/store/chat-stream-store";
 import {
   nextLifecycleOnChatIdChange,
   nextLifecycleOnSubscriptionError,
@@ -39,168 +42,24 @@ import {
   nextLifecycleOnSubscriptionStart,
   type StreamLifecycle,
 } from "./use-chat-connection.machine";
+import { useChatActions } from "./use-chat-actions";
+import { useChatFallback } from "./use-chat-fallback";
+import { useChatHistory } from "./use-chat-history";
 import {
-  createEmptyMessageState,
-  getOrderedMessages,
-  mergeMessagesIntoState,
-  replaceMessagesState,
   type MessageState,
-  type MessageStateUpdater,
+  replaceMessagesState,
   upsertMessageIntoState,
 } from "./use-chat-message-state";
-// ============================================================================
-// Types
-// ============================================================================
-export type UseChatOptions = SharedUseChatOptions;
-export interface UseChatResult {
-  // State
-  messages: UIMessage[];
-  status: ChatStatus;
-  connStatus: ConnectionStatus;
-  isStreaming: boolean;
-  pendingPermission: PermissionRequest | null;
-  terminalOutputs: Record<string, string>;
-  // Session state
-  modes: SessionModeState | null;
-  models: SessionModelState | null;
-  supportsModelSwitching: boolean;
-  commands: AvailableCommand[];
-  configOptions: SessionConfigOption[];
-  sessionInfo: SessionInfo | null;
-  promptCapabilities: PromptCapabilities | null;
-  agentInfo: AgentInfo | null;
-  loadSessionSupported: boolean | undefined;
-  error: string | null;
-  // Loading states
-  isSending: boolean;
-  isCancelling: boolean;
-  isResuming: boolean;
-  // Actions
-  sendMessage: (
-    text: string,
-    options?: {
-      images?: { base64: string; mimeType: string }[];
-      resources?: { uri: string; text: string; mimeType?: string }[];
-      resourceLinks?: { uri: string; name: string; mimeType?: string }[];
-    }
-  ) => Promise<boolean>;
-  cancelPrompt: () => Promise<void>;
-  setMode: (modeId: string) => Promise<void>;
-  setModel: (modelId: string) => Promise<void>;
-  setConfigOption: (configId: string, value: string) => Promise<void>;
-  respondToPermission: (requestId: string, decision: string) => Promise<void>;
-  stopSession: () => Promise<void>;
-  resumeSession: () => Promise<void>;
-  refreshHistory: () => Promise<void>;
-  // Message mutation
-  upsertMessage: (message: UIMessage) => void;
-  setMessages: (messages: UIMessage[]) => void;
-  // Internal state mutation (for integration with existing code)
-  restoreSessionState: (state: SessionStateData) => void;
-  setConnStatus: (status: ConnectionStatus) => void;
-  setStatus: (status: ChatStatus) => void;
-}
+import {
+  normalizeMessage,
+  normalizeMessages,
+  normalizeSessionStateData,
+  parseBroadcastEvent,
+  shouldLogChatStreamDebug,
+} from "./use-chat-normalize";
+import type { UseChatOptions, UseChatResult } from "./use-chat.types";
 
-const USER_MESSAGE_FALLBACK_TIMEOUT_MS = 1500;
-const USER_MESSAGE_FALLBACK_RETRY_DELAY_MS = 300;
-const USER_MESSAGE_FALLBACK_MAX_ATTEMPTS = 2;
-
-function shouldLogChatStreamDebug(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  const debugFlag = (
-    window as typeof window & {
-      __ERAGEAR_CHAT_DEBUG__?: boolean;
-    }
-  ).__ERAGEAR_CHAT_DEBUG__;
-  if (typeof debugFlag === "boolean") {
-    return debugFlag;
-  }
-  return import.meta.env.DEV;
-}
-
-type RawAgentInfo = {
-  name?: string;
-  title?: string;
-  version?: string;
-} | null;
-
-type RawSessionStateData = Omit<
-  SessionStateData,
-  "modes" | "models" | "commands" | "configOptions" | "sessionInfo" | "agentInfo"
-> & {
-  modes?: SessionModeState | null;
-  models?: SessionModelState | null;
-  commands?: SessionStateData["commands"] | null;
-  configOptions?: SessionStateData["configOptions"] | null;
-  sessionInfo?: SessionStateData["sessionInfo"] | null;
-  agentInfo?: RawAgentInfo;
-};
-
-const normalizeMessage = (message: unknown): UIMessage => {
-  const parsed = parseUiMessageStrict(message);
-  if (!parsed.ok) {
-    throw new Error(parsed.error);
-  }
-  return parsed.value;
-};
-
-const normalizeMessages = (messages: unknown): UIMessage[] => {
-  const parsed = parseUiMessageArrayStrict(messages);
-  if (!parsed.ok) {
-    throw new Error(parsed.error);
-  }
-  return parsed.value;
-};
-
-const normalizeAgentInfo = (
-  agentInfo: RawAgentInfo | undefined
-): AgentInfo | null | undefined => {
-  if (agentInfo === undefined) {
-    return undefined;
-  }
-  if (agentInfo === null) {
-    return null;
-  }
-  if (typeof agentInfo.name !== "string" || typeof agentInfo.version !== "string") {
-    return null;
-  }
-  return {
-    name: agentInfo.name,
-    version: agentInfo.version,
-    ...(typeof agentInfo.title === "string" ? { title: agentInfo.title } : {}),
-  };
-};
-
-const normalizeSessionStateData = (
-  data: RawSessionStateData
-): SessionStateData => {
-  const { agentInfo: rawAgentInfo, ...rest } = data;
-  const normalized: SessionStateData = {
-    ...rest,
-    modes: data.modes ?? undefined,
-    models: data.models ?? undefined,
-    commands: data.commands ?? undefined,
-    configOptions: data.configOptions ?? undefined,
-    sessionInfo: data.sessionInfo ?? null,
-  };
-
-  const agentInfo = normalizeAgentInfo(rawAgentInfo);
-  if (agentInfo !== undefined) {
-    normalized.agentInfo = agentInfo;
-  }
-
-  return normalized;
-};
-
-const parseBroadcastEvent = (event: unknown): BroadcastEvent => {
-  const parsed = parseBroadcastEventStrict(event);
-  if (!parsed.ok) {
-    throw new Error(parsed.error);
-  }
-  return parsed.value;
-};
+const INVALID_EVENT_TOAST_COOLDOWN_MS = 5000;
 
 // ============================================================================
 // Hook Implementation
@@ -209,9 +68,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const { chatId, readOnly = false, onFinish, onError } = options;
   const utils = trpc.useUtils();
   // Core state
-  const [messageState, setMessageState] = useState<MessageState>(
-    createEmptyMessageState
-  );
   const [status, setStatus] = useState<ChatStatus>(
     chatId && !readOnly ? "connecting" : "inactive"
   );
@@ -226,9 +82,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   );
   const [pendingPermission, setPendingPermission] =
     useState<PermissionRequest | null>(null);
-  const [terminalOutputs, setTerminalOutputs] = useState<
-    Record<string, string>
-  >({});
   const [error, setError] = useState<string | null>(null);
   // Session state
   const [modes, setModes] = useState<SessionModeState | null>(null);
@@ -244,36 +97,23 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     boolean | undefined
   >(undefined);
   // Refs
-  const messageStateRef = useRef<MessageState>(createEmptyMessageState());
+  const messageStateRef = useRef<MessageState>(
+    getChatMessageStateSnapshot(chatId ?? null)
+  );
+  const terminalOutputsRef = useRef<Record<string, string>>(
+    getChatTerminalOutputsSnapshot(chatId ?? null)
+  );
   const modesRef = useRef<SessionModeState | null>(null);
+  const commandsRef = useRef<AvailableCommand[]>(commands);
   const isResumingRef = useRef(false);
-  const historyAppliedRef = useRef(false);
-  const historyLoadingRef = useRef(false);
-  const historyLoadVersionRef = useRef(0);
   const activeTurnIdRef = useRef<string | null>(null);
   const activeChatIdRef = useRef<string | null>(chatId ?? null);
-  const pendingUserMessageFallbackTimersRef = useRef<
-    Map<string, ReturnType<typeof setTimeout>>
-  >(new Map());
-  const pendingUserMessageFallbackAbortRef = useRef(new AbortController());
-  const pendingUserMessageFallbackGenerationRef = useRef(0);
   const previousStreamLifecycleRef = useRef<StreamLifecycle>(streamLifecycle);
   const statusRef = useRef<ChatStatus>(status);
-  // Batched updates for performance
-  const batchUpdateQueueRef = useRef<MessageStateUpdater[]>([]);
-  const batchUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
-  const resetPendingUserMessageFallbackController = useCallback(() => {
-    pendingUserMessageFallbackAbortRef.current.abort();
-    pendingUserMessageFallbackAbortRef.current = new AbortController();
-    pendingUserMessageFallbackGenerationRef.current += 1;
-  }, []);
-  const messages = useMemo(() => getOrderedMessages(messageState), [messageState]);
+  const invalidEventToastAtRef = useRef(0);
+  const messages = useChatMessages(chatId);
+  const terminalOutputs = useChatTerminalOutputs(chatId);
   // Keep refs in sync
-  useEffect(() => {
-    messageStateRef.current = messageState;
-  }, [messageState]);
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
@@ -284,307 +124,110 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     modesRef.current = modes;
   }, [modes]);
   useEffect(() => {
-    const nextLifecycle = nextLifecycleOnChatIdChange({
-      hasChatId: Boolean(chatId),
-      readOnly,
-    });
-    for (const [, timer] of pendingUserMessageFallbackTimersRef.current) {
-      clearTimeout(timer);
-    }
-    pendingUserMessageFallbackTimersRef.current.clear();
-    resetPendingUserMessageFallbackController();
-    if (batchUpdateTimerRef.current) {
-      clearTimeout(batchUpdateTimerRef.current);
-      batchUpdateTimerRef.current = null;
-    }
-    batchUpdateQueueRef.current = [];
-    const emptyState = createEmptyMessageState();
-    setMessageState(emptyState);
-    messageStateRef.current = emptyState;
-    setPendingPermission(null);
-    setTerminalOutputs({});
-    setError(null);
-    setModes(null);
-    modesRef.current = null;
-    setModels(null);
-    setSupportsModelSwitching(false);
-    setCommands([]);
-    setConfigOptions([]);
-    setSessionInfo(null);
-    setPromptCapabilities(null);
-    setAgentInfo(null);
-    setLoadSessionSupported(undefined);
-    isResumingRef.current = false;
-    historyAppliedRef.current = false;
-    historyLoadingRef.current = false;
-    historyLoadVersionRef.current += 1;
-    activeTurnIdRef.current = null;
-    setStreamLifecycle(nextLifecycle);
-    if (nextLifecycle === "idle") {
-      setConnStatus("idle");
-      setStatus("inactive");
-    } else {
-      setConnStatus("connecting");
-      setStatus("connecting");
-    }
-  }, [chatId, readOnly, resetPendingUserMessageFallbackController]);
+    commandsRef.current = commands;
+  }, [commands]);
   useEffect(() => {
-    if (connStatus === "connecting") {
-      historyAppliedRef.current = false;
-    }
-  }, [connStatus]);
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      for (const [, timer] of pendingUserMessageFallbackTimersRef.current) {
-        clearTimeout(timer);
-      }
-      pendingUserMessageFallbackTimersRef.current.clear();
-      resetPendingUserMessageFallbackController();
-      if (batchUpdateTimerRef.current) {
-        clearTimeout(batchUpdateTimerRef.current);
-      }
-      historyLoadVersionRef.current += 1;
-    };
-  }, [resetPendingUserMessageFallbackController]);
-  useEffect(() => {
-    setPendingPermission(findPendingPermission(messages));
-  }, [messages]);
-  // Batch flush
-  const flushBatchQueue = useCallback(() => {
-    if (batchUpdateQueueRef.current.length === 0) {
+    const activeChatId = chatId ?? null;
+    if (!activeChatId) {
+      messageStateRef.current = getChatMessageStateSnapshot(null);
       return;
     }
-    const updates = batchUpdateQueueRef.current;
-    batchUpdateQueueRef.current = [];
-    setMessageState((prev) => {
-      let result = prev;
-      for (const updater of updates) {
-        result = updater(result);
+    messageStateRef.current = useChatStreamStore
+      .getState()
+      .getMessageState(activeChatId);
+  }, [chatId, messages]);
+  useEffect(() => {
+    const activeChatId = chatId ?? null;
+    if (!activeChatId) {
+      terminalOutputsRef.current = getChatTerminalOutputsSnapshot(null);
+      return;
+    }
+    terminalOutputsRef.current = useChatStreamStore
+      .getState()
+      .getTerminalOutputs(activeChatId);
+  }, [chatId, terminalOutputs]);
+  const updateMessageState = useCallback(
+    (updater: (prev: MessageState) => MessageState) => {
+      const activeChatId = activeChatIdRef.current;
+      if (!activeChatId) {
+        const next = updater(messageStateRef.current);
+        messageStateRef.current = next;
+        return;
       }
-      messageStateRef.current = result;
-      return result;
-    });
-  }, []);
-  const updateMessagesState = useCallback(
-    (updater: MessageStateUpdater) => {
-      batchUpdateQueueRef.current.push(updater);
-      if (batchUpdateTimerRef.current) {
-        clearTimeout(batchUpdateTimerRef.current);
-      }
-      batchUpdateTimerRef.current = setTimeout(() => {
-        batchUpdateTimerRef.current = null;
-        flushBatchQueue();
-      }, 16);
+      const next = useChatStreamStore
+        .getState()
+        .updateMessageState(activeChatId, updater);
+      messageStateRef.current = next;
     },
-    [flushBatchQueue]
+    []
   );
   // Upsert single message
   const upsertMessage = useCallback(
     (next: UIMessage) => {
-      updateMessagesState((prev) => upsertMessageIntoState(prev, next));
+      updateMessageState((prev) => upsertMessageIntoState(prev, next));
     },
-    [updateMessagesState]
+    [updateMessageState]
   );
   const setMessages = useCallback((nextMessages: UIMessage[]) => {
-    if (batchUpdateTimerRef.current) {
-      clearTimeout(batchUpdateTimerRef.current);
-      batchUpdateTimerRef.current = null;
-    }
-    batchUpdateQueueRef.current = [];
     const nextState = replaceMessagesState(nextMessages);
-    setMessageState(nextState);
-    messageStateRef.current = nextState;
-  }, []);
-  const clearPendingUserMessageFallback = useCallback((messageId: string) => {
-    const timer = pendingUserMessageFallbackTimersRef.current.get(messageId);
-    if (!timer) {
-      return;
-    }
-    clearTimeout(timer);
-    pendingUserMessageFallbackTimersRef.current.delete(messageId);
-  }, []);
-  const clearAllPendingUserMessageFallbacks = useCallback(() => {
-    for (const [, timer] of pendingUserMessageFallbackTimersRef.current) {
-      clearTimeout(timer);
-    }
-    pendingUserMessageFallbackTimersRef.current.clear();
-    resetPendingUserMessageFallbackController();
-  }, [resetPendingUserMessageFallbackController]);
-  const recoverMissingSentMessage = useCallback(
-    function recoverMissingSentMessageInternal(
-      activeChatId: string,
-      messageId: string,
-      attempt = 1,
-      trigger: "initial" | "retry" | "chat_finish" = "initial"
-    ) {
-      const generation = pendingUserMessageFallbackGenerationRef.current;
-      const abortSignal = pendingUserMessageFallbackAbortRef.current.signal;
-      if (activeChatIdRef.current !== activeChatId || readOnly) {
-        return;
-      }
-      if (messageStateRef.current.byId.has(messageId)) {
-        return;
-      }
-      void utils.getSessionMessageById
-        .fetch({
-          chatId: activeChatId,
-          messageId,
-        })
-        .then((result) => {
-          if (
-            abortSignal.aborted ||
-            generation !== pendingUserMessageFallbackGenerationRef.current ||
-            activeChatIdRef.current !== activeChatId ||
-            readOnly
-          ) {
-            return;
-          }
-          const message = result.message;
-          if (!message) {
-            if (attempt < USER_MESSAGE_FALLBACK_MAX_ATTEMPTS) {
-              console.warn("[Chat] Missing sent message, retrying fallback", {
-                chatId: activeChatId,
-                messageId,
-                attempt,
-                trigger,
-              });
-              clearPendingUserMessageFallback(messageId);
-              const retryTimer = setTimeout(() => {
-                if (
-                  abortSignal.aborted ||
-                  generation !== pendingUserMessageFallbackGenerationRef.current
-                ) {
-                  return;
-                }
-                pendingUserMessageFallbackTimersRef.current.delete(messageId);
-                recoverMissingSentMessageInternal(
-                  activeChatId,
-                  messageId,
-                  attempt + 1,
-                  "retry"
-                );
-              }, USER_MESSAGE_FALLBACK_RETRY_DELAY_MS);
-              pendingUserMessageFallbackTimersRef.current.set(
-                messageId,
-                retryTimer
-              );
-            }
-            return;
-          }
-          if (messageStateRef.current.byId.has(message.id)) {
-            return;
-          }
-          let normalizedMessage: UIMessage;
-          try {
-            normalizedMessage = normalizeMessage(message);
-          } catch (parseError) {
-            const parseErrorMessage =
-              parseError instanceof Error
-                ? parseError.message
-                : "Invalid fallback session message payload";
-            console.warn("[Chat] Dropping invalid recovered message", {
-              chatId: activeChatId,
-              messageId,
-              error: parseErrorMessage,
-            });
-            setError(parseErrorMessage);
-            onError?.(parseErrorMessage);
-            return;
-          }
-          updateMessagesState((prev) =>
-            upsertMessageIntoState(prev, normalizedMessage)
-          );
-        })
-        .catch((fallbackError) => {
-          const errorMessage =
-            fallbackError instanceof Error
-              ? fallbackError.message
-              : String(fallbackError);
-          if (attempt < USER_MESSAGE_FALLBACK_MAX_ATTEMPTS) {
-            console.warn("[Chat] Fallback fetch failed, retrying", {
-              chatId: activeChatId,
-              messageId,
-              attempt,
-              trigger,
-              error: errorMessage,
-            });
-            clearPendingUserMessageFallback(messageId);
-            const retryTimer = setTimeout(() => {
-              if (
-                abortSignal.aborted ||
-                generation !== pendingUserMessageFallbackGenerationRef.current
-              ) {
-                return;
-              }
-              pendingUserMessageFallbackTimersRef.current.delete(messageId);
-              recoverMissingSentMessageInternal(
-                activeChatId,
-                messageId,
-                attempt + 1,
-                "retry"
-              );
-            }, USER_MESSAGE_FALLBACK_RETRY_DELAY_MS);
-            pendingUserMessageFallbackTimersRef.current.set(
-              messageId,
-              retryTimer
-            );
-            return;
-          }
-          console.warn("[Chat] Failed to recover missing sent message", {
-            chatId: activeChatId,
-            messageId,
-            attempt,
-            trigger,
-            error: errorMessage,
-          });
-        });
-    },
-    [
-      clearPendingUserMessageFallback,
-      onError,
-      readOnly,
-      updateMessagesState,
-      utils,
-    ]
-  );
-  const flushPendingUserMessageFallbacks = useCallback(() => {
     const activeChatId = activeChatIdRef.current;
-    if (!activeChatId || readOnly) {
-      clearAllPendingUserMessageFallbacks();
-      return;
+    if (activeChatId) {
+      useChatStreamStore
+        .getState()
+        .updateMessageState(activeChatId, () => nextState);
     }
-    for (const [messageId, timer] of pendingUserMessageFallbackTimersRef.current) {
-      clearTimeout(timer);
-      pendingUserMessageFallbackTimersRef.current.delete(messageId);
-      recoverMissingSentMessage(activeChatId, messageId, 1, "chat_finish");
-    }
-  }, [
-    clearAllPendingUserMessageFallbacks,
-    readOnly,
-    recoverMissingSentMessage,
-  ]);
-  const schedulePendingUserMessageFallback = useCallback(
-    (activeChatId: string, messageId: string) => {
-      clearPendingUserMessageFallback(messageId);
-      const timer = setTimeout(() => {
-        pendingUserMessageFallbackTimersRef.current.delete(messageId);
-        recoverMissingSentMessage(activeChatId, messageId, 1, "initial");
-      }, USER_MESSAGE_FALLBACK_TIMEOUT_MS);
-      pendingUserMessageFallbackTimersRef.current.set(messageId, timer);
-    },
-    [clearPendingUserMessageFallback, recoverMissingSentMessage]
+    messageStateRef.current = nextState;
+    setPendingPermission(findPendingPermission(nextState.byId.values()));
+  }, []);
+  const isActiveChat = useCallback(
+    (targetChatId: string) => activeChatIdRef.current === targetChatId,
+    []
   );
-  // Mutations
-  const sendMessageMutation = trpc.sendMessage.useMutation();
-  const cancelPromptMutation = trpc.cancelPrompt.useMutation();
-  const setModeMutation = trpc.setMode.useMutation();
-  const setModelMutation = trpc.setModel.useMutation();
-  const setConfigOptionMutation = trpc.setConfigOption.useMutation();
-  const stopSessionMutation = trpc.stopSession.useMutation();
-  const resumeSessionMutation = trpc.resumeSession.useMutation();
-  const permissionResponseMutation =
-    trpc.respondToPermissionRequest.useMutation();
+  const {
+    clearPending: clearPendingUserMessageFallback,
+    clearAll: clearAllPendingUserMessageFallbacks,
+    flushAll: flushPendingUserMessageFallbacks,
+    reset: resetPendingUserMessageFallbackState,
+    schedule: schedulePendingUserMessageFallback,
+  } = useChatFallback({
+    readOnly,
+    activeChatIdRef,
+    messageStateRef,
+    updateMessageState,
+    upsertMessageIntoState,
+    normalizeMessage,
+    setError,
+    onError,
+    fetchMessageById: ({ chatId: targetChatId, messageId, signal }) =>
+      utils.getSessionMessageById.fetch(
+        { chatId: targetChatId, messageId },
+        { trpc: { signal } }
+      ),
+  });
+  const {
+    clearHistoryWindow,
+    hasMoreHistory,
+    invalidateHistoryLoads,
+    isLoadingOlderHistory,
+    loadHistory,
+    loadOlderHistory,
+    markHistoryNotApplied,
+    refreshHistory,
+    resetHistoryState,
+  } = useChatHistory({
+    chatId,
+    connStatus,
+    readOnly,
+    isResumingRef,
+    isActiveChat,
+    messageStateRef,
+    setPendingPermission,
+    setError,
+    onError,
+    updateMessageState,
+    normalizeMessages,
+    fetchHistoryPage: (input) => utils.getSessionMessagesPage.fetch(input),
+  });
   // Apply session state helper
   const restoreSessionState = useCallback((data: SessionStateData) => {
     applySessionState(data, {
@@ -595,7 +238,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       },
       onModelsChange: setModels,
       onSupportsModelSwitchingChange: setSupportsModelSwitching,
-      onCommandsChange: setCommands,
+      getCommands: () => commandsRef.current,
+      onCommandsChange: (nextCommands) => {
+        commandsRef.current = nextCommands;
+        setCommands(nextCommands);
+      },
       onConfigOptionsChange: setConfigOptions,
       onSessionInfoChange: setSessionInfo,
       onPromptCapabilitiesChange: setPromptCapabilities,
@@ -613,111 +260,66 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       staleTime: 0,
     }
   );
-  const loadHistory = useCallback(
-    async (force = false) => {
-      const activeChatId = chatId ?? null;
-      if (!activeChatId || readOnly || isResumingRef.current) {
-        return;
-      }
-      if (historyLoadingRef.current) {
-        return;
-      }
-      if (!force && historyAppliedRef.current) {
-        return;
-      }
-      if (connStatus !== "connecting" && connStatus !== "connected") {
-        return;
-      }
+  useEffect(() => {
+    const nextLifecycle = nextLifecycleOnChatIdChange({
+      hasChatId: Boolean(chatId),
+      readOnly,
+    });
+    const streamStore = useChatStreamStore.getState();
+    if (chatId) {
+      messageStateRef.current = streamStore.getMessageState(chatId);
+      terminalOutputsRef.current = streamStore.getTerminalOutputs(chatId);
+    } else {
+      messageStateRef.current = getChatMessageStateSnapshot(null);
+      terminalOutputsRef.current = getChatTerminalOutputsSnapshot(null);
+    }
+    resetPendingUserMessageFallbackState();
+    resetHistoryState();
+    setPendingPermission(null);
+    setError(null);
+    setModes(null);
+    modesRef.current = null;
+    setModels(null);
+    setSupportsModelSwitching(false);
+    setCommands([]);
+    commandsRef.current = [];
+    setConfigOptions([]);
+    setSessionInfo(null);
+    setPromptCapabilities(null);
+    setAgentInfo(null);
+    setLoadSessionSupported(undefined);
+    isResumingRef.current = false;
+    activeTurnIdRef.current = null;
+    setStreamLifecycle(nextLifecycle);
+    if (nextLifecycle === "idle") {
+      setConnStatus("idle");
+      setStatus("inactive");
+    } else {
+      setConnStatus("connecting");
+      setStatus("connecting");
+    }
+  }, [
+    chatId,
+    readOnly,
+    resetHistoryState,
+    resetPendingUserMessageFallbackState,
+  ]);
 
-      const loadVersion = historyLoadVersionRef.current + 1;
-      historyLoadVersionRef.current = loadVersion;
-      historyLoadingRef.current = true;
-      try {
-        let cursor: number | undefined;
-        let mergedMessageCount = 0;
-        const seenCursors = new Set<number>();
-        while (historyLoadVersionRef.current === loadVersion) {
-          const page = await utils.getSessionMessagesPage.fetch({
-            chatId: activeChatId,
-            cursor,
-            includeCompacted: true,
-          });
-          const normalizedPageMessages = normalizeMessages(page.messages);
-          if (normalizedPageMessages.length > 0) {
-            mergedMessageCount += normalizedPageMessages.length;
-            updateMessagesState((prev) =>
-              mergeMessagesIntoState(prev, normalizedPageMessages)
-            );
-          }
-          if (!page.hasMore || page.nextCursor === undefined) {
-            break;
-          }
-          if (seenCursors.has(page.nextCursor)) {
-            console.warn("Detected repeated history cursor, stopping pagination", {
-              chatId: activeChatId,
-              cursor: page.nextCursor,
-            });
-            break;
-          }
-          seenCursors.add(page.nextCursor);
-          cursor = page.nextCursor;
-        }
-
-        const currentStatus = statusRef.current;
-        if (
-          historyLoadVersionRef.current === loadVersion &&
-          mergedMessageCount === 0 &&
-          (currentStatus === "ready" || isChatBusyStatus(currentStatus))
-        ) {
-          const recoveryPage = await utils.getSessionMessagesPage.fetch({
-            chatId: activeChatId,
-            includeCompacted: true,
-          });
-          const normalizedRecoveryMessages = normalizeMessages(
-            recoveryPage.messages
-          );
-          if (normalizedRecoveryMessages.length > 0) {
-            updateMessagesState((prev) =>
-              mergeMessagesIntoState(prev, normalizedRecoveryMessages)
-            );
-          }
-        }
-
-        if (historyLoadVersionRef.current === loadVersion) {
-          historyAppliedRef.current = true;
-        }
-      } catch (historyError) {
-        if (historyLoadVersionRef.current !== loadVersion) {
-          return;
-        }
-        const message =
-          historyError instanceof Error
-            ? historyError.message
-            : "Failed to load session history";
-        console.error("Failed to load chat history", historyError);
-        setError(message);
-        onError?.(message);
-      } finally {
-        if (historyLoadVersionRef.current === loadVersion) {
-          historyLoadingRef.current = false;
-        }
-      }
-    },
-    [chatId, connStatus, onError, readOnly, updateMessagesState, utils]
-  );
-  const refreshHistory = useCallback(async () => {
-    await loadHistory(true);
-  }, [loadHistory]);
+  useEffect(() => {
+    if (connStatus === "connecting") {
+      markHistoryNotApplied();
+    }
+  }, [connStatus, markHistoryNotApplied]);
 
   // Load stored history once, merging pages by message.id
   useEffect(() => {
-    void loadHistory();
+    loadHistory();
   }, [loadHistory]);
 
   useEffect(() => {
     const previous = previousStreamLifecycleRef.current;
     if (previous === "recovering" && streamLifecycle === "live") {
-      void loadHistory(true);
+      loadHistory(true);
     }
     previousStreamLifecycleRef.current = streamLifecycle;
   }, [loadHistory, streamLifecycle]);
@@ -725,14 +327,17 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   // Apply session state when loaded
   useEffect(() => {
     const activeChatId = chatId ?? null;
-    if (!activeChatId || !sessionState || connStatus === "idle") {
+    if (!(activeChatId && sessionState) || connStatus !== "connecting") {
       return;
     }
-    const normalizedSessionState = normalizeSessionStateData(
-      sessionState as RawSessionStateData
-    );
+    const normalizedSessionState = normalizeSessionStateData(sessionState);
+    if (isResumingRef.current && normalizedSessionState.status === "stopped") {
+      return;
+    }
     if (normalizedSessionState.status === "stopped") {
-      setLoadSessionSupported(normalizedSessionState.loadSessionSupported ?? false);
+      setLoadSessionSupported(
+        normalizedSessionState.loadSessionSupported ?? false
+      );
       restoreSessionState(normalizedSessionState);
       isResumingRef.current = false;
       return;
@@ -799,31 +404,39 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       }
       processSessionEvent(
         event,
-        getOrderedMessages(messageStateRef.current),
-        modesRef.current,
+        { currentModes: modesRef.current },
         {
           onStatusChange: setStatus,
           onConnStatusChange: setConnStatus,
           onMessageUpsert: (message) => {
             const normalizedMessage = normalizeMessage(message);
-            updateMessagesState((prev) =>
+            updateMessageState((prev) =>
               upsertMessageIntoState(prev, normalizedMessage)
             );
           },
           getMessageById: (messageId) =>
             messageStateRef.current.byId.get(messageId),
+          getMessagesForPermission: () => messageStateRef.current.byId.values(),
+          onPendingPermissionChange: setPendingPermission,
           onModesChange: (m) => {
             setModes(m);
             modesRef.current = m;
           },
-          onCommandsChange: setCommands,
+          getCommands: () => commandsRef.current,
+          onCommandsChange: (nextCommands) => {
+            commandsRef.current = nextCommands;
+            setCommands(nextCommands);
+          },
           onConfigOptionsChange: setConfigOptions,
           onSessionInfoChange: setSessionInfo,
           onTerminalOutput: (terminalId, data) => {
-            setTerminalOutputs((prev) => ({
-              ...prev,
-              [terminalId]: (prev[terminalId] || "") + data,
-            }));
+            const activeChatId = activeChatIdRef.current;
+            if (!activeChatId) {
+              return;
+            }
+            terminalOutputsRef.current = useChatStreamStore
+              .getState()
+              .appendTerminalOutput(activeChatId, terminalId, data);
           },
           onError: (err) => {
             setError(err);
@@ -833,19 +446,26 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           onFinish,
         }
       );
-      if (event.type === "chat_finish" && messageStateRef.current.order.length === 0) {
-        void loadHistory(true);
+      if (
+        event.type === "chat_finish" &&
+        messageStateRef.current.order.length === 0
+      ) {
+        loadHistory(true);
       }
       if (event.type === "chat_finish") {
-        const activeTurnId = activeTurnIdRef.current;
-        if (!event.turnId || !activeTurnId || activeTurnId === event.turnId) {
+        if (
+          event.turnId &&
+          activeTurnIdRef.current &&
+          activeTurnIdRef.current === event.turnId
+        ) {
           activeTurnIdRef.current = null;
         }
       }
       if (
         event.type === "chat_status" &&
         event.status === "ready" &&
-        (!event.turnId || activeTurnIdRef.current === event.turnId)
+        event.turnId &&
+        activeTurnIdRef.current === event.turnId
       ) {
         activeTurnIdRef.current = null;
       }
@@ -861,11 +481,12 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       loadHistory,
       onFinish,
       onError,
-      updateMessagesState,
+      updateMessageState,
     ]
   );
   // Subscription
-  const subscriptionEnabled = !!chatId && !readOnly && streamLifecycle !== "idle";
+  const subscriptionEnabled =
+    !!chatId && !readOnly && streamLifecycle !== "idle";
   useEffect(() => {
     if (!subscriptionEnabled) {
       return;
@@ -885,13 +506,18 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
             error instanceof Error
               ? error.message
               : "Received invalid chat event payload";
-          console.error("[Client] Dropped invalid session event", {
+          console.warn("[Client] Dropped invalid session event", {
             error: message,
           });
-          setConnStatus("error");
           setError(message);
-          setStatus("error");
-          onError?.(message);
+          const now = Date.now();
+          if (
+            now - invalidEventToastAtRef.current >=
+            INVALID_EVENT_TOAST_COOLDOWN_MS
+          ) {
+            invalidEventToastAtRef.current = now;
+            toast.warning("Dropped malformed ACP event. Stream keeps running.");
+          }
         }
       },
       onError(err) {
@@ -904,219 +530,42 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       },
     }
   );
-  // Actions
-  const sendMessage = useCallback(
-    async (
-      text: string,
-      messageOptions?: {
-        images?: { base64: string; mimeType: string }[];
-        resources?: { uri: string; text: string; mimeType?: string }[];
-        resourceLinks?: { uri: string; name: string; mimeType?: string }[];
-      }
-    ) => {
-      if (!chatId) {
-        return false;
-      }
-      setStatus("submitted");
-      try {
-        const res = await sendMessageMutation.mutateAsync({
-          chatId,
-          text,
-          images: messageOptions?.images,
-          resources: messageOptions?.resources,
-          resourceLinks: messageOptions?.resourceLinks,
-        });
-        activeTurnIdRef.current = res.turnId ?? activeTurnIdRef.current;
-        schedulePendingUserMessageFallback(chatId, res.userMessageId);
-        return res.status === "submitted";
-      } catch (sendError) {
-        console.error("Failed to send message", sendError);
-        setConnStatus("error");
-        setStatus("error");
-        setError((sendError as Error).message);
-        activeTurnIdRef.current = null;
-        return false;
-      }
-    },
-    [chatId, schedulePendingUserMessageFallback, sendMessageMutation]
-  );
-  const cancelPrompt = useCallback(async () => {
-    if (!chatId) {
-      return;
-    }
-    const previousStatus = status;
-    setStatus("cancelling");
-    try {
-      await cancelPromptMutation.mutateAsync({ chatId });
-    } catch (cancelError) {
-      console.error("Failed to cancel prompt", cancelError);
-      setError((cancelError as Error).message);
-      setStatus(previousStatus);
-    }
-  }, [chatId, cancelPromptMutation, status]);
-  const setMode = useCallback(
-    async (modeId: string) => {
-      if (!chatId) {
-        return;
-      }
-      try {
-        await setModeMutation.mutateAsync({ chatId, modeId });
-        setModes((prev) => (prev ? { ...prev, currentModeId: modeId } : prev));
-      } catch (modeError) {
-        console.error("Failed to set mode", modeError);
-        setError((modeError as Error).message);
-      }
-    },
-    [chatId, setModeMutation]
-  );
-  const setModel = useCallback(
-    async (modelId: string) => {
-      if (!chatId) {
-        return;
-      }
-      try {
-        console.info("[Chat] setModel requested", { chatId, modelId });
-        await setModelMutation.mutateAsync({ chatId, modelId });
-        setModels((prev) =>
-          prev ? { ...prev, currentModelId: modelId } : prev
-        );
-        const modelName =
-          models?.availableModels.find((model) => model.modelId === modelId)
-            ?.name ?? modelId;
-        toast.success(`Model switched to ${modelName}`);
-        console.info("[Chat] setModel succeeded", { chatId, modelId });
-      } catch (modelError) {
-        const message = (modelError as Error).message || "Failed to set model";
-        const normalized = message.toLowerCase();
-        if (
-          normalized.includes("model switching") ||
-          normalized.includes("method not found")
-        ) {
-          setSupportsModelSwitching(false);
-        }
-        console.error("[Chat] setModel failed", { chatId, modelId, error: message });
-        setError(message);
-      }
-    },
-    [chatId, setModelMutation, models]
-  );
-  const setConfigOption = useCallback(
-    async (configId: string, value: string) => {
-      if (!chatId) {
-        return;
-      }
-      try {
-        const result = await setConfigOptionMutation.mutateAsync({
-          chatId,
-          configId,
-          value,
-        });
-        if (Array.isArray(result?.configOptions)) {
-          setConfigOptions(result.configOptions);
-        } else {
-          setConfigOptions((prev) =>
-            prev.map((option) =>
-              option.id === configId
-                ? { ...option, currentValue: value }
-                : option
-            )
-          );
-        }
-      } catch (configError) {
-        console.error("Failed to set config option", configError);
-        setError((configError as Error).message);
-      }
-    },
-    [chatId, setConfigOptionMutation]
-  );
-  const respondToPermission = useCallback(
-    async (requestId: string, decision: string) => {
-      if (!chatId) {
-        return;
-      }
-      try {
-        await permissionResponseMutation.mutateAsync({
-          chatId,
-          requestId,
-          decision,
-        });
-        setPendingPermission(null);
-      } catch (permissionError) {
-        console.error("Failed to respond to permission", permissionError);
-        setError((permissionError as Error).message);
-      }
-    },
-    [chatId, permissionResponseMutation]
-  );
-  const stopSession = useCallback(async () => {
-    if (!chatId) {
-      return;
-    }
-    try {
-      clearAllPendingUserMessageFallbacks();
-      await stopSessionMutation.mutateAsync({ chatId });
-      setStreamLifecycle("idle");
-      setConnStatus("idle");
-      setStatus("inactive");
-      activeTurnIdRef.current = null;
-    } catch (stopError) {
-      console.error("Failed to stop session", stopError);
-      setError((stopError as Error).message);
-    }
-  }, [chatId, clearAllPendingUserMessageFallbacks, stopSessionMutation]);
-  const resumeSession = useCallback(async () => {
-    if (!chatId) {
-      return;
-    }
-    try {
-      clearAllPendingUserMessageFallbacks();
-      isResumingRef.current = true;
-      activeTurnIdRef.current = null;
-      setStreamLifecycle("bootstrapping");
-      setConnStatus("connecting");
-      setStatus("connecting");
-      const resumeResult = await resumeSessionMutation.mutateAsync({ chatId });
-      const alreadyRunning =
-        typeof resumeResult === "object" &&
-        resumeResult !== null &&
-        "alreadyRunning" in resumeResult &&
-        Boolean((resumeResult as { alreadyRunning?: boolean }).alreadyRunning);
-      let shouldReloadHistory = false;
-      const nextState = await utils.getSessionState.fetch({ chatId });
-      const normalizedNextState = normalizeSessionStateData(
-        nextState as RawSessionStateData
-      );
-      if (normalizedNextState.status === "stopped") {
-        restoreSessionState(normalizedNextState);
-        isResumingRef.current = false;
-        return;
-      }
-      if (!alreadyRunning) {
-        setMessages([]);
-        historyAppliedRef.current = false;
-        shouldReloadHistory = true;
-      }
-      restoreSessionState(normalizedNextState);
-      isResumingRef.current = false;
-      if (shouldReloadHistory) {
-        void loadHistory(true);
-      }
-    } catch (resumeError) {
-      console.error("Failed to resume chat", resumeError);
-      setConnStatus("error");
-      setStatus("error");
-      setError((resumeError as Error).message);
-      isResumingRef.current = false;
-    }
-  }, [
+  const {
+    sendMessage,
+    cancelPrompt,
+    setMode,
+    setModel,
+    setConfigOption,
+    respondToPermission,
+    stopSession,
+    resumeSession,
+    isSending,
+    isCancelling,
+    isResuming,
+  } = useChatActions({
     chatId,
-    clearAllPendingUserMessageFallbacks,
-    loadHistory,
-    resumeSessionMutation,
-    restoreSessionState,
+    readOnly,
+    models,
+    isActiveChat,
+    statusRef,
+    activeTurnIdRef,
+    isResumingRef,
+    setStatus,
+    setConnStatus,
+    setError,
+    setModes,
+    setModels,
+    setSupportsModelSwitching,
+    setConfigOptions,
+    setPendingPermission,
     setMessages,
-    utils,
-  ]);
+    setStreamLifecycle,
+    clearAllPendingUserMessageFallbacks,
+    schedulePendingUserMessageFallback,
+    invalidateHistoryLoads,
+    clearHistoryWindow,
+    loadHistory,
+  });
   // Derived state
   const isStreaming = isChatBusyStatus(status);
   return {
@@ -1139,9 +588,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     loadSessionSupported,
     error,
     // Loading states
-    isSending: sendMessageMutation.isPending,
-    isCancelling: cancelPromptMutation.isPending,
-    isResuming: resumeSessionMutation.isPending,
+    isSending,
+    isCancelling,
+    isResuming,
+    hasMoreHistory,
+    isLoadingOlderHistory,
     // Actions
     sendMessage,
     cancelPrompt,
@@ -1152,6 +603,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     stopSession,
     resumeSession,
     refreshHistory,
+    loadOlderHistory,
     // Message mutation
     upsertMessage,
     setMessages,

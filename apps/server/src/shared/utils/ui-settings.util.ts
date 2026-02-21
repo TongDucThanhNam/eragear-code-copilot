@@ -80,6 +80,10 @@ export function parseUiSettingsForm(
   }
 
   const rawLogLevel = getString("app.logLevel").trim().toLowerCase();
+  const rawPromptMetaPolicy = getString("app.acpPromptMetaPolicy")
+    .trim()
+    .toLowerCase();
+  const rawPromptMetaAllowlist = formData["app.acpPromptMetaAllowlist"];
   const app = AppConfigSchema.parse({
     sessionIdleTimeoutMs: parseFiniteInt(
       "app.sessionIdleTimeoutMs",
@@ -110,6 +114,21 @@ export function parseUiSettingsForm(
       }
       const normalized = rawValue.trim();
       return normalized.length > 0 ? normalized : "";
+    })(),
+    acpPromptMetaPolicy:
+      rawPromptMetaPolicy.length > 0
+        ? rawPromptMetaPolicy
+        : currentSettings.app.acpPromptMetaPolicy,
+    acpPromptMetaAllowlist: (() => {
+      if (typeof rawPromptMetaAllowlist !== "string") {
+        return currentSettings.app.acpPromptMetaAllowlist;
+      }
+      return [...new Set(
+        rawPromptMetaAllowlist
+          .split(/[,\n]/g)
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0)
+      )];
     })(),
   });
 

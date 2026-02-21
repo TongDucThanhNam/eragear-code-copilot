@@ -2,7 +2,7 @@
  * Session Repository (SQLite-backed via Drizzle ORM)
  */
 
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
 import {
   DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
   DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
@@ -398,6 +398,7 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
       query.cursor === undefined
         ? undefined
         : Math.max(0, Math.trunc(query.cursor));
+    const direction = query.direction === "backward" ? "backward" : "forward";
     const includeCompacted = query.includeCompacted ?? true;
 
     let whereClause = and(
@@ -407,7 +408,9 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
     if (cursor !== undefined) {
       whereClause = and(
         whereClause,
-        gt(sqliteSchema.sessionMessages.seq, cursor)
+        direction === "backward"
+          ? lt(sqliteSchema.sessionMessages.seq, cursor)
+          : gt(sqliteSchema.sessionMessages.seq, cursor)
       ) as typeof whereClause;
     }
     if (!includeCompacted) {
@@ -425,13 +428,19 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
         eq(sqliteSchema.sessionMessages.sessionId, sqliteSchema.sessions.id)
       )
       .where(whereClause)
-      .orderBy(asc(sqliteSchema.sessionMessages.seq))
+      .orderBy(
+        direction === "backward"
+          ? desc(sqliteSchema.sessionMessages.seq)
+          : asc(sqliteSchema.sessionMessages.seq)
+      )
       .limit(limit + 1)
       .all();
     const hasMore = rows.length > limit;
-    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const pageRowsRaw = hasMore ? rows.slice(0, limit) : rows;
+    const pageRows =
+      direction === "backward" ? [...pageRowsRaw].reverse() : pageRowsRaw;
     const nextCursor = hasMore
-      ? Number(pageRows.at(-1)?.session_messages.seq ?? cursor ?? 0)
+      ? Number(pageRowsRaw.at(-1)?.session_messages.seq ?? cursor ?? 0)
       : undefined;
     return {
       messages: pageRows.map((row) =>

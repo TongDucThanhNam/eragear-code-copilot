@@ -20,6 +20,8 @@ export interface UiSettings {
   fontScale: number;
 }
 
+export type AcpPromptMetaPolicy = "allowlist" | "always" | "never";
+
 /**
  * Runtime application configuration (hot-reload without restart)
  */
@@ -36,6 +38,10 @@ export interface AppConfig {
   maxTokens: number;
   /** Preferred model to apply for new sessions when available */
   defaultModel: string;
+  /** Policy controlling whether prompt metadata (_meta) is attached to ACP prompt requests */
+  acpPromptMetaPolicy: AcpPromptMetaPolicy;
+  /** Allowlist used when acpPromptMetaPolicy=allowlist */
+  acpPromptMetaAllowlist: string[];
 }
 
 /**

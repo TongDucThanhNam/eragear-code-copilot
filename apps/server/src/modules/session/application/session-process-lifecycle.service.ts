@@ -4,6 +4,7 @@ import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { terminateSessionTerminals } from "@/shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const EXPECTED_TERMINATION_SIGNALS = new Set<NodeJS.Signals>([
   "SIGTERM",
@@ -40,31 +41,36 @@ export class SessionProcessLifecycleService {
       settled = true;
       try {
         this.logOutcome(chatId, outcome);
-        const session = this.sessionRuntime.get(chatId);
-        const transition = this.resolveTransition(outcome);
-        if (transition.errorMessage) {
-          await this.sessionRuntime.broadcast(chatId, {
-            type: "error",
-            error: transition.errorMessage,
+        await this.sessionRuntime.runExclusive(chatId, async () => {
+          assertSessionMutationLock({
+            sessionRuntime: this.sessionRuntime,
+            chatId,
+            op: "session.lifecycle.process",
           });
-        }
+          const session = this.sessionRuntime.get(chatId);
+          const transition = this.resolveTransition(outcome);
+          if (transition.errorMessage) {
+            await this.sessionRuntime.broadcast(chatId, {
+              type: "error",
+              error: transition.errorMessage,
+            });
+          }
 
-        await updateChatStatus({
-          chatId,
-          session,
-          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-          status: transition.status,
+          await updateChatStatus({
+            chatId,
+            session,
+            broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+            status: transition.status,
+          });
+
+          if (session?.userId) {
+            await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
+          }
+          if (session) {
+            await terminateSessionTerminals(session);
+            this.sessionRuntime.deleteIfMatch(chatId, session);
+          }
         });
-
-        if (session?.userId) {
-          await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
-        }
-        if (session) {
-          await terminateSessionTerminals(session);
-        }
-        if (this.sessionRuntime.has(chatId)) {
-          this.sessionRuntime.delete(chatId);
-        }
       } catch (error) {
         this.logger.error("Failed to process agent lifecycle event", {
           chatId,

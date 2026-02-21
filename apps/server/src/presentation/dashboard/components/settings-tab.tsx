@@ -200,6 +200,35 @@ export function SettingsTab() {
                 type="text"
               />
             </label>
+            <label className="block">
+              <span className="mb-2 block font-mono text-[10px] uppercase tracking-widest">
+                ACP Prompt Meta Policy
+              </span>
+              <select
+                className="input-underline w-full bg-transparent"
+                defaultValue={settings.app.acpPromptMetaPolicy}
+                name="app.acpPromptMetaPolicy"
+              >
+                <option value="allowlist">allowlist</option>
+                <option value="always">always</option>
+                <option value="never">never</option>
+              </select>
+            </label>
+            <label className="block md:col-span-2">
+              <span className="mb-2 block font-mono text-[10px] uppercase tracking-widest">
+                ACP Prompt Meta Allowlist
+              </span>
+              <textarea
+                className="input-underline min-h-24 w-full bg-transparent"
+                defaultValue={settings.app.acpPromptMetaAllowlist.join("\n")}
+                name="app.acpPromptMetaAllowlist"
+                placeholder="/usr/local/bin/codex&#10;claude-code"
+              />
+              <p className="mt-2 font-mono text-[10px] text-muted">
+                One entry per line (or comma-separated). Used when policy =
+                allowlist.
+              </p>
+            </label>
           </div>
         </section>
 

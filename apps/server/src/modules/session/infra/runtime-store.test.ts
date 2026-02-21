@@ -257,6 +257,47 @@ describe("SessionRuntimeStore.delete", () => {
     expect(decisions).toEqual([{ outcome: { outcome: "cancelled" } }]);
     expect(store.has("chat-1")).toBe(false);
   });
+
+  test("deleteIfMatch removes only when object identity matches", () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 8,
+    });
+    const original = createSession("chat-1");
+    const replacement = createSession("chat-1");
+    store.set("chat-1", replacement);
+
+    const deleted = store.deleteIfMatch("chat-1", original);
+
+    expect(deleted).toBe(false);
+    expect(store.get("chat-1")).toBe(replacement);
+  });
+
+  test("deleteIfMatch removes and cancels pending permissions for matching session", () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 8,
+    });
+    const session = createSession("chat-1");
+    const decisions: unknown[] = [];
+    session.pendingPermissions.set("req-1", {
+      resolve: (decision: unknown) => {
+        decisions.push(decision);
+      },
+      options: [],
+    });
+    store.set("chat-1", session);
+
+    const deleted = store.deleteIfMatch("chat-1", session);
+
+    expect(deleted).toBe(true);
+    expect(decisions).toEqual([{ outcome: { outcome: "cancelled" } }]);
+    expect(store.has("chat-1")).toBe(false);
+  });
 });
 
 describe("SessionRuntimeStore.broadcast", () => {

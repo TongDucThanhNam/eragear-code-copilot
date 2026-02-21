@@ -46,6 +46,24 @@ describe("session contract page limits", () => {
     ).toThrow();
   });
 
+  test("accepts explicit session message pagination direction", () => {
+    expect(
+      SessionMessagesPageInputSchema.parse({
+        chatId: "chat-1",
+        direction: "backward",
+      })
+    ).toEqual({
+      chatId: "chat-1",
+      direction: "backward",
+    });
+    expect(() =>
+      SessionMessagesPageInputSchema.parse({
+        chatId: "chat-1",
+        direction: "sideways",
+      })
+    ).toThrow();
+  });
+
   test("enforces session list page hard max limit", () => {
     expect(
       SessionListPageInputSchema.parse({

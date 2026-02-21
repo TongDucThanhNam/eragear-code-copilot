@@ -28,6 +28,8 @@ const baseState: DashboardViewState = {
       logLevel: "info",
       maxTokens: 8192,
       defaultModel: "",
+      acpPromptMetaPolicy: "allowlist",
+      acpPromptMetaAllowlist: [],
     },
   },
   dashboardData: EMPTY_DASHBOARD_DATA,

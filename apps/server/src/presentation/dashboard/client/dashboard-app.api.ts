@@ -52,6 +52,8 @@ export const FALLBACK_SETTINGS: Settings = {
     logLevel: "info",
     maxTokens: 8192,
     defaultModel: "",
+    acpPromptMetaPolicy: "allowlist",
+    acpPromptMetaAllowlist: [],
   },
 };
 

@@ -22,6 +22,8 @@ export const APP_CONFIG_KEYS = [
   "logLevel",
   "maxTokens",
   "defaultModel",
+  "acpPromptMetaPolicy",
+  "acpPromptMetaAllowlist",
 ] as const;
 
 export type AppConfigKey = (typeof APP_CONFIG_KEYS)[number];
@@ -42,6 +44,12 @@ function toFiniteNumber(value: unknown): number | undefined {
 }
 
 const LOG_LEVEL_SET = new Set(LOG_LEVELS);
+const PROMPT_META_POLICY_SET = new Set<
+  AppConfig["acpPromptMetaPolicy"]
+>(["allowlist", "always", "never"]);
+const DEFAULT_ACP_PROMPT_META_POLICY: AppConfig["acpPromptMetaPolicy"] =
+  "allowlist";
+const DEFAULT_ACP_PROMPT_META_ALLOWLIST: string[] = [];
 
 function toLogLevel(value: unknown): LogLevel | undefined {
   if (typeof value !== "string") {
@@ -60,6 +68,36 @@ function toTrimmedString(value: unknown): string | undefined {
   }
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : "";
+}
+
+function toPromptMetaPolicy(
+  value: unknown
+): AppConfig["acpPromptMetaPolicy"] | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!PROMPT_META_POLICY_SET.has(normalized as AppConfig["acpPromptMetaPolicy"])) {
+    return undefined;
+  }
+  return normalized as AppConfig["acpPromptMetaPolicy"];
+}
+
+function toPromptMetaAllowlist(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    const entries = value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter((item) => item.length > 0);
+    return [...new Set(entries)];
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const entries = value
+    .split(/[,\n]/g)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return [...new Set(entries)];
 }
 
 function normalizeFromUnknown(value: unknown, fallback: AppConfig): AppConfig {
@@ -94,13 +132,32 @@ function normalizeFromUnknown(value: unknown, fallback: AppConfig): AppConfig {
     ),
     defaultModel:
       toTrimmedString(value.defaultModel) ?? fallback.defaultModel ?? "",
+    acpPromptMetaPolicy:
+      toPromptMetaPolicy(value.acpPromptMetaPolicy) ??
+      fallback.acpPromptMetaPolicy,
+    acpPromptMetaAllowlist:
+      toPromptMetaAllowlist(value.acpPromptMetaAllowlist) ??
+      fallback.acpPromptMetaAllowlist,
   };
 
   return AppConfigSchema.parse(next);
 }
 
 function isSameConfig(left: AppConfig, right: AppConfig): boolean {
-  return APP_CONFIG_KEYS.every((key) => left[key] === right[key]);
+  return APP_CONFIG_KEYS.every((key) => {
+    if (key !== "acpPromptMetaAllowlist") {
+      return left[key] === right[key];
+    }
+    if (left[key].length !== right[key].length) {
+      return false;
+    }
+    for (let index = 0; index < left[key].length; index += 1) {
+      if (left[key][index] !== right[key][index]) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 export function createDefaultAppConfigFromEnv(): AppConfig {
@@ -123,6 +180,8 @@ export function createDefaultAppConfigFromEnv(): AppConfig {
     logLevel: ENV.logLevel,
     maxTokens: clampInt(ENV.maxTokens, 1, HARD_MAX_APP_MAX_TOKENS),
     defaultModel: (ENV.defaultModel ?? "").trim(),
+    acpPromptMetaPolicy: DEFAULT_ACP_PROMPT_META_POLICY,
+    acpPromptMetaAllowlist: [...DEFAULT_ACP_PROMPT_META_ALLOWLIST],
   });
 }
 
@@ -141,8 +200,16 @@ export class AppConfigService {
   private readonly listeners = new Set<AppConfigListener>();
 
   constructor(initialConfig: AppConfig, defaults?: AppConfig) {
-    this.defaults = Object.freeze({ ...(defaults ?? initialConfig) });
-    this.current = Object.freeze({ ...initialConfig });
+    this.defaults = Object.freeze({
+      ...(defaults ?? initialConfig),
+      acpPromptMetaAllowlist: [
+        ...(defaults ?? initialConfig).acpPromptMetaAllowlist,
+      ],
+    });
+    this.current = Object.freeze({
+      ...initialConfig,
+      acpPromptMetaAllowlist: [...initialConfig.acpPromptMetaAllowlist],
+    });
   }
 
   static async create(
@@ -195,7 +262,10 @@ export class AppConfigService {
     if (isSameConfig(this.current, next)) {
       return this.current;
     }
-    const frozen = Object.freeze({ ...next });
+    const frozen = Object.freeze({
+      ...next,
+      acpPromptMetaAllowlist: [...next.acpPromptMetaAllowlist],
+    });
     this.current = frozen;
     for (const listener of this.listeners) {
       listener(frozen);

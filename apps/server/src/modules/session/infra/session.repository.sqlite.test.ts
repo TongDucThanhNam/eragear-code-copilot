@@ -148,6 +148,56 @@ describe("SessionSqliteRepository.create", () => {
     expect(page.messages[0]?.content).toBe("hello");
   });
 
+  test("supports backward message pagination with chronological page order", async () => {
+    const repo = new SessionSqliteRepository();
+    const chatId = "chat-backward-pagination";
+    const base = Date.now();
+
+    await repo.create(createSession(chatId, [], base));
+    for (let index = 1; index <= 5; index += 1) {
+      await repo.appendMessage(
+        chatId,
+        "user-1",
+        createMessage(`m-${index}`, "assistant", `msg-${index}`, base + index)
+      );
+    }
+
+    const firstPage = await repo.getMessagesPage(chatId, "user-1", {
+      limit: 2,
+      direction: "backward",
+      includeCompacted: true,
+    });
+    expect(firstPage.messages.map((message) => message.id)).toEqual([
+      "m-4",
+      "m-5",
+    ]);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.nextCursor).toBeDefined();
+
+    const secondPage = await repo.getMessagesPage(chatId, "user-1", {
+      cursor: firstPage.nextCursor,
+      limit: 2,
+      direction: "backward",
+      includeCompacted: true,
+    });
+    expect(secondPage.messages.map((message) => message.id)).toEqual([
+      "m-2",
+      "m-3",
+    ]);
+    expect(secondPage.hasMore).toBe(true);
+    expect(secondPage.nextCursor).toBeDefined();
+
+    const thirdPage = await repo.getMessagesPage(chatId, "user-1", {
+      cursor: secondPage.nextCursor,
+      limit: 2,
+      direction: "backward",
+      includeCompacted: true,
+    });
+    expect(thirdPage.messages.map((message) => message.id)).toEqual(["m-1"]);
+    expect(thirdPage.hasMore).toBe(false);
+    expect(thirdPage.nextCursor).toBeUndefined();
+  });
+
   test("throws NotFoundError when appendMessage targets missing session", async () => {
     const repo = new SessionSqliteRepository();
 

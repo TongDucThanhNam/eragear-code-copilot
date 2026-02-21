@@ -131,17 +131,21 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       : sessionCwd;
     const allowedCwd = await resolvePathInSession(session, targetCwd);
     const outputByteLimit = resolveOutputLimit(params.outputByteLimit ?? null);
+    const commandPolicies = compileCommandPolicies(
+      ENV.allowedTerminalCommandPolicies
+    );
+    const commandArgs = params.args ?? [];
 
     if (
       !isCommandInvocationAllowed(
         params.command,
-        params.args ?? [],
-        compileCommandPolicies(ENV.allowedTerminalCommandPolicies)
+        commandArgs,
+        commandPolicies
       )
     ) {
       throw RequestError.invalidParams(
-        { command: params.command, args: params.args ?? [] },
-        "Command invocation not allowed"
+        { command: params.command, args: commandArgs },
+        `Command invocation blocked by server policy: ${params.command}. Update ALLOWED_TERMINAL_COMMAND_POLICIES if this command should be permitted.`
       );
     }
 
@@ -152,7 +156,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     const filteredEnv = filterEnvAllowlist(mergedEnv, ENV.allowedEnvKeys);
 
     // Spawn the terminal process
-    const termProc = spawn(params.command, params.args ?? [], {
+    const termProc = spawn(params.command, commandArgs, {
       cwd: allowedCwd,
       env: filteredEnv,
       stdio: ["ignore", "pipe", "pipe"],

@@ -3,8 +3,8 @@ import type {
   StoredMessage,
   StoredSession,
 } from "@/modules/session/domain/stored-session.types";
-import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import { GetSessionMessageByIdService } from "./get-session-message-by-id.service";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
 function createStoredSession(id: string, userId: string): StoredSession {
   const now = Date.now();
