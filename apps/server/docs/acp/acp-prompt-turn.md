@@ -2,17 +2,15 @@
 
 > Understanding the core conversation flow
 
-A prompt turn represents a complete interaction cycle between the [Client](./overview#client) and [Agent](./overview#agent), starting with a user message and continuing until the Agent completes its response. This may involve multiple exchanges with the language model and tool invocations.
+A prompt turn represents a complete interaction cycle between the [Client](./acp-overview#client) and [Agent](./acp-overview#agent), starting with a user message and continuing until the Agent completes its response. This may involve multiple exchanges with the language model and tool invocations.
 
-Before sending prompts, Clients **MUST** first complete the [initialization](./initialization) phase and [session setup](./session-setup).
+Before sending prompts, Clients **MUST** first complete the [initialization](./acp-initialization) phase and [session setup](./acp-session-setup).
 
 ## The Prompt Turn Lifecycle
 
 A prompt turn follows a structured flow that enables rich interactions between the user, Agent, and any connected tools.
 
-<br />
-
-```mermaid  theme={null}
+```mermaid
 sequenceDiagram
     participant Client
     participant Agent
@@ -57,7 +55,7 @@ sequenceDiagram
 
 The turn begins when the Client sends a `session/prompt`:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 2,
@@ -82,19 +80,10 @@ The turn begins when the Client sends a `session/prompt`:
 }
 ```
 
-<ParamField path="sessionId" type="SessionId">
-  The [ID](./session-setup#session-id) of the session to send this message to.
-</ParamField>
+- **`sessionId`** (`SessionId`): The [ID](./acp-session-setup#session-id) of the session to send this message to.
+- **`prompt`** (`ContentBlock[]`): The contents of the user message, e.g. text, images, files, etc. Clients **MUST** restrict types of content according to the [Prompt Capabilities](./acp-initialization#prompt-capabilities) established during [initialization](./acp-initialization).
 
-<ParamField path="prompt" type="ContentBlock[]">
-  The contents of the user message, e.g. text, images, files, etc.
-
-  Clients **MUST** restrict types of content according to the [Prompt Capabilities](./initialization#prompt-capabilities) established during [initialization](./initialization).
-
-  <Card icon="comments" horizontal href="./content">
-    Learn more about Content
-  </Card>
-</ParamField>
+> 💬 [Learn more about Content](./acp-content)
 
 ### 2. Agent Processing
 
@@ -104,7 +93,7 @@ Upon receiving the prompt request, the Agent processes the user's message and se
 
 The Agent reports the model's output to the Client via `session/update` notifications. This may include the Agent's plan for accomplishing the task:
 
-```json expandable theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -139,13 +128,11 @@ The Agent reports the model's output to the Client via `session/update` notifica
 }
 ```
 
-<Card icon="lightbulb" horizontal href="./agent-plan">
-  Learn more about Agent Plans
-</Card>
+> 💡 [Learn more about Agent Plans](./acp-agent-plan)
 
 The Agent then reports text responses from the model:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -164,7 +151,7 @@ The Agent then reports text responses from the model:
 
 If the model requested tool calls, these are also reported immediately:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -185,7 +172,7 @@ If the model requested tool calls, these are also reported immediately:
 
 If there are no pending tool calls, the turn ends and the Agent **MUST** respond to the original `session/prompt` request with a `StopReason`:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 2,
@@ -203,7 +190,7 @@ Before proceeding with execution, the Agent **MAY** request permission from the 
 
 Once permission is granted (if required), the Agent **SHOULD** invoke the tool and report a status update marking the tool as `in_progress`:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -224,7 +211,7 @@ While tools execute on the Agent, they **MAY** leverage Client capabilities such
 
 When the tool completes, the Agent sends another update with the final status and any content:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -248,9 +235,7 @@ When the tool completes, the Agent sends another update with the final status an
 }
 ```
 
-<Card icon="hammer" horizontal href="./tool-calls">
-  Learn more about Tool Calls
-</Card>
+> 🔧 [Learn more about Tool Calls](./acp-tool-call)
 
 ### 6. Continue Conversation
 
@@ -262,27 +247,17 @@ The cycle returns to [step 2](#2-agent-processing), continuing until the languag
 
 When an Agent stops a turn, it must specify the corresponding `StopReason`:
 
-<ResponseField name="end_turn">
-  The language model finishes responding without requesting more tools
-</ResponseField>
-
-<ResponseField name="max_tokens">
-  The maximum token limit is reached
-</ResponseField>
-
-<ResponseField name="max_turn_requests">
-  The maximum number of model requests in a single turn is exceeded
-</ResponseField>
-
-<ResponseField name="refusal">The Agent refuses to continue</ResponseField>
-
-<ResponseField name="cancelled">The Client cancels the turn</ResponseField>
+- **`end_turn`**: The language model finishes responding without requesting more tools
+- **`max_tokens`**: The maximum token limit is reached
+- **`max_turn_requests`**: The maximum number of model requests in a single turn is exceeded
+- **`refusal`**: The Agent refuses to continue
+- **`cancelled`**: The Client cancels the turn
 
 ## Cancellation
 
 Clients **MAY** cancel an ongoing prompt turn at any time by sending a `session/cancel` notification:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/cancel",
@@ -300,22 +275,19 @@ When the Agent receives this notification, it **SHOULD** stop all language model
 
 After all ongoing operations have been successfully aborted and pending updates have been sent, the Agent **MUST** respond to the original `session/prompt` request with the `cancelled` [stop reason](#stop-reasons).
 
-<Warning>
-  API client libraries and tools often throw an exception when their operation is aborted, which may propagate as an error response to `session/prompt`.
-
-  Clients often display unrecognized errors from the Agent to the user, which would be undesirable for cancellations as they aren't considered errors.
-
-  Agents **MUST** catch these errors and return the semantically meaningful `cancelled` stop reason, so that Clients can reliably confirm the cancellation.
-</Warning>
+> ⚠️ **Warning:** API client libraries and tools often throw an exception when their operation is aborted, which may propagate as an error response to `session/prompt`.
+>
+> Clients often display unrecognized errors from the Agent to the user, which would be undesirable for cancellations as they aren't considered errors.
+>
+> Agents **MUST** catch these errors and return the semantically meaningful `cancelled` stop reason, so that Clients can reliably confirm the cancellation.
 
 The Agent **MAY** send `session/update` notifications with content or tool call updates after receiving the `session/cancel` notification, but it **MUST** ensure that it does so before responding to the `session/prompt` request.
 
 The Client **SHOULD** still accept tool call updates received after sending `session/cancel`.
 
-***
+---
 
 Once a prompt turn completes, the Client may send another `session/prompt` to continue the conversation, building on the context established in previous turns.
-
 
 ---
 

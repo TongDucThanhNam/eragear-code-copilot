@@ -41,31 +41,19 @@ After creating a session, the Agent **MAY** send a list of available commands vi
 }
 ```
 
-<ResponseField name="availableCommands" type="AvailableCommand[]">
-  The list of commands available in this session
-</ResponseField>
+- **`availableCommands`** (`AvailableCommand[]`): The list of commands available in this session
 
 ### AvailableCommand
 
-<ResponseField name="name" type="string" required>
-  The command name (e.g., "web", "test", "plan")
-</ResponseField>
-
-<ResponseField name="description" type="string" required>
-  Human-readable description of what the command does
-</ResponseField>
-
-<ResponseField name="input" type="AvailableCommandInput">
-  Optional input specification for the command
-</ResponseField>
+- **`name`** (required `string`): The command name (e.g., "web", "test", "plan")
+- **`description`** (required `string`): Human-readable description of what the command does
+- **`input`** (`AvailableCommandInput`): Optional input specification for the command
 
 ### AvailableCommandInput
 
 Currently supports unstructured text input:
 
-<ResponseField name="hint" type="string" required>
-  A hint to display when the input hasn't been provided yet
-</ResponseField>
+- **`hint`** (required `string`): A hint to display when the input hasn't been provided yet
 
 ## Dynamic updates
 
@@ -93,7 +81,6 @@ Commands are included as regular user messages in prompt requests:
 ```
 
 The Agent recognizes the command prefix and processes it accordingly. Commands may be accompanied by any other user message content types (images, audio, etc.) in the same prompt array.
-
 
 ---
 

@@ -1,4 +1,6 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { SessionRuntimePort } from "@/modules/session";
+import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
@@ -70,16 +72,19 @@ function updateLegacyModeAndModelFromConfigOptions(
 }
 
 export class SetConfigOptionService {
+  private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;
   private readonly policy: ConfigOptionSwitchPolicy;
 
   constructor(
+    sessionRuntime: SessionRuntimePort,
     sessionGateway: AiSessionRuntimePort,
     policy: ConfigOptionSwitchPolicy = {
       acpRetryMaxAttempts: DEFAULT_AI_ACP_RETRY_POLICY.maxAttempts,
       acpRetryBaseDelayMs: DEFAULT_AI_ACP_RETRY_POLICY.retryBaseDelayMs,
     }
   ) {
+    this.sessionRuntime = sessionRuntime;
     this.sessionGateway = sessionGateway;
     this.policy = {
       acpRetryMaxAttempts: Math.max(1, Math.trunc(policy.acpRetryMaxAttempts)),
@@ -93,76 +98,86 @@ export class SetConfigOptionService {
     configId: string,
     value: string
   ): Promise<{ ok: true; configOptions: SessionConfigOption[] }> {
-    const aggregate = this.sessionGateway.requireAuthorizedRuntime({
-      userId,
-      chatId,
-      module: "ai",
-      op: OP,
-      details: { configId },
-    });
-    const session = aggregate.raw;
+    return await this.sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime: this.sessionRuntime,
+        chatId,
+        op: OP,
+      });
 
-    if (!session.configOptions || session.configOptions.length === 0) {
-      throw new ValidationError(
-        "Agent does not expose session configuration options",
-        {
-          module: "ai",
-          op: OP,
-          details: { chatId, configId },
-        }
-      );
-    }
-
-    const targetOption = session.configOptions.find(
-      (option) => option.id === configId
-    );
-    if (!targetOption) {
-      throw new ValidationError(
-        "Config option is not available for this session",
-        {
-          module: "ai",
-          op: OP,
-          details: { chatId, configId },
-        }
-      );
-    }
-
-    const availableValues = collectConfigOptionValues(targetOption);
-    if (!availableValues.has(value)) {
-      throw new ValidationError("Config option value is not valid", {
+      const aggregate = this.sessionGateway.requireAuthorizedRuntime({
+        userId,
+        chatId,
         module: "ai",
         op: OP,
-        details: { chatId, configId, value },
+        details: { configId },
       });
-    }
+      const session = aggregate.raw;
 
-    if (targetOption.currentValue === value) {
+      if (!session.configOptions || session.configOptions.length === 0) {
+        throw new ValidationError(
+          "Agent does not expose session configuration options",
+          {
+            module: "ai",
+            op: OP,
+            details: { chatId, configId },
+          }
+        );
+      }
+
+      const targetOption = session.configOptions.find(
+        (option) => option.id === configId
+      );
+      if (!targetOption) {
+        throw new ValidationError(
+          "Config option is not available for this session",
+          {
+            module: "ai",
+            op: OP,
+            details: { chatId, configId },
+          }
+        );
+      }
+
+      const availableValues = collectConfigOptionValues(targetOption);
+      if (!availableValues.has(value)) {
+        throw new ValidationError("Config option value is not valid", {
+          module: "ai",
+          op: OP,
+          details: { chatId, configId, value },
+        });
+      }
+
+      if (targetOption.currentValue === value) {
+        return { ok: true, configOptions: session.configOptions };
+      }
+
+      this.sessionGateway.assertSessionRunning({
+        chatId,
+        session,
+        module: "ai",
+        op: OP,
+        details: { configId, value },
+      });
+
+      const nextOptions = await this.sendConfigOptionWithRetry(
+        chatId,
+        configId,
+        value,
+        session
+      );
+      session.configOptions =
+        nextOptions.length > 0
+          ? nextOptions
+          : session.configOptions.map((option) =>
+              option.id === configId
+                ? { ...option, currentValue: value }
+                : option
+            );
+      updateLegacyModeAndModelFromConfigOptions(session, session.configOptions);
+
       return { ok: true, configOptions: session.configOptions };
-    }
-
-    this.sessionGateway.assertSessionRunning({
-      chatId,
-      session,
-      module: "ai",
-      op: OP,
-      details: { configId, value },
     });
-
-    const nextOptions = await this.sendConfigOptionWithRetry(
-      chatId,
-      configId,
-      value,
-      session
-    );
-    session.configOptions =
-      nextOptions.length > 0
-        ? nextOptions
-        : session.configOptions.map((option) =>
-            option.id === configId ? { ...option, currentValue: value } : option
-          );
-    updateLegacyModeAndModelFromConfigOptions(session, session.configOptions);
-
-    return { ok: true, configOptions: session.configOptions };
   }
 
   private async sendConfigOptionWithRetry(

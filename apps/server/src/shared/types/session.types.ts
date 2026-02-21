@@ -10,12 +10,12 @@
 import type { ChildProcess } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import type {
+  SessionConfigOption as AcpSessionConfigOption,
   AudioContent,
   ClientSideConnection,
   EmbeddedResource,
   ImageContent,
   ResourceLink,
-  SessionConfigOption as AcpSessionConfigOption,
   TextContent,
   ToolCall,
   WaitForTerminalExitResponse,
@@ -98,6 +98,10 @@ export interface SessionModelState {
     name: string;
     /** Optional description of the model */
     description?: string | null;
+    /** Optional primary provider slug supplied by the agent */
+    provider?: string;
+    /** Optional ordered provider slugs supplied by the agent */
+    providers?: string[];
   }>;
 }
 

@@ -48,42 +48,15 @@ The `terminal/create` method starts a command in a new terminal:
 }
 ```
 
-<ParamField path="sessionId" type="SessionId" required>
-  The [Session ID](./session-setup#session-id) for this request
-</ParamField>
-
-<ParamField path="command" type="string" required>
-  The command to execute
-</ParamField>
-
-<ParamField path="args" type="string[]">
-  Array of command arguments
-</ParamField>
-
-<ParamField path="env" type="EnvVariable[]">
-  Environment variables for the command.
-
+- **`sessionId`** (required `SessionId`): The [Session ID](./acp-session-setup#session-id) for this request
+- **`command`** (required `string`): The command to execute
+- **`args`** (`string[]`): Array of command arguments
+- **`env`** (`EnvVariable[]`): Environment variables for the command.
   Each variable has:
-
   * `name`: The environment variable name
   * `value`: The environment variable value
-</ParamField>
-
-<ParamField path="cwd" type="string">
-  Working directory for the command (absolute path)
-</ParamField>
-
-<ParamField path="outputByteLimit" type="number">
-  Maximum number of output bytes to retain. Once exceeded, earlier output is
-  truncated to stay within this limit.
-
-  When the limit is exceeded, the Client truncates from the beginning of the output
-  to stay within the limit.
-
-  The Client **MUST** ensure truncation happens at a character boundary to maintain valid
-  string output, even if this means the retained output is slightly less than the
-  specified limit.
-</ParamField>
+- **`cwd`** (`string`): Working directory for the command (absolute path)
+- **`outputByteLimit`** (`number`): Maximum number of output bytes to retain. Once exceeded, earlier output is truncated to stay within this limit. When the limit is exceeded, the Client truncates from the beginning of the output to stay within the limit. The Client **MUST** ensure truncation happens at a character boundary to maintain valid string output, even if this means the retained output is slightly less than the specified limit.
 
 The Client returns a Terminal ID immediately without waiting for completion:
 
@@ -101,14 +74,11 @@ This allows the command to run in the background while the Agent performs other 
 
 After creating the terminal, the Agent can use the `terminal/wait_for_exit` method to wait for the command to complete.
 
-<Note>
-  The Agent **MUST** release the terminal using `terminal/release` when it's no
-  longer needed.
-</Note>
+> **Note:** The Agent **MUST** release the terminal using `terminal/release` when it's no longer needed.
 
 ## Embedding in Tool Calls
 
-Terminals can be embedded directly in [tool calls](./acp-tool-calls) to provide real-time output to users:
+Terminals can be embedded directly in [tool calls](./acp-tool-call) to provide real-time output to users:
 
 ```json
 {
@@ -168,20 +138,11 @@ The Client responds with the current output and exit status (if the command has 
 }
 ```
 
-<ResponseField name="output" type="string" required>
-  The terminal output captured so far
-</ResponseField>
-
-<ResponseField name="truncated" type="boolean" required>
-  Whether the output was truncated due to byte limits
-</ResponseField>
-
-<ResponseField name="exitStatus" type="TerminalExitStatus">
-  Present only if the command has exited. Contains:
-
+- **`output`** (required `string`): The terminal output captured so far
+- **`truncated`** (required `boolean`): Whether the output was truncated due to byte limits
+- **`exitStatus`** (`TerminalExitStatus`): Present only if the command has exited. Contains:
   * `exitCode`: The process exit code (may be null)
   * `signal`: The signal that terminated the process (may be null)
-</ResponseField>
 
 ## Waiting for Exit
 
@@ -201,7 +162,7 @@ The `terminal/wait_for_exit` method returns once the command completes:
 
 The Client responds once the command exits:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 7,
@@ -212,13 +173,8 @@ The Client responds once the command exits:
 }
 ```
 
-<ResponseField name="exitCode" type="number">
-  The process exit code (may be null if terminated by signal)
-</ResponseField>
-
-<ResponseField name="signal" type="string">
-  The signal that terminated the process (may be null if exited normally)
-</ResponseField>
+- **`exitCode`** (`number`): The process exit code (may be null if terminated by signal)
+- **`signal`** (`string`): The signal that terminated the process (may be null if exited normally)
 
 ## Killing Commands
 
@@ -275,7 +231,6 @@ The `terminal/release` kills the command if still running and releases all resou
 After release the terminal ID becomes invalid for all other `terminal/*` methods.
 
 If the terminal was added to a tool call, the client **SHOULD** continue to display its output after release.
-
 
 ---
 

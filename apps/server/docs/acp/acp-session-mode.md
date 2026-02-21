@@ -8,7 +8,7 @@ Agents can provide a set of modes they can operate in. Modes often affect the sy
 
 During [Session Setup](./acp-session-setup) the Agent **MAY** return a list of modes it can operate in and the currently active mode:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -38,33 +38,18 @@ During [Session Setup](./acp-session-setup) the Agent **MAY** return a list of m
 }
 ```
 
-<ResponseField name="modes" type="SessionModeState">
-  The current mode state for the session
-</ResponseField>
+- **`modes`** (`SessionModeState`): The current mode state for the session
 
 ### SessionModeState
 
-<ResponseField name="currentModeId" type="SessionModeId" required>
-  The ID of the mode that is currently active
-</ResponseField>
-
-<ResponseField name="availableModes" type="SessionMode[]" required>
-  The set of modes that the Agent can operate in
-</ResponseField>
+- **`currentModeId`** (required `SessionModeId`): The ID of the mode that is currently active
+- **`availableModes`** (required `SessionMode[]`): The set of modes that the Agent can operate in
 
 ### SessionMode
 
-<ResponseField name="id" type="SessionModeId" required>
-  Unique identifier for this mode
-</ResponseField>
-
-<ResponseField name="name" type="string" required>
-  Human-readable name of the mode
-</ResponseField>
-
-<ResponseField name="description" type="string">
-  Optional description providing more details about what this mode does
-</ResponseField>
+- **`id`** (required `SessionModeId`): Unique identifier for this mode
+- **`name`** (required `string`): Human-readable name of the mode
+- **`description`** (`string`): Optional description providing more details about what this mode does
 
 ## Setting the current mode
 
@@ -74,7 +59,7 @@ The current mode can be changed at any point during a session, whether the Agent
 
 Typically, Clients display the available modes to the user and allow them to change the current one, which they can do by calling the [`session/set_mode`](./acp-schema#session%2Fset-mode) method.
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 2,
@@ -86,20 +71,14 @@ Typically, Clients display the available modes to the user and allow them to cha
 }
 ```
 
-<ParamField path="sessionId" type="SessionId" required>
-  The ID of the session to set the mode for
-</ParamField>
-
-<ParamField path="modeId" type="SessionModeId" required>
-  The ID of the mode to switch to. Must be one of the modes listed in
-  `availableModes`
-</ParamField>
+- **`sessionId`** (required `SessionId`): The ID of the session to set the mode for
+- **`modeId`** (required `SessionModeId`): The ID of the mode to switch to. Must be one of the modes listed in `availableModes`
 
 ### From the Agent
 
 The Agent can also change its own mode and let the Client know by sending the `current_mode_update` session notification:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -119,7 +98,7 @@ A common case where an Agent might switch modes is from within a special "exit m
 
 This "switch mode" tool will usually request permission before running, which it can do just like any other tool:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 3,
@@ -161,10 +140,7 @@ This "switch mode" tool will usually request permission before running, which it
 
 When an option is chosen, the tool runs, setting the mode and sending the `current_mode_update` notification mentioned above.
 
-<Card icon="shield-check" horizontal href="./tool-calls#requesting-permission">
-  Learn more about permission requests
-</Card>
-
+> 🛡️ [Learn more about permission requests](./acp-tool-call#requesting-permission)
 
 ---
 

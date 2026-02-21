@@ -132,7 +132,6 @@ Implementations **SHOULD** use the `_meta` field in capability objects to advert
 
 This allows implementations to negotiate custom features during initialization without breaking compatibility with standard Clients and Agents.
 
-
 ---
 
 > To find navigation and other pages in this documentation, fetch the llms.txt file at: https://agentclientprotocol.com/llms.txt

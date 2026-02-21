@@ -46,6 +46,8 @@ export interface SessionModelState {
     modelId: string;
     name: string;
     description?: string | null;
+    provider?: string;
+    providers?: string[];
   }>;
 }
 

@@ -44,21 +44,10 @@ The `fs/read_text_file` method allows Agents to read text file contents from the
 }
 ```
 
-<ParamField path="sessionId" type="SessionId" required>
-  The [Session ID](./session-setup#session-id) for this request
-</ParamField>
-
-<ParamField path="path" type="string" required>
-  Absolute path to the file to read
-</ParamField>
-
-<ParamField path="line" type="number">
-  Optional line number to start reading from (1-based)
-</ParamField>
-
-<ParamField path="limit" type="number">
-  Optional maximum number of lines to read
-</ParamField>
+- **`sessionId`** (required `SessionId`): The [Session ID](./acp-session-setup#session-id) for this request
+- **`path`** (required `string`): Absolute path to the file to read
+- **`line`** (`number`): Optional line number to start reading from (1-based)
+- **`limit`** (`number`): Optional maximum number of lines to read
 
 The Client responds with the file contents:
 
@@ -89,19 +78,9 @@ The `fs/write_text_file` method allows Agents to write or update text files in t
 }
 ```
 
-<ParamField path="sessionId" type="SessionId" required>
-  The [Session ID](./session-setup#session-id) for this request
-</ParamField>
-
-<ParamField path="path" type="string" required>
-  Absolute path to the file to write.
-
-  The Client **MUST** create the file if it doesn't exist.
-</ParamField>
-
-<ParamField path="content" type="string" required>
-  The text content to write to the file
-</ParamField>
+- **`sessionId`** (required `SessionId`): The [Session ID](./acp-session-setup#session-id) for this request
+- **`path`** (required `string`): Absolute path to the file to write. The Client **MUST** create the file if it doesn't exist.
+- **`content`** (required `string`): The text content to write to the file
 
 The Client responds with an empty result on success:
 
@@ -112,7 +91,6 @@ The Client responds with an empty result on success:
   "result": null
 }
 ```
-
 
 ---
 

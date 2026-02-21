@@ -29,47 +29,23 @@ When the language model requests a tool invocation, the Agent **SHOULD** report 
 }
 ```
 
-<ParamField path="toolCallId" type="ToolCallId" required>
-  A unique identifier for this tool call within the session
-</ParamField>
-
-<ParamField path="title" type="string" required>
-  A human-readable title describing what the tool is doing
-</ParamField>
-
-<ParamField path="kind" type="ToolKind">
-  The category of tool being invoked.
-
-  <Expandable title="kinds">
-    * `read` - Reading files or data - `edit` - Modifying files or content -
-      `delete` - Removing files or data - `move` - Moving or renaming files -
-      `search` - Searching for information - `execute` - Running commands or code -
-      `think` - Internal reasoning or planning - `fetch` - Retrieving external data
-    * `other` - Other tool types (default)
-  </Expandable>
-
-  Tool kinds help Clients choose appropriate icons and optimize how they display tool execution progress.
-</ParamField>
-
-<ParamField path="status" type="ToolCallStatus">
-  The current [execution status](#status) (defaults to `pending`)
-</ParamField>
-
-<ParamField path="content" type="ToolCallContent[]">
-  [Content produced](#content) by the tool call
-</ParamField>
-
-<ParamField path="locations" type="ToolCallLocation[]">
-  [File locations](#following-the-agent) affected by this tool call
-</ParamField>
-
-<ParamField path="rawInput" type="object">
-  The raw input parameters sent to the tool
-</ParamField>
-
-<ParamField path="rawOutput" type="object">
-  The raw output returned by the tool
-</ParamField>
+- **`toolCallId`** (required `ToolCallId`): A unique identifier for this tool call within the session
+- **`title`** (required `string`): A human-readable title describing what the tool is doing
+- **`kind`** (`ToolKind`): The category of tool being invoked. Tool kinds help Clients choose appropriate icons and optimize how they display tool execution progress.
+  * `read` - Reading files or data
+  * `edit` - Modifying files or content
+  * `delete` - Removing files or data
+  * `move` - Moving or renaming files
+  * `search` - Searching for information
+  * `execute` - Running commands or code
+  * `think` - Internal reasoning or planning
+  * `fetch` - Retrieving external data
+  * `other` - Other tool types (default)
+- **`status`** (`ToolCallStatus`): The current [execution status](#status) (defaults to `pending`)
+- **`content`** (`ToolCallContent[]`): [Content produced](#content) by the tool call
+- **`locations`** (`ToolCallLocation[]`): [File locations](#following-the-agent) affected by this tool call
+- **`rawInput`** (`object`): The raw input parameters sent to the tool
+- **`rawOutput`** (`object`): The raw output returned by the tool
 
 ## Updating
 
@@ -133,18 +109,9 @@ The Agent **MAY** request permission from the user before executing a tool call 
 }
 ```
 
-<ParamField path="sessionId" type="SessionId" required>
-  The session ID for this request
-</ParamField>
-
-<ParamField path="toolCall" type="ToolCallUpdate" required>
-  The tool call update containing details about the operation
-</ParamField>
-
-<ParamField path="options" type="PermissionOption[]" required>
-  Available [permission options](#permission-options) for the user to choose
-  from
-</ParamField>
+- **`sessionId`** (required `SessionId`): The session ID for this request
+- **`toolCall`** (required `ToolCallUpdate`): The tool call update containing details about the operation
+- **`options`** (required `PermissionOption[]`): Available [permission options](#permission-options) for the user to choose from
 
 The Client responds with the user's decision:
 
@@ -177,51 +144,30 @@ If the current prompt turn gets [cancelled](./acp-prompt-turn#cancellation), the
 }
 ```
 
-<ResponseField name="outcome" type="RequestPermissionOutcome" required>
-  The user's decision, either: - `cancelled` - The [prompt turn was
-  cancelled](./prompt-turn#cancellation) - `selected` with an `optionId` - The
-  ID of the selected permission option
-</ResponseField>
+- **`outcome`** (required `RequestPermissionOutcome`): The user's decision, either:
+  - `cancelled` - The [prompt turn was cancelled](./acp-prompt-turn#cancellation)
+  - `selected` with an `optionId` - The ID of the selected permission option
 
 ### Permission Options
 
 Each permission option provided to the Client contains:
 
-<ParamField path="optionId" type="string" required>
-  Unique identifier for this option
-</ParamField>
-
-<ParamField path="name" type="string" required>
-  Human-readable label to display to the user
-</ParamField>
-
-<ParamField path="kind" type="PermissionOptionKind" required>
-  A hint to help Clients choose appropriate icons and UI treatment for each option.
-
+- **`optionId`** (required `string`): Unique identifier for this option
+- **`name`** (required `string`): Human-readable label to display to the user
+- **`kind`** (required `PermissionOptionKind`): A hint to help Clients choose appropriate icons and UI treatment for each option.
   * `allow_once` - Allow this operation only this time
   * `allow_always` - Allow this operation and remember the choice
   * `reject_once` - Reject this operation only this time
   * `reject_always` - Reject this operation and remember the choice
-</ParamField>
 
 ## Status
 
 Tool calls progress through different statuses during their lifecycle:
 
-<ResponseField name="pending">
-  The tool call hasn't started running yet because the input is either streaming
-  or awaiting approval
-</ResponseField>
-
-<ResponseField name="in_progress">
-  The tool call is currently running
-</ResponseField>
-
-<ResponseField name="completed">
-  The tool call completed successfully
-</ResponseField>
-
-<ResponseField name="failed">The tool call failed with an error</ResponseField>
+- **`pending`**: The tool call hasn't started running yet because the input is either streaming or awaiting approval
+- **`in_progress`**: The tool call is currently running
+- **`completed`**: The tool call completed successfully
+- **`failed`**: The tool call failed with an error
 
 ## Content
 
@@ -254,58 +200,40 @@ File modifications shown as diffs:
 }
 ```
 
-<ParamField path="path" type="string" required>
-  The absolute file path being modified
-</ParamField>
-
-<ParamField path="oldText" type="string">
-  The original content (null for new files)
-</ParamField>
-
-<ParamField path="newText" type="string" required>
-  The new content after modification
-</ParamField>
+- **`path`** (required `string`): The absolute file path being modified
+- **`oldText`** (`string`): The original content (null for new files)
+- **`newText`** (required `string`): The new content after modification
 
 ### Terminals
 
 Live terminal output from command execution:
 
-```json  theme={null}
+```json
 {
   "type": "terminal",
   "terminalId": "term_xyz789"
 }
 ```
 
-<ParamField path="terminalId" type="string" required>
-  The ID of a terminal created with `terminal/create`
-</ParamField>
+- **`terminalId`** (required `string`): The ID of a terminal created with `terminal/create`
 
 When a terminal is embedded in a tool call, the Client displays live output as it's generated and continues to display it even after the terminal is released.
 
-<Card icon="terminal" horizontal href="./terminals">
-  Learn more about Terminals
-</Card>
+> 💻 [Learn more about Terminals](./acp-terminal)
 
 ## Following the Agent
 
 Tool calls can report file locations they're working with, enabling Clients to implement "follow-along" features that track which files the Agent is accessing or modifying in real-time.
 
-```json  theme={null}
+```json
 {
   "path": "/home/user/project/src/main.py",
   "line": 42
 }
 ```
 
-<ParamField path="path" type="string" required>
-  The absolute file path being accessed or modified
-</ParamField>
-
-<ParamField path="line" type="number">
-  Optional line number within the file
-</ParamField>
-
+- **`path`** (required `string`): The absolute file path being accessed or modified
+- **`line`** (`number`): Optional line number within the file
 
 ---
 

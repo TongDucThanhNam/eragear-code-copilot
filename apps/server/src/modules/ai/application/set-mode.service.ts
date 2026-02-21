@@ -7,6 +7,8 @@
  * @module modules/ai/application/set-mode.service
  */
 
+import type { SessionRuntimePort } from "@/modules/session";
+import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
@@ -26,16 +28,19 @@ interface ModeSwitchPolicy {
 }
 
 export class SetModeService {
+  private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;
   private readonly policy: ModeSwitchPolicy;
 
   constructor(
+    sessionRuntime: SessionRuntimePort,
     sessionGateway: AiSessionRuntimePort,
     policy: ModeSwitchPolicy = {
       acpRetryMaxAttempts: DEFAULT_AI_ACP_RETRY_POLICY.maxAttempts,
       acpRetryBaseDelayMs: DEFAULT_AI_ACP_RETRY_POLICY.retryBaseDelayMs,
     }
   ) {
+    this.sessionRuntime = sessionRuntime;
     this.sessionGateway = sessionGateway;
     this.policy = {
       acpRetryMaxAttempts: Math.max(1, Math.trunc(policy.acpRetryMaxAttempts)),
@@ -44,25 +49,28 @@ export class SetModeService {
   }
 
   async execute(userId: string, chatId: string, modeId: string) {
-    const aggregate = this.getRuntimeForModeSwitch(userId, chatId, modeId);
-    const session = aggregate.raw;
+    return await this.sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime: this.sessionRuntime,
+        chatId,
+        op: OP,
+      });
+      const aggregate = this.getRuntimeForModeSwitch(userId, chatId, modeId);
+      const session = aggregate.raw;
 
-    if (session.modes?.currentModeId === modeId) {
+      this.sessionGateway.assertSessionRunning({
+        chatId,
+        session,
+        module: "ai",
+        op: OP,
+        details: { modeId },
+      });
+
+      await this.sendModeSwitchWithRetry(chatId, modeId, session);
+
+      aggregate.setCurrentMode(modeId);
       return { ok: true };
-    }
-
-    this.sessionGateway.assertSessionRunning({
-      chatId,
-      session,
-      module: "ai",
-      op: OP,
-      details: { modeId },
     });
-
-    await this.sendModeSwitchWithRetry(chatId, modeId, session);
-
-    aggregate.setCurrentMode(modeId);
-    return { ok: true };
   }
 
   private getRuntimeForModeSwitch(

@@ -40,34 +40,21 @@ When the language model creates an execution plan, the Agent **SHOULD** report i
 }
 ```
 
-<ParamField path="entries" type="PlanEntry[]" required>
-  An array of [plan entries](#plan-entries) representing the tasks to be
-  accomplished
-</ParamField>
+- **`entries`** (required `PlanEntry[]`): An array of [plan entries](#plan-entries) representing the tasks to be accomplished
 
 ## Plan Entries
 
 Each plan entry represents a specific task or goal within the overall execution strategy:
 
-<ParamField path="content" type="string" required>
-  A human-readable description of what this task aims to accomplish
-</ParamField>
-
-<ParamField path="priority" type="PlanEntryPriority" required>
-  The relative importance of this task.
-
+- **`content`** (required `string`): A human-readable description of what this task aims to accomplish
+- **`priority`** (required `PlanEntryPriority`): The relative importance of this task.
   * `high`
   * `medium`
   * `low`
-</ParamField>
-
-<ParamField path="status" type="PlanEntryStatus" required>
-  The current [execution status](#status) of this task
-
+- **`status`** (required `PlanEntryStatus`): The current [execution status](#status) of this task
   * `pending`
   * `in_progress`
   * `completed`
-</ParamField>
 
 ## Updating Plans
 

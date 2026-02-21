@@ -7,6 +7,8 @@
  * @module modules/ai/application/set-model.service
  */
 
+import type { SessionRuntimePort } from "@/modules/session";
+import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
@@ -26,16 +28,19 @@ interface ModelSwitchPolicy {
 }
 
 export class SetModelService {
+  private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;
   private readonly policy: ModelSwitchPolicy;
 
   constructor(
+    sessionRuntime: SessionRuntimePort,
     sessionGateway: AiSessionRuntimePort,
     policy: ModelSwitchPolicy = {
       acpRetryMaxAttempts: DEFAULT_AI_ACP_RETRY_POLICY.maxAttempts,
       acpRetryBaseDelayMs: DEFAULT_AI_ACP_RETRY_POLICY.retryBaseDelayMs,
     }
   ) {
+    this.sessionRuntime = sessionRuntime;
     this.sessionGateway = sessionGateway;
     this.policy = {
       acpRetryMaxAttempts: Math.max(1, Math.trunc(policy.acpRetryMaxAttempts)),
@@ -44,24 +49,31 @@ export class SetModelService {
   }
 
   async execute(userId: string, chatId: string, modelId: string) {
-    const aggregate = this.getRuntimeForModelSwitch(userId, chatId);
-    const session = aggregate.raw;
-    if (this.isCurrentModel(session, modelId)) {
+    return await this.sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime: this.sessionRuntime,
+        chatId,
+        op: OP,
+      });
+      const aggregate = this.getRuntimeForModelSwitch(userId, chatId);
+      const session = aggregate.raw;
+      if (this.isCurrentModel(session, modelId)) {
+        return { ok: true };
+      }
+
+      this.sessionGateway.assertSessionRunning({
+        chatId,
+        session,
+        module: "ai",
+        op: OP,
+        details: { modelId },
+      });
+
+      await this.sendModelSwitchWithRetry(chatId, session, modelId);
+
+      aggregate.setCurrentModel(modelId);
       return { ok: true };
-    }
-
-    this.sessionGateway.assertSessionRunning({
-      chatId,
-      session,
-      module: "ai",
-      op: OP,
-      details: { modelId },
     });
-
-    await this.sendModelSwitchWithRetry(chatId, session, modelId);
-
-    aggregate.setCurrentModel(modelId);
-    return { ok: true };
   }
 
   private getRuntimeForModelSwitch(userId: string, chatId: string) {

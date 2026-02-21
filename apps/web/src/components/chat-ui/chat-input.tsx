@@ -4,8 +4,9 @@ import type { SessionConfigOption } from "@repo/shared";
 import {
   CheckIcon,
   ChevronDown,
-  Command,
   FileTextIcon,
+  SearchIcon,
+  TerminalIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -38,21 +39,20 @@ import {
   PromptInputActionAddAttachments,
   PromptInputActionMenu,
   PromptInputActionMenuContent,
+  PromptInputActionMenuItem,
   PromptInputActionMenuTrigger,
   PromptInputAttachment,
   PromptInputAttachments,
   PromptInputBody,
-  PromptInputButton,
   PromptInputCommand,
   PromptInputCommandEmpty,
+  PromptInputCommandGroup,
   PromptInputCommandInput,
   PromptInputCommandItem,
   PromptInputCommandList,
+  PromptInputCommandSeparator,
   PromptInputFooter,
   PromptInputHeader,
-  PromptInputHoverCard,
-  PromptInputHoverCardContent,
-  PromptInputHoverCardTrigger,
   type PromptInputMessage,
   PromptInputProvider,
   PromptInputSelect,
@@ -66,11 +66,17 @@ import {
   usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
+import { CommandDialog } from "@/components/ui/command";
+import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { MovingBorder } from "@/components/ui/moving-border";
 import { ATTACHMENT_HARD_LIMIT_BYTES } from "@/config/attachments";
 import { cn } from "@/lib/utils";
 import { useFileStore } from "@/store/file-store";
-import type { SlashCommand } from "./slash-command-popup";
+import {
+  SlashCommandPopup,
+  type SlashCommand,
+  type SlashCommandPopupRef,
+} from "./slash-command-popup";
 
 export type ChatInputStatus =
   | "inactive"
@@ -90,7 +96,13 @@ export interface ChatInputProps {
   availableModes: { id: string; name: string; description?: string }[];
   currentModeId: string | null;
   onModeChange: (modeId: string) => void;
-  availableModels: { modelId: string; name: string; description?: string }[];
+  availableModels: Array<{
+    modelId: string;
+    name: string;
+    description?: string | null;
+    provider?: string;
+    providers?: string[];
+  }>;
   currentModelId: string | null;
   onModelChange: (modelId: string) => void;
   availableConfigOptions: SessionConfigOption[];
@@ -103,37 +115,210 @@ export interface ChatInputProps {
   onCancel?: () => void;
 }
 
-// Inner component for @ menu command items with controller access
-function SlashCommandMenuItem({
+const SLASH_COMMAND_RECENTS_STORAGE_KEY =
+  "eragear.chat-input.recent-slash-commands";
+const MAX_RECENT_SLASH_COMMANDS = 8;
+const MAX_QUICK_SLASH_COMMANDS = 4;
+
+type ChatInputModel = ChatInputProps["availableModels"][number];
+
+function normalizeRecentSlashCommandNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .filter((item): item is string => typeof item === "string" && !!item)
+    .slice(0, MAX_RECENT_SLASH_COMMANDS);
+}
+
+function parseRecentSlashCommandNames(raw: string | null): string[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    return normalizeRecentSlashCommandNames(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+function areStringArraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function normalizeModelProviders(model: ChatInputModel): string[] {
+  const candidates = [
+    ...(Array.isArray(model.providers) ? model.providers : []),
+    model.provider,
+  ];
+  const normalized = new Set<string>();
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") {
+      continue;
+    }
+    const provider = candidate.trim().toLowerCase();
+    if (!provider) {
+      continue;
+    }
+    normalized.add(provider);
+  }
+  return [...normalized];
+}
+
+function readRecentSlashCommandNames(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  return parseRecentSlashCommandNames(
+    window.localStorage.getItem(SLASH_COMMAND_RECENTS_STORAGE_KEY)
+  );
+}
+
+function applySlashCommandSelection({
+  commandName,
+  setInput,
+  textareaRef,
+}: {
+  commandName: string;
+  setInput: (value: string) => void;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+}) {
+  const commandText = `/${commandName} `;
+  setInput(commandText);
+
+  const textarea = textareaRef.current;
+  if (!textarea) {
+    return;
+  }
+
+  textarea.focus();
+  requestAnimationFrame(() => {
+    const cursorPos = commandText.length;
+    textarea.selectionStart = cursorPos;
+    textarea.selectionEnd = cursorPos;
+  });
+}
+
+function SlashCommandActionMenuItem({
   command,
   textareaRef,
+  onCommandApplied,
 }: {
   command: SlashCommand;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
+  onCommandApplied?: (commandName: string) => void;
 }) {
   const controller = usePromptInputController();
 
   const handleSelect = useCallback(() => {
-    const commandText = `/${command.name} `;
-    controller.textInput.setInput(commandText);
-    if (textareaRef.current) {
-      textareaRef.current.focus();
-      setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.selectionStart = commandText.length;
-          textareaRef.current.selectionEnd = commandText.length;
-        }
-      }, 0);
-    }
-  }, [command.name, controller.textInput, textareaRef]);
+    applySlashCommandSelection({
+      commandName: command.name,
+      setInput: controller.textInput.setInput,
+      textareaRef,
+    });
+    onCommandApplied?.(command.name);
+  }, [command.name, controller.textInput.setInput, onCommandApplied, textareaRef]);
 
   return (
-    <PromptInputCommandItem onSelect={handleSelect}>
-      <span>/{command.name}</span>
-      <span className="ml-2 text-muted-foreground text-xs">
-        - {command.description}
-      </span>
+    <PromptInputActionMenuItem className="items-start" onSelect={handleSelect}>
+      <TerminalIcon className="mt-0.5 size-4 text-muted-foreground" />
+      <div className="min-w-0 space-y-0.5">
+        <div className="font-medium text-xs">/{command.name}</div>
+        <div className="truncate text-muted-foreground text-xs">
+          {command.description}
+        </div>
+      </div>
+    </PromptInputActionMenuItem>
+  );
+}
+
+function SlashCommandPaletteItem({
+  command,
+  textareaRef,
+  onCommandApplied,
+  onClose,
+}: {
+  command: SlashCommand;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  onCommandApplied?: (commandName: string) => void;
+  onClose: () => void;
+}) {
+  const controller = usePromptInputController();
+
+  const handleSelect = useCallback(() => {
+    onClose();
+    requestAnimationFrame(() => {
+      applySlashCommandSelection({
+        commandName: command.name,
+        setInput: controller.textInput.setInput,
+        textareaRef,
+      });
+      onCommandApplied?.(command.name);
+    });
+  }, [
+    command.name,
+    controller.textInput.setInput,
+    onClose,
+    onCommandApplied,
+    textareaRef,
+  ]);
+
+  return (
+    <PromptInputCommandItem
+      onSelect={handleSelect}
+      value={`${command.name} ${command.description}`}
+    >
+      <TerminalIcon className="size-4 text-muted-foreground" />
+      <div className="min-w-0">
+        <div className="font-medium text-xs">/{command.name}</div>
+        <div className="truncate text-muted-foreground text-xs">
+          {command.description}
+        </div>
+      </div>
     </PromptInputCommandItem>
+  );
+}
+
+function SlashCommandInlinePopup({
+  commands,
+  textareaRef,
+  popupRef,
+  onCommandApplied,
+}: {
+  commands: SlashCommand[];
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  popupRef: RefObject<SlashCommandPopupRef | null>;
+  onCommandApplied?: (commandName: string) => void;
+}) {
+  const controller = usePromptInputController();
+
+  const handleSelectCommand = useCallback(
+    (command: SlashCommand) => {
+      applySlashCommandSelection({
+        commandName: command.name,
+        setInput: controller.textInput.setInput,
+        textareaRef,
+      });
+      onCommandApplied?.(command.name);
+    },
+    [controller.textInput.setInput, onCommandApplied, textareaRef]
+  );
+
+  return (
+    <SlashCommandPopup
+      commands={commands}
+      inputValue={controller.textInput.value}
+      onSelectCommand={handleSelectCommand}
+      ref={popupRef}
+    />
   );
 }
 
@@ -362,56 +547,51 @@ const ChatInputBase = ({
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionStart, setMentionStart] = useState<number | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [slashCommandPickerOpen, setSlashCommandPickerOpen] = useState(false);
+  const [recentSlashCommandNames, setRecentSlashCommandNames] = useState<
+    string[]
+  >(readRecentSlashCommandNames);
+  const slashPopupRef = useRef<SlashCommandPopupRef | null>(null);
   const mentionSelectRef = useRef<((index?: number) => void) | null>(null);
 
-  const getProviderFromModelId = (modelId: string) => {
-    if (modelId.startsWith("anthropic")) {
-      return "anthropic";
+  const modelsWithDetails = useMemo(
+    () =>
+      availableModels.map((model) => {
+        const providers = normalizeModelProviders(model);
+        const primaryProvider = providers[0];
+        return {
+          ...model,
+          id: model.modelId,
+          groupLabel: primaryProvider?.toUpperCase() ?? "MODELS",
+          provider: primaryProvider,
+          providers,
+        };
+      }),
+    [availableModels]
+  );
+  const modelGroups = useMemo(() => {
+    const out = new Map<string, typeof modelsWithDetails>();
+    for (const model of modelsWithDetails) {
+      const group = out.get(model.groupLabel);
+      if (group) {
+        group.push(model);
+        continue;
+      }
+      out.set(model.groupLabel, [model]);
     }
-    if (modelId.startsWith("google") || modelId.startsWith("gemini")) {
-      return "google";
-    }
-    if (modelId.startsWith("openai") || modelId.startsWith("gpt")) {
-      return "openai";
-    }
-    if (modelId.startsWith("deepseek")) {
-      return "deepseek";
-    }
-    if (modelId.startsWith("mistral")) {
-      return "mistral";
-    }
-    if (modelId.startsWith("meta") || modelId.startsWith("llama")) {
-      return "meta";
-    }
-    return "opencode"; // default
-  };
-
-  const modelsWithDetails = availableModels.map((m) => {
-    const providerSlug = getProviderFromModelId(m.modelId);
-    return {
-      ...m,
-      id: m.modelId,
-      chef: providerSlug.toUpperCase(),
-      chefSlug: providerSlug,
-      providers: [providerSlug],
-    };
-  });
-
-  const chefs = Array.from(new Set(modelsWithDetails.map((m) => m.chef)));
-  const fallbackProvider = currentModelId
-    ? getProviderFromModelId(currentModelId)
-    : null;
+    return [...out.entries()];
+  }, [modelsWithDetails]);
   const selectedModelData =
     modelsWithDetails.find((m) => m.id === currentModelId) ??
-    (currentModelId && fallbackProvider
+    (currentModelId
       ? {
           id: currentModelId,
           modelId: currentModelId,
           name: currentModelId,
           description: "Selected model",
-          chef: fallbackProvider.toUpperCase(),
-          chefSlug: fallbackProvider,
-          providers: [fallbackProvider],
+          groupLabel: "MODELS",
+          provider: undefined,
+          providers: [],
         }
       : undefined);
   const configSelectors = useMemo(
@@ -424,6 +604,64 @@ const ChatInputBase = ({
   const hasModelConfigOption = configSelectors.some(
     (option) => option.category === "model"
   );
+  const slashCommands = useMemo(() => {
+    const seen = new Set<string>();
+    return availableCommands.filter((command) => {
+      if (seen.has(command.name)) {
+        return false;
+      }
+      seen.add(command.name);
+      return true;
+    });
+  }, [availableCommands]);
+  const slashCommandsByName = useMemo(
+    () => new Map(slashCommands.map((command) => [command.name, command])),
+    [slashCommands]
+  );
+  const recentSlashCommands = useMemo(
+    () =>
+      recentSlashCommandNames
+        .map((name) => slashCommandsByName.get(name))
+        .filter((command): command is SlashCommand => Boolean(command)),
+    [recentSlashCommandNames, slashCommandsByName]
+  );
+  const quickSlashCommands = useMemo(() => {
+    const selected: SlashCommand[] = [];
+    const selectedNames = new Set<string>();
+
+    for (const command of recentSlashCommands) {
+      if (selectedNames.has(command.name)) {
+        continue;
+      }
+      selected.push(command);
+      selectedNames.add(command.name);
+      if (selected.length >= MAX_QUICK_SLASH_COMMANDS) {
+        return selected;
+      }
+    }
+
+    for (const command of slashCommands) {
+      if (selectedNames.has(command.name)) {
+        continue;
+      }
+      selected.push(command);
+      selectedNames.add(command.name);
+      if (selected.length >= MAX_QUICK_SLASH_COMMANDS) {
+        break;
+      }
+    }
+
+    return selected;
+  }, [recentSlashCommands, slashCommands]);
+  const remainingSlashCommands = useMemo(() => {
+    if (recentSlashCommands.length === 0) {
+      return slashCommands;
+    }
+    const recentNames = new Set(recentSlashCommands.map((command) => command.name));
+    return slashCommands.filter((command) => !recentNames.has(command.name));
+  }, [recentSlashCommands, slashCommands]);
+  const showSlashCommandBrowserAction =
+    slashCommands.length > quickSlashCommands.length;
 
   const mentionItems = useMemo(() => {
     const normalized = mentionQuery.trim().toLowerCase();
@@ -456,6 +694,40 @@ const ChatInputBase = ({
     setMentionIndex(0);
   }, [mentionOpen, mentionQuery, mentionItems.length]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== SLASH_COMMAND_RECENTS_STORAGE_KEY) {
+        return;
+      }
+      const next = parseRecentSlashCommandNames(event.newValue);
+      setRecentSlashCommandNames((prev) =>
+        areStringArraysEqual(prev, next) ? prev : next
+      );
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (recentSlashCommandNames.length === 0) {
+      window.localStorage.removeItem(SLASH_COMMAND_RECENTS_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      SLASH_COMMAND_RECENTS_STORAGE_KEY,
+      JSON.stringify(recentSlashCommandNames)
+    );
+  }, [recentSlashCommandNames]);
+
   const addMention = useCallback((path: string) => {
     setMentions((prev) => {
       if (prev.some((item) => item.path === path)) {
@@ -467,6 +739,12 @@ const ChatInputBase = ({
 
   const removeMention = useCallback((id: string) => {
     setMentions((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+  const rememberSlashCommand = useCallback((commandName: string) => {
+    setRecentSlashCommandNames((prev) => {
+      const next = [commandName, ...prev.filter((name) => name !== commandName)];
+      return next.slice(0, MAX_RECENT_SLASH_COMMANDS);
+    });
   }, []);
 
   const handleTextChange = useCallback(
@@ -517,6 +795,10 @@ const ChatInputBase = ({
 
   const handleTextKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (slashPopupRef.current?.handleKeyDown(event)) {
+        return;
+      }
+
       if (!mentionOpen) {
         return;
       }
@@ -591,38 +873,6 @@ const ChatInputBase = ({
       onSubmit={handleSubmitWithMentions}
     >
       <PromptInputHeader>
-        <PromptInputHoverCard>
-          <PromptInputHoverCardTrigger>
-            <PromptInputButton
-              className="h-8!"
-              size="icon-sm"
-              variant="outline"
-            >
-              <Command className="text-muted-foreground" size={12} />
-            </PromptInputButton>
-          </PromptInputHoverCardTrigger>
-          <PromptInputHoverCardContent className="w-100 p-0">
-            <PromptInputCommand>
-              <PromptInputCommandInput
-                className="border-none focus-visible:ring-0"
-                placeholder="Add files, folders, docs..."
-              />
-              <PromptInputCommandList>
-                <PromptInputCommandEmpty className="p-3 text-muted-foreground text-sm">
-                  No results found.
-                </PromptInputCommandEmpty>
-                {availableCommands.map((cmd) => (
-                  <SlashCommandMenuItem
-                    command={cmd}
-                    key={cmd.name}
-                    textareaRef={textareaRef}
-                  />
-                ))}
-              </PromptInputCommandList>
-            </PromptInputCommand>
-          </PromptInputHoverCardContent>
-        </PromptInputHoverCard>
-
         {mentions.length > 0 && (
           <div className="flex w-full flex-wrap items-center gap-2 px-2 py-1">
             {mentions.map((mention) => (
@@ -664,8 +914,31 @@ const ChatInputBase = ({
         <PromptInputTools>
           <PromptInputActionMenu>
             <PromptInputActionMenuTrigger />
-            <PromptInputActionMenuContent>
+            <PromptInputActionMenuContent
+              className="w-72 p-1"
+              onCloseAutoFocus={(event) => event.preventDefault()}
+            >
               <PromptInputActionAddAttachments />
+              {quickSlashCommands.length > 0 && <DropdownMenuSeparator />}
+              {quickSlashCommands.map((cmd) => (
+                <SlashCommandActionMenuItem
+                  command={cmd}
+                  key={cmd.name}
+                  onCommandApplied={rememberSlashCommand}
+                  textareaRef={textareaRef}
+                />
+              ))}
+              {showSlashCommandBrowserAction && (
+                <>
+                  <DropdownMenuSeparator />
+                  <PromptInputActionMenuItem
+                    onSelect={() => setSlashCommandPickerOpen(true)}
+                  >
+                    <SearchIcon className="size-4 text-muted-foreground" />
+                    Browse slash commands...
+                  </PromptInputActionMenuItem>
+                </>
+              )}
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
 
@@ -727,10 +1000,8 @@ const ChatInputBase = ({
                     className="h-8 w-50 justify-between"
                     variant="outline"
                   >
-                    {selectedModelData?.chefSlug && (
-                      <ModelSelectorLogo
-                        provider={selectedModelData.chefSlug}
-                      />
+                    {selectedModelData?.provider && (
+                      <ModelSelectorLogo provider={selectedModelData.provider} />
                     )}
                     {selectedModelData?.name && (
                       <ModelSelectorName>
@@ -744,23 +1015,22 @@ const ChatInputBase = ({
                   <ModelSelectorInput placeholder="Search models..." />
                   <ModelSelectorList>
                     <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                    {chefs.map((chef) => (
-                      <ModelSelectorGroup heading={chef} key={chef}>
-                        {modelsWithDetails
-                          .filter((model) => model.chef === chef)
-                          .map((model) => (
-                            <ModelSelectorItem
-                              key={model.id}
-                              onSelect={() => {
-                                onModelChange(model.id);
-                                setModelSelectorOpen(false);
-                              }}
-                              value={model.id}
-                            >
-                              <ModelSelectorLogo provider={model.chefSlug} />
-                              <ModelSelectorName>
-                                {model.name}
-                              </ModelSelectorName>
+                    {modelGroups.map(([groupLabel, models]) => (
+                      <ModelSelectorGroup heading={groupLabel} key={groupLabel}>
+                        {models.map((model) => (
+                          <ModelSelectorItem
+                            key={model.id}
+                            onSelect={() => {
+                              onModelChange(model.id);
+                              setModelSelectorOpen(false);
+                            }}
+                            value={model.id}
+                          >
+                            {model.provider && (
+                              <ModelSelectorLogo provider={model.provider} />
+                            )}
+                            <ModelSelectorName>{model.name}</ModelSelectorName>
+                            {model.providers.length > 0 && (
                               <ModelSelectorLogoGroup>
                                 {model.providers.map((provider) => (
                                   <ModelSelectorLogo
@@ -769,13 +1039,14 @@ const ChatInputBase = ({
                                   />
                                 ))}
                               </ModelSelectorLogoGroup>
-                              {currentModelId === model.id ? (
-                                <CheckIcon className="ml-auto size-4" />
-                              ) : (
-                                <div className="ml-auto size-4" />
-                              )}
-                            </ModelSelectorItem>
-                          ))}
+                            )}
+                            {currentModelId === model.id ? (
+                              <CheckIcon className="ml-auto size-4" />
+                            ) : (
+                              <div className="ml-auto size-4" />
+                            )}
+                          </ModelSelectorItem>
+                        ))}
                       </ModelSelectorGroup>
                     ))}
                   </ModelSelectorList>
@@ -789,6 +1060,71 @@ const ChatInputBase = ({
           status={status}
         />
       </PromptInputFooter>
+      {slashCommands.length > 0 && (
+        <SlashCommandInlinePopup
+          commands={slashCommands}
+          onCommandApplied={rememberSlashCommand}
+          popupRef={slashPopupRef}
+          textareaRef={textareaRef}
+        />
+      )}
+      {slashCommands.length > 0 && (
+        <CommandDialog
+          className="max-w-[calc(100%-2rem)] p-0 sm:max-w-xl"
+          description="Search and insert slash commands into the input"
+          onOpenChange={setSlashCommandPickerOpen}
+          open={slashCommandPickerOpen}
+          title="Slash Commands"
+        >
+          <PromptInputCommand className="w-full">
+            <PromptInputCommandInput
+              autoFocus
+              className="border-none focus-visible:ring-0"
+              placeholder="Search slash commands..."
+            />
+            <PromptInputCommandList className="max-h-[60vh]">
+              <PromptInputCommandEmpty className="p-3 text-muted-foreground text-sm">
+                No commands found.
+              </PromptInputCommandEmpty>
+              {recentSlashCommands.length > 0 && (
+                <>
+                  <PromptInputCommandGroup heading="Recent">
+                    {recentSlashCommands.map((command) => (
+                      <SlashCommandPaletteItem
+                        command={command}
+                        key={`recent:${command.name}`}
+                        onClose={() => setSlashCommandPickerOpen(false)}
+                        onCommandApplied={rememberSlashCommand}
+                        textareaRef={textareaRef}
+                      />
+                    ))}
+                  </PromptInputCommandGroup>
+                  {remainingSlashCommands.length > 0 && (
+                    <PromptInputCommandSeparator />
+                  )}
+                </>
+              )}
+              {remainingSlashCommands.length > 0 && (
+                <PromptInputCommandGroup
+                  heading={
+                    recentSlashCommands.length > 0 ? "All commands" : "Commands"
+                  }
+                >
+                  {remainingSlashCommands.map((command) => (
+                    <SlashCommandPaletteItem
+                      command={command}
+                      key={`all:${command.name}`}
+                      onClose={() => setSlashCommandPickerOpen(false)}
+                      onCommandApplied={rememberSlashCommand}
+                      textareaRef={textareaRef}
+                    />
+                  ))}
+                </PromptInputCommandGroup>
+              )}
+            </PromptInputCommandList>
+          </PromptInputCommand>
+        </CommandDialog>
+      )}
     </PromptInput>
   );
 

@@ -6,9 +6,7 @@ Sessions represent a specific conversation or thread between the [Client](./acp-
 
 Before creating a session, Clients **MUST** first complete the [initialization](./acp-initialization) phase to establish protocol compatibility and capabilities.
 
-<br />
-
-```mermaid  theme={null}
+```mermaid
 sequenceDiagram
     participant Client
     participant Agent
@@ -34,8 +32,6 @@ sequenceDiagram
     Note over Client,Agent: Ready for prompts
 ```
 
-<br />
-
 ## Creating a Session
 
 Clients create a new session by calling the `session/new` method with:
@@ -43,7 +39,7 @@ Clients create a new session by calling the `session/new` method with:
 * The [working directory](#working-directory) for the session
 * A list of [MCP servers](#mcp-servers) the Agent should connect to
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -64,7 +60,7 @@ Clients create a new session by calling the `session/new` method with:
 
 The Agent **MUST** respond with a unique [Session ID](#session-id) that identifies this conversation:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -82,7 +78,7 @@ Agents that support the `loadSession` capability allow Clients to resume previou
 
 Before attempting to load a session, Clients **MUST** verify that the Agent supports this capability by checking the `loadSession` field in the `initialize` response:
 
-```json highlight={7} theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 0,
@@ -105,7 +101,7 @@ To load an existing session, Clients **MUST** call the `session/load` method wit
 * [MCP servers](#mcp-servers) to connect to
 * The [working directory](#working-directory)
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -129,7 +125,7 @@ The Agent **MUST** replay the entire conversation to the Client in the form of `
 
 For example, a user message from the conversation history:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -148,7 +144,7 @@ For example, a user message from the conversation history:
 
 Followed by the agent's response:
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "method": "session/update",
@@ -167,7 +163,7 @@ Followed by the agent's response:
 
 When **all** the conversation entries have been streamed to the Client, the Agent **MUST** respond to the original `session/load` request.
 
-```json  theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -209,35 +205,16 @@ While they are not required to by the spec, new Agents **SHOULD** support the HT
 
 All Agents **MUST** support connecting to MCP servers via stdio (standard input/output). This is the default transport mechanism.
 
-<ParamField path="name" type="string" required>
-  A human-readable identifier for the server
-</ParamField>
-
-<ParamField path="command" type="string" required>
-  The absolute path to the MCP server executable
-</ParamField>
-
-<ParamField path="args" type="array" required>
-  Command-line arguments to pass to the server
-</ParamField>
-
-<ParamField path="env" type="EnvVariable[]">
-  Environment variables to set when launching the server
-
-  <Expandable title="EnvVariable">
-    <ParamField path="name" type="string">
-      The name of the environment variable.
-    </ParamField>
-
-    <ParamField path="value" type="string">
-      The value of the environment variable.
-    </ParamField>
-  </Expandable>
-</ParamField>
+- **`name`** (required `string`): A human-readable identifier for the server
+- **`command`** (required `string`): The absolute path to the MCP server executable
+- **`args`** (required `array`): Command-line arguments to pass to the server
+- **`env`** (`EnvVariable[]`): Environment variables to set when launching the server
+  - **`name`** (`string`): The name of the environment variable.
+  - **`value`** (`string`): The value of the environment variable.
 
 Example stdio transport configuration:
 
-```json  theme={null}
+```json
 {
   "name": "filesystem",
   "command": "/path/to/mcp-server",
@@ -255,35 +232,16 @@ Example stdio transport configuration:
 
 When the Agent supports `mcpCapabilities.http`, Clients can specify MCP servers configurations using the HTTP transport.
 
-<ParamField path="type" type="string" required>
-  Must be `"http"` to indicate HTTP transport
-</ParamField>
-
-<ParamField path="name" type="string" required>
-  A human-readable identifier for the server
-</ParamField>
-
-<ParamField path="url" type="string" required>
-  The URL of the MCP server
-</ParamField>
-
-<ParamField path="headers" type="HttpHeader[]" required>
-  HTTP headers to include in requests to the server
-
-  <Expandable title="HttpHeader">
-    <ParamField path="name" type="string">
-      The name of the HTTP header.
-    </ParamField>
-
-    <ParamField path="value" type="string">
-      The value to set for the HTTP header.
-    </ParamField>
-  </Expandable>
-</ParamField>
+- **`type`** (required `string`): Must be `"http"` to indicate HTTP transport
+- **`name`** (required `string`): A human-readable identifier for the server
+- **`url`** (required `string`): The URL of the MCP server
+- **`headers`** (required `HttpHeader[]`): HTTP headers to include in requests to the server
+  - **`name`** (`string`): The name of the HTTP header.
+  - **`value`** (`string`): The value to set for the HTTP header.
 
 Example HTTP transport configuration:
 
-```json  theme={null}
+```json
 {
   "type": "http",
   "name": "api-server",
@@ -305,37 +263,18 @@ Example HTTP transport configuration:
 
 When the Agent supports `mcpCapabilities.sse`, Clients can specify MCP servers configurations using the SSE transport.
 
-<Warning>This transport was deprecated by the MCP spec.</Warning>
+> ⚠️ **Warning:** This transport was deprecated by the MCP spec.
 
-<ParamField path="type" type="string" required>
-  Must be `"sse"` to indicate SSE transport
-</ParamField>
-
-<ParamField path="name" type="string" required>
-  A human-readable identifier for the server
-</ParamField>
-
-<ParamField path="url" type="string" required>
-  The URL of the SSE endpoint
-</ParamField>
-
-<ParamField path="headers" type="HttpHeader[]" required>
-  HTTP headers to include when establishing the SSE connection
-
-  <Expandable title="HttpHeader">
-    <ParamField path="name" type="string">
-      The name of the HTTP header.
-    </ParamField>
-
-    <ParamField path="value" type="string">
-      The value to set for the HTTP header.
-    </ParamField>
-  </Expandable>
-</ParamField>
+- **`type`** (required `string`): Must be `"sse"` to indicate SSE transport
+- **`name`** (required `string`): A human-readable identifier for the server
+- **`url`** (required `string`): The URL of the SSE endpoint
+- **`headers`** (required `HttpHeader[]`): HTTP headers to include when establishing the SSE connection
+  - **`name`** (`string`): The name of the HTTP header.
+  - **`value`** (`string`): The value to set for the HTTP header.
 
 Example SSE transport configuration:
 
-```json  theme={null}
+```json
 {
   "type": "sse",
   "name": "event-stream",
@@ -353,7 +292,7 @@ Example SSE transport configuration:
 
 Before using HTTP or SSE transports, Clients **MUST** verify the Agent's capabilities during initialization:
 
-```json highlight={7-10} theme={null}
+```json
 {
   "jsonrpc": "2.0",
   "id": 0,
@@ -375,7 +314,6 @@ If `mcpCapabilities.sse` is `false` or not present, the Agent does not support S
 Agents **SHOULD** connect to all MCP servers specified by the Client.
 
 Clients **MAY** use this ability to provide tools directly to the underlying language model by including their own MCP server.
-
 
 ---
 

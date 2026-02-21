@@ -48,18 +48,30 @@ export function createAiServices(
     inputPolicy: deps.sendMessagePolicy,
     clock: deps.clock,
   });
-  const setModelService = new SetModelService(sessionGateway, {
-    acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
-    acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
-  });
-  const setModeService = new SetModeService(sessionGateway, {
-    acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
-    acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
-  });
-  const setConfigOptionService = new SetConfigOptionService(sessionGateway, {
-    acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
-    acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
-  });
+  const setModelService = new SetModelService(
+    deps.sessionRuntime,
+    sessionGateway,
+    {
+      acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
+      acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
+    }
+  );
+  const setModeService = new SetModeService(
+    deps.sessionRuntime,
+    sessionGateway,
+    {
+      acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
+      acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
+    }
+  );
+  const setConfigOptionService = new SetConfigOptionService(
+    deps.sessionRuntime,
+    sessionGateway,
+    {
+      acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
+      acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
+    }
+  );
   const cancelPromptService = new CancelPromptService(
     deps.sessionRuntime,
     sessionGateway
