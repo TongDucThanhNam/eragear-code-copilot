@@ -81,6 +81,8 @@ export const envSchema = z.object({
   STORAGE_WORKER_REQUEST_TIMEOUT_MS: z.string().optional(),
   MESSAGE_CONTENT_MAX_BYTES: z.string().optional(),
   MESSAGE_PARTS_MAX_BYTES: z.string().optional(),
+  EDITOR_BUFFER_TTL_MS: z.string().optional(),
+  EDITOR_BUFFER_MAX_FILES_PER_SESSION: z.string().optional(),
   ACP_REQUEST_MAX_ATTEMPTS: z.string().optional(),
   ACP_REQUEST_RETRY_BASE_DELAY_MS: z.string().optional(),
   ACP_NDJSON_MAX_LINE_BYTES: z.string().optional(),

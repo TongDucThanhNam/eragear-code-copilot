@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { ENV } from "@/config/environment";
 import type { SessionRuntimePort } from "@/modules/session";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
@@ -53,6 +54,7 @@ describe("CodeContextService", () => {
   });
 
   test("reads project context and files for chat owner", async () => {
+    const projectRoot = process.cwd();
     const calls: string[] = [];
     const service = new CodeContextService(
       {
@@ -74,7 +76,7 @@ describe("CodeContextService", () => {
         },
       } as unknown as GitPort,
       {
-        get: () => createSession("user-1"),
+        get: () => createSession("user-1", projectRoot),
       } as unknown as SessionRuntimePort
     );
 
@@ -86,9 +88,9 @@ describe("CodeContextService", () => {
       service.getFileContent("user-1", "chat-1", "README.md")
     ).resolves.toEqual({ content: "content" });
     expect(calls).toEqual([
-      "context:/tmp/project",
-      "diff:/tmp/project",
-      "file:/tmp/project:README.md",
+      `context:${projectRoot}`,
+      `diff:${projectRoot}`,
+      `file:${projectRoot}:README.md`,
     ]);
   });
 
@@ -135,6 +137,54 @@ describe("CodeContextService", () => {
       });
       expect(session.editorTextBuffers?.size ?? 0).toBe(0);
     } finally {
+      await rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("returns dirty editor buffer content before on-disk content", async () => {
+    const originalTtl = ENV.editorBufferTtlMs;
+    const originalMaxFiles = ENV.editorBufferMaxFilesPerSession;
+    ENV.editorBufferTtlMs = 60_000;
+    ENV.editorBufferMaxFilesPerSession = 50;
+
+    const projectRoot = await mkdtemp(
+      path.join(os.tmpdir(), "eragear-tooling-content-")
+    );
+    const relativePath = "src/app.ts";
+    const absolutePath = path.join(projectRoot, relativePath);
+    await mkdir(path.dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, "on-disk", "utf8");
+
+    const session = createSession("user-1", projectRoot);
+    session.editorTextBuffers = new Map([
+      [absolutePath, { content: "unsaved-buffer", updatedAt: Date.now() }],
+    ]);
+
+    const service = new CodeContextService(
+      {
+        getProjectContext: async () => ({
+          projectRules: [],
+          activeTabs: [],
+          files: [],
+        }),
+        getDiff: async () => "",
+        readFileWithinRoot: async (_root: string, filePath: string) =>
+          await readFile(path.join(projectRoot, filePath), "utf8"),
+      } as unknown as GitPort,
+      {
+        get: () => session,
+        runExclusive: async (_chatId: string, work: () => Promise<unknown>) =>
+          await work(),
+      } as unknown as SessionRuntimePort
+    );
+
+    try {
+      await expect(
+        service.getFileContent("user-1", "chat-1", relativePath)
+      ).resolves.toEqual({ content: "unsaved-buffer" });
+    } finally {
+      ENV.editorBufferTtlMs = originalTtl;
+      ENV.editorBufferMaxFilesPerSession = originalMaxFiles;
       await rm(projectRoot, { recursive: true, force: true });
     }
   });

@@ -44,6 +44,7 @@ import {
   type StreamLifecycle,
 } from "./use-chat-connection.machine";
 import { useChatActions } from "./use-chat-actions";
+import { useChatDeltaRecovery } from "./use-chat-delta-recovery";
 import { useChatFallback } from "./use-chat-fallback";
 import { useChatHistory } from "./use-chat-history";
 import {
@@ -60,13 +61,9 @@ import {
   parseBroadcastEvent,
   shouldLogChatStreamDebug,
 } from "./use-chat-normalize";
+import { describeDeltaTarget, logChatStreamDebug } from "./use-chat-stream-debug";
 import type { UseChatOptions, UseChatResult } from "./use-chat.types";
-
 const INVALID_EVENT_TOAST_COOLDOWN_MS = 5000;
-
-// ============================================================================
-// Hook Implementation
-// ============================================================================
 export function useChat(options: UseChatOptions = {}): UseChatResult {
   const { chatId, readOnly = false, onFinish, onError } = options;
   const utils = trpc.useUtils();
@@ -307,6 +304,22 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     normalizeMessages,
     fetchHistoryPage: (input) => utils.getSessionMessagesPage.fetch(input),
   });
+  const { recoverMissingDelta, resetDeltaRecoveryState } = useChatDeltaRecovery({
+    readOnly,
+    activeChatIdRef,
+    messageStateRef,
+    updateMessageState,
+    upsertMessageIntoState,
+    normalizeMessage,
+    fetchMessageById: ({ chatId: targetChatId, messageId, signal }) =>
+      utils.getSessionMessageById.fetch(
+        { chatId: targetChatId, messageId },
+        { trpc: { signal } }
+      ),
+    reloadHistory: async () => {
+      await loadHistory(true);
+    },
+  });
   // Apply session state helper
   const restoreSessionState = useCallback((data: SessionStateData) => {
     applySessionState(data, {
@@ -364,6 +377,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     }
     resetPendingUserMessageFallbackState();
     resetHistoryState();
+    resetDeltaRecoveryState();
     setPendingPermission(null);
     setError(null);
     setModes(null);
@@ -392,6 +406,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     clearPendingDeltas,
     readOnly,
     resetHistoryState,
+    resetDeltaRecoveryState,
     resetPendingUserMessageFallbackState,
   ]);
 
@@ -462,29 +477,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const handleSessionEvent = useCallback(
     (event: BroadcastEvent) => {
       if (shouldLogChatStreamDebug()) {
-        if (event.type === "ui_message") {
-          console.debug("[Chat] Received ui_message", {
-            chatId: activeChatIdRef.current,
-            messageId: event.message.id,
-            partsCount: event.message.parts.length,
-            knownMessages: messageStateRef.current.order.length,
-          });
-        } else if (event.type === "ui_message_delta") {
-          const baseMessage = messageStateRef.current.byId.get(event.messageId);
-          const deltaTargetPart = baseMessage?.parts[event.partIndex];
-          const hasPart =
-            deltaTargetPart?.type === "text" ||
-            deltaTargetPart?.type === "reasoning";
-          console.debug("[Chat] Received ui_message_delta", {
-            chatId: activeChatIdRef.current,
-            messageId: event.messageId,
-            partIndex: event.partIndex,
-            deltaLength: event.delta.length,
-            hasBaseMessage: Boolean(baseMessage),
-            hasPart,
-            knownMessages: messageStateRef.current.order.length,
-          });
-        }
+        logChatStreamDebug({
+          event,
+          activeChatId: activeChatIdRef.current,
+          state: messageStateRef.current,
+        });
       }
       if (event.type === "ui_message") {
         clearPendingUserMessageFallback(event.message.id);
@@ -505,6 +502,18 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         setConnStatus("connected");
       }
       if (event.type === "ui_message_delta") {
+        const deltaTarget = describeDeltaTarget({
+          event,
+          state: messageStateRef.current,
+        });
+        if (!deltaTarget.baseMessage) {
+          recoverMissingDelta(event.messageId, "message_not_found");
+          return;
+        }
+        if (!deltaTarget.hasPart) {
+          recoverMissingDelta(event.messageId, "part_not_found");
+          return;
+        }
         enqueueDeltaChunk(event);
         return;
       }
@@ -593,6 +602,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       loadHistory,
       onFinish,
       onError,
+      recoverMissingDelta,
       updateMessageState,
     ]
   );

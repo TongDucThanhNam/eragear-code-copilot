@@ -7,6 +7,7 @@ Endpoints:
 - code.getProjectContext
 - code.getGitDiff
 - code.getFileContent
+- code.syncEditorBuffer
 
 Plan:
 1) Entry points
@@ -20,6 +21,8 @@ Plan:
    - Context view: show rules, open tabs, and file tree lists (read-only).
    - Diff view: plain-text diff with copy action (no editing).
    - File view: syntax-highlighted text with "Copy" + "Send to chat".
+   - If native adds editable file buffers later, sync dirty content via
+     `code.syncEditorBuffer` (set `isDirty=false` on close/save).
 4) Composer integration
    - Offer "Send to chat" buttons that add resources via `sendMessage`.
    - Use `resources` for small text, `resourceLinks` for larger files.

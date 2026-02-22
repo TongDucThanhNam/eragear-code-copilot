@@ -9,6 +9,7 @@
 
 import type { SessionRuntimePort } from "@/modules/session";
 import { NotFoundError } from "@/shared/errors";
+import { pruneEditorTextBuffers } from "@/shared/utils/editor-buffer.util";
 import { resolvePathWithinRoot } from "@/shared/utils/path-within-root.util";
 import type { GitPort } from "./ports/git.port";
 
@@ -102,6 +103,15 @@ export class CodeContextService {
         details: { chatId, path },
       });
     }
+    const { canonicalTargetPath } = await resolvePathWithinRoot({
+      rootPath: session.projectRoot,
+      inputPath: path,
+    });
+    pruneEditorTextBuffers(session);
+    const dirtyBuffer = session.editorTextBuffers?.get(canonicalTargetPath);
+    if (dirtyBuffer) {
+      return { content: dirtyBuffer.content };
+    }
     const content = await this.git.readFileWithinRoot(
       session.projectRoot,
       path
@@ -130,6 +140,7 @@ export class CodeContextService {
         });
       }
 
+      pruneEditorTextBuffers(session);
       const { canonicalTargetPath } = await resolvePathWithinRoot({
         rootPath: session.projectRoot,
         inputPath: params.path,
@@ -145,6 +156,7 @@ export class CodeContextService {
         content: params.content ?? "",
         updatedAt: Date.now(),
       });
+      pruneEditorTextBuffers(session);
     });
     return { ok: true };
   }

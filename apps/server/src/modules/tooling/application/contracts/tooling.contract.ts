@@ -22,6 +22,7 @@ export const SyncEditorBufferInputSchema = z
     isDirty: z.boolean(),
     content: z.string().optional(),
   })
+  .strict()
   .superRefine((value, ctx) => {
     if (value.isDirty && value.content === undefined) {
       ctx.addIssue({

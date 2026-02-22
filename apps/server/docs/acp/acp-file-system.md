@@ -92,6 +92,12 @@ The Client responds with an empty result on success:
 }
 ```
 
+## Implementation Notes (EraGear)
+
+- Unsaved editor state is synchronized via `code.syncEditorBuffer` and stored per session as canonical absolute paths.
+- `fs/read_text_file` prefers synchronized editor buffers over on-disk content.
+- `fs/write_text_file` emits a `file_modified` broadcast event so connected clients can refresh workspace state.
+
 ---
 
 > To find navigation and other pages in this documentation, fetch the llms.txt file at: https://agentclientprotocol.com/llms.txt

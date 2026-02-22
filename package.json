@@ -24,6 +24,7 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "check-types": "turbo check-types",
+    "audit:blockers": "bun run --cwd apps/server test:blockers && bun test packages/shared/src/chat/use-chat-core.test.ts && bun run --cwd apps/web check-types && bun run --cwd apps/web test:blockers",
     "dev:native": "turbo -F native dev",
     "dev:web": "turbo -F web dev",
     "dev:server": "turbo -F server dev",

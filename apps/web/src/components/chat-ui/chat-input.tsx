@@ -72,6 +72,7 @@ import { MovingBorder } from "@/components/ui/moving-border";
 import { ATTACHMENT_HARD_LIMIT_BYTES } from "@/config/attachments";
 import { cn } from "@/lib/utils";
 import { useFileStore } from "@/store/file-store";
+import { resolvePromptInputSubmitStatus } from "./chat-input-submit-status";
 import {
   SlashCommandPopup,
   type SlashCommand,
@@ -863,6 +864,10 @@ const ChatInputBase = ({
   );
 
   const isStreaming = status === "streaming";
+  const submitStatus = resolvePromptInputSubmitStatus({
+    connStatus,
+    status,
+  });
 
   const promptInputContent = (
     <PromptInput
@@ -1057,7 +1062,7 @@ const ChatInputBase = ({
         <PromptInputSubmit
           disabled={connStatus !== "connected"}
           onStop={onCancel}
-          status={status}
+          status={submitStatus}
         />
       </PromptInputFooter>
       {slashCommands.length > 0 && (

@@ -10,6 +10,7 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatInput } from "@/components/chat-ui/chat-input";
 import { ChatPlanDock } from "@/components/chat-ui/chat-plan-dock";
+import { resolveSessionBootstrapPhase } from "@/components/chat-ui/chat-bootstrap-phase";
 import { ChatMessages } from "@/components/chat-ui/chat-messages";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
@@ -121,8 +122,6 @@ export function ChatInterface({
   const [isQuickSwitchOpen, setIsQuickSwitchOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatIdRef = useRef<string | null>(chatId);
-  const bootstrapPendingChatIdRef = useRef<string | null>(null);
-  const bootstrapSawConnectingRef = useRef(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const handledPermissionIdRef = useRef<string | null>(null);
   const lastPermissionIdRef = useRef<string | null>(null);
@@ -747,18 +746,6 @@ export function ChatInterface({
   }, [connStatus, isStreaming, setIsStreamingStatus]);
 
   useEffect(() => {
-    if (!chatId || sessionBootstrapPhase !== "initializing_agent") {
-      bootstrapPendingChatIdRef.current = null;
-      bootstrapSawConnectingRef.current = false;
-      return;
-    }
-    if (bootstrapPendingChatIdRef.current !== chatId) {
-      bootstrapPendingChatIdRef.current = chatId;
-      bootstrapSawConnectingRef.current = false;
-    }
-  }, [chatId, sessionBootstrapPhase]);
-
-  useEffect(() => {
     if (projectContext?.files) {
       setFiles(projectContext.files);
     }
@@ -768,36 +755,21 @@ export function ChatInterface({
     if (!chatId) {
       return;
     }
-    if (sessionBootstrapPhase === "creating_session") {
-      return;
+    const phaseResolution = resolveSessionBootstrapPhase({
+      phase: sessionBootstrapPhase,
+      connStatus,
+      hasMessages: messageCount > 0,
+    });
+    if (phaseResolution !== sessionBootstrapPhase) {
+      setSessionBootstrapPhase(phaseResolution);
     }
-    if (connStatus === "connecting") {
-      bootstrapSawConnectingRef.current = true;
-      if (
-        sessionBootstrapPhase !== "initializing_agent" &&
-        sessionBootstrapPhase !== "restoring_history"
-      ) {
-        setSessionBootstrapPhase("restoring_history");
-      }
-      return;
-    }
-    if (connStatus === "connected") {
-      if (sessionBootstrapPhase === "initializing_agent") {
-        const isPendingBootstrapChat =
-          bootstrapPendingChatIdRef.current === chatId;
-        if (isPendingBootstrapChat && !bootstrapSawConnectingRef.current) {
-          return;
-        }
-      }
-      if (sessionBootstrapPhase !== "idle") {
-        setSessionBootstrapPhase("idle");
-      }
-      return;
-    }
-    if (connStatus === "error" && sessionBootstrapPhase !== "idle") {
-      setSessionBootstrapPhase("idle");
-    }
-  }, [chatId, connStatus, sessionBootstrapPhase, setSessionBootstrapPhase]);
+  }, [
+    chatId,
+    connStatus,
+    messageCount,
+    sessionBootstrapPhase,
+    setSessionBootstrapPhase,
+  ]);
 
   const effectiveBootstrapPhase: SessionBootstrapPhase =
     createSessionMutation.isPending && sessionBootstrapPhase === "idle"
@@ -819,13 +791,15 @@ export function ChatInterface({
           status === "connecting"
         ? "ACP agent initializing..."
         : "Restoring history...";
+  const shouldShowPendingConnectionOverlay =
+    (connStatus === "connecting" || status === "connecting") &&
+    messageCount === 0;
   const shouldShowConnectionOverlay =
     createSessionMutation.isPending ||
     effectiveBootstrapPhase === "creating_session" ||
     effectiveBootstrapPhase === "initializing_agent" ||
     effectiveBootstrapPhase === "restoring_history" ||
-    connStatus === "connecting" ||
-    status === "connecting";
+    shouldShowPendingConnectionOverlay;
   const shouldShowDiagnosticEmptyState =
     Boolean(chatId) &&
     messageCount === 0 &&

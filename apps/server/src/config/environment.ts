@@ -32,6 +32,8 @@ import {
   DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_BACKGROUND_TASK_TIMEOUT_MS,
   DEFAULT_BACKGROUND_TICK_MS,
+  DEFAULT_EDITOR_BUFFER_MAX_FILES_PER_SESSION,
+  DEFAULT_EDITOR_BUFFER_TTL_MS,
   DEFAULT_HTTP_MAX_BODY_BYTES,
   DEFAULT_LOG_BUFFER_LIMIT,
   DEFAULT_LOG_FLUSH_INTERVAL_MS,
@@ -582,6 +584,16 @@ export const ENV = {
   messagePartsMaxBytes: toPositiveInt(
     env.MESSAGE_PARTS_MAX_BYTES,
     DEFAULT_MESSAGE_PARTS_MAX_BYTES
+  ),
+  /** Maximum age for unsaved editor buffers before eviction */
+  editorBufferTtlMs: toPositiveInt(
+    env.EDITOR_BUFFER_TTL_MS,
+    DEFAULT_EDITOR_BUFFER_TTL_MS
+  ),
+  /** Maximum dirty editor files retained per session */
+  editorBufferMaxFilesPerSession: toPositiveInt(
+    env.EDITOR_BUFFER_MAX_FILES_PER_SESSION,
+    DEFAULT_EDITOR_BUFFER_MAX_FILES_PER_SESSION
   ),
   /** Max attempts for ACP requests on transient transport-not-ready errors */
   acpRequestMaxAttempts: toPositiveInt(

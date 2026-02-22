@@ -40,6 +40,7 @@ export async function readTextFileLineWindow(params: {
   filePath: string;
   line?: number;
   limit?: number;
+  maxBytes?: number;
 }): Promise<string> {
   const startLine = Math.max((params.line ?? 1) - 1, 0);
   if (params.limit !== undefined && params.limit <= 0) {
@@ -47,6 +48,7 @@ export async function readTextFileLineWindow(params: {
   }
   const normalizedLimit =
     params.limit === undefined ? undefined : Math.trunc(params.limit);
+  const maxBytes = params.maxBytes ?? ENV.messageContentMaxBytes;
 
   const input = createReadStream(params.filePath, { encoding: "utf8" });
   const lineReader = createInterface({
@@ -55,11 +57,22 @@ export async function readTextFileLineWindow(params: {
   });
   const lines: string[] = [];
   let currentLine = 0;
+  let totalBytes = 0;
 
   try {
     for await (const line of lineReader) {
       if (currentLine >= startLine) {
+        const lineBytes = Buffer.byteLength(line, "utf8");
+        const separatorBytes = lines.length > 0 ? 1 : 0;
+        const nextBytes = totalBytes + separatorBytes + lineBytes;
+        if (nextBytes > maxBytes) {
+          throw RequestError.invalidParams(
+            { filePath: params.filePath, maxBytes },
+            "Requested line window exceeds maximum response size."
+          );
+        }
         lines.push(line);
+        totalBytes = nextBytes;
         if (
           normalizedLimit !== undefined &&
           lines.length >= normalizedLimit

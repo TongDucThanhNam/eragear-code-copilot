@@ -14,6 +14,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session";
 import { createLogger } from "@/platform/logging/structured-logger";
+import { pruneEditorTextBuffers } from "@/shared/utils/editor-buffer.util";
 import {
   compileCommandPolicies,
   filterEnvAllowlist,
@@ -64,6 +65,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     params: acp.ReadTextFileRequest
   ): Promise<acp.ReadTextFileResponse> {
     const session = getSessionOrThrow(sessionRuntime, chatId);
+    pruneEditorTextBuffers(session);
     const requestPath = requireString(params.path, "path");
     const filePath = await resolvePathInSession(session, requestPath);
     const line = params.line ?? undefined;
@@ -88,12 +90,22 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
             "File content exceeds full-read limit; provide line/limit."
           );
         }
+        const slicedContent = sliceTextByLineWindow({
+          text: dirtyBufferContent,
+          line,
+          limit,
+        });
+        if (Buffer.byteLength(slicedContent, "utf8") > fullReadLimitBytes) {
+          throw RequestError.invalidParams(
+            {
+              path: requestPath,
+              maxBytes: fullReadLimitBytes,
+            },
+            "Requested line window exceeds maximum response size."
+          );
+        }
         return {
-          content: sliceTextByLineWindow({
-            text: dirtyBufferContent,
-            line,
-            limit,
-          }),
+          content: slicedContent,
         };
       }
 
@@ -103,6 +115,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
             filePath,
             line,
             limit,
+            maxBytes: fullReadLimitBytes,
           }),
         };
       }
@@ -139,6 +152,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     params: acp.WriteTextFileRequest
   ): Promise<acp.WriteTextFileResponse> {
     const session = getSessionOrThrow(sessionRuntime, chatId);
+    pruneEditorTextBuffers(session);
     const requestPath = requireString(params.path, "path");
     const content = requireString(params.content, "content", {
       allowEmpty: true,

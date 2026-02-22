@@ -407,6 +407,23 @@ describe("createToolCallHandlers", () => {
     expect(result.content).toBe("line-101\nline-102\nline-103");
   });
 
+  test("rejects oversized line-window output", async () => {
+    ENV.messageContentMaxBytes = 4;
+    const session = createSession("chat-line-window-cap", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+    await writeFile(path.join(tmpDir, "window-cap.txt"), "abc\ndef", "utf8");
+
+    await expect(
+      handlers.readTextFileForChat(session.id, {
+        sessionId: session.id,
+        path: "window-cap.txt",
+        line: 1,
+        limit: 2,
+      })
+    ).rejects.toThrow(/maximum response size/i);
+  });
+
   test("prefers dirty editor buffer over disk content for reads", async () => {
     const session = createSession("chat-dirty-buffer", tmpDir);
     const runtime = createRuntime(session);
@@ -425,6 +442,27 @@ describe("createToolCallHandlers", () => {
     });
 
     expect(result.content).toBe("buffer");
+  });
+
+  test("rejects oversized line-window output from dirty editor buffer", async () => {
+    ENV.messageContentMaxBytes = 4;
+    const session = createSession("chat-dirty-buffer-cap", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+    const filePath = path.join(tmpDir, "dirty-cap.txt");
+    await writeFile(filePath, "disk", "utf8");
+    session.editorTextBuffers = new Map([
+      [filePath, { content: "abc\ndef", updatedAt: Date.now() }],
+    ]);
+
+    await expect(
+      handlers.readTextFileForChat(session.id, {
+        sessionId: session.id,
+        path: "dirty-cap.txt",
+        line: 1,
+        limit: 2,
+      })
+    ).rejects.toThrow(/maximum response size/i);
   });
 
   test("creates missing parent directories and broadcasts file_modified", async () => {

@@ -136,6 +136,10 @@ export const DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_MESSAGE_CONTENT_MAX_BYTES = 2 * 1024 * 1024;
 /** Maximum allowed bytes for serialized message parts payload */
 export const DEFAULT_MESSAGE_PARTS_MAX_BYTES = 4 * 1024 * 1024;
+/** Maximum age for unsaved editor buffers before they are evicted */
+export const DEFAULT_EDITOR_BUFFER_TTL_MS = 10 * 60 * 1000;
+/** Maximum dirty editor buffers retained per session */
+export const DEFAULT_EDITOR_BUFFER_MAX_FILES_PER_SESSION = 200;
 /** Default interval for storage maintenance background task */
 export const DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
 /** Default runtime log level for structured and request logs */
