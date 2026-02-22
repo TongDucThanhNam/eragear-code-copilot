@@ -43,6 +43,13 @@
       "when": 1771800000000,
       "tag": "0005_session_event_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1771745893888,
+      "tag": "0006_kind_hannibal_king",
+      "breakpoints": true
     }
   ]
 }

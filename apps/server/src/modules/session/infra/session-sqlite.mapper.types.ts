@@ -11,6 +11,7 @@ export type SessionListRow = Pick<
   SessionRow,
   | "id"
   | "userId"
+  | "agentId"
   | "name"
   | "sessionId"
   | "projectId"
@@ -30,7 +31,9 @@ export type SessionListRow = Pick<
   | "planJson"
   | "agentCapabilitiesJson"
   | "authMethodsJson"
->;
+> & {
+  agentName: string | null;
+};
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return isRecordValue(value);

@@ -73,6 +73,9 @@ export const sessions = sqliteTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id"),
+    agentId: text("agent_id").references(() => agents.id, {
+      onDelete: "set null",
+    }),
     name: text("name"),
     sessionId: text("session_id"),
     projectId: text("project_id").references(() => projects.id, {

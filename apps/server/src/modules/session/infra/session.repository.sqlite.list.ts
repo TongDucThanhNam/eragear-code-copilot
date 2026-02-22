@@ -54,6 +54,8 @@ function createSessionListSelect(db: SqliteOrm) {
     .select({
       id: sqliteSchema.sessions.id,
       userId: sqliteSchema.sessions.userId,
+      agentId: sqliteSchema.sessions.agentId,
+      agentName: sqliteSchema.agents.name,
       name: sqliteSchema.sessions.name,
       sessionId: sqliteSchema.sessions.sessionId,
       projectId: sqliteSchema.sessions.projectId,
@@ -75,6 +77,10 @@ function createSessionListSelect(db: SqliteOrm) {
       authMethodsJson: sqliteSchema.sessions.authMethodsJson,
     })
     .from(sqliteSchema.sessions)
+    .leftJoin(
+      sqliteSchema.agents,
+      eq(sqliteSchema.sessions.agentId, sqliteSchema.agents.id)
+    )
     .orderBy(
       desc(sqliteSchema.sessions.lastActiveAt),
       desc(sqliteSchema.sessions.id)

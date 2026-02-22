@@ -1,17 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import { resolveSessionBootstrapPhase } from "@/components/chat-ui/chat-bootstrap-phase";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatInput } from "@/components/chat-ui/chat-input";
-import { ChatPlanDock } from "@/components/chat-ui/chat-plan-dock";
-import { resolveSessionBootstrapPhase } from "@/components/chat-ui/chat-bootstrap-phase";
 import { ChatMessages } from "@/components/chat-ui/chat-messages";
+import { ChatPlanDock } from "@/components/chat-ui/chat-plan-dock";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import { Button } from "@/components/ui/button";
@@ -161,9 +155,18 @@ export function ChatInterface({
     },
   });
   const messageCount = useChatMessageCount(chatId);
+  const selectedSession = useMemo(() => {
+    if (!(chatId && sessionsData)) return undefined;
+    return sessionsData.find((session: any) => session.id === chatId);
+  }, [chatId, sessionsData]);
+
   const agentDisplay = useMemo(() => {
-    const selectedAgent = agentModels.find((agent) => agent.id === activeAgentId);
+    const selectedAgent = agentModels.find(
+      (agent) => agent.id === activeAgentId
+    );
     const sessionLabel = sessionAgentInfo?.title ?? sessionAgentInfo?.name;
+
+    // 1. If agent sent live metadata, use it as highest priority
     if (sessionAgentInfo && sessionLabel) {
       return {
         name: sessionLabel,
@@ -171,17 +174,26 @@ export function ChatInterface({
         version: sessionAgentInfo.version,
       };
     }
-    if (selectedAgent?.name) {
+    // 2. Fallback to the saved agent name retrieved from database join
+    if (selectedSession && (selectedSession as any).agentName) {
+      return {
+        name: (selectedSession as any).agentName,
+        source: "session" as const,
+      };
+    }
+    // 3. Fallback to active agent ONLY if not viewing an existing session
+    if (selectedAgent?.name && !chatId) {
       return {
         name: selectedAgent.name,
         source: "selected" as const,
       };
     }
+
     return {
       name: "No Agent",
       source: "fallback" as const,
     };
-  }, [activeAgentId, agentModels, sessionAgentInfo]);
+  }, [activeAgentId, agentModels, sessionAgentInfo, selectedSession, chatId]);
 
   // Derived state for UI
   const availableModes = useMemo(() => {
@@ -378,7 +390,9 @@ export function ChatInterface({
       return tokens.some((token) => rejectKeywords.has(token));
     };
     const rejectOption = list.find((option) => {
-      const kind = String(option.kind ?? "").trim().toLowerCase();
+      const kind = String(option.kind ?? "")
+        .trim()
+        .toLowerCase();
       if (kind.startsWith("reject_")) {
         return true;
       }
@@ -451,9 +465,7 @@ export function ChatInterface({
   const initChat = useCallback(
     async (agentId?: string) => {
       const targetId = agentId || activeAgentId;
-      const agent = agentModels.find(
-        (a: { id: string }) => a.id === targetId
-      );
+      const agent = agentModels.find((a: { id: string }) => a.id === targetId);
       const currentProject = useProjectStore.getState().getActiveProject();
 
       if (!agent) {
@@ -875,8 +887,8 @@ export function ChatInterface({
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <ChatMessagesPane
-          chatId={chatId}
           canLoadOlder={hasMoreHistory}
+          chatId={chatId}
           isLoadingOlder={isLoadingOlderHistory}
           onLoadOlder={handleLoadOlderHistory}
         />

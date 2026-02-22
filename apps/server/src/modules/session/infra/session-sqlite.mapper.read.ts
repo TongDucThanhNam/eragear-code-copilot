@@ -87,6 +87,7 @@ export class SessionSqliteReadMapper {
       id: row.id,
       userId,
       name: row.name ?? undefined,
+      agentName: row.agentName ?? undefined,
       sessionId: row.sessionId ?? undefined,
       projectId: row.projectId ?? undefined,
       projectRoot,

@@ -32,6 +32,7 @@ export class SessionMetadataPersistenceService {
 
     const commonSessionData = {
       projectId: params.projectId ?? chatSession.projectId,
+      agentId: params.agentId,
       projectRoot,
       command: agentCommand,
       args: agentArgs,
