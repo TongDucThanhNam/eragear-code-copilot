@@ -5,6 +5,7 @@ import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import type { BootstrapSessionConnectionService } from "./bootstrap-session-connection.service";
 import { CreateSessionService } from "./create-session.service";
 import type { PersistSessionBootstrapService } from "./persist-session-bootstrap.service";
+import type { SessionAgentResolverService } from "./session-agent-resolver.service";
 import type { SessionProjectContextResolverService } from "./session-project-context-resolver.service";
 import type { SpawnSessionProcessService } from "./spawn-session-process.service";
 
@@ -42,7 +43,7 @@ function createChatSession(chatId: string, userId: string): ChatSession {
 describe("CreateSessionService", () => {
   test("resolves project context and delegates with default opencode args", async () => {
     const chatSession = createChatSession("chat-1", "user-1");
-    const resolverCalls: Array<{
+    const projectResolverCalls: Array<{
       userId: string;
       projectId?: string;
       projectRoot?: string;
@@ -50,6 +51,7 @@ describe("CreateSessionService", () => {
     const spawnCalls: Record<string, unknown>[] = [];
     const bootstrapCalls: Record<string, unknown>[] = [];
     const persistCalls: Record<string, unknown>[] = [];
+    const agentResolverCalls: Record<string, unknown>[] = [];
     const proc = {} as ChatSession["proc"];
 
     const projectContextResolver = {
@@ -58,7 +60,7 @@ describe("CreateSessionService", () => {
         projectId?: string;
         projectRoot?: string;
       }) => {
-        resolverCalls.push(input);
+        projectResolverCalls.push(input);
         return Promise.resolve({
           projectId: "project-1",
           projectRoot: "/resolved/project",
@@ -72,6 +74,16 @@ describe("CreateSessionService", () => {
         return proc;
       },
     } as unknown as SpawnSessionProcessService;
+
+    const sessionAgentResolver = {
+      resolve: (input: Record<string, unknown>) => {
+        agentResolverCalls.push(input);
+        return Promise.resolve({
+          agentId: "agent-1",
+          command: "opencode",
+        });
+      },
+    } as unknown as SessionAgentResolverService;
 
     const bootstrapSessionConnection = {
       execute: (input: Record<string, unknown>) => {
@@ -89,6 +101,7 @@ describe("CreateSessionService", () => {
 
     const service = new CreateSessionService(
       projectContextResolver,
+      sessionAgentResolver,
       spawnSessionProcess,
       bootstrapSessionConnection,
       persistSessionBootstrap,
@@ -103,7 +116,7 @@ describe("CreateSessionService", () => {
     const result = await service.execute(params);
 
     expect(result).toBe(chatSession);
-    expect(resolverCalls).toEqual([
+    expect(projectResolverCalls).toEqual([
       {
         userId: "user-1",
         projectId: undefined,
@@ -111,6 +124,13 @@ describe("CreateSessionService", () => {
       },
     ]);
     expect(spawnCalls).toHaveLength(1);
+    expect(agentResolverCalls).toEqual([
+      {
+        userId: "user-1",
+        projectId: "project-1",
+        agentId: undefined,
+      },
+    ]);
     expect(spawnCalls[0]).toMatchObject({
       projectRoot: "/resolved/project",
       agentCommand: "opencode",
@@ -140,6 +160,7 @@ describe("CreateSessionService", () => {
   test("uses empty args for non-opencode command when args are omitted", async () => {
     const chatSession = createChatSession("chat-2", "user-1");
     const spawnCalls: Record<string, unknown>[] = [];
+    const resolverCalls: Record<string, unknown>[] = [];
 
     const projectContextResolver = {
       resolve: async () => ({ projectId: "project-2", projectRoot: "/repo" }),
@@ -152,8 +173,21 @@ describe("CreateSessionService", () => {
       },
     } as unknown as SpawnSessionProcessService;
 
+    const sessionAgentResolver = {
+      resolve: (input: Record<string, unknown>) => {
+        resolverCalls.push(input);
+        return Promise.resolve({
+          agentId: "agent-2",
+          command: "codex",
+          args: [],
+          env: { MODE: "strict" },
+        });
+      },
+    } as unknown as SessionAgentResolverService;
+
     const service = new CreateSessionService(
       projectContextResolver,
+      sessionAgentResolver,
       spawnSessionProcess,
       {
         execute: async () => ({ chatSession }),
@@ -168,10 +202,16 @@ describe("CreateSessionService", () => {
       userId: "user-1",
       chatId: "chat-2",
       projectRoot: "/repo",
-      command: "codex",
-      env: { MODE: "strict" },
+      agentId: "agent-2",
     });
 
+    expect(resolverCalls).toEqual([
+      {
+        userId: "user-1",
+        projectId: "project-2",
+        agentId: "agent-2",
+      },
+    ]);
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]).toMatchObject({
       agentCommand: "codex",
@@ -194,6 +234,14 @@ describe("CreateSessionService", () => {
           projectRoot: "/repo",
         }),
       } as unknown as SessionProjectContextResolverService,
+      {
+        resolve: async () => ({
+          agentId: "agent-3",
+          command: "opencode",
+          args: [],
+          env: {},
+        }),
+      } as unknown as SessionAgentResolverService,
       {
         execute: () => proc,
       } as unknown as SpawnSessionProcessService,
@@ -226,5 +274,101 @@ describe("CreateSessionService", () => {
         forceWindowsTreeTermination: true,
       },
     ]);
+  });
+
+  test("uses trusted command overrides for internal resume flow", async () => {
+    const chatSession = createChatSession("chat-4", "user-1");
+    const spawnCalls: Record<string, unknown>[] = [];
+    let resolverCallCount = 0;
+
+    const service = new CreateSessionService(
+      {
+        resolve: async () => ({
+          projectId: "project-4",
+          projectRoot: "/repo",
+        }),
+      } as unknown as SessionProjectContextResolverService,
+      {
+        resolve: async () => {
+          resolverCallCount += 1;
+          return {
+            agentId: "agent-x",
+            command: "opencode",
+            args: ["acp"],
+            env: {},
+          };
+        },
+      } as unknown as SessionAgentResolverService,
+      {
+        execute: (input: Record<string, unknown>) => {
+          spawnCalls.push(input);
+          return {} as ChatSession["proc"];
+        },
+      } as unknown as SpawnSessionProcessService,
+      {
+        execute: async () => ({ chatSession }),
+      } as unknown as BootstrapSessionConnectionService,
+      {
+        execute: async () => undefined,
+      } as unknown as PersistSessionBootstrapService,
+      createLoggerStub()
+    );
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-4",
+      projectId: "project-4",
+      command: "/usr/bin/codex",
+      args: ["--json"],
+      env: { CI: "1" },
+      sessionIdToLoad: "session-1",
+    });
+
+    expect(resolverCallCount).toBe(0);
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]).toMatchObject({
+      agentCommand: "/usr/bin/codex",
+      agentArgs: ["--json"],
+      agentEnv: { CI: "1" },
+    });
+  });
+
+  test("fails fast when resolved agent command is empty", async () => {
+    const service = new CreateSessionService(
+      {
+        resolve: async () => ({
+          projectId: "project-empty-command",
+          projectRoot: "/repo",
+        }),
+      } as unknown as SessionProjectContextResolverService,
+      {
+        resolve: async () => ({
+          agentId: "agent-empty-command",
+          command: " ",
+          args: ["acp"],
+          env: {},
+        }),
+      } as unknown as SessionAgentResolverService,
+      {
+        execute: () => ({}) as ChatSession["proc"],
+      } as unknown as SpawnSessionProcessService,
+      {
+        execute: async () => ({ chatSession: createChatSession("chat-5", "user-1") }),
+      } as unknown as BootstrapSessionConnectionService,
+      {
+        execute: async () => undefined,
+      } as unknown as PersistSessionBootstrapService,
+      createLoggerStub()
+    );
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        projectId: "project-empty-command",
+      })
+    ).rejects.toMatchObject({
+      name: "ValidationError",
+      code: "VALIDATION_ERROR",
+    });
   });
 });

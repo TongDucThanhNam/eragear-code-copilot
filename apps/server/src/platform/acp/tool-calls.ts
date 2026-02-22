@@ -8,7 +8,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
@@ -21,6 +21,7 @@ import {
 } from "@/shared/utils/allowlist.util";
 import { createId } from "@/shared/utils/id.util";
 import { isNodeErrno } from "@/shared/utils/node-error.util";
+import { toPortableRelativePath } from "@/shared/utils/path-within-root.util";
 import { normalizeTimeoutMs } from "@/shared/utils/timeout.util";
 import { ENV } from "../../config/environment";
 import type { TerminalState } from "../../shared/types/session.types";
@@ -30,10 +31,12 @@ import {
   getSessionOrThrow,
   getTerminalOrThrow,
   isPosixRuntime,
-  LINE_SPLITTER_REGEX,
+  readTextFileLineWindow,
   requireString,
   resolveOutputLimit,
   resolvePathInSession,
+  resolveSessionRootPath,
+  sliceTextByLineWindow,
   shouldSkipTimedTermination,
   terminateTerminalProcess,
 } from "./tool-calls.helpers";
@@ -63,22 +66,59 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     const session = getSessionOrThrow(sessionRuntime, chatId);
     const requestPath = requireString(params.path, "path");
     const filePath = await resolvePathInSession(session, requestPath);
+    const line = params.line ?? undefined;
+    const limit = params.limit ?? undefined;
+    const fullReadLimitBytes = ENV.messageContentMaxBytes;
     try {
-      const text = await readFile(filePath, "utf8");
-      const line = params.line ?? undefined;
-      const limit = params.limit ?? undefined;
-
-      // Handle line/limit slicing if requested
-      if (line !== undefined || limit !== undefined) {
-        const startLine = Math.max((line ?? 1) - 1, 0);
-        if (limit !== undefined && limit <= 0) {
-          return { content: "" };
+      const dirtyBufferContent = session.editorTextBuffers
+        ?.get(filePath)
+        ?.content;
+      if (dirtyBufferContent !== undefined) {
+        if (
+          line === undefined &&
+          limit === undefined &&
+          Buffer.byteLength(dirtyBufferContent, "utf8") >
+            fullReadLimitBytes
+        ) {
+          throw RequestError.invalidParams(
+            {
+              path: requestPath,
+              maxBytes: fullReadLimitBytes,
+            },
+            "File content exceeds full-read limit; provide line/limit."
+          );
         }
-        const lines = text.split(LINE_SPLITTER_REGEX);
-        const endLine = limit ? startLine + limit : undefined;
-        return { content: lines.slice(startLine, endLine).join("\n") };
+        return {
+          content: sliceTextByLineWindow({
+            text: dirtyBufferContent,
+            line,
+            limit,
+          }),
+        };
       }
 
+      if (line !== undefined || limit !== undefined) {
+        return {
+          content: await readTextFileLineWindow({
+            filePath,
+            line,
+            limit,
+          }),
+        };
+      }
+
+      const fileStats = await stat(filePath);
+      if (fileStats.size > fullReadLimitBytes) {
+        throw RequestError.invalidParams(
+          {
+            path: requestPath,
+            size: fileStats.size,
+            maxBytes: fullReadLimitBytes,
+          },
+          "File too large for full read; provide line/limit."
+        );
+      }
+      const text = await readFile(filePath, "utf8");
       return { content: text };
     } catch (error) {
       if (isNodeErrno(error, "ENOENT")) {
@@ -104,7 +144,26 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       allowEmpty: true,
     });
     const filePath = await resolvePathInSession(session, requestPath);
+    await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, content, "utf8");
+    session.editorTextBuffers?.delete(filePath);
+    try {
+      const canonicalRootPath = await resolveSessionRootPath(session);
+      const relativePath = toPortableRelativePath({
+        canonicalRootPath,
+        canonicalTargetPath: filePath,
+      });
+      await sessionRuntime.broadcast(chatId, {
+        type: "file_modified",
+        path: relativePath || requestPath.replace(/\\/g, "/"),
+      });
+    } catch (error) {
+      logger.error(
+        "Failed to publish file_modified event after ACP write_text_file",
+        error as Error,
+        { chatId, path: requestPath }
+      );
+    }
     return {};
   }
 

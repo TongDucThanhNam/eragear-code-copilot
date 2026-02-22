@@ -180,4 +180,28 @@ describe("SubscribeSessionEventsService", () => {
       message: assistantMessage,
     });
   });
+
+  test("queues live events emitted before subscribe listener is attached", async () => {
+    const session = createSession();
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime);
+    const subscription = await service.execute("user-1", "chat-1");
+    const deltaEvent = {
+      type: "ui_message_delta" as const,
+      messageId: "msg-1",
+      partIndex: 0,
+      delta: "queued",
+    };
+
+    session.emitter.emit("data", deltaEvent);
+
+    const received: unknown[] = [];
+    const unsubscribe = subscription.subscribe((event) => {
+      received.push(event);
+    });
+
+    expect(received).toEqual([deltaEvent]);
+    unsubscribe();
+    await subscription.release();
+  });
 });

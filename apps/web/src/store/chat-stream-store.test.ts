@@ -125,4 +125,21 @@ describe("chat-stream-store", () => {
 
     expect(terminalOutputSizes).toEqual([1, 2]);
   });
+
+  test("evicts least-recently-touched chat snapshots beyond LRU cap", () => {
+    const store = useChatStreamStore.getState();
+    for (let index = 1; index <= 22; index += 1) {
+      store.updateMessageState(`chat-${index}`, () =>
+        replaceMessagesState([
+          createAssistantMessage(`msg-${index}`, `chat-${index}`),
+        ])
+      );
+    }
+
+    const chatIds = Object.keys(useChatStreamStore.getState().byChatId);
+    expect(chatIds).toHaveLength(20);
+    expect(chatIds.includes("chat-1")).toBe(false);
+    expect(chatIds.includes("chat-2")).toBe(false);
+    expect(chatIds.includes("chat-22")).toBe(true);
+  });
 });

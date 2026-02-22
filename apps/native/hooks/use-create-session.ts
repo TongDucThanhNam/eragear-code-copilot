@@ -50,9 +50,7 @@ export function useCreateSession(): UseCreateSessionReturn {
         // Create session with agent config
         const data = await createSessionMutation.mutateAsync({
           projectId,
-          command: agent.command,
-          args: agent.args,
-          env: agent.env,
+          agentId: agent.id,
         });
 
         // Update store with session info

@@ -45,6 +45,7 @@ export { ResumeSessionService } from "./application/resume-session.service";
 export { SessionAcpBootstrapService } from "./application/session-acp-bootstrap.service";
 export { SessionHistoryReplayService } from "./application/session-history-replay.service";
 export { SessionMcpConfigService } from "./application/session-mcp-config.service";
+export { SessionAgentResolverService } from "./application/session-agent-resolver.service";
 export { SessionMessageMapper } from "./application/session-message.mapper";
 export { SessionMetadataPersistenceService } from "./application/session-metadata-persistence.service";
 export { SessionProcessLifecycleService } from "./application/session-process-lifecycle.service";

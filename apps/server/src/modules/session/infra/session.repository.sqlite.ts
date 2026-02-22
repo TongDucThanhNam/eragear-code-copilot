@@ -437,8 +437,10 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
       .all();
     const hasMore = rows.length > limit;
     const pageRowsRaw = hasMore ? rows.slice(0, limit) : rows;
-    const pageRows =
-      direction === "backward" ? [...pageRowsRaw].reverse() : pageRowsRaw;
+    const pageRows = [...pageRowsRaw].sort(
+      (left, right) =>
+        Number(left.session_messages.seq) - Number(right.session_messages.seq)
+    );
     const nextCursor = hasMore
       ? Number(pageRowsRaw.at(-1)?.session_messages.seq ?? cursor ?? 0)
       : undefined;

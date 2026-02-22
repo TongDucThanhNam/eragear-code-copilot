@@ -8,11 +8,13 @@ export interface CreateSessionParams {
   projectId?: string;
   /** Optional file system path to the project root directory */
   projectRoot?: string;
-  /** Command to spawn the agent process (defaults to "opencode") */
+  /** Optional agent ID selected by client; resolved server-side */
+  agentId?: string;
+  /** Trusted command override used by internal flows (e.g. resume), never client input */
   command?: string;
-  /** Arguments to pass to the agent command */
+  /** Trusted args override used by internal flows (e.g. resume), never client input */
   args?: string[];
-  /** Environment variables for the agent process */
+  /** Trusted env override used by internal flows (e.g. resume), never client input */
   env?: Record<string, string>;
   /** Optional predefined chat ID */
   chatId?: string;

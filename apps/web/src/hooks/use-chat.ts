@@ -35,6 +35,7 @@ import {
   useChatStreamStore,
   useChatTerminalOutputs,
 } from "@/store/chat-stream-store";
+import { useFileStore } from "@/store/file-store";
 import {
   nextLifecycleOnChatIdChange,
   nextLifecycleOnSubscriptionError,
@@ -46,6 +47,8 @@ import { useChatActions } from "./use-chat-actions";
 import { useChatFallback } from "./use-chat-fallback";
 import { useChatHistory } from "./use-chat-history";
 import {
+  applyMessageDeltasIntoState,
+  type MessageDeltaChunk,
   type MessageState,
   replaceMessagesState,
   upsertMessageIntoState,
@@ -108,9 +111,16 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const isResumingRef = useRef(false);
   const activeTurnIdRef = useRef<string | null>(null);
   const activeChatIdRef = useRef<string | null>(chatId ?? null);
+  const previousChatIdRef = useRef<string | null>(chatId ?? null);
   const previousStreamLifecycleRef = useRef<StreamLifecycle>(streamLifecycle);
   const statusRef = useRef<ChatStatus>(status);
   const invalidEventToastAtRef = useRef(0);
+  const hasLocalModeOverrideRef = useRef(false);
+  const hasLocalModelOverrideRef = useRef(false);
+  const hasLocalConfigOverrideRef = useRef(false);
+  const pendingDeltaOrderRef = useRef<string[]>([]);
+  const pendingDeltaMapRef = useRef<Map<string, MessageDeltaChunk>>(new Map());
+  const pendingDeltaFlushFrameRef = useRef<number | null>(null);
   const messages = useChatMessages(chatId);
   const terminalOutputs = useChatTerminalOutputs(chatId);
   // Keep refs in sync
@@ -160,6 +170,75 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       messageStateRef.current = next;
     },
     []
+  );
+
+  const clearPendingDeltas = useCallback(() => {
+    if (pendingDeltaFlushFrameRef.current !== null) {
+      if (
+        typeof window !== "undefined" &&
+        typeof window.cancelAnimationFrame === "function"
+      ) {
+        window.cancelAnimationFrame(pendingDeltaFlushFrameRef.current);
+      }
+      clearTimeout(pendingDeltaFlushFrameRef.current);
+      pendingDeltaFlushFrameRef.current = null;
+    }
+    pendingDeltaOrderRef.current = [];
+    pendingDeltaMapRef.current.clear();
+  }, []);
+
+  const flushPendingDeltas = useCallback(() => {
+    if (pendingDeltaOrderRef.current.length === 0) {
+      return;
+    }
+    const deltas = pendingDeltaOrderRef.current
+      .map((key) => pendingDeltaMapRef.current.get(key))
+      .filter((delta): delta is MessageDeltaChunk => Boolean(delta));
+    pendingDeltaOrderRef.current = [];
+    pendingDeltaMapRef.current.clear();
+    updateMessageState((prev) => applyMessageDeltasIntoState(prev, deltas));
+  }, [updateMessageState]);
+
+  const scheduleDeltaFlush = useCallback(() => {
+    if (pendingDeltaFlushFrameRef.current !== null) {
+      return;
+    }
+    if (
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+    ) {
+      pendingDeltaFlushFrameRef.current = window.requestAnimationFrame(() => {
+        pendingDeltaFlushFrameRef.current = null;
+        flushPendingDeltas();
+      });
+      return;
+    }
+    pendingDeltaFlushFrameRef.current = setTimeout(() => {
+      pendingDeltaFlushFrameRef.current = null;
+      flushPendingDeltas();
+    }, 16) as unknown as number;
+  }, [flushPendingDeltas]);
+
+  const enqueueDeltaChunk = useCallback(
+    (event: Extract<BroadcastEvent, { type: "ui_message_delta" }>) => {
+      if (!event.delta) {
+        return;
+      }
+      const key = `${event.messageId}:${event.partIndex}`;
+      const existing = pendingDeltaMapRef.current.get(key);
+      if (existing) {
+        existing.delta += event.delta;
+      } else {
+        pendingDeltaMapRef.current.set(key, {
+          messageId: event.messageId,
+          partIndex: event.partIndex,
+          delta: event.delta,
+        });
+        pendingDeltaOrderRef.current.push(key);
+      }
+      scheduleDeltaFlush();
+    },
+    [scheduleDeltaFlush]
   );
   // Upsert single message
   const upsertMessage = useCallback(
@@ -266,6 +345,16 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       readOnly,
     });
     const streamStore = useChatStreamStore.getState();
+    const previousChatId = previousChatIdRef.current;
+    const nextChatId = chatId ?? null;
+    if (previousChatId && previousChatId !== nextChatId) {
+      streamStore.clearChat(previousChatId);
+    }
+    previousChatIdRef.current = nextChatId;
+    clearPendingDeltas();
+    hasLocalModeOverrideRef.current = false;
+    hasLocalModelOverrideRef.current = false;
+    hasLocalConfigOverrideRef.current = false;
     if (chatId) {
       messageStateRef.current = streamStore.getMessageState(chatId);
       terminalOutputsRef.current = streamStore.getTerminalOutputs(chatId);
@@ -300,10 +389,17 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     }
   }, [
     chatId,
+    clearPendingDeltas,
     readOnly,
     resetHistoryState,
     resetPendingUserMessageFallbackState,
   ]);
+
+  useEffect(() => {
+    return () => {
+      clearPendingDeltas();
+    };
+  }, [clearPendingDeltas]);
 
   useEffect(() => {
     if (connStatus === "connecting") {
@@ -331,18 +427,24 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       return;
     }
     const normalizedSessionState = normalizeSessionStateData(sessionState);
+    const stateToRestore: SessionStateData = {
+      ...normalizedSessionState,
+      ...(hasLocalModeOverrideRef.current ? { modes: undefined } : {}),
+      ...(hasLocalModelOverrideRef.current ? { models: undefined } : {}),
+      ...(hasLocalConfigOverrideRef.current
+        ? { configOptions: undefined }
+        : {}),
+    };
     if (isResumingRef.current && normalizedSessionState.status === "stopped") {
       return;
     }
-    if (normalizedSessionState.status === "stopped") {
-      setLoadSessionSupported(
-        normalizedSessionState.loadSessionSupported ?? false
-      );
-      restoreSessionState(normalizedSessionState);
+    if (stateToRestore.status === "stopped") {
+      setLoadSessionSupported(stateToRestore.loadSessionSupported ?? false);
+      restoreSessionState(stateToRestore);
       isResumingRef.current = false;
       return;
     }
-    restoreSessionState(normalizedSessionState);
+    restoreSessionState(stateToRestore);
     isResumingRef.current = false;
   }, [chatId, sessionState, connStatus, restoreSessionState]);
   const isTurnMatched = useCallback((turnId?: string) => {
@@ -402,6 +504,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       if (event.type === "chat_status") {
         setConnStatus("connected");
       }
+      if (event.type === "ui_message_delta") {
+        enqueueDeltaChunk(event);
+        return;
+      }
+      flushPendingDeltas();
       processSessionEvent(
         event,
         { currentModes: modesRef.current },
@@ -437,6 +544,9 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
             terminalOutputsRef.current = useChatStreamStore
               .getState()
               .appendTerminalOutput(activeChatId, terminalId, data);
+          },
+          onFileModified: (filePath) => {
+            useFileStore.getState().upsertFile(filePath);
           },
           onError: (err) => {
             setError(err);
@@ -476,6 +586,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     [
       clearAllPendingUserMessageFallbacks,
       clearPendingUserMessageFallback,
+      enqueueDeltaChunk,
+      flushPendingDeltas,
       flushPendingUserMessageFallbacks,
       isTurnMatched,
       loadHistory,
@@ -522,6 +634,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       },
       onError(err) {
         console.error("[Client] Subscription error:", err);
+        clearPendingDeltas();
         clearAllPendingUserMessageFallbacks();
         setStreamLifecycle((prev) => nextLifecycleOnSubscriptionError(prev));
         setConnStatus("connecting");
@@ -561,6 +674,15 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setMessages,
     setStreamLifecycle,
     clearAllPendingUserMessageFallbacks,
+    onLocalConfigOptionMutated: () => {
+      hasLocalConfigOverrideRef.current = true;
+    },
+    onLocalModeMutated: () => {
+      hasLocalModeOverrideRef.current = true;
+    },
+    onLocalModelMutated: () => {
+      hasLocalModelOverrideRef.current = true;
+    },
     schedulePendingUserMessageFallback,
     invalidateHistoryLoads,
     clearHistoryWindow,

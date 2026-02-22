@@ -38,6 +38,9 @@ interface UseChatActionsParams {
   setMessages: (messages: UIMessage[]) => void;
   setStreamLifecycle: Dispatch<SetStateAction<StreamLifecycle>>;
   clearAllPendingUserMessageFallbacks: () => void;
+  onLocalModeMutated?: () => void;
+  onLocalModelMutated?: () => void;
+  onLocalConfigOptionMutated?: () => void;
   schedulePendingUserMessageFallback: (
     activeChatId: string,
     messageId: string
@@ -66,6 +69,9 @@ export function useChatActions({
   setMessages,
   setStreamLifecycle,
   clearAllPendingUserMessageFallbacks,
+  onLocalModeMutated,
+  onLocalModelMutated,
+  onLocalConfigOptionMutated,
   schedulePendingUserMessageFallback,
   invalidateHistoryLoads,
   clearHistoryWindow,
@@ -168,6 +174,7 @@ export function useChatActions({
           return;
         }
         setModes((prev) => (prev ? { ...prev, currentModeId: modeId } : prev));
+        onLocalModeMutated?.();
       } catch (modeError) {
         if (!isActiveChat(activeChatId)) {
           return;
@@ -176,7 +183,7 @@ export function useChatActions({
         setError(modeError instanceof Error ? modeError.message : String(modeError));
       }
     },
-    [chatId, isActiveChat, setError, setModeMutation, setModes]
+    [chatId, isActiveChat, onLocalModeMutated, setError, setModeMutation, setModes]
   );
 
   const setModel = useCallback(
@@ -194,6 +201,7 @@ export function useChatActions({
         setModels((prev) =>
           prev ? { ...prev, currentModelId: modelId } : prev
         );
+        onLocalModelMutated?.();
         const modelName =
           models?.availableModels.find((model) => model.modelId === modelId)
             ?.name ?? modelId;
@@ -226,6 +234,7 @@ export function useChatActions({
       chatId,
       isActiveChat,
       models,
+      onLocalModelMutated,
       setError,
       setModelMutation,
       setModels,
@@ -259,6 +268,7 @@ export function useChatActions({
             )
           );
         }
+        onLocalConfigOptionMutated?.();
       } catch (configError) {
         if (!isActiveChat(activeChatId)) {
           return;
@@ -269,7 +279,14 @@ export function useChatActions({
         );
       }
     },
-    [chatId, isActiveChat, setConfigOptionMutation, setConfigOptions, setError]
+    [
+      chatId,
+      isActiveChat,
+      onLocalConfigOptionMutated,
+      setConfigOptionMutation,
+      setConfigOptions,
+      setError,
+    ]
   );
 
   const respondToPermission = useCallback(

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "@repo/shared";
 import {
+  applyMessageDeltasIntoState,
   createEmptyMessageState,
   mergeMessagesIntoState,
   prependMessagesIntoState,
@@ -101,5 +102,48 @@ describe("use-chat-message-state", () => {
     const empty = createEmptyMessageState();
     const next = mergeMessagesIntoState(empty, []);
     expect(next).toBe(empty);
+  });
+
+  test("batched deltas are applied in-order per message/part", () => {
+    const initial = replaceMessagesState([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "a", state: "streaming" }],
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        parts: [{ type: "reasoning", text: "r", state: "streaming" }],
+      },
+    ]);
+
+    const updated = applyMessageDeltasIntoState(initial, [
+      { messageId: "m1", partIndex: 0, delta: "b" },
+      { messageId: "m2", partIndex: 0, delta: "2" },
+      { messageId: "m1", partIndex: 0, delta: "c" },
+    ]);
+
+    expect(updated.order).toEqual(["m1", "m2"]);
+    expect(updated.byId.get("m1")?.parts[0]).toEqual({
+      type: "text",
+      text: "abc",
+      state: "streaming",
+    });
+    expect(updated.byId.get("m2")?.parts[0]).toEqual({
+      type: "reasoning",
+      text: "r2",
+      state: "streaming",
+    });
+  });
+
+  test("batched deltas ignore missing message and invalid part index", () => {
+    const initial = replaceMessagesState([createMessage("m1", "one")]);
+    const updated = applyMessageDeltasIntoState(initial, [
+      { messageId: "missing", partIndex: 0, delta: "x" },
+      { messageId: "m1", partIndex: 5, delta: "x" },
+    ]);
+
+    expect(updated).toBe(initial);
   });
 });

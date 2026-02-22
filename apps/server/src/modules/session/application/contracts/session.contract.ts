@@ -10,10 +10,8 @@ export const SessionChatIdInputSchema = z.object({
 
 export const CreateSessionInputSchema = z.object({
   projectId: z.string().min(1),
-  command: z.string().optional(),
-  args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
-});
+  agentId: z.string().min(1).optional(),
+}).strict();
 
 export const ListSessionsInputSchema = z
   .object({

@@ -406,9 +406,6 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     projectId: string;
     agent: {
       id: string;
-      command: string;
-      args?: string[];
-      env?: Record<string, string>;
     };
   }) => {
     if (isCreatingSession) {
@@ -423,9 +420,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       await setActiveMutation.mutateAsync({ id: params.projectId });
       const newSession = await createSessionMutation.mutateAsync({
         projectId: params.projectId,
-        command: params.agent.command,
-        args: params.agent.args,
-        env: params.agent.env,
+        agentId: params.agent.id,
       });
       setSessionBootstrapPhase("initializing_agent");
       navigate({

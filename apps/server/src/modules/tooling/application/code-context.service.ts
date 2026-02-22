@@ -9,12 +9,14 @@
 
 import type { SessionRuntimePort } from "@/modules/session";
 import { NotFoundError } from "@/shared/errors";
+import { resolvePathWithinRoot } from "@/shared/utils/path-within-root.util";
 import type { GitPort } from "./ports/git.port";
 
 const MODULE = "tooling";
 const OP_PROJECT_CONTEXT = "tooling.code-context.project-context";
 const OP_GIT_DIFF = "tooling.code-context.git-diff";
 const OP_FILE_CONTENT = "tooling.code-context.file-content";
+const OP_SYNC_EDITOR_BUFFER = "tooling.code-context.sync-editor-buffer";
 
 /**
  * CodeContextService
@@ -105,5 +107,45 @@ export class CodeContextService {
       path
     );
     return { content };
+  }
+
+  /**
+   * Synchronizes one editor text buffer snapshot for a session.
+   * Dirty buffers are used as read-through overrides for ACP fs/read_text_file.
+   */
+  async syncEditorBuffer(params: {
+    userId: string;
+    chatId: string;
+    path: string;
+    isDirty: boolean;
+    content?: string;
+  }) {
+    await this.sessionRuntime.runExclusive(params.chatId, async () => {
+      const session = this.sessionRuntime.get(params.chatId);
+      if (!session || session.userId !== params.userId) {
+        throw new NotFoundError("Chat not found", {
+          module: MODULE,
+          op: OP_SYNC_EDITOR_BUFFER,
+          details: { chatId: params.chatId },
+        });
+      }
+
+      const { canonicalTargetPath } = await resolvePathWithinRoot({
+        rootPath: session.projectRoot,
+        inputPath: params.path,
+      });
+      if (!session.editorTextBuffers) {
+        session.editorTextBuffers = new Map();
+      }
+      if (!params.isDirty) {
+        session.editorTextBuffers.delete(canonicalTargetPath);
+        return;
+      }
+      session.editorTextBuffers.set(canonicalTargetPath, {
+        content: params.content ?? "",
+        updatedAt: Date.now(),
+      });
+    });
+    return { ok: true };
   }
 }

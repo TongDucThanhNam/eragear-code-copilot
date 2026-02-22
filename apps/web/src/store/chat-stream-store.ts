@@ -6,6 +6,8 @@ import {
 } from "@/hooks/use-chat-message-state";
 
 const TERMINAL_OUTPUT_MAX_CHARS = 256 * 1024;
+const CHAT_STREAM_SNAPSHOT_MAX = 20;
+let snapshotTouchSeq = 0;
 const EMPTY_MESSAGE_STATE: MessageState = createEmptyMessageState();
 const EMPTY_MESSAGES: UIMessage[] = [];
 const EMPTY_TERMINAL_OUTPUTS: Record<string, string> = {};
@@ -13,6 +15,12 @@ const EMPTY_TERMINAL_OUTPUTS: Record<string, string> = {};
 interface ChatStreamSnapshot {
   messageState: MessageState;
   terminalOutputs: Record<string, string>;
+  touchedSeq: number;
+}
+
+function nextSnapshotTouchSeq(): number {
+  snapshotTouchSeq += 1;
+  return snapshotTouchSeq;
 }
 
 interface ChatStreamStore {
@@ -39,7 +47,38 @@ function createSnapshot(): ChatStreamSnapshot {
   return {
     messageState: createEmptyMessageState(),
     terminalOutputs: {},
+    touchedSeq: nextSnapshotTouchSeq(),
   };
+}
+
+function upsertSnapshotWithLruLimit(
+  byChatId: Record<string, ChatStreamSnapshot>,
+  chatId: string,
+  snapshot: ChatStreamSnapshot
+): Record<string, ChatStreamSnapshot> {
+  const nextByChatId = {
+    ...byChatId,
+    [chatId]: snapshot,
+  };
+  const entries = Object.entries(nextByChatId);
+  if (entries.length <= CHAT_STREAM_SNAPSHOT_MAX) {
+    return nextByChatId;
+  }
+  entries.sort((left, right) => {
+    const touchedDiff = left[1].touchedSeq - right[1].touchedSeq;
+    if (touchedDiff !== 0) {
+      return touchedDiff;
+    }
+    return left[0].localeCompare(right[0]);
+  });
+  const overflow = entries.length - CHAT_STREAM_SNAPSHOT_MAX;
+  for (let index = 0; index < overflow; index += 1) {
+    const entry = entries[index];
+    if (entry?.[0]) {
+      delete nextByChatId[entry[0]];
+    }
+  }
+  return nextByChatId;
 }
 
 function trimTerminalOutput(value: string): string {
@@ -78,14 +117,17 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
       if (nextMessageState === current.messageState) {
         return state;
       }
+      const nextSnapshot: ChatStreamSnapshot = {
+        ...current,
+        messageState: nextMessageState,
+        touchedSeq: nextSnapshotTouchSeq(),
+      };
       return {
-        byChatId: {
-          ...state.byChatId,
-          [chatId]: {
-            ...current,
-            messageState: nextMessageState,
-          },
-        },
+        byChatId: upsertSnapshotWithLruLimit(
+          state.byChatId,
+          chatId,
+          nextSnapshot
+        ),
       };
     });
     return resolved;
@@ -99,14 +141,17 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
         return state;
       }
       resolved = terminalOutputs;
+      const nextSnapshot: ChatStreamSnapshot = {
+        ...current,
+        terminalOutputs,
+        touchedSeq: nextSnapshotTouchSeq(),
+      };
       return {
-        byChatId: {
-          ...state.byChatId,
-          [chatId]: {
-            ...current,
-            terminalOutputs,
-          },
-        },
+        byChatId: upsertSnapshotWithLruLimit(
+          state.byChatId,
+          chatId,
+          nextSnapshot
+        ),
       };
     });
     return resolved;
@@ -126,14 +171,17 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
         [terminalId]: nextValue,
       };
       resolved = nextOutputs;
+      const nextSnapshot: ChatStreamSnapshot = {
+        ...current,
+        terminalOutputs: nextOutputs,
+        touchedSeq: nextSnapshotTouchSeq(),
+      };
       return {
-        byChatId: {
-          ...state.byChatId,
-          [chatId]: {
-            ...current,
-            terminalOutputs: nextOutputs,
-          },
-        },
+        byChatId: upsertSnapshotWithLruLimit(
+          state.byChatId,
+          chatId,
+          nextSnapshot
+        ),
       };
     });
     return resolved;
@@ -189,4 +237,3 @@ export function getChatTerminalOutputsSnapshot(
   }
   return useChatStreamStore.getState().getTerminalOutputs(chatId);
 }
-

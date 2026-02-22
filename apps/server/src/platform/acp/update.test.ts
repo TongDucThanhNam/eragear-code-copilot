@@ -53,6 +53,29 @@ function createRuntime(session: ChatSession) {
   return { runtime, events };
 }
 
+function createLockedRuntime(session: ChatSession) {
+  const events: unknown[] = [];
+  let tail = Promise.resolve();
+  const runtime = {
+    get(chatId: string) {
+      return chatId === session.id ? session : undefined;
+    },
+    broadcast(_chatId: string, event: unknown) {
+      events.push(event);
+      return Promise.resolve();
+    },
+    async runExclusive<T>(_chatId: string, work: () => Promise<T>): Promise<T> {
+      const run = tail.then(() => work());
+      tail = run.then(
+        () => undefined,
+        () => undefined
+      );
+      return await run;
+    },
+  } as unknown as SessionRuntimePort;
+  return { runtime, events };
+}
+
 function createRepo() {
   const metadataCalls: Array<{
     chatId: string;
@@ -331,6 +354,40 @@ describe("createSessionUpdateHandler", () => {
     if (textPart?.type === "text") {
       expect(textPart.text).toBe("Replay text");
       expect(textPart.state).toBe("done");
+    }
+  });
+
+  test("serializes concurrent stream chunk updates without content loss", async () => {
+    const session = createSession("chat-stream-concurrent");
+    const { runtime } = createLockedRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+    const buffer = new SessionBuffering();
+    const chunks = Array.from({ length: 64 }, () => "x");
+
+    await Promise.all(
+      chunks.map((text) =>
+        handler({
+          chatId: session.id,
+          buffer,
+          isReplayingHistory: false,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text },
+          },
+        })
+      )
+    );
+
+    const assistantId = session.uiState.currentAssistantId;
+    expect(assistantId).toBeDefined();
+    const assistantMessage = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    const textPart = assistantMessage?.parts.find((part) => part.type === "text");
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe(chunks.join(""));
     }
   });
 

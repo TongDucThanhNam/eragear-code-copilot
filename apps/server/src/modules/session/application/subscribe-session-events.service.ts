@@ -34,6 +34,9 @@ export class SubscribeSessionEventsService {
 
   async execute(userId: string, chatId: string): Promise<SessionEventSubscription> {
     const sessionRuntime = this.sessionRuntime;
+    const pendingLiveEvents: BroadcastEvent[] = [];
+    let deliveredListener: ((event: BroadcastEvent) => void) | null = null;
+    let released = false;
     let snapshot:
       | {
           session: ChatSession;
@@ -42,42 +45,63 @@ export class SubscribeSessionEventsService {
           bufferedEvents: BroadcastEvent[];
           forcedActiveSnapshot: boolean;
           subscriberCount: number;
+          internalListener: (event: BroadcastEvent) => void;
         }
       | undefined;
 
-    await sessionRuntime.runExclusive(chatId, async () => {
-      assertSessionMutationLock({
-        sessionRuntime,
-        chatId,
-        op: OP,
-      });
-      const session = sessionRuntime.get(chatId);
-      if (!session || session.userId !== userId) {
-        throw new NotFoundError("Chat not found", {
-          module: "session",
+    try {
+      await sessionRuntime.runExclusive(chatId, async () => {
+        assertSessionMutationLock({
+          sessionRuntime,
+          chatId,
           op: OP,
-          details: { chatId },
         });
-      }
+        const session = sessionRuntime.get(chatId);
+        if (!session || session.userId !== userId) {
+          throw new NotFoundError("Chat not found", {
+            module: "session",
+            op: OP,
+            details: { chatId },
+          });
+        }
 
-      session.idleSinceAt = undefined;
-      session.subscriberCount += 1;
-      const nextChatStatus = reconcileChatStatusForSubscription(session);
-      if (nextChatStatus !== session.chatStatus) {
-        session.chatStatus = nextChatStatus;
-      }
+        session.idleSinceAt = undefined;
+        session.subscriberCount += 1;
+        const nextChatStatus = reconcileChatStatusForSubscription(session);
+        if (nextChatStatus !== session.chatStatus) {
+          session.chatStatus = nextChatStatus;
+        }
 
-      const bufferedState = buildBufferedEvents(session);
-      const bufferedEvents = bufferedState.events;
-      snapshot = {
-        session,
-        chatStatus: nextChatStatus,
-        activeTurnId: session.activeTurnId,
-        bufferedEvents,
-        forcedActiveSnapshot: bufferedState.forcedActiveSnapshot,
-        subscriberCount: session.subscriberCount,
-      };
-    });
+        const bufferedState = buildBufferedEvents(session);
+        const bufferedEvents = bufferedState.events;
+        const internalListener = (event: BroadcastEvent) => {
+          if (released) {
+            return;
+          }
+          const cloned = cloneBroadcastEvent(event);
+          if (deliveredListener) {
+            deliveredListener(cloned);
+            return;
+          }
+          pendingLiveEvents.push(cloned);
+        };
+        session.emitter.on("data", internalListener);
+        snapshot = {
+          session,
+          chatStatus: nextChatStatus,
+          activeTurnId: session.activeTurnId,
+          bufferedEvents,
+          forcedActiveSnapshot: bufferedState.forcedActiveSnapshot,
+          subscriberCount: session.subscriberCount,
+          internalListener,
+        };
+      });
+    } catch (error) {
+      if (snapshot) {
+        snapshot.session.emitter.off("data", snapshot.internalListener);
+      }
+      throw error;
+    }
 
     if (!snapshot) {
       throw new NotFoundError("Chat not found", {
@@ -102,6 +126,7 @@ export class SubscribeSessionEventsService {
     }
 
     const session = snapshot.session;
+    const internalListener = snapshot.internalListener;
     return {
       chatStatus: snapshot.chatStatus,
       activeTurnId: snapshot.activeTurnId,
@@ -115,14 +140,29 @@ export class SubscribeSessionEventsService {
               ...buildStreamEventContext(event),
             });
           }
-          listener(cloneBroadcastEvent(event));
+          listener(event);
         };
-        session.emitter.on("data", wrappedListener);
+        deliveredListener = wrappedListener;
+        if (pendingLiveEvents.length > 0) {
+          const queued = pendingLiveEvents.splice(0, pendingLiveEvents.length);
+          for (const event of queued) {
+            wrappedListener(event);
+          }
+        }
         return () => {
-          session.emitter.off("data", wrappedListener);
+          if (deliveredListener === wrappedListener) {
+            deliveredListener = null;
+          }
         };
       },
       async release() {
+        if (released) {
+          return;
+        }
+        released = true;
+        deliveredListener = null;
+        pendingLiveEvents.length = 0;
+        session.emitter.off("data", internalListener);
         await sessionRuntime.runExclusive(chatId, async () => {
           assertSessionMutationLock({
             sessionRuntime,

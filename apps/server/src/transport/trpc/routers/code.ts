@@ -10,6 +10,7 @@
 import {
   CodeChatIdInputSchema,
   CodeFileContentInputSchema,
+  SyncEditorBufferInputSchema,
 } from "@/modules/tooling";
 import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
@@ -41,5 +42,19 @@ export const codeRouter = router({
         input.chatId,
         input.path
       );
+    }),
+
+  /** Sync unsaved editor buffer content for ACP fs/read_text_file overrides */
+  syncEditorBuffer: protectedProcedure
+    .input(SyncEditorBufferInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const service = ctx.toolingServices.codeContext();
+      return await service.syncEditorBuffer({
+        userId: getRequiredUserId(ctx),
+        chatId: input.chatId,
+        path: input.path,
+        isDirty: input.isDirty,
+        content: input.content,
+      });
     }),
 });

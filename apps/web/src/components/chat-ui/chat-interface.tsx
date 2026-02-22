@@ -26,7 +26,6 @@ import {
   useChatMessages,
   useChatTerminalOutputs,
 } from "@/store/chat-stream-store";
-import { useDiffStore } from "@/store/diff-store";
 import { useFileStore } from "@/store/file-store";
 import { useProjectStore } from "@/store/project-store";
 
@@ -153,7 +152,6 @@ export function ChatInterface({
     resumeSession,
     refreshHistory,
     loadOlderHistory,
-    setMessages,
     setConnStatus,
     setStatus,
   } = useChat({
@@ -164,6 +162,27 @@ export function ChatInterface({
     },
   });
   const messageCount = useChatMessageCount(chatId);
+  const agentDisplay = useMemo(() => {
+    const selectedAgent = agentModels.find((agent) => agent.id === activeAgentId);
+    const sessionLabel = sessionAgentInfo?.title ?? sessionAgentInfo?.name;
+    if (sessionAgentInfo && sessionLabel) {
+      return {
+        name: sessionLabel,
+        source: "session" as const,
+        version: sessionAgentInfo.version,
+      };
+    }
+    if (selectedAgent?.name) {
+      return {
+        name: selectedAgent.name,
+        source: "selected" as const,
+      };
+    }
+    return {
+      name: "No Agent",
+      source: "fallback" as const,
+    };
+  }, [activeAgentId, agentModels, sessionAgentInfo]);
 
   // Derived state for UI
   const availableModes = useMemo(() => {
@@ -299,7 +318,6 @@ export function ChatInterface({
 
   // Mutations for session creation
   const createSessionMutation = trpc.createSession.useMutation();
-  const setActiveAgentMutation = trpc.agents.setActive.useMutation();
 
   useEffect(() => {
     const requestId = pendingPermission?.requestId ?? null;
@@ -458,9 +476,7 @@ export function ChatInterface({
       try {
         const data = await createSessionMutation.mutateAsync({
           projectId: currentProject.id,
-          command: agent?.command,
-          args: agent?.args,
-          env: agent?.env,
+          agentId: agent?.id,
         });
 
         setSessionBootstrapPhase("initializing_agent");
@@ -485,23 +501,6 @@ export function ChatInterface({
       setConnStatus,
       setStatus,
     ]
-  );
-
-  const handleNewChat = useCallback(
-    (agentId: string) => {
-      setMessages([]);
-      useDiffStore.getState().clearDiffs();
-
-      if (onChatIdChange) {
-        onChatIdChange(null);
-      } else {
-        setUncontrolledChatId(null);
-      }
-
-      setActiveAgentMutation.mutate({ id: agentId });
-      initChat(agentId);
-    },
-    [initChat, onChatIdChange, setActiveAgentMutation, setMessages]
   );
 
   const handleStopChat = useCallback(async () => {
@@ -891,16 +890,13 @@ export function ChatInterface({
   return (
     <div className="relative flex size-full flex-col overflow-hidden">
       <ChatHeader
-        activeAgentId={activeAgentId || null}
-        agentModels={agentModels}
+        agentDisplay={agentDisplay}
         connStatus={connStatus}
         isResuming={isResuming}
-        onNewChat={handleNewChat}
         onResumeChat={loadSessionSupported ? handleResume : undefined}
         onStopChat={handleStopChat}
         projectName={activeProject?.name}
         resumeNotSupported={loadSessionSupported === false}
-        sessionAgentInfo={sessionAgentInfo}
       />
 
       <div className="relative min-h-0 flex-1 overflow-hidden">

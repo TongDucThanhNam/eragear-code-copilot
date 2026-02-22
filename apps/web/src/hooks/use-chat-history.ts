@@ -12,6 +12,35 @@ import {
 const HISTORY_INITIAL_WINDOW_LIMIT = 100;
 const HISTORY_LOAD_MORE_LIMIT = 100;
 
+export function normalizeOlderHistoryBatchOrder(
+  messages: UIMessage[],
+  state: MessageState
+): UIMessage[] {
+  if (messages.length < 2) {
+    return messages;
+  }
+  const knownIndexes: number[] = [];
+  for (const message of messages) {
+    const index = state.indexById.get(message.id);
+    if (index !== undefined) {
+      knownIndexes.push(index);
+    }
+  }
+  if (knownIndexes.length < 2) {
+    return messages;
+  }
+  const firstKnown = knownIndexes[0];
+  const lastKnown = knownIndexes[knownIndexes.length - 1];
+  if (
+    firstKnown === undefined ||
+    lastKnown === undefined ||
+    firstKnown <= lastKnown
+  ) {
+    return messages;
+  }
+  return [...messages].reverse();
+}
+
 interface HistoryPage {
   messages: unknown;
   nextCursor?: number;
@@ -247,8 +276,12 @@ export function useChatHistory({
 
       const normalizedMessages = normalizeMessages(page.messages);
       if (normalizedMessages.length > 0) {
+        const prependBatch = normalizeOlderHistoryBatchOrder(
+          normalizedMessages,
+          messageStateRef.current
+        );
         updateMessageState((prev) =>
-          prependMessagesIntoState(prev, normalizedMessages)
+          prependMessagesIntoState(prev, prependBatch)
         );
         setPendingPermission(
           findPendingPermission(messageStateRef.current.byId.values())

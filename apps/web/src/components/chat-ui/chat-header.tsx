@@ -11,48 +11,32 @@ import {
 } from "@/components/ui/tooltip";
 import { SidebarTrigger } from "../ui/sidebar";
 
-export interface AgentModel {
-  id: string;
+export interface ChatHeaderAgentDisplay {
   name: string;
-  type: string;
-  command: string;
+  source: "session" | "selected" | "fallback";
+  version?: string;
 }
 
 export interface ChatHeaderProps {
-  activeAgentId: string | null;
+  agentDisplay: ChatHeaderAgentDisplay;
   projectName?: string | null;
   connStatus: "idle" | "connecting" | "connected" | "error";
-  agentModels: AgentModel[];
   onStopChat: () => void;
-  onNewChat: (agentId: string) => void;
   onResumeChat?: () => void;
   isResuming?: boolean;
   /** True when agent doesn't support session resume */
   resumeNotSupported?: boolean;
-  /** Agent info from the current session (preferred for display) */
-  sessionAgentInfo?: { name: string; title?: string; version: string } | null;
 }
 
 const ChatHeaderBase = ({
-  activeAgentId,
+  agentDisplay,
   projectName,
   connStatus,
-  agentModels,
   onStopChat,
   onResumeChat,
   isResuming,
   resumeNotSupported,
-  sessionAgentInfo,
 }: ChatHeaderProps) => {
-  const activeAgent = agentModels.find((a) => a.id === activeAgentId);
-  // Prefer session agent info (from actual agent) over activeAgentId lookup
-  const agentName =
-    sessionAgentInfo?.title ||
-    sessionAgentInfo?.name ||
-    activeAgent?.name ||
-    activeAgentId ||
-    "No Agent";
-
   return (
     <div className="flex shrink-0 items-center justify-between bg-background/50 px-4 py-2 backdrop-blur-sm">
       <SidebarTrigger className="-ml-1" />
@@ -60,7 +44,7 @@ const ChatHeaderBase = ({
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-sm leading-none">
-              {agentName}
+              {agentDisplay.name}
             </span>
             {projectName && (
               <>

@@ -249,6 +249,14 @@ export interface ChatFinishState {
 }
 
 /**
+ * Unsaved text buffer snapshot synchronized from connected clients/editors.
+ */
+export interface SessionEditorTextBuffer {
+  content: string;
+  updatedAt: number;
+}
+
+/**
  * Union type for all broadcast events to clients
  */
 export type BroadcastEvent =
@@ -270,6 +278,7 @@ export type BroadcastEvent =
       delta: string;
       partIndex: number;
     }
+  | { type: "file_modified"; path: string }
   | { type: "current_mode_update"; modeId: string }
   | {
       type: "available_commands_update";
@@ -412,6 +421,8 @@ export interface ChatSession {
   toolCalls: Map<string, ToolCall>;
   /** Active terminals */
   terminals: Map<string, unknown>;
+  /** Unsaved editor text buffers keyed by canonical absolute file path */
+  editorTextBuffers?: Map<string, SessionEditorTextBuffer>;
   /** Message buffer for streaming */
   buffer?: SessionBuffer;
   /** UI message state for streaming updates */

@@ -16,6 +16,7 @@ import {
   SessionAcpBootstrapService,
   SessionHistoryReplayService,
   SessionMcpConfigService,
+  SessionAgentResolverService,
   SessionMessageMapper,
   SessionMetadataPersistenceService,
   SessionProcessLifecycleService,
@@ -35,6 +36,7 @@ export function createSessionServices(
     deps.projectRepo,
     deps.settingsRepo
   );
+  const sessionAgentResolver = new SessionAgentResolverService(deps.agentRepo);
   const runtimeBootstrap = new SessionRuntimeBootstrapService(
     deps.sessionRepo,
     deps.sessionRuntime,
@@ -83,6 +85,7 @@ export function createSessionServices(
   );
   const createSessionService = new CreateSessionService(
     projectContextResolver,
+    sessionAgentResolver,
     spawnSessionProcess,
     bootstrapSessionConnection,
     persistSessionBootstrap,

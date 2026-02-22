@@ -11,7 +11,11 @@ import os from "node:os";
 import path from "node:path";
 import { ENV } from "@/config/environment";
 import type { SessionRuntimePort } from "@/modules/session";
-import type { ChatSession, TerminalState } from "@/shared/types/session.types";
+import type {
+  BroadcastEvent,
+  ChatSession,
+  TerminalState,
+} from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { createToolCallHandlers } from "./tool-calls";
 
@@ -47,7 +51,12 @@ function createSession(chatId: string, projectRoot: string): ChatSession {
   } satisfies Partial<ChatSession> as ChatSession;
 }
 
-function createRuntime(session: ChatSession): SessionRuntimePort {
+function createRuntime(
+  session: ChatSession,
+  options?: {
+    broadcastEvents?: Array<{ chatId: string; event: BroadcastEvent }>;
+  }
+): SessionRuntimePort {
   const sessions = new Map<string, ChatSession>([[session.id, session]]);
   const lockTails = new Map<string, Promise<void>>();
   return {
@@ -98,8 +107,8 @@ function createRuntime(session: ChatSession): SessionRuntimePort {
     isLockHeld(chatId) {
       return lockTails.has(chatId);
     },
-    broadcast() {
-      // no-op
+    broadcast(chatId: string, event: BroadcastEvent) {
+      options?.broadcastEvents?.push({ chatId, event });
       return Promise.resolve();
     },
   };
@@ -131,6 +140,7 @@ describe("createToolCallHandlers", () => {
   );
   const originalAllowedEnvKeys = [...ENV.allowedEnvKeys];
   const originalOutputHardCap = ENV.terminalOutputHardCapBytes;
+  const originalMessageContentMaxBytes = ENV.messageContentMaxBytes;
   const originalTerminalTimeoutMs = ENV.terminalTimeoutMs;
   let tmpDir = "";
 
@@ -157,6 +167,7 @@ describe("createToolCallHandlers", () => {
     );
     ENV.allowedEnvKeys = [...originalAllowedEnvKeys];
     ENV.terminalOutputHardCapBytes = originalOutputHardCap;
+    ENV.messageContentMaxBytes = originalMessageContentMaxBytes;
     ENV.terminalTimeoutMs = originalTerminalTimeoutMs;
     if (tmpDir) {
       await rm(tmpDir, { recursive: true, force: true });
@@ -361,6 +372,84 @@ describe("createToolCallHandlers", () => {
         path: "does-not-exist.txt",
       })
     ).rejects.toThrow(FILE_NOT_FOUND_REGEX);
+  });
+
+  test("rejects oversized full reads to prevent memory exhaustion", async () => {
+    ENV.messageContentMaxBytes = 8;
+    const session = createSession("chat-large-full-read", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+    await writeFile(path.join(tmpDir, "big.txt"), "123456789", "utf8");
+
+    await expect(
+      handlers.readTextFileForChat(session.id, {
+        sessionId: session.id,
+        path: "big.txt",
+      })
+    ).rejects.toThrow(/too large for full read/i);
+  });
+
+  test("reads requested line window without full-file split allocations", async () => {
+    const session = createSession("chat-line-window", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+    const content = Array.from({ length: 2000 }, (_, index) => `line-${index + 1}`)
+      .join("\r\n");
+    await writeFile(path.join(tmpDir, "window.txt"), content, "utf8");
+
+    const result = await handlers.readTextFileForChat(session.id, {
+      sessionId: session.id,
+      path: "window.txt",
+      line: 101,
+      limit: 3,
+    });
+
+    expect(result.content).toBe("line-101\nline-102\nline-103");
+  });
+
+  test("prefers dirty editor buffer over disk content for reads", async () => {
+    const session = createSession("chat-dirty-buffer", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+    const filePath = path.join(tmpDir, "dirty.txt");
+    await writeFile(filePath, "on-disk", "utf8");
+    session.editorTextBuffers = new Map([
+      [filePath, { content: "unsaved\nbuffer", updatedAt: Date.now() }],
+    ]);
+
+    const result = await handlers.readTextFileForChat(session.id, {
+      sessionId: session.id,
+      path: "dirty.txt",
+      line: 2,
+      limit: 1,
+    });
+
+    expect(result.content).toBe("buffer");
+  });
+
+  test("creates missing parent directories and broadcasts file_modified", async () => {
+    const events: Array<{ chatId: string; event: BroadcastEvent }> = [];
+    const session = createSession("chat-write-nested", tmpDir);
+    const runtime = createRuntime(session, { broadcastEvents: events });
+    const handlers = createToolCallHandlers(runtime);
+    const nestedFilePath = path.join(tmpDir, "nested", "deeper", "new.txt");
+    session.editorTextBuffers = new Map([
+      [nestedFilePath, { content: "dirty-before-write", updatedAt: Date.now() }],
+    ]);
+
+    await handlers.writeTextFileForChat(session.id, {
+      sessionId: session.id,
+      path: "nested/deeper/new.txt",
+      content: "created",
+    });
+
+    const written = await readFile(nestedFilePath, "utf8");
+    expect(written).toBe("created");
+    expect(session.editorTextBuffers.has(nestedFilePath)).toBe(false);
+    expect(events).toContainEqual({
+      chatId: session.id,
+      event: { type: "file_modified", path: "nested/deeper/new.txt" },
+    });
   });
 
   test("clears terminal timeout timer when terminal is released", async () => {

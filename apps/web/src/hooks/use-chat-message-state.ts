@@ -7,6 +7,12 @@ export interface MessageState {
   orderedMessages: UIMessage[];
 }
 
+export interface MessageDeltaChunk {
+  messageId: string;
+  partIndex: number;
+  delta: string;
+}
+
 export const createEmptyMessageState = (): MessageState => ({
   byId: new Map<string, UIMessage>(),
   order: [],
@@ -154,6 +160,76 @@ export const prependMessagesIntoState = (
     indexById: nextIndexById,
     orderedMessages: nextOrderedMessages,
   };
+};
+
+function applyDeltaToMessage(
+  message: UIMessage,
+  partIndex: number,
+  delta: string
+): UIMessage | null {
+  if (!delta) {
+    return message;
+  }
+  const part = message.parts[partIndex];
+  if (!part || (part.type !== "text" && part.type !== "reasoning")) {
+    return null;
+  }
+  const updatedPart = { ...part, text: `${part.text ?? ""}${delta}` };
+  const updatedParts = [...message.parts];
+  updatedParts[partIndex] = updatedPart;
+  return {
+    ...message,
+    parts: updatedParts,
+  };
+}
+
+export const applyMessageDeltasIntoState = (
+  state: MessageState,
+  deltas: MessageDeltaChunk[]
+): MessageState => {
+  if (deltas.length === 0) {
+    return state;
+  }
+
+  const updatedById = new Map<string, UIMessage>();
+  const touchedMessageIds: string[] = [];
+  const seenMessageIds = new Set<string>();
+
+  for (const delta of deltas) {
+    if (!delta.delta) {
+      continue;
+    }
+
+    const sourceMessage =
+      updatedById.get(delta.messageId) ?? state.byId.get(delta.messageId);
+    if (!sourceMessage) {
+      continue;
+    }
+
+    const updatedMessage = applyDeltaToMessage(
+      sourceMessage,
+      delta.partIndex,
+      delta.delta
+    );
+    if (!updatedMessage || updatedMessage === sourceMessage) {
+      continue;
+    }
+
+    updatedById.set(delta.messageId, updatedMessage);
+    if (!seenMessageIds.has(delta.messageId)) {
+      seenMessageIds.add(delta.messageId);
+      touchedMessageIds.push(delta.messageId);
+    }
+  }
+
+  if (touchedMessageIds.length === 0) {
+    return state;
+  }
+
+  const updatedMessages = touchedMessageIds
+    .map((messageId) => updatedById.get(messageId))
+    .filter((message): message is UIMessage => Boolean(message));
+  return mergeMessagesIntoState(state, updatedMessages);
 };
 
 export const upsertMessageIntoState = (

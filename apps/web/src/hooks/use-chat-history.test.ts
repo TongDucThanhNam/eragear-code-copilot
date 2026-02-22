@@ -1,5 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { runSharedInFlightLoad } from "./use-chat-history";
+import type { UIMessage } from "@repo/shared";
+import { replaceMessagesState } from "./use-chat-message-state";
+import {
+  normalizeOlderHistoryBatchOrder,
+  runSharedInFlightLoad,
+} from "./use-chat-history";
+
+function createMessage(id: string): UIMessage {
+  return {
+    id,
+    role: "assistant",
+    parts: [{ type: "text", text: id, state: "done" }],
+  };
+}
 
 describe("runSharedInFlightLoad", () => {
   test("coalesces concurrent load calls into one in-flight promise", async () => {
@@ -59,5 +72,31 @@ describe("runSharedInFlightLoad", () => {
       runCount += 1;
     });
     expect(runCount).toBe(2);
+  });
+});
+
+describe("normalizeOlderHistoryBatchOrder", () => {
+  test("keeps chronological order when known overlap indexes are ascending", () => {
+    const currentState = replaceMessagesState([
+      createMessage("m1"),
+      createMessage("m2"),
+      createMessage("m3"),
+    ]);
+    const batch = [createMessage("m0"), createMessage("m1"), createMessage("m2")];
+
+    const normalized = normalizeOlderHistoryBatchOrder(batch, currentState);
+    expect(normalized.map((message) => message.id)).toEqual(["m0", "m1", "m2"]);
+  });
+
+  test("reverses batch when overlap indexes indicate newest-first ordering", () => {
+    const currentState = replaceMessagesState([
+      createMessage("m1"),
+      createMessage("m2"),
+      createMessage("m3"),
+    ]);
+    const batch = [createMessage("m2"), createMessage("m1"), createMessage("m0")];
+
+    const normalized = normalizeOlderHistoryBatchOrder(batch, currentState);
+    expect(normalized.map((message) => message.id)).toEqual(["m0", "m1", "m2"]);
   });
 });

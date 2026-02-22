@@ -11,8 +11,14 @@ interface FileStoreState {
   files: string[];
   selectedFile: string | null;
   setFiles: (files: string[]) => void;
+  upsertFile: (file: string) => void;
   setSelectedFile: (file: string | null) => void;
   getFileTree: () => FileNode[];
+}
+
+function normalizeFilePath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/").replace(/^\.\/+/, "");
+  return normalized;
 }
 
 function insertPath(root: FileNode[], path: string): void {
@@ -71,7 +77,17 @@ function sortNodes(nodes: FileNode[]): void {
 export const useFileStore = create<FileStoreState>((set, get) => ({
   files: [],
   selectedFile: null,
-  setFiles: (files) => set({ files }),
+  setFiles: (files) => set({ files: files.map(normalizeFilePath) }),
+  upsertFile: (file) =>
+    set((state) => {
+      const normalized = normalizeFilePath(file);
+      if (!normalized || state.files.includes(normalized)) {
+        return state;
+      }
+      return {
+        files: [...state.files, normalized],
+      };
+    }),
   setSelectedFile: (file) => set({ selectedFile: file }),
   getFileTree: () => {
     const root = buildFileTree(get().files);

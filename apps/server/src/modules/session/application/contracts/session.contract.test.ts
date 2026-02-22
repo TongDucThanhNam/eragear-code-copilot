@@ -4,6 +4,7 @@ import {
   HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
 } from "@/config/constants";
 import {
+  CreateSessionInputSchema,
   ListSessionsInputSchema,
   SessionListPageInputSchema,
   SessionMessagesPageInputSchema,
@@ -75,6 +76,29 @@ describe("session contract page limits", () => {
     expect(() =>
       SessionListPageInputSchema.parse({
         limit: HARD_MAX_SESSION_LIST_PAGE_LIMIT + 1,
+      })
+    ).toThrow();
+  });
+
+  test("accepts create session input with optional agentId only", () => {
+    expect(
+      CreateSessionInputSchema.parse({
+        projectId: "project-1",
+        agentId: "agent-1",
+      })
+    ).toEqual({
+      projectId: "project-1",
+      agentId: "agent-1",
+    });
+  });
+
+  test("rejects legacy create session command overrides", () => {
+    expect(() =>
+      CreateSessionInputSchema.parse({
+        projectId: "project-1",
+        command: "/bin/bash",
+        args: ["-lc", "echo hello"],
+        env: { MODE: "unsafe" },
       })
     ).toThrow();
   });

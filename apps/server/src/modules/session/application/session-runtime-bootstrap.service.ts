@@ -70,6 +70,7 @@ export class SessionRuntimeBootstrapService {
       pendingPermissions: new Map(),
       toolCalls: new Map(),
       terminals: new Map(),
+      editorTextBuffers: new Map(),
       buffer,
       uiState: createUiMessageState(),
       isReplayingHistory: false,

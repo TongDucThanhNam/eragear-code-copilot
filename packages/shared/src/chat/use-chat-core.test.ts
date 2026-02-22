@@ -293,3 +293,22 @@ describe("processSessionEvent available_commands_update", () => {
     ]);
   });
 });
+
+describe("processSessionEvent file_modified", () => {
+  test("forwards file path to callback", () => {
+    const received: string[] = [];
+    processSessionEvent(
+      {
+        type: "file_modified",
+        path: "src/new-file.ts",
+      },
+      { currentModes: null },
+      {
+        onFileModified: (filePath) => {
+          received.push(filePath);
+        },
+      }
+    );
+    expect(received).toEqual(["src/new-file.ts"]);
+  });
+});

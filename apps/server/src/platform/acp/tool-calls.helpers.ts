@@ -1,12 +1,11 @@
-import { realpath } from "node:fs/promises";
-import path from "node:path";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
 import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import { ENV } from "@/config/environment";
 import type { SessionRuntimePort } from "@/modules/session";
 import type { ChatSession, TerminalState } from "@/shared/types/session.types";
-import { isNodeErrno } from "@/shared/utils/node-error.util";
-import { fileUriToPath } from "@/shared/utils/path.util";
+import { resolvePathWithinRoot } from "@/shared/utils/path-within-root.util";
 import {
   hasProcessExited,
   terminateProcessGracefully,
@@ -15,6 +14,70 @@ import { isPosix } from "@/shared/utils/runtime-platform.util";
 
 /** Regex for splitting text into lines across platforms */
 export const LINE_SPLITTER_REGEX = /\r?\n/;
+
+export function sliceTextByLineWindow(params: {
+  text: string;
+  line?: number;
+  limit?: number;
+}): string {
+  const { text, line, limit } = params;
+  if (line === undefined && limit === undefined) {
+    return text;
+  }
+  const startLine = Math.max((line ?? 1) - 1, 0);
+  if (limit !== undefined && limit <= 0) {
+    return "";
+  }
+  const normalizedLimit =
+    limit === undefined ? undefined : Math.trunc(limit);
+  const lines = text.split(LINE_SPLITTER_REGEX);
+  const endLine =
+    normalizedLimit === undefined ? undefined : startLine + normalizedLimit;
+  return lines.slice(startLine, endLine).join("\n");
+}
+
+export async function readTextFileLineWindow(params: {
+  filePath: string;
+  line?: number;
+  limit?: number;
+}): Promise<string> {
+  const startLine = Math.max((params.line ?? 1) - 1, 0);
+  if (params.limit !== undefined && params.limit <= 0) {
+    return "";
+  }
+  const normalizedLimit =
+    params.limit === undefined ? undefined : Math.trunc(params.limit);
+
+  const input = createReadStream(params.filePath, { encoding: "utf8" });
+  const lineReader = createInterface({
+    input,
+    crlfDelay: Infinity,
+  });
+  const lines: string[] = [];
+  let currentLine = 0;
+
+  try {
+    for await (const line of lineReader) {
+      if (currentLine >= startLine) {
+        lines.push(line);
+        if (
+          normalizedLimit !== undefined &&
+          lines.length >= normalizedLimit
+        ) {
+          lineReader.close();
+          input.destroy();
+          break;
+        }
+      }
+      currentLine += 1;
+    }
+  } finally {
+    lineReader.close();
+    input.destroy();
+  }
+
+  return lines.join("\n");
+}
 
 export function resolveOutputLimit(
   limit: bigint | number | null | undefined
@@ -198,69 +261,19 @@ export async function resolvePathInSession(
   session: ChatSession,
   inputPath: string
 ): Promise<string> {
-  const rawPath = fileUriToPath(inputPath);
-  const configuredRoot = path.resolve(session.projectRoot);
-  let canonicalRoot = configuredRoot;
-  try {
-    canonicalRoot = await realpath(configuredRoot);
-  } catch {
-    throw new Error(`Invalid project root: ${configuredRoot}`);
-  }
-
-  const resolvedPath = path.isAbsolute(rawPath)
-    ? path.resolve(rawPath)
-    : path.resolve(canonicalRoot, rawPath);
-  const canonicalPath = await canonicalizeTargetPath(resolvedPath);
-
-  if (isPathOutsideRoot(canonicalRoot, canonicalPath)) {
-    throw new Error(
-      `Access denied (outside project root): ${canonicalPath} (root: ${canonicalRoot})`
-    );
-  }
-
-  return canonicalPath;
+  const { canonicalTargetPath } = await resolvePathWithinRoot({
+    rootPath: session.projectRoot,
+    inputPath,
+  });
+  return canonicalTargetPath;
 }
 
-function isPathOutsideRoot(rootPath: string, targetPath: string): boolean {
-  const relative = path.relative(rootPath, targetPath);
-  return (
-    relative === ".." ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-  );
-}
-
-function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
-  return isNodeErrno(error, "ENOENT") || isNodeErrno(error, "ENOTDIR");
-}
-
-async function canonicalizeTargetPath(resolvedPath: string): Promise<string> {
-  try {
-    return await realpath(resolvedPath);
-  } catch (error) {
-    if (!isMissingPathError(error)) {
-      throw error;
-    }
-  }
-
-  const pathSuffix: string[] = [];
-  let cursor = resolvedPath;
-
-  while (true) {
-    try {
-      const canonicalAncestor = await realpath(cursor);
-      return path.resolve(canonicalAncestor, ...pathSuffix);
-    } catch (error) {
-      if (!isMissingPathError(error)) {
-        throw error;
-      }
-
-      const parent = path.dirname(cursor);
-      if (parent === cursor) {
-        throw error;
-      }
-      pathSuffix.unshift(path.basename(cursor));
-      cursor = parent;
-    }
-  }
+export async function resolveSessionRootPath(
+  session: ChatSession
+): Promise<string> {
+  const { canonicalRootPath } = await resolvePathWithinRoot({
+    rootPath: session.projectRoot,
+    inputPath: ".",
+  });
+  return canonicalRootPath;
 }

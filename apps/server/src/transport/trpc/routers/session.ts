@@ -58,9 +58,7 @@ export const sessionRouter = router({
       const res = await service.execute({
         userId: getRequiredUserId(ctx),
         projectId: input.projectId,
-        command: input.command,
-        args: input.args,
-        env: input.env,
+        agentId: input.agentId,
       });
       return {
         chatId: res.id,

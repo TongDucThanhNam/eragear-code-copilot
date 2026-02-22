@@ -217,6 +217,12 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .passthrough(),
   z
     .object({
+      type: z.literal("file_modified"),
+      path: z.string(),
+    })
+    .passthrough(),
+  z
+    .object({
       type: z.literal("available_commands_update"),
       availableCommands: z.array(AVAILABLE_COMMAND_SCHEMA),
     })

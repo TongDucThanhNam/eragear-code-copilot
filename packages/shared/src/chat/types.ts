@@ -153,6 +153,7 @@ export type BroadcastEvent =
       partIndex: number;
       delta: string;
     }
+  | { type: "file_modified"; path: string }
   | {
       type: "available_commands_update";
       availableCommands: Array<{

@@ -240,6 +240,7 @@ export interface EventProcessingCallbacks {
   onPromptCapabilitiesChange?: (caps: PromptCapabilities | null) => void;
   onAgentInfoChange?: (info: AgentInfo | null) => void;
   onTerminalOutput?: (terminalId: string, data: string) => void;
+  onFileModified?: (path: string) => void;
   onPendingPermissionChange?: (permission: PermissionRequest | null) => void;
   onError?: (error: string) => void;
   onFinish?: (payload: {
@@ -402,6 +403,10 @@ export function processSessionEvent(
       }
       return;
     }
+
+    case "file_modified":
+      callbacks.onFileModified?.(event.path);
+      return;
 
     case "error":
       callbacks.onConnStatusChange?.("error");
