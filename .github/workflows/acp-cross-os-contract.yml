@@ -1,0 +1,70 @@
+name: ACP Cross-OS Contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/acp-cross-os-contract.yml"
+      - "apps/server/**"
+      - "apps/web/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "bun.lock"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/acp-cross-os-contract.yml"
+      - "apps/server/**"
+      - "apps/web/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "bun.lock"
+  workflow_dispatch:
+
+jobs:
+  acp-contract-tests:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.0"
+
+      - name: Install dependencies
+        shell: bash
+        run: bun install --frozen-lockfile
+
+      - name: Run shared chat contract tests
+        shell: bash
+        run: |
+          bun test \
+            packages/shared/src/chat/event-schema.test.ts \
+            packages/shared/src/chat/use-chat-core.test.ts
+
+      - name: Run web stream normalization tests
+        shell: bash
+        run: |
+          bun test \
+            apps/web/src/hooks/use-chat-normalize.test.ts \
+            apps/web/src/hooks/use-chat-message-state.test.ts \
+            apps/web/src/hooks/use-chat-connection.machine.test.ts \
+            apps/web/src/store/chat-stream-store.test.ts
+
+      - name: Run server ACP pipeline tests
+        shell: bash
+        working-directory: apps/server
+        run: |
+          bun test \
+            src/platform/acp/update-stream.test.ts \
+            src/platform/acp/tool-calls.test.ts

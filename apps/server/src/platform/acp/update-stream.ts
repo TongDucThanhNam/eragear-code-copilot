@@ -28,9 +28,9 @@ interface SnapshotDecision {
 
 export async function handleBufferedMessage(
   context: SessionUpdateContext
-): Promise<void> {
+): Promise<boolean> {
   appendAgentChunksToBuffer(context);
-  await handleUiChunkUpdate(context);
+  return await handleUiChunkUpdate(context);
 }
 
 function appendAgentChunksToBuffer(context: SessionUpdateContext): void {
@@ -46,7 +46,7 @@ function appendAgentChunksToBuffer(context: SessionUpdateContext): void {
 
 async function handleUiChunkUpdate(
   context: SessionUpdateContext
-): Promise<void> {
+): Promise<boolean> {
   const {
     chatId,
     buffer,
@@ -58,7 +58,7 @@ async function handleUiChunkUpdate(
   } = context;
   const session = sessionRuntime.get(chatId);
   if (!session) {
-    return;
+    return false;
   }
 
   if (
@@ -66,7 +66,7 @@ async function handleUiChunkUpdate(
     update.sessionUpdate !== "agent_thought_chunk" &&
     update.sessionUpdate !== "user_message_chunk"
   ) {
-    return;
+    return false;
   }
 
   if (update.sessionUpdate === "user_message_chunk") {
@@ -91,7 +91,7 @@ async function handleUiChunkUpdate(
         message: updatedMessage,
       });
     }
-    return;
+    return true;
   }
 
   const partState = isReplayingHistory ? "done" : "streaming";
@@ -119,6 +119,7 @@ async function handleUiChunkUpdate(
     providerMetadata,
     sessionRuntime,
   });
+  return true;
 }
 
 async function appendAssistantChunk(params: {

@@ -620,18 +620,14 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     {
       enabled: subscriptionEnabled,
       onData(rawEvent: unknown) {
-        try {
-          const event = parseBroadcastEvent(rawEvent);
-          handleSessionEvent(event);
-        } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Received invalid chat event payload";
+        const parsedEvent = parseBroadcastEvent(rawEvent);
+        if (parsedEvent.status === "ignored_unknown_event") {
+          return;
+        }
+        if (parsedEvent.status === "invalid_payload") {
           console.warn("[Client] Dropped invalid session event", {
-            error: message,
+            error: parsedEvent.error,
           });
-          setError(message);
           const now = Date.now();
           if (
             now - invalidEventToastAtRef.current >=
@@ -640,6 +636,19 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
             invalidEventToastAtRef.current = now;
             toast.warning("Dropped malformed ACP event. Stream keeps running.");
           }
+          return;
+        }
+        try {
+          handleSessionEvent(parsedEvent.event);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Failed to process chat session event";
+          console.warn("[Client] Failed to process session event", {
+            error: message,
+          });
+          setError(message);
         }
       },
       onError(err) {

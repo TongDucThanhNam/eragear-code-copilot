@@ -1,4 +1,4 @@
-# ACP Chat Protocol (Server) — Spec v1
+# ACP Chat Protocol (Server) — Spec v2
 
 Tài liệu này định nghĩa protocol cấp server cho chat dựa trên ACP. Mục tiêu là
 client có thể build một `useChat` theo phong cách AI SDK chỉ bằng tRPC calls +
@@ -200,6 +200,14 @@ Notes:
   `callProviderMetadata`.
 - Client phải ignore unknown `UIMessagePart` types.
 - Nếu thêm event mới → giữ backward compatibility.
+
+### 9.1 Client compatibility rules (normative)
+
+- Unknown event type: client **phải ignore an toàn** và tiếp tục stream.
+- Known event type nhưng payload sai schema: client **phải drop event đó**,
+  log warning, và tiếp tục stream (không được crash subscription).
+- `ui_message` / `chat_finish.message`: nếu có unknown `UIMessagePart`, client
+  **phải drop unknown part** và giữ lại phần hợp lệ để maintain continuity.
 
 ## 10) Client Checklist (useChat)
 

@@ -270,6 +270,42 @@ type ParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string };
 
+export type ClientParseIssueKind = "unknown_event" | "invalid_payload";
+
+export type ClientParseResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; kind: ClientParseIssueKind; error: string };
+
+const BROADCAST_EVENT_TYPES = [
+  "connected",
+  "chat_status",
+  "chat_finish",
+  "ui_message",
+  "ui_message_delta",
+  "file_modified",
+  "available_commands_update",
+  "config_options_update",
+  "session_info_update",
+  "current_mode_update",
+  "terminal_output",
+  "heartbeat",
+  "error",
+] as const;
+const BROADCAST_EVENT_TYPE_SET = new Set<string>(BROADCAST_EVENT_TYPES);
+
+const UI_MESSAGE_ENVELOPE_SCHEMA = z
+  .object({
+    id: z.string(),
+    role: z.enum(["system", "user", "assistant"]),
+    metadata: z.unknown().optional(),
+    parts: z.array(z.unknown()),
+  })
+  .passthrough();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function toParseErrorMessage(prefix: string, error: z.ZodError): string {
   const issues = error.issues
     .map((issue) => {
@@ -314,5 +350,141 @@ export function parseBroadcastEventStrict(
       error: toParseErrorMessage("Invalid chat broadcast event", parsed.error),
     };
   }
+  return { ok: true, value: parsed.data as BroadcastEvent };
+}
+
+function sanitizeUiMessageParts(parts: unknown[]): UIMessage["parts"] {
+  const sanitizedParts: UIMessage["parts"] = [];
+  for (const rawPart of parts) {
+    const parsedPart = UI_MESSAGE_PART_SCHEMA.safeParse(rawPart);
+    if (!parsedPart.success) {
+      continue;
+    }
+    sanitizedParts.push(parsedPart.data as UIMessage["parts"][number]);
+  }
+  return sanitizedParts;
+}
+
+export function parseUiMessageClientSafe(raw: unknown): ClientParseResult<UIMessage> {
+  const parsed = UI_MESSAGE_ENVELOPE_SCHEMA.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      kind: "invalid_payload",
+      error: toParseErrorMessage("Invalid UI message payload", parsed.error),
+    };
+  }
+
+  const sanitizedMessage: UIMessage = {
+    id: parsed.data.id,
+    role: parsed.data.role,
+    parts: sanitizeUiMessageParts(parsed.data.parts),
+  };
+
+  if (Object.prototype.hasOwnProperty.call(parsed.data, "metadata")) {
+    sanitizedMessage.metadata = parsed.data.metadata;
+  }
+
+  return { ok: true, value: sanitizedMessage };
+}
+
+export function parseUiMessageArrayClientSafe(
+  raw: unknown
+): ClientParseResult<UIMessage[]> {
+  if (!Array.isArray(raw)) {
+    return {
+      ok: false,
+      kind: "invalid_payload",
+      error: "Invalid UI message array payload: root: Expected array",
+    };
+  }
+
+  const sanitizedMessages: UIMessage[] = [];
+  for (let index = 0; index < raw.length; index += 1) {
+    const parsedMessage = parseUiMessageClientSafe(raw[index]);
+    if (!parsedMessage.ok) {
+      return {
+        ok: false,
+        kind: "invalid_payload",
+        error: `Invalid UI message array payload: index ${index}: ${parsedMessage.error}`,
+      };
+    }
+    sanitizedMessages.push(parsedMessage.value);
+  }
+
+  return { ok: true, value: sanitizedMessages };
+}
+
+function getRawEventType(raw: unknown): string | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  return typeof raw.type === "string" ? raw.type : null;
+}
+
+export function parseBroadcastEventClientSafe(
+  raw: unknown
+): ClientParseResult<BroadcastEvent> {
+  const eventType = getRawEventType(raw);
+  if (!eventType) {
+    return {
+      ok: false,
+      kind: "invalid_payload",
+      error: "Invalid chat broadcast event: root: Missing string type field",
+    };
+  }
+
+  if (!BROADCAST_EVENT_TYPE_SET.has(eventType)) {
+    return {
+      ok: false,
+      kind: "unknown_event",
+      error: `Unknown chat broadcast event type: ${eventType}`,
+    };
+  }
+
+  let normalizedRaw = raw;
+  if (eventType === "ui_message") {
+    const uiMessage = parseUiMessageClientSafe(
+      isRecord(raw) ? raw.message : undefined
+    );
+    if (!uiMessage.ok) {
+      return {
+        ok: false,
+        kind: "invalid_payload",
+        error: `Invalid chat broadcast event: ${uiMessage.error}`,
+      };
+    }
+    normalizedRaw = {
+      ...(raw as Record<string, unknown>),
+      message: uiMessage.value,
+    };
+  } else if (
+    eventType === "chat_finish" &&
+    isRecord(raw) &&
+    raw.message !== undefined
+  ) {
+    const uiMessage = parseUiMessageClientSafe(raw.message);
+    if (!uiMessage.ok) {
+      return {
+        ok: false,
+        kind: "invalid_payload",
+        error: `Invalid chat broadcast event: ${uiMessage.error}`,
+      };
+    }
+    normalizedRaw = {
+      ...raw,
+      message: uiMessage.value,
+    };
+  }
+
+  const parsed = BROADCAST_EVENT_SCHEMA.safeParse(normalizedRaw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      kind: "invalid_payload",
+      error: toParseErrorMessage("Invalid chat broadcast event", parsed.error),
+    };
+  }
+
   return { ok: true, value: parsed.data as BroadcastEvent };
 }

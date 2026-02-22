@@ -9,7 +9,7 @@
     "serve": "vite preview",
     "start": "vite",
     "check-types": "tsc --noEmit",
-    "test:blockers": "bun test src/hooks/use-chat-connection.machine.test.ts src/hooks/use-chat-history.test.ts src/hooks/use-chat-message-state.test.ts src/store/chat-stream-store.test.ts src/components/chat-ui/chat-bootstrap-phase.test.ts src/components/chat-ui/chat-input-submit-status.test.ts",
+    "test:blockers": "bun test src/hooks/use-chat-normalize.test.ts src/hooks/use-chat-connection.machine.test.ts src/hooks/use-chat-history.test.ts src/hooks/use-chat-message-state.test.ts src/store/chat-stream-store.test.ts src/components/chat-ui/chat-bootstrap-phase.test.ts src/components/chat-ui/chat-input-submit-status.test.ts",
     "generate-pwa-assets": "pwa-assets-generator",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",

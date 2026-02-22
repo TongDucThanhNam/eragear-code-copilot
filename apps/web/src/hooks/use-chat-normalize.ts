@@ -9,9 +9,9 @@ import type {
   UIMessage,
 } from "@repo/shared";
 import {
-  parseBroadcastEventStrict,
-  parseUiMessageArrayStrict,
-  parseUiMessageStrict,
+  parseBroadcastEventClientSafe,
+  parseUiMessageArrayClientSafe,
+  parseUiMessageClientSafe,
 } from "@repo/shared";
 
 type RawAgentInfo = {
@@ -53,7 +53,7 @@ export function shouldLogChatStreamDebug(): boolean {
 }
 
 export const normalizeMessage = (message: unknown): UIMessage => {
-  const parsed = parseUiMessageStrict(message);
+  const parsed = parseUiMessageClientSafe(message);
   if (!parsed.ok) {
     throw new Error(parsed.error);
   }
@@ -61,7 +61,7 @@ export const normalizeMessage = (message: unknown): UIMessage => {
 };
 
 export const normalizeMessages = (messages: unknown): UIMessage[] => {
-  const parsed = parseUiMessageArrayStrict(messages);
+  const parsed = parseUiMessageArrayClientSafe(messages);
   if (!parsed.ok) {
     throw new Error(parsed.error);
   }
@@ -111,10 +111,20 @@ export const normalizeSessionStateData = (
   return normalized;
 };
 
-export const parseBroadcastEvent = (event: unknown): BroadcastEvent => {
-  const parsed = parseBroadcastEventStrict(event);
-  if (!parsed.ok) {
-    throw new Error(parsed.error);
+export type ParseBroadcastEventResult =
+  | { status: "ok"; event: BroadcastEvent }
+  | { status: "ignored_unknown_event" }
+  | { status: "invalid_payload"; error: string };
+
+export const parseBroadcastEvent = (
+  event: unknown
+): ParseBroadcastEventResult => {
+  const parsed = parseBroadcastEventClientSafe(event);
+  if (parsed.ok) {
+    return { status: "ok", event: parsed.value };
   }
-  return parsed.value;
+  if (parsed.kind === "unknown_event") {
+    return { status: "ignored_unknown_event" };
+  }
+  return { status: "invalid_payload", error: parsed.error };
 };

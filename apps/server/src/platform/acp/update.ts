@@ -391,7 +391,7 @@ export function createSessionUpdateHandler(
         finalizeStreamingForCurrentAssistant,
       };
 
-      await handleBufferedMessage(context);
+      const handledByChunkPipeline = await handleBufferedMessage(context);
 
       if (await handleModeUpdate(context)) {
         return;
@@ -415,7 +415,7 @@ export function createSessionUpdateHandler(
         return;
       }
 
-      if (isDebugEnabled && summary) {
+      if (isDebugEnabled && summary && !handledByChunkPipeline) {
         logger.debug("ACP session update ignored by pipeline", {
           chatId,
           ...summary,
