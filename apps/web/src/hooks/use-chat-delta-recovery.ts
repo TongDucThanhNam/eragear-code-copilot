@@ -116,13 +116,33 @@ export function useChatDeltaRecovery({
             });
             return;
           }
+          let insertedMessage = false;
           updateMessageState((prev) => {
             const existing = prev.byId.get(normalized.id);
             if (existing === normalized) {
               return prev;
             }
+            insertedMessage = !prev.byId.has(normalized.id);
             return upsertMessageIntoState(prev, normalized);
           });
+          if (
+            insertedMessage &&
+            Date.now() - lastHistoryReloadAtRef.current >=
+              DELTA_RECOVERY_HISTORY_RELOAD_COOLDOWN_MS
+          ) {
+            lastHistoryReloadAtRef.current = Date.now();
+            reloadHistory().catch((reloadError) => {
+              console.warn("[Chat] Delta recovery history reload failed", {
+                chatId: activeChatId,
+                messageId,
+                reason,
+                error:
+                  reloadError instanceof Error
+                    ? reloadError.message
+                    : String(reloadError),
+              });
+            });
+          }
         })
         .catch((error) => {
           if (

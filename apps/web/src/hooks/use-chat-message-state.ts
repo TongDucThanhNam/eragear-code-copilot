@@ -1,4 +1,5 @@
 import type { UIMessage } from "@repo/shared";
+import { findUiMessageInsertIndex } from "@repo/shared";
 
 export interface MessageState {
   byId: Map<string, UIMessage>;
@@ -59,18 +60,23 @@ export const mergeMessagesIntoState = (
         nextOrder = [...nextOrder];
         orderChanged = true;
       }
-      nextOrder.push(message.id);
+      const insertIndex = findUiMessageInsertIndex(nextOrderedMessages, message);
+      nextOrder.splice(insertIndex, 0, message.id);
       if (!indexChanged) {
         nextIndexById = new Map(nextIndexById);
         indexChanged = true;
       }
-      const nextIndex = nextOrder.length - 1;
-      nextIndexById.set(message.id, nextIndex);
+      for (let reorderIndex = insertIndex; reorderIndex < nextOrder.length; reorderIndex += 1) {
+        const reorderMessageId = nextOrder[reorderIndex];
+        if (reorderMessageId) {
+          nextIndexById.set(reorderMessageId, reorderIndex);
+        }
+      }
       if (!orderedMessagesChanged) {
         nextOrderedMessages = [...nextOrderedMessages];
         orderedMessagesChanged = true;
       }
-      nextOrderedMessages.push(message);
+      nextOrderedMessages.splice(insertIndex, 0, message);
       continue;
     }
 

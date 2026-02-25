@@ -9,6 +9,8 @@ import {
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 import { isToolCallCreate, isToolCallUpdate } from "./update-types";
 
+const TOOL_CALL_FALLBACK_KIND = "other";
+
 export async function handleToolCallCreate(
   context: SessionUpdateContext
 ): Promise<boolean> {
@@ -30,6 +32,7 @@ export async function handleToolCallCreate(
   const { sessionUpdate: _sessionUpdate, ...toolCall } = update;
   const sanitizedToolCall: acp.ToolCall = {
     ...toolCall,
+    kind: toolCall.kind ?? TOOL_CALL_FALLBACK_KIND,
     content: toStoredToolCallContent(toolCall.content),
   };
   const session = sessionRuntime.get(chatId);
@@ -75,12 +78,10 @@ export async function handleToolCallUpdate(
   const session = sessionRuntime.get(chatId);
   if (session) {
     const existing = session.toolCalls.get(update.toolCallId);
-    if (existing) {
-      session.toolCalls.set(
-        update.toolCallId,
-        mergeToolCallUpdate(existing, update)
-      );
-    }
+    const mergedToolCall = existing
+      ? mergeToolCallUpdate(existing, update)
+      : createToolCallFromUpdate(update);
+    session.toolCalls.set(update.toolCallId, mergedToolCall);
   }
 
   if (session) {
@@ -141,9 +142,38 @@ function mergeToolCallUpdate(
     status: update.status ?? existing.status,
     title: update.title ?? existing.title,
     kind: update.kind ?? existing.kind,
+    rawInput: update.rawInput === undefined ? existing.rawInput : update.rawInput,
+    rawOutput:
+      update.rawOutput === undefined ? existing.rawOutput : update.rawOutput,
     content: mergedContent,
     locations: mergedLocations,
     _meta: mergedMeta,
+  };
+}
+
+function createToolCallFromUpdate(
+  update: Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>
+): acp.ToolCall {
+  const resolvedKind =
+    typeof update.kind === "string" && update.kind.trim().length > 0
+      ? update.kind
+      : TOOL_CALL_FALLBACK_KIND;
+  const resolvedTitle = update.title ?? resolvedKind;
+  const resolvedLocations =
+    update.locations === undefined
+      ? undefined
+      : (update.locations ?? undefined);
+
+  return {
+    toolCallId: update.toolCallId,
+    title: resolvedTitle,
+    kind: resolvedKind,
+    status: update.status ?? undefined,
+    rawInput: update.rawInput,
+    rawOutput: update.rawOutput,
+    content: resolveToolCallUpdateContent(undefined, update.content),
+    locations: resolvedLocations,
+    _meta: update._meta ?? undefined,
   };
 }
 

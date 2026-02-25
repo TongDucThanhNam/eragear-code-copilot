@@ -45,6 +45,7 @@ export class SessionMessageMapper {
       return {
         id: message.id,
         role: message.role,
+        createdAt: message.timestamp,
         parts: message.parts,
       };
     }
@@ -57,6 +58,7 @@ export class SessionMessageMapper {
       return buildUserMessageFromBlocks({
         messageId: message.id,
         contentBlocks,
+        createdAt: message.timestamp,
       });
     }
 
@@ -64,6 +66,7 @@ export class SessionMessageMapper {
       messageId: message.id,
       contentBlocks,
       reasoningBlocks: this.resolveReasoningBlocks(message),
+      createdAt: message.timestamp,
     });
   }
 

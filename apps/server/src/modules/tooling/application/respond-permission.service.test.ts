@@ -143,6 +143,53 @@ describe("RespondPermissionService", () => {
     ]);
   });
 
+  test("treats explicitly selected custom option as approved unless intent is reject", async () => {
+    const session = createSession("user-1");
+    const events: BroadcastEvent[] = [];
+    session.pendingPermissions.set("req-1", {
+      resolve: () => undefined,
+      options: [
+        {
+          optionId: "custom_execute",
+          name: "Execute anyway",
+        },
+      ],
+      toolCallId: "tool-1",
+      toolName: "bash",
+    });
+    const service = new RespondPermissionService(createRuntime(session, events));
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        requestId: "req-1",
+        decision: "custom_execute",
+      })
+    ).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "custom_execute" },
+    });
+
+    const uiMessageEvent = events.find((event) => event.type === "ui_message");
+    expect(uiMessageEvent).toBeDefined();
+    if (!uiMessageEvent || uiMessageEvent.type !== "ui_message") {
+      throw new Error("Expected ui_message event");
+    }
+    const toolPart = uiMessageEvent.message.parts.find((part) => {
+      return part.type === "tool-bash" && "toolCallId" in part;
+    });
+    expect(toolPart).toMatchObject({
+      type: "tool-bash",
+      toolCallId: "tool-1",
+      state: "approval-responded",
+      approval: {
+        id: "req-1",
+        approved: true,
+        reason: "custom_execute",
+      },
+    });
+  });
+
   test("treats allow option ids with 'no' substrings as approved via kind", async () => {
     const session = createSession("user-1");
     const events: BroadcastEvent[] = [];
@@ -246,5 +293,66 @@ describe("RespondPermissionService", () => {
       status: "streaming",
       turnId: "turn-1",
     });
+  });
+
+  test("removes stale data-permission-options part after response", async () => {
+    const session = createSession("user-1");
+    const events: BroadcastEvent[] = [];
+    session.uiState.messages.set("msg-1", {
+      id: "msg-1",
+      role: "assistant",
+      parts: [
+        {
+          type: "data-permission-options",
+          data: {
+            requestId: "req-1",
+            toolCallId: "tool-1",
+            options: [{ optionId: "allow_once", kind: "allow_once" }],
+          },
+        },
+        {
+          type: "tool-bash",
+          toolCallId: "tool-1",
+          state: "approval-requested",
+          title: "Bash",
+          input: null,
+          approval: { id: "req-1" },
+        },
+      ],
+    });
+    session.uiState.toolPartIndex.set("tool-1", {
+      messageId: "msg-1",
+      partIndex: 1,
+    });
+    session.pendingPermissions.set("req-1", {
+      resolve: () => undefined,
+      options: [{ optionId: "allow_once", kind: "allow_once" }],
+      toolCallId: "tool-1",
+      toolName: "bash",
+      title: "Bash",
+    });
+    const service = new RespondPermissionService(createRuntime(session, events));
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      requestId: "req-1",
+      decision: "allow",
+    });
+
+    const uiMessageEvent = events.find((event) => event.type === "ui_message");
+    expect(uiMessageEvent).toBeDefined();
+    if (!uiMessageEvent || uiMessageEvent.type !== "ui_message") {
+      throw new Error("Expected ui_message event");
+    }
+    const hasStalePermissionPart = uiMessageEvent.message.parts.some((part) => {
+      return (
+        part.type === "data-permission-options" &&
+        typeof part.data === "object" &&
+        part.data !== null &&
+        (part.data as { requestId?: string }).requestId === "req-1"
+      );
+    });
+    expect(hasStalePermissionPart).toBe(false);
   });
 });

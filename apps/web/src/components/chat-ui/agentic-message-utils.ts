@@ -67,6 +67,23 @@ export const splitMessageParts = (parts: UIMessagePart[]) => {
   return { chainItems, finalText, finalAttachments };
 };
 
+export const resolveAssistantFinalVisibility = (params: {
+  finalText: string | null;
+  finalAttachmentsCount: number;
+  isStreaming: boolean;
+  chainItemsCount: number;
+}) => {
+  const showFinalText = Boolean(params.finalText);
+  const showFinalAttachments =
+    params.finalAttachmentsCount > 0 &&
+    (!params.isStreaming || params.chainItemsCount === 0);
+  return {
+    showFinalText,
+    showFinalAttachments,
+    shouldRenderFinal: showFinalText || showFinalAttachments,
+  };
+};
+
 export type ToolViewState =
   | "pending"
   | "running"
@@ -132,7 +149,7 @@ export const buildMessageCopyText = (message: UIMessage) => {
 
 export type ParsedToolOutput = {
   result: ToolUIPart["output"];
-  terminalId?: string;
+  terminalIds: string[];
   diffs: Array<{ path: string; oldText?: string; newText: string }>;
 };
 
@@ -142,14 +159,16 @@ export const parseToolOutput = (
   if (!Array.isArray(output)) {
     return {
       result: output,
-      terminalId: undefined,
+      terminalIds: [],
       diffs: [],
     };
   }
-  let terminalId: string | undefined;
+  const terminalIds = new Set<string>();
   const diffs: Array<{ path: string; oldText?: string; newText: string }> = [];
   const textParts: string[] = [];
+  const residualItems: unknown[] = [];
   for (const item of output) {
+    let handled = false;
     if (item && typeof item === "object" && "type" in item) {
       const typed = item as {
         type: string;
@@ -160,7 +179,8 @@ export const parseToolOutput = (
         content?: { type?: string; text?: string };
       };
       if (typed.type === "terminal" && typed.terminalId) {
-        terminalId = typed.terminalId;
+        terminalIds.add(typed.terminalId);
+        handled = true;
       }
       if (typed.type === "diff" && typed.path && typed.newText) {
         diffs.push({
@@ -168,6 +188,7 @@ export const parseToolOutput = (
           oldText: typed.oldText,
           newText: typed.newText,
         });
+        handled = true;
       }
       if (
         typed.type === "content" &&
@@ -175,11 +196,24 @@ export const parseToolOutput = (
         typed.content.text
       ) {
         textParts.push(typed.content.text);
+        handled = true;
       }
     }
+    if (!handled) {
+      residualItems.push(item);
+    }
   }
-  const result = textParts.length > 0 ? textParts.join("\n") : output;
-  return { result, terminalId, diffs };
+  let result: ToolUIPart["output"];
+  if (textParts.length > 0) {
+    result = textParts.join("\n");
+  } else if (residualItems.length === 0) {
+    result = undefined;
+  } else if (residualItems.length === 1) {
+    result = residualItems[0] as ToolUIPart["output"];
+  } else {
+    result = residualItems as ToolUIPart["output"];
+  }
+  return { result, terminalIds: Array.from(terminalIds), diffs };
 };
 
 const messageTerminalIdCache = new WeakMap<UIMessage, string[]>();
@@ -192,8 +226,8 @@ export const getMessageTerminalIds = (message: UIMessage) => {
   const terminalIds = new Set<string>();
   for (const part of message.parts) {
     if (part.type.startsWith("tool-")) {
-      const { terminalId } = parseToolOutput((part as ToolUIPart).output);
-      if (terminalId) {
+      const parsed = parseToolOutput((part as ToolUIPart).output);
+      for (const terminalId of parsed.terminalIds) {
         terminalIds.add(terminalId);
       }
     }

@@ -133,6 +133,41 @@ describe("SubscribeSessionEventsService", () => {
     expect(subscription.activeTurnId).toBe(activeTurnId);
   });
 
+  test("replay snapshot excludes stale chat_status and chat_finish events", async () => {
+    const completedMessage: UIMessage = {
+      id: "msg-1",
+      role: "assistant",
+      parts: [{ type: "text", text: "done", state: "done" }],
+    };
+    const session = createSession({
+      chatStatus: "ready",
+      messageBuffer: [
+        { type: "chat_status", status: "streaming", turnId: "turn-old" },
+        {
+          type: "chat_finish",
+          stopReason: "end_turn",
+          finishReason: "stop",
+          messageId: completedMessage.id,
+          message: completedMessage,
+          isAbort: false,
+          turnId: "turn-old",
+        },
+        { type: "ui_message", message: completedMessage },
+      ],
+    });
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime);
+
+    const subscription = await service.execute("user-1", "chat-1");
+
+    expect(subscription.bufferedEvents).toEqual([
+      {
+        type: "ui_message",
+        message: completedMessage,
+      },
+    ]);
+  });
+
   test("adds active assistant snapshot when replay buffer is missing it", async () => {
     const uiState = createUiMessageState();
     const assistantMessage: UIMessage = {

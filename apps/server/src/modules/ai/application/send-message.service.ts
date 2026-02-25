@@ -178,6 +178,7 @@ export class SendMessageService {
         const uiMessage = buildUserMessageFromBlocks({
           messageId,
           contentBlocks: storedPromptBlocks,
+          createdAt: submittedAt,
         });
         try {
           await this.sessionRepo.appendMessage(input.chatId, input.userId, {

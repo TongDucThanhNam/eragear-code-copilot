@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
+import { deriveResumeSessionSyncPlan } from "./use-chat-resume-sync";
 import type { SendMessageOptions } from "./use-chat.types";
 
 interface UseChatActionsParams {
@@ -48,6 +49,7 @@ interface UseChatActionsParams {
   invalidateHistoryLoads: () => void;
   clearHistoryWindow: () => void;
   loadHistory: (force?: boolean) => Promise<void>;
+  onResumeStateHydrated?: () => void;
 }
 
 export function useChatActions({
@@ -76,6 +78,7 @@ export function useChatActions({
   invalidateHistoryLoads,
   clearHistoryWindow,
   loadHistory,
+  onResumeStateHydrated,
 }: UseChatActionsParams) {
   const sendMessageMutation = trpc.sendMessage.useMutation();
   const cancelPromptMutation = trpc.cancelPrompt.useMutation();
@@ -310,11 +313,12 @@ export function useChatActions({
           return;
         }
         console.error("Failed to respond to permission", permissionError);
-        setError(
+        const normalizedError =
           permissionError instanceof Error
-            ? permissionError.message
-            : String(permissionError)
-        );
+            ? permissionError
+            : new Error(String(permissionError));
+        setError(normalizedError.message);
+        throw normalizedError;
       }
     },
     [
@@ -380,13 +384,25 @@ export function useChatActions({
         isResumingRef.current = false;
         return;
       }
-      const alreadyRunning =
-        typeof resumeResult === "object" &&
-        resumeResult !== null &&
-        "alreadyRunning" in resumeResult &&
-        Boolean((resumeResult as { alreadyRunning?: boolean }).alreadyRunning);
+      const syncPlan = deriveResumeSessionSyncPlan(resumeResult);
+      if (syncPlan.modes !== undefined) {
+        setModes(syncPlan.modes ?? null);
+      }
+      if (syncPlan.models !== undefined) {
+        setModels(syncPlan.models ?? null);
+      }
+      if (syncPlan.configOptions !== undefined) {
+        setConfigOptions(syncPlan.configOptions ?? []);
+      }
+      if (syncPlan.supportsModelSwitching !== undefined) {
+        setSupportsModelSwitching(syncPlan.supportsModelSwitching);
+      }
+      setConnStatus("connected");
+      setStatus("ready");
+      onResumeStateHydrated?.();
+
       let shouldReloadHistory = false;
-      if (!alreadyRunning) {
+      if (!syncPlan.alreadyRunning) {
         setMessages([]);
         clearHistoryWindow();
         shouldReloadHistory = true;
@@ -417,12 +433,17 @@ export function useChatActions({
     isResumingRef,
     isActiveChat,
     loadHistory,
+    onResumeStateHydrated,
     resumeSessionMutation,
     setConnStatus,
+    setConfigOptions,
     setError,
+    setModes,
+    setModels,
     setMessages,
     setStatus,
     setStreamLifecycle,
+    setSupportsModelSwitching,
   ]);
 
   return {

@@ -19,13 +19,17 @@ import { TerminalView } from "./terminal-view";
 interface ToolMessagePartProps {
   tool: ToolUIPart;
   parsedOutput: ParsedToolOutput;
-  terminalOutput?: string;
+  terminalOutputs?: Record<string, string>;
 }
 
 export const ToolMessagePart = memo(
-  ({ tool, parsedOutput, terminalOutput }: ToolMessagePartProps) => {
+  ({ tool, parsedOutput, terminalOutputs }: ToolMessagePartProps) => {
     const viewState = toToolViewState(tool);
-    const { result, terminalId, diffs } = parsedOutput;
+    const { result, terminalIds, diffs } = parsedOutput;
+    const terminalOutput = terminalIds
+      .map((terminalId) => terminalOutputs?.[terminalId] ?? "")
+      .filter((entry) => entry.length > 0)
+      .join("");
     const errorText =
       tool.state === "output-error"
         ? tool.errorText
@@ -39,7 +43,7 @@ export const ToolMessagePart = memo(
         <ToolHeader state={viewState} title={tool.title} type={tool.type} />
         <ToolContent>
           {tool.input !== undefined ? <ToolInput input={tool.input} /> : null}
-          {terminalId && terminalOutput !== undefined && (
+          {terminalIds.length > 0 && terminalOutput.length > 0 && (
             <div className="mt-2">
               <TerminalView output={terminalOutput} />
             </div>

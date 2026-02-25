@@ -14,6 +14,14 @@ function createAssistantMessage(
   };
 }
 
+function createUserMessage(id: string, text: string): UIMessage {
+  return {
+    id,
+    role: "user",
+    parts: [{ type: "text", text }],
+  };
+}
+
 function applyEventWithMessages(
   event: BroadcastEvent,
   initialMessages: UIMessage[]
@@ -23,7 +31,7 @@ function applyEventWithMessages(
 
   processSessionEvent(
     event,
-    { currentModes: null },
+    { currentModes: null, currentModels: null },
     {
       getMessageById: (messageId) => byId.get(messageId),
       getMessagesForPermission: () => ordered,
@@ -160,7 +168,7 @@ describe("processSessionEvent config/session-info updates", () => {
       configOptions,
     };
     const received: typeof configOptions[] = [];
-    processSessionEvent(event, { currentModes: null }, {
+    processSessionEvent(event, { currentModes: null, currentModels: null }, {
       onConfigOptionsChange: (options) => {
         received.push(options);
       },
@@ -216,6 +224,140 @@ describe("processSessionEvent config/session-info updates", () => {
 
     expect(received).toEqual([]);
   });
+
+  test("applies current model update to existing model state", () => {
+    let nextModels:
+      | {
+          currentModelId: string;
+          availableModels: Array<{ modelId: string; name: string }>;
+        }
+      | null = null;
+    processSessionEvent(
+      {
+        type: "current_model_update",
+        modelId: "model-2",
+      },
+      {
+        currentModes: null,
+        currentModels: {
+          currentModelId: "model-1",
+          availableModels: [
+            { modelId: "model-1", name: "Model 1" },
+            { modelId: "model-2", name: "Model 2" },
+          ],
+        },
+      },
+      {
+        onModelsChange: (models) => {
+          nextModels = models;
+        },
+      }
+    );
+    expect(nextModels).toEqual({
+      currentModelId: "model-2",
+      availableModels: [
+        { modelId: "model-1", name: "Model 1" },
+        { modelId: "model-2", name: "Model 2" },
+      ],
+    });
+  });
+
+  test("finalizes streaming assistant parts when chat_finish arrives", () => {
+    const finishMessage = createAssistantMessage("msg-finish", [
+      { type: "reasoning", text: "thinking", state: "streaming" },
+      {
+        type: "tool-edit",
+        toolCallId: "tool-1",
+        title: "Edit",
+        state: "input-available",
+        input: { path: "index.ts" },
+      },
+      { type: "text", text: "done", state: "streaming" },
+    ]);
+
+    let upserted: UIMessage | null = null;
+    let finished: {
+      messageId?: string;
+      message?: UIMessage;
+    } | null = null;
+
+    processSessionEvent(
+      {
+        type: "chat_finish",
+        stopReason: "end_turn",
+        finishReason: "stop",
+        messageId: "msg-finish",
+        isAbort: false,
+      },
+      { currentModes: null, currentModels: null },
+      {
+        getMessageById: () => finishMessage,
+        onMessageUpsert: (message) => {
+          upserted = message;
+        },
+        onFinish: (payload) => {
+          finished = {
+            messageId: payload.messageId,
+            message: payload.message,
+          };
+        },
+      }
+    );
+
+    expect(upserted).not.toBeNull();
+    expect(upserted?.parts[0]).toEqual({
+      type: "reasoning",
+      text: "thinking",
+      state: "done",
+    });
+    expect(upserted?.parts[1]).toEqual({
+      type: "tool-edit",
+      toolCallId: "tool-1",
+      title: "Edit",
+      state: "output-available",
+      input: { path: "index.ts" },
+      output: null,
+      preliminary: true,
+    });
+    expect(upserted?.parts[2]).toEqual({
+      type: "text",
+      text: "done",
+      state: "done",
+    });
+    expect(finished?.messageId).toBe("msg-finish");
+    expect(finished?.message?.parts[2]).toEqual({
+      type: "text",
+      text: "done",
+      state: "done",
+    });
+  });
+
+  test("finalizes latest streaming assistant when chat_finish has no message reference", () => {
+    const olderAssistant = createAssistantMessage("msg-old", [
+      { type: "text", text: "old", state: "done" },
+    ]);
+    const streamingAssistant = createAssistantMessage("msg-live", [
+      { type: "text", text: "live", state: "streaming" },
+    ]);
+    const messages = [olderAssistant, createUserMessage("user-1", "question"), streamingAssistant];
+
+    const next = applyEventWithMessages(
+      {
+        type: "chat_finish",
+        stopReason: "end_turn",
+        finishReason: "stop",
+        isAbort: false,
+      },
+      messages
+    );
+
+    const finalized = next.find((message) => message.id === "msg-live");
+    expect(finalized?.parts[0]).toEqual({
+      type: "text",
+      text: "live",
+      state: "done",
+    });
+  });
 });
 
 describe("processSessionEvent available_commands_update", () => {
@@ -240,7 +382,7 @@ describe("processSessionEvent available_commands_update", () => {
           },
         ],
       },
-      { currentModes: null },
+      { currentModes: null, currentModels: null },
       {
         getCommands: () => currentCommands,
         onCommandsChange: (next) => {
@@ -273,7 +415,7 @@ describe("processSessionEvent available_commands_update", () => {
           },
         ],
       },
-      { currentModes: null },
+      { currentModes: null, currentModels: null },
       {
         getCommands: () => currentCommands,
         onCommandsChange: (next) => {
@@ -302,7 +444,7 @@ describe("processSessionEvent file_modified", () => {
         type: "file_modified",
         path: "src/new-file.ts",
       },
-      { currentModes: null },
+      { currentModes: null, currentModels: null },
       {
         onFileModified: (filePath) => {
           received.push(filePath);

@@ -142,6 +142,10 @@ export class SessionRuntimeEntity {
   }
 
   clearCurrentStreamingAssistantId(): void {
+    const currentAssistantId = this.session.uiState.currentAssistantId;
+    if (currentAssistantId) {
+      this.session.uiState.lastAssistantId = currentAssistantId;
+    }
     this.session.uiState.currentAssistantId = undefined;
   }
 

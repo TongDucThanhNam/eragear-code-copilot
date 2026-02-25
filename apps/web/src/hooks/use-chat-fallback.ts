@@ -5,6 +5,7 @@ import type { MessageState } from "./use-chat-message-state";
 const USER_MESSAGE_FALLBACK_TIMEOUT_MS = 1500;
 const USER_MESSAGE_FALLBACK_RETRY_DELAY_MS = 300;
 const USER_MESSAGE_FALLBACK_MAX_ATTEMPTS = 2;
+const USER_MESSAGE_FALLBACK_HISTORY_RELOAD_COOLDOWN_MS = 3000;
 
 type RecoverTrigger = "initial" | "retry" | "chat_finish";
 
@@ -25,6 +26,7 @@ interface UseChatFallbackParams {
     messageId: string;
     signal: AbortSignal;
   }) => Promise<{ message?: unknown }>;
+  reloadHistory?: () => Promise<void>;
 }
 
 export function useChatFallback({
@@ -37,12 +39,14 @@ export function useChatFallback({
   setError,
   onError,
   fetchMessageById,
+  reloadHistory,
 }: UseChatFallbackParams) {
   const pendingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map()
   );
   const pendingAbortRef = useRef(new AbortController());
   const pendingGenerationRef = useRef(0);
+  const lastHistoryReloadAtRef = useRef(0);
 
   const resetPendingController = useCallback(() => {
     pendingAbortRef.current.abort();
@@ -64,6 +68,7 @@ export function useChatFallback({
       clearTimeout(timer);
     }
     pendingTimersRef.current.clear();
+    lastHistoryReloadAtRef.current = 0;
     resetPendingController();
   }, [resetPendingController]);
 
@@ -150,12 +155,32 @@ export function useChatFallback({
             return;
           }
 
+          let insertedMessage = false;
           updateMessageState((prev) => {
             if (prev.byId.has(normalizedMessage.id)) {
               return prev;
             }
+            insertedMessage = true;
             return upsertMessageIntoState(prev, normalizedMessage);
           });
+          if (
+            insertedMessage &&
+            reloadHistory &&
+            Date.now() - lastHistoryReloadAtRef.current >=
+              USER_MESSAGE_FALLBACK_HISTORY_RELOAD_COOLDOWN_MS
+          ) {
+            lastHistoryReloadAtRef.current = Date.now();
+            reloadHistory().catch((reloadError) => {
+              console.warn("[Chat] Failed to reload history after fallback", {
+                chatId: activeChatId,
+                messageId,
+                error:
+                  reloadError instanceof Error
+                    ? reloadError.message
+                    : String(reloadError),
+              });
+            });
+          }
         })
         .catch((fallbackError) => {
           const errorMessage =
@@ -209,6 +234,7 @@ export function useChatFallback({
       setError,
       updateMessageState,
       upsertMessageIntoState,
+      reloadHistory,
     ]
   );
 

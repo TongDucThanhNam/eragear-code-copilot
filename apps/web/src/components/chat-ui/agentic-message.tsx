@@ -17,6 +17,7 @@ import {
   getMessageTerminalIds,
   isDataPart,
   isMessageStreaming,
+  resolveAssistantFinalVisibility,
   type SourcePart,
   splitMessageParts,
 } from "@/components/chat-ui/agentic-message-utils";
@@ -82,9 +83,16 @@ const AssistantMessageBody = ({
     [parts]
   );
   const streaming = useMemo(() => isMessageStreaming(parts), [parts]);
-  const shouldShowFinal =
-    (!!finalText || finalAttachments.length > 0) &&
-    (!streaming || chainItems.length === 0);
+  const finalVisibility = useMemo(
+    () =>
+      resolveAssistantFinalVisibility({
+        finalText,
+        finalAttachmentsCount: finalAttachments.length,
+        isStreaming: streaming,
+        chainItemsCount: chainItems.length,
+      }),
+    [chainItems.length, finalAttachments.length, finalText, streaming]
+  );
 
   return (
     <>
@@ -95,12 +103,14 @@ const AssistantMessageBody = ({
           terminalOutputs={terminalOutputs}
         />
       )}
-      {shouldShowFinal && (
+      {finalVisibility.shouldRenderFinal && (
         <div className="space-y-3">
-          {finalText ? (
-            <TextMessagePart text={finalText} variant="final" />
+          {finalVisibility.showFinalText ? (
+            <TextMessagePart text={finalText ?? ""} variant="final" />
           ) : null}
-          <AttachmentList items={finalAttachments} />
+          {finalVisibility.showFinalAttachments ? (
+            <AttachmentList items={finalAttachments} />
+          ) : null}
         </div>
       )}
     </>

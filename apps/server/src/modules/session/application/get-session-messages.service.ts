@@ -26,6 +26,7 @@ export function mapStoredMessageToUiMessage(message: StoredMessage): UIMessage {
     return {
       id: message.id,
       role: message.role,
+      createdAt: message.timestamp,
       parts: message.parts,
     };
   }
@@ -53,12 +54,14 @@ export function mapStoredMessageToUiMessage(message: StoredMessage): UIMessage {
     return buildUserMessageFromBlocks({
       messageId: message.id,
       contentBlocks,
+      createdAt: message.timestamp,
     });
   }
   return buildAssistantMessageFromBlocks({
     messageId: message.id,
     contentBlocks,
     reasoningBlocks,
+    createdAt: message.timestamp,
   });
 }
 

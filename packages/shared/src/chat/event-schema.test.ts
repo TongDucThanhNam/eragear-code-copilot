@@ -10,6 +10,7 @@ describe("parseUiMessageClientSafe", () => {
     const parsed = parseUiMessageClientSafe({
       id: "msg-1",
       role: "assistant",
+      createdAt: 1234,
       parts: [
         { type: "text", text: "hello", state: "streaming" },
         { type: "experimental-part", payload: "ignored" },
@@ -23,6 +24,22 @@ describe("parseUiMessageClientSafe", () => {
     expect(parsed.value.parts).toEqual([
       { type: "text", text: "hello", state: "streaming" },
     ]);
+    expect(parsed.value.createdAt).toBe(1234);
+  });
+
+  test("rejects invalid createdAt type", () => {
+    const parsed = parseUiMessageClientSafe({
+      id: "msg-1",
+      role: "assistant",
+      createdAt: "1234",
+      parts: [{ type: "text", text: "hello", state: "streaming" }],
+    });
+
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) {
+      return;
+    }
+    expect(parsed.kind).toBe("invalid_payload");
   });
 });
 
@@ -121,5 +138,18 @@ describe("parseBroadcastEventClientSafe", () => {
       return;
     }
     expect(parsed.kind).toBe("invalid_payload");
+  });
+
+  test("parses current_model_update payload", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "current_model_update",
+      modelId: "model-2",
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "current_model_update") {
+      return;
+    }
+    expect(parsed.value.modelId).toBe("model-2");
   });
 });

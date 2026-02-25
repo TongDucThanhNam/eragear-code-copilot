@@ -3,6 +3,7 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
+import { syncSessionSelectionFromConfigOptions } from "@/shared/utils/session-config-options.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import {
   AI_OP,
@@ -53,22 +54,6 @@ function collectConfigOptionValues(option: SessionConfigOption): Set<string> {
     }
   }
   return out;
-}
-
-function updateLegacyModeAndModelFromConfigOptions(
-  session: ChatSession,
-  configOptions: SessionConfigOption[]
-): void {
-  const modeOption = configOptions.find((option) => option.category === "mode");
-  if (modeOption && session.modes) {
-    session.modes.currentModeId = modeOption.currentValue;
-  }
-  const modelOption = configOptions.find(
-    (option) => option.category === "model"
-  );
-  if (modelOption && session.models) {
-    session.models.currentModelId = modelOption.currentValue;
-  }
 }
 
 export class SetConfigOptionService {
@@ -174,7 +159,7 @@ export class SetConfigOptionService {
                 ? { ...option, currentValue: value }
                 : option
             );
-      updateLegacyModeAndModelFromConfigOptions(session, session.configOptions);
+      syncSessionSelectionFromConfigOptions(session);
 
       return { ok: true, configOptions: session.configOptions };
     });

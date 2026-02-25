@@ -223,7 +223,10 @@ function buildBufferedEvents(session: ChatSession): {
   events: BroadcastEvent[];
   forcedActiveSnapshot: boolean;
 } {
-  const bufferedEvents = cloneBroadcastEvents(session.messageBuffer);
+  const replayEvents = session.messageBuffer.filter((event) => {
+    return event.type !== "chat_status" && event.type !== "chat_finish";
+  });
+  const bufferedEvents = cloneBroadcastEvents(replayEvents);
   const activeAssistantId = session.uiState.currentAssistantId;
   if (!activeAssistantId) {
     return {

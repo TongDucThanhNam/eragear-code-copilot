@@ -31,6 +31,7 @@ liệu, không phải tự parse raw ACP.
 ## Quy tắc upsert
 
 - `UIMessage.id` là khóa chính, client **phải upsert theo id**
+- `UIMessage.createdAt` (unix ms) là khóa sắp xếp chuẩn; client không dựa vào thứ tự SSE arrival
 - Server giữ `UiMessageState`:
   - `currentAssistantId/currentUserId` cho streaming
   - `toolPartIndex` để update tool part theo `toolCallId`

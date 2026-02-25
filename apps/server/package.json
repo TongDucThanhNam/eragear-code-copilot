@@ -19,7 +19,7 @@
     "start": "bun run build && bun run dist/index.mjs",
     "start:dist": "bun run dist/index.mjs",
     "test:auth-dashboard": "bun test ./src/platform/auth/auth-dashboard.integration.test.ts ./src/transport/http/utils/response-headers.test.ts",
-    "test:blockers": "ALLOWED_AGENT_COMMAND_POLICIES='[{\"command\":\"/usr/bin/env\",\"allowAnyArgs\":true}]' ALLOWED_TERMINAL_COMMAND_POLICIES='[{\"command\":\"/usr/bin/env\",\"allowAnyArgs\":true}]' ALLOWED_ENV_KEYS='PATH,HOME,SHELL,USER,TMPDIR,TMP,TEMP' bun test src/platform/acp/tool-calls.test.ts src/modules/session/application/subscribe-session-events.service.test.ts src/modules/tooling/application/code-context.service.test.ts src/modules/tooling/application/contracts/tooling.contract.test.ts src/shared/utils/editor-buffer.util.test.ts",
+    "test:blockers": "ALLOWED_AGENT_COMMAND_POLICIES='[{\"command\":\"/usr/bin/env\",\"allowAnyArgs\":true}]' ALLOWED_TERMINAL_COMMAND_POLICIES='[{\"command\":\"/usr/bin/env\",\"allowAnyArgs\":true}]' ALLOWED_ENV_KEYS='PATH,HOME,SHELL,USER,TMPDIR,TMP,TEMP' bun test src/platform/acp/tool-calls.test.ts src/modules/session/application/subscribe-session-events.service.test.ts src/modules/ai/application/cancel-prompt.service.test.ts src/modules/tooling/application/code-context.service.test.ts src/modules/tooling/application/contracts/tooling.contract.test.ts src/shared/utils/editor-buffer.util.test.ts",
     "ui": "bun run ui:watch",
     "ui:build": "bun run ./scripts/build-dashboard-assets.ts",
     "ui:watch": "bun run ./scripts/watch-dashboard-assets.ts",

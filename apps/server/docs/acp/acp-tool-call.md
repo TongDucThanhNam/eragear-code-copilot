@@ -79,6 +79,10 @@ Updates use the `session/update` notification with `tool_call_update`:
 
 All fields except `toolCallId` are optional in updates. Only the fields being changed need to be included.
 
+For `apps/server`, if a `tool_call_update` arrives before an initial `tool_call`,
+the runtime will synthesize an in-memory tool call from the update so UI clients
+still receive a renderable `ToolUIPart`.
+
 ## Requesting Permission
 
 The Agent **MAY** request permission from the user before executing a tool call by calling the `session/request_permission` method:
@@ -147,6 +151,10 @@ If the current prompt turn gets [cancelled](./acp-prompt-turn#cancellation), the
 - **`outcome`** (required `RequestPermissionOutcome`): The user's decision, either:
   - `cancelled` - The [prompt turn was cancelled](./acp-prompt-turn#cancellation)
   - `selected` with an `optionId` - The ID of the selected permission option
+
+For `apps/server` web clients, cancellation is done via `cancelPrompt({ chatId })`.
+`respondToPermissionRequest` maps to selected options only and is not the path to
+emit ACP `cancelled` outcome.
 
 ### Permission Options
 

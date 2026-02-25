@@ -134,14 +134,10 @@ const ChainContent = ({
   if (part.type.startsWith("tool-")) {
     const toolPart = part as ToolUIPart;
     const parsedOutput = parseToolOutput(toolPart.output);
-    const terminalOutput =
-      parsedOutput.terminalId && terminalOutputs
-        ? (terminalOutputs[parsedOutput.terminalId] ?? "")
-        : undefined;
     return (
       <ToolMessagePart
         parsedOutput={parsedOutput}
-        terminalOutput={terminalOutput}
+        terminalOutputs={terminalOutputs}
         tool={toolPart}
       />
     );

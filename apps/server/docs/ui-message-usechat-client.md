@@ -24,6 +24,7 @@ Event types quan trọng:
 ## Streaming Contract
 
 - `ui_message` là **snapshot đầy đủ** cho `message.id`, client phải **upsert theo id**.
+- Thứ tự message chuẩn theo `message.createdAt` (unix ms). Không suy thứ tự theo thời điểm event tới client.
 - `ui_message_delta` là append-only cho `text`/`reasoning` part:
   - tìm message theo `messageId`
   - append vào `parts[partIndex].text`
@@ -32,8 +33,8 @@ Event types quan trọng:
 - Message có thể được gửi lặp lại nhiều lần trong streaming. Upsert là idempotent.
 - `sendMessage` mutation trả `turnId`; client nên dùng `turnId` để correlate HTTP ack với `chat_status`/`chat_finish` cho cùng turn.
 - Thứ tự hiển thị:
-  - History lấy từ `getSessionMessagesPage` và merge theo thứ tự page.
-  - Event realtime nếu `message.id` chưa tồn tại thì append vào `messageOrder`.
+  - History lấy từ `getSessionMessagesPage` và merge theo `createdAt`.
+  - Event realtime nếu `message.id` chưa tồn tại thì chèn theo `createdAt`.
   - Nếu đã tồn tại thì update nội dung nhưng giữ vị trí.
 
 ## State Model Gợi Ý

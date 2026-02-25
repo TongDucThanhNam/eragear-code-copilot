@@ -152,6 +152,7 @@ export type UIMessageRole = "system" | "user" | "assistant";
 export interface UIMessage {
   id: string;
   role: UIMessageRole;
+  createdAt?: number;
   metadata?: unknown;
   parts: UIMessagePart[];
 }

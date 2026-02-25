@@ -213,9 +213,11 @@ export class PromptTaskRunner {
         text: errorMessage,
       } as const,
     ];
+    const createdAt = this.clock.nowMs();
     const uiMessage = buildAssistantMessageFromBlocks({
       messageId,
       contentBlocks,
+      createdAt,
     });
 
     try {
@@ -225,7 +227,7 @@ export class PromptTaskRunner {
         content: errorMessage,
         contentBlocks,
         parts: uiMessage.parts,
-        timestamp: this.clock.nowMs(),
+        timestamp: createdAt,
       });
       session.uiState.messages.set(uiMessage.id, uiMessage);
       await broadcast(chatId, {

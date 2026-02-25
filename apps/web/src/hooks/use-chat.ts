@@ -104,6 +104,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     getChatTerminalOutputsSnapshot(chatId ?? null)
   );
   const modesRef = useRef<SessionModeState | null>(null);
+  const modelsRef = useRef<SessionModelState | null>(null);
   const commandsRef = useRef<AvailableCommand[]>(commands);
   const isResumingRef = useRef(false);
   const activeTurnIdRef = useRef<string | null>(null);
@@ -111,6 +112,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const previousChatIdRef = useRef<string | null>(chatId ?? null);
   const previousStreamLifecycleRef = useRef<StreamLifecycle>(streamLifecycle);
   const statusRef = useRef<ChatStatus>(status);
+  const reloadHistoryRef = useRef<(() => Promise<void>) | null>(null);
   const invalidEventToastAtRef = useRef(0);
   const hasLocalModeOverrideRef = useRef(false);
   const hasLocalModelOverrideRef = useRef(false);
@@ -130,6 +132,9 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   useEffect(() => {
     modesRef.current = modes;
   }, [modes]);
+  useEffect(() => {
+    modelsRef.current = models;
+  }, [models]);
   useEffect(() => {
     commandsRef.current = commands;
   }, [commands]);
@@ -279,6 +284,13 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         { chatId: targetChatId, messageId },
         { trpc: { signal } }
       ),
+    reloadHistory: async () => {
+      const reload = reloadHistoryRef.current;
+      if (!reload) {
+        return;
+      }
+      await reload();
+    },
   });
   const {
     clearHistoryWindow,
@@ -320,6 +332,9 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       await loadHistory(true);
     },
   });
+  reloadHistoryRef.current = async () => {
+    await loadHistory(true);
+  };
   // Apply session state helper
   const restoreSessionState = useCallback((data: SessionStateData) => {
     applySessionState(data, {
@@ -328,7 +343,10 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         setModes(m);
         modesRef.current = m;
       },
-      onModelsChange: setModels,
+      onModelsChange: (nextModels) => {
+        setModels(nextModels);
+        modelsRef.current = nextModels;
+      },
       onSupportsModelSwitchingChange: setSupportsModelSwitching,
       getCommands: () => commandsRef.current,
       onCommandsChange: (nextCommands) => {
@@ -383,6 +401,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setModes(null);
     modesRef.current = null;
     setModels(null);
+    modelsRef.current = null;
     setSupportsModelSwitching(false);
     setCommands([]);
     commandsRef.current = [];
@@ -520,7 +539,10 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       flushPendingDeltas();
       processSessionEvent(
         event,
-        { currentModes: modesRef.current },
+        {
+          currentModes: modesRef.current,
+          currentModels: modelsRef.current,
+        },
         {
           onStatusChange: setStatus,
           onConnStatusChange: setConnStatus,
@@ -537,6 +559,10 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           onModesChange: (m) => {
             setModes(m);
             modesRef.current = m;
+          },
+          onModelsChange: (nextModels) => {
+            setModels(nextModels);
+            modelsRef.current = nextModels;
           },
           getCommands: () => commandsRef.current,
           onCommandsChange: (nextCommands) => {
@@ -658,7 +684,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         setStreamLifecycle((prev) => nextLifecycleOnSubscriptionError(prev));
         setConnStatus("connecting");
         setError(err.message);
-        setStatus("error");
+        setStatus("connecting");
       },
     }
   );
@@ -706,6 +732,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     invalidateHistoryLoads,
     clearHistoryWindow,
     loadHistory,
+    onResumeStateHydrated: () => {
+      hasLocalModeOverrideRef.current = false;
+      hasLocalModelOverrideRef.current = false;
+      hasLocalConfigOverrideRef.current = false;
+    },
   });
   // Derived state
   const isStreaming = isChatBusyStatus(status);

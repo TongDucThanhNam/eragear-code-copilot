@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { resolveSessionBootstrapPhase } from "@/components/chat-ui/chat-bootstrap-phase";
@@ -9,6 +10,14 @@ import { ChatPlanDock } from "@/components/chat-ui/chat-plan-dock";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { useChat } from "@/hooks/use-chat";
 import { prepareImageForPrompt } from "@/lib/image-prompt";
 import { trpc } from "@/lib/trpc";
@@ -72,6 +81,83 @@ function getBootstrapPhaseLabel(phase: SessionBootstrapPhase): string {
     default:
       return "Loading session...";
   }
+}
+
+const REJECT_KEYWORDS = new Set([
+  "reject",
+  "rejected",
+  "deny",
+  "denied",
+  "block",
+  "blocked",
+  "cancel",
+  "cancelled",
+  "decline",
+  "declined",
+  "disallow",
+  "no",
+]);
+
+function normalizePermissionToken(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().toLowerCase();
+}
+
+function hasRejectKeyword(value: string): boolean {
+  const normalized = normalizePermissionToken(value);
+  if (normalized.length === 0) {
+    return false;
+  }
+  const tokens = [
+    normalized,
+    ...normalized.split(/[^a-z0-9]+/).filter((part) => part.length > 0),
+  ];
+  return tokens.some((token) => REJECT_KEYWORDS.has(token));
+}
+
+function getRejectDecision(
+  options:
+    | Array<Record<string, unknown>>
+    | { options?: Array<Record<string, unknown>> }
+    | undefined
+): string | null {
+  const list = Array.isArray(options) ? options : (options?.options ?? []);
+  if (list.length === 0) {
+    return "reject";
+  }
+  const rejectOption = list.find((option) => {
+    const kind = normalizePermissionToken(option.kind);
+    if (kind.startsWith("reject_")) {
+      return true;
+    }
+    const values = [
+      option.optionId,
+      option.id,
+      option.kind,
+      option.name,
+      option.label,
+    ]
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    return values.some((value) => hasRejectKeyword(value));
+  });
+  if (!rejectOption) {
+    return null;
+  }
+  const resolvedValue =
+    rejectOption.optionId ??
+    rejectOption.id ??
+    rejectOption.kind ??
+    rejectOption.name ??
+    rejectOption.label;
+  if (typeof resolvedValue !== "string") {
+    return null;
+  }
+  const normalized = resolvedValue.trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 export function ChatInterface({
@@ -345,92 +431,55 @@ export function ChatInterface({
   }, [pendingPermission?.requestId]);
 
   const handlePermissionDecision = useCallback(
-    (decision: string) => {
+    async (decision: string) => {
       const requestId = pendingPermission?.requestId;
       if (!requestId || handledPermissionIdRef.current === requestId) {
         return;
       }
-      handledPermissionIdRef.current = requestId;
-      setPermissionDialogOpen(false);
-      respondToPermission(requestId, decision);
+      try {
+        await respondToPermission(requestId, decision);
+        handledPermissionIdRef.current = requestId;
+        setPermissionDialogOpen(false);
+      } catch (error) {
+        console.error("Failed to resolve permission request", error);
+        toast.error("Could not submit permission decision. Please try again.");
+        setPermissionDialogOpen(true);
+      }
     },
     [pendingPermission?.requestId, respondToPermission]
   );
 
   const defaultRejectDecision = useMemo(() => {
-    const options = pendingPermission?.options;
-    const list = Array.isArray(options) ? options : (options?.options ?? []);
-    const fallback = "reject";
-    if (list.length === 0) {
-      return fallback;
-    }
-    const rejectKeywords = new Set([
-      "reject",
-      "rejected",
-      "deny",
-      "denied",
-      "block",
-      "blocked",
-      "cancel",
-      "cancelled",
-      "decline",
-      "declined",
-      "disallow",
-      "no",
-    ]);
-    const hasRejectKeyword = (value: string): boolean => {
-      const normalized = value.trim().toLowerCase();
-      if (normalized.length === 0) {
-        return false;
-      }
-      const tokens = [
-        normalized,
-        ...normalized.split(/[^a-z0-9]+/).filter((part) => part.length > 0),
-      ];
-      return tokens.some((token) => rejectKeywords.has(token));
-    };
-    const rejectOption = list.find((option) => {
-      const kind = String(option.kind ?? "")
-        .trim()
-        .toLowerCase();
-      if (kind.startsWith("reject_")) {
-        return true;
-      }
-      const values = [
-        option.optionId,
-        option.id,
-        option.kind,
-        option.name,
-        option.label,
-      ]
-        .filter((value): value is string => typeof value === "string")
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0);
-      return values.some((value) => hasRejectKeyword(value));
-    });
-    if (!rejectOption) {
-      return fallback;
-    }
-    return String(
-      rejectOption.optionId ??
-        rejectOption.id ??
-        rejectOption.kind ??
-        rejectOption.name ??
-        rejectOption.label ??
-        fallback
+    return getRejectDecision(
+      (pendingPermission?.options as
+        | Array<Record<string, unknown>>
+        | { options?: Array<Record<string, unknown>> }
+        | undefined) ?? undefined
     );
   }, [pendingPermission?.options]);
 
+  const handlePermissionSelect = useCallback(
+    (decision: string) => {
+      void handlePermissionDecision(decision);
+    },
+    [handlePermissionDecision]
+  );
+
   const handlePermissionApprove = useCallback(
     (decision: string) => {
-      handlePermissionDecision(decision);
+      void handlePermissionDecision(decision);
     },
     [handlePermissionDecision]
   );
 
   const handlePermissionReject = useCallback(
     (decision?: string) => {
-      handlePermissionDecision(decision ?? defaultRejectDecision);
+      const resolvedDecision = decision ?? defaultRejectDecision;
+      if (!resolvedDecision) {
+        setPermissionDialogOpen(true);
+        return;
+      }
+      void handlePermissionDecision(resolvedDecision);
     },
     [defaultRejectDecision, handlePermissionDecision]
   );
@@ -441,15 +490,22 @@ export function ChatInterface({
         setPermissionDialogOpen(true);
         return;
       }
-      setPermissionDialogOpen(false);
       const requestId = pendingPermission?.requestId;
       if (!requestId || handledPermissionIdRef.current === requestId) {
+        setPermissionDialogOpen(false);
         return;
       }
-      handledPermissionIdRef.current = requestId;
-      respondToPermission(requestId, defaultRejectDecision);
+      if (!defaultRejectDecision) {
+        setPermissionDialogOpen(true);
+        return;
+      }
+      void handlePermissionDecision(defaultRejectDecision);
     },
-    [defaultRejectDecision, pendingPermission?.requestId, respondToPermission]
+    [
+      defaultRejectDecision,
+      handlePermissionDecision,
+      pendingPermission?.requestId,
+    ]
   );
 
   useEffect(() => {
@@ -904,21 +960,35 @@ export function ChatInterface({
         )}
         {shouldShowDiagnosticEmptyState && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/40 backdrop-blur-[1px]">
-            <div className="flex max-w-sm flex-col items-center gap-3 rounded-lg border bg-background px-4 py-4 text-center shadow-sm">
-              <p className="text-muted-foreground text-sm">
-                {diagnosticEmptyStateLabel}
-              </p>
-              <Button
-                onClick={() => {
-                  void refreshHistory();
-                }}
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                Reload history
-              </Button>
-            </div>
+            <Empty className="max-w-sm border-none bg-transparent shadow-none">
+              <EmptyMedia variant="icon">
+                <svg
+                  className="size-8"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              </EmptyMedia>
+              <EmptyContent>
+                <EmptyDescription>{diagnosticEmptyStateLabel}</EmptyDescription>
+                <Button
+                  onClick={() => {
+                    void refreshHistory();
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  Reload history
+                </Button>
+              </EmptyContent>
+            </Empty>
           </div>
         )}
       </div>
@@ -954,6 +1024,7 @@ export function ChatInterface({
         onApprove={handlePermissionApprove}
         onOpenChange={handlePermissionDialogOpenChange}
         onReject={handlePermissionReject}
+        onSelect={handlePermissionSelect}
         open={permissionDialogOpen}
         request={pendingPermission}
       />

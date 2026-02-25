@@ -211,10 +211,14 @@ export function contentBlockToParts(
 export function buildUserMessageFromBlocks(params: {
   messageId: string;
   contentBlocks: StoredContentBlock[];
+  createdAt?: number;
 }): UIMessage {
   let message: UIMessage = {
     id: params.messageId,
     role: "user",
+    ...(typeof params.createdAt === "number"
+      ? { createdAt: params.createdAt }
+      : {}),
     parts: [],
   };
   for (const block of params.contentBlocks) {
@@ -227,10 +231,14 @@ export function buildAssistantMessageFromBlocks(params: {
   messageId: string;
   contentBlocks: StoredContentBlock[];
   reasoningBlocks?: StoredContentBlock[];
+  createdAt?: number;
 }): UIMessage {
   let message: UIMessage = {
     id: params.messageId,
     role: "assistant",
+    ...(typeof params.createdAt === "number"
+      ? { createdAt: params.createdAt }
+      : {}),
     parts: [],
   };
   for (const block of params.reasoningBlocks ?? []) {

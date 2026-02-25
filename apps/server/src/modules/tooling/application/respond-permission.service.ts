@@ -8,6 +8,7 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
+import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { NotFoundError, ValidationError } from "@/shared/errors";
@@ -143,9 +144,7 @@ function resolvePermissionSelection(params: {
       const optionIntent = inferOptionIntent(exactMatch);
       return {
         optionId: exactOptionId,
-        approved:
-          optionIntent === "allow" ||
-          (optionIntent === null && decisionIntent === "allow"),
+        approved: optionIntent !== "reject",
       };
     }
   }
@@ -321,9 +320,19 @@ export class RespondPermissionService {
           state: session.uiState,
           part: toolPart,
         });
+        const messageWithoutPermissionOptions = removePermissionOptionsPart(
+          message,
+          input.requestId
+        );
+        if (messageWithoutPermissionOptions !== message) {
+          session.uiState.messages.set(
+            messageWithoutPermissionOptions.id,
+            messageWithoutPermissionOptions
+          );
+        }
         await this.sessionRuntime.broadcast(input.chatId, {
           type: "ui_message",
-          message,
+          message: messageWithoutPermissionOptions,
         });
       }
     });
@@ -338,4 +347,26 @@ export class RespondPermissionService {
 
     return resolvedResponse;
   }
+}
+
+function removePermissionOptionsPart(
+  message: UIMessage,
+  requestId: string
+): UIMessage {
+  const nextParts = message.parts.filter((part) => {
+    if (part.type !== "data-permission-options") {
+      return true;
+    }
+    if (!(part.data && typeof part.data === "object")) {
+      return true;
+    }
+    return (part.data as { requestId?: unknown }).requestId !== requestId;
+  });
+  if (nextParts.length === message.parts.length) {
+    return message;
+  }
+  return {
+    ...message,
+    parts: nextParts,
+  };
 }

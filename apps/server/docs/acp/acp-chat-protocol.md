@@ -39,10 +39,13 @@ Server stream qua `onSessionEvents`:
 - `chat_finish`: kết thúc 1 turn (để map sang `onFinish` kiểu AI SDK)
 - `ui_message`: message updates (streaming + tool updates)
 - `ui_message_delta`: incremental text/reasoning append (`messageId` + `partIndex` + `delta`)
+- `file_modified`
 - `available_commands_update`
+- `config_options_update`
+- `session_info_update`
 - `current_mode_update`
 - `terminal_output`
-- `heartbeat`
+- `heartbeat` (reserved/optional, currently not emitted by runtime pipeline)
 - `error`
 
 ### 3.4 ChatStatus
@@ -58,7 +61,9 @@ Server stream qua `onSessionEvents`:
 
 ### 3.5 ChatFinish
 
-`chat_finish` được tạo khi server đã có **stopReason + assistant message**.
+`chat_finish` được tạo khi server đã có `stopReason`. `messageId`/`message` có
+thể không có trong một số case (ví dụ prompt bị cancel sớm hoặc không có
+assistant output hợp lệ).
 Payload:
 
 - `stopReason`: ACP StopReason (`end_turn`, `max_tokens`, `max_turn_requests`,
@@ -69,7 +74,7 @@ Payload:
   - `max_turn_requests` → `tool-calls`
   - `refusal` → `content-filter`
   - `cancelled` → `other`
-- `messageId`: assistant message id đã hoàn tất
+- `messageId` (optional): assistant message id đã hoàn tất
 - `message` (optional): UIMessage nếu server cache được
 - `isAbort`: true khi stopReason = `cancelled`
 
@@ -79,7 +84,7 @@ Client có thể fallback bằng cách lookup `messageId` trong state nếu `mes
 
 ### 4.1 Session Lifecycle
 
-- `createSession({ projectId, command?, args?, env? })` →
+- `createSession({ projectId, agentId? })` →
   - `chatId`, `sessionId`
   - `modes`, `models`
   - `promptCapabilities`
@@ -121,7 +126,8 @@ Client có thể fallback bằng cách lookup `messageId` trong state nếu `mes
 - `connected` luôn là event đầu tiên.
 - Snapshot `chat_status` được emit ngay sau `connected` (kèm `turnId` nếu có
   active turn).
-- Server sẽ replay buffer `messageBuffer` sau snapshot.
+- Server replay `messageBuffer` sau snapshot nhưng **không replay historical
+  `chat_status`/`chat_finish`** để tránh stale transition sau reconnect.
 - `chat_status` được emit khi status đổi.
 - Trước khi emit snapshot, server có thể reconcile trạng thái busy bị stale:
   nếu không còn active turn và không còn pending permission thì chuyển về

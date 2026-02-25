@@ -177,6 +177,68 @@ function applyMessageDelta(params: {
   };
 }
 
+function finalizeToolPartAfterFinish(part: Extract<UIMessage["parts"][number], { type: `tool-${string}` }>) {
+  if (
+    part.state !== "input-streaming" &&
+    part.state !== "input-available" &&
+    part.state !== "approval-responded"
+  ) {
+    return part;
+  }
+
+  const withMetadata =
+    "callProviderMetadata" in part && part.callProviderMetadata
+      ? { callProviderMetadata: part.callProviderMetadata }
+      : {};
+
+  return {
+    type: part.type,
+    toolCallId: part.toolCallId,
+    ...(part.title ? { title: part.title } : {}),
+    ...(part.providerExecuted !== undefined
+      ? { providerExecuted: part.providerExecuted }
+      : {}),
+    state: "output-available" as const,
+    input: part.input ?? null,
+    output: null,
+    preliminary: true,
+    ...withMetadata,
+  };
+}
+
+function finalizeMessageAfterFinish(message: UIMessage): UIMessage {
+  let changed = false;
+  const parts = message.parts.map((part) => {
+    if (
+      (part.type === "text" || part.type === "reasoning") &&
+      part.state === "streaming"
+    ) {
+      changed = true;
+      return {
+        ...part,
+        state: "done" as const,
+      };
+    }
+    if (isToolPart(part)) {
+      const nextToolPart = finalizeToolPartAfterFinish(part);
+      if (nextToolPart !== part) {
+        changed = true;
+      }
+      return nextToolPart;
+    }
+    return part;
+  });
+
+  if (!changed) {
+    return message;
+  }
+
+  return {
+    ...message,
+    parts,
+  };
+}
+
 export function normalizeAvailableCommands(
   commands:
     | Array<{
@@ -260,6 +322,7 @@ export interface EventProcessingCallbacks {
 
 export interface EventProcessingContext {
   currentModes: SessionModeState | null;
+  currentModels: SessionModelState | null;
 }
 
 function materializeMessages(messages: Iterable<UIMessage>): UIMessage[] {
@@ -282,6 +345,22 @@ function upsertMessageFromCallbackState(
   return nextMessages;
 }
 
+function findLatestStreamingAssistantMessage(
+  messages: Iterable<UIMessage> | undefined
+): UIMessage | undefined {
+  if (!messages) {
+    return undefined;
+  }
+  let latest: UIMessage | undefined;
+  for (const message of messages) {
+    if (message.role !== "assistant" || !isMessageStreaming(message)) {
+      continue;
+    }
+    latest = message;
+  }
+  return latest;
+}
+
 /**
  * Process a session event and call appropriate callbacks
  */
@@ -300,16 +379,26 @@ export function processSessionEvent(
       return;
 
     case "chat_finish":
+      const finishMessage =
+        event.message ??
+        (event.messageId ? callbacks.getMessageById?.(event.messageId) : undefined) ??
+        findLatestStreamingAssistantMessage(callbacks.getMessagesForPermission?.());
+      const finalizedFinishMessage = finishMessage
+        ? finalizeMessageAfterFinish(finishMessage)
+        : undefined;
+      if (finalizedFinishMessage) {
+        if (callbacks.onMessageUpsert) {
+          callbacks.onMessageUpsert(finalizedFinishMessage);
+        } else {
+          upsertMessageFromCallbackState(callbacks, finalizedFinishMessage);
+        }
+      }
       callbacks.onStatusChange?.("ready");
       callbacks.onFinish?.({
         stopReason: event.stopReason,
         finishReason: event.finishReason,
         messageId: event.messageId,
-        message:
-          event.message ??
-          (event.messageId
-            ? callbacks.getMessageById?.(event.messageId)
-            : undefined),
+        message: finalizedFinishMessage,
         isAbort: event.isAbort,
         turnId: event.turnId,
       });
@@ -392,6 +481,16 @@ export function processSessionEvent(
         callbacks.onModesChange?.({
           ...context.currentModes,
           currentModeId: event.modeId,
+        });
+      }
+      return;
+    }
+
+    case "current_model_update": {
+      if (context.currentModels) {
+        callbacks.onModelsChange?.({
+          ...context.currentModels,
+          currentModelId: event.modelId,
         });
       }
       return;

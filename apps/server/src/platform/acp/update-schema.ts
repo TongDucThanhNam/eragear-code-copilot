@@ -28,7 +28,7 @@ const ToolCallSchema = z
   .object({
     sessionUpdate: z.literal("tool_call"),
     toolCallId: z.string(),
-    kind: z.string(),
+    kind: z.string().optional(),
     status: z.string().optional(),
   })
   .passthrough();
@@ -37,7 +37,7 @@ const ToolCallUpdateSchema = z
   .object({
     sessionUpdate: z.literal("tool_call_update"),
     toolCallId: z.string(),
-    status: z.string(),
+    status: z.string().optional(),
   })
   .passthrough();
 
@@ -73,7 +73,8 @@ const AvailableCommandsUpdateSchema = z
 const CurrentModeUpdateSchema = z
   .object({
     sessionUpdate: z.literal("current_mode_update"),
-    currentModeId: z.string(),
+    currentModeId: z.string().optional(),
+    modeId: z.string().optional(),
   })
   .passthrough();
 
@@ -123,6 +124,16 @@ const SessionInfoUpdateSchema = z
   })
   .passthrough();
 
+const SESSION_UPDATE_KIND_ALIASES: Record<string, string> = {
+  assistant_message_chunk: "agent_message_chunk",
+  assistant_thought_chunk: "agent_thought_chunk",
+  config_options_update: "config_option_update",
+};
+
+function normalizeSessionUpdateKind(kind: string): string {
+  return SESSION_UPDATE_KIND_ALIASES[kind] ?? kind;
+}
+
 function validateKnownSessionUpdate(
   raw: unknown,
   kind: string
@@ -153,7 +164,17 @@ function validateKnownSessionUpdate(
   }
   if (kind === "current_mode_update") {
     const parsed = CurrentModeUpdateSchema.safeParse(raw);
-    return parsed.success ? (parsed.data as SessionUpdate) : null;
+    if (!parsed.success) {
+      return null;
+    }
+    const currentModeId = parsed.data.currentModeId ?? parsed.data.modeId;
+    if (!currentModeId) {
+      return null;
+    }
+    return {
+      ...parsed.data,
+      currentModeId,
+    } as SessionUpdate;
   }
   if (kind === "config_option_update") {
     const parsed = ConfigOptionUpdateSchema.safeParse(raw);
@@ -186,17 +207,24 @@ export function parseSessionUpdatePayload(raw: unknown): SessionUpdate | null {
   if (!discriminator.success) {
     return null;
   }
-
-  const validatedKnown = validateKnownSessionUpdate(
-    raw,
+  const normalizedKind = normalizeSessionUpdateKind(
     discriminator.data.sessionUpdate
   );
+  const normalizedRaw: unknown =
+    normalizedKind === discriminator.data.sessionUpdate
+      ? raw
+      : {
+          ...discriminator.data,
+          sessionUpdate: normalizedKind,
+        };
+
+  const validatedKnown = validateKnownSessionUpdate(normalizedRaw, normalizedKind);
   if (validatedKnown) {
     return validatedKnown;
   }
-  if (isKnownSessionUpdateKind(discriminator.data.sessionUpdate)) {
+  if (isKnownSessionUpdateKind(normalizedKind)) {
     return null;
   }
 
-  return discriminator.data as SessionUpdate;
+  return normalizedRaw as SessionUpdate;
 }

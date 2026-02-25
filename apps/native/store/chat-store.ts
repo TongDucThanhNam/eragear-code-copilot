@@ -1,5 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { AgentInfo, ChatStatus, UIMessage } from "@repo/shared";
+import {
+  compareUiMessagesChronologically,
+  findUiMessageInsertIndex,
+  type AgentInfo,
+  type ChatStatus,
+  type UIMessage,
+} from "@repo/shared";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -238,9 +244,12 @@ export const useChatStore = create<ChatState>()(
 
       setMessages: (messages) =>
         set(() => {
+          const sortedMessages = [...messages].sort((left, right) =>
+            compareUiMessagesChronologically(left, right)
+          );
           const messageIds: string[] = [];
           const messagesById = new Map<string, UIMessage>();
-          for (const message of messages) {
+          for (const message of sortedMessages) {
             messageIds.push(message.id);
             messagesById.set(message.id, message);
           }
@@ -258,9 +267,15 @@ export const useChatStore = create<ChatState>()(
           if (exists) {
             return { messagesById: nextMap };
           }
+          const orderedMessages = state.messageIds
+            .map((messageId) => state.messagesById.get(messageId))
+            .filter((value): value is UIMessage => Boolean(value));
+          const insertIndex = findUiMessageInsertIndex(orderedMessages, message);
+          const nextIds = [...state.messageIds];
+          nextIds.splice(insertIndex, 0, message.id);
           return {
             messagesById: nextMap,
-            messageIds: [...state.messageIds, message.id],
+            messageIds: nextIds,
           };
         }),
       getMessageById: (id) => get().messagesById.get(id),

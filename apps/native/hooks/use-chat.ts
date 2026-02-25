@@ -312,6 +312,7 @@ export function useChat(options: UseChatOptions = {}) {
     (event: BroadcastEvent) => {
       const store = useChatStore.getState();
       const currentModes = store.modes;
+      const currentModels = store.models;
       const shouldBatch =
         event.type === "ui_message" && isStreamingUiMessage(event.message);
       const onMessageUpsert = shouldBatch
@@ -320,7 +321,7 @@ export function useChat(options: UseChatOptions = {}) {
 
       processSessionEvent(
         event,
-        { currentModes },
+        { currentModes, currentModels },
         {
           onStatusChange: store.setStatus,
           onConnStatusChange: store.setConnStatus,
@@ -328,6 +329,7 @@ export function useChat(options: UseChatOptions = {}) {
           getMessageById,
           getCommands: () => useChatStore.getState().commands,
           onModesChange: store.setModes,
+          onModelsChange: store.setModels,
           onCommandsChange: (cmds) => {
             const normalized = cmds.map((cmd) => ({
               name: cmd.name,

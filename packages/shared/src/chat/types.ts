@@ -171,6 +171,7 @@ export type BroadcastEvent =
       sessionInfo: SessionInfo;
     }
   | { type: "current_mode_update"; modeId: string }
+  | { type: "current_model_update"; modelId: string }
   | { type: "terminal_output"; terminalId: string; data: string }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string };

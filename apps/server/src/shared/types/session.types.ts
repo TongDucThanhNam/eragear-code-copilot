@@ -280,6 +280,7 @@ export type BroadcastEvent =
     }
   | { type: "file_modified"; path: string }
   | { type: "current_mode_update"; modeId: string }
+  | { type: "current_model_update"; modelId: string }
   | {
       type: "available_commands_update";
       availableCommands: AvailableCommand[];

@@ -168,13 +168,14 @@ export function upsertToolLocationsPart(params: {
 function ensureMessage(
   state: UiMessageState,
   role: UIMessageRole,
-  messageId: string
+  messageId: string,
+  createdAt = Date.now()
 ): UIMessage {
   const existing = state.messages.get(messageId);
   if (existing) {
     return existing;
   }
-  const message: UIMessage = { id: messageId, role, parts: [] };
+  const message: UIMessage = { id: messageId, role, createdAt, parts: [] };
   state.messages.set(messageId, message);
   return message;
 }

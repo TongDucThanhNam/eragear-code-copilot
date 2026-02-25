@@ -114,6 +114,7 @@ export const UI_MESSAGE_SCHEMA = z
   .object({
     id: z.string(),
     role: z.enum(["system", "user", "assistant"]),
+    createdAt: z.number().finite().optional(),
     metadata: z.unknown().optional(),
     parts: z.array(UI_MESSAGE_PART_SCHEMA),
   })
@@ -247,6 +248,12 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .passthrough(),
   z
     .object({
+      type: z.literal("current_model_update"),
+      modelId: z.string(),
+    })
+    .passthrough(),
+  z
+    .object({
       type: z.literal("terminal_output"),
       terminalId: z.string(),
       data: z.string(),
@@ -287,6 +294,7 @@ const BROADCAST_EVENT_TYPES = [
   "config_options_update",
   "session_info_update",
   "current_mode_update",
+  "current_model_update",
   "terminal_output",
   "heartbeat",
   "error",
@@ -297,6 +305,7 @@ const UI_MESSAGE_ENVELOPE_SCHEMA = z
   .object({
     id: z.string(),
     role: z.enum(["system", "user", "assistant"]),
+    createdAt: z.number().finite().optional(),
     metadata: z.unknown().optional(),
     parts: z.array(z.unknown()),
   })
@@ -380,6 +389,10 @@ export function parseUiMessageClientSafe(raw: unknown): ClientParseResult<UIMess
     role: parsed.data.role,
     parts: sanitizeUiMessageParts(parsed.data.parts),
   };
+
+  if (typeof parsed.data.createdAt === "number") {
+    sanitizedMessage.createdAt = parsed.data.createdAt;
+  }
 
   if (Object.prototype.hasOwnProperty.call(parsed.data, "metadata")) {
     sanitizedMessage.metadata = parsed.data.metadata;

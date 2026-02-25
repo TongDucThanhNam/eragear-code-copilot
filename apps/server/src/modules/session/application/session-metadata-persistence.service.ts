@@ -1,4 +1,5 @@
 import type { ChatSession } from "@/shared/types/session.types";
+import { syncSessionSelectionFromConfigOptions } from "@/shared/utils/session-config-options.util";
 import type { CreateSessionParams } from "./create-session.types";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
@@ -29,6 +30,7 @@ export class SessionMetadataPersistenceService {
       agentEnv,
       projectRoot,
     } = input;
+    const selection = syncSessionSelectionFromConfigOptions(chatSession);
 
     const commonSessionData = {
       projectId: params.projectId ?? chatSession.projectId,
@@ -45,8 +47,8 @@ export class SessionMetadataPersistenceService {
       agentCapabilities: chatSession.agentCapabilities,
       authMethods: chatSession.authMethods,
       status: "running" as const,
-      modeId: chatSession.modes?.currentModeId,
-      modelId: chatSession.models?.currentModelId,
+      modeId: selection.modeId ?? chatSession.modes?.currentModeId,
+      modelId: selection.modelId ?? chatSession.models?.currentModelId,
     };
 
     if (params.sessionIdToLoad) {

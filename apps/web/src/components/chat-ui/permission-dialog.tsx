@@ -22,7 +22,7 @@ interface NormalizedOption {
   id: string;
   label: string;
   description?: string;
-  isAllow: boolean;
+  intent: PermissionIntent | "neutral";
 }
 
 const TITLE_PREVIEW_MAX_CHARS = 180;
@@ -121,15 +121,14 @@ const normalizePermissionOptions = (
   options?: PermissionOptions
 ): NormalizedOption[] => {
   const list = Array.isArray(options) ? options : (options?.options ?? []);
-  return list.map((option: PermissionOption) => {
+  return list.map((option: PermissionOption, index: number) => {
     const optionIntent = inferIntentFromOption(option);
-    const isAllow = optionIntent === "allow";
 
     const optionId =
       option.optionId ??
       option.id ??
       option.kind ??
-      (isAllow ? "allow" : "reject");
+      `option-${index + 1}`;
     const label =
       option.label ??
       option.name ??
@@ -141,7 +140,7 @@ const normalizePermissionOptions = (
       id: String(optionId),
       label: String(label),
       description: option.description,
-      isAllow,
+      intent: optionIntent ?? "neutral",
     };
   });
 };
@@ -165,7 +164,7 @@ const PermissionDialogHeader = memo(({ title }: { title: string }) => (
       <span className="text-foreground [overflow-wrap:anywhere]" title={title}>
         &quot;{formatTitlePreview(title)}&quot;
       </span>{" "}
-      to execute this step? Closing the dialog will reject the request.
+      to execute this step?
     </DialogDescription>
   </DialogHeader>
 ));
@@ -195,10 +194,12 @@ PermissionDialogInput.displayName = "PermissionDialogInput";
 const PermissionDialogActions = memo(
   ({
     options,
+    onSelect,
     onApprove,
     onReject,
   }: {
     options: NormalizedOption[];
+    onSelect: (decision: string) => void;
     onApprove: (decision: string) => void;
     onReject: (decision?: string) => void;
   }) => (
@@ -211,11 +212,15 @@ const PermissionDialogActions = memo(
               option.description && "items-start"
             )}
             key={option.id}
-            onClick={() =>
-              option.isAllow ? onApprove(option.id) : onReject(option.id)
-            }
+            onClick={() => onSelect(option.id)}
             type="button"
-            variant={option.isAllow ? "default" : "outline"}
+            variant={
+              option.intent === "allow"
+                ? "default"
+                : option.intent === "reject"
+                  ? "outline"
+                  : "secondary"
+            }
           >
             <span className="flex min-w-0 max-w-full flex-col gap-0.5 text-left">
               <span className="text-sm [overflow-wrap:anywhere]">
@@ -251,6 +256,7 @@ PermissionDialogActions.displayName = "PermissionDialogActions";
 export interface PermissionDialogProps {
   open: boolean;
   request: PermissionRequest | null;
+  onSelect: (decision: string) => void;
   onApprove: (decision: string) => void;
   onReject: (decision?: string) => void;
   onOpenChange: (open: boolean) => void;
@@ -259,6 +265,7 @@ export interface PermissionDialogProps {
 const PermissionDialogBase = ({
   open,
   request,
+  onSelect,
   onApprove,
   onReject,
   onOpenChange,
@@ -292,6 +299,7 @@ const PermissionDialogBase = ({
           ) : null}
         </div>
         <PermissionDialogActions
+          onSelect={onSelect}
           onApprove={onApprove}
           onReject={onReject}
           options={options}

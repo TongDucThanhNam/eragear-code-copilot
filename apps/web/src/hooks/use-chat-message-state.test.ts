@@ -8,10 +8,16 @@ import {
   replaceMessagesState,
 } from "./use-chat-message-state";
 
-function createMessage(id: string, text: string): UIMessage {
+function createMessage(
+  id: string,
+  text: string,
+  role: UIMessage["role"] = "assistant",
+  createdAt?: number
+): UIMessage {
   return {
     id,
-    role: "assistant",
+    role,
+    ...(typeof createdAt === "number" ? { createdAt } : {}),
     parts: [{ type: "text", text, state: "done" }],
   };
 }
@@ -50,6 +56,33 @@ describe("use-chat-message-state", () => {
       "m2",
     ]);
     expect(updated.indexById.get("m2")).toBe(1);
+  });
+
+  test("merge inserts late user before trailing assistant by createdAt", () => {
+    const initial = replaceMessagesState([
+      createMessage("m1", "user-1", "user", 1000),
+      createMessage("m2", "ai-1", "assistant", 1100),
+      createMessage("m3", "ai-2", "assistant", 2000),
+    ]);
+
+    const updated = mergeMessagesIntoState(initial, [
+      createMessage("m4", "user-2", "user", 1500),
+    ]);
+
+    expect(updated.order).toEqual(["m1", "m2", "m4", "m3"]);
+    expect(updated.indexById.get("m4")).toBe(2);
+    expect(updated.indexById.get("m3")).toBe(3);
+  });
+
+  test("merge keeps deterministic tie-break when createdAt is equal", () => {
+    const initial = replaceMessagesState([
+      createMessage("m1", "assistant", "assistant", 1000),
+    ]);
+    const updated = mergeMessagesIntoState(initial, [
+      createMessage("m2", "user", "user", 1000),
+    ]);
+
+    expect(updated.order).toEqual(["m2", "m1"]);
   });
 
   test("prepend inserts only unknown messages at start and updates known message", () => {

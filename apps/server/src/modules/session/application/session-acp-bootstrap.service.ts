@@ -8,6 +8,10 @@ import type {
   SessionModelState,
   SessionModeState,
 } from "@/shared/types/session.types";
+import {
+  syncSessionSelectionFromConfigOptions,
+  updateSessionConfigOptionCurrentValue,
+} from "@/shared/utils/session-config-options.util";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import type { AgentRuntimePort } from "./ports/agent-runtime.port";
 import type {
@@ -258,6 +262,27 @@ export class SessionAcpBootstrapService {
     return agentCapabilities;
   }
 
+  private async broadcastSelectionSnapshots(
+    chatId: string,
+    chatSession: ChatSession
+  ): Promise<void> {
+    const currentModeId = chatSession.modes?.currentModeId;
+    if (currentModeId) {
+      await this.sessionRuntime.broadcast(chatId, {
+        type: "current_mode_update",
+        modeId: currentModeId,
+      });
+    }
+
+    const currentModelId = chatSession.models?.currentModelId;
+    if (currentModelId) {
+      await this.sessionRuntime.broadcast(chatId, {
+        type: "current_model_update",
+        modelId: currentModelId,
+      });
+    }
+  }
+
   private async loadExistingSession(params: {
     chatId: string;
     chatSession: ChatSession;
@@ -303,13 +328,8 @@ export class SessionAcpBootstrapService {
         chatSession.modes = loadResult.modes ?? undefined;
         chatSession.models = loadResult.models ?? undefined;
         chatSession.configOptions = loadResult.configOptions ?? undefined;
-        const currentModeId = chatSession.modes?.currentModeId;
-        if (currentModeId) {
-          await this.sessionRuntime.broadcast(chatId, {
-            type: "current_mode_update",
-            modeId: currentModeId,
-          });
-        }
+        syncSessionSelectionFromConfigOptions(chatSession);
+        await this.broadcastSelectionSnapshots(chatId, chatSession);
         await this.historyReplay.broadcastPromptEnd(chatId, buffer);
         return;
       }
@@ -357,14 +377,8 @@ export class SessionAcpBootstrapService {
     chatSession.modes = loadResult.modes ?? undefined;
     chatSession.models = loadResult.models ?? undefined;
     chatSession.configOptions = loadResult.configOptions ?? undefined;
-
-    const currentModeId = chatSession.modes?.currentModeId;
-    if (currentModeId) {
-      await this.sessionRuntime.broadcast(chatId, {
-        type: "current_mode_update",
-        modeId: currentModeId,
-      });
-    }
+    syncSessionSelectionFromConfigOptions(chatSession);
+    await this.broadcastSelectionSnapshots(chatId, chatSession);
 
     await this.historyReplay.broadcastPromptEnd(chatId, buffer);
   }
@@ -385,14 +399,9 @@ export class SessionAcpBootstrapService {
     chatSession.modes = newResult.modes ?? undefined;
     chatSession.models = newResult.models ?? undefined;
     chatSession.configOptions = newResult.configOptions ?? undefined;
+    syncSessionSelectionFromConfigOptions(chatSession);
     await this.applyDefaultModel(chatId, chatSession);
-
-    if (chatSession.modes?.currentModeId) {
-      await this.sessionRuntime.broadcast(chatId, {
-        type: "current_mode_update",
-        modeId: chatSession.modes.currentModeId,
-      });
-    }
+    await this.broadcastSelectionSnapshots(chatId, chatSession);
 
     this.sessionRuntime.set(chatId, chatSession);
   }
@@ -440,6 +449,14 @@ export class SessionAcpBootstrapService {
       return;
     }
     if (chatSession.models?.currentModelId === matchedModel.modelId) {
+      const modelOptionUpdated = updateSessionConfigOptionCurrentValue({
+        configOptions: chatSession.configOptions,
+        target: "model",
+        value: matchedModel.modelId,
+      });
+      if (modelOptionUpdated) {
+        syncSessionSelectionFromConfigOptions(chatSession);
+      }
       return;
     }
     if (!chatSession.sessionId) {
@@ -463,6 +480,14 @@ export class SessionAcpBootstrapService {
       });
       if (chatSession.models) {
         chatSession.models.currentModelId = matchedModel.modelId;
+      }
+      const modelOptionUpdated = updateSessionConfigOptionCurrentValue({
+        configOptions: chatSession.configOptions,
+        target: "model",
+        value: matchedModel.modelId,
+      });
+      if (modelOptionUpdated) {
+        syncSessionSelectionFromConfigOptions(chatSession);
       }
       this.logger.info("Applied runtime default model to new session", {
         chatId,

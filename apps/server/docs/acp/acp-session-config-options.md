@@ -175,7 +175,7 @@ The Agent **MUST** respond with the complete list of all configuration options a
 
 ### From the Agent
 
-The Agent can also change configuration options and notify the Client by sending a `config_options_update` session notification:
+The Agent can also change configuration options and notify the Client by sending a `config_option_update` session notification:
 
 ```json
 {
@@ -184,7 +184,7 @@ The Agent can also change configuration options and notify the Client by sending
   "params": {
     "sessionId": "sess_abc123def456",
     "update": {
-      "sessionUpdate": "config_options_update",
+      "sessionUpdate": "config_option_update",
       "configOptions": [
         {
           "id": "mode",
@@ -211,6 +211,9 @@ This notification also contains the complete configuration state. Common reasons
 * Switching modes after completing a planning phase
 * Falling back to a different model due to rate limits or errors
 * Adjusting available options based on context discovered during execution
+
+For `apps/server` consumers: ACP ingress update is `sessionUpdate: "config_option_update"`,
+while the web broadcast event emitted by the server is `type: "config_options_update"`.
 
 ## Relationship to Session Modes
 

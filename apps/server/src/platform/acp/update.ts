@@ -16,6 +16,11 @@ import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { finalizeStreamingParts } from "@/shared/utils/ui-message.util";
+import {
+  findSessionConfigOption,
+  syncSessionSelectionFromConfigOptions,
+  updateSessionConfigOptionCurrentValue,
+} from "@/shared/utils/session-config-options.util";
 import { SessionBuffering as SessionBufferingImpl } from "./update-buffer";
 import { handlePlanUpdate } from "./update-plan";
 import { handleBufferedMessage, isStreamingUpdate } from "./update-stream";
@@ -152,8 +157,20 @@ async function handleModeUpdate(
   }
 
   const session = sessionRuntime.get(chatId);
-  if (session?.modes) {
-    session.modes.currentModeId = update.currentModeId;
+  if (session) {
+    if (session.modes) {
+      session.modes.currentModeId = update.currentModeId;
+    } else {
+      session.modes = {
+        currentModeId: update.currentModeId,
+        availableModes: [],
+      };
+    }
+    updateSessionConfigOptionCurrentValue({
+      configOptions: session.configOptions,
+      target: "mode",
+      value: update.currentModeId,
+    });
   }
   if (session?.userId) {
     await sessionRepo.updateMetadata(chatId, session.userId, {
@@ -237,31 +254,24 @@ async function handleConfigOptionsUpdate(
   }));
   session.configOptions = configOptions;
 
-  const modeOption = configOptions.find((option) => option.category === "mode");
-  const modelOption = configOptions.find((option) => option.category === "model");
+  const modeOption = findSessionConfigOption(configOptions, "mode");
+  const modelOption = findSessionConfigOption(configOptions, "model");
+  const selection = syncSessionSelectionFromConfigOptions(session);
 
-  let broadcastModeId: string | null = null;
-  if (
-    modeOption &&
-    session.modes &&
-    session.modes.currentModeId !== modeOption.currentValue
-  ) {
-    session.modes.currentModeId = modeOption.currentValue;
-    broadcastModeId = modeOption.currentValue;
-  }
-  if (
-    modelOption &&
-    session.models &&
-    session.models.currentModelId !== modelOption.currentValue
-  ) {
-    session.models.currentModelId = modelOption.currentValue;
-  }
-
-  if (session.userId && (modeOption || modelOption)) {
-    await sessionRepo.updateMetadata(chatId, session.userId, {
-      ...(modeOption ? { modeId: modeOption.currentValue } : {}),
-      ...(modelOption ? { modelId: modelOption.currentValue } : {}),
-    });
+  if (session.userId) {
+    const metadataUpdates: {
+      modeId?: string;
+      modelId?: string;
+    } = {};
+    if (modeOption && selection.modeId) {
+      metadataUpdates.modeId = selection.modeId;
+    }
+    if (modelOption && selection.modelId) {
+      metadataUpdates.modelId = selection.modelId;
+    }
+    if (metadataUpdates.modeId || metadataUpdates.modelId) {
+      await sessionRepo.updateMetadata(chatId, session.userId, metadataUpdates);
+    }
   }
 
   logger.debug("ACP config options update", {
@@ -276,10 +286,16 @@ async function handleConfigOptionsUpdate(
       type: "config_options_update",
       configOptions,
     });
-    if (broadcastModeId) {
+    if (modeOption && selection.modeChanged && selection.modeId) {
       await sessionRuntime.broadcast(chatId, {
         type: "current_mode_update",
-        modeId: broadcastModeId,
+        modeId: selection.modeId,
+      });
+    }
+    if (modelOption && selection.modelChanged && selection.modelId) {
+      await sessionRuntime.broadcast(chatId, {
+        type: "current_model_update",
+        modelId: selection.modelId,
       });
     }
   }

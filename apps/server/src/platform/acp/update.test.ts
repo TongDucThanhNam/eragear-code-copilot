@@ -325,6 +325,75 @@ describe("createSessionUpdateHandler", () => {
     expect(events).toHaveLength(0);
   });
 
+  test("accepts current_mode_update payload with modeId alias", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "current_mode_update",
+      modeId: "mode-from-alias",
+    });
+    expect(parsed).toEqual(
+      expect.objectContaining({
+        sessionUpdate: "current_mode_update",
+        currentModeId: "mode-from-alias",
+      })
+    );
+  });
+
+  test("normalizes config_options_update alias to config_option_update", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "config_options_update",
+      configOptions: [
+        {
+          id: "mode",
+          name: "Mode",
+          type: "select",
+          currentValue: "code",
+          options: [{ value: "code", name: "Code" }],
+        },
+      ],
+    });
+    expect(parsed).toEqual(
+      expect.objectContaining({
+        sessionUpdate: "config_option_update",
+      })
+    );
+  });
+
+  test("accepts tool_call payload when kind is omitted", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "tool_call",
+      toolCallId: "tool-1",
+      title: "Read settings",
+    });
+    expect(parsed).toEqual(
+      expect.objectContaining({
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+      })
+    );
+  });
+
+  test("accepts tool_call_update payload when status is omitted", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tool-1",
+      content: [
+        {
+          type: "content",
+          content: {
+            type: "text",
+            text: "still running",
+          },
+        },
+      ],
+    });
+    expect(parsed).toEqual(
+      expect.objectContaining({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+      })
+    );
+  });
+
   test("keeps replay update pipeline active while suppressing replay broadcasts", async () => {
     const session = createSession("chat-replay-suppressed");
     session.suppressReplayBroadcast = true;
@@ -391,6 +460,77 @@ describe("createSessionUpdateHandler", () => {
     }
   });
 
+  test("hydrates tool state from update-only flow and preserves raw IO fields", async () => {
+    const session = createSession("chat-tool-update-only");
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+    const buffer = new SessionBuffering();
+
+    await handler({
+      chatId: session.id,
+      buffer,
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+        kind: "execute",
+        title: "Run command",
+        status: "in_progress",
+        rawInput: { command: "ls -la" },
+      },
+    });
+
+    await handler({
+      chatId: session.id,
+      buffer,
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+        status: "failed",
+        rawOutput: { error: "permission denied" },
+      },
+    });
+
+    const storedToolCall = session.toolCalls.get("tool-1");
+    expect(storedToolCall).toBeDefined();
+    expect(storedToolCall?.kind).toBe("execute");
+    expect(storedToolCall?.rawInput).toEqual({ command: "ls -la" });
+    expect(storedToolCall?.rawOutput).toEqual({
+      error: "permission denied",
+    });
+
+    const uiMessageEvents = events.filter((event) => {
+      return (
+        typeof event === "object" &&
+        event !== null &&
+        "type" in event &&
+        (event as { type?: string }).type === "ui_message"
+      );
+    });
+    expect(uiMessageEvents.length).toBeGreaterThan(0);
+    const lastUiMessageEvent = uiMessageEvents.at(-1) as {
+      type: "ui_message";
+      message: {
+        parts: Array<{
+          type: string;
+          toolCallId?: string;
+          state?: string;
+          errorText?: string;
+        }>;
+      };
+    };
+    const toolPart = lastUiMessageEvent.message.parts.find((part) => {
+      return part.toolCallId === "tool-1";
+    });
+    expect(toolPart).toMatchObject({
+      toolCallId: "tool-1",
+      state: "output-error",
+      errorText: "permission denied",
+    });
+  });
+
   test("does not mark chat as streaming when no active turn is present", async () => {
     const session = createSession("chat-no-active-turn");
     session.chatStatus = "ready";
@@ -419,5 +559,72 @@ describe("createSessionUpdateHandler", () => {
         (event as { type?: string }).type === "chat_status"
     );
     expect(statusEvents).toHaveLength(0);
+  });
+
+  test("syncs mode/model from config options when legacy state is absent", async () => {
+    const session = createSession("chat-config-fallback");
+    session.modes = undefined;
+    session.models = undefined;
+    const { runtime, events } = createRuntime(session);
+    const { repo, metadataCalls } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            type: "select",
+            currentValue: "architect",
+            options: [{ value: "architect", name: "Architect" }],
+          },
+          {
+            id: "model",
+            name: "Model",
+            type: "select",
+            currentValue: "claude-sonnet",
+            options: [{ value: "claude-sonnet", name: "Claude Sonnet" }],
+          },
+        ],
+      },
+    });
+
+    expect(session.modes).toBeDefined();
+    if (!session.modes) {
+      throw new Error("Expected modes to be derived from config options");
+    }
+    expect(session.modes as unknown).toEqual({
+      currentModeId: "architect",
+      availableModes: [{ id: "architect", name: "Architect" }],
+    });
+    expect(session.models).toBeDefined();
+    if (!session.models) {
+      throw new Error("Expected models to be derived from config options");
+    }
+    expect(session.models as unknown).toEqual({
+      currentModelId: "claude-sonnet",
+      availableModels: [{ modelId: "claude-sonnet", name: "Claude Sonnet" }],
+    });
+    expect(metadataCalls).toContainEqual({
+      chatId: "chat-config-fallback",
+      userId: "user-1",
+      updates: {
+        modeId: "architect",
+        modelId: "claude-sonnet",
+      },
+    });
+    expect(events).toContainEqual({
+      type: "current_mode_update",
+      modeId: "architect",
+    });
+    expect(events).toContainEqual({
+      type: "current_model_update",
+      modelId: "claude-sonnet",
+    });
   });
 });
