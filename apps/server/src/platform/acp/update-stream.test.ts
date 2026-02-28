@@ -323,4 +323,75 @@ describe("handleBufferedMessage", () => {
       expect(textPart.state).toBe("done");
     }
   });
+
+  test("starts a new assistant message when a new user chunk arrives", async () => {
+    const session = createSession("chat-stream-user-boundary");
+    const { runtime } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        isReplayingHistory: true,
+        suppressReplayBroadcast: true,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "question-1" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        isReplayingHistory: true,
+        suppressReplayBroadcast: true,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "answer-1" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        isReplayingHistory: true,
+        suppressReplayBroadcast: true,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "question-2" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        isReplayingHistory: true,
+        suppressReplayBroadcast: true,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "answer-2" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    const assistantMessages = [...session.uiState.messages.values()].filter(
+      (message) => message.role === "assistant"
+    );
+    expect(assistantMessages).toHaveLength(2);
+    const assistantTexts = assistantMessages.map((message) =>
+      message.parts
+        .filter((part) => part.type === "text")
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join("")
+    );
+    expect(assistantTexts).toEqual(["answer-1", "answer-2"]);
+  });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { UIMessage } from "@repo/shared";
+import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
@@ -74,13 +75,28 @@ function createSessionRuntime(session: ChatSession): SessionRuntimePort {
   };
 }
 
+function createSessionRepo(storedChatIds: string[] = []): SessionRepositoryPort {
+  const storedSet = new Set(storedChatIds);
+  return {
+    findById: async (id: string, userId: string) => {
+      if (!storedSet.has(id) || userId !== "user-1") {
+        return undefined;
+      }
+      return {
+        id,
+        userId,
+      } as never;
+    },
+  } as unknown as SessionRepositoryPort;
+}
+
 describe("SubscribeSessionEventsService", () => {
   test("reconciles orphan busy status to ready", async () => {
     const session = createSession({
       chatStatus: "streaming",
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -106,7 +122,7 @@ describe("SubscribeSessionEventsService", () => {
       pendingPermissions,
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -125,7 +141,7 @@ describe("SubscribeSessionEventsService", () => {
       },
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -156,7 +172,7 @@ describe("SubscribeSessionEventsService", () => {
       ],
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -179,7 +195,7 @@ describe("SubscribeSessionEventsService", () => {
     uiState.currentAssistantId = assistantMessage.id;
     const session = createSession({ uiState, messageBuffer: [] });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -205,7 +221,7 @@ describe("SubscribeSessionEventsService", () => {
       messageBuffer: [{ type: "ui_message", message: assistantMessage }],
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -219,7 +235,7 @@ describe("SubscribeSessionEventsService", () => {
   test("queues live events emitted before subscribe listener is attached", async () => {
     const session = createSession();
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
     const subscription = await service.execute("user-1", "chat-1");
     const deltaEvent = {
       type: "ui_message_delta" as const,
@@ -263,7 +279,7 @@ describe("SubscribeSessionEventsService", () => {
       ],
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -279,5 +295,59 @@ describe("SubscribeSessionEventsService", () => {
       part: { type: "reasoning", text: "done", state: "done" },
       isNew: true,
     });
+  });
+
+  test("returns inactive snapshot when runtime is missing but session exists in storage", async () => {
+    const lockDepthByChat = new Map<string, number>();
+    const runtime = {
+      set() {},
+      get() {
+        return undefined;
+      },
+      delete() {},
+      deleteIfMatch() {
+        return false;
+      },
+      has() {
+        return false;
+      },
+      getAll() {
+        return [];
+      },
+      runExclusive(chatId: string, work: () => Promise<unknown>) {
+        const depth = lockDepthByChat.get(chatId) ?? 0;
+        lockDepthByChat.set(chatId, depth + 1);
+        return Promise.resolve(work()).finally(() => {
+          const nextDepth = (lockDepthByChat.get(chatId) ?? 1) - 1;
+          if (nextDepth <= 0) {
+            lockDepthByChat.delete(chatId);
+          } else {
+            lockDepthByChat.set(chatId, nextDepth);
+          }
+        });
+      },
+      isLockHeld(chatId: string) {
+        return (lockDepthByChat.get(chatId) ?? 0) > 0;
+      },
+      broadcast() {
+        return Promise.resolve();
+      },
+    } as SessionRuntimePort;
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo(["chat-1"])
+    );
+
+    const subscription = await service.execute("user-1", "chat-1");
+
+    expect(subscription.chatStatus).toBe("inactive");
+    expect(subscription.bufferedEvents).toEqual([]);
+    const received: unknown[] = [];
+    const unsubscribe = subscription.subscribe((event) => {
+      received.push(event);
+    });
+    expect(received).toEqual([]);
+    unsubscribe();
+    await subscription.release();
   });
 });

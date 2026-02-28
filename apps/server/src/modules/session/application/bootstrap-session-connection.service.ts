@@ -60,6 +60,7 @@ export class BootstrapSessionConnectionService {
         projectId,
         projectRoot,
         sessionIdToLoad: params.sessionIdToLoad,
+        importExternalHistoryOnLoad: params.importExternalHistoryOnLoad,
         plan: storedSession?.plan,
       });
       chatSession = prepared.chatSession;

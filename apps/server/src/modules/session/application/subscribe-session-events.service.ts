@@ -12,6 +12,7 @@ import {
   cloneBroadcastEvents,
 } from "@/shared/utils/broadcast-event.util";
 import { reconcileChatStatusForSubscription } from "@/shared/utils/chat-events.util";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
@@ -28,16 +29,28 @@ export interface SessionEventSubscription {
 
 export class SubscribeSessionEventsService {
   private readonly sessionRuntime: SessionRuntimePort;
+  private readonly sessionRepo: SessionRepositoryPort;
 
-  constructor(sessionRuntime: SessionRuntimePort) {
+  constructor(
+    sessionRuntime: SessionRuntimePort,
+    sessionRepo: SessionRepositoryPort
+  ) {
     this.sessionRuntime = sessionRuntime;
+    this.sessionRepo = sessionRepo;
   }
 
   async execute(userId: string, chatId: string): Promise<SessionEventSubscription> {
     const sessionRuntime = this.sessionRuntime;
+    const sessionRepo = this.sessionRepo;
     const pendingLiveEvents: BroadcastEvent[] = [];
     let deliveredListener: ((event: BroadcastEvent) => void) | null = null;
     let released = false;
+    let stoppedSnapshot:
+      | {
+          chatStatus: ChatStatus;
+          bufferedEvents: BroadcastEvent[];
+        }
+      | undefined;
     let snapshot:
       | {
           session: ChatSession;
@@ -58,7 +71,22 @@ export class SubscribeSessionEventsService {
           op: OP,
         });
         const session = sessionRuntime.get(chatId);
-        if (!session || session.userId !== userId) {
+        if (!session) {
+          const stored = await sessionRepo.findById(chatId, userId);
+          if (!stored) {
+            throw new NotFoundError("Chat not found", {
+              module: "session",
+              op: OP,
+              details: { chatId },
+            });
+          }
+          stoppedSnapshot = {
+            chatStatus: "inactive",
+            bufferedEvents: [],
+          };
+          return;
+        }
+        if (session.userId !== userId) {
           throw new NotFoundError("Chat not found", {
             module: "session",
             op: OP,
@@ -102,6 +130,25 @@ export class SubscribeSessionEventsService {
         snapshot.session.emitter.off("data", snapshot.internalListener);
       }
       throw error;
+    }
+
+    if (stoppedSnapshot) {
+      if (shouldEmitRuntimeLog("debug")) {
+        logger.debug("Session event subscription prepared for stored session", {
+          chatId,
+          chatStatus: stoppedSnapshot.chatStatus,
+        });
+      }
+      return {
+        chatStatus: stoppedSnapshot.chatStatus,
+        bufferedEvents: stoppedSnapshot.bufferedEvents,
+        subscribe() {
+          return () => undefined;
+        },
+        async release() {
+          return;
+        },
+      };
     }
 
     if (!snapshot) {

@@ -83,7 +83,8 @@ export function createSessionServices(
     processLifecycle
   );
   const persistSessionBootstrap = new PersistSessionBootstrapService(
-    metadataPersistence
+    metadataPersistence,
+    deps.sessionRepo
   );
   const createSessionService = new CreateSessionService(
     projectContextResolver,
@@ -140,7 +141,8 @@ export function createSessionServices(
     deps.sessionRepo
   );
   const subscribeSessionEventsService = new SubscribeSessionEventsService(
-    deps.sessionRuntime
+    deps.sessionRuntime,
+    deps.sessionRepo
   );
   const cleanupProjectSessionsService = new CleanupProjectSessionsService(
     deps.sessionRepo,

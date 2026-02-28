@@ -25,7 +25,7 @@ import {
   isChatBusyStatus,
   processSessionEvent,
 } from "@repo/shared";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import {
@@ -63,6 +63,46 @@ import {
 import { logChatStreamDebug } from "./use-chat-stream-debug";
 import type { UseChatOptions, UseChatResult } from "./use-chat.types";
 const INVALID_EVENT_TOAST_COOLDOWN_MS = 5000;
+
+function isChatNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const candidate = error as {
+    message?: unknown;
+    data?: { code?: unknown } | null;
+    shape?: {
+      message?: unknown;
+      data?: { code?: unknown } | null;
+    } | null;
+    cause?: unknown;
+  };
+
+  const messageValues = [candidate.message, candidate.shape?.message];
+  for (const messageValue of messageValues) {
+    if (
+      typeof messageValue === "string" &&
+      messageValue.toLowerCase().includes("chat not found")
+    ) {
+      return true;
+    }
+  }
+
+  const codeValues = [candidate.data?.code, candidate.shape?.data?.code];
+  for (const codeValue of codeValues) {
+    if (typeof codeValue === "string" && codeValue.toUpperCase() === "NOT_FOUND") {
+      return true;
+    }
+  }
+
+  if (candidate.cause && candidate.cause !== error) {
+    return isChatNotFoundError(candidate.cause);
+  }
+
+  return false;
+}
+
 export function useChat(options: UseChatOptions = {}): UseChatResult {
   const { chatId, readOnly = false, onFinish, onError } = options;
   const utils = trpc.useUtils();
@@ -325,6 +365,13 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       staleTime: 0,
     }
   );
+  const normalizedSessionState = useMemo(() => {
+    if (!sessionState) {
+      return null;
+    }
+    return normalizeSessionStateData(sessionState);
+  }, [sessionState]);
+  const isStoppedSession = normalizedSessionState?.status === "stopped";
   useEffect(() => {
     const nextLifecycle = nextLifecycleOnChatIdChange({
       hasChatId: Boolean(chatId),
@@ -408,10 +455,9 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   // Apply session state when loaded
   useEffect(() => {
     const activeChatId = chatId ?? null;
-    if (!(activeChatId && sessionState) || connStatus !== "connecting") {
+    if (!(activeChatId && normalizedSessionState) || connStatus !== "connecting") {
       return;
     }
-    const normalizedSessionState = normalizeSessionStateData(sessionState);
     const stateToRestore: SessionStateData = {
       ...normalizedSessionState,
       ...(hasLocalModeOverrideRef.current ? { modes: undefined } : {}),
@@ -424,6 +470,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       return;
     }
     if (stateToRestore.status === "stopped") {
+      setStreamLifecycle("idle");
       setLoadSessionSupported(stateToRestore.loadSessionSupported ?? false);
       restoreSessionState(stateToRestore);
       isResumingRef.current = false;
@@ -431,7 +478,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     }
     restoreSessionState(stateToRestore);
     isResumingRef.current = false;
-  }, [chatId, sessionState, connStatus, restoreSessionState]);
+  }, [chatId, normalizedSessionState, connStatus, restoreSessionState]);
   const isTurnMatched = useCallback((turnId?: string) => {
     if (!turnId) {
       return true;
@@ -573,7 +620,10 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   );
   // Subscription
   const subscriptionEnabled =
-    !!chatId && !readOnly && streamLifecycle !== "idle";
+    !!chatId &&
+    !readOnly &&
+    streamLifecycle !== "idle" &&
+    (!isStoppedSession || isResumingRef.current);
   useEffect(() => {
     if (!subscriptionEnabled) {
       return;
@@ -617,6 +667,14 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         }
       },
       onError(err) {
+        if (isChatNotFoundError(err)) {
+          clearPendingDeltas();
+          setStreamLifecycle("idle");
+          setConnStatus("idle");
+          setStatus("inactive");
+          setError(null);
+          return;
+        }
         console.error("[Client] Subscription error:", err);
         clearPendingDeltas();
         setStreamLifecycle((prev) => nextLifecycleOnSubscriptionError(prev));

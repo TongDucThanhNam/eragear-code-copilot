@@ -101,6 +101,180 @@ function createMcpConfigStub(): SessionMcpConfigService {
 }
 
 describe("SessionAcpBootstrapService", () => {
+  test("prefers loadSession when agent exposes both load and resume capabilities", async () => {
+    const chatSession = createChatSession("chat-load-primary");
+    const { runtime } = createRuntimeStub(chatSession);
+    const calls = {
+      load: 0,
+      resume: 0,
+    };
+
+    const connection = {
+      initialize: async () => ({
+        protocolVersion: 1,
+        agentCapabilities: {
+          loadSession: true,
+          sessionCapabilities: {
+            resume: true,
+            setModel: true,
+          },
+        },
+      }),
+      loadSession: async () => {
+        calls.load += 1;
+        return {
+          sessionId: "sess-load-primary",
+          modes: {
+            currentModeId: "mode-from-load",
+            availableModes: [{ id: "mode-from-load", name: "Mode From Load" }],
+          },
+          models: {
+            currentModelId: "model-from-load",
+            availableModels: [
+              { modelId: "model-from-load", name: "Model From Load" },
+            ],
+          },
+          configOptions: [],
+        };
+      },
+      unstable_resumeSession: async () => {
+        calls.resume += 1;
+        return {
+          sessionId: "sess-resume-should-not-run",
+          modes: {
+            currentModeId: "mode-from-resume",
+            availableModes: [
+              { id: "mode-from-resume", name: "Mode From Resume" },
+            ],
+          },
+          models: {
+            currentModelId: "model-from-resume",
+            availableModels: [
+              { modelId: "model-from-resume", name: "Model From Resume" },
+            ],
+          },
+          configOptions: [],
+        };
+      },
+    };
+
+    const service = new SessionAcpBootstrapService(
+      runtime,
+      {} as SessionRepositoryPort,
+      createSessionAcpStub(),
+      {
+        createAcpConnection: () => connection as never,
+      } as unknown as AgentRuntimePort,
+      createMcpConfigStub(),
+      {
+        broadcastPromptEnd: async () => undefined,
+      } as unknown as SessionHistoryReplayService,
+      createLoggerStub(),
+      () => ({ defaultModel: "" })
+    );
+
+    await service.bootstrap({
+      chatId: chatSession.id,
+      chatSession,
+      buffer: createBuffer(),
+      projectRoot: "/tmp/project",
+      sessionIdToLoad: "sess-load-primary",
+    });
+
+    expect(calls.load).toBe(1);
+    expect(calls.resume).toBe(0);
+    expect(chatSession.modes?.currentModeId).toBe("mode-from-load");
+    expect(chatSession.models?.currentModelId).toBe("model-from-load");
+    expect(chatSession.useUnstableResume).toBe(false);
+  });
+
+  test("uses unstable_resumeSession only when loadSession is unavailable", async () => {
+    const chatSession = createChatSession("chat-resume-only");
+    const { runtime } = createRuntimeStub(chatSession);
+    const calls = {
+      load: 0,
+      resume: 0,
+    };
+
+    const connection = {
+      initialize: async () => ({
+        protocolVersion: 1,
+        agentCapabilities: {
+          loadSession: false,
+          sessionCapabilities: {
+            resume: true,
+            setModel: true,
+          },
+        },
+      }),
+      loadSession: async () => {
+        calls.load += 1;
+        return {
+          sessionId: "sess-load-should-not-run",
+          modes: {
+            currentModeId: "mode-from-load",
+            availableModes: [{ id: "mode-from-load", name: "Mode From Load" }],
+          },
+          models: {
+            currentModelId: "model-from-load",
+            availableModels: [
+              { modelId: "model-from-load", name: "Model From Load" },
+            ],
+          },
+          configOptions: [],
+        };
+      },
+      unstable_resumeSession: async () => {
+        calls.resume += 1;
+        return {
+          sessionId: "sess-resume-only",
+          modes: {
+            currentModeId: "mode-from-resume",
+            availableModes: [
+              { id: "mode-from-resume", name: "Mode From Resume" },
+            ],
+          },
+          models: {
+            currentModelId: "model-from-resume",
+            availableModels: [
+              { modelId: "model-from-resume", name: "Model From Resume" },
+            ],
+          },
+          configOptions: [],
+        };
+      },
+    };
+
+    const service = new SessionAcpBootstrapService(
+      runtime,
+      {} as SessionRepositoryPort,
+      createSessionAcpStub(),
+      {
+        createAcpConnection: () => connection as never,
+      } as unknown as AgentRuntimePort,
+      createMcpConfigStub(),
+      {
+        broadcastPromptEnd: async () => undefined,
+      } as unknown as SessionHistoryReplayService,
+      createLoggerStub(),
+      () => ({ defaultModel: "" })
+    );
+
+    await service.bootstrap({
+      chatId: chatSession.id,
+      chatSession,
+      buffer: createBuffer(),
+      projectRoot: "/tmp/project",
+      sessionIdToLoad: "sess-resume-only",
+    });
+
+    expect(calls.load).toBe(0);
+    expect(calls.resume).toBe(1);
+    expect(chatSession.modes?.currentModeId).toBe("mode-from-resume");
+    expect(chatSession.models?.currentModelId).toBe("model-from-resume");
+    expect(chatSession.useUnstableResume).toBe(true);
+  });
+
   test("resume load broadcasts mode and model snapshots derived from config options", async () => {
     const chatSession = createChatSession("chat-resume");
     const { runtime, events } = createRuntimeStub(chatSession);

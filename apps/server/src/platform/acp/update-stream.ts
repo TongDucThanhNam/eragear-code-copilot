@@ -60,6 +60,15 @@ async function handleUiChunkUpdate(
   }
 
   if (update.sessionUpdate === "user_message_chunk") {
+    await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, buffer, {
+      suppressBroadcast: suppressReplayBroadcast,
+    });
+    // A new user chunk indicates the next conversation turn. Reset assistant
+    // streaming pointers so replay/live updates do not merge distinct answers.
+    session.uiState.currentAssistantId = undefined;
+    session.lastAssistantChunkType = undefined;
+    buffer.reset();
+
     const message = getOrCreateUserMessage(session.uiState);
     const block = toStoredContentBlock(update.content);
     const partState = isReplayingHistory ? "done" : "streaming";

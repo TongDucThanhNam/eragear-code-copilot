@@ -101,7 +101,7 @@ export const sessionRouter = router({
       });
     }),
 
-  /** Load an existing agent session into a new local chat runtime. */
+  /** Import an existing agent session into a new local chat runtime. */
   loadAgentSession: protectedProcedure
     .input(LoadAgentSessionInputSchema)
     .mutation(async ({ input, ctx }) => {

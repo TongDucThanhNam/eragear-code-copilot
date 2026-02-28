@@ -453,6 +453,8 @@ export interface ChatSession {
   isReplayingHistory?: boolean;
   /** Skip replay broadcasts when history is already loaded from storage */
   suppressReplayBroadcast?: boolean;
+  /** Import replayed history into local storage after loadSession completes */
+  importExternalHistoryOnLoad?: boolean;
   /** Last assistant chunk type to coalesce streaming updates */
   lastAssistantChunkType?: "message" | "reasoning";
   /** Current chat status for UI */

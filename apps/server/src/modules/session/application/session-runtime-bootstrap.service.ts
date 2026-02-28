@@ -21,6 +21,7 @@ export interface CreateRuntimeSessionInput {
   projectId?: string;
   projectRoot: string;
   sessionIdToLoad?: string;
+  importExternalHistoryOnLoad?: boolean;
   plan?: ChatSession["plan"];
 }
 
@@ -75,6 +76,7 @@ export class SessionRuntimeBootstrapService {
       uiState: createUiMessageState(),
       isReplayingHistory: false,
       suppressReplayBroadcast,
+      importExternalHistoryOnLoad: input.importExternalHistoryOnLoad,
       lastAssistantChunkType: undefined,
       chatStatus: "connecting",
     };

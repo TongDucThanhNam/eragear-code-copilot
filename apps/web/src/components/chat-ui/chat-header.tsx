@@ -24,8 +24,8 @@ export interface ChatHeaderProps {
   onStopChat: () => void;
   onResumeChat?: () => void;
   isResuming?: boolean;
-  /** True when agent doesn't support session resume */
-  resumeNotSupported?: boolean;
+  /** True when agent doesn't support session load */
+  loadNotSupported?: boolean;
 }
 
 const ChatHeaderBase = ({
@@ -35,7 +35,7 @@ const ChatHeaderBase = ({
   onStopChat,
   onResumeChat,
   isResuming,
-  resumeNotSupported,
+  loadNotSupported,
 }: ChatHeaderProps) => {
   return (
     <div className="flex shrink-0 items-center justify-between bg-background/50 px-4 py-2 backdrop-blur-sm">
@@ -102,10 +102,10 @@ const ChatHeaderBase = ({
             ) : (
               <Play className="h-3.5 w-3.5 fill-current" />
             )}
-            {isResuming ? "Resuming..." : "Resume Agent"}
+            {isResuming ? "Loading..." : "Load From Agent"}
           </Button>
         )}
-        {connStatus === "idle" && !onResumeChat && resumeNotSupported && (
+        {connStatus === "idle" && !onResumeChat && loadNotSupported && (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -115,7 +115,7 @@ const ChatHeaderBase = ({
                 </span>
               </TooltipTrigger>
               <TooltipContent>
-                <p>This agent does not support session resume.</p>
+                <p>This agent does not support session load.</p>
                 <p className="text-muted-foreground text-xs">
                   Start a new chat to interact with the agent.
                 </p>

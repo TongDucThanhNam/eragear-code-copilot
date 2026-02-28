@@ -46,6 +46,7 @@ Production target hiện tại: **Linux/Windows/macOS**.
   - `docs/auth-dashboard-validation.md`
 - ACP protocol references:
   - `docs/acp/*`
+  - `docs/acp/acp-session-replay-import-policy.md` (ACP replay primary + external import fallback policy)
 
 ## 4. Source of Truth (Implementation)
 

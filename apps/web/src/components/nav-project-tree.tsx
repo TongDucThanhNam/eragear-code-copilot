@@ -101,6 +101,8 @@ interface DiscoverContext {
   agentName: string;
 }
 
+const UNKNOWN_PROJECT_ID = "unknown";
+
 const getAgentIcon = (agentName: string | undefined) => {
   switch (agentName) {
     case "Claude Code":
@@ -268,9 +270,10 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const loadAgentSessionMutation = trpc.loadAgentSession.useMutation({
     onSuccess: () => {
       trpcUtils.getSessions.invalidate();
+      trpcUtils.getSessionsPage.invalidate();
     },
     onError: (err) => {
-      toast.error(err.message || "Failed to load agent session");
+      toast.error(err.message || "Failed to import agent session");
     },
   });
   const isCreatingSession = createSessionMutation.isPending;
@@ -279,6 +282,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const updateSessionMetaMutation = trpc.updateSessionMeta.useMutation({
     onSuccess: () => {
       trpcUtils.getSessions.invalidate();
+      trpcUtils.getSessionsPage.invalidate();
       toast.success("Session updated");
     },
     onError: (err) => {
@@ -316,6 +320,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       removeProject(variables.id);
       trpcUtils.listProjects.invalidate();
       trpcUtils.getSessions.invalidate();
+      trpcUtils.getSessionsPage.invalidate();
       toast.success("Project deleted");
     },
     onError: (err) => {
@@ -327,6 +332,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     onSuccess: (_result, variables) => {
       useChatStreamStore.getState().clearChat(variables.chatId);
       trpcUtils.getSessions.invalidate();
+      trpcUtils.getSessionsPage.invalidate();
       toast.success("Session deleted");
     },
     onError: (err) => {
@@ -346,7 +352,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const sessionsByProject = useMemo(() => {
     const map: Record<string, SessionItem[]> = {};
     for (const session of sessions) {
-      const pid = session.projectId || "unknown";
+      const pid = session.projectId || UNKNOWN_PROJECT_ID;
       if (!map[pid]) {
         map[pid] = [];
       }
@@ -354,6 +360,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     }
     return map;
   }, [sessions]);
+  const unassignedSessions = sessionsByProject[UNKNOWN_PROJECT_ID] || [];
 
   const deleteProjectTarget = useMemo(() => {
     if (!deleteProjectTargetId) {
@@ -633,6 +640,88 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   };
 
   const isLoading = listQuery.isLoading;
+  const renderSessionList = (sessionItems: SessionItem[]) => {
+    if (sessionItems.length === 0) {
+      return (
+        <SidebarMenuSubItem>
+          <SidebarMenuSubButton className="pointer-events-none opacity-50">
+            <span className="italic">No sessions</span>
+          </SidebarMenuSubButton>
+        </SidebarMenuSubItem>
+      );
+    }
+    return sessionItems.map((session) => (
+      <ContextMenu key={session.id}>
+        <ContextMenuTrigger asChild>
+          <SidebarMenuSubItem>
+            <SidebarMenuSubButton asChild isActive={session.status !== "inactive"}>
+              <Link
+                search={{ chatId: session.id }}
+                title={session.sessionId || session.id}
+                to="/"
+              >
+                {session.pinned && (
+                  <Pin className="mr-1.5 h-3 w-3 text-muted-foreground" />
+                )}
+                <span
+                  className={
+                    session.status === "streaming"
+                      ? "animate-pulse font-medium text-primary"
+                      : ""
+                  }
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                    {getAgentIcon(session.agentName)}
+                    <span className="min-w-0 flex-1 truncate">
+                      {getSessionDisplayId(session)}
+                    </span>
+                  </span>
+                </span>
+                <div className="ml-auto shrink-0">
+                  <Badge
+                    className={`${getStatusBadgeClassName(
+                      session.status
+                    )} px-1.5 py-0 text-[10px] uppercase`}
+                  >
+                    <span
+                      className={`size-1.5 rounded-full ${getStatusDotClassName(
+                        session.status
+                      )} ${
+                        session.status === "streaming" ? "animate-pulse" : ""
+                      }`}
+                    />
+                    {getSessionStatusLabel(session.status)}
+                  </Badge>
+                </div>
+              </Link>
+            </SidebarMenuSubButton>
+          </SidebarMenuSubItem>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={() => handleRename(session)}>
+            Rename
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => handlePinToggle(session)}>
+            {session.pinned ? "Unpin" : "Pin"}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => setSelectedSessionForDetails(session)}>
+            View Details
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => handleArchive(session)}>
+            Archive
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => handleDeleteSession(session)}
+            variant="destructive"
+          >
+            Delete
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    ));
+  };
 
   return (
     <SidebarGroup>
@@ -745,7 +834,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
                                 <span>
                                   {isDiscoverPending
                                     ? `Discovering ${agent.name} sessions...`
-                                    : `Load Existing: ${agent.name}`}
+                                    : `Import Existing: ${agent.name}`}
                                 </span>
                               </DropdownMenuItem>
                               {agent.id !== agents[agents.length - 1]?.id ? (
@@ -759,102 +848,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
 
                     <CollapsibleContent>
                       <SidebarMenuSub>
-                        {projectSessions.length === 0 ? (
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton className="pointer-events-none opacity-50">
-                              <span className="italic">No sessions</span>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        ) : (
-                          projectSessions.map((session) => (
-                            <ContextMenu key={session.id}>
-                              <ContextMenuTrigger asChild>
-                                <SidebarMenuSubItem>
-                                  <SidebarMenuSubButton
-                                    asChild
-                                    isActive={session.status !== "inactive"}
-                                  >
-                                    <Link
-                                      search={{ chatId: session.id }}
-                                      title={session.sessionId || session.id}
-                                      to="/"
-                                    >
-                                      {session.pinned && (
-                                        <Pin className="mr-1.5 h-3 w-3 text-muted-foreground" />
-                                      )}
-                                      <span
-                                        className={
-                                          session.status === "streaming"
-                                            ? "animate-pulse font-medium text-primary"
-                                            : ""
-                                        }
-                                      >
-                                        <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                                          {getAgentIcon(session.agentName)}
-                                          <span className="min-w-0 flex-1 truncate">
-                                            {getSessionDisplayId(session)}
-                                          </span>
-                                        </span>
-                                      </span>
-                                      <div className="ml-auto shrink-0">
-                                        <Badge
-                                          className={`${getStatusBadgeClassName(
-                                            session.status
-                                          )} px-1.5 py-0 text-[10px] uppercase`}
-                                        >
-                                          <span
-                                            className={`size-1.5 rounded-full ${getStatusDotClassName(
-                                              session.status
-                                            )} ${
-                                              session.status === "streaming"
-                                                ? "animate-pulse"
-                                                : ""
-                                            }`}
-                                          />
-                                          {getSessionStatusLabel(
-                                            session.status
-                                          )}
-                                        </Badge>
-                                      </div>
-                                    </Link>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent>
-                                <ContextMenuItem
-                                  onClick={() => handleRename(session)}
-                                >
-                                  Rename
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() => handlePinToggle(session)}
-                                >
-                                  {session.pinned ? "Unpin" : "Pin"}
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    setSelectedSessionForDetails(session)
-                                  }
-                                >
-                                  View Details
-                                </ContextMenuItem>
-                                <ContextMenuSeparator />
-                                <ContextMenuItem
-                                  onClick={() => handleArchive(session)}
-                                >
-                                  Archive
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() => handleDeleteSession(session)}
-                                  variant="destructive"
-                                >
-                                  Delete
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-                          ))
-                        )}
+                        {renderSessionList(projectSessions)}
                       </SidebarMenuSub>
                     </CollapsibleContent>
                   </SidebarMenuItem>
@@ -875,6 +869,27 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
             </ContextMenu>
           );
         })}
+        {unassignedSessions.length > 0 && (
+          <Collapsible asChild className="group/collapsible" defaultOpen>
+            <SidebarMenuItem>
+              <CollapsibleTrigger asChild>
+                <SidebarMenuButton tooltip="Unassigned Sessions">
+                  <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                  <Folder className="text-muted-foreground/80" />
+                  <span>Unassigned Sessions</span>
+                  <Badge className="ml-auto" variant="secondary">
+                    {unassignedSessions.length}
+                  </Badge>
+                </SidebarMenuButton>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarMenuSub>
+                  {renderSessionList(unassignedSessions)}
+                </SidebarMenuSub>
+              </CollapsibleContent>
+            </SidebarMenuItem>
+          </Collapsible>
+        )}
       </SidebarMenu>
 
       <Dialog onOpenChange={setIsDialogOpen} open={isDialogOpen}>
@@ -1061,19 +1076,31 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
         }}
         open={isDiscoverDialogOpen}
       >
-        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden sm:w-[95vw] sm:max-w-[95vw] lg:w-[1100px] lg:max-w-[1100px]">
           <DialogHeader>
-            <DialogTitle>Load Existing Agent Session</DialogTitle>
+            <DialogTitle>Import Existing Agent Session</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
+            <p className="text-muted-foreground text-xs">
+              Imported sessions are copied into local storage so you can continue
+              them inside Eragear Code Copilot.
+            </p>
             {discoverContext ? (
-              <div className="rounded bg-muted p-3 text-sm">
-                <div>
-                  <strong>Project:</strong> {discoverContext.projectName}
-                </div>
-                <div>
-                  <strong>Agent:</strong> {discoverContext.agentName}
+              <div className="rounded-md border bg-muted/40 p-3">
+                <div className="grid gap-2 text-sm sm:grid-cols-2">
+                  <div>
+                    <p className="text-muted-foreground text-xs uppercase tracking-wide">
+                      Project
+                    </p>
+                    <p className="font-medium">{discoverContext.projectName}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs uppercase tracking-wide">
+                      Agent
+                    </p>
+                    <p className="font-medium">{discoverContext.agentName}</p>
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -1121,49 +1148,61 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
             discoverSupported &&
             !discoverRequiresAuth &&
             discoverSessions.length > 0 ? (
-              <div className="space-y-2">
-                {discoverSessions.map((session) => {
-                  const isLoadingTarget = pendingLoadSessionId === session.sessionId;
-                  const updatedLabel = formatDiscoveredUpdatedAt(
-                    session.updatedAt
-                  );
-                  return (
-                    <div
-                      className="flex items-center justify-between rounded border p-3"
-                      key={session.sessionId}
-                    >
-                      <div className="min-w-0 pr-3">
-                        <div className="truncate font-medium text-sm">
-                          {getDiscoveredSessionLabel(session)}
-                        </div>
-                        <div className="mt-1 font-mono text-xs text-muted-foreground">
-                          {session.sessionId}
-                        </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          cwd: {session.cwd}
-                        </div>
-                        {updatedLabel ? (
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            updated: {updatedLabel}
-                          </div>
-                        ) : null}
-                      </div>
-                      <Button
-                        disabled={
-                          isSessionBootstrapPending ||
-                          !discoverLoadSessionSupported
-                        }
-                        onClick={() => handleLoadDiscoveredSession(session.sessionId)}
-                        size="sm"
+              <div className="overflow-hidden rounded-md border border-border/60">
+                <div className="border-b bg-muted/30 px-3 py-2 text-muted-foreground text-xs">
+                  {discoverSessions.length} sessions found
+                </div>
+                <div className="max-h-[68vh] space-y-2 overflow-y-auto p-2">
+                  {discoverSessions.map((session) => {
+                    const isLoadingTarget = pendingLoadSessionId === session.sessionId;
+                    const updatedLabel = formatDiscoveredUpdatedAt(
+                      session.updatedAt
+                    );
+                    return (
+                      <div
+                        className="group flex items-start gap-3 rounded-md border border-border/60 bg-card p-3 transition-colors hover:bg-muted/40"
+                        key={session.sessionId}
                       >
-                        {isLoadingTarget ? (
-                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                        ) : null}
-                        {isLoadingTarget ? "Loading..." : "Load"}
-                      </Button>
-                    </div>
-                  );
-                })}
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="line-clamp-2 font-medium text-base leading-5">
+                            {getDiscoveredSessionLabel(session)}
+                          </div>
+                          <div
+                            className="line-clamp-2 break-all font-mono text-xs text-muted-foreground"
+                            title={session.sessionId}
+                          >
+                            {session.sessionId}
+                          </div>
+                          <div
+                            className="line-clamp-2 break-all text-xs text-muted-foreground"
+                            title={session.cwd}
+                          >
+                            cwd: {session.cwd}
+                          </div>
+                          {updatedLabel ? (
+                            <div className="text-xs text-muted-foreground">
+                              updated: {updatedLabel}
+                            </div>
+                          ) : null}
+                        </div>
+                        <Button
+                          className="shrink-0"
+                          disabled={
+                            isSessionBootstrapPending ||
+                            !discoverLoadSessionSupported
+                          }
+                          onClick={() => handleLoadDiscoveredSession(session.sessionId)}
+                          size="sm"
+                        >
+                          {isLoadingTarget ? (
+                            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          {isLoadingTarget ? "Importing..." : "Import"}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
 
@@ -1173,6 +1212,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
             !discoverRequiresAuth &&
             discoverNextCursor ? (
               <Button
+                className="w-full"
                 disabled={discoverIsLoadingMore}
                 onClick={() => {
                   void handleLoadMoreDiscoveredSessions();

@@ -167,7 +167,27 @@ export function ChatInterface({
   const utils = trpc.useUtils();
   const { data: agentsData, isLoading: isAgentsLoading } =
     trpc.agents.list.useQuery();
-  const { data: sessionsData } = trpc.getSessions.useQuery();
+  const sessionsPageQuery = trpc.getSessionsPage.useInfiniteQuery(
+    { limit: 500 },
+    {
+      refetchInterval: 5000,
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    }
+  );
+  useEffect(() => {
+    if (!(sessionsPageQuery.hasNextPage && !sessionsPageQuery.isFetchingNextPage)) {
+      return;
+    }
+    void sessionsPageQuery.fetchNextPage();
+  }, [
+    sessionsPageQuery.fetchNextPage,
+    sessionsPageQuery.hasNextPage,
+    sessionsPageQuery.isFetchingNextPage,
+  ]);
+  const sessionsData = useMemo(
+    () => sessionsPageQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [sessionsPageQuery.data]
+  );
   const activeAgentId = agentsData?.activeAgentId;
   const agentModels = useMemo(
     () => agentsData?.agents ?? [],
@@ -242,9 +262,23 @@ export function ChatInterface({
   });
   const messageCount = useChatMessageCount(chatId);
   const selectedSession = useMemo(() => {
-    if (!(chatId && sessionsData)) return undefined;
+    if (!chatId) return undefined;
     return sessionsData.find((session: any) => session.id === chatId);
   }, [chatId, sessionsData]);
+  const hasResolvedSessionList =
+    !sessionsPageQuery.isLoading &&
+    !sessionsPageQuery.isFetching &&
+    !sessionsPageQuery.hasNextPage;
+  useEffect(() => {
+    if (!chatId || selectedSession || !hasResolvedSessionList) {
+      return;
+    }
+    if (onChatIdChange) {
+      onChatIdChange(null);
+      return;
+    }
+    setUncontrolledChatId(null);
+  }, [chatId, hasResolvedSessionList, onChatIdChange, selectedSession]);
 
   const agentDisplay = useMemo(() => {
     const selectedAgent = agentModels.find(
@@ -938,7 +972,7 @@ export function ChatInterface({
         onResumeChat={loadSessionSupported ? handleResume : undefined}
         onStopChat={handleStopChat}
         projectName={activeProject?.name}
-        resumeNotSupported={loadSessionSupported === false}
+        loadNotSupported={loadSessionSupported === false}
       />
 
       <div className="relative min-h-0 flex-1 overflow-hidden">

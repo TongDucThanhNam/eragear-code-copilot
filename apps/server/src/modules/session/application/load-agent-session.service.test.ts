@@ -26,6 +26,7 @@ describe("LoadAgentSessionService", () => {
         projectId: "project-1",
         sessionIdToLoad: "sess-abc123",
         agentId: "agent-1",
+        importExternalHistoryOnLoad: true,
       },
     ]);
   });

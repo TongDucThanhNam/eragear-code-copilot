@@ -225,7 +225,7 @@ export class SessionAcpBootstrapService {
     );
 
     chatSession.loadSessionSupported = hasLoadSession || hasResumeCapability;
-    chatSession.useUnstableResume = hasResumeCapability;
+    chatSession.useUnstableResume = hasResumeCapability && !hasLoadSession;
     chatSession.supportsModelSwitching = Boolean(
       agentCapabilities?.sessionCapabilities?.setModel
     );
@@ -301,8 +301,17 @@ export class SessionAcpBootstrapService {
     } = params;
 
     let loadResult: SessionConnectionResult;
+    const canLoadSession = Boolean(chatSession.agentCapabilities?.loadSession);
 
-    if (chatSession.useUnstableResume) {
+    if (canLoadSession) {
+      chatSession.isReplayingHistory = true;
+      this.logger.debug("Using loadSession", { chatId, sessionIdToLoad });
+      loadResult = await chatSession.conn.loadSession({
+        sessionId: sessionIdToLoad,
+        cwd: projectRoot,
+        mcpServers: acpMcpServers,
+      });
+    } else {
       chatSession.isReplayingHistory = false;
       this.logger.debug("Using unstable resume session", {
         chatId,
@@ -310,63 +319,16 @@ export class SessionAcpBootstrapService {
       });
       const resumeConn = chatSession.conn as unknown;
       if (!supportsUnstableResume(resumeConn)) {
-        this.logger.warn(
-          "Agent reported unstable resume support but method is unavailable; falling back to loadSession",
+        throw new ValidationError(
+          "Agent does not support session/load or unstable resume",
           {
-            chatId,
-            sessionIdToLoad,
+            module: "session",
+            op: OP,
+            details: { chatId, sessionIdToLoad },
           }
         );
-        chatSession.isReplayingHistory = true;
-        loadResult = await chatSession.conn.loadSession({
-          sessionId: sessionIdToLoad,
-          cwd: projectRoot,
-          mcpServers: acpMcpServers,
-        });
-        chatSession.useUnstableResume = false;
-        chatSession.isReplayingHistory = false;
-        chatSession.modes = loadResult.modes ?? undefined;
-        chatSession.models = loadResult.models ?? undefined;
-        chatSession.configOptions = loadResult.configOptions ?? undefined;
-        syncSessionSelectionFromConfigOptions(chatSession);
-        await this.broadcastSelectionSnapshots(chatId, chatSession);
-        await this.historyReplay.broadcastPromptEnd(chatId, buffer);
-        return;
       }
-
-      try {
-        loadResult = await resumeConn.unstable_resumeSession({
-          sessionId: sessionIdToLoad,
-          cwd: projectRoot,
-          mcpServers: acpMcpServers,
-        });
-      } catch (error) {
-        const canFallbackToLoad = Boolean(
-          chatSession.agentCapabilities?.loadSession
-        );
-        if (!canFallbackToLoad) {
-          throw error;
-        }
-        this.logger.warn("unstable_resumeSession failed, using loadSession", {
-          chatId,
-          sessionIdToLoad,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        chatSession.isReplayingHistory = true;
-        this.logger.debug("Using loadSession fallback after unstable resume", {
-          chatId,
-          sessionIdToLoad,
-        });
-        loadResult = await chatSession.conn.loadSession({
-          sessionId: sessionIdToLoad,
-          cwd: projectRoot,
-          mcpServers: acpMcpServers,
-        });
-      }
-    } else {
-      chatSession.isReplayingHistory = true;
-      this.logger.debug("Using loadSession", { chatId, sessionIdToLoad });
-      loadResult = await chatSession.conn.loadSession({
+      loadResult = await resumeConn.unstable_resumeSession({
         sessionId: sessionIdToLoad,
         cwd: projectRoot,
         mcpServers: acpMcpServers,

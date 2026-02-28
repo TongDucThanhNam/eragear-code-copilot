@@ -195,7 +195,13 @@ Notes:
 ## 7) Resume / Replay
 
 - `resumeSession` dùng stored `chatId` để load ACP session.
+- Khi agent có `loadSession` capability, server ưu tiên `session/load` để nhận
+  replay history đầy đủ; `unstable_resumeSession` chỉ là fallback khi agent
+  không có `loadSession`.
 - Server sẽ replay stored history nếu agent không replay.
+- ACP replay luôn là primary. External import fallback (nếu có) chỉ là nhánh phụ
+  trợ có điều kiện. Xem policy chi tiết tại:
+  `docs/acp/acp-session-replay-import-policy.md`.
 - Client nên gọi `getSessionMessagesPage` cho read-only view hoặc seed UI.
 
 ## 8) Invariants (Must hold)

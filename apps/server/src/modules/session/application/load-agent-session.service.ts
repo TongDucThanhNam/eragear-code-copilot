@@ -21,6 +21,7 @@ export class LoadAgentSessionService {
       projectId: input.projectId,
       agentId: input.agentId,
       sessionIdToLoad: input.sessionId,
+      importExternalHistoryOnLoad: true,
     });
   }
 }

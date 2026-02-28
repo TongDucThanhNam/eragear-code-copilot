@@ -129,7 +129,6 @@
       "dependencies": {
         "@agentclientprotocol/sdk": "^0.13.0",
         "@base-ui/react": "^1.0.0",
-        "@eragear-code-copilot/auth": "workspace:*",
         "@eragear-code-copilot/env": "workspace:*",
         "@hookform/resolvers": "^5.1.1",
         "@monaco-editor/react": "^4.7.0",
@@ -211,21 +210,6 @@
         "tailwindcss": "^4.0.15",
         "typescript": "catalog:",
         "vite": "^6.2.2",
-      },
-    },
-    "packages/auth": {
-      "name": "@eragear-code-copilot/auth",
-      "dependencies": {
-        "@better-auth/expo": "catalog:",
-        "@eragear-code-copilot/db": "workspace:*",
-        "@eragear-code-copilot/env": "workspace:*",
-        "better-auth": "catalog:",
-        "dotenv": "catalog:",
-        "zod": "catalog:",
-      },
-      "devDependencies": {
-        "@eragear-code-copilot/config": "workspace:*",
-        "typescript": "catalog:",
       },
     },
     "packages/config": {
@@ -620,8 +604,6 @@
     "@emnapi/runtime": ["@emnapi/runtime@1.8.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-mehfKSMWjjNol8659Z8KxEMrdSJDDot5SXMq00dM8BN4o+CLNXQ0xH2V7EchNHV4RmbZLmmPdEaXZc5H2FXmDg=="],
 
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.1.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-WI0DdZ8xFSbgMjR1sFsKABJ/C5OnRrjT06JXbZKexJGrDuPTzZdDYfFlsgcCXCyf+suG5QU2e/y1Wo2V/OapLQ=="],
-
-    "@eragear-code-copilot/auth": ["@eragear-code-copilot/auth@workspace:packages/auth"],
 
     "@eragear-code-copilot/config": ["@eragear-code-copilot/config@workspace:packages/config"],
 

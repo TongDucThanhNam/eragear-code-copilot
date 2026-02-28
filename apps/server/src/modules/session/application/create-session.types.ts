@@ -20,4 +20,6 @@ export interface CreateSessionParams {
   chatId?: string;
   /** Session ID to load (for resuming existing sessions) */
   sessionIdToLoad?: string;
+  /** Import replayed agent history into local DB when loading an external session */
+  importExternalHistoryOnLoad?: boolean;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { IconFileAi, IconInnerShadowTop } from "@tabler/icons-react";
+import { useEffect, useMemo } from "react";
 import type * as React from "react";
 import { NavProjectTree } from "@/components/nav-project-tree";
 import { NavUser } from "@/components/nav-user";
@@ -33,9 +34,28 @@ const getAgentIcon = (agentTitle: string | undefined) => {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { data: me } = trpc.auth.getMe.useQuery();
-  const { data: sessions } = trpc.getSessions.useQuery(undefined, {
-    refetchInterval: 5000,
-  });
+  const sessionPageQuery = trpc.getSessionsPage.useInfiniteQuery(
+    { limit: 500 },
+    {
+      refetchInterval: 5000,
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    }
+  );
+  useEffect(() => {
+    if (!(sessionPageQuery.hasNextPage && !sessionPageQuery.isFetchingNextPage)) {
+      return;
+    }
+    void sessionPageQuery.fetchNextPage();
+  }, [
+    sessionPageQuery.fetchNextPage,
+    sessionPageQuery.hasNextPage,
+    sessionPageQuery.isFetchingNextPage,
+  ]);
+  const sessions = useMemo(
+    () =>
+      sessionPageQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [sessionPageQuery.data]
+  );
   const activeChatId = useChatStatusStore((state) => state.activeChatId);
   const isStreaming = useChatStatusStore((state) => state.isStreaming);
 
@@ -43,7 +63,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     projects.find((project) => project.id === activeProjectId)?.name ??
     "Select a project"; */
 
-  const sessionDocuments = (sessions || [])
+  const sessionDocuments = sessions
     .slice()
     .filter((s) => !s.archived)
     .sort((a, b) => {
