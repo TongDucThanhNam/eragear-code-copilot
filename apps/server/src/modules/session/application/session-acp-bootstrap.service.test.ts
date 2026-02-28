@@ -103,6 +103,7 @@ function createMcpConfigStub(): SessionMcpConfigService {
 describe("SessionAcpBootstrapService", () => {
   test("prefers loadSession when agent exposes both load and resume capabilities", async () => {
     const chatSession = createChatSession("chat-load-primary");
+    chatSession.suppressReplayBroadcast = true;
     const { runtime } = createRuntimeStub(chatSession);
     const calls = {
       load: 0,
@@ -186,6 +187,7 @@ describe("SessionAcpBootstrapService", () => {
     expect(chatSession.modes?.currentModeId).toBe("mode-from-load");
     expect(chatSession.models?.currentModelId).toBe("model-from-load");
     expect(chatSession.useUnstableResume).toBe(false);
+    expect(chatSession.suppressReplayBroadcast).toBe(false);
   });
 
   test("uses unstable_resumeSession only when loadSession is unavailable", async () => {

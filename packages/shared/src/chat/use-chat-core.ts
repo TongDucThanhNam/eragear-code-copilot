@@ -433,6 +433,9 @@ export function processSessionEvent(
 
     case "chat_status":
       callbacks.onStatusChange?.(event.status);
+      callbacks.onConnStatusChange?.(
+        event.status === "inactive" ? "idle" : "connected"
+      );
       return;
 
     case "chat_finish":

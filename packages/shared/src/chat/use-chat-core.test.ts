@@ -216,6 +216,54 @@ describe("processSessionEvent ui_message_part", () => {
 });
 
 describe("processSessionEvent config/session-info updates", () => {
+  test("maps inactive chat_status to idle connection state", () => {
+    const connStates: string[] = [];
+    const chatStates: string[] = [];
+
+    processSessionEvent(
+      {
+        type: "chat_status",
+        status: "inactive",
+      },
+      { currentModes: null, currentModels: null },
+      {
+        onConnStatusChange: (status) => {
+          connStates.push(status);
+        },
+        onStatusChange: (status) => {
+          chatStates.push(status);
+        },
+      }
+    );
+
+    expect(chatStates).toEqual(["inactive"]);
+    expect(connStates).toEqual(["idle"]);
+  });
+
+  test("keeps non-inactive chat_status as connected connection state", () => {
+    const connStates: string[] = [];
+    const chatStates: string[] = [];
+
+    processSessionEvent(
+      {
+        type: "chat_status",
+        status: "streaming",
+      },
+      { currentModes: null, currentModels: null },
+      {
+        onConnStatusChange: (status) => {
+          connStates.push(status);
+        },
+        onStatusChange: (status) => {
+          chatStates.push(status);
+        },
+      }
+    );
+
+    expect(chatStates).toEqual(["streaming"]);
+    expect(connStates).toEqual(["connected"]);
+  });
+
   test("forwards config options updates", () => {
     const configOptions = [
       {

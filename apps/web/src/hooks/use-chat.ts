@@ -506,9 +506,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       setStreamLifecycle((prev) =>
         nextLifecycleOnSubscriptionEvent({ current: prev, event })
       );
-      if (event.type === "chat_status") {
-        setConnStatus("connected");
-      }
       if (event.type === "ui_message_delta") {
         const baseMessage = messageStateRef.current.byId.get(event.messageId);
         if (!baseMessage) {

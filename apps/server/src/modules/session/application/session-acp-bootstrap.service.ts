@@ -304,6 +304,10 @@ export class SessionAcpBootstrapService {
     const canLoadSession = Boolean(chatSession.agentCapabilities?.loadSession);
 
     if (canLoadSession) {
+      // loadSession is the canonical source of truth for history replay.
+      // Never suppress its replay broadcast; otherwise newer agent-side messages
+      // can be hidden behind stale local DB snapshots.
+      chatSession.suppressReplayBroadcast = false;
       chatSession.isReplayingHistory = true;
       this.logger.debug("Using loadSession", { chatId, sessionIdToLoad });
       loadResult = await chatSession.conn.loadSession({
