@@ -70,6 +70,11 @@ function createContext(params: {
   update: SessionUpdate;
   isReplayingHistory?: boolean;
   suppressReplayBroadcast?: boolean;
+  finalizeStreamingForCurrentAssistant?: (
+    chatId: string,
+    runtime: SessionRuntimePort,
+    buffer: SessionBufferingPort
+  ) => Promise<void>;
 }) {
   const isReplayingHistory = params.isReplayingHistory ?? false;
   const suppressReplayBroadcast = params.suppressReplayBroadcast ?? false;
@@ -81,24 +86,13 @@ function createContext(params: {
     update: params.update,
     sessionRuntime: params.runtime,
     sessionRepo: {} as SessionRepositoryPort,
-    finalizeStreamingForCurrentAssistant: async () => undefined,
+    finalizeStreamingForCurrentAssistant:
+      params.finalizeStreamingForCurrentAssistant ?? (async () => undefined),
   };
 }
 
-function firstTextPart(
-  message: Extract<BroadcastEvent, { type: "ui_message" }>["message"]
-) {
-  return message.parts.find((part) => part.type === "text");
-}
-
-function firstReasoningPart(
-  message: Extract<BroadcastEvent, { type: "ui_message" }>["message"]
-) {
-  return message.parts.find((part) => part.type === "reasoning");
-}
-
 describe("handleBufferedMessage", () => {
-  test("broadcasts assistant text as snapshot first, then deltas", async () => {
+  test("broadcasts assistant text as part event first, then deltas", async () => {
     const session = createSession("chat-stream-text");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -127,14 +121,15 @@ describe("handleBufferedMessage", () => {
     );
 
     expect(calls).toHaveLength(2);
-    expect(calls[0]?.event.type).toBe("ui_message");
+    expect(calls[0]?.event.type).toBe("ui_message_part");
+    // Second call is the delta for " world" — no full ui_message snapshot
+    const partEvent = calls[0]?.event;
+    const messageId =
+      partEvent?.type === "ui_message_part" ? partEvent.messageId : "";
     expect(calls[1]).toEqual({
       event: {
         type: "ui_message_delta",
-        messageId:
-          calls[0]?.event.type === "ui_message"
-            ? calls[0].event.message.id
-            : "",
+        messageId,
         partIndex: 0,
         delta: " world",
       },
@@ -143,22 +138,53 @@ describe("handleBufferedMessage", () => {
         retainInBuffer: false,
       },
     });
-
-    const activeMessageId = session.uiState.currentAssistantId;
-    expect(activeMessageId).toBeDefined();
-    const activeMessage = activeMessageId
-      ? session.uiState.messages.get(activeMessageId)
-      : undefined;
-    const textPart = activeMessage ? firstTextPart(activeMessage) : undefined;
-    expect(textPart?.type).toBe("text");
-    if (textPart?.type === "text") {
-      expect(textPart.text).toBe("Hello world");
-      expect(textPart.state).toBe("streaming");
-    }
   });
 
-  test("broadcasts reasoning as snapshot first, then deltas", async () => {
-    const session = createSession("chat-stream-reasoning");
+  test("escapes html text in ui_message_delta payload", async () => {
+    const session = createSession("chat-stream-escape");
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "safe" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "<tag>" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual({
+      event: {
+        type: "ui_message_delta",
+        messageId: calls[0]?.event.type === "ui_message_part" ? calls[0].event.messageId : "",
+        partIndex: 0,
+        delta: "&lt;tag&gt;",
+      },
+      options: {
+        durable: false,
+        retainInBuffer: false,
+      },
+    });
+  });
+
+  test("buffers reasoning chunks without broadcasting", async () => {
+    const session = createSession("chat-reasoning-buffer");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
 
@@ -169,7 +195,7 @@ describe("handleBufferedMessage", () => {
         runtime,
         update: {
           sessionUpdate: "agent_thought_chunk",
-          content: { type: "text", text: "Think:" } as StoredContentBlock,
+          content: { type: "text", text: "think-1" } as StoredContentBlock,
         } as SessionUpdate,
       })
     );
@@ -180,44 +206,55 @@ describe("handleBufferedMessage", () => {
         runtime,
         update: {
           sessionUpdate: "agent_thought_chunk",
-          content: { type: "text", text: " step-2" } as StoredContentBlock,
+          content: { type: "text", text: " think-2" } as StoredContentBlock,
         } as SessionUpdate,
       })
     );
 
-    expect(calls).toHaveLength(2);
-    expect(calls[0]?.event.type).toBe("ui_message");
-    expect(calls[1]).toEqual({
-      event: {
-        type: "ui_message_delta",
-        messageId:
-          calls[0]?.event.type === "ui_message"
-            ? calls[0].event.message.id
-            : "",
-        partIndex: 0,
-        delta: " step-2",
-      },
-      options: {
-        durable: false,
-        retainInBuffer: false,
-      },
-    });
-
-    const activeMessageId = session.uiState.currentAssistantId;
-    const activeMessage = activeMessageId
-      ? session.uiState.messages.get(activeMessageId)
-      : undefined;
-    const reasoningPart = activeMessage
-      ? firstReasoningPart(activeMessage)
-      : undefined;
-    expect(reasoningPart?.type).toBe("reasoning");
-    if (reasoningPart?.type === "reasoning") {
-      expect(reasoningPart.text).toBe("Think: step-2");
-      expect(reasoningPart.state).toBe("streaming");
-    }
+    expect(calls).toHaveLength(0);
+    expect(buffer.hasPendingReasoning()).toBe(true);
   });
 
-  test("keeps full snapshot broadcast for non-text assistant chunks", async () => {
+  test("invokes finalize callback when assistant chunk type transitions", async () => {
+    const session = createSession("chat-transition");
+    const { runtime } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+    let finalizeCalls = 0;
+
+    const finalize = async () => {
+      finalizeCalls += 1;
+    };
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        finalizeStreamingForCurrentAssistant: finalize,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "A" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        finalizeStreamingForCurrentAssistant: finalize,
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "B" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    expect(finalizeCalls).toBe(1);
+  });
+
+  test("broadcasts non-text assistant chunks as part updates", async () => {
     const session = createSession("chat-stream-non-text");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -239,165 +276,7 @@ describe("handleBufferedMessage", () => {
     );
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.event.type).toBe("ui_message");
-    expect(calls[0]?.options).toBeUndefined();
-    if (calls[0]?.event.type === "ui_message") {
-      expect(
-        calls[0].event.message.parts.some((part) => part.type === "source-url")
-      ).toBe(true);
-    }
-  });
-
-  test("keeps one assistant message id across mixed stream chunks in a turn", async () => {
-    const session = createSession("chat-stream-stable-id");
-    const { runtime, calls } = createRuntimeStub(session);
-    const buffer = new SessionBuffering();
-
-    await handleBufferedMessage(
-      createContext({
-        chatId: session.id,
-        buffer,
-        runtime,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: "Hello" } as StoredContentBlock,
-        } as SessionUpdate,
-      })
-    );
-    await handleBufferedMessage(
-      createContext({
-        chatId: session.id,
-        buffer,
-        runtime,
-        update: {
-          sessionUpdate: "agent_thought_chunk",
-          content: { type: "text", text: "Think:" } as StoredContentBlock,
-        } as SessionUpdate,
-      })
-    );
-    await handleBufferedMessage(
-      createContext({
-        chatId: session.id,
-        buffer,
-        runtime,
-        update: {
-          sessionUpdate: "agent_thought_chunk",
-          content: { type: "text", text: " step-2" } as StoredContentBlock,
-        } as SessionUpdate,
-      })
-    );
-    await handleBufferedMessage(
-      createContext({
-        chatId: session.id,
-        buffer,
-        runtime,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: " world" } as StoredContentBlock,
-        } as SessionUpdate,
-      })
-    );
-    await handleBufferedMessage(
-      createContext({
-        chatId: session.id,
-        buffer,
-        runtime,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: "!" } as StoredContentBlock,
-        } as SessionUpdate,
-      })
-    );
-
-    const snapshotIds = calls
-      .filter(
-        (
-          call
-        ): call is {
-          event: Extract<BroadcastEvent, { type: "ui_message" }>;
-          options?: SessionBroadcastOptions;
-        } => call.event.type === "ui_message"
-      )
-      .map((call) => call.event.message.id);
-    expect(snapshotIds.length).toBeGreaterThanOrEqual(1);
-    const firstSnapshotId = snapshotIds[0];
-    expect(firstSnapshotId).toBeDefined();
-    if (!firstSnapshotId) {
-      return;
-    }
-    for (const id of snapshotIds) {
-      expect(id).toBe(firstSnapshotId);
-    }
-
-    const deltaIds = calls
-      .filter(
-        (
-          call
-        ): call is {
-          event: Extract<BroadcastEvent, { type: "ui_message_delta" }>;
-          options?: SessionBroadcastOptions;
-        } => call.event.type === "ui_message_delta"
-      )
-      .map((call) => call.event.messageId);
-    expect(deltaIds.length).toBeGreaterThanOrEqual(1);
-    for (const id of deltaIds) {
-      expect(id).toBe(firstSnapshotId);
-    }
-
-    expect(session.uiState.currentAssistantId).toBe(firstSnapshotId);
-    expect(buffer.getMessageId()).toBe(firstSnapshotId);
-    expect(buffer.flush()?.id).toBe(firstSnapshotId);
-  });
-
-  test("keeps streaming text on deltas without periodic snapshot anchors", async () => {
-    const session = createSession("chat-stream-many-deltas");
-    const { runtime, calls } = createRuntimeStub(session);
-    const buffer = new SessionBuffering();
-    const deltaChunks = 64;
-
-    await handleBufferedMessage(
-      createContext({
-        chatId: session.id,
-        buffer,
-        runtime,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: "A" } as StoredContentBlock,
-        } as SessionUpdate,
-      })
-    );
-    for (let index = 0; index < deltaChunks; index += 1) {
-      await handleBufferedMessage(
-        createContext({
-          chatId: session.id,
-          buffer,
-          runtime,
-          update: {
-            sessionUpdate: "agent_message_chunk",
-            content: { type: "text", text: "b" } as StoredContentBlock,
-          } as SessionUpdate,
-        })
-      );
-    }
-    const snapshots = calls.filter(
-      (
-        call
-      ): call is {
-        event: Extract<BroadcastEvent, { type: "ui_message" }>;
-        options?: SessionBroadcastOptions;
-      } => call.event.type === "ui_message"
-    );
-    const deltas = calls.filter(
-      (
-        call
-      ): call is {
-        event: Extract<BroadcastEvent, { type: "ui_message_delta" }>;
-        options?: SessionBroadcastOptions;
-      } => call.event.type === "ui_message_delta"
-    );
-    expect(snapshots).toHaveLength(1);
-    expect(deltas).toHaveLength(deltaChunks);
-    expect(calls.at(-1)?.event.type).toBe("ui_message_delta");
+    expect(calls[0]?.event.type).toBe("ui_message_part");
   });
 
   test("applies replay chunks to ui state while suppressing replay broadcast", async () => {
@@ -434,7 +313,6 @@ describe("handleBufferedMessage", () => {
 
     expect(calls).toHaveLength(0);
     const assistantId = session.uiState.currentAssistantId;
-    expect(assistantId).toBeDefined();
     const message = assistantId
       ? session.uiState.messages.get(assistantId)
       : undefined;

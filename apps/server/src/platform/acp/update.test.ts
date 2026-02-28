@@ -453,7 +453,9 @@ describe("createSessionUpdateHandler", () => {
     const assistantMessage = assistantId
       ? session.uiState.messages.get(assistantId)
       : undefined;
-    const textPart = assistantMessage?.parts.find((part) => part.type === "text");
+    const textPart = assistantMessage?.parts.find(
+      (part) => part.type === "text"
+    );
     expect(textPart?.type).toBe("text");
     if (textPart?.type === "text") {
       expect(textPart.text).toBe(chunks.join(""));
@@ -501,30 +503,27 @@ describe("createSessionUpdateHandler", () => {
       error: "permission denied",
     });
 
-    const uiMessageEvents = events.filter((event) => {
+    const uiMessagePartEvents = events.filter((event) => {
       return (
         typeof event === "object" &&
         event !== null &&
         "type" in event &&
-        (event as { type?: string }).type === "ui_message"
+        (event as { type?: string }).type === "ui_message_part"
       );
     });
-    expect(uiMessageEvents.length).toBeGreaterThan(0);
-    const lastUiMessageEvent = uiMessageEvents.at(-1) as {
-      type: "ui_message";
-      message: {
-        parts: Array<{
-          type: string;
-          toolCallId?: string;
-          state?: string;
-          errorText?: string;
-        }>;
+    expect(uiMessagePartEvents.length).toBeGreaterThan(0);
+    const lastPartEvent = uiMessagePartEvents.at(-1) as {
+      type: "ui_message_part";
+      messageId: string;
+      part: {
+        type: string;
+        toolCallId?: string;
+        state?: string;
+        errorText?: string;
       };
+      partIndex: number;
     };
-    const toolPart = lastUiMessageEvent.message.parts.find((part) => {
-      return part.toolCallId === "tool-1";
-    });
-    expect(toolPart).toMatchObject({
+    expect(lastPartEvent.part).toMatchObject({
       toolCallId: "tool-1",
       state: "output-error",
       errorText: "permission denied",

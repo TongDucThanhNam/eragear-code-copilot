@@ -9,6 +9,7 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
+import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
@@ -18,6 +19,7 @@ import {
   getToolNameFromCall,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
+import { broadcastUiMessagePart } from "./ui-message-part";
 
 const logger = createLogger("Debug");
 
@@ -98,6 +100,14 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
           status: "awaiting_permission",
         });
 
+        const previousToolIndex = session.uiState.toolPartIndex.get(
+          toolCall.toolCallId
+        );
+        const previousOptionsPartIndex = findPermissionOptionsPartIndex(
+          session.uiState.messages.get(session.uiState.currentAssistantId ?? "") ??
+            null,
+          requestId
+        );
         const toolPart = buildToolApprovalPart({
           toolCallId: toolCall.toolCallId,
           toolName,
@@ -112,6 +122,7 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
           part: toolPart,
         });
         let messageWithPermissionOptions = message;
+        let optionsPartIndex = -1;
         if (options.length > 0) {
           const optionsPart = {
             type: "data-permission-options" as const,
@@ -142,11 +153,38 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
             messageWithPermissionOptions.id,
             messageWithPermissionOptions
           );
+          optionsPartIndex = findPermissionOptionsPartIndex(
+            messageWithPermissionOptions,
+            requestId
+          );
         }
-        await sessionRuntime.broadcast(chatId, {
-          type: "ui_message",
-          message: messageWithPermissionOptions,
-        });
+        const nextToolIndex = session.uiState.toolPartIndex.get(
+          toolCall.toolCallId
+        );
+        if (
+          nextToolIndex &&
+          nextToolIndex.messageId === messageWithPermissionOptions.id
+        ) {
+          await broadcastUiMessagePart({
+            chatId,
+            sessionRuntime,
+            message: messageWithPermissionOptions,
+            partIndex: nextToolIndex.partIndex,
+            isNew:
+              !previousToolIndex ||
+              previousToolIndex.messageId !== nextToolIndex.messageId ||
+              previousToolIndex.partIndex !== nextToolIndex.partIndex,
+          });
+        }
+        if (optionsPartIndex >= 0) {
+          await broadcastUiMessagePart({
+            chatId,
+            sessionRuntime,
+            message: messageWithPermissionOptions,
+            partIndex: optionsPartIndex,
+            isNew: previousOptionsPartIndex < 0,
+          });
+        }
       };
       publishPermissionRequest().catch((error) => {
         if (session.pendingPermissions.has(requestId)) {
@@ -161,4 +199,20 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
       });
     });
   };
+}
+
+function findPermissionOptionsPartIndex(
+  message: UIMessage | null,
+  requestId: string
+): number {
+  if (!message) {
+    return -1;
+  }
+  return message.parts.findIndex(
+    (part) =>
+      part.type === "data-permission-options" &&
+      typeof part.data === "object" &&
+      part.data !== null &&
+      (part.data as { requestId?: string }).requestId === requestId
+  );
 }

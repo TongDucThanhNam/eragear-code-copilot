@@ -11,6 +11,8 @@
 import { observable } from "@trpc/server/observable";
 import {
   CreateSessionInputSchema,
+  DiscoverAgentSessionsInputSchema,
+  LoadAgentSessionInputSchema,
   ListSessionsInputSchema,
   SessionChatIdInputSchema,
   SessionListPageInputSchema,
@@ -27,7 +29,11 @@ import { protectedProcedure, router } from "../base";
 const logger = createLogger("tRPC");
 
 function shouldLogStreamEvent(event: BroadcastEvent): boolean {
-  return event.type === "ui_message" || event.type === "ui_message_delta";
+  return (
+    event.type === "ui_message" ||
+    event.type === "ui_message_part" ||
+    event.type === "ui_message_delta"
+  );
 }
 
 function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown> {
@@ -44,6 +50,14 @@ function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown>
       deltaLength: event.delta.length,
     };
   }
+  if (event.type === "ui_message_part") {
+    return {
+      messageId: event.messageId,
+      partIndex: event.partIndex,
+      isNew: event.isNew,
+      partType: event.part.type,
+    };
+  }
   return {
     eventType: event.type,
   };
@@ -58,6 +72,44 @@ export const sessionRouter = router({
       const res = await service.execute({
         userId: getRequiredUserId(ctx),
         projectId: input.projectId,
+        agentId: input.agentId,
+      });
+      return {
+        chatId: res.id,
+        sessionId: res.sessionId,
+        chatStatus: res.chatStatus,
+        modes: res.modes,
+        models: res.models,
+        configOptions: res.configOptions ?? null,
+        sessionInfo: res.sessionInfo ?? null,
+        promptCapabilities: res.promptCapabilities,
+        loadSessionSupported: res.loadSessionSupported ?? false,
+        agentInfo: res.agentInfo ?? null,
+      };
+    }),
+
+  /** Discover sessions exposed by the agent over ACP session/list (capability-gated). */
+  discoverAgentSessions: protectedProcedure
+    .input(DiscoverAgentSessionsInputSchema)
+    .query(async ({ input, ctx }) => {
+      const service = ctx.sessionServices.discoverAgentSessions();
+      return await service.execute({
+        userId: getRequiredUserId(ctx),
+        projectId: input.projectId,
+        agentId: input.agentId,
+        cursor: input.cursor,
+      });
+    }),
+
+  /** Load an existing agent session into a new local chat runtime. */
+  loadAgentSession: protectedProcedure
+    .input(LoadAgentSessionInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const service = ctx.sessionServices.loadAgentSession();
+      const res = await service.execute({
+        userId: getRequiredUserId(ctx),
+        projectId: input.projectId,
+        sessionId: input.sessionId,
         agentId: input.agentId,
       });
       return {

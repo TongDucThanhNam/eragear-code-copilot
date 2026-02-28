@@ -1,11 +1,8 @@
 import type { LogEntry, LogQuery } from "@/shared/types/log.types";
+import { isAcpLogMessage } from "./acp-log.util";
 
 function normalizeSource(source?: string): string {
   return source?.trim().toLowerCase() ?? "";
-}
-
-function includesNormalized(text: string, query: string): boolean {
-  return text.toLowerCase().includes(query);
 }
 
 export function getLogSearchText(entry: LogEntry): string {
@@ -33,7 +30,7 @@ export function isAcpRelatedLogEntry(entry: LogEntry): boolean {
   if (source === "acp" || source.startsWith("acp:")) {
     return true;
   }
-  return includesNormalized(entry.message, "acp");
+  return isAcpLogMessage(entry.message);
 }
 
 export function matchesLogQuery(

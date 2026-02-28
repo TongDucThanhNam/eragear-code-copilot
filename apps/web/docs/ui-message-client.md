@@ -7,6 +7,7 @@ upsert theo `message.id` và render theo `UIMessagePart`.
 
 - `onSessionEvents`:
   - `ui_message` (chính)
+  - `ui_message_part` (primary stream cho part-level updates)
   - `ui_message_delta` (append incremental cho text/reasoning)
   - `chat_status` (trạng thái: `inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`)
   - `chat_finish` (stopReason + finishReason cho `onFinish`)
@@ -28,9 +29,11 @@ upsert theo `message.id` và render theo `UIMessagePart`.
   - Parse tool output (diff/terminal/content)
   - Hiển thị xác nhận permission theo `data-permission-options`
 
-## Snapshot + Delta contract
+## Snapshot + Part + Delta contract
 
 - `ui_message`: snapshot đầy đủ, luôn upsert theo `message.id`.
+- `ui_message_part`: apply theo `messageId` + `partIndex` + `isNew`.
+  Nếu không apply được thì drop an toàn và chờ snapshot kế tiếp.
 - `ui_message_delta`: append vào `parts[partIndex].text` cho `text/reasoning`.
 - Nếu thiếu base message/part khi nhận delta: drop an toàn và chờ snapshot kế tiếp.
 

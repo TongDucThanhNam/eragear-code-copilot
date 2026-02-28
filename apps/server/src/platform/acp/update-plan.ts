@@ -5,6 +5,7 @@ import {
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
 import type { Plan } from "../../shared/types/session.types";
+import { broadcastUiMessagePart } from "./ui-message-part";
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 
 function extractPlan(update: SessionUpdate): Plan | null {
@@ -41,11 +42,13 @@ export async function handlePlanUpdate(
     | "sessionRuntime"
     | "sessionRepo"
     | "suppressReplayBroadcast"
+    | "buffer"
     | "finalizeStreamingForCurrentAssistant"
   >
 ): Promise<boolean> {
   const {
     chatId,
+    buffer,
     update,
     sessionRuntime,
     sessionRepo,
@@ -56,7 +59,7 @@ export async function handlePlanUpdate(
     return false;
   }
 
-  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, {
+  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, buffer, {
     suppressBroadcast: suppressReplayBroadcast,
   });
 
@@ -81,16 +84,27 @@ export async function handlePlanUpdate(
   }
 
   if (session) {
-    const planTool = buildPlanToolPart(
-      effectivePlan,
-      getPlanToolCallId(chatId)
-    );
+    const planToolCallId = getPlanToolCallId(chatId);
+    const previousPlanIndex = session.uiState.toolPartIndex.get(planToolCallId);
+    const planTool = buildPlanToolPart(effectivePlan, planToolCallId);
     const { message } = upsertToolPart({
       state: session.uiState,
       part: planTool,
     });
     if (shouldBroadcast && !suppressReplayBroadcast) {
-      await sessionRuntime.broadcast(chatId, { type: "ui_message", message });
+      const nextPlanIndex = session.uiState.toolPartIndex.get(planToolCallId);
+      if (nextPlanIndex && nextPlanIndex.messageId === message.id) {
+        await broadcastUiMessagePart({
+          chatId,
+          sessionRuntime,
+          message,
+          partIndex: nextPlanIndex.partIndex,
+          isNew:
+            !previousPlanIndex ||
+            previousPlanIndex.messageId !== nextPlanIndex.messageId ||
+            previousPlanIndex.partIndex !== nextPlanIndex.partIndex,
+        });
+      }
     }
   }
   return true;

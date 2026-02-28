@@ -15,11 +15,26 @@ export interface SessionBufferingPort {
   replayEventCount: number;
   appendContent(block: StoredContentBlock): void;
   appendReasoning(block: StoredContentBlock): void;
+  consumePendingReasoning(): {
+    text: string;
+    blocks: StoredContentBlock[];
+    chunkCount: number;
+    durationMs: number | null;
+  } | null;
+  hasPendingReasoning(): boolean;
   flush(): BufferedMessage | null;
   hasContent(): boolean;
   reset(): void;
   getMessageId(): string | null;
   ensureMessageId(preferredId?: string): string;
+  /** Returns aggregated statistics for content chunks (for raw ACP logging). */
+  getContentStats(): {
+    contentChunkCount: number;
+    contentTextLength: number;
+    contentDurationMs: number | null;
+  };
+  /** Resets content chunk statistics after logging. */
+  resetContentStats(): void;
 }
 
 export interface SessionAcpPort {

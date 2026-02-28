@@ -99,11 +99,13 @@ export class CancelPromptService {
       if (!currentSession || currentSession !== activeSession) {
         return;
       }
-      const messageUpdates = new Map<string, UIMessage>();
       for (const [requestId, pending] of currentSession.pendingPermissions) {
         if (!pending.toolCallId) {
           continue;
         }
+        const previousToolIndex = currentSession.uiState.toolPartIndex.get(
+          pending.toolCallId
+        );
         const toolPart = buildToolApprovalResponsePart({
           toolCallId: pending.toolCallId,
           toolName: pending.toolName ?? "tool",
@@ -118,51 +120,100 @@ export class CancelPromptService {
           state: currentSession.uiState,
           part: toolPart,
         });
-        const messageWithoutPermissionOptions = removePermissionOptionsPart(
+        const nextToolIndex = currentSession.uiState.toolPartIndex.get(
+          pending.toolCallId
+        );
+        const updatedPermissionOptions = clearPermissionOptionsPart(
           message,
           requestId
         );
-        if (messageWithoutPermissionOptions !== message) {
+        const messageWithUpdates = updatedPermissionOptions.message;
+        if (messageWithUpdates !== message) {
           currentSession.uiState.messages.set(
-            messageWithoutPermissionOptions.id,
-            messageWithoutPermissionOptions
+            messageWithUpdates.id,
+            messageWithUpdates
           );
         }
-        messageUpdates.set(
-          messageWithoutPermissionOptions.id,
-          messageWithoutPermissionOptions
-        );
+        if (
+          nextToolIndex &&
+          nextToolIndex.messageId === messageWithUpdates.id
+        ) {
+          const previousToolLocation = previousToolIndex?.messageId
+            ? previousToolIndex
+            : undefined;
+          const nextToolPart = messageWithUpdates.parts[nextToolIndex.partIndex];
+          if (nextToolPart) {
+            await this.sessionRuntime.broadcast(chatId, {
+              type: "ui_message_part",
+              messageId: messageWithUpdates.id,
+              messageRole: messageWithUpdates.role,
+              partIndex: nextToolIndex.partIndex,
+              part: nextToolPart,
+              isNew:
+                !previousToolLocation ||
+                previousToolLocation.messageId !== nextToolIndex.messageId ||
+                previousToolLocation.partIndex !== nextToolIndex.partIndex,
+            });
+          }
+        }
+        if (updatedPermissionOptions.partIndex >= 0) {
+          const optionsPart =
+            messageWithUpdates.parts[updatedPermissionOptions.partIndex];
+          if (optionsPart) {
+            await this.sessionRuntime.broadcast(chatId, {
+              type: "ui_message_part",
+              messageId: messageWithUpdates.id,
+              messageRole: messageWithUpdates.role,
+              partIndex: updatedPermissionOptions.partIndex,
+              part: optionsPart,
+              isNew: false,
+            });
+          }
+        }
       }
       this.sessionGateway.clearPendingPermissionsAsCancelled(currentSession);
-      for (const message of messageUpdates.values()) {
-        await this.sessionRuntime.broadcast(chatId, {
-          type: "ui_message",
-          message,
-        });
-      }
     });
     return { ok: true };
   }
 }
 
-function removePermissionOptionsPart(
+function clearPermissionOptionsPart(
   message: UIMessage,
   requestId: string
-): UIMessage {
-  const nextParts = message.parts.filter((part) => {
-    if (part.type !== "data-permission-options") {
-      return true;
-    }
-    if (!(part.data && typeof part.data === "object")) {
-      return true;
-    }
-    return (part.data as { requestId?: unknown }).requestId !== requestId;
+): { message: UIMessage; partIndex: number } {
+  const partIndex = message.parts.findIndex((part) => {
+    return (
+      part.type === "data-permission-options" &&
+      part.data &&
+      typeof part.data === "object" &&
+      (part.data as { requestId?: unknown }).requestId === requestId
+    );
   });
-  if (nextParts.length === message.parts.length) {
-    return message;
+  if (partIndex < 0) {
+    return { message, partIndex: -1 };
   }
+  const part = message.parts[partIndex];
+  if (!part || part.type !== "data-permission-options") {
+    return { message, partIndex: -1 };
+  }
+  const currentData =
+    part.data && typeof part.data === "object"
+      ? (part.data as Record<string, unknown>)
+      : {};
+  const scrubbedPart = {
+    ...part,
+    data: {
+      ...currentData,
+      options: [],
+    },
+  } satisfies UIMessage["parts"][number];
+  const nextParts = [...message.parts];
+  nextParts[partIndex] = scrubbedPart;
   return {
-    ...message,
-    parts: nextParts,
+    message: {
+      ...message,
+      parts: nextParts,
+    },
+    partIndex,
   };
 }

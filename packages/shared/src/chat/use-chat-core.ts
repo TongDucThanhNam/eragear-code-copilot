@@ -155,6 +155,22 @@ function warnDroppedDelta(params: {
   });
 }
 
+function warnDroppedPart(params: {
+  event: Extract<BroadcastEvent, { type: "ui_message_part" }>;
+  reason: "message_not_found" | "part_not_found";
+}): void {
+  if (typeof console === "undefined" || typeof console.warn !== "function") {
+    return;
+  }
+  console.warn("[Chat] Dropped ui_message_part", {
+    reason: params.reason,
+    messageId: params.event.messageId,
+    partIndex: params.event.partIndex,
+    isNew: params.event.isNew,
+    partType: params.event.part.type,
+  });
+}
+
 function applyMessageDelta(params: {
   message: UIMessage;
   partIndex: number;
@@ -171,6 +187,40 @@ function applyMessageDelta(params: {
   const updatedPart = { ...part, text: `${part.text ?? ""}${delta}` };
   const updatedParts = [...message.parts];
   updatedParts[partIndex] = updatedPart;
+  return {
+    ...message,
+    parts: updatedParts,
+  };
+}
+
+function applyMessagePartUpdate(params: {
+  message: UIMessage;
+  partIndex: number;
+  part: Extract<BroadcastEvent, { type: "ui_message_part" }>["part"];
+  isNew: boolean;
+}): UIMessage | null {
+  const { message, partIndex, part, isNew } = params;
+  if (isNew) {
+    if (partIndex < 0 || partIndex > message.parts.length) {
+      return null;
+    }
+    const updatedParts = [...message.parts];
+    if (partIndex === updatedParts.length) {
+      updatedParts.push(part);
+    } else {
+      updatedParts.splice(partIndex, 0, part);
+    }
+    return {
+      ...message,
+      parts: updatedParts,
+    };
+  }
+  const existingPart = message.parts[partIndex];
+  if (!existingPart) {
+    return null;
+  }
+  const updatedParts = [...message.parts];
+  updatedParts[partIndex] = part;
   return {
     ...message,
     parts: updatedParts,
@@ -291,6 +341,13 @@ export interface EventProcessingCallbacks {
   onConnStatusChange?: (status: ConnectionStatus) => void;
   onMessagesChange?: (messages: UIMessage[]) => void;
   onMessageUpsert?: (message: UIMessage) => void;
+  onMessagePartUpdate?: (payload: {
+    messageId: string;
+    messageRole: UIMessage["role"];
+    partIndex: number;
+    part: Extract<BroadcastEvent, { type: "ui_message_part" }>["part"];
+    isNew: boolean;
+  }) => void;
   getMessageById?: (messageId: string) => UIMessage | undefined;
   getMessagesForPermission?: () => Iterable<UIMessage>;
   getCommands?: () => AvailableCommand[] | undefined;
@@ -456,6 +513,89 @@ export function processSessionEvent(
         upsertMessageFromCallbackState(callbacks, nextMessage);
       }
       callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
+      return;
+    }
+
+    case "ui_message_part": {
+      const prev = callbacks.getMessageById?.(event.messageId);
+      if (callbacks.onMessagePartUpdate) {
+        callbacks.onMessagePartUpdate({
+          messageId: event.messageId,
+          messageRole: event.messageRole,
+          partIndex: event.partIndex,
+          part: event.part,
+          isNew: event.isNew,
+        });
+        const next = callbacks.getMessageById?.(event.messageId);
+        if (prev && next) {
+          callbacks.onStreamingChange?.(
+            isMessageStreaming(prev),
+            isMessageStreaming(next),
+            next
+          );
+        }
+        if (callbacks.onPendingPermissionChange) {
+          const pendingPermission = findPendingPermission(
+            callbacks.getMessagesForPermission?.() ?? []
+          );
+          callbacks.onPendingPermissionChange(pendingPermission);
+        }
+        return;
+      }
+
+      if (!prev) {
+        if (!event.isNew) {
+          warnDroppedPart({ event, reason: "message_not_found" });
+          return;
+        }
+        const nextMessage: UIMessage = {
+          id: event.messageId,
+          role: event.messageRole,
+          parts: [event.part],
+        };
+        if (callbacks.onMessageUpsert) {
+          callbacks.onMessageUpsert(nextMessage);
+        } else {
+          upsertMessageFromCallbackState(callbacks, nextMessage);
+        }
+        callbacks.onStreamingChange?.(
+          false,
+          isMessageStreaming(nextMessage),
+          nextMessage
+        );
+        if (callbacks.onPendingPermissionChange) {
+          const pendingPermission = findPendingPermission(
+            callbacks.getMessagesForPermission?.() ?? []
+          );
+          callbacks.onPendingPermissionChange(pendingPermission);
+        }
+        return;
+      }
+
+      const nextMessage = applyMessagePartUpdate({
+        message: prev,
+        partIndex: event.partIndex,
+        part: event.part,
+        isNew: event.isNew,
+      });
+      if (!nextMessage) {
+        warnDroppedPart({ event, reason: "part_not_found" });
+        return;
+      }
+      const wasStreaming = isMessageStreaming(prev);
+      const nowStreaming = isMessageStreaming(nextMessage);
+      if (callbacks.onMessageUpsert) {
+        callbacks.onMessageUpsert(nextMessage);
+      } else {
+        upsertMessageFromCallbackState(callbacks, nextMessage);
+      }
+      callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
+      if (callbacks.onPendingPermissionChange) {
+        const pendingPermission = findPendingPermission(
+          callbacks.getMessagesForPermission?.() ?? []
+        );
+        callbacks.onPendingPermissionChange(pendingPermission);
+      }
       return;
     }
 

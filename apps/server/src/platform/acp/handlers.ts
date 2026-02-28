@@ -14,6 +14,7 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { createPermissionHandler } from "./permission";
@@ -22,6 +23,21 @@ import { createSessionUpdateHandler } from "./update";
 import { parseSessionUpdatePayload } from "./update-schema";
 
 const logger = createLogger("Debug");
+
+/** Maximum characters to sample from raw ACP payloads for debug logging. */
+const RAW_PAYLOAD_LOG_LIMIT = 4000;
+const RAW_PAYLOAD_STRING_LIMIT = 240;
+const RAW_PAYLOAD_MAX_DEPTH = 4;
+const RAW_PAYLOAD_MAX_ARRAY_ITEMS = 20;
+const RAW_REDACTED_KEYS = new Set([
+  "text",
+  "blob",
+  "data",
+  "input",
+  "output",
+  "rawInput",
+  "rawOutput",
+]);
 
 /**
  * Creates ACP client handlers for managing a session
@@ -63,6 +79,23 @@ export function createSessionHandlers(params: {
   return {
     /** Handles session updates (messages, tool calls, plans, etc.) */
     async sessionUpdate(params: acp.SessionNotification) {
+      if (shouldEmitRuntimeLog("debug")) {
+        let rawPayload = "";
+        try {
+          rawPayload = JSON.stringify(
+            sanitizeRawPayloadForLog(params?.update ?? null)
+          ).slice(0, RAW_PAYLOAD_LOG_LIMIT);
+        } catch {
+          rawPayload = "[unserializable]";
+        }
+        logger.debug("ACP raw session update", {
+          chatId,
+          rawType: params?.update?.sessionUpdate,
+          rawPayloadLength: rawPayload.length,
+          rawPayload,
+        });
+      }
+
       const validatedUpdate = parseSessionUpdatePayload(params?.update);
       if (!validatedUpdate) {
         logger.warn("Dropped invalid ACP session update payload", {
@@ -190,4 +223,48 @@ export function createSessionHandlers(params: {
       return await toolCalls.releaseTerminal(chatId, params);
     },
   };
+}
+
+function sanitizeRawPayloadForLog(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (typeof value === "string") {
+    if (value.length <= RAW_PAYLOAD_STRING_LIMIT) {
+      return value;
+    }
+    return `${value.slice(0, RAW_PAYLOAD_STRING_LIMIT)}...[${value.length} chars]`;
+  }
+  if (typeof value !== "object") {
+    return value;
+  }
+  if (depth >= RAW_PAYLOAD_MAX_DEPTH) {
+    return "[max-depth]";
+  }
+  if (Array.isArray(value)) {
+    const out = value
+      .slice(0, RAW_PAYLOAD_MAX_ARRAY_ITEMS)
+      .map((item) => sanitizeRawPayloadForLog(item, depth + 1));
+    if (value.length > RAW_PAYLOAD_MAX_ARRAY_ITEMS) {
+      out.push(`[...${value.length - RAW_PAYLOAD_MAX_ARRAY_ITEMS} more items]`);
+    }
+    return out;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, entryValue] of Object.entries(value)) {
+    if (RAW_REDACTED_KEYS.has(key)) {
+      if (typeof entryValue === "string") {
+        out[key] = `[redacted:${entryValue.length} chars]`;
+      } else if (Array.isArray(entryValue)) {
+        out[key] = `[redacted:array(${entryValue.length})]`;
+      } else if (entryValue && typeof entryValue === "object") {
+        out[key] = "[redacted:object]";
+      } else {
+        out[key] = entryValue;
+      }
+      continue;
+    }
+    out[key] = sanitizeRawPayloadForLog(entryValue, depth + 1);
+  }
+  return out;
 }

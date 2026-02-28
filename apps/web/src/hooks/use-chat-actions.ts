@@ -38,14 +38,9 @@ interface UseChatActionsParams {
   setPendingPermission: Dispatch<SetStateAction<PermissionRequest | null>>;
   setMessages: (messages: UIMessage[]) => void;
   setStreamLifecycle: Dispatch<SetStateAction<StreamLifecycle>>;
-  clearAllPendingUserMessageFallbacks: () => void;
   onLocalModeMutated?: () => void;
   onLocalModelMutated?: () => void;
   onLocalConfigOptionMutated?: () => void;
-  schedulePendingUserMessageFallback: (
-    activeChatId: string,
-    messageId: string
-  ) => void;
   invalidateHistoryLoads: () => void;
   clearHistoryWindow: () => void;
   loadHistory: (force?: boolean) => Promise<void>;
@@ -70,11 +65,9 @@ export function useChatActions({
   setPendingPermission,
   setMessages,
   setStreamLifecycle,
-  clearAllPendingUserMessageFallbacks,
   onLocalModeMutated,
   onLocalModelMutated,
   onLocalConfigOptionMutated,
-  schedulePendingUserMessageFallback,
   invalidateHistoryLoads,
   clearHistoryWindow,
   loadHistory,
@@ -117,7 +110,6 @@ export function useChatActions({
           return false;
         }
         activeTurnIdRef.current = res.turnId ?? null;
-        schedulePendingUserMessageFallback(activeChatId, res.userMessageId);
         return res.status === "submitted";
       } catch (sendError) {
         console.error("Failed to send message", sendError);
@@ -136,7 +128,6 @@ export function useChatActions({
       chatId,
       isActiveChat,
       readOnly,
-      schedulePendingUserMessageFallback,
       sendMessageMutation,
       setError,
       setStatus,
@@ -336,7 +327,6 @@ export function useChatActions({
     }
     const activeChatId = chatId;
     try {
-      clearAllPendingUserMessageFallbacks();
       await stopSessionMutation.mutateAsync({ chatId: activeChatId });
       if (!isActiveChat(activeChatId)) {
         return;
@@ -355,7 +345,6 @@ export function useChatActions({
   }, [
     activeTurnIdRef,
     chatId,
-    clearAllPendingUserMessageFallbacks,
     isActiveChat,
     setConnStatus,
     setError,
@@ -371,7 +360,6 @@ export function useChatActions({
     const activeChatId = chatId;
     try {
       isResumingRef.current = true;
-      clearAllPendingUserMessageFallbacks();
       activeTurnIdRef.current = null;
       invalidateHistoryLoads();
       setStreamLifecycle("bootstrapping");
@@ -427,7 +415,6 @@ export function useChatActions({
   }, [
     activeTurnIdRef,
     chatId,
-    clearAllPendingUserMessageFallbacks,
     clearHistoryWindow,
     invalidateHistoryLoads,
     isResumingRef,

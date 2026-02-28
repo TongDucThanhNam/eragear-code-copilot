@@ -239,4 +239,45 @@ describe("SubscribeSessionEventsService", () => {
     unsubscribe();
     await subscription.release();
   });
+
+  test("replays snapshots first, then pending active part updates", async () => {
+    const uiState = createUiMessageState();
+    const assistantMessage: UIMessage = {
+      id: "msg-active",
+      role: "assistant",
+      parts: [{ type: "text", text: "hello", state: "streaming" }],
+    };
+    uiState.messages.set(assistantMessage.id, assistantMessage);
+    uiState.currentAssistantId = assistantMessage.id;
+    const session = createSession({
+      uiState,
+      messageBuffer: [
+        {
+          type: "ui_message_part",
+          messageId: assistantMessage.id,
+          messageRole: "assistant",
+          partIndex: 1,
+          part: { type: "reasoning", text: "done", state: "done" },
+          isNew: true,
+        },
+      ],
+    });
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime);
+
+    const subscription = await service.execute("user-1", "chat-1");
+
+    expect(subscription.bufferedEvents[0]).toEqual({
+      type: "ui_message",
+      message: assistantMessage,
+    });
+    expect(subscription.bufferedEvents[1]).toEqual({
+      type: "ui_message_part",
+      messageId: assistantMessage.id,
+      messageRole: "assistant",
+      partIndex: 1,
+      part: { type: "reasoning", text: "done", state: "done" },
+      isNew: true,
+    });
+  });
 });

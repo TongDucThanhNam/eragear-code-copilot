@@ -152,6 +152,69 @@ describe("processSessionEvent ui_message_delta", () => {
   });
 });
 
+describe("processSessionEvent ui_message_part", () => {
+  test("adds a new assistant part when isNew is true", () => {
+    const initialMessage = createAssistantMessage("msg-1", [
+      { type: "text", text: "Answer", state: "streaming" },
+    ]);
+    const event: BroadcastEvent = {
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partIndex: 1,
+      part: { type: "reasoning", text: "Done thinking", state: "done" },
+      isNew: true,
+    };
+
+    const next = applyEventWithMessages(event, [initialMessage]);
+    expect(next).toHaveLength(1);
+    expect(next[0]?.parts).toEqual([
+      { type: "text", text: "Answer", state: "streaming" },
+      { type: "reasoning", text: "Done thinking", state: "done" },
+    ]);
+  });
+
+  test("replaces an existing assistant part when isNew is false", () => {
+    const initialMessage = createAssistantMessage("msg-1", [
+      { type: "text", text: "Answer", state: "streaming" },
+    ]);
+    const event: BroadcastEvent = {
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "Answer", state: "done" },
+      isNew: false,
+    };
+
+    const next = applyEventWithMessages(event, [initialMessage]);
+    expect(next).toHaveLength(1);
+    expect(next[0]?.parts).toEqual([
+      { type: "text", text: "Answer", state: "done" },
+    ]);
+  });
+
+  test("creates a missing message from a new part event", () => {
+    const event: BroadcastEvent = {
+      type: "ui_message_part",
+      messageId: "msg-new",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "Hello", state: "streaming" },
+      isNew: true,
+    };
+
+    const next = applyEventWithMessages(event, []);
+    expect(next).toEqual([
+      {
+        id: "msg-new",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello", state: "streaming" }],
+      },
+    ]);
+  });
+});
+
 describe("processSessionEvent config/session-info updates", () => {
   test("forwards config options updates", () => {
     const configOptions = [

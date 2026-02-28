@@ -38,6 +38,7 @@ Server stream qua `onSessionEvents`:
 - `chat_status`: trạng thái toàn cục (`inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`)
 - `chat_finish`: kết thúc 1 turn (để map sang `onFinish` kiểu AI SDK)
 - `ui_message`: message updates (streaming + tool updates)
+- `ui_message_part`: part-level updates (`messageId` + `partIndex` + `part` + `isNew`)
 - `ui_message_delta`: incremental text/reasoning append (`messageId` + `partIndex` + `delta`)
 - `file_modified`
 - `available_commands_update`
@@ -133,19 +134,23 @@ Client có thể fallback bằng cách lookup `messageId` trong state nếu `mes
   nếu không còn active turn và không còn pending permission thì chuyển về
   `ready`.
 
-### 5.2 ui_message + ui_message_delta updates
+### 5.2 ui_message + ui_message_part + ui_message_delta updates
 
 Server đảm nhiệm:
 
 - merge message chunks theo `message.id`
 - tool parts update theo `toolCallId`
 - finalize streaming parts khi `turn_end`/`prompt_end`
+- emit `ui_message_part` làm primitive stream chính cho text/reasoning/tool/metadata
+  updates (part-level surgical updates)
 - emit `ui_message_delta` cho append text/reasoning để giảm payload, và fallback
-  `ui_message` snapshot khi không thể đảm bảo delta target hợp lệ
+  `ui_message_part`/`ui_message` snapshot khi không thể đảm bảo delta target hợp lệ
 
 Client contract:
 
 - `ui_message`: upsert full snapshot theo `message.id`
+- `ui_message_part`: apply theo `messageId` + `partIndex` + `isNew`; nếu không apply
+  được thì bỏ qua an toàn và chờ snapshot kế tiếp
 - `ui_message_delta`: chỉ apply khi đã có message + part target tương ứng
 - Nếu delta không apply được (missing base message/part), bỏ qua delta và chờ
   snapshot kế tiếp (idempotent)
@@ -224,6 +229,8 @@ với `apps/server`.
 
 - [ ] Subscribe `onSessionEvents({ chatId })` và xử lý `connected` + replay buffer.
 - [ ] Upsert `UIMessage` theo `message.id` (không append thẳng).
+- [ ] Hỗ trợ `ui_message_part` để update từng part theo `messageId` + `partIndex`
+      + `isNew`.
 - [ ] Hỗ trợ `ui_message_delta` bằng cách append vào đúng `messageId` +
       `partIndex`; nếu thiếu base message/part thì drop delta an toàn.
 - [ ] `getSessionMessagesPage({ chatId, cursor? })` loop tới khi `hasMore=false`

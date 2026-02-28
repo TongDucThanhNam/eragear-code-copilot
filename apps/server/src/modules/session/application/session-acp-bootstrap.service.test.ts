@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { LoggerPort } from "@/shared/ports/logger.port";
-import type {
-  BroadcastEvent,
-  ChatSession,
-} from "@/shared/types/session.types";
+import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import type { AgentRuntimePort } from "./ports/agent-runtime.port";
 import type {
@@ -32,11 +29,19 @@ function createBuffer(): SessionBufferingPort {
     replayEventCount: 0,
     appendContent: () => undefined,
     appendReasoning: () => undefined,
+    consumePendingReasoning: () => null,
+    hasPendingReasoning: () => false,
     flush: () => null,
     hasContent: () => false,
     reset: () => undefined,
     getMessageId: () => null,
     ensureMessageId: () => "msg-1",
+    getContentStats: () => ({
+      contentChunkCount: 0,
+      contentTextLength: 0,
+      contentDurationMs: null,
+    }),
+    resetContentStats: () => undefined,
   };
 }
 
@@ -112,36 +117,35 @@ describe("SessionAcpBootstrapService", () => {
           },
         },
       }),
-      loadSession: async () =>
-        ({
-          sessionId: "sess-resume",
-          modes: {
-            currentModeId: "legacy-mode",
-            availableModes: [{ id: "legacy-mode", name: "Legacy Mode" }],
+      loadSession: async () => ({
+        sessionId: "sess-resume",
+        modes: {
+          currentModeId: "legacy-mode",
+          availableModes: [{ id: "legacy-mode", name: "Legacy Mode" }],
+        },
+        models: {
+          currentModelId: "legacy-model",
+          availableModels: [{ modelId: "legacy-model", name: "Legacy Model" }],
+        },
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "config-mode",
+            options: [{ value: "config-mode", name: "Config Mode" }],
           },
-          models: {
-            currentModelId: "legacy-model",
-            availableModels: [{ modelId: "legacy-model", name: "Legacy Model" }],
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "config-model",
+            options: [{ value: "config-model", name: "Config Model" }],
           },
-          configOptions: [
-            {
-              id: "mode",
-              name: "Mode",
-              category: "mode",
-              type: "select",
-              currentValue: "config-mode",
-              options: [{ value: "config-mode", name: "Config Mode" }],
-            },
-            {
-              id: "model",
-              name: "Model",
-              category: "model",
-              type: "select",
-              currentValue: "config-model",
-              options: [{ value: "config-model", name: "Config Model" }],
-            },
-          ],
-        }),
+        ],
+      }),
     };
 
     const service = new SessionAcpBootstrapService(
@@ -198,42 +202,41 @@ describe("SessionAcpBootstrapService", () => {
           },
         },
       }),
-      newSession: async () =>
-        ({
-          sessionId: "sess-new",
-          modes: {
-            currentModeId: "ask",
-            availableModes: [{ id: "ask", name: "Ask" }],
+      newSession: async () => ({
+        sessionId: "sess-new",
+        modes: {
+          currentModeId: "ask",
+          availableModes: [{ id: "ask", name: "Ask" }],
+        },
+        models: {
+          currentModelId: "model-old",
+          availableModels: [
+            { modelId: "model-old", name: "Model Old" },
+            { modelId: "model-new", name: "Model New" },
+          ],
+        },
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "ask",
+            options: [{ value: "ask", name: "Ask" }],
           },
-          models: {
-            currentModelId: "model-old",
-            availableModels: [
-              { modelId: "model-old", name: "Model Old" },
-              { modelId: "model-new", name: "Model New" },
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "model-old",
+            options: [
+              { value: "model-old", name: "Model Old" },
+              { value: "model-new", name: "Model New" },
             ],
           },
-          configOptions: [
-            {
-              id: "mode",
-              name: "Mode",
-              category: "mode",
-              type: "select",
-              currentValue: "ask",
-              options: [{ value: "ask", name: "Ask" }],
-            },
-            {
-              id: "model",
-              name: "Model",
-              category: "model",
-              type: "select",
-              currentValue: "model-old",
-              options: [
-                { value: "model-old", name: "Model Old" },
-                { value: "model-new", name: "Model New" },
-              ],
-            },
-          ],
-        }),
+        ],
+      }),
       unstable_setSessionModel: async (params: {
         sessionId: string;
         modelId: string;

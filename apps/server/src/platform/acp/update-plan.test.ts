@@ -5,6 +5,7 @@ import type {
 } from "@/modules/session";
 import type { ChatSession, Plan } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
+import { SessionBuffering } from "./update";
 import { handlePlanUpdate } from "./update-plan";
 
 function createSession(chatId: string): ChatSession {
@@ -79,6 +80,7 @@ describe("handlePlanUpdate", () => {
 
     const handled = await handlePlanUpdate({
       chatId: session.id,
+      buffer: new SessionBuffering(),
       update: {
         sessionUpdate: "plan",
         entries: [
@@ -93,6 +95,7 @@ describe("handlePlanUpdate", () => {
 
     expect(handled).toBe(true);
     expect(broadcasts.length).toBe(1);
+    expect((broadcasts[0] as { type?: string })?.type).toBe("ui_message_part");
     expect(metadataCalls.length).toBe(1);
   });
 
@@ -104,6 +107,7 @@ describe("handlePlanUpdate", () => {
 
     await handlePlanUpdate({
       chatId: session.id,
+      buffer: new SessionBuffering(),
       update: {
         sessionUpdate: "plan",
         entries: [
@@ -121,6 +125,7 @@ describe("handlePlanUpdate", () => {
     });
 
     expect(broadcasts.length).toBe(1);
+    expect((broadcasts[0] as { type?: string })?.type).toBe("ui_message_part");
   });
 
   test("suppresses broadcast for deeply identical plan payload", async () => {
@@ -131,6 +136,7 @@ describe("handlePlanUpdate", () => {
 
     await handlePlanUpdate({
       chatId: session.id,
+      buffer: new SessionBuffering(),
       update: {
         sessionUpdate: "plan",
         entries: [

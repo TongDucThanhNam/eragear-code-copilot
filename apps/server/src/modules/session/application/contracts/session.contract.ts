@@ -13,6 +13,22 @@ export const CreateSessionInputSchema = z.object({
   agentId: z.string().min(1).optional(),
 }).strict();
 
+export const DiscoverAgentSessionsInputSchema = z
+  .object({
+    projectId: z.string().min(1),
+    agentId: z.string().min(1).optional(),
+    cursor: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const LoadAgentSessionInputSchema = z
+  .object({
+    projectId: z.string().min(1),
+    sessionId: z.string().min(1),
+    agentId: z.string().min(1).optional(),
+  })
+  .strict();
+
 export const ListSessionsInputSchema = z
   .object({
     limit: z
@@ -64,6 +80,12 @@ export const SessionMessageByIdInputSchema = z.object({
 
 export type SessionChatIdInput = z.infer<typeof SessionChatIdInputSchema>;
 export type CreateSessionInput = z.infer<typeof CreateSessionInputSchema>;
+export type DiscoverAgentSessionsInput = z.infer<
+  typeof DiscoverAgentSessionsInputSchema
+>;
+export type LoadAgentSessionInput = z.infer<
+  typeof LoadAgentSessionInputSchema
+>;
 export type ListSessionsInput = z.infer<typeof ListSessionsInputSchema>;
 export type SessionListPageInput = z.infer<typeof SessionListPageInputSchema>;
 export type UpdateSessionMetaInput = z.infer<

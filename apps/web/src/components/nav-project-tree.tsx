@@ -1,9 +1,9 @@
 "use client";
 
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Folder, Loader2, Pin, Plus } from "lucide-react";
+import { ChevronRight, Folder, Loader2, Pin, Plus, RefreshCw } from "lucide-react";
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -59,6 +59,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
@@ -84,6 +85,20 @@ interface SessionItem {
 
 interface NavProjectTreeProps {
   sessions: SessionItem[];
+}
+
+interface DiscoverSessionItem {
+  sessionId: string;
+  cwd: string;
+  title?: string | null;
+  updatedAt?: string | null;
+}
+
+interface DiscoverContext {
+  projectId: string;
+  projectName: string;
+  agentId: string;
+  agentName: string;
 }
 
 const getAgentIcon = (agentName: string | undefined) => {
@@ -114,6 +129,25 @@ const getSessionStatusLabel = (status: SessionItem["status"]) => {
     return "running";
   }
   return status;
+};
+
+const getDiscoveredSessionLabel = (session: DiscoverSessionItem) => {
+  const trimmedTitle = session.title?.trim();
+  if (trimmedTitle) {
+    return trimmedTitle;
+  }
+  return session.sessionId;
+};
+
+const formatDiscoveredUpdatedAt = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return value;
+  }
+  return new Date(parsed).toLocaleString();
 };
 
 const getStatusBadgeClassName = (status: SessionItem["status"]) => {
@@ -180,6 +214,26 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const [pendingCreateSessionKey, setPendingCreateSessionKey] = useState<
     string | null
   >(null);
+  const [discoverContext, setDiscoverContext] = useState<DiscoverContext | null>(
+    null
+  );
+  const [discoverSessions, setDiscoverSessions] = useState<DiscoverSessionItem[]>(
+    []
+  );
+  const [discoverNextCursor, setDiscoverNextCursor] = useState<string | null>(
+    null
+  );
+  const [discoverSupported, setDiscoverSupported] = useState(false);
+  const [discoverRequiresAuth, setDiscoverRequiresAuth] = useState(false);
+  const [discoverLoadSessionSupported, setDiscoverLoadSessionSupported] =
+    useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [discoverIsLoading, setDiscoverIsLoading] = useState(false);
+  const [discoverIsLoadingMore, setDiscoverIsLoadingMore] = useState(false);
+  const [pendingLoadSessionId, setPendingLoadSessionId] = useState<
+    string | null
+  >(null);
+  const [isDiscoverDialogOpen, setIsDiscoverDialogOpen] = useState(false);
   const setSessionBootstrapPhase = useChatStatusStore(
     (state) => state.setSessionBootstrapPhase
   );
@@ -204,14 +258,24 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       toast.error(err.message || "Failed to set active project");
     },
   });
+  const trpcUtils = trpc.useUtils();
 
   const createSessionMutation = trpc.createSession.useMutation({
     onError: (err) => {
       toast.error(err.message || "Failed to create session");
     },
   });
+  const loadAgentSessionMutation = trpc.loadAgentSession.useMutation({
+    onSuccess: () => {
+      trpcUtils.getSessions.invalidate();
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to load agent session");
+    },
+  });
   const isCreatingSession = createSessionMutation.isPending;
-  const trpcUtils = trpc.useUtils();
+  const isLoadingAgentSession = loadAgentSessionMutation.isPending;
+  const isSessionBootstrapPending = isCreatingSession || isLoadingAgentSession;
   const updateSessionMetaMutation = trpc.updateSessionMeta.useMutation({
     onSuccess: () => {
       trpcUtils.getSessions.invalidate();
@@ -408,7 +472,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       id: string;
     };
   }) => {
-    if (isCreatingSession) {
+    if (isSessionBootstrapPending) {
       return;
     }
     const requestKey = `${params.projectId}:${params.agent.id}`;
@@ -432,6 +496,136 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       // Error is handled by mutation onError callbacks.
     } finally {
       setPendingCreateSessionKey(null);
+      if (!didNavigate) {
+        setSessionBootstrapPhase("idle");
+      }
+    }
+  };
+
+  const resetDiscoverState = () => {
+    setDiscoverSessions([]);
+    setDiscoverNextCursor(null);
+    setDiscoverSupported(false);
+    setDiscoverRequiresAuth(false);
+    setDiscoverLoadSessionSupported(false);
+    setDiscoverError(null);
+    setDiscoverIsLoading(false);
+    setDiscoverIsLoadingMore(false);
+    setPendingLoadSessionId(null);
+  };
+
+  const fetchDiscoveredSessions = async (params: {
+    context: DiscoverContext;
+    cursor?: string;
+    append: boolean;
+  }) => {
+    if (params.append) {
+      setDiscoverIsLoadingMore(true);
+    } else {
+      setDiscoverIsLoading(true);
+      setDiscoverError(null);
+    }
+    try {
+      const result = await trpcUtils.discoverAgentSessions.fetch({
+        projectId: params.context.projectId,
+        agentId: params.context.agentId,
+        cursor: params.cursor,
+      });
+      setDiscoverSupported(result.supported);
+      setDiscoverRequiresAuth(result.requiresAuth);
+      setDiscoverLoadSessionSupported(result.loadSessionSupported);
+      setDiscoverNextCursor(result.nextCursor);
+      setDiscoverError(null);
+      setDiscoverSessions((prev) => {
+        if (!params.append) {
+          return result.sessions;
+        }
+        const merged = new Map(prev.map((session) => [session.sessionId, session]));
+        for (const session of result.sessions) {
+          merged.set(session.sessionId, session);
+        }
+        return Array.from(merged.values());
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to discover agent sessions";
+      setDiscoverError(message);
+      toast.error(message);
+    } finally {
+      setDiscoverIsLoading(false);
+      setDiscoverIsLoadingMore(false);
+    }
+  };
+
+  const handleOpenDiscoverDialog = async (params: {
+    projectId: string;
+    projectName: string;
+    agent: { id: string; name: string };
+  }) => {
+    if (isSessionBootstrapPending) {
+      return;
+    }
+    const nextContext: DiscoverContext = {
+      projectId: params.projectId,
+      projectName: params.projectName,
+      agentId: params.agent.id,
+      agentName: params.agent.name,
+    };
+    resetDiscoverState();
+    setDiscoverContext(nextContext);
+    setIsDiscoverDialogOpen(true);
+    await fetchDiscoveredSessions({
+      context: nextContext,
+      append: false,
+    });
+  };
+
+  const handleLoadMoreDiscoveredSessions = async () => {
+    if (
+      !discoverContext ||
+      !discoverNextCursor ||
+      discoverIsLoading ||
+      discoverIsLoadingMore
+    ) {
+      return;
+    }
+    await fetchDiscoveredSessions({
+      context: discoverContext,
+      cursor: discoverNextCursor,
+      append: true,
+    });
+  };
+
+  const handleLoadDiscoveredSession = async (sessionId: string) => {
+    if (!discoverContext || isSessionBootstrapPending) {
+      return;
+    }
+    let didNavigate = false;
+    setPendingLoadSessionId(sessionId);
+    setSessionBootstrapPhase("creating_session");
+    try {
+      setActiveProjectId(discoverContext.projectId);
+      await setActiveMutation.mutateAsync({ id: discoverContext.projectId });
+      const newSession = await loadAgentSessionMutation.mutateAsync({
+        projectId: discoverContext.projectId,
+        agentId: discoverContext.agentId,
+        sessionId,
+      });
+      setSessionBootstrapPhase("initializing_agent");
+      setIsDiscoverDialogOpen(false);
+      setDiscoverContext(null);
+      resetDiscoverState();
+      navigate({
+        to: "/",
+        search: { chatId: newSession.chatId },
+      });
+      didNavigate = true;
+    } catch {
+      // Error is handled by mutation onError callbacks.
+    } finally {
+      setPendingLoadSessionId(null);
       if (!didNavigate) {
         setSessionBootstrapPhase("idle");
       }
@@ -492,11 +686,11 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <SidebarMenuAction
-                          disabled={isCreatingSession}
+                          disabled={isSessionBootstrapPending}
                           showOnHover
                           title="New Session"
                         >
-                          {isCreatingSession ? (
+                          {isSessionBootstrapPending ? (
                             <Loader2 className="animate-spin" />
                           ) : (
                             <Plus />
@@ -509,25 +703,55 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
                           const isPending =
                             isCreatingSession &&
                             pendingCreateSessionKey === requestKey;
+                          const isDiscoverPending =
+                            discoverIsLoading &&
+                            discoverContext?.projectId === project.id &&
+                            discoverContext.agentId === agent.id;
                           return (
-                            <DropdownMenuItem
-                              disabled={isCreatingSession}
-                              key={agent.id}
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                await handleCreateSession({
-                                  projectId: project.id,
-                                  agent,
-                                });
-                              }}
-                            >
-                              {isPending ? (
-                                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            <Fragment key={agent.id}>
+                              <DropdownMenuItem
+                                disabled={isSessionBootstrapPending}
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  await handleCreateSession({
+                                    projectId: project.id,
+                                    agent,
+                                  });
+                                }}
+                              >
+                                {isPending ? (
+                                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                ) : null}
+                                <span>
+                                  {isPending
+                                    ? `Creating ${agent.name} session...`
+                                    : `New: ${agent.name}`}
+                                </span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                disabled={isSessionBootstrapPending}
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  await handleOpenDiscoverDialog({
+                                    projectId: project.id,
+                                    projectName: project.name,
+                                    agent,
+                                  });
+                                }}
+                              >
+                                {isDiscoverPending ? (
+                                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                ) : null}
+                                <span>
+                                  {isDiscoverPending
+                                    ? `Discovering ${agent.name} sessions...`
+                                    : `Load Existing: ${agent.name}`}
+                                </span>
+                              </DropdownMenuItem>
+                              {agent.id !== agents[agents.length - 1]?.id ? (
+                                <DropdownMenuSeparator />
                               ) : null}
-                              <span>
-                                {isPending ? "Creating session..." : agent.name}
-                              </span>
-                            </DropdownMenuItem>
+                            </Fragment>
                           );
                         })}
                       </DropdownMenuContent>
@@ -824,6 +1048,187 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
               <Button type="submit">Save</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        onOpenChange={(open) => {
+          setIsDiscoverDialogOpen(open);
+          if (!open) {
+            setDiscoverContext(null);
+            resetDiscoverState();
+          }
+        }}
+        open={isDiscoverDialogOpen}
+      >
+        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Load Existing Agent Session</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {discoverContext ? (
+              <div className="rounded bg-muted p-3 text-sm">
+                <div>
+                  <strong>Project:</strong> {discoverContext.projectName}
+                </div>
+                <div>
+                  <strong>Agent:</strong> {discoverContext.agentName}
+                </div>
+              </div>
+            ) : null}
+
+            {discoverIsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Discovering sessions...
+              </div>
+            ) : null}
+
+            {!discoverIsLoading && discoverError ? (
+              <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-destructive text-sm">
+                {discoverError}
+              </div>
+            ) : null}
+
+            {!discoverIsLoading && !discoverError && discoverRequiresAuth ? (
+              <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-amber-600 text-sm dark:text-amber-300">
+                Agent requires authentication before session discovery.
+              </div>
+            ) : null}
+
+            {!discoverIsLoading &&
+            !discoverError &&
+            !discoverRequiresAuth &&
+            !discoverSupported ? (
+              <div className="rounded border border-muted-foreground/30 bg-muted/40 p-3 text-sm">
+                This agent does not advertise `session/list`.
+              </div>
+            ) : null}
+
+            {!discoverIsLoading &&
+            !discoverError &&
+            discoverSupported &&
+            !discoverRequiresAuth &&
+            discoverSessions.length === 0 ? (
+              <div className="rounded border border-muted-foreground/30 bg-muted/40 p-3 text-sm">
+                No sessions found for this project root.
+              </div>
+            ) : null}
+
+            {!discoverIsLoading &&
+            !discoverError &&
+            discoverSupported &&
+            !discoverRequiresAuth &&
+            discoverSessions.length > 0 ? (
+              <div className="space-y-2">
+                {discoverSessions.map((session) => {
+                  const isLoadingTarget = pendingLoadSessionId === session.sessionId;
+                  const updatedLabel = formatDiscoveredUpdatedAt(
+                    session.updatedAt
+                  );
+                  return (
+                    <div
+                      className="flex items-center justify-between rounded border p-3"
+                      key={session.sessionId}
+                    >
+                      <div className="min-w-0 pr-3">
+                        <div className="truncate font-medium text-sm">
+                          {getDiscoveredSessionLabel(session)}
+                        </div>
+                        <div className="mt-1 font-mono text-xs text-muted-foreground">
+                          {session.sessionId}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          cwd: {session.cwd}
+                        </div>
+                        {updatedLabel ? (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            updated: {updatedLabel}
+                          </div>
+                        ) : null}
+                      </div>
+                      <Button
+                        disabled={
+                          isSessionBootstrapPending ||
+                          !discoverLoadSessionSupported
+                        }
+                        onClick={() => handleLoadDiscoveredSession(session.sessionId)}
+                        size="sm"
+                      >
+                        {isLoadingTarget ? (
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        {isLoadingTarget ? "Loading..." : "Load"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {!discoverIsLoading &&
+            !discoverError &&
+            discoverSupported &&
+            !discoverRequiresAuth &&
+            discoverNextCursor ? (
+              <Button
+                disabled={discoverIsLoadingMore}
+                onClick={() => {
+                  void handleLoadMoreDiscoveredSessions();
+                }}
+                variant="outline"
+              >
+                {discoverIsLoadingMore ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                )}
+                Load more
+              </Button>
+            ) : null}
+
+            {!discoverLoadSessionSupported &&
+            discoverSupported &&
+            !discoverRequiresAuth ? (
+              <div className="rounded border border-muted-foreground/30 bg-muted/40 p-3 text-sm">
+                Agent listed sessions but does not advertise `session/load`.
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              disabled={!discoverContext || discoverIsLoading}
+              onClick={() => {
+                if (!discoverContext) {
+                  return;
+                }
+                void fetchDiscoveredSessions({
+                  context: discoverContext,
+                  append: false,
+                });
+              }}
+              variant="outline"
+            >
+              {discoverIsLoading ? (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-3.5 w-3.5" />
+              )}
+              Refresh
+            </Button>
+            <Button
+              onClick={() => {
+                setIsDiscoverDialogOpen(false);
+                setDiscoverContext(null);
+                resetDiscoverState();
+              }}
+              variant="ghost"
+            >
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

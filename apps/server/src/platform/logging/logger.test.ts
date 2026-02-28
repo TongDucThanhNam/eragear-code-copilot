@@ -102,6 +102,26 @@ describe("Logger console normalization", () => {
     expect(entries[0]?.message).toContain("Database queue saturated");
   });
 
+  test("tags ACP JSON-RPC console errors as acp source", () => {
+    setRuntimeLogLevel("debug");
+    const { store, entries } = createLogStoreStub();
+    const logger = new Logger(store);
+
+    logger.logArgs(
+      "error",
+      "error",
+      [
+        "Error handling request { jsonrpc: '2.0', method: 'fs/read_text_file', params: { sessionId: 'chat-1' } } { code: -32602, message: 'Invalid params: File not found' }",
+      ],
+      { source: "console" }
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.level).toBe("error");
+    expect(entries[0]?.source).toBe("acp");
+    expect(entries[0]?.message).toContain("jsonrpc");
+  });
+
   test("keeps plain ACP console text when payload is non-json", () => {
     setRuntimeLogLevel("debug");
     const { store, entries } = createLogStoreStub();

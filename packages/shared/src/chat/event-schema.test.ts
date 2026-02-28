@@ -125,6 +125,31 @@ describe("parseBroadcastEventClientSafe", () => {
     expect(parsed.value.message?.parts).toEqual([{ type: "text", text: "done" }]);
   });
 
+  test("sanitizes ui_message_part payload", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partIndex: 1,
+      part: {
+        type: "tool-edit",
+        toolCallId: "tool-1",
+        state: "output-available",
+        input: { path: "a.ts" },
+        output: { ok: true },
+      },
+      isNew: true,
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "ui_message_part") {
+      return;
+    }
+    expect(parsed.value.part.type).toBe("tool-edit");
+    expect(parsed.value.partIndex).toBe(1);
+    expect(parsed.value.isNew).toBe(true);
+  });
+
   test("classifies malformed known event payload as invalid", () => {
     const parsed = parseBroadcastEventClientSafe({
       type: "ui_message_delta",

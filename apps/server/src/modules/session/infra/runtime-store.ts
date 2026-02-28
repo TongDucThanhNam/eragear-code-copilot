@@ -30,7 +30,11 @@ function getLogger() {
 }
 
 function shouldLogStreamEvent(event: BroadcastEvent): boolean {
-  return event.type === "ui_message" || event.type === "ui_message_delta";
+  return (
+    event.type === "ui_message" ||
+    event.type === "ui_message_part" ||
+    event.type === "ui_message_delta"
+  );
 }
 
 function buildStreamEventContext(
@@ -47,6 +51,14 @@ function buildStreamEventContext(
       messageId: event.messageId,
       partIndex: event.partIndex,
       deltaLength: event.delta.length,
+    };
+  }
+  if (event.type === "ui_message_part") {
+    return {
+      messageId: event.messageId,
+      partIndex: event.partIndex,
+      isNew: event.isNew,
+      partType: event.part.type,
     };
   }
   return {

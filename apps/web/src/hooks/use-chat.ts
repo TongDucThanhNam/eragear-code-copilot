@@ -44,10 +44,9 @@ import {
   type StreamLifecycle,
 } from "./use-chat-connection.machine";
 import { useChatActions } from "./use-chat-actions";
-import { useChatDeltaRecovery } from "./use-chat-delta-recovery";
-import { useChatFallback } from "./use-chat-fallback";
 import { useChatHistory } from "./use-chat-history";
 import {
+  applyPartUpdate,
   applyMessageDeltasIntoState,
   type MessageDeltaChunk,
   type MessageState,
@@ -61,7 +60,7 @@ import {
   parseBroadcastEvent,
   shouldLogChatStreamDebug,
 } from "./use-chat-normalize";
-import { describeDeltaTarget, logChatStreamDebug } from "./use-chat-stream-debug";
+import { logChatStreamDebug } from "./use-chat-stream-debug";
 import type { UseChatOptions, UseChatResult } from "./use-chat.types";
 const INVALID_EVENT_TOAST_COOLDOWN_MS = 5000;
 export function useChat(options: UseChatOptions = {}): UseChatResult {
@@ -265,34 +264,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     []
   );
   const {
-    clearPending: clearPendingUserMessageFallback,
-    clearAll: clearAllPendingUserMessageFallbacks,
-    flushAll: flushPendingUserMessageFallbacks,
-    reset: resetPendingUserMessageFallbackState,
-    schedule: schedulePendingUserMessageFallback,
-  } = useChatFallback({
-    readOnly,
-    activeChatIdRef,
-    messageStateRef,
-    updateMessageState,
-    upsertMessageIntoState,
-    normalizeMessage,
-    setError,
-    onError,
-    fetchMessageById: ({ chatId: targetChatId, messageId, signal }) =>
-      utils.getSessionMessageById.fetch(
-        { chatId: targetChatId, messageId },
-        { trpc: { signal } }
-      ),
-    reloadHistory: async () => {
-      const reload = reloadHistoryRef.current;
-      if (!reload) {
-        return;
-      }
-      await reload();
-    },
-  });
-  const {
     clearHistoryWindow,
     hasMoreHistory,
     invalidateHistoryLoads,
@@ -315,22 +286,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     updateMessageState,
     normalizeMessages,
     fetchHistoryPage: (input) => utils.getSessionMessagesPage.fetch(input),
-  });
-  const { recoverMissingDelta, resetDeltaRecoveryState } = useChatDeltaRecovery({
-    readOnly,
-    activeChatIdRef,
-    messageStateRef,
-    updateMessageState,
-    upsertMessageIntoState,
-    normalizeMessage,
-    fetchMessageById: ({ chatId: targetChatId, messageId, signal }) =>
-      utils.getSessionMessageById.fetch(
-        { chatId: targetChatId, messageId },
-        { trpc: { signal } }
-      ),
-    reloadHistory: async () => {
-      await loadHistory(true);
-    },
   });
   reloadHistoryRef.current = async () => {
     await loadHistory(true);
@@ -393,9 +348,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       messageStateRef.current = getChatMessageStateSnapshot(null);
       terminalOutputsRef.current = getChatTerminalOutputsSnapshot(null);
     }
-    resetPendingUserMessageFallbackState();
     resetHistoryState();
-    resetDeltaRecoveryState();
     setPendingPermission(null);
     setError(null);
     setModes(null);
@@ -425,8 +378,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     clearPendingDeltas,
     readOnly,
     resetHistoryState,
-    resetDeltaRecoveryState,
-    resetPendingUserMessageFallbackState,
   ]);
 
   useEffect(() => {
@@ -502,15 +453,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           state: messageStateRef.current,
         });
       }
-      if (event.type === "ui_message") {
-        clearPendingUserMessageFallback(event.message.id);
-      }
-      if (event.type === "chat_finish") {
-        flushPendingUserMessageFallbacks();
-      }
-      if (event.type === "error") {
-        clearAllPendingUserMessageFallbacks();
-      }
       if (event.type === "chat_finish" && !isTurnMatched(event.turnId)) {
         return;
       }
@@ -521,16 +463,12 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         setConnStatus("connected");
       }
       if (event.type === "ui_message_delta") {
-        const deltaTarget = describeDeltaTarget({
-          event,
-          state: messageStateRef.current,
-        });
-        if (!deltaTarget.baseMessage) {
-          recoverMissingDelta(event.messageId, "message_not_found");
+        const baseMessage = messageStateRef.current.byId.get(event.messageId);
+        if (!baseMessage) {
           return;
         }
-        if (!deltaTarget.hasPart) {
-          recoverMissingDelta(event.messageId, "part_not_found");
+        const targetPart = baseMessage.parts[event.partIndex];
+        if (!targetPart || (targetPart.type !== "text" && targetPart.type !== "reasoning")) {
           return;
         }
         enqueueDeltaChunk(event);
@@ -550,6 +488,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
             const normalizedMessage = normalizeMessage(message);
             updateMessageState((prev) =>
               upsertMessageIntoState(prev, normalizedMessage)
+            );
+          },
+          onMessagePartUpdate: (partEvent) => {
+            updateMessageState((prev) =>
+              applyPartUpdate(prev, partEvent)
             );
           },
           getMessageById: (messageId) =>
@@ -619,16 +562,12 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       }
     },
     [
-      clearAllPendingUserMessageFallbacks,
-      clearPendingUserMessageFallback,
       enqueueDeltaChunk,
       flushPendingDeltas,
-      flushPendingUserMessageFallbacks,
       isTurnMatched,
       loadHistory,
       onFinish,
       onError,
-      recoverMissingDelta,
       updateMessageState,
     ]
   );
@@ -680,7 +619,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       onError(err) {
         console.error("[Client] Subscription error:", err);
         clearPendingDeltas();
-        clearAllPendingUserMessageFallbacks();
         setStreamLifecycle((prev) => nextLifecycleOnSubscriptionError(prev));
         setConnStatus("connecting");
         setError(err.message);
@@ -718,7 +656,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setPendingPermission,
     setMessages,
     setStreamLifecycle,
-    clearAllPendingUserMessageFallbacks,
     onLocalConfigOptionMutated: () => {
       hasLocalConfigOverrideRef.current = true;
     },
@@ -728,7 +665,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     onLocalModelMutated: () => {
       hasLocalModelOverrideRef.current = true;
     },
-    schedulePendingUserMessageFallback,
     invalidateHistoryLoads,
     clearHistoryWindow,
     loadHistory,

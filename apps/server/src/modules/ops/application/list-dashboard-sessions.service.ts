@@ -43,7 +43,7 @@ export class ListDashboardSessionsService {
         projectRoot: session.projectRoot,
         projectName: session.projectId
           ? projects.find((p) => p.id === session.projectId)?.name
-          : session.projectRoot.split("/").pop(),
+          : getProjectNameFromRootPath(session.projectRoot),
         modeId: session.modeId,
         status: session.status,
         isActive,
@@ -67,4 +67,13 @@ export class ListDashboardSessionsService {
       },
     };
   }
+}
+
+function getProjectNameFromRootPath(projectRoot: string): string {
+  const trimmed = projectRoot.trim().replace(/[\\/]+$/, "");
+  if (!trimmed) {
+    return projectRoot;
+  }
+  const segments = trimmed.split(/[/\\]+/);
+  return segments[segments.length - 1] || projectRoot;
 }

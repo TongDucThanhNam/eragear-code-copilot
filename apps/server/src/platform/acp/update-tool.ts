@@ -1,4 +1,5 @@
 import type * as acp from "@agentclientprotocol/sdk";
+import type { UIMessage } from "@repo/shared";
 import { toStoredToolCallContent } from "@/shared/utils/content-block.util";
 import {
   buildToolPartForUpdate,
@@ -6,6 +7,7 @@ import {
   upsertToolLocationsPart,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
+import { broadcastUiMessagePart } from "./ui-message-part";
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 import { isToolCallCreate, isToolCallUpdate } from "./update-types";
 
@@ -16,6 +18,7 @@ export async function handleToolCallCreate(
 ): Promise<boolean> {
   const {
     chatId,
+    buffer,
     update,
     sessionRuntime,
     suppressReplayBroadcast,
@@ -25,7 +28,7 @@ export async function handleToolCallCreate(
     return false;
   }
 
-  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, {
+  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, buffer, {
     suppressBroadcast: suppressReplayBroadcast,
   });
 
@@ -40,6 +43,14 @@ export async function handleToolCallCreate(
     session.toolCalls.set(update.toolCallId, sanitizedToolCall);
   }
   if (session) {
+    const previousToolIndex = session.uiState.toolPartIndex.get(
+      update.toolCallId
+    );
+    const previousLocationPartIndex = findToolLocationsPartIndex(
+      session.uiState.messages.get(session.uiState.currentAssistantId ?? "") ??
+        null,
+      update.toolCallId
+    );
     const toolPart = buildToolPartFromCall(sanitizedToolCall);
     const { message } = upsertToolPart({
       state: session.uiState,
@@ -55,10 +66,34 @@ export async function handleToolCallCreate(
         })
       : message;
     if (!suppressReplayBroadcast) {
-      await sessionRuntime.broadcast(chatId, {
-        type: "ui_message",
-        message: messageWithLocations ?? message,
-      });
+      const nextToolIndex = session.uiState.toolPartIndex.get(
+        update.toolCallId
+      );
+      if (nextToolIndex && nextToolIndex.messageId === message.id) {
+        await broadcastUiMessagePart({
+          chatId,
+          sessionRuntime,
+          message,
+          partIndex: nextToolIndex.partIndex,
+          isNew:
+            !previousToolIndex ||
+            previousToolIndex.messageId !== nextToolIndex.messageId ||
+            previousToolIndex.partIndex !== nextToolIndex.partIndex,
+        });
+      }
+      const locationPartIndex = findToolLocationsPartIndex(
+        messageWithLocations ?? message,
+        update.toolCallId
+      );
+      if (locationPartIndex >= 0) {
+        await broadcastUiMessagePart({
+          chatId,
+          sessionRuntime,
+          message: messageWithLocations ?? message,
+          partIndex: locationPartIndex,
+          isNew: previousLocationPartIndex < 0,
+        });
+      }
     }
   }
   return true;
@@ -67,13 +102,29 @@ export async function handleToolCallCreate(
 export async function handleToolCallUpdate(
   context: Pick<
     SessionUpdateContext,
-    "chatId" | "update" | "sessionRuntime" | "suppressReplayBroadcast"
+    | "chatId"
+    | "update"
+    | "sessionRuntime"
+    | "suppressReplayBroadcast"
+    | "buffer"
+    | "finalizeStreamingForCurrentAssistant"
   >
 ): Promise<boolean> {
-  const { chatId, update, sessionRuntime, suppressReplayBroadcast } = context;
+  const {
+    chatId,
+    update,
+    sessionRuntime,
+    suppressReplayBroadcast,
+    buffer,
+    finalizeStreamingForCurrentAssistant,
+  } = context;
   if (!isToolCallUpdate(update)) {
     return false;
   }
+
+  await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, buffer, {
+    suppressBroadcast: suppressReplayBroadcast,
+  });
 
   const session = sessionRuntime.get(chatId);
   if (session) {
@@ -85,6 +136,14 @@ export async function handleToolCallUpdate(
   }
 
   if (session) {
+    const previousToolIndex = session.uiState.toolPartIndex.get(
+      update.toolCallId
+    );
+    const previousLocationPartIndex = findToolLocationsPartIndex(
+      session.uiState.messages.get(session.uiState.currentAssistantId ?? "") ??
+        null,
+      update.toolCallId
+    );
     const mergedToolCall = session.toolCalls.get(update.toolCallId);
     if (!mergedToolCall) {
       return true;
@@ -115,10 +174,34 @@ export async function handleToolCallUpdate(
       messageId: message.id,
     });
     if (!suppressReplayBroadcast) {
-      await sessionRuntime.broadcast(chatId, {
-        type: "ui_message",
-        message: messageWithLocations ?? message,
-      });
+      const nextToolIndex = session.uiState.toolPartIndex.get(
+        update.toolCallId
+      );
+      if (nextToolIndex && nextToolIndex.messageId === message.id) {
+        await broadcastUiMessagePart({
+          chatId,
+          sessionRuntime,
+          message,
+          partIndex: nextToolIndex.partIndex,
+          isNew:
+            !previousToolIndex ||
+            previousToolIndex.messageId !== nextToolIndex.messageId ||
+            previousToolIndex.partIndex !== nextToolIndex.partIndex,
+        });
+      }
+      const locationPartIndex = findToolLocationsPartIndex(
+        messageWithLocations ?? message,
+        update.toolCallId
+      );
+      if (locationPartIndex >= 0) {
+        await broadcastUiMessagePart({
+          chatId,
+          sessionRuntime,
+          message: messageWithLocations ?? message,
+          partIndex: locationPartIndex,
+          isNew: previousLocationPartIndex < 0,
+        });
+      }
     }
   }
   return true;
@@ -142,7 +225,8 @@ function mergeToolCallUpdate(
     status: update.status ?? existing.status,
     title: update.title ?? existing.title,
     kind: update.kind ?? existing.kind,
-    rawInput: update.rawInput === undefined ? existing.rawInput : update.rawInput,
+    rawInput:
+      update.rawInput === undefined ? existing.rawInput : update.rawInput,
     rawOutput:
       update.rawOutput === undefined ? existing.rawOutput : update.rawOutput,
     content: mergedContent,
@@ -188,4 +272,20 @@ function resolveToolCallUpdateContent(
     return undefined;
   }
   return toStoredToolCallContent(incoming);
+}
+
+function findToolLocationsPartIndex(
+  message: UIMessage | null,
+  toolCallId: string
+): number {
+  if (!message) {
+    return -1;
+  }
+  return message.parts.findIndex(
+    (part) =>
+      part.type === "data-tool-locations" &&
+      typeof part.data === "object" &&
+      part.data !== null &&
+      (part.data as { toolCallId?: string }).toolCallId === toolCallId
+  );
 }

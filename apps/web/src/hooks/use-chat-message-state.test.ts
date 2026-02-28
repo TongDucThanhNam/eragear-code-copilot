@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "@repo/shared";
 import {
+  applyPartUpdate,
   applyMessageDeltasIntoState,
   createEmptyMessageState,
   mergeMessagesIntoState,
@@ -178,5 +179,38 @@ describe("use-chat-message-state", () => {
     ]);
 
     expect(updated).toBe(initial);
+  });
+
+  test("applyPartUpdate appends a new part to an existing message", () => {
+    const initial = replaceMessagesState([createMessage("m1", "one")]);
+    const updated = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 1,
+      part: { type: "reasoning", text: "plan", state: "done" },
+      isNew: true,
+    });
+
+    expect(updated.byId.get("m1")?.parts).toEqual([
+      { type: "text", text: "one", state: "done" },
+      { type: "reasoning", text: "plan", state: "done" },
+    ]);
+  });
+
+  test("applyPartUpdate replaces one part in an existing message", () => {
+    const initial = replaceMessagesState([createMessage("m1", "one")]);
+    const updated = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "one-updated", state: "done" },
+      isNew: false,
+    });
+
+    expect(updated.byId.get("m1")?.parts[0]).toEqual({
+      type: "text",
+      text: "one-updated",
+      state: "done",
+    });
   });
 });

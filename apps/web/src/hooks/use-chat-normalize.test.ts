@@ -58,4 +58,22 @@ describe("use-chat normalize", () => {
       { type: "text", text: "final", state: "done" },
     ]);
   });
+
+  test("parseBroadcastEvent keeps ui_message_part payload", () => {
+    const parsed = parseBroadcastEvent({
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "hello", state: "streaming" },
+      isNew: true,
+    });
+
+    expect(parsed.status).toBe("ok");
+    if (parsed.status !== "ok" || parsed.event.type !== "ui_message_part") {
+      return;
+    }
+    expect(parsed.event.messageId).toBe("msg-1");
+    expect(parsed.event.part.type).toBe("text");
+  });
 });

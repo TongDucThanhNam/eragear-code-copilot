@@ -34,6 +34,19 @@ import type { Agent } from "@/store/settings-store";
 
 type FilterTab = "all" | "active" | "inactive";
 
+interface DiscoveredSessionItem {
+  sessionId: string;
+  cwd: string;
+  title?: string | null;
+  updatedAt?: string | null;
+}
+
+type ListedSession = SessionInfo & {
+  name?: string | null;
+  pinned?: boolean;
+  archived?: boolean;
+};
+
 function truncateSessionId(id: string | undefined): string {
   if (!id) {
     return "Unknown";
@@ -46,7 +59,7 @@ function truncateSessionId(id: string | undefined): string {
 
 function getSessionTitle(
   name: string | null | undefined,
-  sessionId: string
+  sessionId: string | undefined
 ): string {
   const trimmedName = name?.trim();
   if (trimmedName) {
@@ -56,8 +69,8 @@ function getSessionTitle(
   return truncateSessionId(sessionId);
 }
 
-function formatTimestamp(dateString: string): string {
-  const date = new Date(dateString);
+function formatTimestamp(dateValue: string | number): string {
+  const date = new Date(dateValue);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60_000);
@@ -95,7 +108,8 @@ export default function SessionsScreen() {
   const { deleteSession, isDeleting: isDeletingSession } = useDeleteSession();
 
   const { setActiveChatId, setSessions } = useChatStore();
-  const { createSession, isCreating } = useCreateSession();
+  const { createSession, loadAgentSession, isCreating } = useCreateSession();
+  const trpcUtils = trpc.useUtils();
   const {
     projects,
     activeProjectId,
@@ -121,7 +135,7 @@ export default function SessionsScreen() {
   const { data: agentsData } = trpc.agents.list.useQuery(undefined, {
     enabled: isConfigured,
   });
-  const agents = agentsData?.agents || [];
+  const agents = (agentsData?.agents ?? []) as Agent[];
   const activeAgentId = agentsData?.activeAgentId;
   const [activeTab, setActiveTab] = useState<FilterTab>("active");
   const [projectForm, setProjectForm] = useState({
@@ -143,6 +157,23 @@ export default function SessionsScreen() {
     archived?: boolean;
   } | null>(null);
   const [sessionNameDraft, setSessionNameDraft] = useState("");
+  const [isDiscoverModalOpen, setIsDiscoverModalOpen] = useState(false);
+  const [discoverAgentId, setDiscoverAgentId] = useState<string | null>(null);
+  const [discoverSessions, setDiscoverSessions] = useState<DiscoveredSessionItem[]>(
+    []
+  );
+  const [discoverNextCursor, setDiscoverNextCursor] = useState<string | null>(
+    null
+  );
+  const [discoverSupported, setDiscoverSupported] = useState(false);
+  const [discoverRequiresAuth, setDiscoverRequiresAuth] = useState(false);
+  const [discoverLoadSessionSupported, setDiscoverLoadSessionSupported] =
+    useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [discoverIsLoading, setDiscoverIsLoading] = useState(false);
+  const [discoverIsLoadingMore, setDiscoverIsLoadingMore] = useState(false);
+  const [pendingDiscoverLoadSessionId, setPendingDiscoverLoadSessionId] =
+    useState<string | null>(null);
 
   const sessionsQuery = trpc.getSessions.useQuery(undefined, {
     refetchOnWindowFocus: true,
@@ -291,6 +322,151 @@ export default function SessionsScreen() {
     void deleteSession(chatId);
   };
 
+  const resetDiscoverState = () => {
+    setDiscoverSessions([]);
+    setDiscoverNextCursor(null);
+    setDiscoverSupported(false);
+    setDiscoverRequiresAuth(false);
+    setDiscoverLoadSessionSupported(false);
+    setDiscoverError(null);
+    setDiscoverIsLoading(false);
+    setDiscoverIsLoadingMore(false);
+    setPendingDiscoverLoadSessionId(null);
+  };
+
+  const runDiscoverSessions = async (params: {
+    agentId: string;
+    cursor?: string;
+    append: boolean;
+  }) => {
+    if (!activeProject) {
+      setDiscoverError("Please select a project before discovering sessions.");
+      return;
+    }
+
+    if (params.append) {
+      setDiscoverIsLoadingMore(true);
+    } else {
+      setDiscoverIsLoading(true);
+      setDiscoverError(null);
+    }
+
+    try {
+      const result = await trpcUtils.discoverAgentSessions.fetch({
+        projectId: activeProject.id,
+        agentId: params.agentId,
+        cursor: params.cursor,
+      });
+      setDiscoverSupported(result.supported);
+      setDiscoverRequiresAuth(result.requiresAuth);
+      setDiscoverLoadSessionSupported(result.loadSessionSupported);
+      setDiscoverNextCursor(result.nextCursor);
+      setDiscoverSessions((prev) => {
+        if (!params.append) {
+          return result.sessions;
+        }
+        const merged = new Map(prev.map((session) => [session.sessionId, session]));
+        for (const session of result.sessions) {
+          merged.set(session.sessionId, session);
+        }
+        return Array.from(merged.values());
+      });
+    } catch (err) {
+      const message =
+        typeof err === "object" && err && "message" in err
+          ? String((err as { message: string }).message)
+          : "Failed to discover agent sessions.";
+      setDiscoverError(message);
+    } finally {
+      setDiscoverIsLoading(false);
+      setDiscoverIsLoadingMore(false);
+    }
+  };
+
+  const handleOpenDiscoverModal = () => {
+    if (!activeProject) {
+      setError("Please select a project before discovering sessions.");
+      return;
+    }
+    if (agents.length === 0) {
+      setError("No agents configured. Please configure an ACP agent first.");
+      return;
+    }
+    const initialAgentId = activeAgentId ?? agents[0]?.id ?? null;
+    if (!initialAgentId) {
+      setError("No agent available for session discovery.");
+      return;
+    }
+    setError(null);
+    resetDiscoverState();
+    setDiscoverAgentId(initialAgentId);
+    setIsDiscoverModalOpen(true);
+    void runDiscoverSessions({
+      agentId: initialAgentId,
+      append: false,
+    });
+  };
+
+  const handleSelectDiscoverAgent = (agentId: string) => {
+    setDiscoverAgentId(agentId);
+    resetDiscoverState();
+    void runDiscoverSessions({
+      agentId,
+      append: false,
+    });
+  };
+
+  const handleLoadMoreDiscoveredSessions = () => {
+    if (
+      !discoverAgentId ||
+      !discoverNextCursor ||
+      discoverIsLoading ||
+      discoverIsLoadingMore
+    ) {
+      return;
+    }
+    void runDiscoverSessions({
+      agentId: discoverAgentId,
+      cursor: discoverNextCursor,
+      append: true,
+    });
+  };
+
+  const handleLoadDiscoveredSession = async (sessionId: string) => {
+    if (!activeProject || !discoverAgentId || isCreating) {
+      return;
+    }
+
+    const selectedAgent = agents.find(
+      (agent: Agent) => agent.id === discoverAgentId
+    );
+    if (!selectedAgent) {
+      setDiscoverError("Selected agent was not found.");
+      return;
+    }
+
+    setPendingDiscoverLoadSessionId(sessionId);
+    try {
+      const { chatId } = await loadAgentSession({
+        agent: selectedAgent,
+        projectId: activeProject.id,
+        sessionId,
+      });
+      setIsDiscoverModalOpen(false);
+      setDiscoverAgentId(null);
+      resetDiscoverState();
+      router.push(`/chats/${chatId}`);
+    } catch (err) {
+      const message =
+        typeof err === "object" && err && "message" in err
+          ? String((err as { message: string }).message)
+          : "Failed to load selected session.";
+      setDiscoverError(message);
+    } finally {
+      setPendingDiscoverLoadSessionId(null);
+    }
+  };
+
   const handleCreateProject = () => {
     setError(null);
     const name = projectForm.name.trim();
@@ -400,7 +576,7 @@ export default function SessionsScreen() {
     });
   };
 
-  const sessions = sessionsQuery.data ?? [];
+  const sessions = (sessionsQuery.data ?? []) as ListedSession[];
 
   const visibleSessions = activeProjectId
     ? sessions.filter((session) => session.projectId === activeProjectId)
@@ -655,6 +831,16 @@ export default function SessionsScreen() {
           </Tabs.List>
         </Tabs>
 
+        <View className="mb-3 mt-2 flex-row justify-end">
+          <Button
+            isDisabled={isCreating || !activeProject || agents.length === 0}
+            onPress={handleOpenDiscoverModal}
+            variant="ghost"
+          >
+            <Button.Label>Load Existing Session</Button.Label>
+          </Button>
+        </View>
+
         {/* Sessions List */}
         {renderContent}
       </View>
@@ -843,6 +1029,199 @@ export default function SessionsScreen() {
               <Button onPress={() => setEditingProject(null)} variant="ghost">
                 <Button.Label>Cancel</Button.Label>
               </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Discover Agent Sessions Modal */}
+      <Modal
+        animationType="slide"
+        onRequestClose={() => {
+          setIsDiscoverModalOpen(false);
+          setDiscoverAgentId(null);
+          resetDiscoverState();
+        }}
+        transparent
+        visible={isDiscoverModalOpen}
+      >
+        <View className="flex-1 justify-end bg-black/60">
+          <View className="max-h-[85%] rounded-t-3xl bg-zinc-900 p-6">
+            <View className="mb-4 flex-row items-center justify-between">
+              <View>
+                <Text className="font-semibold text-lg text-white">
+                  Load Existing Session
+                </Text>
+                <Text className="mt-1 text-xs text-zinc-400">
+                  {activeProject
+                    ? `Project: ${activeProject.name}`
+                    : "Select a project to continue"}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setIsDiscoverModalOpen(false);
+                  setDiscoverAgentId(null);
+                  resetDiscoverState();
+                }}
+              >
+                <Ionicons color="#94a3b8" name="close" size={20} />
+              </Pressable>
+            </View>
+
+            <View className="mb-4">
+              <Text className="mb-2 font-semibold text-sm text-zinc-300">
+                Agent
+              </Text>
+              <AgentPicker
+                activeAgentId={discoverAgentId}
+                agents={agents}
+                emptyLabel="No agents configured."
+                isLoading={discoverIsLoading || isCreating}
+                onSelect={handleSelectDiscoverAgent}
+              />
+            </View>
+
+            {discoverIsLoading ? (
+              <View className="mb-3 flex-row items-center">
+                <Spinner size="sm" />
+                <Text className="ml-2 text-zinc-300 text-xs">
+                  Discovering sessions...
+                </Text>
+              </View>
+            ) : null}
+
+            {discoverError ? (
+              <View className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
+                <Text className="text-red-300 text-xs">{discoverError}</Text>
+              </View>
+            ) : null}
+
+            {!discoverIsLoading && !discoverError && discoverRequiresAuth ? (
+              <View className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                <Text className="text-amber-300 text-xs">
+                  Agent requires authentication before session discovery.
+                </Text>
+              </View>
+            ) : null}
+
+            {!discoverIsLoading &&
+            !discoverError &&
+            !discoverRequiresAuth &&
+            !discoverSupported ? (
+              <View className="mb-3 rounded-md border border-zinc-600 bg-zinc-800/60 px-3 py-2">
+                <Text className="text-xs text-zinc-300">
+                  This agent does not advertise `session/list`.
+                </Text>
+              </View>
+            ) : null}
+
+            {!discoverIsLoading &&
+            !discoverError &&
+            discoverSupported &&
+            !discoverRequiresAuth &&
+            discoverSessions.length === 0 ? (
+              <View className="mb-3 rounded-md border border-zinc-600 bg-zinc-800/60 px-3 py-2">
+                <Text className="text-xs text-zinc-300">
+                  No sessions found for this project root.
+                </Text>
+              </View>
+            ) : null}
+
+            {!discoverIsLoading &&
+            !discoverError &&
+            discoverSupported &&
+            !discoverRequiresAuth &&
+            discoverSessions.length > 0 ? (
+              <ScrollView className="max-h-[240px]">
+                {discoverSessions.map((session) => {
+                  const isLoadingTarget =
+                    pendingDiscoverLoadSessionId === session.sessionId;
+                  return (
+                    <View
+                      className="mb-2 rounded-lg border border-zinc-700 p-3"
+                      key={session.sessionId}
+                    >
+                      <Text
+                        className="font-semibold text-sm text-white"
+                        numberOfLines={1}
+                      >
+                        {session.title?.trim() || session.sessionId}
+                      </Text>
+                      <Text
+                        className="mt-1 font-mono text-[11px] text-zinc-400"
+                        numberOfLines={1}
+                      >
+                        {session.sessionId}
+                      </Text>
+                      <Text
+                        className="mt-1 text-[11px] text-zinc-500"
+                        numberOfLines={1}
+                      >
+                        cwd: {session.cwd}
+                      </Text>
+                      {session.updatedAt ? (
+                        <Text className="mt-1 text-[11px] text-zinc-500">
+                          updated: {formatTimestamp(session.updatedAt)}
+                        </Text>
+                      ) : null}
+                      <View className="mt-3">
+                        <Button
+                          isDisabled={isCreating || !discoverLoadSessionSupported}
+                          onPress={() =>
+                            void handleLoadDiscoveredSession(session.sessionId)
+                          }
+                        >
+                          <Button.Label>
+                            {isLoadingTarget ? "Loading..." : "Load Session"}
+                          </Button.Label>
+                        </Button>
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
+
+            {!discoverLoadSessionSupported &&
+            discoverSupported &&
+            !discoverRequiresAuth ? (
+              <View className="mt-2 rounded-md border border-zinc-600 bg-zinc-800/60 px-3 py-2">
+                <Text className="text-xs text-zinc-300">
+                  Agent lists sessions but does not support `session/load`.
+                </Text>
+              </View>
+            ) : null}
+
+            <View className="mt-4 gap-2">
+              <Button
+                isDisabled={!discoverAgentId || discoverIsLoading}
+                onPress={() => {
+                  if (!discoverAgentId) {
+                    return;
+                  }
+                  void runDiscoverSessions({
+                    agentId: discoverAgentId,
+                    append: false,
+                  });
+                }}
+                variant="ghost"
+              >
+                <Button.Label>
+                  {discoverIsLoading ? "Refreshing..." : "Refresh"}
+                </Button.Label>
+              </Button>
+              {discoverNextCursor ? (
+                <Button
+                  isDisabled={discoverIsLoadingMore}
+                  onPress={handleLoadMoreDiscoveredSessions}
+                  variant="ghost"
+                >
+                  <Button.Label>
+                    {discoverIsLoadingMore ? "Loading..." : "Load More"}
+                  </Button.Label>
+                </Button>
+              ) : null}
             </View>
           </View>
         </View>

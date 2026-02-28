@@ -1,5 +1,6 @@
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
+import type { UIMessage } from "@repo/shared";
 import { NotFoundError } from "@/shared/errors";
 import type {
   BroadcastEvent,
@@ -116,6 +117,10 @@ export class SubscribeSessionEventsService {
         chatId,
         bufferedEvents: snapshot.bufferedEvents.length,
         bufferedSnapshots: countEventType(snapshot.bufferedEvents, "ui_message"),
+        bufferedPartUpdates: countEventType(
+          snapshot.bufferedEvents,
+          "ui_message_part"
+        ),
         bufferedDeltas: countEventType(
           snapshot.bufferedEvents,
           "ui_message_delta"
@@ -184,7 +189,11 @@ export class SubscribeSessionEventsService {
 }
 
 function shouldLogStreamEvent(event: BroadcastEvent): boolean {
-  return event.type === "ui_message" || event.type === "ui_message_delta";
+  return (
+    event.type === "ui_message" ||
+    event.type === "ui_message_part" ||
+    event.type === "ui_message_delta"
+  );
 }
 
 function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown> {
@@ -199,6 +208,14 @@ function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown>
       messageId: event.messageId,
       partIndex: event.partIndex,
       deltaLength: event.delta.length,
+    };
+  }
+  if (event.type === "ui_message_part") {
+    return {
+      messageId: event.messageId,
+      partIndex: event.partIndex,
+      isNew: event.isNew,
+      partType: event.part.type,
     };
   }
   return {
@@ -226,35 +243,75 @@ function buildBufferedEvents(session: ChatSession): {
   const replayEvents = session.messageBuffer.filter((event) => {
     return event.type !== "chat_status" && event.type !== "chat_finish";
   });
-  const bufferedEvents = cloneBroadcastEvents(replayEvents);
+  const snapshotMessages = Array.from(session.uiState.messages.values()).sort(
+    (left, right) => {
+      const leftCreatedAt = left.createdAt ?? 0;
+      const rightCreatedAt = right.createdAt ?? 0;
+      if (leftCreatedAt !== rightCreatedAt) {
+        return leftCreatedAt - rightCreatedAt;
+      }
+      return left.id.localeCompare(right.id);
+    }
+  );
+  const replaySnapshotMap = new Map<string, UIMessage>();
+  for (const event of replayEvents) {
+    if (event.type !== "ui_message") {
+      continue;
+    }
+    replaySnapshotMap.set(event.message.id, event.message);
+  }
+  const effectiveSnapshots =
+    snapshotMessages.length > 0
+      ? snapshotMessages
+      : Array.from(replaySnapshotMap.values()).sort((left, right) => {
+          const leftCreatedAt = left.createdAt ?? 0;
+          const rightCreatedAt = right.createdAt ?? 0;
+          if (leftCreatedAt !== rightCreatedAt) {
+            return leftCreatedAt - rightCreatedAt;
+          }
+          return left.id.localeCompare(right.id);
+        });
+  const snapshotEvents = effectiveSnapshots.map((message) =>
+    cloneBroadcastEvent({
+      type: "ui_message",
+      message,
+    })
+  );
+
+  const passThroughEvents = cloneBroadcastEvents(
+    replayEvents.filter((event) => {
+      return (
+        event.type !== "ui_message" &&
+        event.type !== "ui_message_part" &&
+        event.type !== "ui_message_delta"
+      );
+    })
+  );
+
   const activeAssistantId = session.uiState.currentAssistantId;
-  if (!activeAssistantId) {
-    return {
-      events: bufferedEvents,
-      forcedActiveSnapshot: false,
-    };
-  }
-  const activeAssistantMessage = session.uiState.messages.get(activeAssistantId);
-  if (!activeAssistantMessage) {
-    return {
-      events: bufferedEvents,
-      forcedActiveSnapshot: false,
-    };
-  }
-  const hasSnapshotInBuffer = bufferedEvents.some(
+  const pendingActiveEvents = activeAssistantId
+    ? cloneBroadcastEvents(
+        replayEvents.filter((event) => {
+          if (event.type === "ui_message_part" || event.type === "ui_message_delta") {
+            return event.messageId === activeAssistantId;
+          }
+          return false;
+        })
+      )
+    : [];
+
+  const hasActiveSnapshotInReplay = replayEvents.some(
     (event) =>
       event.type === "ui_message" && event.message.id === activeAssistantId
   );
-  let forcedActiveSnapshot = false;
-  if (!hasSnapshotInBuffer) {
-    bufferedEvents.push(cloneBroadcastEvent({
-      type: "ui_message",
-      message: activeAssistantMessage,
-    }));
-    forcedActiveSnapshot = true;
-  }
+  const forcedActiveSnapshot = Boolean(
+    activeAssistantId &&
+      session.uiState.messages.has(activeAssistantId) &&
+      !hasActiveSnapshotInReplay
+  );
+
   return {
-    events: bufferedEvents,
+    events: [...snapshotEvents, ...passThroughEvents, ...pendingActiveEvents],
     forcedActiveSnapshot,
   };
 }

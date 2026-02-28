@@ -15,12 +15,17 @@ import type {
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { updateChatStatus } from "@/shared/utils/chat-events.util";
-import { finalizeStreamingParts } from "@/shared/utils/ui-message.util";
 import {
   findSessionConfigOption,
   syncSessionSelectionFromConfigOptions,
   updateSessionConfigOptionCurrentValue,
 } from "@/shared/utils/session-config-options.util";
+import {
+  appendReasoningBlock,
+  finalizeStreamingParts,
+  getOrCreateAssistantMessage,
+} from "@/shared/utils/ui-message.util";
+import { broadcastUiMessagePart } from "./ui-message-part";
 import { SessionBuffering as SessionBufferingImpl } from "./update-buffer";
 import { handlePlanUpdate } from "./update-plan";
 import { handleBufferedMessage, isStreamingUpdate } from "./update-stream";
@@ -35,20 +40,63 @@ const logger = createLogger("Debug");
 async function finalizeStreamingForCurrentAssistant(
   chatId: string,
   sessionRuntime: SessionRuntimePort,
+  buffer: SessionBufferingPort,
   options?: { suppressBroadcast?: boolean }
 ): Promise<void> {
   const suppressBroadcast = options?.suppressBroadcast === true;
   const session = sessionRuntime.get(chatId);
-  if (!session?.uiState.currentAssistantId) {
+  if (!session) {
     return;
   }
-  const message = session.uiState.messages.get(
-    session.uiState.currentAssistantId
-  );
+
+  const targetMessageId =
+    session.uiState.currentAssistantId ?? buffer.getMessageId();
+  if (!targetMessageId) {
+    return;
+  }
+
+  let message = session.uiState.messages.get(targetMessageId);
   if (!message) {
-    return;
+    message = getOrCreateAssistantMessage(session.uiState, targetMessageId);
   }
-  const hasStreaming = message.parts.some(
+
+  let nextMessage = message;
+
+  // Flush any pending reasoning blocks → broadcast each as a complete part
+  const pendingReasoning = buffer.consumePendingReasoning();
+  if (pendingReasoning?.blocks.length) {
+    // Log aggregated reasoning part completion
+    logger.info("ACP reasoning part complete", {
+      chatId,
+      totalChunks: pendingReasoning.chunkCount,
+      totalChars: pendingReasoning.text.length,
+      durationMs: pendingReasoning.durationMs,
+    });
+
+    const previousPartsLength = nextMessage.parts.length;
+    let updatedMessage = nextMessage;
+    for (const block of pendingReasoning.blocks) {
+      updatedMessage = appendReasoningBlock(updatedMessage, block, "done");
+    }
+    if (updatedMessage !== nextMessage) {
+      const nextPartIndex = updatedMessage.parts.length - 1;
+      const isNew = updatedMessage.parts.length > previousPartsLength;
+      session.uiState.messages.set(updatedMessage.id, updatedMessage);
+      nextMessage = updatedMessage;
+      if (!suppressBroadcast && nextPartIndex >= 0) {
+        await broadcastUiMessagePart({
+          chatId,
+          sessionRuntime,
+          message: updatedMessage,
+          partIndex: nextPartIndex,
+          isNew,
+        });
+      }
+    }
+  }
+
+  // Finalize any remaining streaming text/reasoning parts → state: "done"
+  const hasStreaming = nextMessage.parts.some(
     (part) =>
       (part.type === "text" || part.type === "reasoning") &&
       part.state === "streaming"
@@ -56,14 +104,27 @@ async function finalizeStreamingForCurrentAssistant(
   if (!hasStreaming) {
     return;
   }
-  const finalizedMessage = finalizeStreamingParts(message);
-  if (finalizedMessage !== message) {
+  const finalizedMessage = finalizeStreamingParts(nextMessage);
+  if (finalizedMessage !== nextMessage) {
     session.uiState.messages.set(finalizedMessage.id, finalizedMessage);
   }
-  if (!suppressBroadcast) {
-    await sessionRuntime.broadcast(chatId, {
-      type: "ui_message",
+  if (suppressBroadcast) {
+    return;
+  }
+
+  // Broadcast only the parts that actually changed (streaming → done)
+  for (let index = 0; index < finalizedMessage.parts.length; index += 1) {
+    const previousPart = nextMessage.parts[index];
+    const finalizedPart = finalizedMessage.parts[index];
+    if (!(previousPart && finalizedPart) || previousPart === finalizedPart) {
+      continue;
+    }
+    await broadcastUiMessagePart({
+      chatId,
+      sessionRuntime,
       message: finalizedMessage,
+      partIndex: index,
+      isNew: false,
     });
   }
 }
@@ -150,8 +211,13 @@ async function handleModeUpdate(
     | "suppressReplayBroadcast"
   >
 ): Promise<boolean> {
-  const { chatId, update, sessionRuntime, sessionRepo, suppressReplayBroadcast } =
-    context;
+  const {
+    chatId,
+    update,
+    sessionRuntime,
+    sessionRepo,
+    suppressReplayBroadcast,
+  } = context;
   if (update.sessionUpdate !== "current_mode_update") {
     return false;
   }
@@ -200,8 +266,13 @@ async function handleCommandsUpdate(
     | "suppressReplayBroadcast"
   >
 ): Promise<boolean> {
-  const { chatId, update, sessionRuntime, sessionRepo, suppressReplayBroadcast } =
-    context;
+  const {
+    chatId,
+    update,
+    sessionRuntime,
+    sessionRepo,
+    suppressReplayBroadcast,
+  } = context;
   if (update.sessionUpdate !== "available_commands_update") {
     return false;
   }
@@ -238,8 +309,13 @@ async function handleConfigOptionsUpdate(
     | "suppressReplayBroadcast"
   >
 ): Promise<boolean> {
-  const { chatId, update, sessionRuntime, sessionRepo, suppressReplayBroadcast } =
-    context;
+  const {
+    chatId,
+    update,
+    sessionRuntime,
+    sessionRepo,
+    suppressReplayBroadcast,
+  } = context;
   if (update.sessionUpdate !== "config_option_update") {
     return false;
   }
@@ -319,9 +395,9 @@ async function handleSessionInfoUpdate(
     return true;
   }
 
-  const hasTitle = Object.prototype.hasOwnProperty.call(update, "title");
-  const hasUpdatedAt = Object.prototype.hasOwnProperty.call(update, "updatedAt");
-  if (!hasTitle && !hasUpdatedAt) {
+  const hasTitle = Object.hasOwn(update, "title");
+  const hasUpdatedAt = Object.hasOwn(update, "updatedAt");
+  if (!(hasTitle || hasUpdatedAt)) {
     return true;
   }
 
@@ -378,14 +454,12 @@ export function createSessionUpdateHandler(
         ...summary,
       });
     }
-    if (suppressReplay) {
-      if (isDebugEnabled && summary) {
-        logger.debug("ACP replay update broadcast suppressed", {
-          chatId,
-          replayEventCount: buffer.replayEventCount,
-          ...summary,
-        });
-      }
+    if (suppressReplay && isDebugEnabled && summary) {
+      logger.debug("ACP replay update broadcast suppressed", {
+        chatId,
+        replayEventCount: buffer.replayEventCount,
+        ...summary,
+      });
     }
 
     await sessionRuntime.runExclusive(chatId, async () => {
@@ -395,6 +469,12 @@ export function createSessionUpdateHandler(
         update,
         sessionRuntime
       );
+
+      const activeSession = sessionRuntime.get(chatId);
+      if (activeSession && update.sessionUpdate !== "user_message_chunk") {
+        // Keep user chunk aggregation bounded to one contiguous user stream.
+        activeSession.uiState.currentUserId = undefined;
+      }
 
       const context: SessionUpdateContext = {
         chatId,
@@ -464,7 +544,9 @@ async function maybeMarkStreaming(
   if (!session || session.chatStatus === "cancelling") {
     return;
   }
-  const hasActiveTurn = Boolean(session.activeTurnId || session.activePromptTask);
+  const hasActiveTurn = Boolean(
+    session.activeTurnId || session.activePromptTask
+  );
   if (!hasActiveTurn) {
     if (shouldEmitRuntimeLog("debug")) {
       logger.debug("Skip streaming status update without active turn", {

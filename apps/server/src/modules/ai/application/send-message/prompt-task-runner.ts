@@ -14,8 +14,10 @@ import type { ChatSession } from "@/shared/types/session.types";
 import { mapStopReasonToFinishReason } from "@/shared/utils/chat-events.util";
 import { createId } from "@/shared/utils/id.util";
 import {
+  appendReasoningBlock,
   buildAssistantMessageFromBlocks,
   finalizeStreamingParts,
+  getOrCreateAssistantMessage,
 } from "@/shared/utils/ui-message.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "../acp-retry-policy";
 import { AI_OP, HTTP_STATUS } from "../ai.constants";
@@ -535,6 +537,49 @@ export class PromptTaskRunner {
   }): Promise<void> {
     const { chatId, aggregate, session, broadcast, turnId, stopReason } =
       params;
+
+    if (session.buffer?.hasPendingReasoning()) {
+      const bufferedMessageId = session.buffer.ensureMessageId(
+        session.uiState.currentAssistantId
+      );
+      const currentAssistantMessage = getOrCreateAssistantMessage(
+        session.uiState,
+        bufferedMessageId
+      );
+      let updatedAssistantMessage = currentAssistantMessage;
+      const pendingReasoning = session.buffer.consumePendingReasoning();
+      if (pendingReasoning?.blocks.length) {
+        const previousPartsLength = currentAssistantMessage.parts.length;
+        for (const block of pendingReasoning.blocks) {
+          updatedAssistantMessage = appendReasoningBlock(
+            updatedAssistantMessage,
+            block,
+            "done"
+          );
+        }
+        if (updatedAssistantMessage !== currentAssistantMessage) {
+          session.uiState.messages.set(
+            updatedAssistantMessage.id,
+            updatedAssistantMessage
+          );
+          const partIndex = updatedAssistantMessage.parts.length - 1;
+          const isNew = updatedAssistantMessage.parts.length > previousPartsLength;
+          const part =
+            partIndex >= 0 ? updatedAssistantMessage.parts[partIndex] : undefined;
+          if (partIndex >= 0 && part) {
+            await broadcast(chatId, {
+              type: "ui_message_part",
+              messageId: updatedAssistantMessage.id,
+              messageRole: updatedAssistantMessage.role,
+              partIndex,
+              part,
+              isNew,
+            });
+          }
+        }
+      }
+    }
+
     if (session.buffer) {
       const message = session.buffer.flush();
       if (message) {
@@ -562,15 +607,32 @@ export class PromptTaskRunner {
       const finalizedMessage = finalizeStreamingParts(current);
       if (finalizedMessage !== current) {
         session.uiState.messages.set(finalizedMessage.id, finalizedMessage);
+        for (let index = 0; index < finalizedMessage.parts.length; index += 1) {
+          const previousPart = current.parts[index];
+          const nextPart = finalizedMessage.parts[index];
+          if (!(previousPart && nextPart) || previousPart === nextPart) {
+            continue;
+          }
+          await broadcast(chatId, {
+            type: "ui_message_part",
+            messageId: finalizedMessage.id,
+            messageRole: finalizedMessage.role,
+            partIndex: index,
+            part: nextPart,
+            isNew: false,
+          });
+        }
       }
-      await broadcast(chatId, {
-        type: "ui_message",
-        message: finalizedMessage,
-      });
       this.logger.debug("SendMessageService finalized streaming message", {
         chatId,
         messageId: finalizedMessage.id,
         parts: finalizedMessage.parts.length,
+        emittedPartUpdates:
+          finalizedMessage === current
+            ? 0
+            : finalizedMessage.parts.reduce((count, part, index) => {
+                return part !== current.parts[index] ? count + 1 : count;
+              }, 0),
         turnId,
       });
       aggregate.clearCurrentStreamingAssistantId();

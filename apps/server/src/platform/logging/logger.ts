@@ -3,6 +3,7 @@ import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LogEntry, LogLevel } from "@/shared/types/log.types";
 import { createId } from "@/shared/utils/id.util";
 import { getObservabilityContext } from "@/shared/utils/observability-context.util";
+import { isAcpLogMessage } from "@/shared/utils/acp-log.util";
 import { getLogStore } from "./log-store";
 import { shouldEmitRuntimeLog } from "./runtime-log-level";
 
@@ -118,10 +119,6 @@ function parseStructuredConsolePayload(message: string): {
   }
 }
 
-function isAcpMessage(message: string): boolean {
-  return message.toLowerCase().includes("acp");
-}
-
 export class Logger {
   private readonly store: LogStorePort;
 
@@ -180,11 +177,16 @@ export class Logger {
     normalizedError?: LogEntry["error"];
   }): void {
     const { level, message, context, normalizedError } = params;
+    const acpRelated = isAcpLogMessage(message);
     const payload = parseStructuredConsolePayload(message);
     if (payload) {
       const resolvedLevel = payload.level ?? level;
-      const acpRelated = isAcpMessage(payload.message);
-      if (acpRelated || resolvedLevel === "warn" || resolvedLevel === "error") {
+      const payloadAcpRelated = isAcpLogMessage(payload.message);
+      if (
+        payloadAcpRelated ||
+        resolvedLevel === "warn" ||
+        resolvedLevel === "error"
+      ) {
         const mergedMeta = {
           ...(context?.meta ?? {}),
           ...(payload.context ?? {}),
@@ -192,7 +194,7 @@ export class Logger {
         };
         const entry = this.buildEntry(resolvedLevel, payload.message, {
           ...context,
-          source: acpRelated ? "acp" : context?.source,
+          source: payloadAcpRelated ? "acp" : context?.source,
           chatId: context?.chatId ?? payload.chatId,
           meta: mergedMeta,
           error: normalizedError,
@@ -205,13 +207,14 @@ export class Logger {
     if (level === "warn" || level === "error") {
       const entry = this.buildEntry(level, message, {
         ...context,
+        source: acpRelated ? "acp" : context?.source,
         error: normalizedError,
       });
       this.store.append(entry);
       return;
     }
 
-    if (isAcpMessage(message)) {
+    if (acpRelated) {
       const entry = this.buildEntry(level, message, {
         ...context,
         source: "acp",

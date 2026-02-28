@@ -210,6 +210,16 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .passthrough(),
   z
     .object({
+      type: z.literal("ui_message_part"),
+      messageId: z.string(),
+      messageRole: z.enum(["system", "user", "assistant"]),
+      partIndex: z.number().int().nonnegative(),
+      part: UI_MESSAGE_PART_SCHEMA,
+      isNew: z.boolean(),
+    })
+    .passthrough(),
+  z
+    .object({
       type: z.literal("ui_message_delta"),
       messageId: z.string(),
       partIndex: z.number().int().nonnegative(),
@@ -288,6 +298,7 @@ const BROADCAST_EVENT_TYPES = [
   "chat_status",
   "chat_finish",
   "ui_message",
+  "ui_message_part",
   "ui_message_delta",
   "file_modified",
   "available_commands_update",
@@ -470,6 +481,26 @@ export function parseBroadcastEventClientSafe(
     normalizedRaw = {
       ...(raw as Record<string, unknown>),
       message: uiMessage.value,
+    };
+  } else if (eventType === "ui_message_part") {
+    if (!isRecord(raw)) {
+      return {
+        ok: false,
+        kind: "invalid_payload",
+        error: "Invalid chat broadcast event: root: Expected object payload",
+      };
+    }
+    const parsedPart = UI_MESSAGE_PART_SCHEMA.safeParse(raw.part);
+    if (!parsedPart.success) {
+      return {
+        ok: false,
+        kind: "invalid_payload",
+        error: toParseErrorMessage("Invalid UI message part payload", parsedPart.error),
+      };
+    }
+    normalizedRaw = {
+      ...raw,
+      part: parsedPart.data,
     };
   } else if (
     eventType === "chat_finish" &&

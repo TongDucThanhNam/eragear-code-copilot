@@ -20,7 +20,7 @@ import type {
   ToolCall,
   WaitForTerminalExitResponse,
 } from "@agentclientprotocol/sdk";
-import type { UIMessage, UIMessagePart } from "@repo/shared";
+import type { UIMessage, UIMessagePart, UIMessageRole } from "@repo/shared";
 import type { AgentInfo as DomainAgentInfo } from "./agent.types";
 
 // ============================================================================
@@ -139,6 +139,17 @@ export interface SessionBuffer {
   appendContent(block: StoredContentBlock): void;
   /** Append reasoning block to the buffer */
   appendReasoning(block: StoredContentBlock): void;
+  /** Consume reasoning chunks that have not been emitted to UI yet */
+  consumePendingReasoning(): {
+    text: string;
+    blocks: StoredContentBlock[];
+  } | null;
+  /** Whether un-emitted reasoning chunks are currently buffered */
+  hasPendingReasoning(): boolean;
+  /** Return current buffered message id if present */
+  getMessageId(): string | null;
+  /** Ensure buffered message id exists and return it */
+  ensureMessageId(preferredId?: string): string;
   /** Flush and return the accumulated message, or null if empty */
   flush(): {
     id: string;
@@ -272,6 +283,14 @@ export type BroadcastEvent =
       turnId?: string;
     }
   | { type: "ui_message"; message: UIMessage }
+  | {
+      type: "ui_message_part";
+      messageId: string;
+      messageRole: UIMessageRole;
+      partIndex: number;
+      part: UIMessagePart;
+      isNew: boolean;
+    }
   | {
       type: "ui_message_delta";
       messageId: string;

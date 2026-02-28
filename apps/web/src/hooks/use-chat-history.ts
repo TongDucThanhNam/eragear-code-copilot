@@ -3,7 +3,6 @@ import { findPendingPermission } from "@repo/shared";
 import { useCallback, useRef, useState, type MutableRefObject } from "react";
 import type { MessageState } from "./use-chat-message-state";
 import {
-  getOrderedMessages,
   mergeMessagesIntoState,
   prependMessagesIntoState,
   replaceMessagesState,
@@ -182,17 +181,11 @@ export function useChatHistory({
 
           const normalizedMessages = normalizeMessages(page.messages);
           if (normalizedMessages.length > 0) {
-            const shouldRebaseOrder = !historyAppliedRef.current;
             updateMessageState((prev) => {
               if (prev.order.length === 0) {
                 return replaceMessagesState(normalizedMessages);
               }
-              if (!shouldRebaseOrder) {
-                return mergeMessagesIntoState(prev, normalizedMessages);
-              }
-              const existingOrderedMessages = getOrderedMessages(prev);
-              const historyState = replaceMessagesState(normalizedMessages);
-              return mergeMessagesIntoState(historyState, existingOrderedMessages);
+              return mergeMessagesIntoState(prev, normalizedMessages);
             });
             setPendingPermission(
               findPendingPermission(messageStateRef.current.byId.values())

@@ -46,4 +46,29 @@ describe("SessionBuffering", () => {
     expect(flushed).not.toBeNull();
     expect(flushed?.contentBlocks.length).toBeLessThanOrEqual(2048);
   });
+
+  test("consumes pending reasoning without losing durable reasoning buffer", () => {
+    const buffer = new SessionBuffering();
+    buffer.appendReasoning({ type: "text", text: "step-1 " });
+    buffer.appendReasoning({ type: "text", text: "step-2" });
+
+    const pending = buffer.consumePendingReasoning();
+    expect(pending).toMatchObject({
+      text: "step-1 step-2",
+      blocks: [
+        { type: "text", text: "step-1 " },
+        { type: "text", text: "step-2" },
+      ],
+      chunkCount: 2,
+    });
+    expect(typeof pending?.durationMs).toBe("number");
+    expect(buffer.hasPendingReasoning()).toBe(false);
+
+    const flushed = buffer.flush();
+    expect(flushed?.reasoning).toBe("step-1 step-2");
+    expect(flushed?.reasoningBlocks).toEqual([
+      { type: "text", text: "step-1 " },
+      { type: "text", text: "step-2" },
+    ]);
+  });
 });

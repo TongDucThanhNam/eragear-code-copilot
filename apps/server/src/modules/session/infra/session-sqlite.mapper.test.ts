@@ -18,6 +18,8 @@ function createSessionListRow(): SessionListRow {
   return {
     id: "session-1",
     userId: "user-1",
+    agentId: "agent-1",
+    agentName: "codex",
     name: "Session 1",
     sessionId: "acp-session-1",
     projectId: "project-1",

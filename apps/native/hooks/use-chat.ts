@@ -307,10 +307,63 @@ export function useChat(options: UseChatOptions = {}) {
     [flushMessages]
   );
 
+  const applyMessagePartUpdate = useCallback(
+    (payload: {
+      messageId: string;
+      messageRole: UIMessage["role"];
+      partIndex: number;
+      part: UIMessage["parts"][number];
+      isNew: boolean;
+    }) => {
+      const current = useChatStore.getState().getMessageById(payload.messageId);
+      if (!current) {
+        if (!payload.isNew && payload.partIndex > 0) {
+          return;
+        }
+        applyMessagesImmediate({
+          id: payload.messageId,
+          role: payload.messageRole,
+          parts: [payload.part],
+        });
+        return;
+      }
+
+      const nextParts = [...current.parts];
+      if (payload.isNew) {
+        if (payload.partIndex < 0 || payload.partIndex > nextParts.length) {
+          return;
+        }
+        if (payload.partIndex === nextParts.length) {
+          nextParts.push(payload.part);
+        } else {
+          nextParts.splice(payload.partIndex, 0, payload.part);
+        }
+      } else {
+        if (payload.partIndex < 0 || payload.partIndex >= nextParts.length) {
+          return;
+        }
+        nextParts[payload.partIndex] = payload.part;
+      }
+
+      applyMessagesImmediate({
+        ...current,
+        parts: nextParts,
+      });
+    },
+    [applyMessagesImmediate]
+  );
+
   // Subscription Handler - uses shared core logic
   const handleSessionEvent = useCallback(
     (event: BroadcastEvent) => {
       const store = useChatStore.getState();
+      if (
+        event.type === "ui_message" &&
+        event.message.role === "assistant" &&
+        Boolean(store.getMessageById(event.message.id))
+      ) {
+        return;
+      }
       const currentModes = store.modes;
       const currentModels = store.models;
       const shouldBatch =
@@ -326,6 +379,7 @@ export function useChat(options: UseChatOptions = {}) {
           onStatusChange: store.setStatus,
           onConnStatusChange: store.setConnStatus,
           onMessageUpsert,
+          onMessagePartUpdate: applyMessagePartUpdate,
           getMessageById,
           getCommands: () => useChatStore.getState().commands,
           onModesChange: store.setModes,
@@ -358,9 +412,9 @@ export function useChat(options: UseChatOptions = {}) {
     },
     [
       isStreamingUiMessage,
+      applyMessagePartUpdate,
       applyMessagesImmediate,
       scheduleMessagesUpdate,
-      syncPendingPermission,
       triggerStreamEndHaptic,
       getMessageById,
     ]

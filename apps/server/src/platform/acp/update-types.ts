@@ -18,6 +18,7 @@ export interface SessionUpdateContext {
   finalizeStreamingForCurrentAssistant: (
     chatId: string,
     sessionRuntime: SessionRuntimePort,
+    buffer: SessionBufferingPort,
     options?: {
       suppressBroadcast?: boolean;
     }

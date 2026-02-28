@@ -152,7 +152,11 @@ export const ToolOutput = ({
             : "bg-muted/50 text-foreground"
         )}
       >
-        {errorText && <div>{errorText}</div>}
+        {errorText && (
+          <pre className="whitespace-pre-wrap p-3 font-mono text-xs leading-relaxed">
+            {errorText}
+          </pre>
+        )}
         {Output}
       </div>
     </div>

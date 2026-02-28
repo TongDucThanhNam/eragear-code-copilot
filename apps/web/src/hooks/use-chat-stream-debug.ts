@@ -30,6 +30,17 @@ export function logChatStreamDebug(params: {
     });
     return;
   }
+  if (event.type === "ui_message_part") {
+    console.debug("[Chat] Received ui_message_part", {
+      chatId: activeChatId,
+      messageId: event.messageId,
+      partIndex: event.partIndex,
+      partType: event.part.type,
+      isNew: event.isNew,
+      knownMessages: state.order.length,
+    });
+    return;
+  }
   if (event.type !== "ui_message_delta") {
     return;
   }

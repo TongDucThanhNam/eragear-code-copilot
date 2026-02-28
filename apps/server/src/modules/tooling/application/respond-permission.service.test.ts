@@ -170,14 +170,13 @@ describe("RespondPermissionService", () => {
       outcome: { outcome: "selected", optionId: "custom_execute" },
     });
 
-    const uiMessageEvent = events.find((event) => event.type === "ui_message");
-    expect(uiMessageEvent).toBeDefined();
-    if (!uiMessageEvent || uiMessageEvent.type !== "ui_message") {
-      throw new Error("Expected ui_message event");
-    }
-    const toolPart = uiMessageEvent.message.parts.find((part) => {
-      return part.type === "tool-bash" && "toolCallId" in part;
-    });
+    const toolPartEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "ui_message_part" }> =>
+        event.type === "ui_message_part" && event.part.type === "tool-bash"
+    );
+    expect(toolPartEvent).toBeDefined();
+    expect(events.some((event) => event.type === "ui_message")).toBe(false);
+    const toolPart = toolPartEvent?.part;
     expect(toolPart).toMatchObject({
       type: "tool-bash",
       toolCallId: "tool-1",
@@ -219,16 +218,13 @@ describe("RespondPermissionService", () => {
       outcome: { outcome: "selected", optionId: "allow_for_now" },
     });
 
-    const uiMessageEvent = events.find(
-      (event) => event.type === "ui_message"
+    const toolPartEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "ui_message_part" }> =>
+        event.type === "ui_message_part" && event.part.type === "tool-bash"
     );
-    expect(uiMessageEvent).toBeDefined();
-    if (!uiMessageEvent || uiMessageEvent.type !== "ui_message") {
-      throw new Error("Expected ui_message event");
-    }
-    const toolPart = uiMessageEvent.message.parts.find((part) => {
-      return part.type === "tool-bash" && "toolCallId" in part;
-    });
+    expect(toolPartEvent).toBeDefined();
+    expect(events.some((event) => event.type === "ui_message")).toBe(false);
+    const toolPart = toolPartEvent?.part;
     expect(toolPart).toMatchObject({
       type: "tool-bash",
       toolCallId: "tool-1",
@@ -295,7 +291,7 @@ describe("RespondPermissionService", () => {
     });
   });
 
-  test("removes stale data-permission-options part after response", async () => {
+  test("clears stale data-permission-options payload after response", async () => {
     const session = createSession("user-1");
     const events: BroadcastEvent[] = [];
     session.uiState.messages.set("msg-1", {
@@ -340,19 +336,19 @@ describe("RespondPermissionService", () => {
       decision: "allow",
     });
 
-    const uiMessageEvent = events.find((event) => event.type === "ui_message");
-    expect(uiMessageEvent).toBeDefined();
-    if (!uiMessageEvent || uiMessageEvent.type !== "ui_message") {
-      throw new Error("Expected ui_message event");
+    const optionsPartEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "ui_message_part" }> =>
+        event.type === "ui_message_part" &&
+        event.part.type === "data-permission-options"
+    );
+    expect(optionsPartEvent).toBeDefined();
+    if (!optionsPartEvent || optionsPartEvent.part.type !== "data-permission-options") {
+      throw new Error("Expected permission options part update event");
     }
-    const hasStalePermissionPart = uiMessageEvent.message.parts.some((part) => {
-      return (
-        part.type === "data-permission-options" &&
-        typeof part.data === "object" &&
-        part.data !== null &&
-        (part.data as { requestId?: string }).requestId === "req-1"
-      );
+    expect(optionsPartEvent.part.data).toMatchObject({
+      requestId: "req-1",
+      toolCallId: "tool-1",
+      options: [],
     });
-    expect(hasStalePermissionPart).toBe(false);
   });
 });

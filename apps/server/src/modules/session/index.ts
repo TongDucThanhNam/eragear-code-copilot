@@ -3,6 +3,8 @@ export { CleanupProjectSessionsService } from "./application/cleanup-project-ses
 export { CompactSessionMessagesService } from "./application/compact-session-messages.service";
 export type {
   CreateSessionInput,
+  DiscoverAgentSessionsInput,
+  LoadAgentSessionInput,
   ListSessionsInput,
   SessionMessageByIdInput,
   SessionChatIdInput,
@@ -12,6 +14,8 @@ export type {
 } from "./application/contracts/session.contract";
 export {
   CreateSessionInputSchema,
+  DiscoverAgentSessionsInputSchema,
+  LoadAgentSessionInputSchema,
   ListSessionsInputSchema,
   SessionMessageByIdInputSchema,
   SessionChatIdInputSchema,
@@ -21,11 +25,13 @@ export {
 } from "./application/contracts/session.contract";
 export { CreateSessionService } from "./application/create-session.service";
 export { DeleteSessionService } from "./application/delete-session.service";
+export { DiscoverAgentSessionsService } from "./application/discover-agent-sessions.service";
 export { GetSessionMessageByIdService } from "./application/get-session-message-by-id.service";
 export { GetSessionMessagesService } from "./application/get-session-messages.service";
 export { GetSessionStateService } from "./application/get-session-state.service";
 export { GetSessionStorageStatsService } from "./application/get-session-storage-stats.service";
 export { ListSessionsService } from "./application/list-sessions.service";
+export { LoadAgentSessionService } from "./application/load-agent-session.service";
 export { PersistSessionBootstrapService } from "./application/persist-session-bootstrap.service";
 export type { AgentRuntimePort } from "./application/ports/agent-runtime.port";
 export type {

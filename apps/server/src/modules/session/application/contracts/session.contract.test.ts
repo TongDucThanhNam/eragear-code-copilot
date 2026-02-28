@@ -5,6 +5,8 @@ import {
 } from "@/config/constants";
 import {
   CreateSessionInputSchema,
+  DiscoverAgentSessionsInputSchema,
+  LoadAgentSessionInputSchema,
   ListSessionsInputSchema,
   SessionListPageInputSchema,
   SessionMessagesPageInputSchema,
@@ -99,6 +101,53 @@ describe("session contract page limits", () => {
         command: "/bin/bash",
         args: ["-lc", "echo hello"],
         env: { MODE: "unsafe" },
+      })
+    ).toThrow();
+  });
+
+  test("accepts discover-agent sessions input with optional cursor", () => {
+    expect(
+      DiscoverAgentSessionsInputSchema.parse({
+        projectId: "project-1",
+        agentId: "agent-1",
+        cursor: "cursor-1",
+      })
+    ).toEqual({
+      projectId: "project-1",
+      agentId: "agent-1",
+      cursor: "cursor-1",
+    });
+  });
+
+  test("rejects discover-agent sessions input with unknown fields", () => {
+    expect(() =>
+      DiscoverAgentSessionsInputSchema.parse({
+        projectId: "project-1",
+        command: "codex-acp",
+      })
+    ).toThrow();
+  });
+
+  test("accepts load-agent session input", () => {
+    expect(
+      LoadAgentSessionInputSchema.parse({
+        projectId: "project-1",
+        sessionId: "sess-abc123",
+        agentId: "agent-1",
+      })
+    ).toEqual({
+      projectId: "project-1",
+      sessionId: "sess-abc123",
+      agentId: "agent-1",
+    });
+  });
+
+  test("rejects load-agent session input with unknown fields", () => {
+    expect(() =>
+      LoadAgentSessionInputSchema.parse({
+        projectId: "project-1",
+        sessionId: "sess-abc123",
+        command: "codex-acp",
       })
     ).toThrow();
   });

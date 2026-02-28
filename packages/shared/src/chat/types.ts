@@ -148,6 +148,14 @@ export type BroadcastEvent =
     }
   | { type: "ui_message"; message: UIMessage }
   | {
+      type: "ui_message_part";
+      messageId: string;
+      messageRole: UIMessage["role"];
+      partIndex: number;
+      part: UIMessagePart;
+      isNew: boolean;
+    }
+  | {
       type: "ui_message_delta";
       messageId: string;
       partIndex: number;

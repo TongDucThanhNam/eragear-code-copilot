@@ -40,4 +40,51 @@ describe("tool ui message sanitization", () => {
     expect(first.type).toBe("content");
     expect(first.content?.text).toBe("&lt;img src=x onerror=alert(1)&gt;");
   });
+
+  test("formats JSON-RPC error objects for failed tools", () => {
+    const part = buildToolPartForUpdate({
+      toolCallId: "tool-3",
+      toolName: "fs/read_text_file",
+      status: "failed",
+      rawOutput: {
+        code: -32602,
+        message: "Invalid params: File not found",
+        data: {
+          path: "/home/terasumi/Documents/source_code/Web/htmls/art-gallery-awwwards.html",
+        },
+      },
+    });
+
+    expect(part.state).toBe("output-error");
+    expect(part.errorText).toContain('"message": "Invalid params: File not found"');
+    expect(part.errorText).toContain('"code": -32602');
+    expect(part.errorText).toContain(
+      '"path": "/home/terasumi/Documents/source_code/Web/htmls/art-gallery-awwwards.html"'
+    );
+  });
+
+  test("formats nested ACP error envelope with request context", () => {
+    const part = buildToolPartForUpdate({
+      toolCallId: "tool-4",
+      toolName: "other",
+      status: "failed",
+      rawOutput: {
+        method: "fs/read_text_file",
+        params: {
+          path: "/tmp/missing.html",
+        },
+        error: {
+          code: -32602,
+          message: "Invalid params: File not found",
+        },
+      },
+    });
+
+    expect(part.state).toBe("output-error");
+    expect(part.errorText).toContain("Error handling request {");
+    expect(part.errorText).toContain('"method": "fs/read_text_file"');
+    expect(part.errorText).toContain('"path": "/tmp/missing.html"');
+    expect(part.errorText).toContain('"message": "Invalid params: File not found"');
+    expect(part.errorText).toContain('"code": -32602');
+  });
 });

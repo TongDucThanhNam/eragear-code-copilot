@@ -5,11 +5,13 @@ import {
   CompactSessionMessagesService,
   CreateSessionService,
   DeleteSessionService,
+  DiscoverAgentSessionsService,
   GetSessionMessageByIdService,
   GetSessionMessagesService,
   GetSessionStateService,
   GetSessionStorageStatsService,
   ListSessionsService,
+  LoadAgentSessionService,
   PersistSessionBootstrapService,
   ReconcileSessionStatusService,
   ResumeSessionService,
@@ -91,6 +93,16 @@ export function createSessionServices(
     persistSessionBootstrap,
     deps.appLogger
   );
+  const discoverAgentSessionsService = new DiscoverAgentSessionsService(
+    projectContextResolver,
+    sessionAgentResolver,
+    spawnSessionProcess,
+    deps.agentRuntimeAdapter,
+    deps.appLogger
+  );
+  const loadAgentSessionService = new LoadAgentSessionService(
+    createSessionService
+  );
   const stopSessionService = new StopSessionService(
     deps.sessionRepo,
     deps.sessionRuntime,
@@ -144,6 +156,8 @@ export function createSessionServices(
 
   return {
     createSession: () => createSessionService,
+    discoverAgentSessions: () => discoverAgentSessionsService,
+    loadAgentSession: () => loadAgentSessionService,
     stopSession: () => stopSessionService,
     resumeSession: () => resumeSessionService,
     deleteSession: () => deleteSessionService,

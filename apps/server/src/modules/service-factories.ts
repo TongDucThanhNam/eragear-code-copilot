@@ -34,11 +34,13 @@ import type {
   CompactSessionMessagesService,
   CreateSessionService,
   DeleteSessionService,
+  DiscoverAgentSessionsService,
   GetSessionMessageByIdService,
   GetSessionMessagesService,
   GetSessionStateService,
   GetSessionStorageStatsService,
   ListSessionsService,
+  LoadAgentSessionService,
   ReconcileSessionStatusService,
   ResumeSessionService,
   StopSessionService,
@@ -63,6 +65,8 @@ type ServicePort<T> = Pick<T, ServiceMethodKeys<T>>;
 
 export interface SessionServiceFactory {
   createSession(): ServicePort<CreateSessionService>;
+  discoverAgentSessions(): ServicePort<DiscoverAgentSessionsService>;
+  loadAgentSession(): ServicePort<LoadAgentSessionService>;
   stopSession(): ServicePort<StopSessionService>;
   resumeSession(): ServicePort<ResumeSessionService>;
   deleteSession(): ServicePort<DeleteSessionService>;

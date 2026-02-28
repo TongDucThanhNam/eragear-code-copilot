@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "eragear-code-copilot",
@@ -97,7 +98,6 @@
       "dependencies": {
         "@agentclientprotocol/sdk": "0.14.1",
         "@eragear-code-copilot/env": "workspace:*",
-        "@hono/node-server": "^1.17.1",
         "@hono/react-renderer": "^1.0.1",
         "@repo/shared": "workspace:*",
         "@trpc/server": "^11.8.1",

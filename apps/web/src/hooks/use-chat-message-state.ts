@@ -14,6 +14,14 @@ export interface MessageDeltaChunk {
   delta: string;
 }
 
+export interface MessagePartUpdateChunk {
+  messageId: string;
+  messageRole: UIMessage["role"];
+  partIndex: number;
+  part: UIMessage["parts"][number];
+  isNew: boolean;
+}
+
 export const createEmptyMessageState = (): MessageState => ({
   byId: new Map<string, UIMessage>(),
   order: [],
@@ -242,6 +250,47 @@ export const upsertMessageIntoState = (
   state: MessageState,
   message: UIMessage
 ): MessageState => mergeMessagesIntoState(state, [message]);
+
+export const applyPartUpdate = (
+  state: MessageState,
+  update: MessagePartUpdateChunk
+): MessageState => {
+  const existing = state.byId.get(update.messageId);
+  if (!existing) {
+    if (!update.isNew && update.partIndex > 0) {
+      return state;
+    }
+    const created: UIMessage = {
+      id: update.messageId,
+      role: update.messageRole,
+      parts: [update.part],
+    };
+    return mergeMessagesIntoState(state, [created]);
+  }
+
+  const nextParts = [...existing.parts];
+  if (update.isNew) {
+    if (update.partIndex < 0 || update.partIndex > nextParts.length) {
+      return state;
+    }
+    if (update.partIndex === nextParts.length) {
+      nextParts.push(update.part);
+    } else {
+      nextParts.splice(update.partIndex, 0, update.part);
+    }
+  } else {
+    if (update.partIndex < 0 || update.partIndex >= nextParts.length) {
+      return state;
+    }
+    nextParts[update.partIndex] = update.part;
+  }
+
+  const nextMessage: UIMessage = {
+    ...existing,
+    parts: nextParts,
+  };
+  return mergeMessagesIntoState(state, [nextMessage]);
+};
 
 export const replaceMessagesState = (messages: UIMessage[]): MessageState => {
   const nextById = new Map<string, UIMessage>();
