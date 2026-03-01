@@ -21,6 +21,10 @@ import type {
   AgentInput,
   AgentUpdateInput,
 } from "@/shared/types/agent.types";
+import {
+  getDefaultAgentResumeCommandTemplate,
+  normalizeAgentResumeCommandTemplate,
+} from "@/shared/utils/agent-resume-command.util";
 import type { AgentRepositoryPort } from "../application/ports/agent-repository.port";
 
 type AgentRow = typeof sqliteSchema.agents.$inferSelect;
@@ -72,6 +76,9 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         table: "agents",
         column: "args_json",
       }),
+      resumeCommandTemplate:
+        row.resumeCommandTemplate ??
+        getDefaultAgentResumeCommandTemplate(row.type as AgentConfig["type"]),
       env: fromSqliteJsonWithSchema(row.envJson, {}, StringRecordSchema, {
         table: "agents",
         column: "env_json",
@@ -226,6 +233,12 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
             type: defaultAgentInput.type,
             command: defaultAgentInput.command,
             argsJson: toSqliteJson(defaultAgentInput.args),
+            resumeCommandTemplate:
+              normalizeAgentResumeCommandTemplate({
+                type: defaultAgentInput.type,
+                resumeCommandTemplate: defaultAgentInput.resumeCommandTemplate,
+                fallbackToDefault: true,
+              }) ?? null,
             envJson: toSqliteJson(defaultAgentInput.env),
             projectId: defaultAgentInput.projectId ?? null,
             createdAt: now,
@@ -282,6 +295,12 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         type: input.type,
         command: input.command,
         args: input.args,
+        resumeCommandTemplate:
+          normalizeAgentResumeCommandTemplate({
+            type: input.type,
+            resumeCommandTemplate: input.resumeCommandTemplate,
+            fallbackToDefault: true,
+          }) ?? undefined,
         env: input.env,
         projectId: input.projectId,
         createdAt: now,
@@ -296,6 +315,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
           type: created.type,
           command: created.command,
           argsJson: toSqliteJson(created.args),
+          resumeCommandTemplate: created.resumeCommandTemplate ?? null,
           envJson: toSqliteJson(created.env),
           projectId: created.projectId ?? null,
           createdAt: created.createdAt,
@@ -325,12 +345,28 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       }
 
       const current = this.mapRow(row);
+      const nextType = input.type || current.type;
+      const currentDefaultTemplate = getDefaultAgentResumeCommandTemplate(
+        current.type
+      );
+      const nextDefaultTemplate = getDefaultAgentResumeCommandTemplate(nextType);
+      const nextResumeCommandTemplate =
+        input.resumeCommandTemplate !== undefined
+          ? normalizeAgentResumeCommandTemplate({
+              type: nextType,
+              resumeCommandTemplate: input.resumeCommandTemplate,
+              fallbackToDefault: true,
+            })
+          : input.type && current.resumeCommandTemplate === currentDefaultTemplate
+            ? nextDefaultTemplate
+            : (current.resumeCommandTemplate ?? nextDefaultTemplate);
       const updated: AgentConfig = {
         ...current,
         name: input.name?.trim() || current.name,
-        type: input.type || current.type,
+        type: nextType,
         command: input.command || current.command,
         args: input.args !== undefined ? input.args : current.args,
+        resumeCommandTemplate: nextResumeCommandTemplate,
         env: input.env !== undefined ? input.env : current.env,
         projectId:
           input.projectId !== undefined ? input.projectId : current.projectId,
@@ -343,6 +379,7 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
           type: updated.type,
           command: updated.command,
           argsJson: toSqliteJson(updated.args),
+          resumeCommandTemplate: updated.resumeCommandTemplate ?? null,
           envJson: toSqliteJson(updated.env),
           projectId: updated.projectId ?? null,
           updatedAt: updated.updatedAt,

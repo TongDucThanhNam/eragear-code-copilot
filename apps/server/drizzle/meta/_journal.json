@@ -50,6 +50,13 @@
       "when": 1771745893888,
       "tag": "0006_kind_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772352000000,
+      "tag": "0007_agents_resume_command_template",
+      "breakpoints": true
     }
   ]
 }

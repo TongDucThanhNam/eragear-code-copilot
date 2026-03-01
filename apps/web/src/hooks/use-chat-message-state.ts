@@ -20,6 +20,7 @@ export interface MessagePartUpdateChunk {
   partIndex: number;
   part: UIMessage["parts"][number];
   isNew: boolean;
+  createdAt?: number;
 }
 
 export const createEmptyMessageState = (): MessageState => ({
@@ -68,13 +69,20 @@ export const mergeMessagesIntoState = (
         nextOrder = [...nextOrder];
         orderChanged = true;
       }
-      const insertIndex = findUiMessageInsertIndex(nextOrderedMessages, message);
+      const insertIndex = findUiMessageInsertIndex(
+        nextOrderedMessages,
+        message
+      );
       nextOrder.splice(insertIndex, 0, message.id);
       if (!indexChanged) {
         nextIndexById = new Map(nextIndexById);
         indexChanged = true;
       }
-      for (let reorderIndex = insertIndex; reorderIndex < nextOrder.length; reorderIndex += 1) {
+      for (
+        let reorderIndex = insertIndex;
+        reorderIndex < nextOrder.length;
+        reorderIndex += 1
+      ) {
         const reorderMessageId = nextOrder[reorderIndex];
         if (reorderMessageId) {
           nextIndexById.set(reorderMessageId, reorderIndex);
@@ -97,7 +105,9 @@ export const mergeMessagesIntoState = (
     }
   }
 
-  if (!byIdChanged && !orderChanged && !orderedMessagesChanged && !indexChanged) {
+  if (
+    !(byIdChanged || orderChanged || orderedMessagesChanged || indexChanged)
+  ) {
     return state;
   }
 
@@ -146,13 +156,16 @@ export const prependMessagesIntoState = (
       }
     }
 
-    if (!hasMessage && !seenPrepended.has(message.id)) {
+    if (!(hasMessage || seenPrepended.has(message.id))) {
       prependMessages.push(message);
       seenPrepended.add(message.id);
     }
   }
 
-  if (!byIdChanged && !orderedMessagesChanged && prependMessages.length === 0) {
+  if (
+    !(byIdChanged || orderedMessagesChanged) &&
+    prependMessages.length === 0
+  ) {
     return state;
   }
 
@@ -264,25 +277,42 @@ export const applyPartUpdate = (
       id: update.messageId,
       role: update.messageRole,
       parts: [update.part],
+      ...(typeof update.createdAt === "number"
+        ? { createdAt: update.createdAt }
+        : {}),
     };
     return mergeMessagesIntoState(state, [created]);
   }
 
   const nextParts = [...existing.parts];
   if (update.isNew) {
-    if (update.partIndex < 0 || update.partIndex > nextParts.length) {
+    if (update.partIndex < 0) {
       return state;
     }
-    if (update.partIndex === nextParts.length) {
-      nextParts.push(update.part);
+    if (update.partIndex <= nextParts.length) {
+      if (update.partIndex === nextParts.length) {
+        nextParts.push(update.part);
+      } else {
+        nextParts.splice(update.partIndex, 0, update.part);
+      }
     } else {
-      nextParts.splice(update.partIndex, 0, update.part);
+      // Out-of-order: index beyond current array length.
+      // Append to end to avoid data loss; the full ui_message
+      // snapshot will correct the position.
+      nextParts.push(update.part);
     }
   } else {
-    if (update.partIndex < 0 || update.partIndex >= nextParts.length) {
+    if (update.partIndex < 0) {
       return state;
     }
-    nextParts[update.partIndex] = update.part;
+    if (update.partIndex < nextParts.length) {
+      nextParts[update.partIndex] = update.part;
+    } else {
+      // Out-of-order: part doesn't exist at this index yet.
+      // Append to avoid data loss; the full ui_message
+      // snapshot will correct the position.
+      nextParts.push(update.part);
+    }
   }
 
   const nextMessage: UIMessage = {

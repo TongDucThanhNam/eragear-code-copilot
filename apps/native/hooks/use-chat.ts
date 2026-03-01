@@ -9,7 +9,7 @@ import type { BroadcastEvent, UIMessage, UseChatOptions } from "@repo/shared";
 import {
   applySessionState,
   findPendingPermission,
-  parseBroadcastEventStrict,
+  parseBroadcastEventClientSafe,
   parseUiMessageArrayStrict,
   processSessionEvent,
 } from "@repo/shared";
@@ -218,12 +218,12 @@ export function useChat(options: UseChatOptions = {}) {
     const history = sessionMessagesQuery.data;
     if (Array.isArray(history)) {
       const parsedHistory = parseUiMessageArrayStrict(history);
-      if (!parsedHistory.ok) {
-        store.setError(parsedHistory.error);
-        onErrorRef.current?.(parsedHistory.error);
-      } else {
+      if (parsedHistory.ok) {
         store.setMessages(parsedHistory.value);
         store.setPendingPermission(findPendingPermission(parsedHistory.value));
+      } else {
+        store.setError(parsedHistory.error);
+        onErrorRef.current?.(parsedHistory.error);
       }
     }
 
@@ -250,23 +250,6 @@ export function useChat(options: UseChatOptions = {}) {
     const store = useChatStore.getState();
     const nextPending = findPendingPermission(store.getMessagesForPermission());
     store.setPendingPermission(nextPending);
-  }, []);
-
-  const isStreamingUiMessage = useCallback((message: UIMessage) => {
-    return message.parts.some((part) => {
-      if (part.type === "text" || part.type === "reasoning") {
-        return part.state === "streaming";
-      }
-      if (part.type.startsWith("tool-")) {
-        return (
-          part.state === "input-streaming" ||
-          part.state === "input-available" ||
-          part.state === "approval-requested" ||
-          part.state === "approval-responded"
-        );
-      }
-      return false;
-    });
   }, []);
 
   const flushMessages = useCallback(() => {
@@ -314,84 +297,96 @@ export function useChat(options: UseChatOptions = {}) {
       partIndex: number;
       part: UIMessage["parts"][number];
       isNew: boolean;
+      createdAt?: number;
     }) => {
-      const current = useChatStore.getState().getMessageById(payload.messageId);
+      // Check pending batch first — during batched streaming, the store
+      // may lag behind pendingMessagesRef. Reading pending ensures
+      // subsequent part updates build on the latest accumulated state.
+      const current =
+        pendingMessagesRef.current.get(payload.messageId) ??
+        useChatStore.getState().getMessageById(payload.messageId);
       if (!current) {
         if (!payload.isNew && payload.partIndex > 0) {
           return;
         }
+        // Use server-provided createdAt if available. Otherwise leave
+        // createdAt undefined — the message will sort at the end (per
+        // compareUiMessagesChronologically) and the full ui_message
+        // snapshot or chat_finish will supply the real timestamp later.
         applyMessagesImmediate({
           id: payload.messageId,
           role: payload.messageRole,
-          createdAt: Date.now(),
           parts: [payload.part],
+          ...(typeof payload.createdAt === "number"
+            ? { createdAt: payload.createdAt }
+            : {}),
         });
         return;
       }
 
       const nextParts = [...current.parts];
       if (payload.isNew) {
-        if (payload.partIndex < 0 || payload.partIndex > nextParts.length) {
+        if (payload.partIndex < 0) {
           return;
         }
-        if (payload.partIndex === nextParts.length) {
-          nextParts.push(payload.part);
+        if (payload.partIndex <= nextParts.length) {
+          if (payload.partIndex === nextParts.length) {
+            nextParts.push(payload.part);
+          } else {
+            nextParts.splice(payload.partIndex, 0, payload.part);
+          }
         } else {
-          nextParts.splice(payload.partIndex, 0, payload.part);
+          // Out-of-order: index beyond current length.
+          // Append to avoid data loss; ui_message snapshot corrects position.
+          nextParts.push(payload.part);
         }
       } else {
-        if (payload.partIndex < 0 || payload.partIndex >= nextParts.length) {
+        if (payload.partIndex < 0) {
           return;
         }
-        nextParts[payload.partIndex] = payload.part;
+        if (payload.partIndex < nextParts.length) {
+          nextParts[payload.partIndex] = payload.part;
+        } else {
+          // Out-of-order: part not yet at this index.
+          // Append to avoid data loss; ui_message snapshot corrects position.
+          nextParts.push(payload.part);
+        }
       }
 
-      applyMessagesImmediate({
-        ...current,
-        parts: nextParts,
-      });
+      const updated: UIMessage = { ...current, parts: nextParts };
+
+      // Batch streaming part updates (text/reasoning streaming, tool input streaming)
+      const partState =
+        "state" in payload.part
+          ? (payload.part as { state?: string }).state
+          : undefined;
+      const isPartStreaming =
+        partState === "streaming" || partState === "input-streaming";
+
+      if (isPartStreaming) {
+        scheduleMessagesUpdate(updated);
+      } else {
+        applyMessagesImmediate(updated);
+      }
     },
-    [applyMessagesImmediate]
+    [applyMessagesImmediate, scheduleMessagesUpdate]
   );
 
   // Subscription Handler - uses shared core logic
   const handleSessionEvent = useCallback(
     (event: BroadcastEvent) => {
       const store = useChatStore.getState();
-      const normalizedEvent: BroadcastEvent =
-        event.type === "ui_message"
-          ? (() => {
-              const existing = store.getMessageById(event.message.id);
-              if (!existing) {
-                return event;
-              }
-              const preferExistingParts =
-                isStreamingUiMessage(existing) &&
-                event.message.parts.length <= existing.parts.length;
-              const mergedParts = preferExistingParts
-                ? existing.parts
-                : event.message.parts.length >= existing.parts.length
-                  ? event.message.parts
-                  : existing.parts;
-              return {
-                ...event,
-                message: {
-                  ...event.message,
-                  createdAt: existing.createdAt ?? event.message.createdAt,
-                  metadata: event.message.metadata ?? existing.metadata,
-                  parts: mergedParts,
-                },
-              };
-            })()
-          : event;
+      // ui_message snapshots from the server are the canonical source of
+      // truth. Pass them through directly — no local merge/override.
+      const normalizedEvent = event;
       const currentModes = store.modes;
       const currentModels = store.models;
-      const shouldBatch =
-        normalizedEvent.type === "ui_message" &&
-        isStreamingUiMessage(normalizedEvent.message);
-      const onMessageUpsert = shouldBatch
-        ? scheduleMessagesUpdate
-        : applyMessagesImmediate;
+      // Only batch ui_message_delta (text append). Snapshots (ui_message)
+      // must apply immediately so the canonical state is never stale.
+      const onMessageUpsert =
+        normalizedEvent.type === "ui_message_delta"
+          ? scheduleMessagesUpdate
+          : applyMessagesImmediate;
 
       processSessionEvent(
         normalizedEvent,
@@ -401,7 +396,14 @@ export function useChat(options: UseChatOptions = {}) {
           onConnStatusChange: store.setConnStatus,
           onMessageUpsert,
           onMessagePartUpdate: applyMessagePartUpdate,
-          getMessageById,
+          // Wrap getMessageById to read pending batch first.
+          // During batched streaming, ui_message_delta events
+          // accumulate in pendingMessagesRef before flushing to
+          // the store. Without this, each delta reads the STALE
+          // store value and only the last delta per 50ms window
+          // survives — all intermediate text is lost.
+          getMessageById: (id: string) =>
+            pendingMessagesRef.current.get(id) ?? getMessageById(id),
           getCommands: () => useChatStore.getState().commands,
           onModesChange: store.setModes,
           onModelsChange: store.setModels,
@@ -432,7 +434,6 @@ export function useChat(options: UseChatOptions = {}) {
       );
     },
     [
-      isStreamingUiMessage,
       applyMessagePartUpdate,
       applyMessagesImmediate,
       scheduleMessagesUpdate,
@@ -455,13 +456,15 @@ export function useChat(options: UseChatOptions = {}) {
     {
       enabled: shouldSubscribe,
       onData(data: unknown) {
-        const parsed = parseBroadcastEventStrict(data);
+        const parsed = parseBroadcastEventClientSafe(data);
         if (!parsed.ok) {
-          const store = useChatStore.getState();
-          store.setConnStatus("error");
-          store.setStatus("error");
-          store.setError(parsed.error);
-          onErrorRef.current?.(parsed.error);
+          if (parsed.kind === "unknown_event") {
+            // Silently ignore unknown event types (matches web behavior).
+            return;
+          }
+          console.warn("[Native] Dropped invalid session event", {
+            error: parsed.error,
+          });
           return;
         }
         handleSessionEvent(parsed.value);

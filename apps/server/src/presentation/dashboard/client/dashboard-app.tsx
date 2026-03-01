@@ -257,6 +257,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
       type: string;
       command: string;
       argsInput?: string;
+      resumeCommandTemplate?: string;
     }) => {
       try {
         await fetchJson("/api/agents", {
@@ -282,6 +283,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
       type: string;
       command: string;
       argsInput?: string;
+      resumeCommandTemplate?: string;
     }) => {
       try {
         await fetchJson("/api/agents", {

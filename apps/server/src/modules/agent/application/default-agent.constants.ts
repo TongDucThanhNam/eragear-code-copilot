@@ -1,4 +1,5 @@
 import type { AgentInput } from "@/shared/types/agent.types";
+import { getDefaultAgentResumeCommandTemplate } from "@/shared/utils/agent-resume-command.util";
 
 export const DEFAULT_AGENT_ID_PREFIX = "default-opencode";
 
@@ -13,6 +14,7 @@ export function buildDefaultAgentInput(userId: string): AgentInput {
     type: "opencode",
     command: "opencode",
     args: ["acp"],
+    resumeCommandTemplate: getDefaultAgentResumeCommandTemplate("opencode"),
     env: {},
     projectId: null,
   };

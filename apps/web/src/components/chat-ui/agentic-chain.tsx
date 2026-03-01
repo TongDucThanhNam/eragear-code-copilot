@@ -19,8 +19,8 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import {
+  deduplicateKeys,
   getActiveIndex,
-  getPartKey,
   parseToolOutput,
   toToolViewState,
 } from "./agentic-message-utils";
@@ -264,16 +264,22 @@ export const ChainOfThought = ({
       </CollapsibleTrigger>
       <CollapsibleContent className="border-t px-3 py-3">
         <div className="space-y-3">
-          {items.map((item, index) => (
-            <ChainStep
-              isActive={index === activeIndex}
-              isLast={index === items.length - 1}
-              key={getPartKey(item, index)}
-              part={item}
-            >
-              <ChainContent part={item} terminalOutputs={terminalOutputs} />
-            </ChainStep>
-          ))}
+          {deduplicateKeys(items).map((key, index) => {
+            const item = items[index];
+            if (!item) {
+              return null;
+            }
+            return (
+              <ChainStep
+                isActive={index === activeIndex}
+                isLast={index === items.length - 1}
+                key={key}
+                part={item}
+              >
+                <ChainContent part={item} terminalOutputs={terminalOutputs} />
+              </ChainStep>
+            );
+          })}
         </div>
       </CollapsibleContent>
     </Collapsible>

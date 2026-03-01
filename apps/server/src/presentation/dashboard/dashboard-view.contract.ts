@@ -40,6 +40,7 @@ export interface DashboardViewActions {
       type: string;
       command: string;
       argsInput?: string;
+      resumeCommandTemplate?: string;
     }) => Promise<void>;
     onUpdateAgent: (input: {
       id: string;
@@ -47,6 +48,7 @@ export interface DashboardViewActions {
       type: string;
       command: string;
       argsInput?: string;
+      resumeCommandTemplate?: string;
     }) => Promise<void>;
     onDeleteAgent: (agentId: string) => Promise<void>;
   };

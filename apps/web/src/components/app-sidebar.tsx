@@ -88,6 +88,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       return {
         chatId: s.id,
         projectId: s.projectId,
+        agentId: s.agentId,
         sessionId: s.sessionId,
         name: s.name
           ? s.name
@@ -130,6 +131,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             name: s.name,
             isActive: s.status === "active",
             status: s.status,
+            agentId: s.agentId,
             agentName: s.agentName,
             sessionId: s.sessionId,
             agentInfo: s.agentInfo,

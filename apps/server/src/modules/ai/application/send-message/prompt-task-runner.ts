@@ -11,7 +11,10 @@ import { AppError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
-import { mapStopReasonToFinishReason } from "@/shared/utils/chat-events.util";
+import {
+  mapStopReasonToFinishReason,
+  setChatFinishMessage,
+} from "@/shared/utils/chat-events.util";
 import { createId } from "@/shared/utils/id.util";
 import {
   appendReasoningBlock,
@@ -35,6 +38,7 @@ interface PromptRuntimePolicy {
 
 interface PromptTaskRunnerDeps {
   sessionRepo: SessionRepositoryPort;
+  sessionRuntime: SessionRuntimePort;
   sessionGateway: AiSessionRuntimePort;
   logger: LoggerPort;
   clock: ClockPort;
@@ -52,6 +56,7 @@ interface PromptTaskParams {
 
 export class PromptTaskRunner {
   private readonly sessionRepo: SessionRepositoryPort;
+  private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;
   private readonly logger: LoggerPort;
   private readonly clock: ClockPort;
@@ -60,6 +65,7 @@ export class PromptTaskRunner {
 
   constructor(deps: PromptTaskRunnerDeps) {
     this.sessionRepo = deps.sessionRepo;
+    this.sessionRuntime = deps.sessionRuntime;
     this.sessionGateway = deps.sessionGateway;
     this.logger = deps.logger;
     this.clock = deps.clock;
@@ -538,126 +544,149 @@ export class PromptTaskRunner {
     const { chatId, aggregate, session, broadcast, turnId, stopReason } =
       params;
 
-    if (session.buffer?.hasPendingReasoning()) {
-      const bufferedMessageId = session.buffer.ensureMessageId(
-        session.uiState.currentAssistantId
-      );
-      const currentAssistantMessage = getOrCreateAssistantMessage(
-        session.uiState,
-        bufferedMessageId
-      );
-      let updatedAssistantMessage = currentAssistantMessage;
-      const pendingReasoning = session.buffer.consumePendingReasoning();
-      if (pendingReasoning?.blocks.length) {
-        const previousPartsLength = currentAssistantMessage.parts.length;
-        for (const block of pendingReasoning.blocks) {
-          updatedAssistantMessage = appendReasoningBlock(
-            updatedAssistantMessage,
-            block,
-            "done"
-          );
-        }
-        if (updatedAssistantMessage !== currentAssistantMessage) {
-          session.uiState.messages.set(
-            updatedAssistantMessage.id,
-            updatedAssistantMessage
-          );
-          const partIndex = updatedAssistantMessage.parts.length - 1;
-          const isNew = updatedAssistantMessage.parts.length > previousPartsLength;
-          const part =
-            partIndex >= 0 ? updatedAssistantMessage.parts[partIndex] : undefined;
-          if (partIndex >= 0 && part) {
-            await broadcast(chatId, {
-              type: "ui_message_part",
-              messageId: updatedAssistantMessage.id,
-              messageRole: updatedAssistantMessage.role,
-              partIndex,
-              part,
-              isNew,
-            });
+    // Wrap ALL state mutations in runExclusive to serialize with streaming
+    // update handlers. Without this, late-arriving ACP notifications processed
+    // inside handleSessionUpdate (which also uses runExclusive) could race
+    // with finalization — e.g. clearCurrentStreamingAssistantId() runs while
+    // a streaming update is queued, causing the update to create a NEW
+    // assistant message instead of appending to the existing one.
+    await this.sessionRuntime.runExclusive(chatId, async () => {
+      if (session.buffer?.hasPendingReasoning()) {
+        const bufferedMessageId = session.buffer.ensureMessageId(
+          session.uiState.currentAssistantId
+        );
+        const currentAssistantMessage = getOrCreateAssistantMessage(
+          session.uiState,
+          bufferedMessageId
+        );
+        let updatedAssistantMessage = currentAssistantMessage;
+        const pendingReasoning = session.buffer.consumePendingReasoning();
+        if (pendingReasoning?.blocks.length) {
+          const previousPartsLength = currentAssistantMessage.parts.length;
+          for (const block of pendingReasoning.blocks) {
+            updatedAssistantMessage = appendReasoningBlock(
+              updatedAssistantMessage,
+              block,
+              "done"
+            );
+          }
+          if (updatedAssistantMessage !== currentAssistantMessage) {
+            session.uiState.messages.set(
+              updatedAssistantMessage.id,
+              updatedAssistantMessage
+            );
+            const partIndex = updatedAssistantMessage.parts.length - 1;
+            const isNew =
+              updatedAssistantMessage.parts.length > previousPartsLength;
+            const part =
+              partIndex >= 0
+                ? updatedAssistantMessage.parts[partIndex]
+                : undefined;
+            if (partIndex >= 0 && part) {
+              await broadcast(chatId, {
+                type: "ui_message_part",
+                messageId: updatedAssistantMessage.id,
+                messageRole: updatedAssistantMessage.role,
+                partIndex,
+                part,
+                isNew,
+              });
+            }
           }
         }
       }
-    }
 
-    if (session.buffer) {
-      const message = session.buffer.flush();
-      if (message) {
-        this.logger.debug("SendMessageService flushed assistant buffer", {
-          chatId,
-          messageId: message.id,
-          contentBlocks: message.contentBlocks.length,
-          reasoningBlocks: message.reasoningBlocks?.length ?? 0,
-          turnId,
-        });
-        await this.sessionRepo.appendMessage(chatId, session.userId, {
-          id: message.id,
-          role: "assistant",
-          content: message.content,
-          contentBlocks: message.contentBlocks,
-          reasoning: message.reasoning,
-          reasoningBlocks: message.reasoningBlocks,
-          timestamp: this.clock.nowMs(),
-        });
-      }
-    }
-
-    const current = aggregate.currentStreamingAssistantMessage();
-    if (current) {
-      const finalizedMessage = finalizeStreamingParts(current);
-      if (finalizedMessage !== current) {
-        session.uiState.messages.set(finalizedMessage.id, finalizedMessage);
-        for (let index = 0; index < finalizedMessage.parts.length; index += 1) {
-          const previousPart = current.parts[index];
-          const nextPart = finalizedMessage.parts[index];
-          if (!(previousPart && nextPart) || previousPart === nextPart) {
-            continue;
-          }
-          await broadcast(chatId, {
-            type: "ui_message_part",
-            messageId: finalizedMessage.id,
-            messageRole: finalizedMessage.role,
-            partIndex: index,
-            part: nextPart,
-            isNew: false,
+      if (session.buffer) {
+        const message = session.buffer.flush();
+        if (message) {
+          this.logger.debug("SendMessageService flushed assistant buffer", {
+            chatId,
+            messageId: message.id,
+            contentBlocks: message.contentBlocks.length,
+            reasoningBlocks: message.reasoningBlocks?.length ?? 0,
+            turnId,
+          });
+          await this.sessionRepo.appendMessage(chatId, session.userId, {
+            id: message.id,
+            role: "assistant",
+            content: message.content,
+            contentBlocks: message.contentBlocks,
+            reasoning: message.reasoning,
+            reasoningBlocks: message.reasoningBlocks,
+            timestamp: this.clock.nowMs(),
           });
         }
       }
-      this.logger.debug("SendMessageService finalized streaming message", {
+
+      const current = aggregate.currentStreamingAssistantMessage();
+      if (current) {
+        // Set chatFinish.messageId BEFORE clearing currentAssistantId.
+        // This ensures maybeBroadcastChatFinish always has the correct
+        // messageId, even if currentAssistantId is cleared.
+        setChatFinishMessage(session, current.id, turnId);
+
+        const finalizedMessage = finalizeStreamingParts(current);
+        if (finalizedMessage !== current) {
+          session.uiState.messages.set(finalizedMessage.id, finalizedMessage);
+          for (
+            let index = 0;
+            index < finalizedMessage.parts.length;
+            index += 1
+          ) {
+            const previousPart = current.parts[index];
+            const nextPart = finalizedMessage.parts[index];
+            if (!(previousPart && nextPart) || previousPart === nextPart) {
+              continue;
+            }
+            await broadcast(chatId, {
+              type: "ui_message_part",
+              messageId: finalizedMessage.id,
+              messageRole: finalizedMessage.role,
+              partIndex: index,
+              part: nextPart,
+              isNew: false,
+            });
+          }
+        }
+        this.logger.debug("SendMessageService finalized streaming message", {
+          chatId,
+          messageId: finalizedMessage.id,
+          parts: finalizedMessage.parts.length,
+          emittedPartUpdates:
+            finalizedMessage === current
+              ? 0
+              : finalizedMessage.parts.reduce((count, part, index) => {
+                  return part !== current.parts[index] ? count + 1 : count;
+                }, 0),
+          turnId,
+        });
+        aggregate.clearCurrentStreamingAssistantId();
+      }
+
+      aggregate.setChatFinishStopReason(stopReason, turnId);
+      await aggregate.maybeBroadcastChatFinish({
         chatId,
-        messageId: finalizedMessage.id,
-        parts: finalizedMessage.parts.length,
-        emittedPartUpdates:
-          finalizedMessage === current
-            ? 0
-            : finalizedMessage.parts.reduce((count, part, index) => {
-                return part !== current.parts[index] ? count + 1 : count;
-              }, 0),
+        broadcast,
+      });
+      this.logger.debug("SendMessageService chat finish broadcast", {
+        chatId,
+        stopReason,
+        finishReason: mapStopReasonToFinishReason(stopReason),
         turnId,
       });
-      aggregate.clearCurrentStreamingAssistantId();
-    }
 
-    aggregate.setChatFinishStopReason(stopReason, turnId);
-    await aggregate.maybeBroadcastChatFinish({
-      chatId,
-      broadcast,
+      await aggregate.markReadyAfterTurnCompletion(
+        { chatId, broadcast },
+        turnId
+      );
+      if (session.chatStatus === SESSION_RUNTIME_CHAT_STATUS.READY) {
+        this.logger.debug("SendMessageService chat status ready", {
+          chatId,
+          turnId,
+        });
+      }
+      aggregate.clearActiveTurnIf(turnId);
     });
-    this.logger.debug("SendMessageService chat finish broadcast", {
-      chatId,
-      stopReason,
-      finishReason: mapStopReasonToFinishReason(stopReason),
-      turnId,
-    });
-
-    await aggregate.markReadyAfterTurnCompletion({ chatId, broadcast }, turnId);
-    if (session.chatStatus === SESSION_RUNTIME_CHAT_STATUS.READY) {
-      this.logger.debug("SendMessageService chat status ready", {
-        chatId,
-        turnId,
-      });
-    }
-    aggregate.clearActiveTurnIf(turnId);
   }
 }
 

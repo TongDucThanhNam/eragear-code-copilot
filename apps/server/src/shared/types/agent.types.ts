@@ -34,6 +34,8 @@ export interface AgentConfig {
   command: string;
   /** Optional arguments for the command */
   args?: string[];
+  /** Optional command template used to resume an existing external session */
+  resumeCommandTemplate?: string;
   /** Optional environment variables */
   env?: Record<string, string>;
   /** Associated project ID, if any */
@@ -58,6 +60,8 @@ export interface AgentInput {
   command: string;
   /** Optional arguments for the command */
   args?: string[];
+  /** Optional command template used to resume an existing external session */
+  resumeCommandTemplate?: string;
   /** Optional environment variables */
   env?: Record<string, string>;
   /** Associated project ID, if any */

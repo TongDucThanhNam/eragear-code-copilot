@@ -320,6 +320,8 @@ export interface StoredSession {
   userId: string;
   /** Optional display name */
   name?: string;
+  /** Associated agent identifier, if available */
+  agentId?: string;
   /** Associated agent name mapped from the DB */
   agentName?: string;
   /** Active session ID from the agent process */

@@ -19,6 +19,7 @@ export const CreateAgentInputSchema = z.object({
   type: AgentTypeSchema,
   command: z.string().min(1),
   args: z.array(z.string()).optional(),
+  resumeCommandTemplate: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
   projectId: z.string().nullable().optional(),
 });
@@ -29,6 +30,7 @@ export const UpdateAgentInputSchema = z.object({
   type: AgentTypeSchema.optional(),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
+  resumeCommandTemplate: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
   projectId: z.string().nullable().optional(),
 });

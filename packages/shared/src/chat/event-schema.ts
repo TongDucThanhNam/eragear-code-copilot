@@ -216,6 +216,7 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
       partIndex: z.number().int().nonnegative(),
       part: UI_MESSAGE_PART_SCHEMA,
       isNew: z.boolean(),
+      createdAt: z.number().finite().optional(),
     })
     .passthrough(),
   z
@@ -283,9 +284,7 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .passthrough(),
 ]);
 
-type ParseResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: string };
+type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export type ClientParseIssueKind = "unknown_event" | "invalid_payload";
 
@@ -354,7 +353,10 @@ export function parseUiMessageArrayStrict(
   if (!parsed.success) {
     return {
       ok: false,
-      error: toParseErrorMessage("Invalid UI message array payload", parsed.error),
+      error: toParseErrorMessage(
+        "Invalid UI message array payload",
+        parsed.error
+      ),
     };
   }
   return { ok: true, value: parsed.data as UIMessage[] };
@@ -385,7 +387,9 @@ function sanitizeUiMessageParts(parts: unknown[]): UIMessage["parts"] {
   return sanitizedParts;
 }
 
-export function parseUiMessageClientSafe(raw: unknown): ClientParseResult<UIMessage> {
+export function parseUiMessageClientSafe(
+  raw: unknown
+): ClientParseResult<UIMessage> {
   const parsed = UI_MESSAGE_ENVELOPE_SCHEMA.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -405,7 +409,7 @@ export function parseUiMessageClientSafe(raw: unknown): ClientParseResult<UIMess
     sanitizedMessage.createdAt = parsed.data.createdAt;
   }
 
-  if (Object.prototype.hasOwnProperty.call(parsed.data, "metadata")) {
+  if (Object.hasOwn(parsed.data, "metadata")) {
     sanitizedMessage.metadata = parsed.data.metadata;
   }
 
@@ -495,7 +499,10 @@ export function parseBroadcastEventClientSafe(
       return {
         ok: false,
         kind: "invalid_payload",
-        error: toParseErrorMessage("Invalid UI message part payload", parsedPart.error),
+        error: toParseErrorMessage(
+          "Invalid UI message part payload",
+          parsedPart.error
+        ),
       };
     }
     normalizedRaw = {

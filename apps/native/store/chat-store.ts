@@ -1,9 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-  compareUiMessagesChronologically,
-  findUiMessageInsertIndex,
   type AgentInfo,
   type ChatStatus,
+  compareUiMessagesChronologically,
+  findUiMessageInsertIndex,
   type UIMessage,
 } from "@repo/shared";
 import { create } from "zustand";
@@ -264,30 +264,42 @@ export const useChatStore = create<ChatState>()(
           }
           const nextMap = new Map(state.messagesById);
           nextMap.set(message.id, message);
+
           if (exists) {
-            const currentIndex = state.messageIds.indexOf(message.id);
-            if (currentIndex < 0) {
+            // Check if createdAt was newly assigned or changed. When createdAt
+            // transitions (e.g. from tentative to real server timestamp, or from
+            // undefined to a value), the message's sorted position may need to
+            // change. Re-insert at the correct position to stay consistent.
+            const createdAtChanged =
+              current !== undefined && current.createdAt !== message.createdAt;
+            if (!createdAtChanged) {
+              // Fast path: createdAt unchanged — position is stable.
               return { messagesById: nextMap };
             }
-            const nextIds = [...state.messageIds];
-            nextIds.splice(currentIndex, 1);
-            const orderedWithoutCurrent = nextIds
-              .map((messageId) => nextMap.get(messageId))
-              .filter((value): value is UIMessage => Boolean(value));
+            // Remove from old position and re-insert at correct position.
+            const filteredIds = state.messageIds.filter(
+              (id) => id !== message.id
+            );
+            const orderedMessages = filteredIds
+              .map((id) => nextMap.get(id))
+              .filter((m): m is UIMessage => Boolean(m));
             const insertIndex = findUiMessageInsertIndex(
-              orderedWithoutCurrent,
+              orderedMessages,
               message
             );
+            const nextIds = [...filteredIds];
             nextIds.splice(insertIndex, 0, message.id);
-            if (insertIndex === currentIndex) {
-              return { messagesById: nextMap };
-            }
             return { messagesById: nextMap, messageIds: nextIds };
           }
+
+          // New message: insert at the correct sorted position.
           const orderedMessages = state.messageIds
             .map((messageId) => state.messagesById.get(messageId))
             .filter((value): value is UIMessage => Boolean(value));
-          const insertIndex = findUiMessageInsertIndex(orderedMessages, message);
+          const insertIndex = findUiMessageInsertIndex(
+            orderedMessages,
+            message
+          );
           const nextIds = [...state.messageIds];
           nextIds.splice(insertIndex, 0, message.id);
           return {

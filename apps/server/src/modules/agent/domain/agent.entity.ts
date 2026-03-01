@@ -26,6 +26,8 @@ export class Agent {
   command: string;
   /** Optional arguments for the command */
   args?: string[];
+  /** Optional command template for resuming existing sessions */
+  resumeCommandTemplate?: string;
   /** Environment variables for the agent process */
   env?: Record<string, string>;
   /** Optional project ID this agent belongs to */
@@ -46,6 +48,7 @@ export class Agent {
     this.type = config.type;
     this.command = config.command;
     this.args = config.args;
+    this.resumeCommandTemplate = config.resumeCommandTemplate;
     this.env = config.env;
     this.projectId = config.projectId;
     this.createdAt = config.createdAt;
@@ -75,6 +78,7 @@ export class Agent {
       type: input.type,
       command: input.command,
       args: input.args,
+      resumeCommandTemplate: input.resumeCommandTemplate,
       env: input.env,
       projectId: input.projectId,
       createdAt: Date.now(),
@@ -95,6 +99,7 @@ export class Agent {
       type: this.type,
       command: this.command,
       args: this.args,
+      resumeCommandTemplate: this.resumeCommandTemplate,
       env: this.env,
       projectId: this.projectId,
       createdAt: this.createdAt,

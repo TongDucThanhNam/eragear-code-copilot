@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "@repo/shared";
 import {
-  applyPartUpdate,
   applyMessageDeltasIntoState,
+  applyPartUpdate,
   createEmptyMessageState,
   mergeMessagesIntoState,
   prependMessagesIntoState,
@@ -49,7 +49,9 @@ describe("use-chat-message-state", () => {
 
   test("merge appends unknown messages at the end", () => {
     const initial = replaceMessagesState([createMessage("m1", "one")]);
-    const updated = mergeMessagesIntoState(initial, [createMessage("m2", "two")]);
+    const updated = mergeMessagesIntoState(initial, [
+      createMessage("m2", "two"),
+    ]);
 
     expect(updated.order).toEqual(["m1", "m2"]);
     expect(updated.orderedMessages.map((message) => message.id)).toEqual([
@@ -212,5 +214,83 @@ describe("use-chat-message-state", () => {
       text: "one-updated",
       state: "done",
     });
+  });
+
+  test("applyPartUpdate does not drop isNew part when partIndex exceeds array length (OOO)", () => {
+    const initial = replaceMessagesState([createMessage("m1", "part-0")]);
+
+    // Simulate out-of-order: partIndex 2 arrives before partIndex 1
+    const afterPart2 = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 2,
+      part: { type: "text", text: "part-2", state: "done" },
+      isNew: true,
+    });
+
+    // Part should be appended (not dropped)
+    expect(afterPart2.byId.get("m1")?.parts).toHaveLength(2);
+    expect(afterPart2.byId.get("m1")?.parts[1]).toMatchObject({
+      type: "text",
+      text: "part-2",
+    });
+
+    // Now partIndex 1 arrives
+    const afterPart1 = applyPartUpdate(afterPart2, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 1,
+      part: { type: "reasoning", text: "thinking", state: "done" },
+      isNew: true,
+    });
+
+    // All three parts present — no data loss
+    expect(afterPart1.byId.get("m1")?.parts).toHaveLength(3);
+    expect(afterPart1.byId.get("m1")?.parts[1]).toMatchObject({
+      type: "reasoning",
+      text: "thinking",
+    });
+  });
+
+  test("applyPartUpdate does not drop non-new update for out-of-bounds index", () => {
+    const initial = replaceMessagesState([createMessage("m1", "part-0")]);
+
+    // Simulate non-new update for partIndex 3 when there's only 1 part
+    const updated = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 3,
+      part: { type: "text", text: "late-update", state: "done" },
+      isNew: false,
+    });
+
+    // Part should be appended (not dropped)
+    expect(updated.byId.get("m1")?.parts).toHaveLength(2);
+    expect(updated.byId.get("m1")?.parts[1]).toMatchObject({
+      type: "text",
+      text: "late-update",
+    });
+  });
+
+  test("applyPartUpdate still drops negative partIndex", () => {
+    const initial = replaceMessagesState([createMessage("m1", "one")]);
+
+    const resultNew = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: -1,
+      part: { type: "text", text: "bad", state: "done" },
+      isNew: true,
+    });
+    expect(resultNew).toBe(initial);
+
+    const resultUpdate = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: -1,
+      part: { type: "text", text: "bad", state: "done" },
+      isNew: false,
+    });
+    expect(resultUpdate).toBe(initial);
   });
 });

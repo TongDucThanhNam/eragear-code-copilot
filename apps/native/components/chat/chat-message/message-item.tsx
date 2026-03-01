@@ -2,16 +2,16 @@ import type { UIMessage, UIMessagePart } from "@repo/shared";
 import React, { useMemo } from "react";
 import { Linking, Text, View } from "react-native";
 import { useChatStore } from "@/store/chat-store";
-import { AttachmentBadge } from "./attachment-badge";
 import { ChainOfThought } from "./agentic-chain";
 import {
   type FilePart,
-  type SourcePart,
   isDataPart,
   isMessageStreaming,
   resolveAssistantFinalVisibility,
+  type SourcePart,
   splitMessageParts,
 } from "./agentic-message-utils";
+import { AttachmentBadge } from "./attachment-badge";
 import { MessageActions } from "./message-actions";
 import { MessagePartItem } from "./message-part-item";
 import MarkdownText from "./text-part";
@@ -34,8 +34,11 @@ function formatMessageTime(timestamp: number | undefined): string {
   });
 }
 
-// Get timestamp from message metadata or use current time
+// Get timestamp from message — prefer createdAt, then metadata, then now
 function getMessageTimestamp(message: UIMessage): number {
+  if (typeof message.createdAt === "number") {
+    return message.createdAt;
+  }
   if (message.metadata && typeof message.metadata === "object") {
     const meta = message.metadata as Record<string, unknown>;
     if (typeof meta.timestamp === "number") {
@@ -52,11 +55,7 @@ const extractMessageText = (parts: UIMessage["parts"]) =>
     .filter(Boolean)
     .join("\n\n");
 
-const AttachmentList = ({
-  items,
-}: {
-  items: Array<SourcePart | FilePart>;
-}) => {
+const AttachmentList = ({ items }: { items: Array<SourcePart | FilePart> }) => {
   if (items.length === 0) {
     return null;
   }
@@ -77,19 +76,11 @@ const AttachmentList = ({
         if (part.type === "source-document") {
           const label = part.title ?? part.filename ?? part.sourceId;
           return (
-            <AttachmentBadge
-              key={getPartKey(part, index)}
-              label={label}
-            />
+            <AttachmentBadge key={getPartKey(part, index)} label={label} />
           );
         }
         const label = part.filename ?? part.mediaType ?? "File";
-        return (
-          <AttachmentBadge
-            key={getPartKey(part, index)}
-            label={label}
-          />
-        );
+        return <AttachmentBadge key={getPartKey(part, index)} label={label} />;
       })}
     </View>
   );
@@ -102,7 +93,7 @@ const UserMessageBody = ({ parts }: { parts: UIMessagePart[] }) => {
   );
 
   return (
-    <View className="flex-col gap-1.5 items-end">
+    <View className="flex-col items-end gap-1.5">
       <View
         className={cn_inline(
           "flex-col gap-1.5 rounded-2xl px-4 py-3",
@@ -110,10 +101,7 @@ const UserMessageBody = ({ parts }: { parts: UIMessagePart[] }) => {
         )}
       >
         {displayParts.map((part, index) => (
-          <MessagePartItem
-            key={getPartKey(part, index)}
-            part={part}
-          />
+          <MessagePartItem key={getPartKey(part, index)} part={part} />
         ))}
       </View>
     </View>
@@ -123,18 +111,15 @@ const UserMessageBody = ({ parts }: { parts: UIMessagePart[] }) => {
 const AssistantMessageBody = ({
   message,
   isLiveMessage,
-  isContinuedByAssistant,
 }: {
   message: UIMessage;
   isLiveMessage: boolean;
-  isContinuedByAssistant: boolean;
 }) => {
   const { chainItems, finalText, finalAttachments } = useMemo(
     () => splitMessageParts(message.parts),
     [message.parts]
   );
-  const isStreaming =
-    isMessageStreaming(message.parts) || isLiveMessage;
+  const isStreaming = isMessageStreaming(message.parts) || isLiveMessage;
   const finalVisibility = resolveAssistantFinalVisibility({
     finalText,
     finalAttachmentsCount: finalAttachments.length,
@@ -142,33 +127,22 @@ const AssistantMessageBody = ({
     chainItemsCount: chainItems.length,
   });
 
-  if (
-    chainItems.length > 0 &&
-    !finalVisibility.shouldRenderFinal &&
-    !isLiveMessage &&
-    isContinuedByAssistant
-  ) {
-    // Consecutive assistant chain-only messages are usually continuation artifacts.
-    // Hide this fragment and let the latest assistant message represent the turn.
-    return null;
-  }
-
   if (chainItems.length === 0) {
-    const displayParts = message.parts.filter((part) => !isDataPart(part));
+    // Use the pre-merged finalText from splitMessageParts to prevent
+    // markdown fragmentation when text is split across multiple parts
+    // (server may split text due to streaming state transitions).
     return (
-      <View className="flex-col gap-1.5 items-start">
+      <View className="flex-col items-start gap-1.5">
         <View
           className={cn_inline(
             "flex-col gap-1.5 rounded-2xl px-4 py-3",
             "max-w-[88%] self-start bg-surface-foreground/5"
           )}
         >
-          {displayParts.map((part, index) => (
-            <MessagePartItem
-              key={getPartKey(part, index)}
-              part={part}
-            />
-          ))}
+          {finalText ? <MarkdownText>{finalText}</MarkdownText> : null}
+          {finalAttachments.length > 0 ? (
+            <AttachmentList items={finalAttachments} />
+          ) : null}
         </View>
       </View>
     );
@@ -225,23 +199,18 @@ const MessageHeader = ({
 interface MessageItemProps {
   message: UIMessage;
   isLiveMessage: boolean;
-  isContinuedByAssistant: boolean;
 }
 
 interface MessageItemContainerProps {
   messageId: string;
   isLiveMessage: boolean;
-  isContinuedByAssistant: boolean;
 }
 
-export function MessageItem({
-  message,
-  isLiveMessage,
-  isContinuedByAssistant,
-}: MessageItemProps) {
+export function MessageItem({ message, isLiveMessage }: MessageItemProps) {
   const isUser = message.role === "user";
   const messageText = useMemo(
-    () => (message.role === "assistant" ? extractMessageText(message.parts) : ""),
+    () =>
+      message.role === "assistant" ? extractMessageText(message.parts) : "",
     [message.role, message.parts]
   );
   const showActions =
@@ -256,14 +225,10 @@ export function MessageItem({
         <View className="w-full">
           <AssistantMessageBody
             isLiveMessage={isLiveMessage}
-            isContinuedByAssistant={isContinuedByAssistant}
             message={message}
           />
           {showActions && (
-            <MessageActions
-              className="self-start"
-              text={messageText}
-            />
+            <MessageActions className="self-start" text={messageText} />
           )}
         </View>
       )}
@@ -274,18 +239,13 @@ export function MessageItem({
 function MessageItemContainer({
   messageId,
   isLiveMessage,
-  isContinuedByAssistant,
 }: MessageItemContainerProps) {
   const message = useChatStore((state) => state.messagesById.get(messageId));
   if (!message) {
     return null;
   }
   return (
-    <MemoizedMessageItem
-      isLiveMessage={isLiveMessage}
-      isContinuedByAssistant={isContinuedByAssistant}
-      message={message}
-    />
+    <MemoizedMessageItem isLiveMessage={isLiveMessage} message={message} />
   );
 }
 
@@ -304,9 +264,6 @@ function propsAreEqual(
   if (prev.isLiveMessage !== next.isLiveMessage) {
     return false;
   }
-  if (prev.isContinuedByAssistant !== next.isContinuedByAssistant) {
-    return false;
-  }
   return true;
 }
 
@@ -320,9 +277,6 @@ function containerPropsAreEqual(
     return false;
   }
   if (prev.isLiveMessage !== next.isLiveMessage) {
-    return false;
-  }
-  if (prev.isContinuedByAssistant !== next.isContinuedByAssistant) {
     return false;
   }
   return true;

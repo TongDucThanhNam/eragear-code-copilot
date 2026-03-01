@@ -12,6 +12,7 @@ import type {
 
 type SessionMetadataUpdateKey =
   | "name"
+  | "agentId"
   | "sessionId"
   | "projectId"
   | "userId"
@@ -43,6 +44,7 @@ type MetadataWriter = {
 
 const SESSION_METADATA_WRITERS: MetadataWriter = {
   name: (value) => ({ name: value ?? null }),
+  agentId: (value) => ({ agentId: value ?? null }),
   sessionId: (value) => ({ sessionId: value ?? null }),
   projectId: (value) => ({ projectId: value ?? null }),
   userId: (value) => (typeof value === "string" ? { userId: value } : {}),
@@ -110,6 +112,7 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
       id: session.id,
       userId: session.userId,
       name: session.name ?? null,
+      agentId: session.agentId ?? null,
       sessionId: session.sessionId ?? null,
       projectId: session.projectId ?? null,
       projectRoot: session.projectRoot,

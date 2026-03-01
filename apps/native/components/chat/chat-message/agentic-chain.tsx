@@ -1,15 +1,13 @@
-import type { ToolUIPart, UIMessagePart } from "@repo/shared";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import type { ToolUIPart, UIMessagePart } from "@repo/shared";
 import { Accordion, Spinner } from "heroui-native";
-import React, { useMemo, useState } from "react";
+import type React from "react";
+import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
-import {
-  getActiveIndex,
-  toToolViewState,
-} from "./agentic-message-utils";
+import { getActiveIndex, toToolViewState } from "./agentic-message-utils";
 import { PartRenderers } from "./part-renderers";
 import MarkdownText from "./text-part";
-import { cn_inline, getPartKey } from "./utils";
+import { cn_inline, deduplicateKeys } from "./utils";
 
 type AccordionValue = string | string[] | undefined;
 
@@ -95,11 +93,7 @@ const getChainIcon = (part: UIMessagePart, isActive: boolean) => {
 
   if (part.type === "step-start") {
     return (
-      <Ionicons
-        className="text-muted-foreground"
-        name="ellipse"
-        size={10}
-      />
+      <Ionicons className="text-muted-foreground" name="ellipse" size={10} />
     );
   }
 
@@ -134,12 +128,13 @@ const ChainStep = ({
         {getChainIcon(part, isActive)}
       </View>
       {!isLast && (
-        <View className="mt-1 w-px flex-1 bg-divider" style={{ minHeight: 12 }} />
+        <View
+          className="mt-1 w-px flex-1 bg-divider"
+          style={{ minHeight: 12 }}
+        />
       )}
     </View>
-    <View className={cn_inline("flex-1", !isLast && "pb-3")}>
-      {children}
-    </View>
+    <View className={cn_inline("flex-1", !isLast && "pb-3")}>{children}</View>
   </View>
 );
 
@@ -153,11 +148,7 @@ const ChainContent = ({ part }: { part: UIMessagePart }) => {
   }
 
   if (part.type === "step-start") {
-    return (
-      <Text className="text-xs text-muted-foreground">
-        Step
-      </Text>
-    );
+    return <Text className="text-muted-foreground text-xs">Step</Text>;
   }
 
   return <PartRenderers part={part} />;
@@ -209,17 +200,17 @@ export function ChainOfThought({
 
   return (
     <Accordion
+      className="w-full rounded-xl border border-divider bg-surface-foreground/5"
       isDividerVisible={false}
-      selectionMode="single"
-      value={isOpen ? itemValue : undefined}
       onValueChange={(nextValue: AccordionValue) => {
         const open = Array.isArray(nextValue)
           ? nextValue.includes(itemValue)
           : nextValue === itemValue;
         setIsOpen(open);
       }}
+      selectionMode="single"
+      value={isOpen ? itemValue : undefined}
       variant="surface"
-      className="w-full rounded-xl border border-divider bg-surface-foreground/5"
     >
       <Accordion.Item value={itemValue}>
         <Accordion.Trigger className="min-h-10 px-3 py-2">
@@ -235,26 +226,30 @@ export function ChainOfThought({
                 />
               )}
               <Text className="font-medium text-sm">Chain of Thought</Text>
-              <Text className="text-xs text-muted-foreground">
-                {summary}
-              </Text>
+              <Text className="text-muted-foreground text-xs">{summary}</Text>
             </View>
             <Accordion.Indicator />
           </View>
         </Accordion.Trigger>
         {isOpen ? (
-          <Accordion.Content className="border-t border-divider px-3 pb-3 pt-2">
+          <Accordion.Content className="border-divider border-t px-3 pt-2 pb-3">
             <View className="flex-col gap-3">
-              {items.map((item, index) => (
-                <ChainStep
-                  key={getPartKey(item, index)}
-                  isActive={index === activeIndex}
-                  isLast={index === items.length - 1}
-                  part={item}
-                >
-                  <ChainContent part={item} />
-                </ChainStep>
-              ))}
+              {deduplicateKeys(items).map((key, index) => {
+                const item = items[index];
+                if (!item) {
+                  return null;
+                }
+                return (
+                  <ChainStep
+                    isActive={index === activeIndex}
+                    isLast={index === items.length - 1}
+                    key={key}
+                    part={item}
+                  >
+                    <ChainContent part={item} />
+                  </ChainStep>
+                );
+              })}
             </View>
           </Accordion.Content>
         ) : null}

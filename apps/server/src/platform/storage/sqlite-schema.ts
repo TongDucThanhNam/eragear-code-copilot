@@ -51,6 +51,7 @@ export const agents = sqliteTable(
     type: text("type").notNull(),
     command: text("command").notNull(),
     argsJson: text("args_json"),
+    resumeCommandTemplate: text("resume_command_template"),
     envJson: text("env_json"),
     projectId: text("project_id").references(() => projects.id, {
       onDelete: "set null",

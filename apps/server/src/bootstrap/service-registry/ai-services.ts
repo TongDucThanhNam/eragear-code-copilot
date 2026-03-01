@@ -28,6 +28,7 @@ export function createAiServices(
   );
   const promptTaskRunner = new PromptTaskRunner({
     sessionRepo: deps.sessionRepo,
+    sessionRuntime: deps.sessionRuntime,
     sessionGateway,
     logger: deps.appLogger,
     clock: deps.clock,

@@ -91,13 +91,23 @@ export function registerAgentRoutes(
       if (!auth) {
         return c.json({ error: "Unauthorized" }, 401);
       }
-      const { name, type, command, args, argsInput, env, projectId } =
+      const {
+        name,
+        type,
+        command,
+        args,
+        argsInput,
+        resumeCommandTemplate,
+        env,
+        projectId,
+      } =
         await parseJsonBodyWithLimit<{
           name: string;
           type: AgentType;
           command: string;
           args?: string[];
           argsInput?: string;
+          resumeCommandTemplate?: string;
           env?: Record<string, string>;
           projectId?: string | null;
         }>(c.req.raw, runtime.httpMaxBodyBytes);
@@ -124,6 +134,7 @@ export function registerAgentRoutes(
         type,
         command,
         args: parsedArgs.args,
+        resumeCommandTemplate,
         env,
         projectId,
       });
@@ -156,7 +167,17 @@ export function registerAgentRoutes(
       if (!auth) {
         return c.json({ error: "Unauthorized" }, 401);
       }
-      const { id, name, type, command, args, argsInput, env, projectId } =
+      const {
+        id,
+        name,
+        type,
+        command,
+        args,
+        argsInput,
+        resumeCommandTemplate,
+        env,
+        projectId,
+      } =
         await parseJsonBodyWithLimit<{
           id: string;
           name?: string;
@@ -164,6 +185,7 @@ export function registerAgentRoutes(
           command?: string;
           args?: string[];
           argsInput?: string;
+          resumeCommandTemplate?: string;
           env?: Record<string, string>;
           projectId?: string | null;
         }>(c.req.raw, runtime.httpMaxBodyBytes);
@@ -191,6 +213,7 @@ export function registerAgentRoutes(
         type,
         command,
         args: parsedArgs.args,
+        resumeCommandTemplate,
         env,
         projectId,
       });

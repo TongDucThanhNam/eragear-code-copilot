@@ -1,10 +1,9 @@
-import type { DataUIPart, ToolUIPart, UIMessagePart } from "@repo/shared";
+import type { ToolUIPart, UIMessagePart } from "@repo/shared";
 
 // Inline helper if not exists
 export const cn_inline = (
   ...classes: Array<string | false | null | undefined>
-) =>
-  classes.filter(Boolean).join(" ");
+) => classes.filter(Boolean).join(" ");
 
 // Terminal output detection patterns (defined at module level for performance)
 const TERMINAL_PATTERNS = [
@@ -21,32 +20,49 @@ export function isTerminalOutput(output: unknown): boolean {
   return TERMINAL_PATTERNS.some((pattern) => pattern.test(output));
 }
 
+/**
+ * Generate a stable key for a message part.
+ *
+ * Uses the same strategy as the web client:
+ * - tool parts: keyed by toolCallId (stable across re-renders)
+ * - source parts: keyed by sourceId
+ * - file parts: keyed by url
+ * - text/reasoning: keyed by index (position-stable)
+ */
 export function getPartKey(part: UIMessagePart, index: number): string {
-  const keySuffix = `-${index}`;
-
-  if (part.type === "text" || part.type === "reasoning") {
-    return `${part.type}-${part.text.slice(0, 30)}${keySuffix}`;
+  if (part.type.startsWith("tool-")) {
+    return `tool-${(part as ToolUIPart).toolCallId}`;
   }
-  if (part.type === "source-url") {
-    return `${part.type}-${part.url}${keySuffix}`;
-  }
-  if (part.type === "source-document") {
-    return `${part.type}-${part.sourceId}${keySuffix}`;
+  if (part.type === "source-url" || part.type === "source-document") {
+    return `source-${part.sourceId}`;
   }
   if (part.type === "file") {
-    return `${part.type}-${part.url ?? part.filename ?? "file"}${keySuffix}`;
+    return `file-${part.url}`;
   }
-  if (part.type === "step-start") {
-    return `${part.type}${keySuffix}`;
+  if (part.type === "reasoning") {
+    return `reasoning-${index}`;
   }
-  if (part.type.startsWith("data-")) {
-    const dataPart = part as DataUIPart;
-    return `${part.type}-${dataPart.id ?? "data"}${keySuffix}`;
+  if (part.type === "text") {
+    return `text-${index}`;
   }
-  if (part.type.startsWith("tool-")) {
-    return `${part.type}-${(part as ToolUIPart).toolCallId}${keySuffix}`;
-  }
-  return `${part.type}${keySuffix}`;
+  return `part-${index}`;
+}
+
+/**
+ * Wrap getPartKey with deduplication. If two parts in the same list
+ * produce the same base key, append a suffix to disambiguate.
+ */
+export function deduplicateKeys(
+  items: UIMessagePart[],
+  keyFn: (part: UIMessagePart, index: number) => string = getPartKey
+): string[] {
+  const seen = new Map<string, number>();
+  return items.map((item, index) => {
+    const base = keyFn(item, index);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count > 0 ? `${base}__${count}` : base;
+  });
 }
 
 export function getPlanStatusIcon(status: string): string {

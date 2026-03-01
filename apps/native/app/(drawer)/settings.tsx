@@ -42,6 +42,7 @@ export default function SettingsScreen() {
     type: "opencode" as "claude" | "codex" | "opencode" | "gemini" | "other",
     command: "",
     args: "acp",
+    resumeCommandTemplate: "",
     env: "{}",
   };
   const [formData, setFormData] = useState(emptyForm);
@@ -101,6 +102,7 @@ export default function SettingsScreen() {
       type: agent.type,
       command: agent.command,
       args: (agent.args || []).join(" "),
+      resumeCommandTemplate: agent.resumeCommandTemplate ?? "",
       env: JSON.stringify(agent.env || {}, null, 2),
     });
   };
@@ -130,6 +132,8 @@ export default function SettingsScreen() {
           type: formData.type,
           command: formData.command.trim(),
           args: argsParsed,
+          resumeCommandTemplate:
+            formData.resumeCommandTemplate.trim() || undefined,
           env: envParsed,
         });
       } else {
@@ -138,6 +142,8 @@ export default function SettingsScreen() {
           type: formData.type,
           command: formData.command.trim(),
           args: argsParsed,
+          resumeCommandTemplate:
+            formData.resumeCommandTemplate.trim() || undefined,
           env: envParsed,
         });
       }
@@ -378,6 +384,21 @@ export default function SettingsScreen() {
                     }
                     placeholder="acp"
                     value={formData.args}
+                  />
+                </TextField>
+
+                <TextField>
+                  <TextField.Label>Resume Command Template</TextField.Label>
+                  <TextField.Input
+                    autoCapitalize="none"
+                    onChangeText={(value) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        resumeCommandTemplate: value,
+                      }))
+                    }
+                    placeholder="codex resume <sessionId>"
+                    value={formData.resumeCommandTemplate}
                   />
                 </TextField>
 

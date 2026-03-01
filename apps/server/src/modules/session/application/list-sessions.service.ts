@@ -158,6 +158,7 @@ export class ListSessionsService {
         return {
           id: session.id,
           name: session.name ?? runtimeTitle,
+          agentId: session.agentId,
           sessionId: activeSession?.sessionId ?? session.sessionId,
           projectId: derivedProjectId ?? session.projectId ?? null,
           projectRoot: session.projectRoot,

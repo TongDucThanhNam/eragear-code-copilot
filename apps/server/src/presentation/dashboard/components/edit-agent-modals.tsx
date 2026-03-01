@@ -21,6 +21,9 @@ export function EditAgentModals() {
     const type = String(formData.get("type") ?? "").trim();
     const command = String(formData.get("command") ?? "").trim();
     const argsInput = String(formData.get("args") ?? "").trim();
+    const resumeCommandTemplate = String(
+      formData.get("resumeCommandTemplate") ?? ""
+    ).trim();
 
     if (!(id && name && type && command)) {
       return;
@@ -32,6 +35,7 @@ export function EditAgentModals() {
       type,
       command,
       argsInput: argsInput || undefined,
+      resumeCommandTemplate: resumeCommandTemplate || undefined,
     });
 
     window.location.hash = "#tab-agents";
@@ -132,6 +136,26 @@ export function EditAgentModals() {
                 />
                 <p className="mt-1 font-mono text-[10px] text-muted">
                   Space or comma separated. Use quotes for values with spaces.
+                </p>
+              </div>
+
+              <div className="mb-6">
+                <label
+                  className="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+                  htmlFor={`edit-agent-resume-command-template-${agent.id}`}
+                >
+                  Resume Command Template
+                </label>
+                <input
+                  className="input-underline w-full"
+                  defaultValue={agent.resumeCommandTemplate ?? ""}
+                  id={`edit-agent-resume-command-template-${agent.id}`}
+                  name="resumeCommandTemplate"
+                  placeholder="codex resume <sessionId>"
+                  type="text"
+                />
+                <p className="mt-1 font-mono text-[10px] text-muted">
+                  Optional. Use {"<sessionId>"} as placeholder.
                 </p>
               </div>
 

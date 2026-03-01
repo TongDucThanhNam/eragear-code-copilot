@@ -154,6 +154,7 @@ export type BroadcastEvent =
       partIndex: number;
       part: UIMessagePart;
       isNew: boolean;
+      createdAt?: number;
     }
   | {
       type: "ui_message_delta";

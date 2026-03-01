@@ -220,6 +220,14 @@ export class SessionBuffering implements SessionBufferingPort {
   }
 
   ensureMessageId(preferredId?: string) {
+    // When a tool_call arrives before any text chunk, the assistant
+    // message is already created with its own ID via upsertToolPart
+    // (stored in currentAssistantId). Meanwhile appendBlock may have
+    // auto-generated a *different* buffer.messageId. Prefer the
+    // caller-supplied preferredId so all parts land on the same message.
+    if (preferredId && this.messageId && this.messageId !== preferredId) {
+      this.messageId = preferredId;
+    }
     if (!this.messageId) {
       this.messageId = preferredId ?? createId("msg");
     }

@@ -282,6 +282,7 @@ function createService(
   const sessionGateway = new AiSessionRuntimeAdapter(runtime, repo);
   const promptTaskRunner = new PromptTaskRunner({
     sessionRepo: repo,
+    sessionRuntime: runtime,
     sessionGateway,
     logger,
     clock,

@@ -14,6 +14,9 @@ export function AddAgentModal() {
     const type = String(formData.get("type") ?? "").trim();
     const command = String(formData.get("command") ?? "").trim();
     const argsInput = String(formData.get("args") ?? "").trim();
+    const resumeCommandTemplate = String(
+      formData.get("resumeCommandTemplate") ?? ""
+    ).trim();
 
     if (!(name && type && command)) {
       return;
@@ -24,6 +27,7 @@ export function AddAgentModal() {
       type,
       command,
       argsInput: argsInput || undefined,
+      resumeCommandTemplate: resumeCommandTemplate || undefined,
     });
 
     form.reset();
@@ -121,6 +125,26 @@ export function AddAgentModal() {
             />
             <p className="mt-1 font-mono text-[10px] text-muted">
               Space or comma separated. Use quotes for values with spaces.
+            </p>
+          </div>
+
+          <div className="mb-6">
+            <label
+              className="mb-2 block font-mono text-[10px] uppercase tracking-widest"
+              htmlFor="agent-resume-command-template"
+            >
+              Resume Command Template
+            </label>
+            <input
+              className="input-underline w-full"
+              id="agent-resume-command-template"
+              name="resumeCommandTemplate"
+              placeholder="codex resume <sessionId>"
+              type="text"
+            />
+            <p className="mt-1 font-mono text-[10px] text-muted">
+              Optional. Use {"<sessionId>"} as placeholder. Leave empty to use
+              default by agent type.
             </p>
           </div>
 

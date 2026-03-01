@@ -227,7 +227,9 @@ function applyMessagePartUpdate(params: {
   };
 }
 
-function finalizeToolPartAfterFinish(part: Extract<UIMessage["parts"][number], { type: `tool-${string}` }>) {
+function finalizeToolPartAfterFinish(
+  part: Extract<UIMessage["parts"][number], { type: `tool-${string}` }>
+) {
   if (
     part.state !== "input-streaming" &&
     part.state !== "input-available" &&
@@ -318,7 +320,7 @@ export function areAvailableCommandsEqual(
   for (let i = 0; i < leftCommands.length; i += 1) {
     const leftCommand = leftCommands[i];
     const rightCommand = rightCommands[i];
-    if (!leftCommand || !rightCommand) {
+    if (!(leftCommand && rightCommand)) {
       return false;
     }
     if (
@@ -347,6 +349,7 @@ export interface EventProcessingCallbacks {
     partIndex: number;
     part: Extract<BroadcastEvent, { type: "ui_message_part" }>["part"];
     isNew: boolean;
+    createdAt?: number;
   }) => void;
   getMessageById?: (messageId: string) => UIMessage | undefined;
   getMessagesForPermission?: () => Iterable<UIMessage>;
@@ -438,11 +441,15 @@ export function processSessionEvent(
       );
       return;
 
-    case "chat_finish":
+    case "chat_finish": {
       const finishMessage =
         event.message ??
-        (event.messageId ? callbacks.getMessageById?.(event.messageId) : undefined) ??
-        findLatestStreamingAssistantMessage(callbacks.getMessagesForPermission?.());
+        (event.messageId
+          ? callbacks.getMessageById?.(event.messageId)
+          : undefined) ??
+        findLatestStreamingAssistantMessage(
+          callbacks.getMessagesForPermission?.()
+        );
       const finalizedFinishMessage = finishMessage
         ? finalizeMessageAfterFinish(finishMessage)
         : undefined;
@@ -463,6 +470,7 @@ export function processSessionEvent(
         turnId: event.turnId,
       });
       return;
+    }
 
     case "ui_message": {
       const prev = callbacks.getMessageById?.(event.message.id);
@@ -480,9 +488,7 @@ export function processSessionEvent(
       // Update pending permission after message change
       if (callbacks.onPendingPermissionChange) {
         const permissionSource =
-          callbacks.getMessagesForPermission?.() ??
-          newMessages ??
-          [];
+          callbacks.getMessagesForPermission?.() ?? newMessages ?? [];
         const pendingPermission = findPendingPermission(permissionSource);
         callbacks.onPendingPermissionChange?.(pendingPermission);
       }
@@ -528,6 +534,7 @@ export function processSessionEvent(
           partIndex: event.partIndex,
           part: event.part,
           isNew: event.isNew,
+          createdAt: event.createdAt,
         });
         const next = callbacks.getMessageById?.(event.messageId);
         if (prev && next) {
@@ -555,6 +562,9 @@ export function processSessionEvent(
           id: event.messageId,
           role: event.messageRole,
           parts: [event.part],
+          ...(typeof event.createdAt === "number"
+            ? { createdAt: event.createdAt }
+            : {}),
         };
         if (callbacks.onMessageUpsert) {
           callbacks.onMessageUpsert(nextMessage);

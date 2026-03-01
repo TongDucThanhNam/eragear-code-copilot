@@ -35,7 +35,7 @@ const MessageSeparator = memo(function MessageSeparator({
   const prevMessage = messagesById.get(leadingItem);
   const currentMessage = messagesById.get(trailingItem);
 
-  if (!prevMessage || !currentMessage) {
+  if (!(prevMessage && currentMessage)) {
     return <View className="h-4" />;
   }
 
@@ -121,22 +121,13 @@ function ChatMessagesComponent({
     return message?.role ?? "assistant";
   }, []);
   const renderItem = useCallback(
-    ({ item, index }: { item: string; index: number }) => {
-      const nextId = messageIds[index + 1];
-      const nextMessage = nextId
-        ? useChatStore.getState().messagesById.get(nextId)
-        : undefined;
-      const isContinuedByAssistant = nextMessage?.role === "assistant";
-
-      return (
-        <MemoizedMessageItemContainer
-          isLiveMessage={isStreaming && item === lastAssistantMessageId}
-          isContinuedByAssistant={isContinuedByAssistant}
-          messageId={item}
-        />
-      );
-    },
-    [isStreaming, lastAssistantMessageId, messageIds]
+    ({ item }: { item: string }) => (
+      <MemoizedMessageItemContainer
+        isLiveMessage={isStreaming && item === lastAssistantMessageId}
+        messageId={item}
+      />
+    ),
+    [isStreaming, lastAssistantMessageId]
   );
 
   const emptyState = useMemo(
@@ -200,7 +191,6 @@ function ChatMessagesComponent({
     <FlashList
       contentContainerStyle={contentContainerStyle}
       data={messageIds}
-      removeClippedSubviews
       getItemType={getItemType}
       ItemSeparatorComponent={MessageSeparator}
       keyboardDismissMode="interactive"
@@ -208,6 +198,7 @@ function ChatMessagesComponent({
       keyExtractor={keyExtractor}
       ListEmptyComponent={hasMessages ? null : emptyState}
       maintainVisibleContentPosition={maintainVisibleContentPosition}
+      removeClippedSubviews
       renderItem={renderItem}
       renderScrollComponent={renderScrollComponent}
     />

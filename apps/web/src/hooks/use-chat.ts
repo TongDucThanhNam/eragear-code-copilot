@@ -36,6 +36,8 @@ import {
   useChatTerminalOutputs,
 } from "@/store/chat-stream-store";
 import { useFileStore } from "@/store/file-store";
+import type { UseChatOptions, UseChatResult } from "./use-chat.types";
+import { useChatActions } from "./use-chat-actions";
 import {
   nextLifecycleOnChatIdChange,
   nextLifecycleOnSubscriptionError,
@@ -43,11 +45,11 @@ import {
   nextLifecycleOnSubscriptionStart,
   type StreamLifecycle,
 } from "./use-chat-connection.machine";
-import { useChatActions } from "./use-chat-actions";
+import { chatDebug } from "./use-chat-debug";
 import { useChatHistory } from "./use-chat-history";
 import {
-  applyPartUpdate,
   applyMessageDeltasIntoState,
+  applyPartUpdate,
   type MessageDeltaChunk,
   type MessageState,
   replaceMessagesState,
@@ -60,9 +62,8 @@ import {
   parseBroadcastEvent,
   shouldLogChatStreamDebug,
 } from "./use-chat-normalize";
-import { chatDebug } from "./use-chat-debug";
 import { logChatStreamDebug } from "./use-chat-stream-debug";
-import type { UseChatOptions, UseChatResult } from "./use-chat.types";
+
 const INVALID_EVENT_TOAST_COOLDOWN_MS = 5000;
 
 function isChatNotFoundError(error: unknown): boolean {
@@ -92,7 +93,10 @@ function isChatNotFoundError(error: unknown): boolean {
 
   const codeValues = [candidate.data?.code, candidate.shape?.data?.code];
   for (const codeValue of codeValues) {
-    if (typeof codeValue === "string" && codeValue.toUpperCase() === "NOT_FOUND") {
+    if (
+      typeof codeValue === "string" &&
+      codeValue.toUpperCase() === "NOT_FOUND"
+    ) {
       return true;
     }
   }
@@ -233,12 +237,43 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     if (pendingDeltaOrderRef.current.length === 0) {
       return;
     }
-    const deltas = pendingDeltaOrderRef.current
-      .map((key) => pendingDeltaMapRef.current.get(key))
-      .filter((delta): delta is MessageDeltaChunk => Boolean(delta));
-    pendingDeltaOrderRef.current = [];
-    pendingDeltaMapRef.current.clear();
-    updateMessageState((prev) => applyMessageDeltasIntoState(prev, deltas));
+    const keys = pendingDeltaOrderRef.current;
+    const deltaMap = pendingDeltaMapRef.current;
+    const currentState = messageStateRef.current;
+    const applyable: MessageDeltaChunk[] = [];
+    const orphanKeys: string[] = [];
+
+    for (const key of keys) {
+      const chunk = deltaMap.get(key);
+      if (!chunk) {
+        continue;
+      }
+      const msg = currentState.byId.get(chunk.messageId);
+      if (!msg) {
+        // Message doesn't exist yet — keep for retry
+        orphanKeys.push(key);
+        continue;
+      }
+      const part = msg.parts[chunk.partIndex];
+      if (!part) {
+        // Part doesn't exist yet — keep for retry
+        orphanKeys.push(key);
+        continue;
+      }
+      if (part.type !== "text" && part.type !== "reasoning") {
+        // Part exists but wrong type — discard
+        deltaMap.delete(key);
+        continue;
+      }
+      applyable.push(chunk);
+      deltaMap.delete(key);
+    }
+    pendingDeltaOrderRef.current = orphanKeys;
+    if (applyable.length > 0) {
+      updateMessageState((prev) =>
+        applyMessageDeltasIntoState(prev, applyable)
+      );
+    }
   }, [updateMessageState]);
 
   const scheduleDeltaFlush = useCallback(() => {
@@ -435,12 +470,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       setConnStatus("connecting");
       setStatus("connecting");
     }
-  }, [
-    chatId,
-    clearPendingDeltas,
-    readOnly,
-    resetHistoryState,
-  ]);
+  }, [chatId, clearPendingDeltas, readOnly, resetHistoryState]);
 
   useEffect(() => {
     return () => {
@@ -475,7 +505,10 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   // Apply session state when loaded
   useEffect(() => {
     const activeChatId = chatId ?? null;
-    if (!(activeChatId && normalizedSessionState) || connStatus !== "connecting") {
+    if (
+      !(activeChatId && normalizedSessionState) ||
+      connStatus !== "connecting"
+    ) {
       return;
     }
     const stateToRestore: SessionStateData = {
@@ -566,14 +599,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         nextLifecycleOnSubscriptionEvent({ current: prev, event })
       );
       if (event.type === "ui_message_delta") {
-        const baseMessage = messageStateRef.current.byId.get(event.messageId);
-        if (!baseMessage) {
-          return;
-        }
-        const targetPart = baseMessage.parts[event.partIndex];
-        if (!targetPart || (targetPart.type !== "text" && targetPart.type !== "reasoning")) {
-          return;
-        }
         enqueueDeltaChunk(event);
         return;
       }
@@ -594,9 +619,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
             );
           },
           onMessagePartUpdate: (partEvent) => {
-            updateMessageState((prev) =>
-              applyPartUpdate(prev, partEvent)
-            );
+            updateMessageState((prev) => applyPartUpdate(prev, partEvent));
           },
           getMessageById: (messageId) =>
             messageStateRef.current.byId.get(messageId),
@@ -637,20 +660,24 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           onFinish,
         }
       );
+      // After processing non-delta events (which may create messages/parts),
+      // retry any orphan deltas that were waiting for their base.
+      if (pendingDeltaOrderRef.current.length > 0) {
+        flushPendingDeltas();
+      }
       if (
         event.type === "chat_finish" &&
         messageStateRef.current.order.length === 0
       ) {
         loadHistory(true);
       }
-      if (event.type === "chat_finish") {
-        if (
-          event.turnId &&
-          activeTurnIdRef.current &&
-          activeTurnIdRef.current === event.turnId
-        ) {
-          activeTurnIdRef.current = null;
-        }
+      if (
+        event.type === "chat_finish" &&
+        event.turnId &&
+        activeTurnIdRef.current &&
+        activeTurnIdRef.current === event.turnId
+      ) {
+        activeTurnIdRef.current = null;
       }
       if (
         event.type === "chat_status" &&

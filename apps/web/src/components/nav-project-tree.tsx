@@ -72,6 +72,7 @@ interface SessionItem {
   status: "active" | "inactive" | "streaming";
   pinned: boolean;
   lastActiveAt: number;
+  agentId?: string;
   agentName?: string;
   sessionId?: string;
   agentInfo?: {
@@ -103,6 +104,13 @@ interface DiscoverContext {
 }
 
 const UNKNOWN_PROJECT_ID = "unknown";
+const SESSION_ID_PLACEHOLDER = "<sessionId>";
+const AGENT_RESUME_TEMPLATE_BY_TYPE: Record<string, string> = {
+  codex: `codex resume ${SESSION_ID_PLACEHOLDER}`,
+  claude: `claude -r ${SESSION_ID_PLACEHOLDER}`,
+  opencode: `opencode -s ${SESSION_ID_PLACEHOLDER}`,
+  gemini: `gemini --resume ${SESSION_ID_PLACEHOLDER}`,
+};
 
 const getAgentIcon = (agentName: string | undefined) => {
   switch (agentName) {
@@ -177,6 +185,38 @@ const getStatusDotClassName = (status: SessionItem["status"]) => {
   }
 };
 
+const quoteForShell = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
+const renderResumeCommand = (template: string, sessionId: string) => {
+  const quotedSessionId = quoteForShell(sessionId);
+  if (template.includes(SESSION_ID_PLACEHOLDER)) {
+    return template.replaceAll(SESSION_ID_PLACEHOLDER, quotedSessionId);
+  }
+  return `${template} ${quotedSessionId}`.trim();
+};
+
+const inferAgentTypeFromSession = (session: SessionItem) => {
+  const source =
+    session.agentName ??
+    session.agentInfo?.name ??
+    session.agentInfo?.title ??
+    "";
+  const normalized = source.toLowerCase();
+  if (normalized.includes("codex")) {
+    return "codex";
+  }
+  if (normalized.includes("claude")) {
+    return "claude";
+  }
+  if (normalized.includes("opencode")) {
+    return "opencode";
+  }
+  if (normalized.includes("gemini")) {
+    return "gemini";
+  }
+  return null;
+};
+
 export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const navigate = useNavigate();
   const {
@@ -246,6 +286,10 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const listQuery = trpc.listProjects.useQuery();
   const agentsQuery = trpc.agents.list.useQuery();
   const agents = agentsQuery.data?.agents || [];
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.id, agent])),
+    [agents]
+  );
 
   useEffect(() => {
     if (listQuery.data) {
@@ -659,6 +703,39 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   };
 
   const isLoading = listQuery.isLoading;
+  const getResumeTemplateForSession = (session: SessionItem) => {
+    if (session.agentId) {
+      const configuredTemplate = agentsById.get(session.agentId)?.resumeCommandTemplate;
+      if (configuredTemplate) {
+        return configuredTemplate;
+      }
+    }
+    const inferredType = inferAgentTypeFromSession(session);
+    if (!inferredType) {
+      return undefined;
+    }
+    return AGENT_RESUME_TEMPLATE_BY_TYPE[inferredType];
+  };
+
+  const handleCopyResumeCommand = async (session: SessionItem) => {
+    if (!session.sessionId) {
+      toast.error("This session does not have an agent session ID yet.");
+      return;
+    }
+    const template = getResumeTemplateForSession(session);
+    if (!template) {
+      toast.error("No resume command template configured for this agent.");
+      return;
+    }
+    const command = renderResumeCommand(template, session.sessionId);
+    try {
+      await navigator.clipboard.writeText(command);
+      toast.success("Agent resume command copied.");
+    } catch {
+      toast.error("Failed to copy agent resume command.");
+    }
+  };
+
   const renderSessionList = (sessionItems: SessionItem[]) => {
     if (sessionItems.length === 0) {
       return (
@@ -717,6 +794,10 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
           </SidebarMenuSubItem>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          <ContextMenuItem onClick={() => void handleCopyResumeCommand(session)}>
+            Copy agent resume command
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem onClick={() => handleRename(session)}>
             Rename
           </ContextMenuItem>

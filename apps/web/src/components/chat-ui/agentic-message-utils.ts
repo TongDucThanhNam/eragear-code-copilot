@@ -31,7 +31,8 @@ export const isPlanPart = (
 
 const isFinalPart = (
   part: UIMessagePart
-): part is TextUIPart | SourcePart | FilePart => FINAL_PART_TYPES.has(part.type);
+): part is TextUIPart | SourcePart | FilePart =>
+  FINAL_PART_TYPES.has(part.type);
 
 const mergeTextParts = (parts: TextUIPart[]) => {
   const content = parts
@@ -43,7 +44,7 @@ const mergeTextParts = (parts: TextUIPart[]) => {
 
 export const splitMessageParts = (parts: UIMessagePart[]) => {
   const displayParts = parts.filter(
-    (part) => !isDataPart(part) && !isPlanPart(part)
+    (part) => !(isDataPart(part) || isPlanPart(part))
   );
   let trailingStart = displayParts.length;
   for (let i = displayParts.length - 1; i >= 0; i -= 1) {
@@ -56,9 +57,7 @@ export const splitMessageParts = (parts: UIMessagePart[]) => {
   const chainItems = displayParts.slice(0, trailingStart);
   const finalItems = displayParts.slice(trailingStart);
   const finalText = mergeTextParts(
-    finalItems.filter(
-      (part): part is TextUIPart => part.type === "text"
-    )
+    finalItems.filter((part): part is TextUIPart => part.type === "text")
   );
   const finalAttachments = finalItems.filter(
     (part): part is SourcePart | FilePart => part.type !== "text"
@@ -254,4 +253,21 @@ export const getPartKey = (part: UIMessagePart, index: number) => {
     return `text-${index}`;
   }
   return `part-${index}`;
+};
+
+/**
+ * Wrap getPartKey with deduplication. If two parts in the same list
+ * produce the same base key, append a suffix to disambiguate.
+ */
+export const deduplicateKeys = (
+  items: UIMessagePart[],
+  keyFn: (part: UIMessagePart, index: number) => string = getPartKey
+): string[] => {
+  const seen = new Map<string, number>();
+  return items.map((item, index) => {
+    const base = keyFn(item, index);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count > 0 ? `${base}__${count}` : base;
+  });
 };

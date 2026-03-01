@@ -43,15 +43,19 @@ export function findUiMessageInsertIndex(
   orderedMessages: UIMessage[],
   nextMessage: UIMessage
 ): number {
-  for (let index = 0; index < orderedMessages.length; index += 1) {
-    const current = orderedMessages[index];
-    if (!current) {
-      continue;
-    }
-    const compare = compareUiMessagesChronologically(nextMessage, current);
-    if (compare < 0) {
-      return index;
+  let lo = 0;
+  let hi = orderedMessages.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    const current = orderedMessages[mid];
+    if (
+      !current ||
+      compareUiMessagesChronologically(nextMessage, current) >= 0
+    ) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
     }
   }
-  return orderedMessages.length;
+  return lo;
 }

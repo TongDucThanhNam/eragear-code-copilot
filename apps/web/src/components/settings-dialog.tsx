@@ -56,12 +56,14 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     type: AgentType;
     command: string;
     args: string;
+    resumeCommandTemplate: string;
     env: string;
   }>({
     name: "",
     type: "opencode",
     command: "",
     args: "",
+    resumeCommandTemplate: "",
     env: "{}",
   });
 
@@ -128,6 +130,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       type: agent.type,
       command: agent.command,
       args: (agent.args || []).join(" "),
+      resumeCommandTemplate: agent.resumeCommandTemplate ?? "",
       env: JSON.stringify(agent.env || {}, null, 2),
     });
     setIsEditOpen(true);
@@ -140,6 +143,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       type: "opencode",
       command: "",
       args: "",
+      resumeCommandTemplate: "",
       env: "{}",
     });
     setIsEditOpen(true);
@@ -167,6 +171,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         type: formData.type,
         command: formData.command.trim(),
         args: formData.args.split(" ").filter(Boolean),
+        resumeCommandTemplate:
+          formData.resumeCommandTemplate.trim() || undefined,
         env: envParsed,
       };
 
@@ -436,6 +442,22 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   }
                   placeholder="acp"
                   value={formData.args}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="resume-command-template">
+                  Resume Command Template
+                </Label>
+                <Input
+                  id="resume-command-template"
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      resumeCommandTemplate: e.target.value,
+                    })
+                  }
+                  placeholder="codex resume <sessionId>"
+                  value={formData.resumeCommandTemplate}
                 />
               </div>
               <div className="grid gap-2">
