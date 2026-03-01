@@ -323,6 +323,7 @@ export function useChat(options: UseChatOptions = {}) {
         applyMessagesImmediate({
           id: payload.messageId,
           role: payload.messageRole,
+          createdAt: Date.now(),
           parts: [payload.part],
         });
         return;
@@ -357,23 +358,43 @@ export function useChat(options: UseChatOptions = {}) {
   const handleSessionEvent = useCallback(
     (event: BroadcastEvent) => {
       const store = useChatStore.getState();
-      if (
-        event.type === "ui_message" &&
-        event.message.role === "assistant" &&
-        Boolean(store.getMessageById(event.message.id))
-      ) {
-        return;
-      }
+      const normalizedEvent: BroadcastEvent =
+        event.type === "ui_message"
+          ? (() => {
+              const existing = store.getMessageById(event.message.id);
+              if (!existing) {
+                return event;
+              }
+              const preferExistingParts =
+                isStreamingUiMessage(existing) &&
+                event.message.parts.length <= existing.parts.length;
+              const mergedParts = preferExistingParts
+                ? existing.parts
+                : event.message.parts.length >= existing.parts.length
+                  ? event.message.parts
+                  : existing.parts;
+              return {
+                ...event,
+                message: {
+                  ...event.message,
+                  createdAt: existing.createdAt ?? event.message.createdAt,
+                  metadata: event.message.metadata ?? existing.metadata,
+                  parts: mergedParts,
+                },
+              };
+            })()
+          : event;
       const currentModes = store.modes;
       const currentModels = store.models;
       const shouldBatch =
-        event.type === "ui_message" && isStreamingUiMessage(event.message);
+        normalizedEvent.type === "ui_message" &&
+        isStreamingUiMessage(normalizedEvent.message);
       const onMessageUpsert = shouldBatch
         ? scheduleMessagesUpdate
         : applyMessagesImmediate;
 
       processSessionEvent(
-        event,
+        normalizedEvent,
         { currentModes, currentModels },
         {
           onStatusChange: store.setStatus,

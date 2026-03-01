@@ -7,6 +7,7 @@ import {
   prependMessagesIntoState,
   replaceMessagesState,
 } from "./use-chat-message-state";
+import { chatDebug } from "./use-chat-debug";
 
 const HISTORY_INITIAL_WINDOW_LIMIT = 100;
 const HISTORY_LOAD_MORE_LIMIT = 100;
@@ -140,26 +141,57 @@ export function useChatHistory({
   const loadHistory = useCallback(
     async (force = false) => {
       if (historyInFlightRef.current) {
+        chatDebug("history", "loadHistory skipped: in-flight request exists", {
+          chatId: chatId ?? null,
+          force,
+        });
         return historyInFlightRef.current;
       }
 
       const activeChatId = chatId ?? null;
       if (!activeChatId || readOnly || isResumingRef.current) {
+        chatDebug("history", "loadHistory skipped: inactive/readOnly/resuming", {
+          chatId: activeChatId,
+          readOnly,
+          isResuming: isResumingRef.current,
+          force,
+        });
         return;
       }
       if (!isActiveChat(activeChatId)) {
+        chatDebug("history", "loadHistory skipped: chat no longer active", {
+          chatId: activeChatId,
+          force,
+        });
         return;
       }
       if (historyLoadingRef.current) {
+        chatDebug("history", "loadHistory skipped: history loading lock set", {
+          chatId: activeChatId,
+          force,
+        });
         return;
       }
       if (!force && historyAppliedRef.current) {
+        chatDebug("history", "loadHistory skipped: history already applied", {
+          chatId: activeChatId,
+          force,
+        });
         return;
       }
       if (!force && connStatus !== "connecting" && connStatus !== "connected") {
+        chatDebug("history", "loadHistory skipped: connection status not ready", {
+          chatId: activeChatId,
+          connStatus,
+          force,
+        });
         return;
       }
 
+      chatDebug("history", "loadHistory started (source=db:getSessionMessagesPage)", {
+        chatId: activeChatId,
+        force,
+      });
       const loadVersion = historyLoadVersionRef.current + 1;
       historyLoadVersionRef.current = loadVersion;
       historyLoadingRef.current = true;
@@ -171,15 +203,39 @@ export function useChatHistory({
             limit: HISTORY_INITIAL_WINDOW_LIMIT,
             includeCompacted: true,
           });
+          chatDebug("history", "loadHistory page fetched from db", {
+            chatId: activeChatId,
+            force,
+            messageCount: Array.isArray(page.messages) ? page.messages.length : -1,
+            hasMore: page.hasMore,
+            nextCursor: page.nextCursor ?? null,
+          });
           if (
             historyLoadVersionRef.current !== loadVersion ||
             !isActiveChat(activeChatId) ||
             readOnly
           ) {
+            chatDebug(
+              "history",
+              "loadHistory result ignored: version/chat/readOnly changed",
+              {
+                chatId: activeChatId,
+                force,
+                readOnly,
+              }
+            );
             return;
           }
 
           const normalizedMessages = normalizeMessages(page.messages);
+          chatDebug("history", "loadHistory messages normalized", {
+            chatId: activeChatId,
+            force,
+            normalizedCount: normalizedMessages.length,
+            firstMessageId: normalizedMessages[0]?.id ?? null,
+            lastMessageId:
+              normalizedMessages[normalizedMessages.length - 1]?.id ?? null,
+          });
           if (normalizedMessages.length > 0) {
             updateMessageState((prev) => {
               if (prev.order.length === 0) {
@@ -197,6 +253,12 @@ export function useChatHistory({
             Boolean(page.hasMore && page.nextCursor !== undefined)
           );
           historyAppliedRef.current = true;
+          chatDebug("history", "loadHistory applied to client state", {
+            chatId: activeChatId,
+            force,
+            hasMore: Boolean(page.hasMore && page.nextCursor !== undefined),
+            nextCursor: page.nextCursor ?? null,
+          });
         } catch (historyError) {
           if (historyLoadVersionRef.current !== loadVersion) {
             return;
@@ -206,6 +268,11 @@ export function useChatHistory({
               ? historyError.message
               : "Failed to load session history";
           console.error("Failed to load chat history", historyError);
+          chatDebug("history", "loadHistory failed", {
+            chatId: activeChatId,
+            force,
+            error: message,
+          });
           setError(message);
           onError?.(message);
         } finally {

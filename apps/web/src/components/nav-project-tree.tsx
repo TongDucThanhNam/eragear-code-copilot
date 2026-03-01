@@ -62,6 +62,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { chatDebug } from "@/hooks/use-chat-debug";
 
 interface SessionItem {
   id: string;
@@ -613,12 +614,25 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     setPendingLoadSessionId(sessionId);
     setSessionBootstrapPhase("creating_session");
     try {
+      chatDebug("discover", "loadAgentSession start", {
+        projectId: discoverContext.projectId,
+        agentId: discoverContext.agentId,
+        sourceSessionId: sessionId,
+      });
       setActiveProjectId(discoverContext.projectId);
       await setActiveMutation.mutateAsync({ id: discoverContext.projectId });
       const newSession = await loadAgentSessionMutation.mutateAsync({
         projectId: discoverContext.projectId,
         agentId: discoverContext.agentId,
         sessionId,
+      });
+      chatDebug("discover", "loadAgentSession success", {
+        projectId: discoverContext.projectId,
+        agentId: discoverContext.agentId,
+        sourceSessionId: sessionId,
+        createdChatId: newSession.chatId,
+        loadedSessionId: newSession.sessionId,
+        sessionLoadMethod: newSession.sessionLoadMethod ?? null,
       });
       setSessionBootstrapPhase("initializing_agent");
       setIsDiscoverDialogOpen(false);
@@ -630,6 +644,11 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       });
       didNavigate = true;
     } catch {
+      chatDebug("discover", "loadAgentSession failed", {
+        projectId: discoverContext.projectId,
+        agentId: discoverContext.agentId,
+        sourceSessionId: sessionId,
+      });
       // Error is handled by mutation onError callbacks.
     } finally {
       setPendingLoadSessionId(null);

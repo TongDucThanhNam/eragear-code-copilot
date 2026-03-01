@@ -60,6 +60,7 @@ import {
   parseBroadcastEvent,
   shouldLogChatStreamDebug,
 } from "./use-chat-normalize";
+import { chatDebug } from "./use-chat-debug";
 import { logChatStreamDebug } from "./use-chat-stream-debug";
 import type { UseChatOptions, UseChatResult } from "./use-chat.types";
 const INVALID_EVENT_TOAST_COOLDOWN_MS = 5000;
@@ -303,6 +304,16 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     (targetChatId: string) => activeChatIdRef.current === targetChatId,
     []
   );
+  const fetchHistoryPage = useCallback(
+    (input: {
+      chatId: string;
+      cursor?: number;
+      direction: "backward";
+      limit: number;
+      includeCompacted: true;
+    }) => utils.getSessionMessagesPage.fetch(input),
+    [utils]
+  );
   const {
     clearHistoryWindow,
     hasMoreHistory,
@@ -325,8 +336,12 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     onError,
     updateMessageState,
     normalizeMessages,
-    fetchHistoryPage: (input) => utils.getSessionMessagesPage.fetch(input),
+    fetchHistoryPage,
   });
+  const loadHistoryRef = useRef(loadHistory);
+  useEffect(() => {
+    loadHistoryRef.current = loadHistory;
+  }, [loadHistory]);
   reloadHistoryRef.current = async () => {
     await loadHistory(true);
   };
@@ -441,8 +456,13 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
 
   // Load stored history once, merging pages by message.id
   useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+    chatDebug("history", "loadHistory requested by effect", {
+      chatId: chatId ?? null,
+      connStatus,
+      streamLifecycle,
+    });
+    void loadHistoryRef.current();
+  }, [chatId, connStatus, streamLifecycle]);
 
   useEffect(() => {
     const previous = previousStreamLifecycleRef.current;
@@ -493,6 +513,45 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   // Event handler
   const handleSessionEvent = useCallback(
     (event: BroadcastEvent) => {
+      if (
+        event.type === "connected" ||
+        event.type === "chat_status" ||
+        event.type === "ui_message" ||
+        event.type === "chat_finish" ||
+        event.type === "error"
+      ) {
+        chatDebug("stream", "received session event", {
+          chatId: activeChatIdRef.current,
+          eventType: event.type,
+          ...(event.type === "chat_status"
+            ? {
+                status: event.status,
+                turnId: event.turnId ?? null,
+              }
+            : {}),
+          ...(event.type === "ui_message"
+            ? {
+                messageId: event.message.id,
+                messageRole: event.message.role,
+                partsCount: event.message.parts.length,
+                createdAt: event.message.createdAt ?? null,
+              }
+            : {}),
+          ...(event.type === "chat_finish"
+            ? {
+                stopReason: event.stopReason,
+                finishReason: event.finishReason,
+                messageId: event.messageId ?? event.message?.id ?? null,
+                turnId: event.turnId ?? null,
+              }
+            : {}),
+          ...(event.type === "error"
+            ? {
+                error: event.error,
+              }
+            : {}),
+        });
+      }
       if (shouldLogChatStreamDebug()) {
         logChatStreamDebug({
           event,
@@ -697,6 +756,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     chatId,
     readOnly,
     models,
+    configOptions,
     isActiveChat,
     statusRef,
     activeTurnIdRef,

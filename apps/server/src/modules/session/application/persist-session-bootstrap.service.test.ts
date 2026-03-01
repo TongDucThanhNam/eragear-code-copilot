@@ -302,6 +302,97 @@ describe("PersistSessionBootstrapService", () => {
     expect(appendedIds).toEqual(["runtime-user", "runtime-assistant"]);
   });
 
+  test("checks codex external history when replay fell back to stored DB snapshot", async () => {
+    const appendedIds: string[] = [];
+    const metadataPersistence = {
+      persist: async () => undefined,
+    } as unknown as SessionMetadataPersistenceService;
+    const sessionRepo = {
+      appendMessage: async (
+        _chatId: string,
+        _userId: string,
+        message: { id: string }
+      ) => {
+        appendedIds.push(message.id);
+        return { appended: true as const };
+      },
+    } as unknown as SessionRepositoryPort;
+
+    let resolverCalls = 0;
+    const service = new PersistSessionBootstrapService(
+      metadataPersistence,
+      sessionRepo,
+      async () => {
+        resolverCalls += 1;
+        return [
+          {
+            id: "external-user-dup",
+            role: "user",
+            createdAt: 100,
+            parts: [{ type: "text", text: "runtime-u", state: "done" }],
+          },
+          {
+            id: "external-assistant-dup",
+            role: "assistant",
+            createdAt: 200,
+            parts: [{ type: "text", text: "runtime-a", state: "done" }],
+          },
+          {
+            id: "external-user-new",
+            role: "user",
+            createdAt: 300,
+            parts: [{ type: "text", text: "runtime-u2", state: "done" }],
+          },
+          {
+            id: "external-assistant-new",
+            role: "assistant",
+            createdAt: 400,
+            parts: [{ type: "text", text: "runtime-a2", state: "done" }],
+          },
+        ];
+      }
+    );
+
+    const chatSession = createChatSession();
+    chatSession.importExternalHistoryOnLoad = true;
+    chatSession.replayedStoredHistoryFallback = true;
+    chatSession.uiState.messages.set("runtime-user", {
+      id: "runtime-user",
+      role: "user",
+      createdAt: 100,
+      parts: [{ type: "text", text: "runtime-u", state: "done" }],
+    });
+    chatSession.uiState.messages.set("runtime-assistant", {
+      id: "runtime-assistant",
+      role: "assistant",
+      createdAt: 200,
+      parts: [{ type: "text", text: "runtime-a", state: "done" }],
+    });
+
+    await service.execute({
+      chatId: "chat-1",
+      projectRoot: "/tmp/project",
+      params: {
+        userId: "user-1",
+        projectId: "project-1",
+        sessionIdToLoad: "sess-1",
+        importExternalHistoryOnLoad: true,
+      },
+      chatSession,
+      agentCommand: "codex",
+      agentArgs: [],
+      agentEnv: {},
+    });
+
+    expect(resolverCalls).toBe(1);
+    expect(appendedIds).toEqual([
+      "runtime-user",
+      "runtime-assistant",
+      "external-user-new",
+      "external-assistant-new",
+    ]);
+  });
+
   test("uses richer external import history when runtime replay is assistant-sparse", async () => {
     const appended: Array<{ id: string; role: string; content: string }> = [];
     const metadataPersistence = {

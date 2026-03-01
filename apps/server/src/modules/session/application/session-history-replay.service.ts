@@ -33,6 +33,9 @@ export class SessionHistoryReplayService {
     const session = this.sessionRuntime.get(chatId);
     const shouldReplayStored =
       buffer.replayEventCount === 0 && !session?.suppressReplayBroadcast;
+    if (session) {
+      session.replayedStoredHistoryFallback = shouldReplayStored;
+    }
     this.logger.debug("History replay decision", {
       chatId,
       replayEventCount: buffer.replayEventCount,

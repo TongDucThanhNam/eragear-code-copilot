@@ -9,6 +9,7 @@ import {
   type SourcePart,
   isDataPart,
   isMessageStreaming,
+  resolveAssistantFinalVisibility,
   splitMessageParts,
 } from "./agentic-message-utils";
 import { MessageActions } from "./message-actions";
@@ -122,9 +123,11 @@ const UserMessageBody = ({ parts }: { parts: UIMessagePart[] }) => {
 const AssistantMessageBody = ({
   message,
   isLiveMessage,
+  isContinuedByAssistant,
 }: {
   message: UIMessage;
   isLiveMessage: boolean;
+  isContinuedByAssistant: boolean;
 }) => {
   const { chainItems, finalText, finalAttachments } = useMemo(
     () => splitMessageParts(message.parts),
@@ -132,9 +135,23 @@ const AssistantMessageBody = ({
   );
   const isStreaming =
     isMessageStreaming(message.parts) || isLiveMessage;
-  const shouldShowFinal =
-    (!!finalText || finalAttachments.length > 0) &&
-    (!isStreaming || chainItems.length === 0);
+  const finalVisibility = resolveAssistantFinalVisibility({
+    finalText,
+    finalAttachmentsCount: finalAttachments.length,
+    isStreaming,
+    chainItemsCount: chainItems.length,
+  });
+
+  if (
+    chainItems.length > 0 &&
+    !finalVisibility.shouldRenderFinal &&
+    !isLiveMessage &&
+    isContinuedByAssistant
+  ) {
+    // Consecutive assistant chain-only messages are usually continuation artifacts.
+    // Hide this fragment and let the latest assistant message represent the turn.
+    return null;
+  }
 
   if (chainItems.length === 0) {
     const displayParts = message.parts.filter((part) => !isDataPart(part));
@@ -164,10 +181,14 @@ const AssistantMessageBody = ({
         items={chainItems}
         messageId={message.id}
       />
-      {shouldShowFinal && (
+      {finalVisibility.shouldRenderFinal && (
         <View className="flex-col gap-3">
-          {finalText ? <MarkdownText>{finalText}</MarkdownText> : null}
-          <AttachmentList items={finalAttachments} />
+          {finalVisibility.showFinalText && finalText ? (
+            <MarkdownText>{finalText}</MarkdownText>
+          ) : null}
+          {finalVisibility.showFinalAttachments ? (
+            <AttachmentList items={finalAttachments} />
+          ) : null}
         </View>
       )}
     </View>
@@ -204,27 +225,27 @@ const MessageHeader = ({
 interface MessageItemProps {
   message: UIMessage;
   isLiveMessage: boolean;
-  isFirstMessage?: boolean;
-  isLastMessage?: boolean;
+  isContinuedByAssistant: boolean;
 }
 
 interface MessageItemContainerProps {
   messageId: string;
   isLiveMessage: boolean;
-  isFirstMessage?: boolean;
-  isLastMessage?: boolean;
+  isContinuedByAssistant: boolean;
 }
 
 export function MessageItem({
   message,
   isLiveMessage,
+  isContinuedByAssistant,
 }: MessageItemProps) {
   const isUser = message.role === "user";
   const messageText = useMemo(
-    () => extractMessageText(message.parts),
-    [message.parts]
+    () => (message.role === "assistant" ? extractMessageText(message.parts) : ""),
+    [message.role, message.parts]
   );
-  const showActions = message.role === "assistant" && messageText.length > 0;
+  const showActions =
+    message.role === "assistant" && !isLiveMessage && messageText.length > 0;
 
   return (
     <View className="w-full">
@@ -235,6 +256,7 @@ export function MessageItem({
         <View className="w-full">
           <AssistantMessageBody
             isLiveMessage={isLiveMessage}
+            isContinuedByAssistant={isContinuedByAssistant}
             message={message}
           />
           {showActions && (
@@ -252,8 +274,7 @@ export function MessageItem({
 function MessageItemContainer({
   messageId,
   isLiveMessage,
-  isFirstMessage,
-  isLastMessage,
+  isContinuedByAssistant,
 }: MessageItemContainerProps) {
   const message = useChatStore((state) => state.messagesById.get(messageId));
   if (!message) {
@@ -261,9 +282,8 @@ function MessageItemContainer({
   }
   return (
     <MemoizedMessageItem
-      isFirstMessage={isFirstMessage}
-      isLastMessage={isLastMessage}
       isLiveMessage={isLiveMessage}
+      isContinuedByAssistant={isContinuedByAssistant}
       message={message}
     />
   );
@@ -284,10 +304,7 @@ function propsAreEqual(
   if (prev.isLiveMessage !== next.isLiveMessage) {
     return false;
   }
-  if (prev.isFirstMessage !== next.isFirstMessage) {
-    return false;
-  }
-  if (prev.isLastMessage !== next.isLastMessage) {
+  if (prev.isContinuedByAssistant !== next.isContinuedByAssistant) {
     return false;
   }
   return true;
@@ -305,10 +322,7 @@ function containerPropsAreEqual(
   if (prev.isLiveMessage !== next.isLiveMessage) {
     return false;
   }
-  if (prev.isFirstMessage !== next.isFirstMessage) {
-    return false;
-  }
-  if (prev.isLastMessage !== next.isLastMessage) {
+  if (prev.isContinuedByAssistant !== next.isContinuedByAssistant) {
     return false;
   }
   return true;

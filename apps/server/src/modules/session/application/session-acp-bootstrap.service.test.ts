@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { AppError } from "@/shared/errors";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
@@ -458,5 +459,50 @@ describe("SessionAcpBootstrapService", () => {
       type: "current_model_update",
       modelId: "model-new",
     });
+  });
+
+  test("wraps loadSession failure with AGENT_SESSION_LOAD_FAILED", async () => {
+    const chatSession = createChatSession("chat-load-fail");
+    const { runtime } = createRuntimeStub(chatSession);
+
+    const connection = {
+      initialize: async () => ({
+        protocolVersion: 1,
+        agentCapabilities: {
+          loadSession: true,
+          sessionCapabilities: { resume: false, setModel: true },
+        },
+      }),
+      loadSession: async () => {
+        throw new Error("Internal error");
+      },
+    };
+
+    const service = new SessionAcpBootstrapService(
+      runtime,
+      {} as SessionRepositoryPort,
+      createSessionAcpStub(),
+      {
+        createAcpConnection: () => connection as never,
+      } as unknown as AgentRuntimePort,
+      createMcpConfigStub(),
+      {
+        broadcastPromptEnd: async () => undefined,
+      } as unknown as SessionHistoryReplayService,
+      createLoggerStub(),
+      () => ({ defaultModel: "" })
+    );
+
+    await expect(
+      service.bootstrap({
+        chatId: chatSession.id,
+        chatSession,
+        buffer: createBuffer(),
+        projectRoot: "/tmp/project",
+        sessionIdToLoad: "sess-load-fail",
+      })
+    ).rejects.toMatchObject({
+      code: "AGENT_SESSION_LOAD_FAILED",
+    } satisfies Partial<AppError>);
   });
 });

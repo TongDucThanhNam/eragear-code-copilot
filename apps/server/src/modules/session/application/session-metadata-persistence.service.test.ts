@@ -31,6 +31,7 @@ describe("SessionMetadataPersistenceService", () => {
     const createCalls: unknown[] = [];
     const updateCalls: unknown[] = [];
     const sessionRepo = {
+      findById: async () => undefined,
       create: async (value: unknown) => {
         createCalls.push(value);
       },
@@ -72,6 +73,7 @@ describe("SessionMetadataPersistenceService", () => {
     const createCalls: unknown[] = [];
     const updateCalls: unknown[] = [];
     const sessionRepo = {
+      findById: async () => ({ id: "chat-existing" }),
       create: async (value: unknown) => {
         createCalls.push(value);
       },

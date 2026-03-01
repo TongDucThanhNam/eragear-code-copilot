@@ -265,7 +265,24 @@ export const useChatStore = create<ChatState>()(
           const nextMap = new Map(state.messagesById);
           nextMap.set(message.id, message);
           if (exists) {
-            return { messagesById: nextMap };
+            const currentIndex = state.messageIds.indexOf(message.id);
+            if (currentIndex < 0) {
+              return { messagesById: nextMap };
+            }
+            const nextIds = [...state.messageIds];
+            nextIds.splice(currentIndex, 1);
+            const orderedWithoutCurrent = nextIds
+              .map((messageId) => nextMap.get(messageId))
+              .filter((value): value is UIMessage => Boolean(value));
+            const insertIndex = findUiMessageInsertIndex(
+              orderedWithoutCurrent,
+              message
+            );
+            nextIds.splice(insertIndex, 0, message.id);
+            if (insertIndex === currentIndex) {
+              return { messagesById: nextMap };
+            }
+            return { messagesById: nextMap, messageIds: nextIds };
           }
           const orderedMessages = state.messageIds
             .map((messageId) => state.messagesById.get(messageId))

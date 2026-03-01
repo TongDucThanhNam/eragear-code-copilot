@@ -455,6 +455,10 @@ export interface ChatSession {
   suppressReplayBroadcast?: boolean;
   /** Import replayed history into local storage after loadSession completes */
   importExternalHistoryOnLoad?: boolean;
+  /** True when server had to replay stored DB history because agent replay was empty */
+  replayedStoredHistoryFallback?: boolean;
+  /** Which ACP session boot path was used for this runtime */
+  sessionLoadMethod?: "new_session" | "session_load" | "unstable_resume";
   /** Last assistant chunk type to coalesce streaming updates */
   lastAssistantChunkType?: "message" | "reasoning";
   /** Current chat status for UI */

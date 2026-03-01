@@ -17,13 +17,82 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
+import { chatDebug } from "./use-chat-debug";
 import { deriveResumeSessionSyncPlan } from "./use-chat-resume-sync";
 import type { SendMessageOptions } from "./use-chat.types";
+
+function readSessionLoadMethod(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  const raw = candidate.sessionLoadMethod;
+  if (typeof raw !== "string") {
+    return null;
+  }
+  return raw;
+}
+
+function readConfigOptionValueLabel(
+  option: SessionConfigOption | undefined,
+  value: string
+): string {
+  if (!option) {
+    return value;
+  }
+  for (const entry of option.options ?? []) {
+    const groupCandidate = entry as { options?: unknown };
+    if (Array.isArray(groupCandidate.options)) {
+      for (const nested of groupCandidate.options) {
+        const nestedCandidate = nested as { value?: unknown; name?: unknown };
+        if (
+          nestedCandidate.value === value &&
+          typeof nestedCandidate.name === "string" &&
+          nestedCandidate.name.length > 0
+        ) {
+          return nestedCandidate.name;
+        }
+      }
+      continue;
+    }
+    const optionCandidate = entry as { value?: unknown; name?: unknown };
+    if (
+      optionCandidate.value === value &&
+      typeof optionCandidate.name === "string" &&
+      optionCandidate.name.length > 0
+    ) {
+      return optionCandidate.name;
+    }
+  }
+  return value;
+}
+
+function describeConfigOptionSelection(
+  options: SessionConfigOption[],
+  configId: string,
+  value: string
+): {
+  category: string | null;
+  optionName: string;
+  valueLabel: string;
+} {
+  const option = options.find((candidate) => candidate.id === configId);
+  const category =
+    typeof option?.category === "string" && option.category.length > 0
+      ? option.category.toLowerCase()
+      : null;
+  return {
+    category,
+    optionName: option?.name ?? configId,
+    valueLabel: readConfigOptionValueLabel(option, value),
+  };
+}
 
 interface UseChatActionsParams {
   chatId: string | null | undefined;
   readOnly: boolean;
   models: SessionModelState | null;
+  configOptions: SessionConfigOption[];
   isActiveChat: (targetChatId: string) => boolean;
   statusRef: MutableRefObject<ChatStatus>;
   activeTurnIdRef: MutableRefObject<string | null>;
@@ -51,6 +120,7 @@ export function useChatActions({
   chatId,
   readOnly,
   models,
+  configOptions,
   isActiveChat,
   statusRef,
   activeTurnIdRef,
@@ -243,14 +313,32 @@ export function useChatActions({
       }
       const activeChatId = chatId;
       try {
+        chatDebug("config", "setConfigOption requested", {
+          chatId: activeChatId,
+          configId,
+          value,
+        });
+        console.log("[Chat] setConfigOption requested", {
+          chatId: activeChatId,
+          configId,
+          value,
+        });
         const result = await setConfigOptionMutation.mutateAsync({
           chatId: activeChatId,
           configId,
           value,
         });
         if (!isActiveChat(activeChatId)) {
+          chatDebug("config", "setConfigOption ignored: chat switched", {
+            chatId: activeChatId,
+            configId,
+            value,
+          });
           return;
         }
+        const nextConfigOptions = Array.isArray(result?.configOptions)
+          ? result.configOptions
+          : configOptions;
         if (Array.isArray(result?.configOptions)) {
           setConfigOptions(result.configOptions);
         } else {
@@ -262,19 +350,52 @@ export function useChatActions({
             )
           );
         }
+        const selection = describeConfigOptionSelection(
+          nextConfigOptions,
+          configId,
+          value
+        );
+        if (selection.category === "model") {
+          toast.success(`Model switched to ${selection.valueLabel}`);
+        } else if (selection.category === "mode") {
+          toast.success(`Mode switched to ${selection.valueLabel}`);
+        }
+        chatDebug("config", "setConfigOption succeeded", {
+          chatId: activeChatId,
+          configId,
+          value,
+          optionName: selection.optionName,
+          category: selection.category,
+        });
+        console.log("[Chat] setConfigOption succeeded", {
+          chatId: activeChatId,
+          configId,
+          value,
+          optionName: selection.optionName,
+          category: selection.category,
+        });
         onLocalConfigOptionMutated?.();
       } catch (configError) {
         if (!isActiveChat(activeChatId)) {
           return;
         }
-        console.error("Failed to set config option", configError);
-        setError(
-          configError instanceof Error ? configError.message : String(configError)
-        );
+        const message =
+          configError instanceof Error
+            ? configError.message
+            : String(configError);
+        console.error("[Chat] setConfigOption failed", {
+          chatId: activeChatId,
+          configId,
+          value,
+          error: message,
+        });
+        toast.error(message);
+        setError(message);
       }
     },
     [
       chatId,
+      configOptions,
       isActiveChat,
       onLocalConfigOptionMutated,
       setConfigOptionMutation,
@@ -359,6 +480,9 @@ export function useChatActions({
     }
     const activeChatId = chatId;
     try {
+      chatDebug("resume", "resumeSession mutation start", {
+        chatId: activeChatId,
+      });
       isResumingRef.current = true;
       activeTurnIdRef.current = null;
       invalidateHistoryLoads();
@@ -368,11 +492,28 @@ export function useChatActions({
       const resumeResult = await resumeSessionMutation.mutateAsync({
         chatId: activeChatId,
       });
+      const sessionLoadMethod = readSessionLoadMethod(resumeResult);
+      chatDebug("resume", "resumeSession mutation success", {
+        chatId: activeChatId,
+        hasResult: Boolean(resumeResult),
+        sessionLoadMethod,
+      });
       if (!isActiveChat(activeChatId)) {
+        chatDebug("resume", "resumeSession ignored due to chat switch", {
+          chatId: activeChatId,
+        });
         isResumingRef.current = false;
         return;
       }
       const syncPlan = deriveResumeSessionSyncPlan(resumeResult);
+      chatDebug("resume", "derived resume sync plan", {
+        chatId: activeChatId,
+        alreadyRunning: syncPlan.alreadyRunning,
+        hasModes: syncPlan.modes !== undefined,
+        hasModels: syncPlan.models !== undefined,
+        hasConfigOptions: syncPlan.configOptions !== undefined,
+        supportsModelSwitching: syncPlan.supportsModelSwitching,
+      });
       if (syncPlan.modes !== undefined) {
         setModes(syncPlan.modes ?? null);
       }
@@ -391,20 +532,37 @@ export function useChatActions({
 
       let shouldReloadHistory = false;
       if (!syncPlan.alreadyRunning) {
+        chatDebug("resume", "clearing current message state before db history reload", {
+          chatId: activeChatId,
+        });
         setMessages([]);
         clearHistoryWindow();
         shouldReloadHistory = true;
       }
       isResumingRef.current = false;
       if (shouldReloadHistory) {
+        chatDebug("resume", "loadHistory(force=true) start after resume", {
+          chatId: activeChatId,
+        });
         await loadHistory(true);
+        chatDebug("resume", "loadHistory(force=true) finished after resume", {
+          chatId: activeChatId,
+        });
       }
     } catch (resumeError) {
       if (!isActiveChat(activeChatId)) {
+        chatDebug("resume", "resume error ignored due to chat switch", {
+          chatId: activeChatId,
+        });
         isResumingRef.current = false;
         return;
       }
       console.error("Failed to resume chat", resumeError);
+      chatDebug("resume", "resumeSession mutation failed", {
+        chatId: activeChatId,
+        error:
+          resumeError instanceof Error ? resumeError.message : String(resumeError),
+      });
       setConnStatus("error");
       setStatus("error");
       setError(

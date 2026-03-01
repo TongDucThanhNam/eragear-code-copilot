@@ -77,6 +77,7 @@ export const sessionRouter = router({
       return {
         chatId: res.id,
         sessionId: res.sessionId,
+        sessionLoadMethod: res.sessionLoadMethod ?? null,
         chatStatus: res.chatStatus,
         modes: res.modes,
         models: res.models,
@@ -115,6 +116,7 @@ export const sessionRouter = router({
       return {
         chatId: res.id,
         sessionId: res.sessionId,
+        sessionLoadMethod: res.sessionLoadMethod ?? null,
         chatStatus: res.chatStatus,
         modes: res.modes,
         models: res.models,

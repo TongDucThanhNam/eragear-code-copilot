@@ -23,6 +23,11 @@ export const isDataPart = (
 ): part is Extract<UIMessagePart, { type: `data-${string}` }> =>
   part.type.startsWith("data-");
 
+export const isPlanPart = (
+  part: UIMessagePart
+): part is Extract<ToolUIPart, { type: "tool-plan" }> =>
+  part.type === "tool-plan";
+
 const isFinalPart = (
   part: UIMessagePart
 ): part is TextUIPart | SourcePart | FilePart => FINAL_PART_TYPES.has(part.type);
@@ -36,7 +41,9 @@ const mergeTextParts = (parts: TextUIPart[]) => {
 };
 
 export const splitMessageParts = (parts: UIMessagePart[]) => {
-  const displayParts = parts.filter((part) => !isDataPart(part));
+  const displayParts = parts.filter(
+    (part) => !isDataPart(part) && !isPlanPart(part)
+  );
   let trailingStart = displayParts.length;
   for (let i = displayParts.length - 1; i >= 0; i -= 1) {
     if (isFinalPart(displayParts[i])) {
@@ -57,6 +64,23 @@ export const splitMessageParts = (parts: UIMessagePart[]) => {
   );
 
   return { chainItems, finalText, finalAttachments };
+};
+
+export const resolveAssistantFinalVisibility = (params: {
+  finalText: string | null;
+  finalAttachmentsCount: number;
+  isStreaming: boolean;
+  chainItemsCount: number;
+}) => {
+  const showFinalText = Boolean(params.finalText);
+  const showFinalAttachments =
+    params.finalAttachmentsCount > 0 &&
+    (!params.isStreaming || params.chainItemsCount === 0);
+  return {
+    showFinalText,
+    showFinalAttachments,
+    shouldRenderFinal: showFinalText || showFinalAttachments,
+  };
 };
 
 export type ToolViewState =

@@ -7,18 +7,24 @@ import { useChatStore } from "@/store/chat-store";
 import { MemoizedMessageItemContainer } from "./message-item";
 
 // Helper to get timestamp from message metadata
-function getMessageTimestamp(message: { metadata?: unknown }): number {
+function getMessageTimestamp(message: {
+  metadata?: unknown;
+  createdAt?: number;
+}): number {
   if (message.metadata && typeof message.metadata === "object") {
     const meta = message.metadata as Record<string, unknown>;
     if (typeof meta.timestamp === "number") {
       return meta.timestamp;
     }
   }
-  return Date.now();
+  if (typeof message.createdAt === "number") {
+    return message.createdAt;
+  }
+  return 0;
 }
 
 // Separator component for grouping messages
-function MessageSeparator({
+const MessageSeparator = memo(function MessageSeparator({
   leadingItem,
   trailingItem,
 }: {
@@ -38,7 +44,7 @@ function MessageSeparator({
   const prevTime = getMessageTimestamp(prevMessage);
   const currTime = getMessageTimestamp(currentMessage);
   const timeGap = currTime - prevTime;
-  const showTimeGap = timeGap > 5 * 60 * 1000; // 5 minutes
+  const showTimeGap = prevTime > 0 && currTime > 0 && timeGap > 5 * 60 * 1000; // 5 minutes
 
   if (isRoleChange) {
     return (
@@ -64,7 +70,7 @@ function MessageSeparator({
   }
 
   return <View className="h-3" />;
-}
+});
 
 interface ChatMessagesProps {
   messageIds: string[];
@@ -79,7 +85,6 @@ function ChatMessagesComponent({
   contentPaddingBottom = 100,
   keyboardBottomOffset = 0,
 }: ChatMessagesProps) {
-  const ESTIMATED_MESSAGE_HEIGHT = 140;
   const hasMessages = messageIds.length > 0;
 
   // Cache the last assistant message ID to avoid recalculating on every render
@@ -116,15 +121,22 @@ function ChatMessagesComponent({
     return message?.role ?? "assistant";
   }, []);
   const renderItem = useCallback(
-    ({ item, index }: { item: string; index: number }) => (
-      <MemoizedMessageItemContainer
-        isFirstMessage={index === 0}
-        isLastMessage={index === messageIds.length - 1}
-        isLiveMessage={isStreaming && item === lastAssistantMessageId}
-        messageId={item}
-      />
-    ),
-    [isStreaming, lastAssistantMessageId, messageIds.length]
+    ({ item, index }: { item: string; index: number }) => {
+      const nextId = messageIds[index + 1];
+      const nextMessage = nextId
+        ? useChatStore.getState().messagesById.get(nextId)
+        : undefined;
+      const isContinuedByAssistant = nextMessage?.role === "assistant";
+
+      return (
+        <MemoizedMessageItemContainer
+          isLiveMessage={isStreaming && item === lastAssistantMessageId}
+          isContinuedByAssistant={isContinuedByAssistant}
+          messageId={item}
+        />
+      );
+    },
+    [isStreaming, lastAssistantMessageId, messageIds]
   );
 
   const emptyState = useMemo(
@@ -176,23 +188,26 @@ function ChatMessagesComponent({
     }),
     [hasMessages, listPaddingBottom]
   );
+  const maintainVisibleContentPosition = useMemo(
+    () => ({
+      autoscrollToBottomThreshold: 120,
+      animateAutoScrollToBottom: false,
+    }),
+    []
+  );
 
   return (
     <FlashList
       contentContainerStyle={contentContainerStyle}
       data={messageIds}
       removeClippedSubviews
-      estimatedItemSize={ESTIMATED_MESSAGE_HEIGHT}
       getItemType={getItemType}
       ItemSeparatorComponent={MessageSeparator}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       keyExtractor={keyExtractor}
       ListEmptyComponent={hasMessages ? null : emptyState}
-      maintainVisibleContentPosition={{
-        autoscrollToBottomThreshold: 120,
-        animateAutoScrollToBottom: false,
-      }}
+      maintainVisibleContentPosition={maintainVisibleContentPosition}
       renderItem={renderItem}
       renderScrollComponent={renderScrollComponent}
     />

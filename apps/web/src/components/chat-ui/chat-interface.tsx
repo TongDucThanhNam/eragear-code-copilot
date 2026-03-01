@@ -225,6 +225,9 @@ export function ChatInterface({
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const handledPermissionIdRef = useRef<string | null>(null);
   const lastPermissionIdRef = useRef<string | null>(null);
+  const handleChatError = useCallback((err: string) => {
+    toast.error(err);
+  }, []);
   // Use the unified useChat hook
   const {
     status,
@@ -256,15 +259,42 @@ export function ChatInterface({
   } = useChat({
     chatId,
     readOnly: false,
-    onError: (err) => {
-      toast.error(err);
-    },
+    onError: handleChatError,
   });
   const messageCount = useChatMessageCount(chatId);
+  const effectiveConnStatus =
+    status === "inactive" ? "idle" : connStatus;
   const selectedSession = useMemo(() => {
     if (!chatId) return undefined;
     return sessionsData.find((session: any) => session.id === chatId);
   }, [chatId, sessionsData]);
+  const selectedSessionLoadSupported = useMemo(() => {
+    if (!selectedSession) {
+      return undefined;
+    }
+    const loadFlag = (selectedSession as any).loadSessionSupported;
+    if (typeof loadFlag === "boolean") {
+      return loadFlag;
+    }
+    const capabilities = (selectedSession as any).agentCapabilities as
+      | Record<string, unknown>
+      | undefined;
+    if (!capabilities) {
+      return undefined;
+    }
+    if (capabilities.loadSession === true) {
+      return true;
+    }
+    const sessionCapabilities = capabilities.sessionCapabilities as
+      | Record<string, unknown>
+      | undefined;
+    if (sessionCapabilities?.resume) {
+      return true;
+    }
+    return undefined;
+  }, [selectedSession]);
+  const resolvedLoadSessionSupported =
+    loadSessionSupported ?? selectedSessionLoadSupported;
   const hasResolvedSessionList =
     !sessionsPageQuery.isLoading &&
     !sessionsPageQuery.isFetching &&
@@ -653,7 +683,7 @@ export function ChatInterface({
       if (!chatId) {
         return;
       }
-      if (connStatus !== "connected") {
+      if (effectiveConnStatus !== "connected") {
         toast.error("Session is not connected");
         return;
       }
@@ -664,7 +694,7 @@ export function ChatInterface({
         toast.error(e instanceof Error ? e.message : "Failed to set mode");
       }
     },
-    [chatId, connStatus, handleSetModeAction]
+    [chatId, effectiveConnStatus, handleSetModeAction]
   );
 
   const handleSetModel = useCallback(
@@ -672,7 +702,7 @@ export function ChatInterface({
       if (!chatId) {
         return;
       }
-      if (connStatus !== "connected") {
+      if (effectiveConnStatus !== "connected") {
         toast.error("Session is not connected");
         return;
       }
@@ -683,7 +713,7 @@ export function ChatInterface({
         toast.error(e instanceof Error ? e.message : "Failed to set model");
       }
     },
-    [chatId, connStatus, handleSetModelAction]
+    [chatId, effectiveConnStatus, handleSetModelAction]
   );
 
   const handleSetConfigOption = useCallback(
@@ -691,7 +721,7 @@ export function ChatInterface({
       if (!chatId) {
         return;
       }
-      if (connStatus !== "connected") {
+      if (effectiveConnStatus !== "connected") {
         toast.error("Session is not connected");
         return;
       }
@@ -704,13 +734,13 @@ export function ChatInterface({
         );
       }
     },
-    [chatId, connStatus, handleSetConfigOptionAction]
+    [chatId, effectiveConnStatus, handleSetConfigOptionAction]
   );
 
   // Handle submit
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
-      if (connStatus !== "connected") {
+      if (effectiveConnStatus !== "connected") {
         toast.error("Session is not connected");
         return;
       }
@@ -820,7 +850,7 @@ export function ChatInterface({
     [
       activeProject,
       chatId,
-      connStatus,
+      effectiveConnStatus,
       promptCapabilities?.embeddedContext,
       sendMessage,
       utils.getFileContent,
@@ -844,8 +874,8 @@ export function ChatInterface({
   }, [chatId, setActiveChatId]);
 
   useEffect(() => {
-    setIsStreamingStatus(connStatus === "connected" && isStreaming);
-  }, [connStatus, isStreaming, setIsStreamingStatus]);
+    setIsStreamingStatus(effectiveConnStatus === "connected" && isStreaming);
+  }, [effectiveConnStatus, isStreaming, setIsStreamingStatus]);
 
   useEffect(() => {
     if (projectContext?.files) {
@@ -859,7 +889,7 @@ export function ChatInterface({
     }
     const phaseResolution = resolveSessionBootstrapPhase({
       phase: sessionBootstrapPhase,
-      connStatus,
+      connStatus: effectiveConnStatus,
       hasMessages: messageCount > 0,
     });
     if (phaseResolution !== sessionBootstrapPhase) {
@@ -867,7 +897,7 @@ export function ChatInterface({
     }
   }, [
     chatId,
-    connStatus,
+    effectiveConnStatus,
     messageCount,
     sessionBootstrapPhase,
     setSessionBootstrapPhase,
@@ -894,7 +924,7 @@ export function ChatInterface({
         ? "ACP agent initializing..."
         : "Restoring history...";
   const shouldShowPendingConnectionOverlay =
-    (connStatus === "connecting" || status === "connecting") &&
+    (effectiveConnStatus === "connecting" || status === "connecting") &&
     messageCount === 0;
   const shouldShowConnectionOverlay =
     createSessionMutation.isPending ||
@@ -905,8 +935,8 @@ export function ChatInterface({
   const shouldShowDiagnosticEmptyState =
     Boolean(chatId) &&
     messageCount === 0 &&
-    connStatus !== "idle" &&
-    connStatus !== "connecting";
+    effectiveConnStatus !== "idle" &&
+    effectiveConnStatus !== "connecting";
   const diagnosticEmptyStateLabel =
     status === "error"
       ? "Chat stream was interrupted before messages arrived."
@@ -967,12 +997,12 @@ export function ChatInterface({
     <div className="relative flex size-full flex-col overflow-hidden">
       <ChatHeader
         agentDisplay={agentDisplay}
-        connStatus={connStatus}
+        connStatus={effectiveConnStatus}
         isResuming={isResuming}
-        onResumeChat={loadSessionSupported ? handleResume : undefined}
+        onResumeChat={resolvedLoadSessionSupported ? handleResume : undefined}
         onStopChat={handleStopChat}
         projectName={activeProject?.name}
-        loadNotSupported={loadSessionSupported === false}
+        loadNotSupported={resolvedLoadSessionSupported === false}
       />
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -1035,7 +1065,7 @@ export function ChatInterface({
           availableConfigOptions={configOptions}
           availableModels={availableModels}
           availableModes={availableModes}
-          connStatus={connStatus}
+          connStatus={effectiveConnStatus}
           currentModeId={currentModeId}
           currentModelId={currentModelId}
           onCancel={handleCancel}

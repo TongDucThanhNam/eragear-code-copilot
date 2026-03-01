@@ -65,7 +65,8 @@ export function updateChatStatus(params: {
     return Promise.resolve();
   }
   session.chatStatus = status;
-  const turnId = params.turnId ?? session.activeTurnId;
+  const turnId =
+    status === "inactive" ? undefined : (params.turnId ?? session.activeTurnId);
   return broadcast(chatId, {
     type: "chat_status",
     status,

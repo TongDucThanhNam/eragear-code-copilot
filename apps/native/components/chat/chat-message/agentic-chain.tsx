@@ -1,7 +1,7 @@
 import type { ToolUIPart, UIMessagePart } from "@repo/shared";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Accordion, Spinner } from "heroui-native";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import {
   getActiveIndex,
@@ -10,6 +10,8 @@ import {
 import { PartRenderers } from "./part-renderers";
 import MarkdownText from "./text-part";
 import { cn_inline, getPartKey } from "./utils";
+
+type AccordionValue = string | string[] | undefined;
 
 const getToolTone = (viewState: ReturnType<typeof toToolViewState>) => {
   switch (viewState) {
@@ -170,11 +172,7 @@ export function ChainOfThought({
   isStreaming: boolean;
   messageId: string;
 }) {
-  const [isOpen, setIsOpen] = useState(true);
-  const [hasStreamed, setHasStreamed] = useState(isStreaming);
-  const [userToggled, setUserToggled] = useState(false);
-  const prevStreamingRef = useRef(isStreaming);
-  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   const activeIndex = useMemo(() => getActiveIndex(items), [items]);
   const toolCount = useMemo(
@@ -189,51 +187,6 @@ export function ChainOfThought({
     () => items.filter((item) => item.type === "text").length,
     [items]
   );
-
-  useEffect(() => {
-    return () => {
-      if (collapseTimerRef.current) {
-        clearTimeout(collapseTimerRef.current);
-        collapseTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const prevStreaming = prevStreamingRef.current;
-    prevStreamingRef.current = isStreaming;
-
-    if (isStreaming) {
-      setHasStreamed(true);
-      if (collapseTimerRef.current) {
-        clearTimeout(collapseTimerRef.current);
-        collapseTimerRef.current = null;
-      }
-      if (!userToggled && !prevStreaming) {
-        setIsOpen(true);
-      }
-      return;
-    }
-
-    if (userToggled) {
-      if (collapseTimerRef.current) {
-        clearTimeout(collapseTimerRef.current);
-        collapseTimerRef.current = null;
-      }
-      return;
-    }
-
-    if (!hasStreamed || !prevStreaming) {
-      return;
-    }
-
-    if (!collapseTimerRef.current) {
-      collapseTimerRef.current = setTimeout(() => {
-        setIsOpen(false);
-        collapseTimerRef.current = null;
-      }, 500);
-    }
-  }, [hasStreamed, isStreaming, userToggled]);
 
   if (items.length === 0) {
     return null;
@@ -259,12 +212,11 @@ export function ChainOfThought({
       isDividerVisible={false}
       selectionMode="single"
       value={isOpen ? itemValue : undefined}
-      onValueChange={(nextValue) => {
+      onValueChange={(nextValue: AccordionValue) => {
         const open = Array.isArray(nextValue)
           ? nextValue.includes(itemValue)
           : nextValue === itemValue;
         setIsOpen(open);
-        setUserToggled(true);
       }}
       variant="surface"
       className="w-full rounded-xl border border-divider bg-surface-foreground/5"
@@ -290,20 +242,22 @@ export function ChainOfThought({
             <Accordion.Indicator />
           </View>
         </Accordion.Trigger>
-        <Accordion.Content className="border-t border-divider px-3 pb-3 pt-2">
-          <View className="flex-col gap-3">
-            {items.map((item, index) => (
-              <ChainStep
-                key={getPartKey(item, index)}
-                isActive={index === activeIndex}
-                isLast={index === items.length - 1}
-                part={item}
-              >
-                <ChainContent part={item} />
-              </ChainStep>
-            ))}
-          </View>
-        </Accordion.Content>
+        {isOpen ? (
+          <Accordion.Content className="border-t border-divider px-3 pb-3 pt-2">
+            <View className="flex-col gap-3">
+              {items.map((item, index) => (
+                <ChainStep
+                  key={getPartKey(item, index)}
+                  isActive={index === activeIndex}
+                  isLast={index === items.length - 1}
+                  part={item}
+                >
+                  <ChainContent part={item} />
+                </ChainStep>
+              ))}
+            </View>
+          </Accordion.Content>
+        ) : null}
       </Accordion.Item>
     </Accordion>
   );

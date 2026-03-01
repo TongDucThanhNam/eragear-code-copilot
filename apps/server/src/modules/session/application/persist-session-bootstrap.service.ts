@@ -71,17 +71,29 @@ export class PersistSessionBootstrapService {
     }
     input.chatSession.importExternalHistoryOnLoad = false;
 
-    let uiMessages = collectUiMessages(input.chatSession.uiState.messages);
-    if (shouldAttemptExternalImportFallback(input.agentCommand, uiMessages)) {
+    const runtimeMessages = collectUiMessages(input.chatSession.uiState.messages);
+    let uiMessages = runtimeMessages;
+    if (
+      shouldAttemptExternalImportFallback({
+        agentCommand: input.agentCommand,
+        runtimeMessages,
+        replayedStoredHistoryFallback:
+          input.chatSession.replayedStoredHistoryFallback === true,
+      })
+    ) {
       const externalMessages = await this.externalHistoryResolver({
         sessionIdToLoad: input.params.sessionIdToLoad,
         agentCommand: input.agentCommand,
         agentEnv: input.agentEnv,
       });
-      if (shouldUseExternalImport(uiMessages, externalMessages)) {
-        uiMessages = externalMessages;
+      if (shouldUseExternalImport(runtimeMessages, externalMessages)) {
+        const shouldMergeWithRuntime =
+          input.chatSession.replayedStoredHistoryFallback === true;
+        uiMessages = shouldMergeWithRuntime
+          ? mergeRuntimeAndExternalMessages(runtimeMessages, externalMessages)
+          : externalMessages;
         input.chatSession.uiState.messages = new Map(
-          externalMessages.map((message) => [message.id, message])
+          uiMessages.map((message) => [message.id, message])
         );
       }
     }
@@ -178,27 +190,7 @@ function extractTextBlocks(
 function collectUiMessages(
   source: Map<string, UIMessage>
 ): UIMessage[] {
-  return [...source.values()]
-    .map((message, index) => ({ index, message }))
-    .sort((left, right) => {
-      const leftTimestamp = normalizeMessageTimestamp(left.message.createdAt);
-      const rightTimestamp = normalizeMessageTimestamp(right.message.createdAt);
-      if (
-        leftTimestamp !== undefined &&
-        rightTimestamp !== undefined &&
-        leftTimestamp !== rightTimestamp
-      ) {
-        return leftTimestamp - rightTimestamp;
-      }
-      if (leftTimestamp !== undefined && rightTimestamp === undefined) {
-        return -1;
-      }
-      if (leftTimestamp === undefined && rightTimestamp !== undefined) {
-        return 1;
-      }
-      return left.index - right.index;
-    })
-    .map((entry) => entry.message);
+  return sortMessagesChronologically([...source.values()]);
 }
 
 function shouldUseExternalImport(
@@ -229,21 +221,129 @@ function shouldUseExternalImport(
   ) {
     return true;
   }
+  const runtimeLatestTimestamp = findLatestTimestamp(runtimeMessages);
+  const externalLatestTimestamp = findLatestTimestamp(externalMessages);
+  if (
+    externalLatestTimestamp !== undefined &&
+    runtimeLatestTimestamp !== undefined &&
+    externalLatestTimestamp > runtimeLatestTimestamp &&
+    externalSummary.total > runtimeSummary.total &&
+    externalSummary.assistant >= runtimeSummary.assistant
+  ) {
+    return true;
+  }
   return false;
 }
 
-function shouldAttemptExternalImportFallback(
-  agentCommand: string,
-  runtimeMessages: UIMessage[]
-): boolean {
-  if (!isExternalHistoryImportSupportedAgentCommand(agentCommand)) {
+function shouldAttemptExternalImportFallback(params: {
+  agentCommand: string;
+  runtimeMessages: UIMessage[];
+  replayedStoredHistoryFallback: boolean;
+}): boolean {
+  if (!isExternalHistoryImportSupportedAgentCommand(params.agentCommand)) {
     return false;
   }
-  const runtimeSummary = summarizeMessageRoles(runtimeMessages);
+  if (params.replayedStoredHistoryFallback) {
+    return true;
+  }
+  const runtimeSummary = summarizeMessageRoles(params.runtimeMessages);
   return (
     runtimeSummary.assistant === 0 ||
     runtimeSummary.assistant * 2 <= runtimeSummary.user
   );
+}
+
+function findLatestTimestamp(messages: UIMessage[]): number | undefined {
+  let latest: number | undefined;
+  for (const message of messages) {
+    const timestamp = normalizeMessageTimestamp(message.createdAt);
+    if (timestamp === undefined) {
+      continue;
+    }
+    if (latest === undefined || timestamp > latest) {
+      latest = timestamp;
+    }
+  }
+  return latest;
+}
+
+function mergeRuntimeAndExternalMessages(
+  runtimeMessages: UIMessage[],
+  externalMessages: UIMessage[]
+): UIMessage[] {
+  const merged = [...runtimeMessages];
+  const exactKeys = new Set(runtimeMessages.map(buildMessageExactSemanticKey));
+  const timestampRoleKeys = new Set(
+    runtimeMessages.map(buildMessageTimestampRoleKey)
+  );
+  const seenIds = new Set(runtimeMessages.map((message) => message.id));
+
+  for (const externalMessage of externalMessages) {
+    if (seenIds.has(externalMessage.id)) {
+      continue;
+    }
+    const exactKey = buildMessageExactSemanticKey(externalMessage);
+    if (exactKeys.has(exactKey)) {
+      continue;
+    }
+    const timestampRoleKey = buildMessageTimestampRoleKey(externalMessage);
+    if (timestampRoleKeys.has(timestampRoleKey)) {
+      continue;
+    }
+    merged.push(externalMessage);
+    seenIds.add(externalMessage.id);
+    exactKeys.add(exactKey);
+    timestampRoleKeys.add(timestampRoleKey);
+  }
+
+  return sortMessagesChronologically(merged);
+}
+
+function sortMessagesChronologically(messages: UIMessage[]): UIMessage[] {
+  return messages
+    .map((message, index) => ({ index, message }))
+    .sort((left, right) => {
+      const leftTimestamp = normalizeMessageTimestamp(left.message.createdAt);
+      const rightTimestamp = normalizeMessageTimestamp(right.message.createdAt);
+      if (
+        leftTimestamp !== undefined &&
+        rightTimestamp !== undefined &&
+        leftTimestamp !== rightTimestamp
+      ) {
+        return leftTimestamp - rightTimestamp;
+      }
+      if (leftTimestamp !== undefined && rightTimestamp === undefined) {
+        return -1;
+      }
+      if (leftTimestamp === undefined && rightTimestamp !== undefined) {
+        return 1;
+      }
+      return left.index - right.index;
+    })
+    .map((entry) => entry.message);
+}
+
+function buildMessageExactSemanticKey(message: UIMessage): string {
+  const timestamp = normalizeMessageTimestamp(message.createdAt) ?? 0;
+  return `${message.role}|${timestamp}|${normalizeMessageText(message)}`;
+}
+
+function buildMessageTimestampRoleKey(message: UIMessage): string {
+  const timestamp = normalizeMessageTimestamp(message.createdAt) ?? 0;
+  return `${message.role}|${timestamp}`;
+}
+
+function normalizeMessageText(message: UIMessage): string {
+  const text = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim()
+    .toLowerCase();
+  if (text.length === 0) {
+    return "";
+  }
+  return text.replace(/\s+/g, " ");
 }
 
 function summarizeMessageRoles(messages: UIMessage[]): {

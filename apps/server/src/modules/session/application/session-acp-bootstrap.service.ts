@@ -56,6 +56,16 @@ interface InitializeCapabilities {
   };
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  return "Unknown error";
+}
+
 function supportsUnstableResume(conn: unknown): conn is ResumeConnection {
   if (!conn || typeof conn !== "object") {
     return false;
@@ -302,40 +312,54 @@ export class SessionAcpBootstrapService {
 
     let loadResult: SessionConnectionResult;
     const canLoadSession = Boolean(chatSession.agentCapabilities?.loadSession);
-
-    if (canLoadSession) {
-      // loadSession is the canonical source of truth for history replay.
-      // Never suppress its replay broadcast; otherwise newer agent-side messages
-      // can be hidden behind stale local DB snapshots.
-      chatSession.suppressReplayBroadcast = false;
-      chatSession.isReplayingHistory = true;
-      this.logger.debug("Using loadSession", { chatId, sessionIdToLoad });
-      loadResult = await chatSession.conn.loadSession({
-        sessionId: sessionIdToLoad,
-        cwd: projectRoot,
-        mcpServers: acpMcpServers,
-      });
-    } else {
-      chatSession.isReplayingHistory = false;
-      this.logger.debug("Using unstable resume session", {
-        chatId,
-        sessionIdToLoad,
-      });
-      const resumeConn = chatSession.conn as unknown;
-      if (!supportsUnstableResume(resumeConn)) {
-        throw new ValidationError(
-          "Agent does not support session/load or unstable resume",
-          {
-            module: "session",
-            op: OP,
-            details: { chatId, sessionIdToLoad },
-          }
-        );
+    try {
+      if (canLoadSession) {
+        // loadSession is the canonical source of truth for history replay.
+        // Never suppress its replay broadcast; otherwise newer agent-side messages
+        // can be hidden behind stale local DB snapshots.
+        chatSession.sessionLoadMethod = "session_load";
+        chatSession.suppressReplayBroadcast = false;
+        chatSession.isReplayingHistory = true;
+        this.logger.debug("Using loadSession", { chatId, sessionIdToLoad });
+        loadResult = await chatSession.conn.loadSession({
+          sessionId: sessionIdToLoad,
+          cwd: projectRoot,
+          mcpServers: acpMcpServers,
+        });
+      } else {
+        chatSession.sessionLoadMethod = "unstable_resume";
+        chatSession.isReplayingHistory = false;
+        this.logger.debug("Using unstable resume session", {
+          chatId,
+          sessionIdToLoad,
+        });
+        const resumeConn = chatSession.conn as unknown;
+        if (!supportsUnstableResume(resumeConn)) {
+          throw new ValidationError(
+            "Agent does not support session/load or unstable resume",
+            {
+              module: "session",
+              op: OP,
+              details: { chatId, sessionIdToLoad },
+            }
+          );
+        }
+        loadResult = await resumeConn.unstable_resumeSession({
+          sessionId: sessionIdToLoad,
+          cwd: projectRoot,
+          mcpServers: acpMcpServers,
+        });
       }
-      loadResult = await resumeConn.unstable_resumeSession({
-        sessionId: sessionIdToLoad,
-        cwd: projectRoot,
-        mcpServers: acpMcpServers,
+    } catch (error) {
+      const method = canLoadSession ? "loadSession" : "unstable_resumeSession";
+      throw new AppError({
+        message: `Failed to resume agent session via ${method}: ${getErrorMessage(error)}`,
+        code: "AGENT_SESSION_LOAD_FAILED",
+        statusCode: 502,
+        module: "session",
+        op: OP,
+        details: { chatId, sessionIdToLoad, method },
+        cause: error,
       });
     }
 
@@ -356,6 +380,7 @@ export class SessionAcpBootstrapService {
     acpMcpServers: acp.McpServer[];
   }): Promise<void> {
     const { chatId, chatSession, projectRoot, acpMcpServers } = params;
+    chatSession.sessionLoadMethod = "new_session";
     const newResult = await chatSession.conn.newSession({
       cwd: projectRoot,
       mcpServers: acpMcpServers,

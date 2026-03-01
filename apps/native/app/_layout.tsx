@@ -1,12 +1,6 @@
 import "@/global.css";
-import {
-  Stack,
-  usePathname,
-  useRootNavigationState,
-  useRouter,
-} from "expo-router";
+import { Stack } from "expo-router";
 import { HeroUINativeProvider } from "heroui-native";
-import { useEffect, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -28,49 +22,23 @@ const HEROUI_CONFIG = {
 } as const;
 
 function StackLayout() {
+  const isConfigured = useAuthConfigured();
+
   return (
     <Stack screenOptions={STACK_SCREEN_OPTIONS}>
-      <Stack.Screen name="(drawer)" options={{ headerShown: false }} />
-      <Stack.Screen name="chats/[chatId]" options={{ headerShown: false }} />
-      <Stack.Screen name="chats/new" options={{ headerShown: false }} />
-      <Stack.Screen name="login" options={{ headerShown: false }} />
+      <Stack.Protected guard={isConfigured}>
+        <Stack.Screen name="(drawer)" options={{ headerShown: false }} />
+        <Stack.Screen name="chats/[chatId]" options={{ headerShown: false }} />
+      </Stack.Protected>
+      <Stack.Protected guard={!isConfigured}>
+        <Stack.Screen name="login" options={{ headerShown: false }} />
+      </Stack.Protected>
       <Stack.Screen
         name="modal"
         options={{ title: "Modal", presentation: "modal" }}
       />
     </Stack>
   );
-}
-
-function AuthGuard({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const navState = useRootNavigationState();
-  const router = useRouter();
-  const isConfigured = useAuthConfigured();
-  const redirectTargetRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!navState?.key) {
-      return;
-    }
-    if (!isConfigured && pathname !== "/login") {
-      if (redirectTargetRef.current !== "/login") {
-        redirectTargetRef.current = "/login";
-        router.replace("/login");
-      }
-      return;
-    }
-    if (isConfigured && pathname === "/login") {
-      if (redirectTargetRef.current !== "/") {
-        redirectTargetRef.current = "/";
-        router.replace("/");
-      }
-      return;
-    }
-    redirectTargetRef.current = null;
-  }, [isConfigured, navState?.key, pathname, router]);
-
-  return <>{children}</>;
 }
 
 export default function Layout() {
@@ -81,10 +49,8 @@ export default function Layout() {
           <AppThemeProvider>
             <HeroUINativeProvider config={HEROUI_CONFIG}>
               <TRPCProvider>
-                <AuthGuard>
-                  <ErrorToastHandler />
-                  <StackLayout />
-                </AuthGuard>
+                <ErrorToastHandler />
+                <StackLayout />
               </TRPCProvider>
             </HeroUINativeProvider>
           </AppThemeProvider>

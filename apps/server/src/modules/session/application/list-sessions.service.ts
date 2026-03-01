@@ -127,7 +127,10 @@ export class ListSessionsService {
   ) {
     return await Promise.all(
       sessions.map(async (session) => {
-        const activeSession = this.sessionRuntime.get(session.id);
+        const activeSession =
+          session.status === "running"
+            ? this.sessionRuntime.get(session.id)
+            : undefined;
         const isActive = Boolean(activeSession);
         const loadSessionSupported =
           activeSession?.loadSessionSupported ?? session.loadSessionSupported;

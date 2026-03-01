@@ -7,12 +7,13 @@
  * @module modules/session/application/resume-session.service
  */
 
-import { NotFoundError, ValidationError } from "@/shared/errors";
+import { NotFoundError, ValidationError, isAppError } from "@/shared/errors";
 import type { CreateSessionService } from "./create-session.service";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 const OP = "session.lifecycle.resume";
+const RESUME_FALLBACK_ERROR_CODE = "AGENT_SESSION_LOAD_FAILED";
 
 /**
  * ResumeSessionService
@@ -79,6 +80,7 @@ export class ResumeSessionService {
       return {
         ok: true,
         alreadyRunning: true,
+        sessionLoadMethod: existing.sessionLoadMethod ?? null,
         modes: existing.modes,
         models: existing.models,
         configOptions: existing.configOptions ?? null,
@@ -90,20 +92,47 @@ export class ResumeSessionService {
       };
     }
 
-    const res = await this.createSession.execute({
-      userId,
-      projectId: stored.projectId,
-      projectRoot: stored.projectRoot,
-      command: stored.command,
-      args: stored.args,
-      env: stored.env,
-      chatId: stored.id,
-      sessionIdToLoad: stored.sessionId,
-    });
+    let res: Awaited<ReturnType<CreateSessionService["execute"]>>;
+    try {
+      res = await this.createSession.execute({
+        userId,
+        projectId: stored.projectId,
+        projectRoot: stored.projectRoot,
+        command: stored.command,
+        args: stored.args,
+        env: stored.env,
+        chatId: stored.id,
+        sessionIdToLoad: stored.sessionId,
+        importExternalHistoryOnLoad: true,
+      });
+    } catch (error) {
+      if (
+        !(
+          isAppError(error) &&
+          error.code === RESUME_FALLBACK_ERROR_CODE
+        )
+      ) {
+        throw error;
+      }
+
+      // Agent session id may be stale/expired. Recover by starting a fresh ACP
+      // session while preserving local chatId and persisted history.
+      res = await this.createSession.execute({
+        userId,
+        projectId: stored.projectId,
+        projectRoot: stored.projectRoot,
+        command: stored.command,
+        args: stored.args,
+        env: stored.env,
+        chatId: stored.id,
+        importExternalHistoryOnLoad: false,
+      });
+    }
 
     return {
       ok: true,
       chatId: res.id,
+      sessionLoadMethod: res.sessionLoadMethod ?? null,
       modes: res.modes,
       models: res.models,
       configOptions: res.configOptions ?? null,

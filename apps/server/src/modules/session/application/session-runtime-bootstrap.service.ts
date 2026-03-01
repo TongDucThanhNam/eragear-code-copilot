@@ -77,6 +77,7 @@ export class SessionRuntimeBootstrapService {
       isReplayingHistory: false,
       suppressReplayBroadcast,
       importExternalHistoryOnLoad: input.importExternalHistoryOnLoad,
+      replayedStoredHistoryFallback: false,
       lastAssistantChunkType: undefined,
       chatStatus: "connecting",
     };

@@ -52,7 +52,8 @@ export class SessionMetadataPersistenceService {
     };
 
     const shouldUpdateExistingSession =
-      Boolean(params.sessionIdToLoad) && Boolean(params.chatId);
+      Boolean(params.chatId) &&
+      Boolean(await this.sessionRepo.findById(chatId, params.userId));
     if (shouldUpdateExistingSession) {
       await this.sessionRepo.updateMetadata(chatId, params.userId, {
         sessionId: chatSession.sessionId,

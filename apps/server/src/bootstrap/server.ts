@@ -424,13 +424,14 @@ export async function startServer() {
   const wsHandler = applyWSSHandler({
     wss,
     router: appRouter,
-    createContext: ({ req }) =>
+    createContext: ({ req, info }) =>
       createTrpcContext(trpcDeps, {
         req: {
           headers: req.headers,
           url: req.url,
           remoteAddress: req.socket.remoteAddress,
         },
+        connectionParams: info.connectionParams,
       }),
   });
 

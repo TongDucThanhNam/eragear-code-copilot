@@ -85,7 +85,6 @@ export function TRPCProvider({ children }: { children: ReactNode }) {
         const { apiKey } = useAuthStore.getState();
         return apiKey ? { apiKey } : null;
       },
-      lazy: { enabled: true, closeMs: 0 },
       onOpen: () => {
         console.log("[TRPCProvider] WebSocket connected");
         failureCountRef.current = 0;

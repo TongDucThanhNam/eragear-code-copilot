@@ -1,4 +1,8 @@
-import { toHttpUrl, toWsUrl, getDefaultServerUrl } from "@/lib/server-url";
+import {
+  buildTrpcWsUrl,
+  toHttpUrl,
+  getDefaultServerUrl,
+} from "@/lib/server-url";
 import { useAuthStore } from "@/store/auth-store";
 
 // Get WS URL from auth store or environment
@@ -7,7 +11,7 @@ export function getWsUrl(): string {
   try {
     const storeUrl = useAuthStore.getState().serverUrl;
     if (storeUrl && storeUrl.trim().length > 0) {
-      return toWsUrl(storeUrl.trim());
+      return buildTrpcWsUrl(storeUrl.trim());
     }
   } catch {
     // Store not ready yet, fall back to env
@@ -19,10 +23,10 @@ export function getWsUrl(): string {
   if (!envWsUrl) {
     console.warn("[env] EXPO_PUBLIC_WS_URL not set, using default");
   } else {
-    return toWsUrl(envWsUrl.trim());
+    return buildTrpcWsUrl(envWsUrl.trim());
   }
 
-  return toWsUrl(getDefaultServerUrl());
+  return buildTrpcWsUrl(getDefaultServerUrl());
 }
 
 /**

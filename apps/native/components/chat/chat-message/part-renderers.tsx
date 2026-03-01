@@ -77,7 +77,12 @@ export function PartRenderers({ part }: PartRenderersProps) {
         }
         return (
           <View>
-            <ToolCallPart input={part.input} state={part.state} title={title} />
+            <ToolCallPart
+              input={part.input}
+              state={part.state}
+              title={title}
+              toolCallId={part.toolCallId}
+            />
             {(part.state === "output-available" ||
               part.state === "output-error" ||
               part.state === "output-denied") && (

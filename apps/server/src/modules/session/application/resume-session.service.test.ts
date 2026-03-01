@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AppError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import type { CreateSessionService } from "./create-session.service";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
@@ -95,6 +96,7 @@ describe("ResumeSessionService", () => {
     expect(result).toEqual({
       ok: true,
       alreadyRunning: true,
+      sessionLoadMethod: null,
       modes: existing.modes,
       models: existing.models,
       configOptions: existing.configOptions ?? null,
@@ -162,10 +164,12 @@ describe("ResumeSessionService", () => {
       env: { HOME: "/tmp" },
       chatId: "chat-1",
       sessionIdToLoad: "sess-resume",
+      importExternalHistoryOnLoad: true,
     });
     expect(result).toEqual({
       ok: true,
       chatId: "chat-1",
+      sessionLoadMethod: null,
       modes: resumed.modes,
       models: resumed.models,
       configOptions: resumed.configOptions ?? null,
@@ -209,5 +213,73 @@ describe("ResumeSessionService", () => {
     await expect(service.execute("user-1", "chat-1")).rejects.toThrow(
       /missing acp sessionid/i
     );
+  });
+
+  test("falls back to a fresh session when agent session load fails", async () => {
+    const stored = createStoredSession({
+      sessionId: "sess-stale",
+      command: "codex",
+      args: ["acp"],
+      env: { HOME: "/tmp" },
+    });
+    const resumed = createRunningSession({
+      id: "chat-1",
+      promptCapabilities: { image: false },
+      loadSessionSupported: true,
+      supportsModelSwitching: false,
+    });
+    const receivedInputs: Array<Record<string, unknown>> = [];
+    let executeCalls = 0;
+
+    const repo = {
+      findById: async () => stored,
+    } as unknown as SessionRepositoryPort;
+    const runtime = {
+      get: () => undefined,
+    } as unknown as SessionRuntimePort;
+    const createSession = {
+      execute: async (input: Record<string, unknown>) => {
+        executeCalls += 1;
+        receivedInputs.push(input);
+        if (executeCalls === 1) {
+          throw new AppError({
+            message: "Failed to resume agent session via loadSession: Internal error",
+            code: "AGENT_SESSION_LOAD_FAILED",
+            statusCode: 502,
+            module: "session",
+            op: "session.lifecycle.create",
+          });
+        }
+        return resumed;
+      },
+    } as unknown as CreateSessionService;
+
+    const service = new ResumeSessionService(repo, runtime, createSession);
+    const result = await service.execute("user-1", "chat-1");
+
+    expect(executeCalls).toBe(2);
+    expect(receivedInputs[0]).toMatchObject({
+      chatId: "chat-1",
+      sessionIdToLoad: "sess-stale",
+      importExternalHistoryOnLoad: true,
+    });
+    expect(receivedInputs[1]).toMatchObject({
+      chatId: "chat-1",
+      importExternalHistoryOnLoad: false,
+    });
+    expect(receivedInputs[1]?.sessionIdToLoad).toBeUndefined();
+    expect(result).toEqual({
+      ok: true,
+      chatId: "chat-1",
+      sessionLoadMethod: null,
+      modes: resumed.modes,
+      models: resumed.models,
+      configOptions: resumed.configOptions ?? null,
+      sessionInfo: null,
+      promptCapabilities: resumed.promptCapabilities,
+      loadSessionSupported: true,
+      supportsModelSwitching: false,
+      plan: null,
+    });
   });
 });

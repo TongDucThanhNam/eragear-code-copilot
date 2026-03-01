@@ -216,6 +216,47 @@ describe("processSessionEvent ui_message_part", () => {
 });
 
 describe("processSessionEvent config/session-info updates", () => {
+  test("keeps connection state in sync across repeated connect/disconnect cycles", () => {
+    const connStates: string[] = [];
+    const chatStates: string[] = [];
+    const cycleEvents: BroadcastEvent[] = [
+      { type: "chat_status", status: "ready" },
+      { type: "chat_status", status: "inactive" },
+      { type: "chat_status", status: "ready" },
+      { type: "chat_status", status: "inactive" },
+      { type: "chat_status", status: "ready" },
+      { type: "chat_status", status: "inactive" },
+    ];
+
+    for (const event of cycleEvents) {
+      processSessionEvent(event, { currentModes: null, currentModels: null }, {
+        onConnStatusChange: (status) => {
+          connStates.push(status);
+        },
+        onStatusChange: (status) => {
+          chatStates.push(status);
+        },
+      });
+    }
+
+    expect(chatStates).toEqual([
+      "ready",
+      "inactive",
+      "ready",
+      "inactive",
+      "ready",
+      "inactive",
+    ]);
+    expect(connStates).toEqual([
+      "connected",
+      "idle",
+      "connected",
+      "idle",
+      "connected",
+      "idle",
+    ]);
+  });
+
   test("maps inactive chat_status to idle connection state", () => {
     const connStates: string[] = [];
     const chatStates: string[] = [];
