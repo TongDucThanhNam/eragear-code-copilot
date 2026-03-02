@@ -1,17 +1,15 @@
 import type { UIMessage } from "@repo/shared";
 import { findUiMessageInsertIndex } from "@repo/shared";
 
+/**
+ * Normalized message state optimized for id-based upsert plus stable render
+ * order lookup.
+ */
 export interface MessageState {
   byId: Map<string, UIMessage>;
   order: string[];
   indexById: Map<string, number>;
   orderedMessages: UIMessage[];
-}
-
-export interface MessageDeltaChunk {
-  messageId: string;
-  partIndex: number;
-  delta: string;
 }
 
 export interface MessagePartUpdateChunk {
@@ -30,6 +28,7 @@ export const createEmptyMessageState = (): MessageState => ({
   orderedMessages: [],
 });
 
+/** Return memo-friendly ordered messages array from normalized state. */
 export const getOrderedMessages = (state: MessageState): UIMessage[] => {
   return state.orderedMessages;
 };
@@ -189,81 +188,15 @@ export const prependMessagesIntoState = (
   };
 };
 
-function applyDeltaToMessage(
-  message: UIMessage,
-  partIndex: number,
-  delta: string
-): UIMessage | null {
-  if (!delta) {
-    return message;
-  }
-  const part = message.parts[partIndex];
-  if (!part || (part.type !== "text" && part.type !== "reasoning")) {
-    return null;
-  }
-  const updatedPart = { ...part, text: `${part.text ?? ""}${delta}` };
-  const updatedParts = [...message.parts];
-  updatedParts[partIndex] = updatedPart;
-  return {
-    ...message,
-    parts: updatedParts,
-  };
-}
-
-export const applyMessageDeltasIntoState = (
-  state: MessageState,
-  deltas: MessageDeltaChunk[]
-): MessageState => {
-  if (deltas.length === 0) {
-    return state;
-  }
-
-  const updatedById = new Map<string, UIMessage>();
-  const touchedMessageIds: string[] = [];
-  const seenMessageIds = new Set<string>();
-
-  for (const delta of deltas) {
-    if (!delta.delta) {
-      continue;
-    }
-
-    const sourceMessage =
-      updatedById.get(delta.messageId) ?? state.byId.get(delta.messageId);
-    if (!sourceMessage) {
-      continue;
-    }
-
-    const updatedMessage = applyDeltaToMessage(
-      sourceMessage,
-      delta.partIndex,
-      delta.delta
-    );
-    if (!updatedMessage || updatedMessage === sourceMessage) {
-      continue;
-    }
-
-    updatedById.set(delta.messageId, updatedMessage);
-    if (!seenMessageIds.has(delta.messageId)) {
-      seenMessageIds.add(delta.messageId);
-      touchedMessageIds.push(delta.messageId);
-    }
-  }
-
-  if (touchedMessageIds.length === 0) {
-    return state;
-  }
-
-  const updatedMessages = touchedMessageIds
-    .map((messageId) => updatedById.get(messageId))
-    .filter((message): message is UIMessage => Boolean(message));
-  return mergeMessagesIntoState(state, updatedMessages);
-};
-
 export const upsertMessageIntoState = (
   state: MessageState,
   message: UIMessage
 ): MessageState => mergeMessagesIntoState(state, [message]);
 
+/**
+ * Apply part-level stream updates. Out-of-order parts are appended and later
+ * corrected by the next `ui_message` snapshot.
+ */
 export const applyPartUpdate = (
   state: MessageState,
   update: MessagePartUpdateChunk
@@ -320,6 +253,92 @@ export const applyPartUpdate = (
     parts: nextParts,
   };
   return mergeMessagesIntoState(state, [nextMessage]);
+};
+
+function finalizeToolPartAfterReady(
+  part: Extract<UIMessage["parts"][number], { type: `tool-${string}` }>
+): UIMessage["parts"][number] {
+  if (
+    part.state !== "input-streaming" &&
+    part.state !== "input-available" &&
+    part.state !== "approval-responded"
+  ) {
+    return part;
+  }
+
+  const withMetadata =
+    "callProviderMetadata" in part && part.callProviderMetadata
+      ? { callProviderMetadata: part.callProviderMetadata }
+      : {};
+
+  return {
+    type: part.type,
+    toolCallId: part.toolCallId,
+    ...(part.title ? { title: part.title } : {}),
+    ...(part.providerExecuted !== undefined
+      ? { providerExecuted: part.providerExecuted }
+      : {}),
+    state: "output-available" as const,
+    input: part.input ?? null,
+    output: null,
+    preliminary: true,
+    ...withMetadata,
+  };
+}
+
+function finalizeMessageAfterReady(message: UIMessage): UIMessage {
+  let changed = false;
+  const parts = message.parts.map((part) => {
+    if (
+      (part.type === "text" || part.type === "reasoning") &&
+      part.state === "streaming"
+    ) {
+      changed = true;
+      return {
+        ...part,
+        state: "done" as const,
+      };
+    }
+    if (part.type.startsWith("tool-")) {
+      const nextToolPart = finalizeToolPartAfterReady(
+        part as Extract<UIMessage["parts"][number], { type: `tool-${string}` }>
+      );
+      if (nextToolPart !== part) {
+        changed = true;
+      }
+      return nextToolPart;
+    }
+    return part;
+  });
+
+  if (!changed) {
+    return message;
+  }
+
+  return {
+    ...message,
+    parts,
+  };
+}
+
+/**
+ * Force-close lingering streaming parts after server emits terminal readiness
+ * status for the turn.
+ */
+export const finalizeStreamingMessagesInState = (
+  state: MessageState
+): MessageState => {
+  const finalized: UIMessage[] = [];
+  for (const message of state.orderedMessages) {
+    const nextMessage = finalizeMessageAfterReady(message);
+    if (nextMessage !== message) {
+      finalized.push(nextMessage);
+    }
+  }
+  if (finalized.length === 0) {
+    return state;
+  }
+  return mergeMessagesIntoState(state, finalized);
 };
 
 export const replaceMessagesState = (messages: UIMessage[]): MessageState => {

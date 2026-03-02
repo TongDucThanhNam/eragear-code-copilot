@@ -168,10 +168,6 @@ export class SubscribeSessionEventsService {
           snapshot.bufferedEvents,
           "ui_message_part"
         ),
-        bufferedDeltas: countEventType(
-          snapshot.bufferedEvents,
-          "ui_message_delta"
-        ),
         forcedActiveSnapshot: snapshot.forcedActiveSnapshot,
         subscriberCount: snapshot.subscriberCount,
       });
@@ -222,7 +218,7 @@ export class SubscribeSessionEventsService {
             op: OP,
           });
           const current = sessionRuntime.get(chatId);
-          if (!current || current !== session) {
+          if (!current || current.userId !== session.userId) {
             return;
           }
           current.subscriberCount = Math.max(0, current.subscriberCount - 1);
@@ -236,11 +232,7 @@ export class SubscribeSessionEventsService {
 }
 
 function shouldLogStreamEvent(event: BroadcastEvent): boolean {
-  return (
-    event.type === "ui_message" ||
-    event.type === "ui_message_part" ||
-    event.type === "ui_message_delta"
-  );
+  return event.type === "ui_message" || event.type === "ui_message_part";
 }
 
 function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown> {
@@ -248,13 +240,6 @@ function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown>
     return {
       messageId: event.message.id,
       partsCount: event.message.parts.length,
-    };
-  }
-  if (event.type === "ui_message_delta") {
-    return {
-      messageId: event.messageId,
-      partIndex: event.partIndex,
-      deltaLength: event.delta.length,
     };
   }
   if (event.type === "ui_message_part") {
@@ -339,7 +324,7 @@ function buildBufferedEvents(session: ChatSession): {
   const pendingActiveEvents = activeAssistantId
     ? cloneBroadcastEvents(
         replayEvents.filter((event) => {
-          if (event.type === "ui_message_part" || event.type === "ui_message_delta") {
+          if (event.type === "ui_message_part") {
             return event.messageId === activeAssistantId;
           }
           return false;

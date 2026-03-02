@@ -14,9 +14,9 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
-import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { createPermissionHandler } from "./permission";
 import { createToolCallHandlers } from "./tool-calls";
 import { createSessionUpdateHandler } from "./update";
@@ -130,12 +130,14 @@ export function createSessionHandlers(params: {
           })
           .catch(() => undefined);
         const session = sessionRuntime.get(chatId);
-        await updateChatStatus({
-          chatId,
-          session,
-          broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
-          status: "error",
-        }).catch(() => undefined);
+        if (session) {
+          await new SessionRuntimeEntity(session)
+            .markError({
+              chatId,
+              broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+            })
+            .catch(() => undefined);
+        }
       }
     },
 

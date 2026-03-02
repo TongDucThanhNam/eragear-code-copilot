@@ -298,9 +298,93 @@ describe("SessionRuntimeStore.delete", () => {
     expect(decisions).toEqual([{ outcome: { outcome: "cancelled" } }]);
     expect(store.has("chat-1")).toBe(false);
   });
+
+  test("preserves live emitter channel across session replacement when subscribers exist", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 8,
+    });
+    const original = createSession("chat-1");
+    original.subscriberCount = 1;
+    const received: BroadcastEvent[] = [];
+    original.emitter.on("data", (event) => {
+      received.push(event as BroadcastEvent);
+    });
+    store.set("chat-1", original);
+
+    const deleted = store.deleteIfMatch("chat-1", original);
+    expect(deleted).toBe(true);
+    expect(store.has("chat-1")).toBe(false);
+
+    const replacement = createSession("chat-1");
+    const replacementEmitter = replacement.emitter;
+    store.set("chat-1", replacement);
+
+    const active = store.get("chat-1");
+    expect(active).toBeDefined();
+    expect(active?.emitter).toBe(original.emitter);
+    expect(active?.emitter).not.toBe(replacementEmitter);
+    expect(active?.subscriberCount).toBe(1);
+
+    await store.broadcast("chat-1", {
+      type: "error",
+      error: "from-replacement",
+    });
+
+    expect(received).toEqual([{ type: "error", error: "from-replacement" }]);
+  });
+
+  test("does not preserve emitter channel when there are no subscribers", () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 8,
+    });
+    const original = createSession("chat-1");
+    const originalEmitter = original.emitter;
+    store.set("chat-1", original);
+
+    const deleted = store.deleteIfMatch("chat-1", original);
+    expect(deleted).toBe(true);
+
+    const replacement = createSession("chat-1");
+    const replacementEmitter = replacement.emitter;
+    store.set("chat-1", replacement);
+
+    const active = store.get("chat-1");
+    expect(active).toBeDefined();
+    expect(active?.emitter).toBe(replacementEmitter);
+    expect(active?.emitter).not.toBe(originalEmitter);
+  });
 });
 
 describe("SessionRuntimeStore.broadcast", () => {
+  test("supports broadcast calls from inside an active chat lock", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 10,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 64,
+    });
+    const session = createSession("chat-1");
+    store.set("chat-1", session);
+
+    await store.runExclusive("chat-1", async () => {
+      await store.broadcast("chat-1", {
+        type: "error",
+        error: "inside-lock",
+      });
+    });
+
+    expect(outboxCalls).toEqual([{ type: "error", error: "inside-lock" }]);
+    expect(session.messageBuffer).toEqual([
+      { type: "error", error: "inside-lock" },
+    ]);
+  });
+
   test("buffers events and persists durable outbox records", async () => {
     const outboxCalls: BroadcastEvent[] = [];
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
@@ -414,6 +498,52 @@ describe("SessionRuntimeStore.broadcast", () => {
         messageId: "msg-1",
         partIndex: 0,
         delta: "hello",
+      },
+    ]);
+  });
+
+  test("defaults ui_message_part to non-durable but replay-buffered", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 10,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 64,
+    });
+    const session = createSession("chat-1");
+    store.set("chat-1", session);
+    const received: BroadcastEvent[] = [];
+    session.emitter.on("data", (event) => {
+      received.push(event as BroadcastEvent);
+    });
+
+    await store.broadcast("chat-1", {
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "streaming", state: "streaming" },
+      isNew: true,
+    });
+
+    expect(outboxCalls).toEqual([]);
+    expect(session.messageBuffer).toEqual([
+      {
+        type: "ui_message_part",
+        messageId: "msg-1",
+        messageRole: "assistant",
+        partIndex: 0,
+        part: { type: "text", text: "streaming", state: "streaming" },
+        isNew: true,
+      },
+    ]);
+    expect(received).toEqual([
+      {
+        type: "ui_message_part",
+        messageId: "msg-1",
+        messageRole: "assistant",
+        partIndex: 0,
+        part: { type: "text", text: "streaming", state: "streaming" },
+        isNew: true,
       },
     ]);
   });

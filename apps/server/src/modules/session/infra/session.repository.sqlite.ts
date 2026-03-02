@@ -71,6 +71,7 @@ const SQLITE_SESSION_OP = {
   UPDATE_METADATA: "session.update_metadata",
   DELETE: "session.delete",
   APPEND_MESSAGE: "session.append_message",
+  REPLACE_MESSAGES: "session.replace_messages",
   COMPACT_MESSAGES: "session.compact_messages",
 } as const;
 
@@ -378,6 +379,69 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
       }
     });
     return { appended: true };
+  }
+
+  async replaceMessages(
+    id: string,
+    userId: string,
+    messages: StoredMessage[]
+  ): Promise<{ replaced: true }> {
+    // Replace snapshot inside one write transaction to prevent mixed old/new
+    // histories when bootstrap import is replay-driven.
+    await enqueueSqliteWrite(SQLITE_SESSION_OP.REPLACE_MESSAGES, async () => {
+      await this.transactionRunner(({ orm }) => {
+        const sessionRow = orm
+          .select({ id: sqliteSchema.sessions.id })
+          .from(sqliteSchema.sessions)
+          .where(
+            and(
+              eq(sqliteSchema.sessions.id, id),
+              eq(sqliteSchema.sessions.userId, userId)
+            )
+          )
+          .get();
+        if (!sessionRow) {
+          throw new NotFoundError("Chat not found", {
+            module: "session",
+            op: SQLITE_SESSION_OP.REPLACE_MESSAGES,
+            details: { chatId: id },
+          });
+        }
+
+        orm
+          .delete(sqliteSchema.sessionMessages)
+          .where(eq(sqliteSchema.sessionMessages.sessionId, id))
+          .run();
+
+        if (messages.length > 0) {
+          const dedupedMessageById = new Map<string, MessageInsert>();
+          for (const message of messages) {
+            dedupedMessageById.set(
+              message.id,
+              this.mapper.toMessageInsert(id, message)
+            );
+          }
+          const dedupedMessages = [...dedupedMessageById.values()];
+          if (dedupedMessages.length > 0) {
+            orm.insert(sqliteSchema.sessionMessages).values(dedupedMessages).run();
+          }
+        }
+
+        orm
+          .update(sqliteSchema.sessions)
+          .set({
+            lastActiveAt: this.clock.nowMs(),
+          })
+          .where(
+            and(
+              eq(sqliteSchema.sessions.id, id),
+              eq(sqliteSchema.sessions.userId, userId)
+            )
+          )
+          .run();
+      });
+    });
+    return { replaced: true };
   }
 
   async getMessagesPage(

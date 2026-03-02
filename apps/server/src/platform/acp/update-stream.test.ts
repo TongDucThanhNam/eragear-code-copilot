@@ -92,7 +92,7 @@ function createContext(params: {
 }
 
 describe("handleBufferedMessage", () => {
-  test("broadcasts assistant text as part event first, then deltas", async () => {
+  test("broadcasts full text part snapshots for each assistant text chunk", async () => {
     const session = createSession("chat-stream-text");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -122,25 +122,36 @@ describe("handleBufferedMessage", () => {
 
     expect(calls).toHaveLength(2);
     expect(calls[0]?.event.type).toBe("ui_message_part");
-    // Second call is the delta for " world" — no full ui_message snapshot
-    const partEvent = calls[0]?.event;
-    const messageId =
-      partEvent?.type === "ui_message_part" ? partEvent.messageId : "";
-    expect(calls[1]).toEqual({
-      event: {
-        type: "ui_message_delta",
-        messageId,
-        partIndex: 0,
-        delta: " world",
-      },
-      options: {
-        durable: false,
-        retainInBuffer: false,
-      },
-    });
+    expect(calls[1]?.event.type).toBe("ui_message_part");
+    if (calls[0]?.event.type === "ui_message_part") {
+      expect(calls[0].event.isNew).toBe(true);
+      expect(calls[0].event.partIndex).toBe(0);
+      expect(calls[0].event.part.type).toBe("text");
+      if (calls[0].event.part.type === "text") {
+        expect(calls[0].event.part.text).toBe("Hello");
+      }
+    }
+    if (calls[1]?.event.type === "ui_message_part") {
+      expect(calls[1].event.isNew).toBe(false);
+      expect(calls[1].event.partIndex).toBe(0);
+      expect(calls[1].event.part.type).toBe("text");
+      if (calls[1].event.part.type === "text") {
+        expect(calls[1].event.part.text).toBe("Hello world");
+      }
+    }
+    const assistantId = session.uiState.currentAssistantId;
+    const message = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    const textPart = message?.parts.find((part) => part.type === "text");
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe("Hello world");
+      expect(textPart.state).toBe("streaming");
+    }
   });
 
-  test("escapes html text in ui_message_delta payload", async () => {
+  test("stores escaped html text in text-part snapshots", async () => {
     const session = createSession("chat-stream-escape");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -169,21 +180,25 @@ describe("handleBufferedMessage", () => {
     );
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]).toEqual({
-      event: {
-        type: "ui_message_delta",
-        messageId: calls[0]?.event.type === "ui_message_part" ? calls[0].event.messageId : "",
-        partIndex: 0,
-        delta: "&lt;tag&gt;",
-      },
-      options: {
-        durable: false,
-        retainInBuffer: false,
-      },
-    });
+    expect(calls[1]?.event.type).toBe("ui_message_part");
+    if (calls[1]?.event.type === "ui_message_part") {
+      expect(calls[1].event.part.type).toBe("text");
+      if (calls[1].event.part.type === "text") {
+        expect(calls[1].event.part.text).toBe("safe&lt;tag&gt;");
+      }
+    }
+    const assistantId = session.uiState.currentAssistantId;
+    const message = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    const textPart = message?.parts.find((part) => part.type === "text");
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe("safe&lt;tag&gt;");
+    }
   });
 
-  test("buffers reasoning chunks without broadcasting", async () => {
+  test("broadcasts full reasoning part snapshots for each thought chunk", async () => {
     const session = createSession("chat-reasoning-buffer");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -211,8 +226,38 @@ describe("handleBufferedMessage", () => {
       })
     );
 
-    expect(calls).toHaveLength(0);
-    expect(buffer.hasPendingReasoning()).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.event.type).toBe("ui_message_part");
+    expect(calls[1]?.event.type).toBe("ui_message_part");
+    if (calls[0]?.event.type === "ui_message_part") {
+      expect(calls[0].event.isNew).toBe(true);
+      expect(calls[0].event.partIndex).toBe(0);
+      expect(calls[0].event.part.type).toBe("reasoning");
+      if (calls[0].event.part.type === "reasoning") {
+        expect(calls[0].event.part.text).toBe("think-1");
+      }
+    }
+    if (calls[1]?.event.type === "ui_message_part") {
+      expect(calls[1].event.isNew).toBe(false);
+      expect(calls[1].event.partIndex).toBe(0);
+      expect(calls[1].event.part.type).toBe("reasoning");
+      if (calls[1].event.part.type === "reasoning") {
+        expect(calls[1].event.part.text).toBe("think-1 think-2");
+      }
+    }
+    expect(buffer.hasPendingReasoning()).toBe(false);
+    const assistantId = session.uiState.currentAssistantId;
+    const message = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    const reasoningPart = message?.parts.find(
+      (part) => part.type === "reasoning"
+    );
+    expect(reasoningPart?.type).toBe("reasoning");
+    if (reasoningPart?.type === "reasoning") {
+      expect(reasoningPart.text).toBe("think-1 think-2");
+      expect(reasoningPart.state).toBe("streaming");
+    }
   });
 
   test("invokes finalize callback when assistant chunk type transitions", async () => {
@@ -252,6 +297,63 @@ describe("handleBufferedMessage", () => {
     );
 
     expect(finalizeCalls).toBe(1);
+  });
+
+  test("keeps reasoning and text in separate assistant parts on chunk transition", async () => {
+    const session = createSession("chat-reasoning-to-text");
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "plan " } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "answer" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    const partEvents = calls.filter(
+      (call) => call.event.type === "ui_message_part"
+    );
+    expect(partEvents).toHaveLength(2);
+    const first = partEvents[0];
+    const second = partEvents[1];
+    if (first?.event.type === "ui_message_part") {
+      expect(first.event.partIndex).toBe(0);
+      expect(first.event.part.type).toBe("reasoning");
+      expect(first.event.isNew).toBe(true);
+    }
+    if (second?.event.type === "ui_message_part") {
+      expect(second.event.partIndex).toBe(1);
+      expect(second.event.part.type).toBe("text");
+      if (second.event.part.type === "text") {
+        expect(second.event.part.text).toBe("answer");
+      }
+      expect(second.event.isNew).toBe(true);
+    }
+
+    const assistantId = session.uiState.currentAssistantId;
+    const message = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    expect(message?.parts).toHaveLength(2);
+    expect(message?.parts[0]?.type).toBe("reasoning");
+    expect(message?.parts[1]?.type).toBe("text");
   });
 
   test("broadcasts non-text assistant chunks as part updates", async () => {

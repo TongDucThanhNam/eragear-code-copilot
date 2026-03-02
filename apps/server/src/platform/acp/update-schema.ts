@@ -127,11 +127,136 @@ const SessionInfoUpdateSchema = z
 const SESSION_UPDATE_KIND_ALIASES: Record<string, string> = {
   assistant_message_chunk: "agent_message_chunk",
   assistant_thought_chunk: "agent_thought_chunk",
+  assistant_reasoning_chunk: "agent_thought_chunk",
   config_options_update: "config_option_update",
 };
 
+/**
+ * Normalize known ACP chunk kind aliases and provider-specific variants into
+ * canonical server chunk kinds.
+ */
 function normalizeSessionUpdateKind(kind: string): string {
-  return SESSION_UPDATE_KIND_ALIASES[kind] ?? kind;
+  const aliased = SESSION_UPDATE_KIND_ALIASES[kind];
+  if (aliased) {
+    return aliased;
+  }
+
+  const normalized = kind.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return kind;
+  }
+
+  if (
+    (normalized.includes("assistant") || normalized.includes("agent")) &&
+    (normalized.endsWith("_thought_chunk") ||
+      normalized.endsWith("_reasoning_chunk"))
+  ) {
+    return "agent_thought_chunk";
+  }
+
+  if (
+    (normalized.includes("assistant") || normalized.includes("agent")) &&
+    (normalized.endsWith("_message_chunk") || normalized.endsWith("_text_chunk"))
+  ) {
+    return "agent_message_chunk";
+  }
+
+  if (
+    normalized.includes("user") &&
+    (normalized.endsWith("_message_chunk") || normalized.endsWith("_text_chunk"))
+  ) {
+    return "user_message_chunk";
+  }
+
+  return kind;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readChunkText(value: Record<string, unknown>): string | null {
+  const candidates = [
+    value.text,
+    value.delta,
+    value.reasoning,
+    value.token,
+    value.value,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Normalize provider chunk payload wrappers into canonical text content blocks
+ * accepted by server UIMessage mapping.
+ */
+function normalizeChunkContent(content: unknown): Record<string, unknown> | null {
+  const candidate = asRecord(content);
+  if (!candidate) {
+    return null;
+  }
+
+  const nestedContent = asRecord(candidate.content);
+  const rawType = typeof candidate.type === "string" ? candidate.type : "";
+  const type = rawType.toLowerCase();
+
+  if (type === "content") {
+    if (nestedContent) {
+      return normalizeChunkContent(nestedContent);
+    }
+    if (typeof candidate.content === "string") {
+      return { type: "text", text: candidate.content };
+    }
+    return null;
+  }
+
+  if (!rawType && nestedContent) {
+    return normalizeChunkContent(nestedContent);
+  }
+
+  if (
+    type === "text_delta" ||
+    type === "delta" ||
+    type === "token" ||
+    type === "reasoning" ||
+    type === "thinking"
+  ) {
+    const text = readChunkText(candidate);
+    if (text === null) {
+      return null;
+    }
+    return {
+      ...candidate,
+      type: "text",
+      text,
+    };
+  }
+
+  if (type === "text") {
+    const text = readChunkText(candidate);
+    if (text === null) {
+      return null;
+    }
+    return {
+      ...candidate,
+      type: "text",
+      text,
+    };
+  }
+
+  if (!rawType) {
+    return null;
+  }
+
+  return candidate;
 }
 
 function validateKnownSessionUpdate(
@@ -144,7 +269,17 @@ function validateKnownSessionUpdate(
     kind === "agent_thought_chunk"
   ) {
     const parsed = ChunkUpdateSchema.safeParse(raw);
-    return parsed.success ? (parsed.data as SessionUpdate) : null;
+    if (!parsed.success) {
+      return null;
+    }
+    const normalizedContent = normalizeChunkContent(parsed.data.content);
+    if (!normalizedContent) {
+      return null;
+    }
+    return {
+      ...parsed.data,
+      content: normalizedContent,
+    } as SessionUpdate;
   }
   if (kind === "tool_call") {
     const parsed = ToolCallSchema.safeParse(raw);

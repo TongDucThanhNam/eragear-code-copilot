@@ -18,20 +18,11 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
 import { chatDebug } from "./use-chat-debug";
-import { deriveResumeSessionSyncPlan } from "./use-chat-resume-sync";
+import {
+  deriveResumeSessionSyncPlan,
+  isRuntimeAuthoritativeHistory,
+} from "./use-chat-resume-sync";
 import type { SendMessageOptions } from "./use-chat.types";
-
-function readSessionLoadMethod(value: unknown): string | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const candidate = value as Record<string, unknown>;
-  const raw = candidate.sessionLoadMethod;
-  if (typeof raw !== "string") {
-    return null;
-  }
-  return raw;
-}
 
 function readConfigOptionValueLabel(
   option: SessionConfigOption | undefined,
@@ -112,6 +103,7 @@ interface UseChatActionsParams {
   onLocalConfigOptionMutated?: () => void;
   invalidateHistoryLoads: () => void;
   clearHistoryWindow: () => void;
+  markHistoryAppliedFromRuntime: () => void;
   loadHistory: (force?: boolean) => Promise<void>;
   onResumeStateHydrated?: () => void;
 }
@@ -140,6 +132,7 @@ export function useChatActions({
   onLocalConfigOptionMutated,
   invalidateHistoryLoads,
   clearHistoryWindow,
+  markHistoryAppliedFromRuntime,
   loadHistory,
   onResumeStateHydrated,
 }: UseChatActionsParams) {
@@ -167,6 +160,11 @@ export function useChatActions({
       }
       const activeChatId = chatId;
       const previousStatus = statusRef.current;
+      // If lifecycle was parked in idle (e.g. session previously became
+      // inactive), kick subscription back to bootstrapping before submit so
+      // server has a live subscriber for streaming events.
+      setStreamLifecycle((prev) => (prev === "idle" ? "bootstrapping" : prev));
+      setConnStatus((prev) => (prev === "idle" ? "connecting" : prev));
       setStatus("submitted");
       try {
         const res = await sendMessageMutation.mutateAsync({
@@ -199,8 +197,10 @@ export function useChatActions({
       isActiveChat,
       readOnly,
       sendMessageMutation,
+      setConnStatus,
       setError,
       setStatus,
+      setStreamLifecycle,
       statusRef,
     ]
   );
@@ -492,11 +492,11 @@ export function useChatActions({
       const resumeResult = await resumeSessionMutation.mutateAsync({
         chatId: activeChatId,
       });
-      const sessionLoadMethod = readSessionLoadMethod(resumeResult);
+      const syncPlan = deriveResumeSessionSyncPlan(resumeResult);
       chatDebug("resume", "resumeSession mutation success", {
         chatId: activeChatId,
         hasResult: Boolean(resumeResult),
-        sessionLoadMethod,
+        sessionLoadMethod: syncPlan.sessionLoadMethod ?? null,
       });
       if (!isActiveChat(activeChatId)) {
         chatDebug("resume", "resumeSession ignored due to chat switch", {
@@ -505,10 +505,11 @@ export function useChatActions({
         isResumingRef.current = false;
         return;
       }
-      const syncPlan = deriveResumeSessionSyncPlan(resumeResult);
+      const resolvedSessionLoadMethod = syncPlan.sessionLoadMethod;
       chatDebug("resume", "derived resume sync plan", {
         chatId: activeChatId,
         alreadyRunning: syncPlan.alreadyRunning,
+        sessionLoadMethod: resolvedSessionLoadMethod ?? null,
         hasModes: syncPlan.modes !== undefined,
         hasModels: syncPlan.models !== undefined,
         hasConfigOptions: syncPlan.configOptions !== undefined,
@@ -530,17 +531,39 @@ export function useChatActions({
       setStatus("ready");
       onResumeStateHydrated?.();
 
-      let shouldReloadHistory = false;
-      if (!syncPlan.alreadyRunning) {
-        chatDebug("resume", "clearing current message state before db history reload", {
+      const runtimeAuthoritativeHistory = isRuntimeAuthoritativeHistory({
+        alreadyRunning: syncPlan.alreadyRunning,
+        sessionLoadMethod: resolvedSessionLoadMethod,
+      });
+
+      chatDebug("resume", "resetting message state before post-resume sync", {
+        chatId: activeChatId,
+        runtimeAuthoritativeHistory,
+        sessionLoadMethod: resolvedSessionLoadMethod ?? null,
+      });
+      setMessages([]);
+      clearHistoryWindow();
+
+      let shouldReloadDbHistory = false;
+      if (runtimeAuthoritativeHistory) {
+        chatDebug("resume", "using runtime-authoritative history", {
           chatId: activeChatId,
+          sessionLoadMethod: resolvedSessionLoadMethod ?? null,
         });
-        setMessages([]);
-        clearHistoryWindow();
-        shouldReloadHistory = true;
+        markHistoryAppliedFromRuntime();
+        // Always force a DB reload after resume to guarantee the UI receives
+        // the canonical, persisted snapshot even if replay events were missed
+        // during reconnect timing.
+        shouldReloadDbHistory = true;
+      } else {
+        chatDebug("resume", "falling back to db history reload", {
+          chatId: activeChatId,
+          sessionLoadMethod: resolvedSessionLoadMethod ?? null,
+        });
+        shouldReloadDbHistory = true;
       }
       isResumingRef.current = false;
-      if (shouldReloadHistory) {
+      if (shouldReloadDbHistory) {
         chatDebug("resume", "loadHistory(force=true) start after resume", {
           chatId: activeChatId,
         });
@@ -578,6 +601,7 @@ export function useChatActions({
     isResumingRef,
     isActiveChat,
     loadHistory,
+    markHistoryAppliedFromRuntime,
     onResumeStateHydrated,
     resumeSessionMutation,
     setConnStatus,

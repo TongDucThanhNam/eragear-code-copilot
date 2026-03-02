@@ -121,6 +121,20 @@ export function useChatHistory({
     historyAppliedRef.current = false;
   }, []);
 
+  /**
+   * Mark history as already sourced from runtime replay so initial DB load is
+   * skipped unless explicitly forced by caller.
+   */
+  const markHistoryAppliedFromRuntime = useCallback(() => {
+    historyAppliedRef.current = true;
+    historyLoadingRef.current = false;
+    olderHistoryLoadingRef.current = false;
+    historyInFlightRef.current = null;
+    historyNextCursorRef.current = undefined;
+    setHasMoreHistory(false);
+    setIsLoadingOlderHistory(false);
+  }, []);
+
   const clearHistoryWindow = useCallback(() => {
     historyAppliedRef.current = false;
     historyNextCursorRef.current = undefined;
@@ -238,7 +252,7 @@ export function useChatHistory({
           });
           if (normalizedMessages.length > 0) {
             updateMessageState((prev) => {
-              if (prev.order.length === 0) {
+              if (force || prev.order.length === 0) {
                 return replaceMessagesState(normalizedMessages);
               }
               return mergeMessagesIntoState(prev, normalizedMessages);
@@ -394,6 +408,7 @@ export function useChatHistory({
     isLoadingOlderHistory,
     loadHistory,
     loadOlderHistory,
+    markHistoryAppliedFromRuntime,
     markHistoryNotApplied,
     refreshHistory,
     resetHistoryState,

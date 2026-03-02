@@ -100,6 +100,7 @@ export class PersistSessionBootstrapService {
 
     const messageEntries = uiMessages.map((message, index) => ({ index, message }));
     const baseTimestamp = Date.now();
+    const storedMessages: StoredMessage[] = [];
 
     for (const { index, message } of messageEntries) {
       const finalizedMessage = finalizeStreamingParts(message);
@@ -116,12 +117,16 @@ export class PersistSessionBootstrapService {
       if (!stored) {
         continue;
       }
-      await this.sessionRepo.appendMessage(
-        input.chatId,
-        input.params.userId,
-        stored
-      );
+      storedMessages.push(stored);
     }
+
+    // Persist canonical bootstrap snapshot atomically so DB ordering/content
+    // matches the runtime replay source-of-truth.
+    await this.sessionRepo.replaceMessages(
+      input.chatId,
+      input.params.userId,
+      storedMessages
+    );
   }
 }
 

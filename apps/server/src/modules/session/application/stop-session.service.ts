@@ -1,6 +1,6 @@
 import { NotFoundError } from "@/shared/errors";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
-import { updateChatStatus } from "../../../shared/utils/chat-events.util";
+import { SessionRuntimeEntity } from "../domain/session-runtime.entity";
 import { terminateProcessGracefully } from "../../../shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import { assertSessionMutationLock } from "./session-runtime-lock.assert";
@@ -40,11 +40,9 @@ export class StopSessionService {
       }
       runtimeSession = session;
       await terminateSessionTerminals(session);
-      await updateChatStatus({
+      await new SessionRuntimeEntity(session).markInactive({
         chatId,
-        session,
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-        status: "inactive",
       });
     });
 

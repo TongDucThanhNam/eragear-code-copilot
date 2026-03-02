@@ -10,6 +10,7 @@ import type {
   SessionStorageStats,
 } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import { SessionBuffering } from "@/platform/acp/update";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
@@ -140,6 +141,14 @@ class InMemorySessionRepo implements SessionRepositoryPort {
       }));
     }
     return Promise.resolve({ appended: true as const });
+  }
+
+  replaceMessages(
+    _id: string,
+    _userId: string,
+    _messages: StoredMessage[]
+  ): Promise<{ replaced: true }> {
+    return Promise.resolve({ replaced: true as const });
   }
 
   getMessageById(
@@ -402,6 +411,27 @@ describe("SendMessageService", () => {
     expect(session.activeTurnId).toBeUndefined();
   });
 
+  test("clears stale replay flags before starting a live prompt turn", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const session = createChatSession({
+      prompt: async () => ({ stopReason: "end_turn" }),
+    });
+    session.isReplayingHistory = true;
+    session.suppressReplayBroadcast = true;
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime);
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "live turn",
+    });
+
+    expect(session.isReplayingHistory).toBe(false);
+    expect(session.suppressReplayBroadcast).toBe(false);
+  });
+
   test("returns to ready after completion from any busy status", async () => {
     const busyStatuses: ChatStatus[] = [
       "streaming",
@@ -558,6 +588,52 @@ describe("SendMessageService", () => {
     expect(first.userMessageId).toStartWith("msg-");
     expect(second.userMessageId).toStartWith("msg-");
     expect(first.userMessageId).not.toBe(second.userMessageId);
+  });
+
+  test("resets stale assistant stream pointers at new turn start", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const staleAssistantId = "msg-assistant-stale";
+    let session!: ChatSession;
+    let assistantIdAtPrompt: string | undefined;
+    let lastChunkTypeAtPrompt: ChatSession["lastAssistantChunkType"] | undefined;
+    let bufferedMessageIdAtPrompt: string | null | undefined;
+
+    session = createChatSession({
+      prompt: async () => {
+        assistantIdAtPrompt = session.uiState.currentAssistantId;
+        lastChunkTypeAtPrompt = session.lastAssistantChunkType;
+        bufferedMessageIdAtPrompt = session.buffer?.getMessageId();
+        return { stopReason: "end_turn" };
+      },
+    });
+    session.uiState.messages.set(staleAssistantId, {
+      id: staleAssistantId,
+      role: "assistant",
+      createdAt: Date.now() - 1,
+      parts: [{ type: "text", text: "stale assistant message" }],
+    });
+    session.uiState.currentAssistantId = staleAssistantId;
+    session.lastAssistantChunkType = "message";
+    session.buffer = new SessionBuffering();
+    session.buffer.ensureMessageId(staleAssistantId);
+    session.buffer.appendContent({
+      type: "text",
+      text: "stale buffered chunk",
+    });
+
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime);
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "new prompt",
+    });
+
+    expect(assistantIdAtPrompt).toBeUndefined();
+    expect(lastChunkTypeAtPrompt).toBeUndefined();
+    expect(bufferedMessageIdAtPrompt).toBeNull();
   });
 
   test("clears active turn and reports error when user-message persistence fails", async () => {
@@ -724,6 +800,43 @@ describe("SendMessageService", () => {
     );
     expect(session.activeTurnId).toBeUndefined();
     expect(session.activePromptTask).toBeUndefined();
+  });
+
+  test("emits chat_finish before cleanup when agent process exits mid-turn", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const session = createChatSession({
+      prompt: () => Promise.reject(new Error("process exited unexpectedly")),
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime);
+
+    const result = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "hello",
+    });
+    await flushAsync();
+    await flushAsync();
+
+    const finishEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "chat_finish" }> =>
+        event.type === "chat_finish" && event.turnId === result.turnId
+    );
+    expect(finishEvent).toBeDefined();
+    if (finishEvent) {
+      expect(finishEvent.stopReason).toBe("cancelled");
+      expect(finishEvent.finishReason).toBe("other");
+    }
+
+    const errorStatusEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "chat_status" }> =>
+        event.type === "chat_status" &&
+        event.status === "error" &&
+        event.turnId === result.turnId
+    );
+    expect(errorStatusEvent).toBeDefined();
+    expect(session.activeTurnId).toBeUndefined();
   });
 
   test("rejects message send for session owned by another user", async () => {

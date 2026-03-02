@@ -20,13 +20,18 @@ liệu, không phải tự parse raw ACP.
 ## BroadcastEvent (từ server)
 
 - `ui_message`: sự kiện chính, chứa UIMessage đã chuẩn hóa
-- `ui_message_delta`: append incremental cho `text`/`reasoning` (không durable)
+- `ui_message_part`: part-level update đã hoàn chỉnh (`messageId` + `partIndex` + `isNew`)
 - `chat_status`: trạng thái chat (`inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`)
 - `chat_finish`: stopReason + finishReason (map theo AI SDK UI)
 - `available_commands_update`: danh sách slash commands
 - `current_mode_update`: mode hiện tại
 - `terminal_output`: stream output cho terminal
 - `connected`, `heartbeat`, `error`
+
+Ghi chú tương thích:
+
+- `ui_message_delta` vẫn còn trong schema để tương thích client cũ, nhưng
+  không còn là stream primitive của server path canonical.
 
 ## Quy tắc upsert
 
@@ -36,11 +41,19 @@ liệu, không phải tự parse raw ACP.
   - `currentAssistantId/currentUserId` cho streaming
   - `toolPartIndex` để update tool part theo `toolCallId`
 
+## Resume Source Of Truth
+
+- Khi resume thành công và có replay/runtime history, server coi runtime là
+  nguồn tạm thời để stream realtime.
+- Sau bootstrap, server persist snapshot chuẩn bằng `replaceMessages(...)` để
+  DB phản ánh đúng state mới nhất của ACP session.
+- Client chỉ cần upsert theo `message.id`; không tự reconcile raw chunks.
+
 ## Mapping ACP → UIMessage
 
-- `user_message_chunk` → `UIMessage(role=user)` + `TextUIPart(state=streaming)`
-- `agent_message_chunk` → `UIMessage(role=assistant)` + `TextUIPart(state=streaming)`
-- `agent_thought_chunk` → `ReasoningUIPart(state=streaming)`
+- `user_message_chunk` → `UIMessage(role=user)` + text part
+- `agent_message_chunk` → buffer theo chunk, chỉ emit khi text part hoàn chỉnh
+- `agent_thought_chunk` → buffer theo chunk, chỉ emit khi reasoning part hoàn chỉnh
 - `tool_call` → `ToolUIPart(type=tool-${name})` + `state=input-streaming|input-available`
 - `tool_call_update` → `ToolUIPart(state=output-available|output-error)`
 - `plan` → `ToolUIPart(type=tool-plan, output={ entries[] })`

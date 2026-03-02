@@ -18,9 +18,12 @@ interface BroadcastContext {
 }
 
 export const SESSION_RUNTIME_CHAT_STATUS = {
+  AWAITING_PERMISSION: "awaiting_permission",
   CANCELLING: "cancelling",
   ERROR: "error",
+  INACTIVE: "inactive",
   READY: "ready",
+  STREAMING: "streaming",
   SUBMITTED: "submitted",
 } as const satisfies Record<string, ChatStatus>;
 
@@ -49,6 +52,11 @@ export class SessionRuntimeEntity {
   startTurn(turnId: string): void {
     this.session.activeTurnId = turnId;
     this.session.chatFinish = { turnId };
+    // Turn boundary must reset assistant-stream pointers so the next
+    // assistant response never appends into a previous turn's message.
+    this.session.buffer?.reset();
+    this.session.uiState.currentAssistantId = undefined;
+    this.session.lastAssistantChunkType = undefined;
     this.session.uiState.lastAssistantId = undefined;
   }
 
@@ -87,6 +95,71 @@ export class SessionRuntimeEntity {
 
   markCancelling(context: BroadcastContext): Promise<void> {
     return this.updateStatus(context, SESSION_RUNTIME_CHAT_STATUS.CANCELLING);
+  }
+
+  markAwaitingPermission(
+    context: BroadcastContext,
+    turnId?: string
+  ): Promise<void> {
+    return this.updateStatus(
+      context,
+      SESSION_RUNTIME_CHAT_STATUS.AWAITING_PERMISSION,
+      turnId
+    );
+  }
+
+  markInactive(context: BroadcastContext): Promise<void> {
+    return this.updateStatus(context, SESSION_RUNTIME_CHAT_STATUS.INACTIVE);
+  }
+
+  markReady(context: BroadcastContext, turnId?: string): Promise<void> {
+    return this.updateStatus(context, SESSION_RUNTIME_CHAT_STATUS.READY, turnId);
+  }
+
+  shouldStreamFromActivity(): boolean {
+    if (this.session.chatStatus === SESSION_RUNTIME_CHAT_STATUS.CANCELLING) {
+      return false;
+    }
+    return Boolean(this.session.activeTurnId || this.session.activePromptTask);
+  }
+
+  markStreamingFromActivity(
+    context: BroadcastContext,
+    turnId?: string
+  ): Promise<void> {
+    if (!this.shouldStreamFromActivity()) {
+      return Promise.resolve();
+    }
+    return this.updateStatus(
+      context,
+      SESSION_RUNTIME_CHAT_STATUS.STREAMING,
+      turnId
+    );
+  }
+
+  resolveStatusAfterPermissionDecision(): ChatStatus {
+    if (this.session.pendingPermissions.size > 0) {
+      return SESSION_RUNTIME_CHAT_STATUS.AWAITING_PERMISSION;
+    }
+    if (
+      this.session.chatStatus === SESSION_RUNTIME_CHAT_STATUS.AWAITING_PERMISSION
+    ) {
+      return this.shouldStreamFromActivity()
+        ? SESSION_RUNTIME_CHAT_STATUS.STREAMING
+        : SESSION_RUNTIME_CHAT_STATUS.READY;
+    }
+    return this.session.chatStatus;
+  }
+
+  syncStatusAfterPermissionDecision(
+    context: BroadcastContext,
+    turnId?: string
+  ): Promise<void> {
+    return this.updateStatus(
+      context,
+      this.resolveStatusAfterPermissionDecision(),
+      turnId
+    );
   }
 
   markError(context: BroadcastContext, turnId?: string): Promise<void> {

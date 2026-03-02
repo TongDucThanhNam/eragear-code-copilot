@@ -12,9 +12,9 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
-import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
   findSessionConfigOption,
   syncSessionSelectionFromConfigOptions,
@@ -511,11 +511,16 @@ export function createSessionUpdateHandler(
         return;
       }
 
-      if (isDebugEnabled && summary && !handledByChunkPipeline) {
-        logger.debug("ACP session update ignored by pipeline", {
+      if (summary && !handledByChunkPipeline) {
+        const ignoredContext = {
           chatId,
           ...summary,
-        });
+        };
+        if (shouldWarnUnhandledChunkUpdate(update)) {
+          logger.warn("ACP chunk update ignored by pipeline", ignoredContext);
+        } else if (isDebugEnabled) {
+          logger.debug("ACP session update ignored by pipeline", ignoredContext);
+        }
       }
     });
   };
@@ -541,13 +546,11 @@ async function maybeMarkStreaming(
     return;
   }
   const session = sessionRuntime.get(chatId);
-  if (!session || session.chatStatus === "cancelling") {
+  if (!session) {
     return;
   }
-  const hasActiveTurn = Boolean(
-    session.activeTurnId || session.activePromptTask
-  );
-  if (!hasActiveTurn) {
+  const runtime = new SessionRuntimeEntity(session);
+  if (!runtime.shouldStreamFromActivity()) {
     if (shouldEmitRuntimeLog("debug")) {
       logger.debug("Skip streaming status update without active turn", {
         chatId,
@@ -557,10 +560,21 @@ async function maybeMarkStreaming(
     }
     return;
   }
-  await updateChatStatus({
+  await runtime.markStreamingFromActivity({
     chatId,
-    session,
     broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
-    status: "streaming",
   });
+}
+
+function shouldWarnUnhandledChunkUpdate(update: SessionUpdate): boolean {
+  const kind =
+    typeof update.sessionUpdate === "string" ? update.sessionUpdate : "";
+  if (!kind.toLowerCase().includes("chunk")) {
+    return false;
+  }
+  return (
+    kind !== "user_message_chunk" &&
+    kind !== "agent_message_chunk" &&
+    kind !== "agent_thought_chunk"
+  );
 }

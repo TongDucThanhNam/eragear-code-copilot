@@ -1,7 +1,7 @@
 import type { ChatSession } from "@/shared/types/session.types";
-import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import type { CreateSessionParams } from "./create-session.types";
+import { SessionRuntimeEntity } from "../domain/session-runtime.entity";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 import type { SessionAcpBootstrapService } from "./session-acp-bootstrap.service";
@@ -73,11 +73,9 @@ export class BootstrapSessionConnectionService {
         sessionIdToLoad: params.sessionIdToLoad,
       });
 
-      await updateChatStatus({
+      await new SessionRuntimeEntity(chatSession).markReady({
         chatId,
-        session: chatSession,
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-        status: "ready",
       });
 
       this.processLifecycle.attach(proc, chatId);

@@ -2,9 +2,9 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { toStoredContentBlock } from "@/shared/utils/content-block.util";
-import { escapeHtmlText } from "@/shared/utils/html.util";
 import {
   appendContentBlock,
+  appendReasoningBlock,
   buildProviderMetadataFromMeta,
   getOrCreateAssistantMessage,
   getOrCreateUserMessage,
@@ -16,6 +16,10 @@ const logger = createLogger("Debug");
 
 type SuppressReason = "replay_suppressed";
 
+/**
+ * Handle ACP message/thought/user chunks by updating server-side UIMessage
+ * state and emitting canonical part-level stream snapshots.
+ */
 export async function handleBufferedMessage(
   context: SessionUpdateContext
 ): Promise<boolean> {
@@ -103,14 +107,28 @@ async function handleUiChunkUpdate(
     finalizeStreamingForCurrentAssistant,
   });
 
-  if (update.sessionUpdate === "agent_thought_chunk") {
-    return true;
-  }
-
   const partState = isReplayingHistory ? "done" : "streaming";
   const providerMetadata = buildProviderMetadataFromMeta(
     "_meta" in update ? update._meta : undefined
   );
+
+  if (update.sessionUpdate === "agent_thought_chunk") {
+    await appendAssistantReasoningChunk({
+      chatId,
+      session,
+      buffer,
+      preferredMessageId,
+      suppressReplayBroadcast,
+      update,
+      partState,
+      providerMetadata,
+      sessionRuntime,
+    });
+    // Prevent duplicate reasoning append when chunk type transitions/finalizes.
+    buffer.consumePendingReasoning();
+    return true;
+  }
+
   await appendAssistantChunk({
     chatId,
     session,
@@ -179,51 +197,20 @@ async function appendAssistantChunk(params: {
   }
 
   if (block.type === "text") {
+    // Broadcast full text-part snapshots on every chunk (without delta).
+    // This keeps streaming UX in sync with terminal output while preserving
+    // canonical server-side part assembly.
     const nextPartIndex = updatedMessage.parts.length - 1;
-    const nextPart = updatedMessage.parts[nextPartIndex];
-    const appendedNewPart = updatedMessage.parts.length > previousPartsLength;
-
-    if (appendedNewPart || nextPart?.type !== "text") {
-      await broadcastUiMessagePart({
-        chatId,
-        sessionRuntime,
-        message: updatedMessage,
-        partIndex: nextPartIndex,
-        isNew: true,
-      });
+    if (nextPartIndex < 0) {
       return;
     }
-
-    const escapedDelta = escapeHtmlText(block.text);
-    if (escapedDelta.length > 0) {
-      logDeltaDecision({
-        chatId,
-        messageId,
-        partIndex: nextPartIndex,
-        deltaLength: escapedDelta.length,
-      });
-      await sessionRuntime.broadcast(
-        chatId,
-        {
-          type: "ui_message_delta",
-          messageId,
-          partIndex: nextPartIndex,
-          delta: escapedDelta,
-        },
-        {
-          durable: false,
-          retainInBuffer: false,
-        }
-      );
-      return;
-    }
-
+    const isNew = updatedMessage.parts.length > previousPartsLength;
     await broadcastUiMessagePart({
       chatId,
       sessionRuntime,
       message: updatedMessage,
       partIndex: nextPartIndex,
-      isNew: false,
+      isNew,
     });
     return;
   }
@@ -245,6 +232,73 @@ async function appendAssistantChunk(params: {
       isNew: true,
     });
   }
+}
+
+async function appendAssistantReasoningChunk(params: {
+  chatId: string;
+  session: NonNullable<ReturnType<SessionRuntimePort["get"]>>;
+  buffer: SessionUpdateContext["buffer"];
+  preferredMessageId: string | undefined;
+  suppressReplayBroadcast: boolean;
+  update: Extract<SessionUpdate, { sessionUpdate: "agent_thought_chunk" }>;
+  partState: "streaming" | "done";
+  providerMetadata:
+    | ReturnType<typeof buildProviderMetadataFromMeta>
+    | undefined;
+  sessionRuntime: SessionUpdateContext["sessionRuntime"];
+}): Promise<void> {
+  const {
+    chatId,
+    session,
+    buffer,
+    preferredMessageId,
+    suppressReplayBroadcast,
+    update,
+    partState,
+    providerMetadata,
+    sessionRuntime,
+  } = params;
+
+  const messageId = buffer.ensureMessageId(preferredMessageId);
+  const message = getOrCreateAssistantMessage(session.uiState, messageId);
+  const previousPartsLength = message.parts.length;
+  const block = toStoredContentBlock(update.content);
+  const updatedMessage = appendReasoningBlock(
+    message,
+    block,
+    partState,
+    providerMetadata
+  );
+  if (updatedMessage !== message) {
+    session.uiState.messages.set(updatedMessage.id, updatedMessage);
+  }
+
+  if (suppressReplayBroadcast) {
+    logSuppressedChunk({
+      chatId,
+      messageId,
+      chunkType: "reasoning",
+      suppressReason: "replay_suppressed",
+    });
+    return;
+  }
+
+  if (updatedMessage === message) {
+    return;
+  }
+
+  const nextPartIndex = updatedMessage.parts.length - 1;
+  if (nextPartIndex < 0) {
+    return;
+  }
+  const isNew = updatedMessage.parts.length > previousPartsLength;
+  await broadcastUiMessagePart({
+    chatId,
+    sessionRuntime,
+    message: updatedMessage,
+    partIndex: nextPartIndex,
+    isNew,
+  });
 }
 
 async function updateAssistantChunkType(params: {
@@ -300,27 +354,10 @@ export function isStreamingUpdate(update: SessionUpdate) {
   );
 }
 
-function logDeltaDecision(params: {
-  chatId: string;
-  messageId: string;
-  partIndex: number;
-  deltaLength: number;
-}): void {
-  if (!shouldEmitRuntimeLog("debug")) {
-    return;
-  }
-  logger.debug("ACP ui delta emitted", {
-    chatId: params.chatId,
-    messageId: params.messageId,
-    partIndex: params.partIndex,
-    deltaLength: params.deltaLength,
-  });
-}
-
 function logSuppressedChunk(params: {
   chatId: string;
   messageId: string;
-  chunkType: "message";
+  chunkType: "message" | "reasoning";
   suppressReason: SuppressReason;
 }): void {
   if (!shouldEmitRuntimeLog("debug")) {

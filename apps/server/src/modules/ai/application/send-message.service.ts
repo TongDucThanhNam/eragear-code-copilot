@@ -125,6 +125,19 @@ export class SendMessageService {
 
         this.assertPromptCapabilities(session, input.chatId, input);
 
+        // A user-initiated prompt turn is always live traffic.
+        // Force replay flags off so incoming ACP chunks are not treated
+        // as replay updates (which can suppress live streaming semantics).
+        if (session.isReplayingHistory || session.suppressReplayBroadcast) {
+          this.logger.warn("SendMessageService clearing stale replay flags", {
+            chatId: input.chatId,
+            isReplayingHistory: session.isReplayingHistory,
+            suppressReplayBroadcast: session.suppressReplayBroadcast,
+          });
+        }
+        session.isReplayingHistory = false;
+        session.suppressReplayBroadcast = false;
+
         const broadcast = this.sessionRuntime.broadcast.bind(
           this.sessionRuntime
         );
@@ -163,6 +176,14 @@ export class SendMessageService {
           chatId: input.chatId,
           sessionId: session.sessionId,
         });
+        if (session.subscriberCount <= 0) {
+          this.logger.warn("SendMessageService prompt submitted without subscribers", {
+            chatId: input.chatId,
+            turnId,
+            sessionId: session.sessionId,
+            chatStatus: session.chatStatus,
+          });
+        }
 
         const messageId = createId("msg");
         const submittedAt = this.clock.nowMs();

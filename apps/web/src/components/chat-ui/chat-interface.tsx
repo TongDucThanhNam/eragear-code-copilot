@@ -841,11 +841,15 @@ export function ChatInterface({
         }
       }
 
-      sendMessage(message.text, {
+      const submitted = await sendMessage(message.text, {
         images: images.length > 0 ? images : undefined,
         resources: resources.length > 0 ? resources : undefined,
         resourceLinks: resourceLinks.length > 0 ? resourceLinks : undefined,
       });
+      if (!submitted) {
+        toast.info("Prompt is still running. Draft was kept.");
+        throw new Error("PROMPT_SUBMIT_REJECTED");
+      }
     },
     [
       activeProject,

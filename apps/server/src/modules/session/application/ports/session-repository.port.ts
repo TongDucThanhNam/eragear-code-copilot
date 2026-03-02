@@ -99,6 +99,12 @@ export interface SessionRepositoryPort {
     userId: string,
     message: StoredMessage
   ): Promise<{ appended: true }>;
+  /** Replace the full message snapshot for a session atomically */
+  replaceMessages(
+    id: string,
+    userId: string,
+    messages: StoredMessage[]
+  ): Promise<{ replaced: true }>;
   /** Get one message by message id for a session */
   getMessageById(
     id: string,

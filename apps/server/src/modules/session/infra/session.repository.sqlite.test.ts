@@ -148,6 +148,41 @@ describe("SessionSqliteRepository.create", () => {
     expect(page.messages[0]?.content).toBe("hello");
   });
 
+  test("replaces stored message snapshot on replaceMessages", async () => {
+    const repo = new SessionSqliteRepository();
+    const chatId = "chat-replace-messages";
+    const base = Date.now();
+
+    await repo.create(
+      createSession(
+        chatId,
+        [
+          createMessage("m-old-1", "user", "old-1", base - 20),
+          createMessage("m-old-2", "assistant", "old-2", base - 10),
+        ],
+        base
+      )
+    );
+
+    await repo.replaceMessages(chatId, "user-1", [
+      createMessage("m-new-1", "user", "new-1", base + 10),
+      createMessage("m-new-2", "assistant", "new-2", base + 20),
+    ]);
+
+    const page = await repo.getMessagesPage(chatId, "user-1", {
+      limit: 50,
+      includeCompacted: true,
+    });
+    expect(page.messages.map((message) => message.id)).toEqual([
+      "m-new-1",
+      "m-new-2",
+    ]);
+    expect(page.messages.map((message) => message.content)).toEqual([
+      "new-1",
+      "new-2",
+    ]);
+  });
+
   test("supports backward message pagination with chronological page order", async () => {
     const repo = new SessionSqliteRepository();
     const chatId = "chat-backward-pagination";

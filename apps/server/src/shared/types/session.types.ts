@@ -291,6 +291,10 @@ export type BroadcastEvent =
       part: UIMessagePart;
       isNew: boolean;
     }
+  /**
+   * @deprecated Legacy incremental stream event kept for backward
+   * compatibility. Canonical server path emits `ui_message_part` snapshots.
+   */
   | {
       type: "ui_message_delta";
       messageId: string;

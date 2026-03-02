@@ -48,9 +48,8 @@ import {
 import { chatDebug } from "./use-chat-debug";
 import { useChatHistory } from "./use-chat-history";
 import {
-  applyMessageDeltasIntoState,
   applyPartUpdate,
-  type MessageDeltaChunk,
+  finalizeStreamingMessagesInState,
   type MessageState,
   replaceMessagesState,
   upsertMessageIntoState,
@@ -161,9 +160,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const hasLocalModeOverrideRef = useRef(false);
   const hasLocalModelOverrideRef = useRef(false);
   const hasLocalConfigOverrideRef = useRef(false);
-  const pendingDeltaOrderRef = useRef<string[]>([]);
-  const pendingDeltaMapRef = useRef<Map<string, MessageDeltaChunk>>(new Map());
-  const pendingDeltaFlushFrameRef = useRef<number | null>(null);
   const messages = useChatMessages(chatId);
   const terminalOutputs = useChatTerminalOutputs(chatId);
   // Keep refs in sync
@@ -218,105 +214,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     []
   );
 
-  const clearPendingDeltas = useCallback(() => {
-    if (pendingDeltaFlushFrameRef.current !== null) {
-      if (
-        typeof window !== "undefined" &&
-        typeof window.cancelAnimationFrame === "function"
-      ) {
-        window.cancelAnimationFrame(pendingDeltaFlushFrameRef.current);
-      }
-      clearTimeout(pendingDeltaFlushFrameRef.current);
-      pendingDeltaFlushFrameRef.current = null;
-    }
-    pendingDeltaOrderRef.current = [];
-    pendingDeltaMapRef.current.clear();
-  }, []);
-
-  const flushPendingDeltas = useCallback(() => {
-    if (pendingDeltaOrderRef.current.length === 0) {
-      return;
-    }
-    const keys = pendingDeltaOrderRef.current;
-    const deltaMap = pendingDeltaMapRef.current;
-    const currentState = messageStateRef.current;
-    const applyable: MessageDeltaChunk[] = [];
-    const orphanKeys: string[] = [];
-
-    for (const key of keys) {
-      const chunk = deltaMap.get(key);
-      if (!chunk) {
-        continue;
-      }
-      const msg = currentState.byId.get(chunk.messageId);
-      if (!msg) {
-        // Message doesn't exist yet — keep for retry
-        orphanKeys.push(key);
-        continue;
-      }
-      const part = msg.parts[chunk.partIndex];
-      if (!part) {
-        // Part doesn't exist yet — keep for retry
-        orphanKeys.push(key);
-        continue;
-      }
-      if (part.type !== "text" && part.type !== "reasoning") {
-        // Part exists but wrong type — discard
-        deltaMap.delete(key);
-        continue;
-      }
-      applyable.push(chunk);
-      deltaMap.delete(key);
-    }
-    pendingDeltaOrderRef.current = orphanKeys;
-    if (applyable.length > 0) {
-      updateMessageState((prev) =>
-        applyMessageDeltasIntoState(prev, applyable)
-      );
-    }
-  }, [updateMessageState]);
-
-  const scheduleDeltaFlush = useCallback(() => {
-    if (pendingDeltaFlushFrameRef.current !== null) {
-      return;
-    }
-    if (
-      typeof window !== "undefined" &&
-      typeof window.requestAnimationFrame === "function"
-    ) {
-      pendingDeltaFlushFrameRef.current = window.requestAnimationFrame(() => {
-        pendingDeltaFlushFrameRef.current = null;
-        flushPendingDeltas();
-      });
-      return;
-    }
-    pendingDeltaFlushFrameRef.current = setTimeout(() => {
-      pendingDeltaFlushFrameRef.current = null;
-      flushPendingDeltas();
-    }, 16) as unknown as number;
-  }, [flushPendingDeltas]);
-
-  const enqueueDeltaChunk = useCallback(
-    (event: Extract<BroadcastEvent, { type: "ui_message_delta" }>) => {
-      if (!event.delta) {
-        return;
-      }
-      const key = `${event.messageId}:${event.partIndex}`;
-      const existing = pendingDeltaMapRef.current.get(key);
-      if (existing) {
-        existing.delta += event.delta;
-      } else {
-        pendingDeltaMapRef.current.set(key, {
-          messageId: event.messageId,
-          partIndex: event.partIndex,
-          delta: event.delta,
-        });
-        pendingDeltaOrderRef.current.push(key);
-      }
-      scheduleDeltaFlush();
-    },
-    [scheduleDeltaFlush]
-  );
   // Upsert single message
   const upsertMessage = useCallback(
     (next: UIMessage) => {
@@ -356,6 +253,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     isLoadingOlderHistory,
     loadHistory,
     loadOlderHistory,
+    markHistoryAppliedFromRuntime,
     markHistoryNotApplied,
     refreshHistory,
     resetHistoryState,
@@ -421,7 +319,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     }
     return normalizeSessionStateData(sessionState);
   }, [sessionState]);
-  const isStoppedSession = normalizedSessionState?.status === "stopped";
   useEffect(() => {
     const nextLifecycle = nextLifecycleOnChatIdChange({
       hasChatId: Boolean(chatId),
@@ -434,7 +331,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       streamStore.clearChat(previousChatId);
     }
     previousChatIdRef.current = nextChatId;
-    clearPendingDeltas();
     hasLocalModeOverrideRef.current = false;
     hasLocalModelOverrideRef.current = false;
     hasLocalConfigOverrideRef.current = false;
@@ -470,13 +366,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       setConnStatus("connecting");
       setStatus("connecting");
     }
-  }, [chatId, clearPendingDeltas, readOnly, resetHistoryState]);
-
-  useEffect(() => {
-    return () => {
-      clearPendingDeltas();
-    };
-  }, [clearPendingDeltas]);
+  }, [chatId, readOnly, resetHistoryState]);
 
   useEffect(() => {
     if (connStatus === "connecting") {
@@ -595,14 +485,18 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       if (event.type === "chat_finish" && !isTurnMatched(event.turnId)) {
         return;
       }
+      if (event.type === "ui_message_delta") {
+        chatDebug("stream", "ignored deprecated ui_message_delta event", {
+          chatId: activeChatIdRef.current,
+          messageId: event.messageId,
+          partIndex: event.partIndex,
+          deltaLength: event.delta.length,
+        });
+        return;
+      }
       setStreamLifecycle((prev) =>
         nextLifecycleOnSubscriptionEvent({ current: prev, event })
       );
-      if (event.type === "ui_message_delta") {
-        enqueueDeltaChunk(event);
-        return;
-      }
-      flushPendingDeltas();
       processSessionEvent(
         event,
         {
@@ -660,10 +554,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           onFinish,
         }
       );
-      // After processing non-delta events (which may create messages/parts),
-      // retry any orphan deltas that were waiting for their base.
-      if (pendingDeltaOrderRef.current.length > 0) {
-        flushPendingDeltas();
+      if (
+        event.type === "chat_status" &&
+        event.status === "ready"
+      ) {
+        updateMessageState((prev) => finalizeStreamingMessagesInState(prev));
       }
       if (
         event.type === "chat_finish" &&
@@ -687,13 +582,19 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       ) {
         activeTurnIdRef.current = null;
       }
+      if (
+        event.type === "chat_status" &&
+        event.status === "inactive" &&
+        !isResumingRef.current
+      ) {
+        setStreamLifecycle("idle");
+        setConnStatus("idle");
+      }
       if (event.type === "error") {
         activeTurnIdRef.current = null;
       }
     },
     [
-      enqueueDeltaChunk,
-      flushPendingDeltas,
       isTurnMatched,
       loadHistory,
       onFinish,
@@ -705,8 +606,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const subscriptionEnabled =
     !!chatId &&
     !readOnly &&
-    streamLifecycle !== "idle" &&
-    (!isStoppedSession || isResumingRef.current);
+    streamLifecycle !== "idle";
   useEffect(() => {
     if (!subscriptionEnabled) {
       return;
@@ -751,7 +651,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       },
       onError(err) {
         if (isChatNotFoundError(err)) {
-          clearPendingDeltas();
           setStreamLifecycle("idle");
           setConnStatus("idle");
           setStatus("inactive");
@@ -759,7 +658,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           return;
         }
         console.error("[Client] Subscription error:", err);
-        clearPendingDeltas();
         setStreamLifecycle((prev) => nextLifecycleOnSubscriptionError(prev));
         setConnStatus("connecting");
         setError(err.message);
@@ -809,6 +707,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     },
     invalidateHistoryLoads,
     clearHistoryWindow,
+    markHistoryAppliedFromRuntime,
     loadHistory,
     onResumeStateHydrated: () => {
       hasLocalModeOverrideRef.current = false;

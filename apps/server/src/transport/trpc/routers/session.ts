@@ -29,11 +29,7 @@ import { protectedProcedure, router } from "../base";
 const logger = createLogger("tRPC");
 
 function shouldLogStreamEvent(event: BroadcastEvent): boolean {
-  return (
-    event.type === "ui_message" ||
-    event.type === "ui_message_part" ||
-    event.type === "ui_message_delta"
-  );
+  return event.type === "ui_message" || event.type === "ui_message_part";
 }
 
 function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown> {
@@ -41,13 +37,6 @@ function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown>
     return {
       messageId: event.message.id,
       partsCount: event.message.parts.length,
-    };
-  }
-  if (event.type === "ui_message_delta") {
-    return {
-      messageId: event.messageId,
-      partIndex: event.partIndex,
-      deltaLength: event.delta.length,
     };
   }
   if (event.type === "ui_message_part") {

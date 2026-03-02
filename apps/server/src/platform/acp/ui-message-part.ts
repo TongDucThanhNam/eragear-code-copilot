@@ -25,17 +25,24 @@ export async function broadcastUiMessagePart(params: {
   if (!part) {
     return;
   }
-  await sessionRuntime.broadcast(chatId, {
-    type: "ui_message_part",
-    messageId: message.id,
-    messageRole: message.role,
-    partIndex,
-    part,
-    isNew,
-    // Include createdAt so clients can order messages during streaming
-    // without waiting for the chat_finish snapshot.
-    ...(typeof message.createdAt === "number"
-      ? { createdAt: message.createdAt }
-      : {}),
-  });
+  await sessionRuntime.broadcast(
+    chatId,
+    {
+      type: "ui_message_part",
+      messageId: message.id,
+      messageRole: message.role,
+      partIndex,
+      part,
+      isNew,
+      // Include createdAt so clients can order messages during streaming
+      // without waiting for the chat_finish snapshot.
+      ...(typeof message.createdAt === "number"
+        ? { createdAt: message.createdAt }
+        : {}),
+    },
+    {
+      durable: false,
+      retainInBuffer: true,
+    }
+  );
 }

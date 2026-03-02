@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { resolvePromptInputSubmitStatus } from "./chat-input-submit-status";
+import {
+  isPromptSubmitDisabled,
+  resolvePromptInputSubmitStatus,
+} from "./chat-input-submit-status";
 
 describe("resolvePromptInputSubmitStatus", () => {
   test("normalizes connected+error to ready", () => {
@@ -27,5 +30,43 @@ describe("resolvePromptInputSubmitStatus", () => {
         status: "error",
       })
     ).toBe("error");
+  });
+});
+
+describe("isPromptSubmitDisabled", () => {
+  test("disables submit when connection is not connected", () => {
+    expect(
+      isPromptSubmitDisabled({
+        connStatus: "connecting",
+        status: "ready",
+      })
+    ).toBe(true);
+  });
+
+  test("disables submit for submitted state", () => {
+    expect(
+      isPromptSubmitDisabled({
+        connStatus: "connected",
+        status: "submitted",
+      })
+    ).toBe(true);
+  });
+
+  test("disables submit for cancelling state", () => {
+    expect(
+      isPromptSubmitDisabled({
+        connStatus: "connected",
+        status: "cancelling",
+      })
+    ).toBe(true);
+  });
+
+  test("keeps submit enabled during streaming for stop button flow", () => {
+    expect(
+      isPromptSubmitDisabled({
+        connStatus: "connected",
+        status: "streaming",
+      })
+    ).toBe(false);
   });
 });

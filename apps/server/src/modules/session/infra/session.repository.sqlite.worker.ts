@@ -82,6 +82,14 @@ export class SessionSqliteWorkerRepository implements SessionRepositoryPort {
     return callSqliteWorker("session", "appendMessage", [id, userId, message]);
   }
 
+  replaceMessages(
+    id: string,
+    userId: string,
+    messages: StoredMessage[]
+  ): Promise<{ replaced: true }> {
+    return callSqliteWorker("session", "replaceMessages", [id, userId, messages]);
+  }
+
   getMessageById(
     id: string,
     userId: string,

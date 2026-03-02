@@ -876,7 +876,7 @@ export const PromptInputTextarea = ({
       const submitButton = form?.querySelector(
         'button[type="submit"]'
       ) as HTMLButtonElement | null;
-      if (submitButton?.disabled) {
+      if (!(submitButton && !submitButton.disabled)) {
         return;
       }
 

@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
+import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import type { LoggerPort } from "@/shared/ports/logger.port";
-import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { terminateSessionTerminals } from "@/shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -55,13 +55,20 @@ export class SessionProcessLifecycleService {
               error: transition.errorMessage,
             });
           }
-
-          await updateChatStatus({
-            chatId,
-            session,
-            broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-            status: transition.status,
-          });
+          if (session) {
+            const runtime = new SessionRuntimeEntity(session);
+            if (transition.status === "inactive") {
+              await runtime.markInactive({
+                chatId,
+                broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+              });
+            } else {
+              await runtime.markError({
+                chatId,
+                broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+              });
+            }
+          }
 
           if (session?.userId) {
             await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
@@ -81,13 +88,50 @@ export class SessionProcessLifecycleService {
     };
 
     proc.on("error", (error: Error) => {
-      void settleLifecycle({ kind: "error", message: error.message });
+      settleLifecycle({ kind: "error", message: error.message }).catch(
+        (lifecycleError: unknown) => {
+          this.logger.error("Failed to settle process lifecycle", {
+            chatId,
+            outcome: "error",
+            error:
+              lifecycleError instanceof Error
+                ? lifecycleError.message
+                : String(lifecycleError),
+          });
+        }
+      );
     });
     proc.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
-      void settleLifecycle({ kind: "exit", code, signal });
+      settleLifecycle({ kind: "exit", code, signal }).catch(
+        (lifecycleError: unknown) => {
+          this.logger.error("Failed to settle process lifecycle", {
+            chatId,
+            outcome: "exit",
+            code,
+            signal,
+            error:
+              lifecycleError instanceof Error
+                ? lifecycleError.message
+                : String(lifecycleError),
+          });
+        }
+      );
     });
     proc.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
-      void settleLifecycle({ kind: "close", code, signal });
+      settleLifecycle({ kind: "close", code, signal }).catch(
+        (lifecycleError: unknown) => {
+          this.logger.error("Failed to settle process lifecycle", {
+            chatId,
+            outcome: "close",
+            code,
+            signal,
+            error:
+              lifecycleError instanceof Error
+                ? lifecycleError.message
+                : String(lifecycleError),
+          });
+        }
+      );
     });
   }
 

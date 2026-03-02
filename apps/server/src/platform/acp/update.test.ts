@@ -394,6 +394,59 @@ describe("createSessionUpdateHandler", () => {
     );
   });
 
+  test("normalizes assistant_reasoning_chunk alias to agent_thought_chunk", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "assistant_reasoning_chunk",
+      content: { type: "text", text: "thinking" },
+    });
+    expect(parsed).toEqual(
+      expect.objectContaining({
+        sessionUpdate: "agent_thought_chunk",
+      })
+    );
+  });
+
+  test("normalizes wrapped content blocks in chunk updates", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "agent_message_chunk",
+      content: {
+        type: "content",
+        content: {
+          type: "text",
+          text: "wrapped text",
+        },
+      },
+    });
+    expect(parsed).toEqual(
+      expect.objectContaining({
+        sessionUpdate: "agent_message_chunk",
+        content: expect.objectContaining({
+          type: "text",
+          text: "wrapped text",
+        }),
+      })
+    );
+  });
+
+  test("normalizes text_delta chunk payloads to text blocks", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "assistant_text_chunk",
+      content: {
+        type: "text_delta",
+        delta: "delta text",
+      },
+    });
+    expect(parsed).toEqual(
+      expect.objectContaining({
+        sessionUpdate: "agent_message_chunk",
+        content: expect.objectContaining({
+          type: "text",
+          text: "delta text",
+        }),
+      })
+    );
+  });
+
   test("keeps replay update pipeline active while suppressing replay broadcasts", async () => {
     const session = createSession("chat-replay-suppressed");
     session.suppressReplayBroadcast = true;

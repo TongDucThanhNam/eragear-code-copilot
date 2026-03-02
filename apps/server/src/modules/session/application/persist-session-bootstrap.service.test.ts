@@ -36,18 +36,20 @@ describe("PersistSessionBootstrapService", () => {
       },
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      appendMessage: async (
+      replaceMessages: async (
         _chatId: string,
         _userId: string,
-        message: { id: string; role: string; content: string }
+        messages: Array<{ id: string; role: string; content: string }>
       ) => {
-        calls.push(`append:${message.id}`);
-        appended.push({
-          id: message.id,
-          role: message.role,
-          content: message.content,
-        });
-        return { appended: true as const };
+        calls.push("replace");
+        for (const message of messages) {
+          appended.push({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+          });
+        }
+        return { replaced: true as const };
       },
     } as unknown as SessionRepositoryPort;
     const service = new PersistSessionBootstrapService(
@@ -90,7 +92,7 @@ describe("PersistSessionBootstrapService", () => {
       agentEnv: {},
     });
 
-    expect(calls[0]).toBe("metadata");
+    expect(calls).toEqual(["metadata", "replace"]);
     expect(appended).toEqual([
       { id: "msg-user", role: "user", content: "hello" },
       { id: "msg-assistant", role: "assistant", content: "hi" },
@@ -104,13 +106,13 @@ describe("PersistSessionBootstrapService", () => {
       persist: async () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      appendMessage: async (
+      replaceMessages: async (
         _chatId: string,
         _userId: string,
-        message: { id: string }
+        messages: Array<{ id: string }>
       ) => {
-        appendedIds.push(message.id);
-        return { appended: true as const };
+        appendedIds.push(...messages.map((message) => message.id));
+        return { replaced: true as const };
       },
     } as unknown as SessionRepositoryPort;
     const service = new PersistSessionBootstrapService(
@@ -150,13 +152,13 @@ describe("PersistSessionBootstrapService", () => {
       persist: async () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      appendMessage: async (
+      replaceMessages: async (
         _chatId: string,
         _userId: string,
-        message: { id: string }
+        messages: Array<{ id: string }>
       ) => {
-        appendedIds.push(message.id);
-        return { appended: true as const };
+        appendedIds.push(...messages.map((message) => message.id));
+        return { replaced: true as const };
       },
     } as unknown as SessionRepositoryPort;
 
@@ -223,13 +225,13 @@ describe("PersistSessionBootstrapService", () => {
       persist: async () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      appendMessage: async (
+      replaceMessages: async (
         _chatId: string,
         _userId: string,
-        message: { id: string }
+        messages: Array<{ id: string }>
       ) => {
-        appendedIds.push(message.id);
-        return { appended: true as const };
+        appendedIds.push(...messages.map((message) => message.id));
+        return { replaced: true as const };
       },
     } as unknown as SessionRepositoryPort;
 
@@ -308,13 +310,13 @@ describe("PersistSessionBootstrapService", () => {
       persist: async () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      appendMessage: async (
+      replaceMessages: async (
         _chatId: string,
         _userId: string,
-        message: { id: string }
+        messages: Array<{ id: string }>
       ) => {
-        appendedIds.push(message.id);
-        return { appended: true as const };
+        appendedIds.push(...messages.map((message) => message.id));
+        return { replaced: true as const };
       },
     } as unknown as SessionRepositoryPort;
 
@@ -399,17 +401,19 @@ describe("PersistSessionBootstrapService", () => {
       persist: async () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      appendMessage: async (
+      replaceMessages: async (
         _chatId: string,
         _userId: string,
-        message: { id: string; role: string; content: string }
+        messages: Array<{ id: string; role: string; content: string }>
       ) => {
-        appended.push({
-          id: message.id,
-          role: message.role,
-          content: message.content,
-        });
-        return { appended: true as const };
+        for (const message of messages) {
+          appended.push({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+          });
+        }
+        return { replaced: true as const };
       },
     } as unknown as SessionRepositoryPort;
 
@@ -496,13 +500,13 @@ describe("PersistSessionBootstrapService", () => {
       persist: async () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      appendMessage: async (
+      replaceMessages: async (
         _chatId: string,
         _userId: string,
-        message: { id: string }
+        messages: Array<{ id: string }>
       ) => {
-        appendedIds.push(message.id);
-        return { appended: true as const };
+        appendedIds.push(...messages.map((message) => message.id));
+        return { replaced: true as const };
       },
     } as unknown as SessionRepositoryPort;
 

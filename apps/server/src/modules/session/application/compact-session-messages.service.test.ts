@@ -90,6 +90,14 @@ class SessionRepoStub implements SessionRepositoryPort {
     return Promise.resolve({ appended: true });
   }
 
+  replaceMessages(
+    _id: string,
+    _userId: string,
+    _messages: StoredMessage[]
+  ): Promise<{ replaced: true }> {
+    return Promise.resolve({ replaced: true });
+  }
+
   getMessageById(
     _id: string,
     _userId: string,

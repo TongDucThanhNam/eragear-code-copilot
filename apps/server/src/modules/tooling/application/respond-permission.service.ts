@@ -11,8 +11,8 @@ import type * as acp from "@agentclientprotocol/sdk";
 import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
+import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { NotFoundError, ValidationError } from "@/shared/errors";
-import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import {
   buildToolApprovalResponsePart,
   upsertToolPart,
@@ -288,23 +288,11 @@ export class RespondPermissionService {
       session.pendingPermissions.delete(input.requestId);
       resolvedResponse = response;
 
-      let nextStatus = session.chatStatus;
-      if (session.pendingPermissions.size > 0) {
-        nextStatus = "awaiting_permission";
-      } else if (session.chatStatus === "awaiting_permission") {
-        const hasActiveTurn = Boolean(
-          session.activeTurnId || session.activePromptTask
-        );
-        nextStatus = hasActiveTurn ? "streaming" : "ready";
-      }
-      if (nextStatus !== session.chatStatus) {
-        await updateChatStatus({
-          chatId: input.chatId,
-          session,
-          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-          status: nextStatus,
-        });
-      }
+      const runtime = new SessionRuntimeEntity(session);
+      await runtime.syncStatusAfterPermissionDecision({
+        chatId: input.chatId,
+        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+      });
       if (pending.toolCallId) {
         const previousToolIndex = session.uiState.toolPartIndex.get(
           pending.toolCallId

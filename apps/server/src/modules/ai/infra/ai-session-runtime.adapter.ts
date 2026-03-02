@@ -12,7 +12,6 @@ import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.e
 import { AppError, NotFoundError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import type { AppConfig } from "@/shared/types/settings.types";
-import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import { normalizeExecutablePathForPlatform } from "@/shared/utils/runtime-platform.util";
 import type {
@@ -253,13 +252,13 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
         type: "error",
         error: reason,
       });
-      await updateChatStatus({
-        chatId,
-        session: currentSession,
-        broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
-        status: "error",
-        ...(turnId ? { turnId } : {}),
-      });
+      await new SessionRuntimeEntity(currentSession).markError(
+        {
+          chatId,
+          broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+        },
+        turnId
+      );
       await this.sessionRepo.updateStatus(
         chatId,
         currentSession.userId,

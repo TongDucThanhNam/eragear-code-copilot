@@ -30,11 +30,7 @@ function getLogger() {
 }
 
 function shouldLogStreamEvent(event: BroadcastEvent): boolean {
-  return (
-    event.type === "ui_message" ||
-    event.type === "ui_message_part" ||
-    event.type === "ui_message_delta"
-  );
+  return event.type === "ui_message" || event.type === "ui_message_part";
 }
 
 function buildStreamEventContext(
@@ -44,13 +40,6 @@ function buildStreamEventContext(
     return {
       messageId: event.message.id,
       partsCount: event.message.parts.length,
-    };
-  }
-  if (event.type === "ui_message_delta") {
-    return {
-      messageId: event.messageId,
-      partIndex: event.partIndex,
-      deltaLength: event.delta.length,
     };
   }
   if (event.type === "ui_message_part") {
@@ -100,6 +89,11 @@ function normalizePolicy(policy: SessionRuntimeStorePolicy): {
 export class SessionRuntimeStore implements SessionRuntimePort {
   /** In-memory session storage keyed by chat ID */
   private readonly sessions = new Map<string, ChatSession>();
+  /** Preserved live emitter/subscriber channel across runtime replacement */
+  private readonly detachedLiveChannels = new Map<
+    string,
+    Pick<ChatSession, "emitter" | "subscriberCount" | "idleSinceAt">
+  >();
   /** Per-chat lock tails for exclusive state mutation */
   private readonly chatLockTails = new Map<string, Promise<void>>();
   /** Durable outbox used for cross-component fan-out */
@@ -132,7 +126,25 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     this.maxQueuedMutationsPerChat = normalizedPolicy.maxQueuedMutationsPerChat;
   }
 
+  /**
+   * Set/replace runtime session while preserving the live emitter channel when
+   * the previous runtime still has subscribers attached.
+   */
   set(chatId: string, session: ChatSession): void {
+    const current = this.sessions.get(chatId);
+    const detached = this.detachedLiveChannels.get(chatId);
+
+    if (current && current !== session) {
+      session.emitter = current.emitter;
+      session.subscriberCount = current.subscriberCount;
+      session.idleSinceAt = current.idleSinceAt;
+    } else if (detached) {
+      session.emitter = detached.emitter;
+      session.subscriberCount = detached.subscriberCount;
+      session.idleSinceAt = detached.idleSinceAt;
+      this.detachedLiveChannels.delete(chatId);
+    }
+
     this.sessions.set(chatId, session);
   }
 
@@ -142,6 +154,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
 
   delete(chatId: string): void {
     const session = this.sessions.get(chatId);
+    this.preserveLiveChannel(chatId, session);
     this.cleanupSessionBeforeDelete(chatId, session);
     this.sessions.delete(chatId);
     this.clearRuntimeIndexes(chatId);
@@ -152,6 +165,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     if (!current || current !== expectedSession) {
       return false;
     }
+    this.preserveLiveChannel(chatId, current);
     this.cleanupSessionBeforeDelete(chatId, current);
     this.sessions.delete(chatId);
     this.clearRuntimeIndexes(chatId);
@@ -186,6 +200,25 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     this.queuedMutationsPerChat.delete(chatId);
     this.lastQueuePressureLogAt.delete(chatId);
     this.resolveQueuedMutationWaiters(chatId);
+  }
+
+  private preserveLiveChannel(
+    chatId: string,
+    session: ChatSession | undefined
+  ): void {
+    if (!session) {
+      this.detachedLiveChannels.delete(chatId);
+      return;
+    }
+    if (session.subscriberCount <= 0) {
+      this.detachedLiveChannels.delete(chatId);
+      return;
+    }
+    this.detachedLiveChannels.set(chatId, {
+      emitter: session.emitter,
+      subscriberCount: session.subscriberCount,
+      idleSinceAt: session.idleSinceAt,
+    });
   }
 
   has(chatId: string): boolean {
@@ -338,44 +371,61 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     event: BroadcastEvent,
     options?: SessionBroadcastOptions
   ): Promise<void> {
-    const durable = options?.durable !== false;
-    const retainInBuffer = options?.retainInBuffer !== false;
+    if (this.isLockHeld(chatId)) {
+      await this.broadcastWithinLock(chatId, event, options);
+      return;
+    }
     await this.runExclusive(chatId, async () => {
-      const session = this.sessions.get(chatId);
-      if (!session) {
-        return;
-      }
-
-      if (durable) {
-        await this.eventOutbox.enqueue({
-          chatId,
-          userId: session.userId,
-          event: cloneBroadcastEvent(event),
-        });
-      }
-
-      if (retainInBuffer) {
-        session.messageBuffer.push(cloneBroadcastEvent(event));
-        if (session.messageBuffer.length > this.sessionBufferLimit) {
-          session.messageBuffer.splice(
-            0,
-            session.messageBuffer.length - this.sessionBufferLimit
-          );
-        }
-      }
-
-      if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
-        getLogger().debug("Session runtime event broadcast", {
-          chatId,
-          eventType: event.type,
-          durable,
-          retainInBuffer,
-          subscriberCount: session.subscriberCount,
-          bufferSize: session.messageBuffer.length,
-          ...buildStreamEventContext(event),
-        });
-      }
-      session.emitter.emit("data", cloneBroadcastEvent(event));
+      await this.broadcastWithinLock(chatId, event, options);
     });
+  }
+
+  private async broadcastWithinLock(
+    chatId: string,
+    event: BroadcastEvent,
+    options?: SessionBroadcastOptions
+  ): Promise<void> {
+    const session = this.sessions.get(chatId);
+    if (!session) {
+      return;
+    }
+
+    // High-frequency part updates are non-durable by default to avoid
+    // SQLite write amplification. We still retain them in runtime buffer so
+    // short WS reconnects can replay in-order chunk snapshots.
+    const durable =
+      options?.durable ?? (event.type === "ui_message_part" ? false : true);
+    const retainInBuffer = options?.retainInBuffer ?? true;
+
+    if (durable) {
+      await this.eventOutbox.enqueue({
+        chatId,
+        userId: session.userId,
+        event: cloneBroadcastEvent(event),
+      });
+    }
+
+    if (retainInBuffer) {
+      session.messageBuffer.push(cloneBroadcastEvent(event));
+      if (session.messageBuffer.length > this.sessionBufferLimit) {
+        session.messageBuffer.splice(
+          0,
+          session.messageBuffer.length - this.sessionBufferLimit
+        );
+      }
+    }
+
+    if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
+      getLogger().debug("Session runtime event broadcast", {
+        chatId,
+        eventType: event.type,
+        durable,
+        retainInBuffer,
+        subscriberCount: session.subscriberCount,
+        bufferSize: session.messageBuffer.length,
+        ...buildStreamEventContext(event),
+      });
+    }
+    session.emitter.emit("data", cloneBroadcastEvent(event));
   }
 }

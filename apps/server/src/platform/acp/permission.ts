@@ -11,8 +11,8 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
+import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { createLogger } from "@/platform/logging/structured-logger";
-import { updateChatStatus } from "@/shared/utils/chat-events.util";
 import { createId } from "@/shared/utils/id.util";
 import {
   buildToolApprovalPart,
@@ -93,11 +93,10 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
       });
 
       const publishPermissionRequest = async () => {
-        await updateChatStatus({
+        const runtime = new SessionRuntimeEntity(session);
+        await runtime.markAwaitingPermission({
           chatId,
-          session,
           broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
-          status: "awaiting_permission",
         });
 
         const previousToolIndex = session.uiState.toolPartIndex.get(

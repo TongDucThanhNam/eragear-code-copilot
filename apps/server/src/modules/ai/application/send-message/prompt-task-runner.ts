@@ -27,6 +27,9 @@ import { AI_OP, HTTP_STATUS } from "../ai.constants";
 import type { AiSessionRuntimePort } from "../ports/ai-session-runtime.port";
 import { AiSessionRuntimeError } from "../ports/ai-session-runtime.port";
 
+/** Warn when prompt has been submitted but no ACP chunk arrived in time. */
+const ACP_STREAM_WATCHDOG_MS = 5000;
+
 interface PromptTaskRunnerPolicy {
   acpRetryMaxAttempts: number;
   acpRetryBaseDelayMs: number;
@@ -150,12 +153,19 @@ export class PromptTaskRunner {
           error.kind === "session_unavailable")
       ) {
         const reason = error.message || "Prompt task failed";
-        await this.persistAssistantFallbackMessage({
+        const fallbackMessageId = await this.persistAssistantFallbackMessage({
           chatId,
           aggregate,
           turnId,
           broadcast,
           errorMessage: reason,
+        });
+        await this.emitCancelledChatFinish({
+          chatId,
+          aggregate,
+          turnId,
+          broadcast,
+          messageId: fallbackMessageId,
         });
         await this.sessionGateway.stopAndCleanup({
           chatId,
@@ -204,13 +214,13 @@ export class PromptTaskRunner {
     turnId: string;
     broadcast: SessionRuntimePort["broadcast"];
     errorMessage: string;
-  }): Promise<void> {
+  }): Promise<string | undefined> {
     const { chatId, aggregate, turnId, broadcast, errorMessage } = params;
     if (!aggregate.isCurrentTurn(turnId)) {
-      return;
+      return undefined;
     }
     if (aggregate.assistantMessageId) {
-      return;
+      return aggregate.assistantMessageId;
     }
 
     const session = aggregate.raw;
@@ -242,6 +252,7 @@ export class PromptTaskRunner {
         type: "ui_message",
         message: uiMessage,
       });
+      return uiMessage.id;
     } catch (persistError) {
       this.logger.warn("Failed to persist fallback assistant error message", {
         chatId,
@@ -251,6 +262,7 @@ export class PromptTaskRunner {
             ? persistError.message
             : String(persistError),
       });
+      return aggregate.assistantMessageId;
     }
   }
 
@@ -258,6 +270,12 @@ export class PromptTaskRunner {
     const { chatId, aggregate, prompt, broadcast, turnId } = params;
     const session = aggregate.raw;
     if (!session.sessionId) {
+      await this.emitCancelledChatFinish({
+        chatId,
+        aggregate,
+        turnId,
+        broadcast,
+      });
       await this.sessionGateway.stopAndCleanup({
         chatId,
         session,
@@ -334,9 +352,36 @@ export class PromptTaskRunner {
           turnId,
           maxTokens: this.runtimePolicyProvider().maxTokens,
         });
-        const response = await this.sessionGateway.prompt(session, prompt, {
-          maxTokens: this.runtimePolicyProvider().maxTokens,
-        });
+        const watchdogStartedAt = this.clock.nowMs();
+        const watchdog = setTimeout(() => {
+          if (!aggregate.isCurrentTurn(turnId)) {
+            return;
+          }
+          if (session.buffer?.hasContent()) {
+            return;
+          }
+          this.logger.warn("Prompt streaming watchdog: no ACP chunks observed", {
+            chatId,
+            turnId,
+            waitMs: this.clock.nowMs() - watchdogStartedAt,
+            attempt: attempt + 1,
+            maxAttempts,
+            chatStatus: session.chatStatus,
+            subscriberCount: session.subscriberCount,
+            isReplayingHistory: session.isReplayingHistory,
+            suppressReplayBroadcast: session.suppressReplayBroadcast,
+            sessionLoadMethod: session.sessionLoadMethod,
+          });
+        }, ACP_STREAM_WATCHDOG_MS);
+        watchdog.unref?.();
+        let response: { stopReason: string };
+        try {
+          response = await this.sessionGateway.prompt(session, prompt, {
+            maxTokens: this.runtimePolicyProvider().maxTokens,
+          });
+        } finally {
+          clearTimeout(watchdog);
+        }
         this.logger.debug("SendMessageService prompt response", {
           chatId,
           stopReason: response.stopReason,
@@ -446,6 +491,12 @@ export class PromptTaskRunner {
       error instanceof AiSessionRuntimeError &&
       (error.kind === "process_exited" || error.kind === "session_unavailable")
     ) {
+      await this.emitCancelledChatFinish({
+        chatId,
+        aggregate,
+        turnId,
+        broadcast,
+      });
       await this.sessionGateway.stopAndCleanup({
         chatId,
         session,
@@ -487,6 +538,39 @@ export class PromptTaskRunner {
       op: AI_OP.PROMPT_SEND,
       cause: error,
       details: { chatId, turnId },
+    });
+  }
+
+  /**
+   * Ensure cancelled/error termination paths still emit `chat_finish` so
+   * clients can close loading state deterministically.
+   */
+  private async emitCancelledChatFinish(params: {
+    chatId: string;
+    aggregate: SessionRuntimeEntity;
+    turnId: string;
+    broadcast: SessionRuntimePort["broadcast"];
+    messageId?: string;
+  }): Promise<void> {
+    const { chatId, aggregate, turnId, broadcast, messageId } = params;
+    await this.sessionRuntime.runExclusive(chatId, async () => {
+      if (!aggregate.isCurrentTurn(turnId)) {
+        return;
+      }
+
+      const session = aggregate.raw;
+      const activeAssistantMessageId =
+        aggregate.currentStreamingAssistantMessage()?.id;
+      const resolvedMessageId =
+        messageId ?? activeAssistantMessageId ?? aggregate.assistantMessageId;
+      if (resolvedMessageId) {
+        setChatFinishMessage(session, resolvedMessageId, turnId);
+      }
+      aggregate.setChatFinishStopReason("cancelled", turnId);
+      await aggregate.maybeBroadcastChatFinish({
+        chatId,
+        broadcast,
+      });
     });
   }
 
