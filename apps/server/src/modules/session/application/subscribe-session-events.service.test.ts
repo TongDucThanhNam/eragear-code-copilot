@@ -265,6 +265,7 @@ describe("SubscribeSessionEventsService", () => {
     expect(session.subscriberCount).toBe(1);
 
     const replacement = createSession();
+    replacement.emitter = session.emitter;
     replacement.subscriberCount = session.subscriberCount;
     runtime.set("chat-1", replacement);
 
@@ -272,6 +273,24 @@ describe("SubscribeSessionEventsService", () => {
 
     expect(replacement.subscriberCount).toBe(0);
     expect(typeof replacement.idleSinceAt).toBe("number");
+  });
+
+  test("release does not decrement unrelated replacement runtime channel", async () => {
+    const session = createSession();
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+
+    const subscription = await service.execute("user-1", "chat-1");
+    expect(session.subscriberCount).toBe(1);
+
+    const replacement = createSession();
+    replacement.subscriberCount = 1;
+    runtime.set("chat-1", replacement);
+
+    await subscription.release();
+
+    expect(replacement.subscriberCount).toBe(1);
+    expect(replacement.idleSinceAt).toBeUndefined();
   });
 
   test("replays snapshots first, then pending active part updates", async () => {

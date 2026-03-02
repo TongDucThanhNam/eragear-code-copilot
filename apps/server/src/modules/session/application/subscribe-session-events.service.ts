@@ -1,6 +1,6 @@
+import type { UIMessage } from "@repo/shared";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
-import type { UIMessage } from "@repo/shared";
 import { NotFoundError } from "@/shared/errors";
 import type {
   BroadcastEvent,
@@ -20,6 +20,7 @@ const OP = "session.events.subscribe";
 const logger = createLogger("Debug");
 
 export interface SessionEventSubscription {
+  source: "runtime" | "stored";
   chatStatus: ChatStatus;
   activeTurnId?: string;
   bufferedEvents: BroadcastEvent[];
@@ -39,7 +40,10 @@ export class SubscribeSessionEventsService {
     this.sessionRepo = sessionRepo;
   }
 
-  async execute(userId: string, chatId: string): Promise<SessionEventSubscription> {
+  async execute(
+    userId: string,
+    chatId: string
+  ): Promise<SessionEventSubscription> {
     const sessionRuntime = this.sessionRuntime;
     const sessionRepo = this.sessionRepo;
     const pendingLiveEvents: BroadcastEvent[] = [];
@@ -95,7 +99,6 @@ export class SubscribeSessionEventsService {
         }
 
         session.idleSinceAt = undefined;
-        session.subscriberCount += 1;
         const nextChatStatus = reconcileChatStatusForSubscription(session);
         if (nextChatStatus !== session.chatStatus) {
           session.chatStatus = nextChatStatus;
@@ -115,6 +118,9 @@ export class SubscribeSessionEventsService {
           pendingLiveEvents.push(cloned);
         };
         session.emitter.on("data", internalListener);
+        // Keep subscriberCount synchronized with the actual live listener
+        // cardinality to avoid drift under rapid subscribe/release churn.
+        session.subscriberCount = session.emitter.listenerCount("data");
         snapshot = {
           session,
           chatStatus: nextChatStatus,
@@ -137,9 +143,11 @@ export class SubscribeSessionEventsService {
         logger.debug("Session event subscription prepared for stored session", {
           chatId,
           chatStatus: stoppedSnapshot.chatStatus,
+          source: "stored",
         });
       }
       return {
+        source: "stored" as const,
         chatStatus: stoppedSnapshot.chatStatus,
         bufferedEvents: stoppedSnapshot.bufferedEvents,
         subscribe() {
@@ -163,19 +171,24 @@ export class SubscribeSessionEventsService {
       logger.debug("Session event subscription prepared", {
         chatId,
         bufferedEvents: snapshot.bufferedEvents.length,
-        bufferedSnapshots: countEventType(snapshot.bufferedEvents, "ui_message"),
+        bufferedSnapshots: countEventType(
+          snapshot.bufferedEvents,
+          "ui_message"
+        ),
         bufferedPartUpdates: countEventType(
           snapshot.bufferedEvents,
           "ui_message_part"
         ),
         forcedActiveSnapshot: snapshot.forcedActiveSnapshot,
         subscriberCount: snapshot.subscriberCount,
+        source: "runtime",
       });
     }
 
     const session = snapshot.session;
     const internalListener = snapshot.internalListener;
     return {
+      source: "runtime" as const,
       chatStatus: snapshot.chatStatus,
       activeTurnId: snapshot.activeTurnId,
       bufferedEvents: snapshot.bufferedEvents,
@@ -221,7 +234,16 @@ export class SubscribeSessionEventsService {
           if (!current || current.userId !== session.userId) {
             return;
           }
-          current.subscriberCount = Math.max(0, current.subscriberCount - 1);
+          // Only decrement when the runtime still points to the same live
+          // emitter channel that this subscription incremented. This prevents
+          // stale release calls from dropping subscriberCount on a newer,
+          // unrelated runtime channel.
+          const sameChannel =
+            current === session || current.emitter === session.emitter;
+          if (!sameChannel) {
+            return;
+          }
+          current.subscriberCount = current.emitter.listenerCount("data");
           if (current.subscriberCount <= 0) {
             current.idleSinceAt = Date.now();
           }
@@ -235,7 +257,9 @@ function shouldLogStreamEvent(event: BroadcastEvent): boolean {
   return event.type === "ui_message" || event.type === "ui_message_part";
 }
 
-function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown> {
+function buildStreamEventContext(
+  event: BroadcastEvent
+): Record<string, unknown> {
   if (event.type === "ui_message") {
     return {
       messageId: event.message.id,

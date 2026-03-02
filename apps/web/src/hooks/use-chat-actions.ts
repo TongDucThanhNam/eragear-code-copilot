@@ -9,20 +9,20 @@ import type {
 } from "@repo/shared";
 import { isChatBusyStatus } from "@repo/shared";
 import {
-  useCallback,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
+  useCallback,
 } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import type { SendMessageOptions, SendMessageOutcome } from "./use-chat.types";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
 import { chatDebug } from "./use-chat-debug";
 import {
   deriveResumeSessionSyncPlan,
   isRuntimeAuthoritativeHistory,
 } from "./use-chat-resume-sync";
-import type { SendMessageOptions } from "./use-chat.types";
 
 function readConfigOptionValueLabel(
   option: SessionConfigOption | undefined,
@@ -56,6 +56,18 @@ function readConfigOptionValueLabel(
     }
   }
   return value;
+}
+
+function readTrpcErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const candidate = error as {
+    data?: { code?: unknown } | null;
+    shape?: { data?: { code?: unknown } | null } | null;
+  };
+  const code = candidate.data?.code ?? candidate.shape?.data?.code;
+  return typeof code === "string" ? code : null;
 }
 
 function describeConfigOptionSelection(
@@ -106,6 +118,8 @@ interface UseChatActionsParams {
   markHistoryAppliedFromRuntime: () => void;
   loadHistory: (force?: boolean) => Promise<void>;
   onResumeStateHydrated?: () => void;
+  ensureLiveSubscription: () => Promise<boolean>;
+  bumpSessionEventsEpoch: () => void;
 }
 
 export function useChatActions({
@@ -135,6 +149,8 @@ export function useChatActions({
   markHistoryAppliedFromRuntime,
   loadHistory,
   onResumeStateHydrated,
+  ensureLiveSubscription,
+  bumpSessionEventsEpoch,
 }: UseChatActionsParams) {
   const sendMessageMutation = trpc.sendMessage.useMutation();
   const cancelPromptMutation = trpc.cancelPrompt.useMutation();
@@ -147,16 +163,24 @@ export function useChatActions({
     trpc.respondToPermissionRequest.useMutation();
 
   const sendMessage = useCallback(
-    async (text: string, messageOptions?: SendMessageOptions) => {
+    async (
+      text: string,
+      messageOptions?: SendMessageOptions
+    ): Promise<SendMessageOutcome> => {
       if (!chatId) {
-        return false;
+        return { submitted: false };
       }
-      if (
-        isChatBusyStatus(statusRef.current) ||
-        sendMessageMutation.isPending ||
-        Boolean(activeTurnIdRef.current)
-      ) {
-        return false;
+      if (sendMessageMutation.isPending) {
+        return { submitted: false };
+      }
+      if (activeTurnIdRef.current && !isChatBusyStatus(statusRef.current)) {
+        activeTurnIdRef.current = null;
+      }
+      const hasLiveSubscription = await ensureLiveSubscription();
+      if (!hasLiveSubscription) {
+        const errMsg = "Realtime stream is not connected yet. Please retry.";
+        setError(errMsg);
+        return { submitted: false, error: errMsg };
       }
       const activeChatId = chatId;
       const previousStatus = statusRef.current;
@@ -175,20 +199,28 @@ export function useChatActions({
           resourceLinks: messageOptions?.resourceLinks,
         });
         if (!isActiveChat(activeChatId) || readOnly) {
-          return false;
+          return { submitted: false };
         }
+        setError(null);
         activeTurnIdRef.current = res.turnId ?? null;
-        return res.status === "submitted";
+        return { submitted: res.status === "submitted" };
       } catch (sendError) {
         console.error("Failed to send message", sendError);
         if (!isActiveChat(activeChatId) || readOnly) {
-          return false;
+          return { submitted: false };
+        }
+        const errorCode = readTrpcErrorCode(sendError);
+        if (errorCode === "CONFLICT") {
+          setStreamLifecycle((prev) =>
+            prev === "idle" ? "bootstrapping" : prev
+          );
+          setConnStatus((prev) => (prev === "idle" ? "connecting" : prev));
         }
         setStatus(previousStatus);
-        setError(
-          sendError instanceof Error ? sendError.message : String(sendError)
-        );
-        return false;
+        const errMsg =
+          sendError instanceof Error ? sendError.message : String(sendError);
+        setError(errMsg);
+        return { submitted: false, error: errMsg };
       }
     },
     [
@@ -197,6 +229,7 @@ export function useChatActions({
       isActiveChat,
       readOnly,
       sendMessageMutation,
+      ensureLiveSubscription,
       setConnStatus,
       setError,
       setStatus,
@@ -224,7 +257,14 @@ export function useChatActions({
       );
       setStatus(previousStatus);
     }
-  }, [cancelPromptMutation, chatId, isActiveChat, setError, setStatus, statusRef]);
+  }, [
+    cancelPromptMutation,
+    chatId,
+    isActiveChat,
+    setError,
+    setStatus,
+    statusRef,
+  ]);
 
   const setMode = useCallback(
     async (modeId: string) => {
@@ -244,10 +284,19 @@ export function useChatActions({
           return;
         }
         console.error("Failed to set mode", modeError);
-        setError(modeError instanceof Error ? modeError.message : String(modeError));
+        setError(
+          modeError instanceof Error ? modeError.message : String(modeError)
+        );
       }
     },
-    [chatId, isActiveChat, onLocalModeMutated, setError, setModeMutation, setModes]
+    [
+      chatId,
+      isActiveChat,
+      onLocalModeMutated,
+      setError,
+      setModeMutation,
+      setModes,
+    ]
   );
 
   const setModel = useCallback(
@@ -257,7 +306,10 @@ export function useChatActions({
       }
       const activeChatId = chatId;
       try {
-        console.info("[Chat] setModel requested", { chatId: activeChatId, modelId });
+        console.info("[Chat] setModel requested", {
+          chatId: activeChatId,
+          modelId,
+        });
         await setModelMutation.mutateAsync({ chatId: activeChatId, modelId });
         if (!isActiveChat(activeChatId)) {
           return;
@@ -461,7 +513,9 @@ export function useChatActions({
         return;
       }
       console.error("Failed to stop session", stopError);
-      setError(stopError instanceof Error ? stopError.message : String(stopError));
+      setError(
+        stopError instanceof Error ? stopError.message : String(stopError)
+      );
     }
   }, [
     activeTurnIdRef,
@@ -498,6 +552,11 @@ export function useChatActions({
         hasResult: Boolean(resumeResult),
         sessionLoadMethod: syncPlan.sessionLoadMethod ?? null,
       });
+      // Force the tRPC subscription to remount so the server-side handler
+      // attaches a live listener to the NEW runtime's EventEmitter.  The
+      // old stoppedSnapshot subscription is a zombie that never connects
+      // to the new session and must be discarded.
+      bumpSessionEventsEpoch();
       if (!isActiveChat(activeChatId)) {
         chatDebug("resume", "resumeSession ignored due to chat switch", {
           chatId: activeChatId,
@@ -584,7 +643,9 @@ export function useChatActions({
       chatDebug("resume", "resumeSession mutation failed", {
         chatId: activeChatId,
         error:
-          resumeError instanceof Error ? resumeError.message : String(resumeError),
+          resumeError instanceof Error
+            ? resumeError.message
+            : String(resumeError),
       });
       setConnStatus("error");
       setStatus("error");
@@ -603,6 +664,7 @@ export function useChatActions({
     loadHistory,
     markHistoryAppliedFromRuntime,
     onResumeStateHydrated,
+    bumpSessionEventsEpoch,
     resumeSessionMutation,
     setConnStatus,
     setConfigOptions,

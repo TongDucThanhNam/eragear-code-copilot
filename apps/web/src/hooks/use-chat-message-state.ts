@@ -261,6 +261,7 @@ function finalizeToolPartAfterReady(
   if (
     part.state !== "input-streaming" &&
     part.state !== "input-available" &&
+    part.state !== "approval-requested" &&
     part.state !== "approval-responded"
   ) {
     return part;

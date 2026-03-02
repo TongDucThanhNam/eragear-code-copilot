@@ -162,6 +162,54 @@ export class SendMessageService {
           });
         }
 
+        const liveSubscriberCount = session.emitter.listenerCount("data");
+        // Repair subscriber count drift – the tracked counter may lag behind
+        // the actual emitter listener count during rapid reconnects.
+        if (session.subscriberCount !== liveSubscriberCount) {
+          this.logger.warn(
+            "SendMessageService repaired pre-submit subscriber count drift",
+            {
+              chatId: input.chatId,
+              sessionId: session.sessionId,
+              trackedSubscriberCount: session.subscriberCount,
+              emitterSubscriberCount: liveSubscriberCount,
+            }
+          );
+          session.subscriberCount = liveSubscriberCount;
+        }
+        // Only hard-reject when BOTH the tracked count and the emitter count
+        // confirm zero listeners.  This avoids spurious rejections during
+        // transient WebSocket reconnection windows where the tRPC subscription
+        // handler has already incremented subscriberCount but hasn't yet
+        // attached the emitter listener (or vice-versa).
+        if (liveSubscriberCount <= 0 && session.subscriberCount <= 0) {
+          this.logger.warn(
+            "SendMessageService rejected prompt without subscribers",
+            {
+              chatId: input.chatId,
+              sessionId: session.sessionId,
+              chatStatus: session.chatStatus,
+              subscriberCount: session.subscriberCount,
+              emitterSubscriberCount: liveSubscriberCount,
+            }
+          );
+          throw new AppError({
+            message:
+              "Realtime chat stream is not connected. Reconnect session events and retry.",
+            code: "SESSION_SUBSCRIPTION_REQUIRED",
+            statusCode: HTTP_STATUS.CONFLICT,
+            module: "ai",
+            op: OP,
+            details: {
+              chatId: input.chatId,
+              sessionId: session.sessionId,
+              chatStatus: session.chatStatus,
+              subscriberCount: session.subscriberCount,
+              emitterSubscriberCount: liveSubscriberCount,
+            },
+          });
+        }
+
         const turnId = createId("turn");
         aggregate.startTurn(turnId);
 
@@ -176,14 +224,6 @@ export class SendMessageService {
           chatId: input.chatId,
           sessionId: session.sessionId,
         });
-        if (session.subscriberCount <= 0) {
-          this.logger.warn("SendMessageService prompt submitted without subscribers", {
-            chatId: input.chatId,
-            turnId,
-            sessionId: session.sessionId,
-            chatStatus: session.chatStatus,
-          });
-        }
 
         const messageId = createId("msg");
         const submittedAt = this.clock.nowMs();

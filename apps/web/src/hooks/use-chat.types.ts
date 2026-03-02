@@ -22,6 +22,23 @@ export interface SendMessageOptions {
   resourceLinks?: { uri: string; name: string; mimeType?: string }[];
 }
 
+/**
+ * Outcome of a sendMessage call.
+ *
+ * Returned synchronously so callers can inspect the error immediately
+ * instead of waiting for a React state re-render (which would make
+ * `error` stale when read in the same callback frame).
+ */
+export interface SendMessageOutcome {
+  /** Whether the message was accepted by the server. */
+  submitted: boolean;
+  /**
+   * When `submitted` is false, contains a human-readable reason.
+   * `undefined` for silent rejections (e.g. duplicate submit guard).
+   */
+  error?: string;
+}
+
 export interface UseChatResult {
   messages: UIMessage[];
   status: ChatStatus;
@@ -44,7 +61,10 @@ export interface UseChatResult {
   isResuming: boolean;
   hasMoreHistory: boolean;
   isLoadingOlderHistory: boolean;
-  sendMessage: (text: string, options?: SendMessageOptions) => Promise<boolean>;
+  sendMessage: (
+    text: string,
+    options?: SendMessageOptions
+  ) => Promise<SendMessageOutcome>;
   cancelPrompt: () => Promise<void>;
   setMode: (modeId: string) => Promise<void>;
   setModel: (modelId: string) => Promise<void>;

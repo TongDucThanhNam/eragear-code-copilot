@@ -368,6 +368,7 @@ export class PromptTaskRunner {
             maxAttempts,
             chatStatus: session.chatStatus,
             subscriberCount: session.subscriberCount,
+            emitterSubscriberCount: session.emitter.listenerCount("data"),
             isReplayingHistory: session.isReplayingHistory,
             suppressReplayBroadcast: session.suppressReplayBroadcast,
             sessionLoadMethod: session.sessionLoadMethod,

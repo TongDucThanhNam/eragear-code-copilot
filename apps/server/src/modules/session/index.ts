@@ -4,22 +4,24 @@ export { CompactSessionMessagesService } from "./application/compact-session-mes
 export type {
   CreateSessionInput,
   DiscoverAgentSessionsInput,
-  LoadAgentSessionInput,
   ListSessionsInput,
-  SessionMessageByIdInput,
+  LoadAgentSessionInput,
   SessionChatIdInput,
+  SessionEventsInput,
   SessionListPageInput,
+  SessionMessageByIdInput,
   SessionMessagesPageInput,
   UpdateSessionMetaInput,
 } from "./application/contracts/session.contract";
 export {
   CreateSessionInputSchema,
   DiscoverAgentSessionsInputSchema,
-  LoadAgentSessionInputSchema,
   ListSessionsInputSchema,
-  SessionMessageByIdInputSchema,
+  LoadAgentSessionInputSchema,
   SessionChatIdInputSchema,
+  SessionEventsInputSchema,
   SessionListPageInputSchema,
+  SessionMessageByIdInputSchema,
   SessionMessagesPageInputSchema,
   UpdateSessionMetaInputSchema,
 } from "./application/contracts/session.contract";
@@ -49,9 +51,9 @@ export type { SessionRuntimePort } from "./application/ports/session-runtime.por
 export { ReconcileSessionStatusService } from "./application/reconcile-session-status.service";
 export { ResumeSessionService } from "./application/resume-session.service";
 export { SessionAcpBootstrapService } from "./application/session-acp-bootstrap.service";
+export { SessionAgentResolverService } from "./application/session-agent-resolver.service";
 export { SessionHistoryReplayService } from "./application/session-history-replay.service";
 export { SessionMcpConfigService } from "./application/session-mcp-config.service";
-export { SessionAgentResolverService } from "./application/session-agent-resolver.service";
 export { SessionMessageMapper } from "./application/session-message.mapper";
 export { SessionMetadataPersistenceService } from "./application/session-metadata-persistence.service";
 export { SessionProcessLifecycleService } from "./application/session-process-lifecycle.service";

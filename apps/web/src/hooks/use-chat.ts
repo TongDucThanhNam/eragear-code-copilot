@@ -64,6 +64,7 @@ import {
 import { logChatStreamDebug } from "./use-chat-stream-debug";
 
 const INVALID_EVENT_TOAST_COOLDOWN_MS = 5000;
+const LIVE_SUBSCRIPTION_WAIT_TIMEOUT_MS = 8000;
 
 function isChatNotFoundError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
@@ -123,6 +124,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       readOnly,
     })
   );
+  const [subscriptionEpoch, setSubscriptionEpoch] = useState(0);
   const [pendingPermission, setPendingPermission] =
     useState<PermissionRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -154,9 +156,16 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const activeChatIdRef = useRef<string | null>(chatId ?? null);
   const previousChatIdRef = useRef<string | null>(chatId ?? null);
   const previousStreamLifecycleRef = useRef<StreamLifecycle>(streamLifecycle);
+  const streamLifecycleRef = useRef<StreamLifecycle>(streamLifecycle);
+  const connectedChatIdRef = useRef<string | null>(null);
+  const connStatusRef = useRef<ConnectionStatus>(connStatus);
   const statusRef = useRef<ChatStatus>(status);
   const reloadHistoryRef = useRef<(() => Promise<void>) | null>(null);
   const invalidEventToastAtRef = useRef(0);
+  const liveSubscriptionWaiterSeqRef = useRef(0);
+  const liveSubscriptionWaitersRef = useRef<
+    Map<number, (isLive: boolean) => void>
+  >(new Map());
   const hasLocalModeOverrideRef = useRef(false);
   const hasLocalModelOverrideRef = useRef(false);
   const hasLocalConfigOverrideRef = useRef(false);
@@ -166,6 +175,9 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+  useEffect(() => {
+    connStatusRef.current = connStatus;
+  }, [connStatus]);
   useEffect(() => {
     activeChatIdRef.current = chatId ?? null;
   }, [chatId]);
@@ -331,6 +343,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       streamStore.clearChat(previousChatId);
     }
     previousChatIdRef.current = nextChatId;
+    connectedChatIdRef.current = null;
     hasLocalModeOverrideRef.current = false;
     hasLocalModelOverrideRef.current = false;
     hasLocalConfigOverrideRef.current = false;
@@ -389,8 +402,91 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     if (previous === "recovering" && streamLifecycle === "live") {
       loadHistory(true);
     }
+    streamLifecycleRef.current = streamLifecycle;
+    const activeChatId = activeChatIdRef.current;
+    const isLiveForActiveChat =
+      streamLifecycle === "live" &&
+      Boolean(activeChatId) &&
+      connectedChatIdRef.current === activeChatId;
+    if (streamLifecycle === "idle" || isLiveForActiveChat) {
+      const waiters = [...liveSubscriptionWaitersRef.current.values()];
+      liveSubscriptionWaitersRef.current.clear();
+      for (const waiter of waiters) {
+        waiter(isLiveForActiveChat);
+      }
+    }
     previousStreamLifecycleRef.current = streamLifecycle;
   }, [loadHistory, streamLifecycle]);
+
+  useEffect(() => {
+    return () => {
+      const waiters = [...liveSubscriptionWaitersRef.current.values()];
+      liveSubscriptionWaitersRef.current.clear();
+      for (const waiter of waiters) {
+        waiter(false);
+      }
+    };
+  }, []);
+
+  const ensureLiveSubscription = useCallback(async () => {
+    const activeChatId = activeChatIdRef.current;
+    if (!activeChatId || readOnly) {
+      return false;
+    }
+    // Reject immediately when the session is known-inactive — no runtime
+    // exists on the server side so sending would always fail.
+    if (statusRef.current === "inactive") {
+      chatDebug(
+        "stream",
+        "ensureLiveSubscription rejected: session is inactive",
+        { chatId: activeChatId, status: statusRef.current }
+      );
+      return false;
+    }
+    const isLiveForActiveChat =
+      streamLifecycleRef.current === "live" &&
+      connectedChatIdRef.current === activeChatId;
+    if (isLiveForActiveChat) {
+      return true;
+    }
+    chatDebug("stream", "ensureLiveSubscription waiting for live stream", {
+      chatId: activeChatId,
+      lifecycle: streamLifecycleRef.current,
+      connStatus: connStatusRef.current,
+      connectedChatId: connectedChatIdRef.current,
+    });
+    setStreamLifecycle((prev) => (prev === "idle" ? "bootstrapping" : prev));
+    setConnStatus((prev) => (prev === "idle" ? "connecting" : prev));
+
+    const isLive = await new Promise<boolean>((resolve) => {
+      const waiterId = ++liveSubscriptionWaiterSeqRef.current;
+      const cleanup = () => {
+        liveSubscriptionWaitersRef.current.delete(waiterId);
+      };
+      const timeout = setTimeout(() => {
+        cleanup();
+        const isLiveForCurrentChat =
+          streamLifecycleRef.current === "live" &&
+          connectedChatIdRef.current === activeChatId;
+        resolve(isLiveForCurrentChat);
+      }, LIVE_SUBSCRIPTION_WAIT_TIMEOUT_MS);
+
+      liveSubscriptionWaitersRef.current.set(waiterId, (isLive) => {
+        clearTimeout(timeout);
+        cleanup();
+        resolve(isLive);
+      });
+    });
+    if (!isLive) {
+      chatDebug("stream", "ensureLiveSubscription timed out", {
+        chatId: activeChatId,
+        lifecycle: streamLifecycleRef.current,
+        connStatus: connStatusRef.current,
+        connectedChatId: connectedChatIdRef.current,
+      });
+    }
+    return isLive;
+  }, [readOnly]);
 
   // Apply session state when loaded
   useEffect(() => {
@@ -482,6 +578,31 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           state: messageStateRef.current,
         });
       }
+      // Only mark connectedChatIdRef when the event proves a live runtime
+      // subscription.  "connected" is only emitted for runtime-backed
+      // subscriptions (server-side gate).  "chat_status" with a non-inactive
+      // status also proves live runtime.  Do NOT set on inactive chat_status
+      // to avoid false-positive gating in ensureLiveSubscription.
+      if (event.type === "connected") {
+        connectedChatIdRef.current = activeChatIdRef.current;
+      } else if (
+        event.type === "chat_status" &&
+        "status" in event &&
+        (event as { status?: string }).status !== "inactive"
+      ) {
+        connectedChatIdRef.current = activeChatIdRef.current;
+      }
+      // Any real data event (message, part update, finish) also proves the
+      // subscription is live.  Keep connectedChatIdRef in sync.
+      if (
+        !connectedChatIdRef.current &&
+        activeChatIdRef.current &&
+        (event.type === "ui_message" ||
+          event.type === "ui_message_part" ||
+          event.type === "chat_finish")
+      ) {
+        connectedChatIdRef.current = activeChatIdRef.current;
+      }
       if (event.type === "chat_finish" && !isTurnMatched(event.turnId)) {
         return;
       }
@@ -554,17 +675,17 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
           onFinish,
         }
       );
-      if (
-        event.type === "chat_status" &&
-        event.status === "ready"
-      ) {
+      if (event.type === "chat_status" && event.status === "ready") {
         updateMessageState((prev) => finalizeStreamingMessagesInState(prev));
       }
-      if (
-        event.type === "chat_finish" &&
-        messageStateRef.current.order.length === 0
-      ) {
-        loadHistory(true);
+      if (event.type === "chat_finish") {
+        updateMessageState((prev) => finalizeStreamingMessagesInState(prev));
+        if (messageStateRef.current.order.length === 0) {
+          loadHistory(true);
+        }
+      }
+      if (event.type === "error") {
+        updateMessageState((prev) => finalizeStreamingMessagesInState(prev));
       }
       if (
         event.type === "chat_finish" &&
@@ -594,30 +715,25 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         activeTurnIdRef.current = null;
       }
     },
-    [
-      isTurnMatched,
-      loadHistory,
-      onFinish,
-      onError,
-      updateMessageState,
-    ]
+    [isTurnMatched, loadHistory, onFinish, onError, updateMessageState]
   );
   // Subscription
-  const subscriptionEnabled =
-    !!chatId &&
-    !readOnly &&
-    streamLifecycle !== "idle";
+  const subscriptionEnabled = !!chatId && !readOnly;
   useEffect(() => {
     if (!subscriptionEnabled) {
       return;
     }
     setStreamLifecycle((prev) => nextLifecycleOnSubscriptionStart(prev));
-  }, [subscriptionEnabled]);
+  }, [subscriptionEnabled, subscriptionEpoch]);
   trpc.onSessionEvents.useSubscription(
-    { chatId: chatId || "" },
+    { chatId: chatId || "", subscriptionEpoch },
     {
       enabled: subscriptionEnabled,
       onData(rawEvent: unknown) {
+        const subscribedChatId = chatId ?? null;
+        if (subscribedChatId !== activeChatIdRef.current) {
+          return;
+        }
         const parsedEvent = parseBroadcastEvent(rawEvent);
         if (parsedEvent.status === "ignored_unknown_event") {
           return;
@@ -650,6 +766,10 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
         }
       },
       onError(err) {
+        const subscribedChatId = chatId ?? null;
+        if (subscribedChatId !== activeChatIdRef.current) {
+          return;
+        }
         if (isChatNotFoundError(err)) {
           setStreamLifecycle("idle");
           setConnStatus("idle");
@@ -714,6 +834,17 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       hasLocalModelOverrideRef.current = false;
       hasLocalConfigOverrideRef.current = false;
     },
+    ensureLiveSubscription,
+    bumpSessionEventsEpoch: useCallback(() => {
+      chatDebug(
+        "stream",
+        "bumpSessionEventsEpoch: forcing tRPC subscription remount",
+        { chatId: activeChatIdRef.current }
+      );
+      connectedChatIdRef.current = null;
+      setStreamLifecycle("bootstrapping");
+      setSubscriptionEpoch((prev) => prev + 1);
+    }, []),
   });
   // Derived state
   const isStreaming = isChatBusyStatus(status);

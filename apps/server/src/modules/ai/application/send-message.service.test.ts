@@ -338,6 +338,8 @@ function createChatSession(params: {
     prompt: params.prompt,
     cancel: params.cancel ?? (async () => undefined),
   } as unknown as ChatSession["conn"];
+  const emitter = new EventEmitter();
+  emitter.on("data", () => undefined);
 
   return {
     id: "chat-1",
@@ -346,9 +348,9 @@ function createChatSession(params: {
     conn,
     projectRoot: "/tmp/project",
     sessionId: "acp-session-1",
-    emitter: new EventEmitter(),
+    emitter,
     cwd: "/tmp/project",
-    subscriberCount: 0,
+    subscriberCount: 1,
     messageBuffer: [],
     pendingPermissions: new Map(),
     toolCalls: new Map(),
@@ -508,6 +510,33 @@ describe("SendMessageService", () => {
 
     first.resolve({ stopReason: "end_turn" });
     await flushAsync();
+  });
+
+  test("rejects send when realtime subscriber is not connected", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const session = createChatSession({
+      prompt: async () => ({ stopReason: "end_turn" }),
+    });
+    session.emitter.removeAllListeners("data");
+    session.subscriberCount = 0;
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime);
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        text: "hello",
+      })
+    ).rejects.toMatchObject({
+      code: "SESSION_SUBSCRIPTION_REQUIRED",
+      statusCode: 409,
+    });
+
+    expect(events).toHaveLength(0);
+    expect(repo.appendedMessages).toHaveLength(0);
+    expect(session.activeTurnId).toBeUndefined();
   });
 
   test("serializes same-chat concurrent submits and rejects busy queued submit", async () => {

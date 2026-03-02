@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { resolveSessionBootstrapPhase } from "@/components/chat-ui/chat-bootstrap-phase";
@@ -14,9 +13,7 @@ import {
   Empty,
   EmptyContent,
   EmptyDescription,
-  EmptyHeader,
   EmptyMedia,
-  EmptyTitle,
 } from "@/components/ui/empty";
 import { useChat } from "@/hooks/use-chat";
 import { prepareImageForPrompt } from "@/lib/image-prompt";
@@ -175,7 +172,9 @@ export function ChatInterface({
     }
   );
   useEffect(() => {
-    if (!(sessionsPageQuery.hasNextPage && !sessionsPageQuery.isFetchingNextPage)) {
+    if (
+      !(sessionsPageQuery.hasNextPage && !sessionsPageQuery.isFetchingNextPage)
+    ) {
       return;
     }
     void sessionsPageQuery.fetchNextPage();
@@ -241,6 +240,7 @@ export function ChatInterface({
     promptCapabilities,
     agentInfo: sessionAgentInfo,
     loadSessionSupported,
+    error,
     isResuming,
     hasMoreHistory,
     isLoadingOlderHistory,
@@ -262,8 +262,7 @@ export function ChatInterface({
     onError: handleChatError,
   });
   const messageCount = useChatMessageCount(chatId);
-  const effectiveConnStatus =
-    status === "inactive" ? "idle" : connStatus;
+  const effectiveConnStatus = status === "inactive" ? "idle" : connStatus;
   const selectedSession = useMemo(() => {
     if (!chatId) return undefined;
     return sessionsData.find((session: any) => session.id === chatId);
@@ -295,10 +294,11 @@ export function ChatInterface({
   }, [selectedSession]);
   const resolvedLoadSessionSupported =
     loadSessionSupported ?? selectedSessionLoadSupported;
-  const hasResolvedSessionList =
-    !sessionsPageQuery.isLoading &&
-    !sessionsPageQuery.isFetching &&
-    !sessionsPageQuery.hasNextPage;
+  const hasResolvedSessionList = !(
+    sessionsPageQuery.isLoading ||
+    sessionsPageQuery.isFetching ||
+    sessionsPageQuery.hasNextPage
+  );
   useEffect(() => {
     if (!chatId || selectedSession || !hasResolvedSessionList) {
       return;
@@ -841,13 +841,19 @@ export function ChatInterface({
         }
       }
 
-      const submitted = await sendMessage(message.text, {
+      const result = await sendMessage(message.text, {
         images: images.length > 0 ? images : undefined,
         resources: resources.length > 0 ? resources : undefined,
         resourceLinks: resourceLinks.length > 0 ? resourceLinks : undefined,
       });
-      if (!submitted) {
-        toast.info("Prompt is still running. Draft was kept.");
+      if (!result.submitted) {
+        if (result.error) {
+          toast.error(result.error);
+        } else if (error) {
+          toast.error(error);
+        } else {
+          toast.info("Prompt is still running. Draft was kept.");
+        }
         throw new Error("PROMPT_SUBMIT_REJECTED");
       }
     },
@@ -855,6 +861,7 @@ export function ChatInterface({
       activeProject,
       chatId,
       effectiveConnStatus,
+      error,
       promptCapabilities?.embeddedContext,
       sendMessage,
       utils.getFileContent,
@@ -1003,10 +1010,10 @@ export function ChatInterface({
         agentDisplay={agentDisplay}
         connStatus={effectiveConnStatus}
         isResuming={isResuming}
+        loadNotSupported={resolvedLoadSessionSupported === false}
         onResumeChat={resolvedLoadSessionSupported ? handleResume : undefined}
         onStopChat={handleStopChat}
         projectName={activeProject?.name}
-        loadNotSupported={resolvedLoadSessionSupported === false}
       />
 
       <div className="relative min-h-0 flex-1 overflow-hidden">

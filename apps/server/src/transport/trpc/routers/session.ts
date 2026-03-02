@@ -12,9 +12,10 @@ import { observable } from "@trpc/server/observable";
 import {
   CreateSessionInputSchema,
   DiscoverAgentSessionsInputSchema,
-  LoadAgentSessionInputSchema,
   ListSessionsInputSchema,
+  LoadAgentSessionInputSchema,
   SessionChatIdInputSchema,
+  SessionEventsInputSchema,
   SessionListPageInputSchema,
   SessionMessageByIdInputSchema,
   SessionMessagesPageInputSchema,
@@ -32,7 +33,9 @@ function shouldLogStreamEvent(event: BroadcastEvent): boolean {
   return event.type === "ui_message" || event.type === "ui_message_part";
 }
 
-function buildStreamEventContext(event: BroadcastEvent): Record<string, unknown> {
+function buildStreamEventContext(
+  event: BroadcastEvent
+): Record<string, unknown> {
   if (event.type === "ui_message") {
     return {
       messageId: event.message.id,
@@ -229,7 +232,7 @@ export const sessionRouter = router({
 
   /** Subscribe to real-time session events */
   onSessionEvents: protectedProcedure
-    .input(SessionChatIdInputSchema)
+    .input(SessionEventsInputSchema)
     .subscription(({ input, ctx }) => {
       const service = ctx.sessionServices.subscribeSessionEvents();
       return observable<BroadcastEvent>((emit) => {
@@ -271,10 +274,17 @@ export const sessionRouter = router({
               bufferedEvents: subscription.bufferedEvents.length,
               chatStatus: subscription.chatStatus,
               activeTurnId: subscription.activeTurnId,
+              subscriptionSource: subscription.source,
             });
           }
 
-          emit.next({ type: "connected" });
+          // Only emit "connected" when the subscription is backed by a live
+          // runtime emitter.  Stored-snapshot subscriptions have no runtime
+          // listener; emitting "connected" would trick the client into
+          // thinking the subscription is live for sending prompts.
+          if (subscription.source === "runtime") {
+            emit.next({ type: "connected" });
+          }
           emit.next({
             type: "chat_status",
             status: subscription.chatStatus,
