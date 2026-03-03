@@ -25,6 +25,10 @@ import {
   finalizeStreamingParts,
   getOrCreateAssistantMessage,
 } from "@/shared/utils/ui-message.util";
+import {
+  disposeThrottledBroadcasts,
+  flushThrottledBroadcasts,
+} from "./broadcast-throttle";
 import { broadcastUiMessagePart } from "./ui-message-part";
 import { SessionBuffering as SessionBufferingImpl } from "./update-buffer";
 import { handlePlanUpdate } from "./update-plan";
@@ -44,6 +48,17 @@ async function finalizeStreamingForCurrentAssistant(
   options?: { suppressBroadcast?: boolean }
 ): Promise<void> {
   const suppressBroadcast = options?.suppressBroadcast === true;
+
+  // Flush any throttled streaming broadcasts so the client receives the
+  // last accumulated snapshot *before* any finalize/done events.
+  if (suppressBroadcast) {
+    // When broadcasts are suppressed (replay), discard pending throttled
+    // events to avoid leaking stale snapshots after the replay completes.
+    disposeThrottledBroadcasts(chatId);
+  } else {
+    await flushThrottledBroadcasts(chatId);
+  }
+
   const session = sessionRuntime.get(chatId);
   if (!session) {
     return;
@@ -519,7 +534,10 @@ export function createSessionUpdateHandler(
         if (shouldWarnUnhandledChunkUpdate(update)) {
           logger.warn("ACP chunk update ignored by pipeline", ignoredContext);
         } else if (isDebugEnabled) {
-          logger.debug("ACP session update ignored by pipeline", ignoredContext);
+          logger.debug(
+            "ACP session update ignored by pipeline",
+            ignoredContext
+          );
         }
       }
     });

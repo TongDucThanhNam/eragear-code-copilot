@@ -198,8 +198,8 @@ async function appendAssistantChunk(params: {
 
   if (block.type === "text") {
     // Broadcast full text-part snapshots on every chunk (without delta).
-    // This keeps streaming UX in sync with terminal output while preserving
-    // canonical server-side part assembly.
+    // Throttled to coalesce rapid ACP chunks into fewer WebSocket messages
+    // while keeping streaming UX responsive (~80 ms latency ceiling).
     const nextPartIndex = updatedMessage.parts.length - 1;
     if (nextPartIndex < 0) {
       return;
@@ -211,6 +211,7 @@ async function appendAssistantChunk(params: {
       message: updatedMessage,
       partIndex: nextPartIndex,
       isNew,
+      immediate: false,
     });
     return;
   }
@@ -298,6 +299,7 @@ async function appendAssistantReasoningChunk(params: {
     message: updatedMessage,
     partIndex: nextPartIndex,
     isNew,
+    immediate: false,
   });
 }
 
