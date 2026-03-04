@@ -345,11 +345,24 @@ function buildBufferedEvents(session: ChatSession): {
   );
 
   const activeAssistantId = session.uiState.currentAssistantId;
+  const activeSnapshot = activeAssistantId
+    ? effectiveSnapshots.find((message) => message.id === activeAssistantId)
+    : undefined;
+  const activeSnapshotPartCount = activeSnapshot?.parts.length ?? 0;
   const pendingActiveEvents = activeAssistantId
     ? cloneBroadcastEvents(
         replayEvents.filter((event) => {
-          if (event.type === "ui_message_part") {
-            return event.messageId === activeAssistantId;
+          if (
+            event.type === "ui_message_part" &&
+            event.messageId === activeAssistantId
+          ) {
+            // Snapshot-first replay is authoritative. Re-emitting historical
+            // active-turn part updates that are already represented in the
+            // snapshot can regress the client UI during reconnect.
+            if (activeSnapshotPartCount > 0) {
+              return event.partIndex >= activeSnapshotPartCount;
+            }
+            return true;
           }
           return false;
         })

@@ -238,7 +238,7 @@ describe("use-chat-message-state", () => {
     });
   });
 
-  test("applyPartUpdate does not drop non-new update for out-of-bounds index", () => {
+  test("applyPartUpdate ignores non-new update for out-of-bounds index", () => {
     const initial = replaceMessagesState([createMessage("m1", "part-0")]);
 
     // Simulate non-new update for partIndex 3 when there's only 1 part
@@ -250,12 +250,40 @@ describe("use-chat-message-state", () => {
       isNew: false,
     });
 
-    // Part should be appended (not dropped)
-    expect(updated.byId.get("m1")?.parts).toHaveLength(2);
-    expect(updated.byId.get("m1")?.parts[1]).toMatchObject({
-      type: "text",
-      text: "late-update",
+    // Ignore invalid out-of-bounds non-new updates and wait for snapshot sync.
+    expect(updated).toBe(initial);
+    expect(updated.byId.get("m1")?.parts).toHaveLength(1);
+  });
+
+  test("applyPartUpdate ignores stale reconnect replay that would downgrade part-0", () => {
+    const initial = replaceMessagesState([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "100 tokens", state: "streaming" }],
+      },
+    ]);
+
+    const afterStaleIsNew = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "1", state: "streaming" },
+      isNew: true,
     });
+    expect(afterStaleIsNew).toBe(initial);
+
+    const afterStaleUpdate = applyPartUpdate(afterStaleIsNew, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "12", state: "streaming" },
+      isNew: false,
+    });
+    expect(afterStaleUpdate).toBe(initial);
+    expect(afterStaleUpdate.byId.get("m1")?.parts).toEqual([
+      { type: "text", text: "100 tokens", state: "streaming" },
+    ]);
   });
 
   test("applyPartUpdate still drops negative partIndex", () => {

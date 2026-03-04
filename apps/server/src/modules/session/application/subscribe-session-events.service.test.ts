@@ -334,6 +334,57 @@ describe("SubscribeSessionEventsService", () => {
     });
   });
 
+  test("drops stale active part replay already covered by snapshot", async () => {
+    const uiState = createUiMessageState();
+    const assistantMessage: UIMessage = {
+      id: "msg-active",
+      role: "assistant",
+      parts: [{ type: "text", text: "100 tokens", state: "streaming" }],
+    };
+    uiState.messages.set(assistantMessage.id, assistantMessage);
+    uiState.currentAssistantId = assistantMessage.id;
+    const session = createSession({
+      uiState,
+      messageBuffer: [
+        {
+          type: "ui_message_part",
+          messageId: assistantMessage.id,
+          messageRole: "assistant",
+          partIndex: 0,
+          part: { type: "text", text: "1", state: "streaming" },
+          isNew: true,
+        },
+        {
+          type: "ui_message_part",
+          messageId: assistantMessage.id,
+          messageRole: "assistant",
+          partIndex: 1,
+          part: { type: "reasoning", text: "tail", state: "streaming" },
+          isNew: true,
+        },
+      ],
+    });
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+
+    const subscription = await service.execute("user-1", "chat-1");
+
+    expect(subscription.bufferedEvents).toEqual([
+      {
+        type: "ui_message",
+        message: assistantMessage,
+      },
+      {
+        type: "ui_message_part",
+        messageId: assistantMessage.id,
+        messageRole: "assistant",
+        partIndex: 1,
+        part: { type: "reasoning", text: "tail", state: "streaming" },
+        isNew: true,
+      },
+    ]);
+  });
+
   test("returns inactive snapshot when runtime is missing but session exists in storage", async () => {
     const lockDepthByChat = new Map<string, number>();
     const runtime = {

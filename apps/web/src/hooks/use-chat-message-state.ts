@@ -35,6 +35,49 @@ function areStructurallyEqualParts(
   }
 }
 
+const TOOL_PART_STATE_RANK: Record<string, number> = {
+  "input-streaming": 1,
+  "input-available": 2,
+  "approval-requested": 3,
+  "approval-responded": 4,
+  "output-available": 5,
+  "output-error": 5,
+  "output-denied": 5,
+};
+
+function shouldKeepExistingPart(
+  existing: UIMessage["parts"][number],
+  incoming: UIMessage["parts"][number]
+): boolean {
+  if (existing.type !== incoming.type) {
+    return true;
+  }
+
+  if (
+    (existing.type === "text" || existing.type === "reasoning") &&
+    (incoming.type === "text" || incoming.type === "reasoning")
+  ) {
+    const existingDone = existing.state === "done";
+    const incomingDone = incoming.state === "done";
+    if (existingDone && !incomingDone) {
+      return true;
+    }
+    return existing.text.length > incoming.text.length;
+  }
+
+  if (existing.type.startsWith("tool-") && incoming.type.startsWith("tool-")) {
+    const existingState = (existing as { state?: string }).state;
+    const incomingState = (incoming as { state?: string }).state;
+    if (typeof existingState === "string" && typeof incomingState === "string") {
+      const existingRank = TOOL_PART_STATE_RANK[existingState] ?? 0;
+      const incomingRank = TOOL_PART_STATE_RANK[incomingState] ?? 0;
+      return existingRank > incomingRank;
+    }
+  }
+
+  return false;
+}
+
 export const createEmptyMessageState = (): MessageState => ({
   byId: new Map<string, UIMessage>(),
   order: [],
@@ -208,8 +251,9 @@ export const upsertMessageIntoState = (
 ): MessageState => mergeMessagesIntoState(state, [message]);
 
 /**
- * Apply part-level stream updates. Out-of-order parts are appended and later
- * corrected by the next `ui_message` snapshot.
+ * Apply part-level stream updates. If an update cannot be applied safely
+ * without regressing already newer state, keep the current state and wait for
+ * the next authoritative `ui_message` snapshot.
  */
 export const applyPartUpdate = (
   state: MessageState,
@@ -232,41 +276,58 @@ export const applyPartUpdate = (
   }
 
   const nextParts = [...existing.parts];
+  let changed = false;
   if (update.isNew) {
     if (update.partIndex < 0) {
       return state;
     }
     if (update.partIndex === nextParts.length) {
       nextParts.push(update.part);
+      changed = true;
     } else if (update.partIndex < nextParts.length) {
       const existingPart = nextParts[update.partIndex];
       if (existingPart && areStructurallyEqualParts(existingPart, update.part)) {
         nextParts[update.partIndex] = update.part;
+        changed = existingPart !== update.part;
       } else {
-        // Collision means events arrived out-of-order. Append instead of
-        // inserting, so existing indices stay stable and React avoids reflow
-        // from index-shift. A later full ui_message snapshot remains
-        // authoritative for exact ordering.
-        nextParts.push(update.part);
+        if (existingPart && shouldKeepExistingPart(existingPart, update.part)) {
+          if (update.partIndex === 0) {
+            return state;
+          }
+          nextParts.push(update.part);
+          changed = true;
+        } else {
+          nextParts[update.partIndex] = update.part;
+          changed = true;
+        }
       }
     } else {
-      // Out-of-order: index beyond current array length.
-      // Append to end to avoid data loss; the full ui_message
-      // snapshot will correct the position.
+      // Out-of-order isNew update beyond current array length.
       nextParts.push(update.part);
+      changed = true;
     }
   } else {
     if (update.partIndex < 0) {
       return state;
     }
     if (update.partIndex < nextParts.length) {
+      const existingPart = nextParts[update.partIndex];
+      if (
+        existingPart &&
+        !areStructurallyEqualParts(existingPart, update.part) &&
+        shouldKeepExistingPart(existingPart, update.part)
+      ) {
+        return state;
+      }
       nextParts[update.partIndex] = update.part;
+      changed = existingPart !== update.part;
     } else {
-      // Out-of-order: part doesn't exist at this index yet.
-      // Append to avoid data loss; the full ui_message
-      // snapshot will correct the position.
-      nextParts.push(update.part);
+      return state;
     }
+  }
+
+  if (!changed) {
+    return state;
   }
 
   const nextMessage: UIMessage = {
