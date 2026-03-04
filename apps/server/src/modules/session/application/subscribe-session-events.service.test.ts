@@ -324,7 +324,7 @@ describe("SubscribeSessionEventsService", () => {
       type: "ui_message",
       message: assistantMessage,
     });
-    expect(subscription.bufferedEvents[1]).toEqual({
+    expect(subscription.bufferedEvents[1]).toMatchObject({
       type: "ui_message_part",
       messageId: assistantMessage.id,
       messageRole: "assistant",
@@ -332,6 +332,10 @@ describe("SubscribeSessionEventsService", () => {
       part: { type: "reasoning", text: "done", state: "done" },
       isNew: true,
     });
+    const replayPart = subscription.bufferedEvents[1];
+    if (replayPart?.type === "ui_message_part") {
+      expect(replayPart.partId).toEqual(expect.any(String));
+    }
   });
 
   test("drops stale active part replay already covered by snapshot", async () => {
@@ -369,20 +373,23 @@ describe("SubscribeSessionEventsService", () => {
 
     const subscription = await service.execute("user-1", "chat-1");
 
-    expect(subscription.bufferedEvents).toEqual([
-      {
-        type: "ui_message",
-        message: assistantMessage,
-      },
-      {
-        type: "ui_message_part",
-        messageId: assistantMessage.id,
-        messageRole: "assistant",
-        partIndex: 1,
-        part: { type: "reasoning", text: "tail", state: "streaming" },
-        isNew: true,
-      },
-    ]);
+    expect(subscription.bufferedEvents[0]).toEqual({
+      type: "ui_message",
+      message: assistantMessage,
+    });
+    expect(subscription.bufferedEvents[1]).toMatchObject({
+      type: "ui_message_part",
+      messageId: assistantMessage.id,
+      messageRole: "assistant",
+      partIndex: 1,
+      part: { type: "reasoning", text: "tail", state: "streaming" },
+      isNew: true,
+    });
+    const staleReplayPart = subscription.bufferedEvents[1];
+    if (staleReplayPart?.type === "ui_message_part") {
+      expect(staleReplayPart.partId).toEqual(expect.any(String));
+    }
+    expect(subscription.bufferedEvents).toHaveLength(2);
   });
 
   test("returns inactive snapshot when runtime is missing but session exists in storage", async () => {

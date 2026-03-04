@@ -169,6 +169,16 @@ const CHAT_STATUS_SCHEMA = z.enum([
   "error",
 ]);
 
+const PART_ID_MAX_LENGTH = 256;
+const PART_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
+const PART_ID_SCHEMA = z
+  .string()
+  .min(1)
+  .max(PART_ID_MAX_LENGTH)
+  .refine((value) => PART_ID_PATTERN.test(value), {
+    message: "Invalid partId format",
+  });
+
 const AVAILABLE_COMMAND_SCHEMA = z
   .object({
     name: z.string(),
@@ -213,6 +223,7 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
       type: z.literal("ui_message_part"),
       messageId: z.string(),
       messageRole: z.enum(["system", "user", "assistant"]),
+      partId: PART_ID_SCHEMA.optional(),
       partIndex: z.number().int().nonnegative(),
       part: UI_MESSAGE_PART_SCHEMA,
       isNew: z.boolean(),

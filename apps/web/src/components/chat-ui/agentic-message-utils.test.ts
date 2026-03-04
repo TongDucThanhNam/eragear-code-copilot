@@ -1,5 +1,8 @@
+import type { UIMessagePart } from "@repo/shared";
 import { describe, expect, test } from "bun:test";
 import {
+  deduplicateKeys,
+  getPartKey,
   parseToolOutput,
   resolveAssistantFinalVisibility,
 } from "./agentic-message-utils";
@@ -60,5 +63,66 @@ describe("resolveAssistantFinalVisibility", () => {
     expect(visibility.showFinalText).toBe(false);
     expect(visibility.showFinalAttachments).toBe(false);
     expect(visibility.shouldRenderFinal).toBe(false);
+  });
+});
+
+describe("deduplicateKeys", () => {
+  test("uses deterministic ordinal suffixes for repeated base keys", () => {
+    const items: UIMessagePart[] = [
+      { type: "text", text: "line-1", state: "streaming" },
+      { type: "text", text: "line-2", state: "streaming" },
+      { type: "reasoning", text: "plan", state: "streaming" },
+      { type: "reasoning", text: "next", state: "streaming" },
+    ];
+
+    expect(deduplicateKeys(items)).toEqual([
+      "text#0",
+      "text#1",
+      "reasoning#0",
+      "reasoning#1",
+    ]);
+  });
+
+  test("keeps keys stable for existing items when prepending a different part type", () => {
+    const toolA: UIMessagePart = {
+      type: "tool-bash",
+      toolCallId: "tool-a",
+      state: "output-available",
+      input: { cmd: "echo a" },
+      output: "ok",
+    };
+    const toolB: UIMessagePart = {
+      type: "tool-bash",
+      toolCallId: "tool-b",
+      state: "output-available",
+      input: { cmd: "echo b" },
+      output: "ok",
+    };
+    const before: UIMessagePart[] = [
+      { type: "text", text: "line-1", state: "streaming" },
+      toolA,
+      { type: "text", text: "line-2", state: "streaming" },
+    ];
+    const after: UIMessagePart[] = [toolB, ...before];
+
+    const beforeKeys = deduplicateKeys(before, getPartKey);
+    const afterKeys = deduplicateKeys(after, getPartKey);
+
+    expect(beforeKeys[0]).toBe(afterKeys[1]);
+    expect(beforeKeys[1]).toBe(afterKeys[2]);
+    expect(beforeKeys[2]).toBe(afterKeys[3]);
+  });
+
+  test("prefers server-provided part id when available", () => {
+    const items: UIMessagePart[] = [
+      {
+        type: "text",
+        text: "line-1",
+        state: "streaming",
+        id: "part-server-1",
+      } as UIMessagePart,
+    ];
+
+    expect(deduplicateKeys(items, getPartKey)).toEqual(["part:part-server-1#0"]);
   });
 });

@@ -16,6 +16,7 @@ import {
   setChatFinishMessage,
 } from "@/shared/utils/chat-events.util";
 import { createId } from "@/shared/utils/id.util";
+import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
 import {
   appendReasoningBlock,
   buildAssistantMessageFromBlocks,
@@ -668,14 +669,15 @@ export class PromptTaskRunner {
                 ? updatedAssistantMessage.parts[partIndex]
                 : undefined;
             if (partIndex >= 0 && part) {
-              await broadcast(chatId, {
-                type: "ui_message_part",
-                messageId: updatedAssistantMessage.id,
-                messageRole: updatedAssistantMessage.role,
+              const partEvent = buildUiMessagePartEvent({
+                chatId,
+                message: updatedAssistantMessage,
                 partIndex,
-                part,
                 isNew,
               });
+              if (partEvent) {
+                await broadcast(chatId, partEvent);
+              }
             }
           }
         }
@@ -723,14 +725,15 @@ export class PromptTaskRunner {
             if (!(previousPart && nextPart) || previousPart === nextPart) {
               continue;
             }
-            await broadcast(chatId, {
-              type: "ui_message_part",
-              messageId: finalizedMessage.id,
-              messageRole: finalizedMessage.role,
+            const partEvent = buildUiMessagePartEvent({
+              chatId,
+              message: finalizedMessage,
               partIndex: index,
-              part: nextPart,
               isNew: false,
             });
+            if (partEvent) {
+              await broadcast(chatId, partEvent);
+            }
           }
         }
         this.logger.debug("SendMessageService finalized streaming message", {

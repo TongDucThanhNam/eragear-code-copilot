@@ -29,7 +29,9 @@ function createSession(chatId: string): ChatSession {
 function createRuntime(
   session: ChatSession,
   events: BroadcastEvent[] = []
-): SessionRuntimePort {
+): SessionRuntimePort & { runExclusiveCalls: number } {
+  const heldLocks = new Set<string>();
+  let runExclusiveCalls = 0;
   return {
     get: (chatId: string) => (chatId === session.id ? session : undefined),
     set: () => undefined,
@@ -37,12 +39,23 @@ function createRuntime(
     deleteIfMatch: () => true,
     has: () => true,
     getAll: () => [session],
-    runExclusive: async (_chatId, work) => await work(),
-    isLockHeld: () => true,
+    runExclusive: async (chatId, work) => {
+      runExclusiveCalls += 1;
+      heldLocks.add(chatId);
+      try {
+        return await work();
+      } finally {
+        heldLocks.delete(chatId);
+      }
+    },
+    isLockHeld: (chatId) => heldLocks.has(chatId),
     broadcast: async (_chatId, event) => {
       events.push(event);
     },
-  } as SessionRuntimePort;
+    get runExclusiveCalls() {
+      return runExclusiveCalls;
+    },
+  } as SessionRuntimePort & { runExclusiveCalls: number };
 }
 
 describe("createPermissionHandler", () => {
@@ -91,6 +104,44 @@ describe("createPermissionHandler", () => {
       )
     ).toBe(true);
     expect(events.some((event) => event.type === "ui_message")).toBe(false);
+
+    const pendingEntry = Array.from(session.pendingPermissions.values())[0];
+    if (!pendingEntry) {
+      throw new Error("Expected pending permission entry");
+    }
+    pendingEntry.resolve({
+      outcome: { outcome: "selected", optionId: "allow_once" },
+    });
+    await expect(responsePromise).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "allow_once" },
+    });
+  });
+
+  test("releases runtime lock while waiting for user decision", async () => {
+    const session = createSession("chat-2");
+    const runtime = createRuntime(session);
+    const handler = createPermissionHandler(runtime);
+
+    const responsePromise = handler({
+      chatId: "chat-2",
+      isReplayingHistory: false,
+      request: {
+        sessionId: "session-2",
+        toolCall: {
+          toolCallId: "tool-2",
+          kind: "execute",
+          title: "Run command",
+          rawInput: { command: "pwd" },
+        },
+        options: [{ optionId: "allow_once", kind: "allow_once", name: "Allow" }],
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(runtime.runExclusiveCalls).toBeGreaterThan(0);
+    expect(runtime.isLockHeld("chat-2")).toBe(false);
+    expect(session.pendingPermissions.size).toBe(1);
 
     const pendingEntry = Array.from(session.pendingPermissions.values())[0];
     if (!pendingEntry) {

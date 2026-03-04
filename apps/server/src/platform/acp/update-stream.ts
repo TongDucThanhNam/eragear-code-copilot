@@ -1,7 +1,10 @@
 import type { SessionRuntimePort } from "@/modules/session";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
-import { toStoredContentBlock } from "@/shared/utils/content-block.util";
+import {
+  toStoredContentBlock,
+  type StoredContentContext,
+} from "@/shared/utils/content-block.util";
 import {
   appendContentBlock,
   appendReasoningBlock,
@@ -68,14 +71,19 @@ function readUpdateTurnId(update: SessionUpdate): string | undefined {
   return sanitizeTurnId(asRecord.turnId) ?? readTurnIdFromMeta(asRecord._meta);
 }
 
-function appendAcceptedAgentChunkToBuffer(context: SessionUpdateContext): void {
+function appendAcceptedAgentChunkToBuffer(
+  context: SessionUpdateContext,
+  storedContentContext: StoredContentContext
+): void {
   const { buffer, update } = context;
   if (update.sessionUpdate === "agent_message_chunk") {
-    buffer.appendContent(toStoredContentBlock(update.content));
+    buffer.appendContent(toStoredContentBlock(update.content, storedContentContext));
     return;
   }
   if (update.sessionUpdate === "agent_thought_chunk") {
-    buffer.appendReasoning(toStoredContentBlock(update.content));
+    buffer.appendReasoning(
+      toStoredContentBlock(update.content, storedContentContext)
+    );
   }
 }
 
@@ -95,6 +103,10 @@ async function handleUiChunkUpdate(
   if (!session) {
     return false;
   }
+  const storedContentContext: StoredContentContext = {
+    userId: session.userId,
+    chatId,
+  };
 
   if (
     update.sessionUpdate !== "agent_message_chunk" &&
@@ -136,7 +148,7 @@ async function handleUiChunkUpdate(
     buffer.reset();
 
     const message = getOrCreateUserMessage(session.uiState);
-    const block = toStoredContentBlock(update.content);
+    const block = toStoredContentBlock(update.content, storedContentContext);
     const partState = isReplayingHistory ? "done" : "streaming";
     const providerMetadata = buildProviderMetadataFromMeta(
       "_meta" in update ? update._meta : undefined
@@ -159,7 +171,7 @@ async function handleUiChunkUpdate(
     return true;
   }
 
-  appendAcceptedAgentChunkToBuffer(context);
+  appendAcceptedAgentChunkToBuffer(context, storedContentContext);
   const preferredMessageId = session.uiState.currentAssistantId;
   await updateAssistantChunkType({
     chatId,
@@ -186,6 +198,7 @@ async function handleUiChunkUpdate(
       partState,
       providerMetadata,
       sessionRuntime,
+      storedContentContext,
     });
     // Prevent duplicate reasoning append when chunk type transitions/finalizes.
     buffer.consumePendingReasoning();
@@ -202,6 +215,7 @@ async function handleUiChunkUpdate(
     partState,
     providerMetadata,
     sessionRuntime,
+    storedContentContext,
   });
   return true;
 }
@@ -218,6 +232,7 @@ async function appendAssistantChunk(params: {
     | ReturnType<typeof buildProviderMetadataFromMeta>
     | undefined;
   sessionRuntime: SessionUpdateContext["sessionRuntime"];
+  storedContentContext: StoredContentContext;
 }): Promise<void> {
   const {
     chatId,
@@ -229,12 +244,13 @@ async function appendAssistantChunk(params: {
     partState,
     providerMetadata,
     sessionRuntime,
+    storedContentContext,
   } = params;
 
   const messageId = buffer.ensureMessageId(preferredMessageId);
   const message = getOrCreateAssistantMessage(session.uiState, messageId);
   const previousPartsLength = message.parts.length;
-  const block = toStoredContentBlock(update.content);
+  const block = toStoredContentBlock(update.content, storedContentContext);
   const updatedMessage = appendContentBlock(
     message,
     block,
@@ -310,6 +326,7 @@ async function appendAssistantReasoningChunk(params: {
     | ReturnType<typeof buildProviderMetadataFromMeta>
     | undefined;
   sessionRuntime: SessionUpdateContext["sessionRuntime"];
+  storedContentContext: StoredContentContext;
 }): Promise<void> {
   const {
     chatId,
@@ -321,12 +338,13 @@ async function appendAssistantReasoningChunk(params: {
     partState,
     providerMetadata,
     sessionRuntime,
+    storedContentContext,
   } = params;
 
   const messageId = buffer.ensureMessageId(preferredMessageId);
   const message = getOrCreateAssistantMessage(session.uiState, messageId);
   const previousPartsLength = message.parts.length;
-  const block = toStoredContentBlock(update.content);
+  const block = toStoredContentBlock(update.content, storedContentContext);
   const updatedMessage = appendReasoningBlock(
     message,
     block,

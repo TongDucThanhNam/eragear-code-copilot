@@ -235,7 +235,10 @@ export class SendMessageService {
           resources: input.resources,
           resourceLinks: input.resourceLinks,
         });
-        const storedPromptBlocks = toStoredContentBlocks(prompt);
+        const storedPromptBlocks = toStoredContentBlocks(prompt, {
+          userId: input.userId,
+          chatId: input.chatId,
+        });
         const uiMessage = buildUserMessageFromBlocks({
           messageId,
           contentBlocks: storedPromptBlocks,

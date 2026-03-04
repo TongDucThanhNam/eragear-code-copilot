@@ -12,6 +12,7 @@ import {
   cloneBroadcastEvents,
 } from "@/shared/utils/broadcast-event.util";
 import { reconcileChatStatusForSubscription } from "@/shared/utils/chat-events.util";
+import { ensureUiMessagePartEventPartId } from "@/shared/utils/ui-message-part-event.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 import { assertSessionMutationLock } from "./session-runtime-lock.assert";
@@ -269,6 +270,7 @@ function buildStreamEventContext(
   if (event.type === "ui_message_part") {
     return {
       messageId: event.messageId,
+      partId: event.partId,
       partIndex: event.partIndex,
       isNew: event.isNew,
       partType: event.part.type,
@@ -350,23 +352,23 @@ function buildBufferedEvents(session: ChatSession): {
     : undefined;
   const activeSnapshotPartCount = activeSnapshot?.parts.length ?? 0;
   const pendingActiveEvents = activeAssistantId
-    ? cloneBroadcastEvents(
-        replayEvents.filter((event) => {
-          if (
-            event.type === "ui_message_part" &&
-            event.messageId === activeAssistantId
-          ) {
-            // Snapshot-first replay is authoritative. Re-emitting historical
-            // active-turn part updates that are already represented in the
-            // snapshot can regress the client UI during reconnect.
-            if (activeSnapshotPartCount > 0) {
-              return event.partIndex >= activeSnapshotPartCount;
-            }
-            return true;
-          }
-          return false;
-        })
-      )
+    ? replayEvents.flatMap((event) => {
+        if (
+          event.type !== "ui_message_part" ||
+          event.messageId !== activeAssistantId
+        ) {
+          return [];
+        }
+        // Snapshot-first replay is authoritative. Re-emitting historical
+        // active-turn part updates that are already represented in the
+        // snapshot can regress the client UI during reconnect.
+        if (activeSnapshotPartCount > 0 && event.partIndex < activeSnapshotPartCount) {
+          return [];
+        }
+        return [
+          cloneBroadcastEvent(ensureUiMessagePartEventPartId(session.id, event)),
+        ];
+      })
     : [];
 
   const hasActiveSnapshotInReplay = replayEvents.some(

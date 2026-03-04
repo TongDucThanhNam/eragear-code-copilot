@@ -15,6 +15,7 @@ export interface MessageState {
 export interface MessagePartUpdateChunk {
   messageId: string;
   messageRole: UIMessage["role"];
+  partId?: string;
   partIndex: number;
   part: UIMessage["parts"][number];
   isNew: boolean;
@@ -76,6 +77,27 @@ function shouldKeepExistingPart(
   }
 
   return false;
+}
+
+function readPartId(part: UIMessage["parts"][number]): string | undefined {
+  const id = (part as { id?: unknown }).id;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
+function attachPartId(
+  part: UIMessage["parts"][number],
+  partId?: string
+): UIMessage["parts"][number] {
+  if (!(typeof partId === "string" && partId.length > 0)) {
+    return part;
+  }
+  if (readPartId(part) === partId) {
+    return part;
+  }
+  return {
+    ...(part as Record<string, unknown>),
+    id: partId,
+  } as UIMessage["parts"][number];
 }
 
 export const createEmptyMessageState = (): MessageState => ({
@@ -267,7 +289,7 @@ export const applyPartUpdate = (
     const created: UIMessage = {
       id: update.messageId,
       role: update.messageRole,
-      parts: [update.part],
+      parts: [attachPartId(update.part, update.partId)],
       ...(typeof update.createdAt === "number"
         ? { createdAt: update.createdAt }
         : {}),
@@ -276,34 +298,36 @@ export const applyPartUpdate = (
   }
 
   const nextParts = [...existing.parts];
+  const incomingPart = attachPartId(update.part, update.partId);
   let changed = false;
   if (update.isNew) {
     if (update.partIndex < 0) {
       return state;
     }
     if (update.partIndex === nextParts.length) {
-      nextParts.push(update.part);
+      nextParts.push(incomingPart);
       changed = true;
     } else if (update.partIndex < nextParts.length) {
       const existingPart = nextParts[update.partIndex];
-      if (existingPart && areStructurallyEqualParts(existingPart, update.part)) {
-        nextParts[update.partIndex] = update.part;
-        changed = existingPart !== update.part;
+      if (existingPart && areStructurallyEqualParts(existingPart, incomingPart)) {
+        const nextPart = attachPartId(incomingPart, readPartId(existingPart));
+        nextParts[update.partIndex] = nextPart;
+        changed = existingPart !== nextPart;
       } else {
-        if (existingPart && shouldKeepExistingPart(existingPart, update.part)) {
+        if (existingPart && shouldKeepExistingPart(existingPart, incomingPart)) {
           if (update.partIndex === 0) {
             return state;
           }
-          nextParts.push(update.part);
+          nextParts.push(incomingPart);
           changed = true;
         } else {
-          nextParts[update.partIndex] = update.part;
+          nextParts[update.partIndex] = incomingPart;
           changed = true;
         }
       }
     } else {
       // Out-of-order isNew update beyond current array length.
-      nextParts.push(update.part);
+      nextParts.push(incomingPart);
       changed = true;
     }
   } else {
@@ -314,13 +338,14 @@ export const applyPartUpdate = (
       const existingPart = nextParts[update.partIndex];
       if (
         existingPart &&
-        !areStructurallyEqualParts(existingPart, update.part) &&
-        shouldKeepExistingPart(existingPart, update.part)
+        !areStructurallyEqualParts(existingPart, incomingPart) &&
+        shouldKeepExistingPart(existingPart, incomingPart)
       ) {
         return state;
       }
-      nextParts[update.partIndex] = update.part;
-      changed = existingPart !== update.part;
+      const nextPart = attachPartId(incomingPart, readPartId(existingPart));
+      nextParts[update.partIndex] = nextPart;
+      changed = existingPart !== nextPart;
     } else {
       return state;
     }

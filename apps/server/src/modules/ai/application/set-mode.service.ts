@@ -31,6 +31,7 @@ export class SetModeService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;
   private readonly policy: ModeSwitchPolicy;
+  private readonly modeSwitchTails = new Map<string, Promise<void>>();
 
   constructor(
     sessionRuntime: SessionRuntimePort,
@@ -49,28 +50,74 @@ export class SetModeService {
   }
 
   async execute(userId: string, chatId: string, modeId: string) {
-    return await this.sessionRuntime.runExclusive(chatId, async () => {
-      assertSessionMutationLock({
-        sessionRuntime: this.sessionRuntime,
-        chatId,
-        op: OP,
-      });
-      const aggregate = this.getRuntimeForModeSwitch(userId, chatId, modeId);
-      const session = aggregate.raw;
-
-      this.sessionGateway.assertSessionRunning({
-        chatId,
-        session,
-        module: "ai",
-        op: OP,
-        details: { modeId },
+    return await this.runModeSwitchSerialized(chatId, async () => {
+      const session = await this.sessionRuntime.runExclusive(chatId, async () => {
+        assertSessionMutationLock({
+          sessionRuntime: this.sessionRuntime,
+          chatId,
+          op: OP,
+        });
+        const aggregate = this.getRuntimeForModeSwitch(userId, chatId, modeId);
+        const currentSession = aggregate.raw;
+        this.sessionGateway.assertSessionRunning({
+          chatId,
+          session: currentSession,
+          module: "ai",
+          op: OP,
+          details: { modeId },
+        });
+        return currentSession;
       });
 
       await this.sendModeSwitchWithRetry(chatId, modeId, session);
 
-      aggregate.setCurrentMode(modeId);
-      return { ok: true };
+      return await this.sessionRuntime.runExclusive(chatId, async () => {
+        assertSessionMutationLock({
+          sessionRuntime: this.sessionRuntime,
+          chatId,
+          op: OP,
+        });
+        const aggregate = this.getRuntimeForModeSwitch(userId, chatId, modeId);
+        if (aggregate.raw !== session) {
+          throw new AppError({
+            message:
+              "Session runtime changed while switching mode; please retry",
+            code: "SESSION_RUNTIME_CHANGED",
+            statusCode: HTTP_STATUS.CONFLICT,
+            module: "ai",
+            op: OP,
+            details: { chatId, modeId },
+          });
+        }
+        aggregate.setCurrentMode(modeId);
+        return { ok: true };
+      });
     });
+  }
+
+  private async runModeSwitchSerialized<T>(
+    chatId: string,
+    work: () => Promise<T>
+  ): Promise<T> {
+    const previousTail = this.modeSwitchTails.get(chatId) ?? Promise.resolve();
+    let releaseTail: () => void = () => undefined;
+    const lockSignal = new Promise<void>((resolve) => {
+      releaseTail = resolve;
+    });
+    const nextTail = previousTail.then(
+      () => lockSignal,
+      () => lockSignal
+    );
+    this.modeSwitchTails.set(chatId, nextTail);
+    await previousTail.catch(() => undefined);
+    try {
+      return await work();
+    } finally {
+      releaseTail();
+      if (this.modeSwitchTails.get(chatId) === nextTail) {
+        this.modeSwitchTails.delete(chatId);
+      }
+    }
   }
 
   private getRuntimeForModeSwitch(

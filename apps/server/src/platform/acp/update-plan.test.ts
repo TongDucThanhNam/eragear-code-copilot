@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type {
   SessionRepositoryPort,
   SessionRuntimePort,
@@ -6,7 +6,10 @@ import type {
 import type { ChatSession, Plan } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { SessionBuffering } from "./update";
-import { handlePlanUpdate } from "./update-plan";
+import {
+  flushPendingPlanPersistenceForTests,
+  handlePlanUpdate,
+} from "./update-plan";
 
 function createSession(chatId: string): ChatSession {
   return {
@@ -72,6 +75,10 @@ function createPlan(
 }
 
 describe("handlePlanUpdate", () => {
+  afterEach(async () => {
+    await flushPendingPlanPersistenceForTests();
+  });
+
   test("broadcasts when only content text changes", async () => {
     const session = createSession("chat-plan-content");
     session.plan = createPlan("old content", "pending");
@@ -96,6 +103,7 @@ describe("handlePlanUpdate", () => {
     expect(handled).toBe(true);
     expect(broadcasts.length).toBe(1);
     expect((broadcasts[0] as { type?: string })?.type).toBe("ui_message_part");
+    await flushPendingPlanPersistenceForTests(session.id);
     expect(metadataCalls.length).toBe(1);
   });
 
@@ -103,7 +111,7 @@ describe("handlePlanUpdate", () => {
     const session = createSession("chat-plan-status");
     session.plan = createPlan("same content", "pending");
     const { runtime, broadcasts } = createRuntimeStub(session);
-    const { repo } = createRepoStub();
+    const { repo, metadataCalls } = createRepoStub();
 
     await handlePlanUpdate({
       chatId: session.id,
@@ -126,13 +134,15 @@ describe("handlePlanUpdate", () => {
 
     expect(broadcasts.length).toBe(1);
     expect((broadcasts[0] as { type?: string })?.type).toBe("ui_message_part");
+    await flushPendingPlanPersistenceForTests(session.id);
+    expect(metadataCalls.length).toBe(1);
   });
 
   test("suppresses broadcast for deeply identical plan payload", async () => {
     const session = createSession("chat-plan-identical");
     session.plan = createPlan("same content", "pending");
     const { runtime, broadcasts } = createRuntimeStub(session);
-    const { repo } = createRepoStub();
+    const { repo, metadataCalls } = createRepoStub();
 
     await handlePlanUpdate({
       chatId: session.id,
@@ -150,5 +160,7 @@ describe("handlePlanUpdate", () => {
     });
 
     expect(broadcasts.length).toBe(0);
+    await flushPendingPlanPersistenceForTests(session.id);
+    expect(metadataCalls.length).toBe(0);
   });
 });

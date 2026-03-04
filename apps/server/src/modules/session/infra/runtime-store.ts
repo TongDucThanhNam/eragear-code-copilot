@@ -12,6 +12,7 @@ import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { cloneBroadcastEvent } from "@/shared/utils/broadcast-event.util";
+import { clearUiMessagePartEventCache } from "@/shared/utils/ui-message-part-event.util";
 import type { SessionEventOutboxPort } from "../application/ports/session-event-outbox.port";
 import type {
   SessionBroadcastOptions,
@@ -45,6 +46,7 @@ function buildStreamEventContext(
   if (event.type === "ui_message_part") {
     return {
       messageId: event.messageId,
+      partId: event.partId,
       partIndex: event.partIndex,
       isNew: event.isNew,
       partType: event.part.type,
@@ -199,6 +201,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     this.chatLockTails.delete(chatId);
     this.queuedMutationsPerChat.delete(chatId);
     this.lastQueuePressureLogAt.delete(chatId);
+    clearUiMessagePartEventCache(chatId);
     this.resolveQueuedMutationWaiters(chatId);
   }
 

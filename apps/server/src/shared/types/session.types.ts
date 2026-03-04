@@ -287,9 +287,11 @@ export type BroadcastEvent =
       type: "ui_message_part";
       messageId: string;
       messageRole: UIMessageRole;
+      partId?: string;
       partIndex: number;
       part: UIMessagePart;
       isNew: boolean;
+      createdAt?: number;
     }
   /**
    * @deprecated Legacy incremental stream event kept for backward

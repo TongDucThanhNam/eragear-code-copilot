@@ -1,5 +1,6 @@
 import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
+import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
 import { scheduleThrottledBroadcast } from "./broadcast-throttle";
 
 /**
@@ -40,24 +41,15 @@ export async function broadcastUiMessagePart(params: {
     isNew,
     immediate = true,
   } = params;
-  const part = message.parts[partIndex];
-  if (!part) {
+  const event = buildUiMessagePartEvent({
+    chatId,
+    message,
+    partIndex,
+    isNew,
+  });
+  if (!event) {
     return;
   }
-
-  const event = {
-    type: "ui_message_part" as const,
-    messageId: message.id,
-    messageRole: message.role,
-    partIndex,
-    part,
-    isNew,
-    // Include createdAt so clients can order messages during streaming
-    // without waiting for the chat_finish snapshot.
-    ...(typeof message.createdAt === "number"
-      ? { createdAt: message.createdAt }
-      : {}),
-  };
 
   const options = {
     durable: false,

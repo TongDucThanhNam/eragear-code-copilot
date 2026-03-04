@@ -286,6 +286,32 @@ describe("use-chat-message-state", () => {
     ]);
   });
 
+  test("applyPartUpdate stores server partId for stable client keys", () => {
+    const initial = replaceMessagesState([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "one", state: "streaming" }],
+      },
+    ]);
+    const updated = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partId: "part-msg1-0",
+      partIndex: 0,
+      part: { type: "text", text: "one-updated", state: "streaming" },
+      isNew: false,
+    });
+
+    const storedPart = updated.byId.get("m1")?.parts[0];
+    expect(storedPart).toMatchObject({
+      type: "text",
+      text: "one-updated",
+      state: "streaming",
+    });
+    expect((storedPart as { id?: unknown } | undefined)?.id).toBe("part-msg1-0");
+  });
+
   test("applyPartUpdate still drops negative partIndex", () => {
     const initial = replaceMessagesState([createMessage("m1", "one")]);
 

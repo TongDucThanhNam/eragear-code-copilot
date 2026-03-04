@@ -99,7 +99,8 @@ normalize JSON. Live terminal output vẫn stream qua event `terminal_output`.
 - `data-permission-options`:
   - `{ requestId, toolCallId, options }`
 - `data-resource`:
-  - `{ uri, mimeType, text?, blob?, _meta?, annotations?, resourceMeta? }`
+  - `{ uri, mimeType, text?, blob?, blobOmitted?, blobBase64Length?, maxInlineBlobBase64Length?, _meta?, annotations?, resourceMeta? }`
+  - Inline binary blobs lớn sẽ bị loại khỏi stream payload để tránh OOM/serialize spike; khi đó dùng `blobOmitted` + metadata để hiển thị fallback.
 - `data-tool-locations`:
   - `{ toolCallId, locations }`
 

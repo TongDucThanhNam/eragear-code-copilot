@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
+  deduplicateKeys,
   type FilePart,
   getPartKey,
   type SourcePart,
@@ -167,6 +168,7 @@ export const AttachmentList = ({
   if (items.length === 0) {
     return null;
   }
+  const keys = deduplicateKeys(items, getPartKey);
 
   const shouldShowMediaType =
     typeof showMediaType === "boolean"
@@ -176,7 +178,7 @@ export const AttachmentList = ({
   return (
     <Attachments className={className} variant={variant}>
       {items.map((part, index) => {
-        const id = getPartKey(part, index);
+        const id = keys[index] ?? `attachment:${index}`;
         const data: AttachmentData = { id, ...part };
         return (
           <Attachment data={data} key={id}>
@@ -189,10 +191,14 @@ export const AttachmentList = ({
   );
 };
 
-export const UserTextParts = ({ parts }: { parts: TextUIPart[] }) => (
-  <>
-    {parts.map((part, index) => (
-      <TextMessagePart key={getPartKey(part, index)} text={part.text} />
-    ))}
-  </>
-);
+export const UserTextParts = ({ parts }: { parts: TextUIPart[] }) => {
+  const keys = deduplicateKeys(parts, getPartKey);
+  return (
+    <>
+      {parts.map((part, index) => {
+        const key = keys[index] ?? `text:${index}`;
+        return <TextMessagePart key={key} text={part.text} />;
+      })}
+    </>
+  );
+};

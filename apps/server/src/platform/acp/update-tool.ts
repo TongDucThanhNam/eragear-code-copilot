@@ -1,7 +1,10 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type { UIMessage } from "@repo/shared";
 import { createLogger } from "@/platform/logging/structured-logger";
-import { toStoredToolCallContent } from "@/shared/utils/content-block.util";
+import {
+  toStoredToolCallContent,
+  type StoredContentContext,
+} from "@/shared/utils/content-block.util";
 import {
   buildToolPartForUpdate,
   buildToolPartFromCall,
@@ -50,14 +53,17 @@ export async function handleToolCallCreate(
   await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, buffer, {
     suppressBroadcast: suppressReplayBroadcast,
   });
+  const session = sessionRuntime.get(chatId);
+  const storedContentContext: StoredContentContext | undefined = session
+    ? { userId: session.userId, chatId }
+    : undefined;
 
   const { sessionUpdate: _sessionUpdate, ...toolCall } = update;
   const sanitizedToolCall: acp.ToolCall = {
     ...toolCall,
     kind: toolCall.kind ?? TOOL_CALL_FALLBACK_KIND,
-    content: toStoredToolCallContent(toolCall.content),
+    content: toStoredToolCallContent(toolCall.content, storedContentContext),
   };
-  const session = sessionRuntime.get(chatId);
   if (session) {
     session.toolCalls.set(update.toolCallId, sanitizedToolCall);
   }
@@ -153,11 +159,14 @@ export async function handleToolCallUpdate(
   });
 
   const session = sessionRuntime.get(chatId);
+  const storedContentContext: StoredContentContext | undefined = session
+    ? { userId: session.userId, chatId }
+    : undefined;
   if (session) {
     const existing = session.toolCalls.get(update.toolCallId);
     const mergedToolCall = existing
-      ? mergeToolCallUpdate(existing, update)
-      : createToolCallFromUpdate(update);
+      ? mergeToolCallUpdate(existing, update, storedContentContext)
+      : createToolCallFromUpdate(update, storedContentContext);
     session.toolCalls.set(update.toolCallId, mergedToolCall);
   }
 
@@ -235,11 +244,13 @@ export async function handleToolCallUpdate(
 
 function mergeToolCallUpdate(
   existing: acp.ToolCall,
-  update: Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>
+  update: Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>,
+  storedContentContext?: StoredContentContext
 ): acp.ToolCall {
   const mergedContent = resolveToolCallUpdateContent(
     existing.content,
-    update.content
+    update.content,
+    storedContentContext
   );
   const mergedMeta = update._meta ?? existing._meta;
   const mergedLocations =
@@ -262,7 +273,8 @@ function mergeToolCallUpdate(
 }
 
 function createToolCallFromUpdate(
-  update: Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>
+  update: Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>,
+  storedContentContext?: StoredContentContext
 ): acp.ToolCall {
   const resolvedKind =
     typeof update.kind === "string" && update.kind.trim().length > 0
@@ -281,7 +293,11 @@ function createToolCallFromUpdate(
     status: update.status ?? undefined,
     rawInput: update.rawInput,
     rawOutput: update.rawOutput,
-    content: resolveToolCallUpdateContent(undefined, update.content),
+    content: resolveToolCallUpdateContent(
+      undefined,
+      update.content,
+      storedContentContext
+    ),
     locations: resolvedLocations,
     _meta: update._meta ?? undefined,
   };
@@ -289,7 +305,8 @@ function createToolCallFromUpdate(
 
 function resolveToolCallUpdateContent(
   existing: acp.ToolCall["content"],
-  incoming: acp.ToolCallUpdate["content"]
+  incoming: acp.ToolCallUpdate["content"],
+  storedContentContext?: StoredContentContext
 ): acp.ToolCall["content"] {
   if (incoming === undefined) {
     return existing;
@@ -297,7 +314,7 @@ function resolveToolCallUpdateContent(
   if (incoming === null) {
     return undefined;
   }
-  return toStoredToolCallContent(incoming);
+  return toStoredToolCallContent(incoming, storedContentContext);
 }
 
 function findToolLocationsPartIndex(

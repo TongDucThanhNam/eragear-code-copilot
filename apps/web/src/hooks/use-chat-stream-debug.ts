@@ -38,6 +38,7 @@ export function logChatStreamDebug(params: {
     console.debug("[Chat] Received ui_message_part", {
       chatId: activeChatId,
       messageId: event.messageId,
+      partId: event.partId ?? null,
       partIndex: event.partIndex,
       partType: event.part.type,
       isNew: event.isNew,

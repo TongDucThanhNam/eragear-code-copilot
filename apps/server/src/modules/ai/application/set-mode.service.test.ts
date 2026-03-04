@@ -180,4 +180,30 @@ describe("SetModeService", () => {
     expect(callCount).toBe(1);
     expect(session.modes?.currentModeId).toBe("code");
   });
+
+  test("does not hold session runtime lock while awaiting mode RPC", async () => {
+    const session = createSession();
+    const sessionRuntime = createSessionRuntimeStub();
+    const releaseRpc = createDeferred<void>();
+    let lockHeldDuringRpc = true;
+
+    const service = new SetModeService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionMode: async () => {
+          lockHeldDuringRpc = sessionRuntime.isLockHeld("chat-1");
+          await releaseRpc.promise;
+        },
+      })
+    );
+
+    const pending = service.execute("user-1", "chat-1", "architect");
+    await flushAsync();
+
+    expect(lockHeldDuringRpc).toBe(false);
+
+    releaseRpc.resolve();
+    await pending;
+  });
 });

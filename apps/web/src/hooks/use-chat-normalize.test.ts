@@ -64,6 +64,7 @@ describe("use-chat normalize", () => {
       type: "ui_message_part",
       messageId: "msg-1",
       messageRole: "assistant",
+      partId: "part-1",
       partIndex: 0,
       part: { type: "text", text: "hello", state: "streaming" },
       isNew: true,
@@ -74,6 +75,7 @@ describe("use-chat normalize", () => {
       return;
     }
     expect(parsed.event.messageId).toBe("msg-1");
+    expect(parsed.event.partId).toBe("part-1");
     expect(parsed.event.part.type).toBe("text");
   });
 });

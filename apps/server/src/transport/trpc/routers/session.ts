@@ -45,6 +45,7 @@ function buildStreamEventContext(
   if (event.type === "ui_message_part") {
     return {
       messageId: event.messageId,
+      partId: event.partId,
       partIndex: event.partIndex,
       isNew: event.isNew,
       partType: event.part.type,

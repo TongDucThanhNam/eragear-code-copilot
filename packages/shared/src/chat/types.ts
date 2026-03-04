@@ -151,6 +151,7 @@ export type BroadcastEvent =
       type: "ui_message_part";
       messageId: string;
       messageRole: UIMessage["role"];
+      partId?: string;
       partIndex: number;
       part: UIMessagePart;
       isNew: boolean;

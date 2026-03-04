@@ -130,6 +130,7 @@ describe("parseBroadcastEventClientSafe", () => {
       type: "ui_message_part",
       messageId: "msg-1",
       messageRole: "assistant",
+      partId: "part-1",
       partIndex: 1,
       part: {
         type: "tool-edit",
@@ -148,6 +149,28 @@ describe("parseBroadcastEventClientSafe", () => {
     expect(parsed.value.part.type).toBe("tool-edit");
     expect(parsed.value.partIndex).toBe(1);
     expect(parsed.value.isNew).toBe(true);
+    expect(parsed.value.partId).toBe("part-1");
+  });
+
+  test("rejects ui_message_part payload with invalid partId", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partId: "bad id with spaces",
+      partIndex: 1,
+      part: {
+        type: "text",
+        text: "hello",
+      },
+      isNew: true,
+    });
+
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) {
+      return;
+    }
+    expect(parsed.kind).toBe("invalid_payload");
   });
 
   test("classifies malformed known event payload as invalid", () => {

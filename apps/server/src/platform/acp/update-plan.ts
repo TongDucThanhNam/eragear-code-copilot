@@ -8,6 +8,17 @@ import type { Plan } from "../../shared/types/session.types";
 import { broadcastUiMessagePart } from "./ui-message-part";
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 
+const PLAN_PERSIST_DEBOUNCE_MS = 250;
+
+interface PendingPlanPersistence {
+  timer: ReturnType<typeof setTimeout>;
+  userId: string;
+  plan: Plan;
+  sessionRepo: SessionUpdateContext["sessionRepo"];
+}
+
+const pendingPlanPersistenceByChat = new Map<string, PendingPlanPersistence>();
+
 function extractPlan(update: SessionUpdate): Plan | null {
   if (update.sessionUpdate !== "plan") {
     return null;
@@ -32,6 +43,84 @@ function normalizePlanForComparison(
       _meta: entry._meta ?? null,
     })),
   };
+}
+
+async function persistPlanNow(
+  chatId: string,
+  pending: Omit<PendingPlanPersistence, "timer">
+): Promise<void> {
+  try {
+    await pending.sessionRepo.updateMetadata(chatId, pending.userId, {
+      plan: pending.plan,
+    });
+  } catch (error) {
+    console.warn("Failed to persist debounced plan metadata", {
+      chatId,
+      userId: pending.userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function schedulePlanPersistence(params: {
+  chatId: string;
+  userId: string;
+  plan: Plan;
+  sessionRepo: SessionUpdateContext["sessionRepo"];
+}): void {
+  const { chatId, userId, plan, sessionRepo } = params;
+  const existing = pendingPlanPersistenceByChat.get(chatId);
+  if (existing) {
+    clearTimeout(existing.timer);
+  }
+  const timer = setTimeout(() => {
+    const latest = pendingPlanPersistenceByChat.get(chatId);
+    if (!latest) {
+      return;
+    }
+    pendingPlanPersistenceByChat.delete(chatId);
+    void persistPlanNow(chatId, {
+      userId: latest.userId,
+      plan: latest.plan,
+      sessionRepo: latest.sessionRepo,
+    });
+  }, PLAN_PERSIST_DEBOUNCE_MS);
+  if (typeof timer === "object" && "unref" in timer) {
+    timer.unref();
+  }
+  pendingPlanPersistenceByChat.set(chatId, {
+    timer,
+    userId,
+    plan,
+    sessionRepo,
+  });
+}
+
+export async function flushPendingPlanPersistenceForTests(
+  chatId?: string
+): Promise<void> {
+  const targets =
+    typeof chatId === "string"
+      ? [[chatId, pendingPlanPersistenceByChat.get(chatId)] as const]
+      : Array.from(pendingPlanPersistenceByChat.entries());
+  if (typeof chatId === "string") {
+    pendingPlanPersistenceByChat.delete(chatId);
+  } else {
+    pendingPlanPersistenceByChat.clear();
+  }
+  await Promise.all(
+    targets.map(async ([nextChatId, pending]) => {
+      if (!pending) {
+        return;
+      }
+      clearTimeout(pending.timer);
+      await persistPlanNow(nextChatId, {
+        userId: pending.userId,
+        plan: pending.plan,
+        sessionRepo: pending.sessionRepo,
+      });
+    })
+  );
 }
 
 export async function handlePlanUpdate(
@@ -77,9 +166,12 @@ export async function handlePlanUpdate(
   if (session) {
     session.plan = effectivePlan;
   }
-  if (session?.userId) {
-    await sessionRepo.updateMetadata(chatId, session.userId, {
+  if (session?.userId && shouldBroadcast) {
+    schedulePlanPersistence({
+      chatId,
+      userId: session.userId,
       plan: effectivePlan,
+      sessionRepo,
     });
   }
 

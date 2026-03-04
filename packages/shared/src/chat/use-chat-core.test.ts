@@ -213,6 +213,30 @@ describe("processSessionEvent ui_message_part", () => {
       },
     ]);
   });
+
+  test("propagates ui_message_part partId to part payload for stable rendering keys", () => {
+    const initialMessage = createAssistantMessage("msg-1", [
+      { type: "text", text: "Answer", state: "streaming" },
+    ]);
+    const event: BroadcastEvent = {
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partId: "part-msg1-0",
+      partIndex: 0,
+      part: { type: "text", text: "Answer", state: "done" },
+      isNew: false,
+    };
+
+    const next = applyEventWithMessages(event, [initialMessage]);
+    const updatedPart = next[0]?.parts[0];
+    expect(updatedPart).toEqual({
+      type: "text",
+      text: "Answer",
+      state: "done",
+      id: "part-msg1-0",
+    });
+  });
 });
 
 describe("processSessionEvent config/session-info updates", () => {

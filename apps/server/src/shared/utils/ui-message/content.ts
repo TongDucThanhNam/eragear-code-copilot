@@ -11,6 +11,7 @@ import type {
   UIMessagePart,
 } from "@repo/shared";
 import type { StoredContentBlock } from "@/shared/types/session.types";
+import { MAX_INLINE_BINARY_BASE64_CHARS } from "@/shared/utils/content-block.util";
 import { escapeHtmlText } from "../html.util";
 import {
   getBlockProviderMetadata,
@@ -186,7 +187,10 @@ export function contentBlockToParts(
     case "image":
     case "audio": {
       const uri = "uri" in block ? block.uri : undefined;
-      const url = uri ?? toDataUrl(block.mimeType, block.data);
+      const rawData = typeof block.data === "string" ? block.data : "";
+      const inlineData =
+        rawData.length <= MAX_INLINE_BINARY_BASE64_CHARS ? rawData : undefined;
+      const url = uri ?? toDataUrl(block.mimeType, inlineData);
       if (!url) {
         return [];
       }
@@ -256,6 +260,8 @@ function buildResourceDataPart(
 ): DataUIPart | null {
   const hasText = "text" in resource && typeof resource.text === "string";
   const hasBlob = "blob" in resource && typeof resource.blob === "string";
+  const blobBase64 = hasBlob ? resource.blob : undefined;
+  const hasInlineBlob = Boolean(blobBase64 && blobBase64.length > 0);
   if (!(hasText || hasBlob)) {
     return null;
   }
@@ -266,8 +272,14 @@ function buildResourceDataPart(
   if (hasText) {
     data.text = resource.text;
   }
-  if (hasBlob) {
-    data.blob = resource.blob;
+  if (hasInlineBlob && blobBase64) {
+    if (blobBase64.length <= MAX_INLINE_BINARY_BASE64_CHARS) {
+      data.blob = blobBase64;
+    } else {
+      data.blobOmitted = true;
+      data.blobBase64Length = blobBase64.length;
+      data.maxInlineBlobBase64Length = MAX_INLINE_BINARY_BASE64_CHARS;
+    }
   }
   const meta = getOptionalMeta(block);
   const annotations = getOptionalAnnotations(block);

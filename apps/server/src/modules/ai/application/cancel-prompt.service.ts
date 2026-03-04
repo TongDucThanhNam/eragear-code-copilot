@@ -12,6 +12,7 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
+import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
 import {
   buildToolApprovalResponsePart,
   upsertToolPart,
@@ -143,31 +144,33 @@ export class CancelPromptService {
             : undefined;
           const nextToolPart = messageWithUpdates.parts[nextToolIndex.partIndex];
           if (nextToolPart) {
-            await this.sessionRuntime.broadcast(chatId, {
-              type: "ui_message_part",
-              messageId: messageWithUpdates.id,
-              messageRole: messageWithUpdates.role,
+            const partEvent = buildUiMessagePartEvent({
+              chatId,
+              message: messageWithUpdates,
               partIndex: nextToolIndex.partIndex,
-              part: nextToolPart,
               isNew:
                 !previousToolLocation ||
                 previousToolLocation.messageId !== nextToolIndex.messageId ||
                 previousToolLocation.partIndex !== nextToolIndex.partIndex,
             });
+            if (partEvent) {
+              await this.sessionRuntime.broadcast(chatId, partEvent);
+            }
           }
         }
         if (updatedPermissionOptions.partIndex >= 0) {
           const optionsPart =
             messageWithUpdates.parts[updatedPermissionOptions.partIndex];
           if (optionsPart) {
-            await this.sessionRuntime.broadcast(chatId, {
-              type: "ui_message_part",
-              messageId: messageWithUpdates.id,
-              messageRole: messageWithUpdates.role,
+            const partEvent = buildUiMessagePartEvent({
+              chatId,
+              message: messageWithUpdates,
               partIndex: updatedPermissionOptions.partIndex,
-              part: optionsPart,
               isNew: false,
             });
+            if (partEvent) {
+              await this.sessionRuntime.broadcast(chatId, partEvent);
+            }
           }
         }
       }

@@ -10,6 +10,7 @@
  * |--------|-----------|
  * | settings | `/api/ui-settings` |
  * | dashboard-api | `/api/dashboard/*`, `/api/logs/*` |
+ * | blobs | `/api/blobs/*` |
  * | sessions | `/api/sessions/*` |
  * | projects | `/api/projects/*` |
  * | agents | `/api/agents/*` |
@@ -22,6 +23,7 @@ import type { Hono } from "hono";
 // Feature route modules
 import { registerAdminRoutes } from "./admin";
 import { registerAgentRoutes } from "./agents";
+import { registerBlobRoutes } from "./blobs";
 import { registerDashboardApiRoutes } from "./dashboard-api";
 import type { HttpRouteDependencies } from "./deps";
 import { registerProjectRoutes } from "./projects";
@@ -51,6 +53,7 @@ export function registerHttpRoutes(
   // Register feature routes in logical order
   registerSettingsRoutes(api, deps); // Settings must be first (used by dashboard)
   registerDashboardApiRoutes(api, deps); // Dashboard data & streams
+  registerBlobRoutes(api, deps); // Out-of-band blob payload streaming
   registerSessionRoutes(api, deps); // Session management
   registerProjectRoutes(api, deps); // Project CRUD
   registerAgentRoutes(api, deps); // Agent configuration

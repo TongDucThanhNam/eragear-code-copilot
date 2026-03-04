@@ -236,28 +236,38 @@ export const getMessageTerminalIds = (message: UIMessage) => {
   return result;
 };
 
-export const getPartKey = (part: UIMessagePart, index: number) => {
+export const getPartKey = (part: UIMessagePart, _index?: number) => {
+  const partId = (part as { id?: unknown }).id;
+  if (typeof partId === "string" && partId.length > 0) {
+    return `part:${partId}`;
+  }
   if (part.type.startsWith("tool-")) {
-    return `tool-${(part as ToolUIPart).toolCallId}`;
+    return `tool:${(part as ToolUIPart).toolCallId}`;
   }
   if (part.type === "source-url" || part.type === "source-document") {
-    return `source-${part.sourceId}`;
+    return `source:${part.sourceId}`;
   }
   if (part.type === "file") {
-    return `file-${part.url}`;
+    return `file:${part.url}`;
   }
   if (part.type === "reasoning") {
-    return `reasoning-${index}`;
+    return "reasoning";
   }
   if (part.type === "text") {
-    return `text-${index}`;
+    return "text";
   }
-  return `part-${index}`;
+  if (part.type === "step-start") {
+    return "step-start";
+  }
+  if (isDataPart(part)) {
+    return part.id ? `${part.type}:${part.id}` : part.type;
+  }
+  return part.type;
 };
 
 /**
  * Wrap getPartKey with deduplication. If two parts in the same list
- * produce the same base key, append a suffix to disambiguate.
+ * produce the same base key, append a deterministic ordinal suffix.
  */
 export const deduplicateKeys = (
   items: UIMessagePart[],
@@ -268,6 +278,6 @@ export const deduplicateKeys = (
     const base = keyFn(item, index);
     const count = seen.get(base) ?? 0;
     seen.set(base, count + 1);
-    return count > 0 ? `${base}__${count}` : base;
+    return `${base}#${count}`;
   });
 };

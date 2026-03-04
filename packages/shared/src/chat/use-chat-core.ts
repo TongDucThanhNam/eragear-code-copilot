@@ -196,19 +196,21 @@ function applyMessageDelta(params: {
 function applyMessagePartUpdate(params: {
   message: UIMessage;
   partIndex: number;
+  partId?: string;
   part: Extract<BroadcastEvent, { type: "ui_message_part" }>["part"];
   isNew: boolean;
 }): UIMessage | null {
-  const { message, partIndex, part, isNew } = params;
+  const { message, partIndex, part, partId, isNew } = params;
+  const incomingPart = attachOptionalPartId(part, partId);
   if (isNew) {
     if (partIndex < 0 || partIndex > message.parts.length) {
       return null;
     }
     const updatedParts = [...message.parts];
     if (partIndex === updatedParts.length) {
-      updatedParts.push(part);
+      updatedParts.push(incomingPart);
     } else {
-      updatedParts.splice(partIndex, 0, part);
+      updatedParts.splice(partIndex, 0, incomingPart);
     }
     return {
       ...message,
@@ -220,11 +222,35 @@ function applyMessagePartUpdate(params: {
     return null;
   }
   const updatedParts = [...message.parts];
-  updatedParts[partIndex] = part;
+  updatedParts[partIndex] = attachOptionalPartId(
+    incomingPart,
+    readPartId(existingPart)
+  );
   return {
     ...message,
     parts: updatedParts,
   };
+}
+
+function readPartId(part: UIMessage["parts"][number]): string | undefined {
+  const id = (part as { id?: unknown }).id;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
+function attachOptionalPartId(
+  part: UIMessage["parts"][number],
+  partId?: string
+): UIMessage["parts"][number] {
+  if (!(typeof partId === "string" && partId.length > 0)) {
+    return part;
+  }
+  if (readPartId(part) === partId) {
+    return part;
+  }
+  return {
+    ...(part as Record<string, unknown>),
+    id: partId,
+  } as UIMessage["parts"][number];
 }
 
 function finalizeToolPartAfterFinish(
@@ -346,6 +372,7 @@ export interface EventProcessingCallbacks {
   onMessagePartUpdate?: (payload: {
     messageId: string;
     messageRole: UIMessage["role"];
+    partId?: string;
     partIndex: number;
     part: Extract<BroadcastEvent, { type: "ui_message_part" }>["part"];
     isNew: boolean;
@@ -531,6 +558,7 @@ export function processSessionEvent(
         callbacks.onMessagePartUpdate({
           messageId: event.messageId,
           messageRole: event.messageRole,
+          partId: event.partId,
           partIndex: event.partIndex,
           part: event.part,
           isNew: event.isNew,
@@ -561,7 +589,7 @@ export function processSessionEvent(
         const nextMessage: UIMessage = {
           id: event.messageId,
           role: event.messageRole,
-          parts: [event.part],
+          parts: [attachOptionalPartId(event.part, event.partId)],
           ...(typeof event.createdAt === "number"
             ? { createdAt: event.createdAt }
             : {}),
@@ -587,6 +615,7 @@ export function processSessionEvent(
 
       const nextMessage = applyMessagePartUpdate({
         message: prev,
+        partId: event.partId,
         partIndex: event.partIndex,
         part: event.part,
         isNew: event.isNew,

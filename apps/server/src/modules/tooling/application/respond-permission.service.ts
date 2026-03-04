@@ -13,6 +13,7 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { NotFoundError, ValidationError } from "@/shared/errors";
+import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
 import {
   buildToolApprovalResponsePart,
   upsertToolPart,
@@ -331,31 +332,33 @@ export class RespondPermissionService {
             : undefined;
           const nextToolPart = messageWithUpdates.parts[nextToolIndex.partIndex];
           if (nextToolPart) {
-            await this.sessionRuntime.broadcast(input.chatId, {
-              type: "ui_message_part",
-              messageId: messageWithUpdates.id,
-              messageRole: messageWithUpdates.role,
+            const partEvent = buildUiMessagePartEvent({
+              chatId: input.chatId,
+              message: messageWithUpdates,
               partIndex: nextToolIndex.partIndex,
-              part: nextToolPart,
               isNew:
                 !previousToolLocation ||
                 previousToolLocation.messageId !== nextToolIndex.messageId ||
                 previousToolLocation.partIndex !== nextToolIndex.partIndex,
             });
+            if (partEvent) {
+              await this.sessionRuntime.broadcast(input.chatId, partEvent);
+            }
           }
         }
         if (updatedPermissionOptions.partIndex >= 0) {
           const updatedOptionsPart =
             messageWithUpdates.parts[updatedPermissionOptions.partIndex];
           if (updatedOptionsPart) {
-            await this.sessionRuntime.broadcast(input.chatId, {
-              type: "ui_message_part",
-              messageId: messageWithUpdates.id,
-              messageRole: messageWithUpdates.role,
+            const partEvent = buildUiMessagePartEvent({
+              chatId: input.chatId,
+              message: messageWithUpdates,
               partIndex: updatedPermissionOptions.partIndex,
-              part: updatedOptionsPart,
               isNew: false,
             });
+            if (partEvent) {
+              await this.sessionRuntime.broadcast(input.chatId, partEvent);
+            }
           }
         }
       }

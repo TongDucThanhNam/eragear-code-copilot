@@ -11,6 +11,7 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
+import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { createId } from "@/shared/utils/id.util";
@@ -40,7 +41,7 @@ const logger = createLogger("Debug");
  * ```
  */
 export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
-  return function handlePermissionRequest(params: {
+  return async function handlePermissionRequest(params: {
     chatId: string;
     isReplayingHistory: boolean;
     request: acp.RequestPermissionRequest;
@@ -58,6 +59,9 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
     }
 
     const requestId = createId("req");
+    const cancelledResponse: acp.RequestPermissionResponse = {
+      outcome: { outcome: "cancelled" },
+    };
     logger.debug("ACP permission request received", {
       chatId,
       requestId,
@@ -67,7 +71,28 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
       optionCount: options.length,
     });
 
-    return new Promise<acp.RequestPermissionResponse>((resolve) => {
+    let settled = false;
+    let resolveResponse: (value: acp.RequestPermissionResponse) => void = () =>
+      undefined;
+    const responsePromise = new Promise<acp.RequestPermissionResponse>(
+      (resolve) => {
+        resolveResponse = resolve;
+      }
+    );
+    const resolveOnce = (decision: acp.RequestPermissionResponse) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolveResponse(decision);
+    };
+
+    await sessionRuntime.runExclusive(chatId, async () => {
+      assertSessionMutationLock({
+        sessionRuntime,
+        chatId,
+        op: "acp.request_permission",
+      });
       const session = sessionRuntime.get(chatId);
       if (!session) {
         logger.warn("Session not found while handling permission request", {
@@ -75,15 +100,16 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
           requestId,
           toolCallId: toolCall.toolCallId,
         });
-        resolve({ outcome: { outcome: "cancelled" } });
+        resolveOnce(cancelledResponse);
         return;
       }
 
       const toolName = getToolNameFromCall(toolCall);
       const title = toolCall.title ?? toolCall.kind ?? toolName;
       session.pendingPermissions.set(requestId, {
-        resolve: (decision: unknown) =>
-          resolve(decision as acp.RequestPermissionResponse),
+        resolve: (decision: unknown) => {
+          resolveOnce(decision as acp.RequestPermissionResponse);
+        },
         options,
         toolCallId: toolCall.toolCallId,
         toolName,
@@ -92,7 +118,7 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         meta: toolCall._meta,
       });
 
-      const publishPermissionRequest = async () => {
+      try {
         const runtime = new SessionRuntimeEntity(session);
         await runtime.markAwaitingPermission({
           chatId,
@@ -184,8 +210,7 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
             isNew: previousOptionsPartIndex < 0,
           });
         }
-      };
-      publishPermissionRequest().catch((error) => {
+      } catch (error) {
         if (session.pendingPermissions.has(requestId)) {
           session.pendingPermissions.delete(requestId);
         }
@@ -194,9 +219,11 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
           requestId,
           toolCallId: toolCall.toolCallId,
         });
-        resolve({ outcome: { outcome: "cancelled" } });
-      });
+        resolveOnce(cancelledResponse);
+      }
     });
+
+    return await responsePromise;
   };
 }
 

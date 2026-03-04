@@ -7,6 +7,8 @@ import {
   contentBlockToParts,
 } from "./content";
 
+const MAX_INLINE_BINARY_BASE64_CHARS = 64 * 1024;
+
 function getSourceDocumentFilename(uri: string): string | undefined {
   const block = {
     type: "resource",
@@ -115,6 +117,60 @@ describe("append text sanitization", () => {
     expect(reasoningPart?.type).toBe("reasoning");
     if (reasoningPart?.type === "reasoning") {
       expect(reasoningPart.text).toBe("&lt;b&gt;reasoning&lt;/b&gt;");
+    }
+  });
+});
+
+describe("contentBlockToParts inline binary guard", () => {
+  test("omits oversized image base64 payload without uri", () => {
+    const block = {
+      type: "image",
+      mimeType: "image/png",
+      data: "A".repeat(MAX_INLINE_BINARY_BASE64_CHARS + 1),
+    } as StoredContentBlock;
+    expect(contentBlockToParts(block)).toEqual([]);
+  });
+
+  test("keeps uri-backed image part even when base64 payload is oversized", () => {
+    const block = {
+      type: "image",
+      uri: "file:///tmp/screenshot.png",
+      mimeType: "image/png",
+      data: "A".repeat(MAX_INLINE_BINARY_BASE64_CHARS + 1),
+    } as StoredContentBlock;
+    const parts = contentBlockToParts(block);
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toMatchObject({
+      type: "file",
+      url: "file:///tmp/screenshot.png",
+    });
+  });
+
+  test("omits oversized resource blob from data-resource payload", () => {
+    const block = {
+      type: "resource",
+      resource: {
+        uri: "file:///tmp/archive.zip",
+        mimeType: "application/zip",
+        blob: "B".repeat(MAX_INLINE_BINARY_BASE64_CHARS + 8),
+      },
+    } as StoredContentBlock;
+    const parts = contentBlockToParts(block);
+    expect(parts[0]).toMatchObject({
+      type: "source-document",
+      sourceId: "file:///tmp/archive.zip",
+    });
+    expect(parts[1]).toMatchObject({
+      type: "data-resource",
+      data: expect.objectContaining({
+        blobOmitted: true,
+      }),
+    });
+    const resourceData = parts[1];
+    if (resourceData?.type === "data-resource") {
+      expect(
+        (resourceData.data as { blob?: unknown }).blob
+      ).toBeUndefined();
     }
   });
 });

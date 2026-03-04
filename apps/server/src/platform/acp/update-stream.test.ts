@@ -125,6 +125,7 @@ describe("handleBufferedMessage", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.event.type).toBe("ui_message_part");
     if (calls[0]?.event.type === "ui_message_part") {
+      expect(calls[0].event.partId).toEqual(expect.any(String));
       expect(calls[0].event.isNew).toBe(true);
       expect(calls[0].event.partIndex).toBe(0);
       expect(calls[0].event.part.type).toBe("text");
@@ -224,6 +225,7 @@ describe("handleBufferedMessage", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.event.type).toBe("ui_message_part");
     if (calls[0]?.event.type === "ui_message_part") {
+      expect(calls[0].event.partId).toEqual(expect.any(String));
       expect(calls[0].event.isNew).toBe(true);
       expect(calls[0].event.partIndex).toBe(0);
       expect(calls[0].event.part.type).toBe("reasoning");
