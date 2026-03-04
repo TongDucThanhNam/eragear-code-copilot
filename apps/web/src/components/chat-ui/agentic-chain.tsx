@@ -10,7 +10,7 @@ import {
   SparklesIcon,
   WrenchIcon,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { Loader } from "@/components/ai-elements/loader";
 import {
   Collapsible,
@@ -156,10 +156,6 @@ export const ChainOfThought = ({
   terminalOutputs?: Record<string, string>;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [hasStreamed, setHasStreamed] = useState(isStreaming);
-  const [userToggled, setUserToggled] = useState(false);
-  const prevStreamingRef = useRef(isStreaming);
-  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeIndex = useMemo(() => getActiveIndex(items), [items]);
   const toolCount = useMemo(
     () => items.filter((item) => item.type.startsWith("tool-")).length,
@@ -173,51 +169,6 @@ export const ChainOfThought = ({
     () => items.filter((item) => item.type === "text").length,
     [items]
   );
-
-  useEffect(() => {
-    return () => {
-      if (collapseTimerRef.current) {
-        clearTimeout(collapseTimerRef.current);
-        collapseTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const prevStreaming = prevStreamingRef.current;
-    prevStreamingRef.current = isStreaming;
-
-    if (isStreaming) {
-      setHasStreamed(true);
-      if (collapseTimerRef.current) {
-        clearTimeout(collapseTimerRef.current);
-        collapseTimerRef.current = null;
-      }
-      if (!(userToggled || prevStreaming)) {
-        setIsOpen(true);
-      }
-      return;
-    }
-
-    if (userToggled) {
-      if (collapseTimerRef.current) {
-        clearTimeout(collapseTimerRef.current);
-        collapseTimerRef.current = null;
-      }
-      return;
-    }
-
-    if (!(hasStreamed && prevStreaming)) {
-      return;
-    }
-
-    if (!collapseTimerRef.current) {
-      collapseTimerRef.current = setTimeout(() => {
-        setIsOpen(false);
-        collapseTimerRef.current = null;
-      }, 500);
-    }
-  }, [hasStreamed, isStreaming, userToggled]);
 
   if (items.length === 0) {
     return null;
@@ -239,10 +190,7 @@ export const ChainOfThought = ({
   return (
     <Collapsible
       className="w-full border bg-muted/30"
-      onOpenChange={(nextOpen) => {
-        setIsOpen(nextOpen);
-        setUserToggled(true);
-      }}
+      onOpenChange={setIsOpen}
       open={isOpen}
     >
       <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm">

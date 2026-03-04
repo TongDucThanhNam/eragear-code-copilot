@@ -261,6 +261,7 @@ export function ChatInterface({
     readOnly: false,
     onError: handleChatError,
   });
+  const createSessionMutation = trpc.createSession.useMutation();
   const messageCount = useChatMessageCount(chatId);
   const effectiveConnStatus = status === "inactive" ? "idle" : connStatus;
   const selectedSession = useMemo(() => {
@@ -299,8 +300,17 @@ export function ChatInterface({
     sessionsPageQuery.isFetching ||
     sessionsPageQuery.hasNextPage
   );
+  const canAutoClearMissingChat =
+    sessionBootstrapPhase === "idle" &&
+    status === "inactive" &&
+    effectiveConnStatus === "idle";
   useEffect(() => {
-    if (!chatId || selectedSession || !hasResolvedSessionList) {
+    if (
+      !chatId ||
+      selectedSession ||
+      !hasResolvedSessionList ||
+      !canAutoClearMissingChat
+    ) {
       return;
     }
     if (onChatIdChange) {
@@ -308,7 +318,13 @@ export function ChatInterface({
       return;
     }
     setUncontrolledChatId(null);
-  }, [chatId, hasResolvedSessionList, onChatIdChange, selectedSession]);
+  }, [
+    canAutoClearMissingChat,
+    chatId,
+    hasResolvedSessionList,
+    onChatIdChange,
+    selectedSession,
+  ]);
 
   const agentDisplay = useMemo(() => {
     const selectedAgent = agentModels.find(
@@ -476,9 +492,6 @@ export function ChatInterface({
   useEffect(() => {
     chatIdRef.current = chatId;
   }, [chatId]);
-
-  // Mutations for session creation
-  const createSessionMutation = trpc.createSession.useMutation();
 
   useEffect(() => {
     const requestId = pendingPermission?.requestId ?? null;

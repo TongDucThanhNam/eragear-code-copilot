@@ -22,7 +22,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { DiscoverContext, DiscoverSessionItem, SessionItem } from "./types";
+import type {
+  DiscoverContext,
+  DiscoverSessionItem,
+  SessionItem,
+} from "./types";
 import {
   formatDiscoveredUpdatedAt,
   getDiscoveredSessionLabel,
@@ -327,8 +331,8 @@ export function NavProjectTreeDialogs({
 
           <div className="space-y-4">
             <p className="text-muted-foreground text-xs">
-              Imported sessions are copied into local storage so you can continue
-              them inside Eragear Code Copilot.
+              Imported sessions are copied into local storage so you can
+              continue them inside Eragear Code Copilot.
             </p>
             {discoverContext ? (
               <div className="rounded-md border bg-muted/40 p-3">
@@ -431,9 +435,12 @@ export function NavProjectTreeDialogs({
                         <Button
                           className="shrink-0"
                           disabled={
-                            isSessionBootstrapPending || !discoverLoadSessionSupported
+                            isSessionBootstrapPending ||
+                            !discoverLoadSessionSupported
                           }
-                          onClick={() => onLoadDiscoveredSession(session.sessionId)}
+                          onClick={() =>
+                            onLoadDiscoveredSession(session.sessionId)
+                          }
                           size="sm"
                         >
                           {isLoadingTarget ? (
@@ -521,7 +528,10 @@ export function NavProjectTreeDialogs({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={onConfirmDeleteProject} variant="destructive">
+            <AlertDialogAction
+              onClick={onConfirmDeleteProject}
+              variant="destructive"
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -549,7 +559,10 @@ export function NavProjectTreeDialogs({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={onConfirmDeleteSession} variant="destructive">
+            <AlertDialogAction
+              onClick={onConfirmDeleteSession}
+              variant="destructive"
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -564,7 +577,7 @@ export function NavProjectTreeDialogs({
         }}
         open={selectedSessionForDetails !== null}
       >
-        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Session Details</DialogTitle>
           </DialogHeader>
@@ -616,10 +629,13 @@ export function NavProjectTreeDialogs({
               )}
 
               <div>
-                <h3 className="mb-2 font-semibold text-sm">Full Session Data (JSON)</h3>
+                <h3 className="mb-2 font-semibold text-sm">
+                  Full Session Data (JSON)
+                </h3>
                 <pre className="max-h-96 overflow-auto rounded bg-muted p-3 font-mono text-xs">
                   {JSON.stringify(
-                    selectedSessionForDetails.fullData || selectedSessionForDetails,
+                    selectedSessionForDetails.fullData ||
+                      selectedSessionForDetails,
                     null,
                     2
                   )}

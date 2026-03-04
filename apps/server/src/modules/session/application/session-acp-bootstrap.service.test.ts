@@ -459,6 +459,7 @@ describe("SessionAcpBootstrapService", () => {
       type: "current_model_update",
       modelId: "model-new",
     });
+    expect(chatSession.chatStatus).toBe("ready");
   });
 
   test("wraps loadSession failure with AGENT_SESSION_LOAD_FAILED", async () => {

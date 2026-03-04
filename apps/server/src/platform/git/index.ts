@@ -3,7 +3,6 @@
  *
  * Implements git operations for code context and project analysis.
  * Provides methods for getting project context, diffs, and reading files.
- * Falls back to filesystem scanning when git is unavailable.
  *
  * @module infra/git
  */
@@ -28,6 +27,7 @@ const execFileAsync = promisify(execFile);
 const logger = createLogger("Storage");
 const GIT_EXEC_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const EMPTY_DIFF_FILE_PREFIX = "eragear-git-empty-diff-";
+const PROJECT_CONTEXT_EXCLUDED_DIR_NAMES = new Set([".git"]);
 
 interface ExecFileFailure extends Error {
   code?: number | string | null;
@@ -54,55 +54,75 @@ async function runGitCommand(params: {
   });
 }
 
-/**
- * Recursively scans a directory for files
- *
- * @param dir - Current directory to scan
- * @param base - Base directory for relative paths
- * @param depth - Current recursion depth
- * @param files - Array to collect file paths
- * @param projectRules - Array to collect .mdc rule files
- */
-async function scanDirRecursive(
-  dir: string,
-  base: string,
-  depth: number,
-  files: string[],
-  projectRules: { path: string; location: string }[]
-): Promise<void> {
-  if (depth > 10) {
-    return;
-  }
+function normalizePortablePath(pathValue: string): string {
+  return pathValue.split(sep).join("/");
+}
 
-  try {
-    const entries = await readdir(dir, { withFileTypes: true });
+async function scanProjectFiles(scanRoot: string): Promise<{
+  files: string[];
+  projectRules: { path: string; location: string }[];
+}> {
+  const files: string[] = [];
+  const projectRules: { path: string; location: string }[] = [];
+  const pendingDirs: string[] = [scanRoot];
+
+  while (pendingDirs.length > 0) {
+    const dir = pendingDirs.pop();
+    if (!dir) {
+      continue;
+    }
+
+    let entries;
+    try {
+      entries = await readdir(dir, {
+        withFileTypes: true,
+        encoding: "utf8",
+      });
+    } catch (scanError) {
+      logger.warn("Failed to scan project directory for file tree snapshot", {
+        scanRoot,
+        dir,
+        error: scanError instanceof Error ? scanError.message : String(scanError),
+      });
+      continue;
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+
     for (const entry of entries) {
-      if (entry.name.startsWith(".") || entry.name === "node_modules") {
+      if (entry.name === "." || entry.name === "..") {
         continue;
       }
 
       const fullPath = join(dir, entry.name);
-      const relPath = relative(base, fullPath);
+      const relPath = normalizePortablePath(relative(scanRoot, fullPath));
+      if (!relPath || relPath === ".") {
+        continue;
+      }
 
       if (entry.isDirectory()) {
-        await scanDirRecursive(fullPath, base, depth + 1, files, projectRules);
-      } else {
-        files.push(relPath);
-        if (entry.name.endsWith(".mdc")) {
-          projectRules.push({
-            path: entry.name,
-            location: relative(base, dir) || ".",
-          });
+        if (PROJECT_CONTEXT_EXCLUDED_DIR_NAMES.has(entry.name)) {
+          continue;
         }
+        pendingDirs.push(fullPath);
+        continue;
+      }
+
+      files.push(relPath);
+      if (entry.name.endsWith(".mdc")) {
+        const location = dirname(relPath);
+        projectRules.push({
+          path: relPath,
+          location: location === "." ? "." : location,
+        });
       }
     }
-  } catch (scanError) {
-    logger.error(
-      "Failed to scan directory recursively for project context",
-      scanError as Error,
-      { dir }
-    );
   }
+
+  files.sort((a, b) => a.localeCompare(b));
+  projectRules.sort((a, b) => a.path.localeCompare(b.path));
+
+  return { files, projectRules };
 }
 
 /**
@@ -110,42 +130,14 @@ async function scanDirRecursive(
  */
 export class GitAdapter implements GitPort {
   /**
-   * Gets project context including tracked files, project rules, and active tabs
+   * Gets project context including filesystem files, project rules, and active tabs
    *
    * @param scanRoot - The root directory to scan
    * @returns Project context object with files, rules, and active tabs
    */
   async getProjectContext(scanRoot: string) {
-    const projectRules: { path: string; location: string }[] = [];
     const activeTabs: { path: string }[] = [];
-    let files: string[] = [];
-
-    try {
-      // Try git ls-files first for tracked files
-      const { stdout } = await runGitCommand({
-        cwd: scanRoot,
-        args: ["ls-files"],
-        maxBuffer: GIT_EXEC_MAX_BUFFER_BYTES,
-      });
-      files = stdout.split("\n").filter((f) => f.trim().length > 0);
-
-      // Find .mdc project rule files
-      for (const filePath of files) {
-        if (filePath.endsWith(".mdc")) {
-          projectRules.push({
-            path: filePath,
-            location: dirname(filePath) === "." ? "." : dirname(filePath),
-          });
-        }
-      }
-    } catch (error) {
-      logger.warn("git ls-files failed; falling back to filesystem scan", {
-        scanRoot,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      // Fallback to filesystem scan if git is not available
-      await scanDirRecursive(scanRoot, scanRoot, 0, files, projectRules);
-    }
+    const { files, projectRules } = await scanProjectFiles(scanRoot);
 
     return {
       projectRules,

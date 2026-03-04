@@ -154,19 +154,34 @@ export class SessionAcpBootstrapService {
           sessionIdToLoad,
           acpMcpServers,
         });
-        return;
+      } else {
+        await this.createNewSession({
+          chatId,
+          chatSession,
+          projectRoot,
+          acpMcpServers,
+        });
       }
 
-      await this.createNewSession({
-        chatId,
-        chatSession,
-        projectRoot,
-        acpMcpServers,
-      });
+      this.finalizeBootstrapChatStatus(chatId, chatSession);
     } catch (error) {
       await this.cleanupFailedBootstrap(chatId, chatSession);
       throw error;
     }
+  }
+
+  private finalizeBootstrapChatStatus(
+    chatId: string,
+    chatSession: ChatSession
+  ): void {
+    if (chatSession.chatStatus !== "connecting") {
+      return;
+    }
+    chatSession.chatStatus = "ready";
+    this.logger.debug("Session bootstrap finalized chat status", {
+      chatId,
+      chatStatus: chatSession.chatStatus,
+    });
   }
 
   private attachConnection(params: {

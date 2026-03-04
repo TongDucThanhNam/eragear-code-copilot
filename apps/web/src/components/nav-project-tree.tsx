@@ -129,6 +129,10 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const trpcUtils = trpc.useUtils();
 
   const createSessionMutation = trpc.createSession.useMutation({
+    onSuccess: () => {
+      trpcUtils.getSessions.invalidate();
+      trpcUtils.getSessionsPage.invalidate();
+    },
     onError: (err) => {
       toast.error(err.message || "Failed to create session");
     },

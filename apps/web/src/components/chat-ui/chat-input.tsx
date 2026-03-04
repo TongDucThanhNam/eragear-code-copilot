@@ -77,8 +77,8 @@ import {
   resolvePromptInputSubmitStatus,
 } from "./chat-input-submit-status";
 import {
-  SlashCommandPopup,
   type SlashCommand,
+  SlashCommandPopup,
   type SlashCommandPopupRef,
 } from "./slash-command-popup";
 
@@ -229,7 +229,12 @@ function SlashCommandActionMenuItem({
       textareaRef,
     });
     onCommandApplied?.(command.name);
-  }, [command.name, controller.textInput.setInput, onCommandApplied, textareaRef]);
+  }, [
+    command.name,
+    controller.textInput.setInput,
+    onCommandApplied,
+    textareaRef,
+  ]);
 
   return (
     <PromptInputActionMenuItem className="items-start" onSelect={handleSelect}>
@@ -661,7 +666,9 @@ const ChatInputBase = ({
     if (recentSlashCommands.length === 0) {
       return slashCommands;
     }
-    const recentNames = new Set(recentSlashCommands.map((command) => command.name));
+    const recentNames = new Set(
+      recentSlashCommands.map((command) => command.name)
+    );
     return slashCommands.filter((command) => !recentNames.has(command.name));
   }, [recentSlashCommands, slashCommands]);
   const showSlashCommandBrowserAction =
@@ -746,7 +753,10 @@ const ChatInputBase = ({
   }, []);
   const rememberSlashCommand = useCallback((commandName: string) => {
     setRecentSlashCommandNames((prev) => {
-      const next = [commandName, ...prev.filter((name) => name !== commandName)];
+      const next = [
+        commandName,
+        ...prev.filter((name) => name !== commandName),
+      ];
       return next.slice(0, MAX_RECENT_SLASH_COMMANDS);
     });
   }, []);
@@ -1010,7 +1020,9 @@ const ChatInputBase = ({
                     variant="outline"
                   >
                     {selectedModelData?.provider && (
-                      <ModelSelectorLogo provider={selectedModelData.provider} />
+                      <ModelSelectorLogo
+                        provider={selectedModelData.provider}
+                      />
                     )}
                     {selectedModelData?.name && (
                       <ModelSelectorName>

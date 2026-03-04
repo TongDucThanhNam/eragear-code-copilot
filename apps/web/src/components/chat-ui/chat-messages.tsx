@@ -26,7 +26,7 @@ const ChatMessagesBase = ({
   onLoadOlder,
 }: ChatMessagesProps) => (
   <Conversation className="h-full min-h-0">
-    <ConversationContent className="mx-auto w-full max-w-4xl gap-6 px-3 pb-4 pt-4 sm:px-5">
+    <ConversationContent className="mx-auto w-full max-w-4xl gap-6 px-3 pt-4 pb-4 sm:px-5">
       {canLoadOlder && onLoadOlder ? (
         <div className="flex justify-center">
           <Button
@@ -36,7 +36,9 @@ const ChatMessagesBase = ({
             type="button"
             variant="ghost"
           >
-            {isLoadingOlder ? "Loading older messages..." : "Load older messages"}
+            {isLoadingOlder
+              ? "Loading older messages..."
+              : "Load older messages"}
           </Button>
         </div>
       ) : null}
