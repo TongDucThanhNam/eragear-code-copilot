@@ -203,7 +203,36 @@ describe("use-chat-message-state", () => {
 
     // All three parts present — no data loss
     expect(afterPart1.byId.get("m1")?.parts).toHaveLength(3);
+    // Existing indices remain stable to avoid UI reflow from index shifting.
     expect(afterPart1.byId.get("m1")?.parts[1]).toMatchObject({
+      type: "text",
+      text: "part-2",
+    });
+    expect(afterPart1.byId.get("m1")?.parts[2]).toMatchObject({
+      type: "reasoning",
+      text: "thinking",
+    });
+  });
+
+  test("applyPartUpdate keeps idempotent isNew collisions stable", () => {
+    const initial = replaceMessagesState([createMessage("m1", "part-0")]);
+    const first = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 1,
+      part: { type: "reasoning", text: "thinking", state: "done" },
+      isNew: true,
+    });
+    const second = applyPartUpdate(first, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 1,
+      part: { type: "reasoning", text: "thinking", state: "done" },
+      isNew: true,
+    });
+
+    expect(second.byId.get("m1")?.parts).toHaveLength(2);
+    expect(second.byId.get("m1")?.parts[1]).toMatchObject({
       type: "reasoning",
       text: "thinking",
     });

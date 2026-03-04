@@ -21,6 +21,20 @@ export interface MessagePartUpdateChunk {
   createdAt?: number;
 }
 
+function areStructurallyEqualParts(
+  left: UIMessage["parts"][number],
+  right: UIMessage["parts"][number]
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
 export const createEmptyMessageState = (): MessageState => ({
   byId: new Map<string, UIMessage>(),
   order: [],
@@ -222,11 +236,18 @@ export const applyPartUpdate = (
     if (update.partIndex < 0) {
       return state;
     }
-    if (update.partIndex <= nextParts.length) {
-      if (update.partIndex === nextParts.length) {
-        nextParts.push(update.part);
+    if (update.partIndex === nextParts.length) {
+      nextParts.push(update.part);
+    } else if (update.partIndex < nextParts.length) {
+      const existingPart = nextParts[update.partIndex];
+      if (existingPart && areStructurallyEqualParts(existingPart, update.part)) {
+        nextParts[update.partIndex] = update.part;
       } else {
-        nextParts.splice(update.partIndex, 0, update.part);
+        // Collision means events arrived out-of-order. Append instead of
+        // inserting, so existing indices stay stable and React avoids reflow
+        // from index-shift. A later full ui_message snapshot remains
+        // authoritative for exact ordering.
+        nextParts.push(update.part);
       }
     } else {
       // Out-of-order: index beyond current array length.

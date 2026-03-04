@@ -24,10 +24,20 @@ const ChunkUpdateSchema = z
   })
   .passthrough();
 
+const TOOL_CALL_ID_MAX_LENGTH = 256;
+const TOOL_CALL_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
+const ToolCallIdSchema = z
+  .string()
+  .min(1)
+  .max(TOOL_CALL_ID_MAX_LENGTH)
+  .refine((value) => TOOL_CALL_ID_PATTERN.test(value), {
+    message: "Invalid toolCallId format",
+  });
+
 const ToolCallSchema = z
   .object({
     sessionUpdate: z.literal("tool_call"),
-    toolCallId: z.string(),
+    toolCallId: ToolCallIdSchema,
     kind: z.string().optional(),
     status: z.string().optional(),
   })
@@ -36,7 +46,7 @@ const ToolCallSchema = z
 const ToolCallUpdateSchema = z
   .object({
     sessionUpdate: z.literal("tool_call_update"),
-    toolCallId: z.string(),
+    toolCallId: ToolCallIdSchema,
     status: z.string().optional(),
   })
   .passthrough();

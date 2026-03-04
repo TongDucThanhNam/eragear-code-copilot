@@ -11,6 +11,7 @@ import type {
   StoredContentBlock,
 } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
+import { flushThrottledBroadcasts } from "./broadcast-throttle";
 import { SessionBuffering } from "./update-buffer";
 import { handleBufferedMessage } from "./update-stream";
 import type { SessionUpdate } from "./update-types";
@@ -92,7 +93,7 @@ function createContext(params: {
 }
 
 describe("handleBufferedMessage", () => {
-  test("broadcasts full text part snapshots for each assistant text chunk", async () => {
+  test("coalesces text chunk snapshots and emits latest part state", async () => {
     const session = createSession("chat-stream-text");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -119,24 +120,16 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
+    await flushThrottledBroadcasts(session.id);
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(1);
     expect(calls[0]?.event.type).toBe("ui_message_part");
-    expect(calls[1]?.event.type).toBe("ui_message_part");
     if (calls[0]?.event.type === "ui_message_part") {
       expect(calls[0].event.isNew).toBe(true);
       expect(calls[0].event.partIndex).toBe(0);
       expect(calls[0].event.part.type).toBe("text");
       if (calls[0].event.part.type === "text") {
-        expect(calls[0].event.part.text).toBe("Hello");
-      }
-    }
-    if (calls[1]?.event.type === "ui_message_part") {
-      expect(calls[1].event.isNew).toBe(false);
-      expect(calls[1].event.partIndex).toBe(0);
-      expect(calls[1].event.part.type).toBe("text");
-      if (calls[1].event.part.type === "text") {
-        expect(calls[1].event.part.text).toBe("Hello world");
+        expect(calls[0].event.part.text).toBe("Hello world");
       }
     }
     const assistantId = session.uiState.currentAssistantId;
@@ -178,13 +171,14 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
+    await flushThrottledBroadcasts(session.id);
 
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.event.type).toBe("ui_message_part");
-    if (calls[1]?.event.type === "ui_message_part") {
-      expect(calls[1].event.part.type).toBe("text");
-      if (calls[1].event.part.type === "text") {
-        expect(calls[1].event.part.text).toBe("safe&lt;tag&gt;");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.event.type).toBe("ui_message_part");
+    if (calls[0]?.event.type === "ui_message_part") {
+      expect(calls[0].event.part.type).toBe("text");
+      if (calls[0].event.part.type === "text") {
+        expect(calls[0].event.part.text).toBe("safe&lt;tag&gt;");
       }
     }
     const assistantId = session.uiState.currentAssistantId;
@@ -198,7 +192,7 @@ describe("handleBufferedMessage", () => {
     }
   });
 
-  test("broadcasts full reasoning part snapshots for each thought chunk", async () => {
+  test("coalesces reasoning chunk snapshots and emits latest part state", async () => {
     const session = createSession("chat-reasoning-buffer");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -225,24 +219,16 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
+    await flushThrottledBroadcasts(session.id);
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(1);
     expect(calls[0]?.event.type).toBe("ui_message_part");
-    expect(calls[1]?.event.type).toBe("ui_message_part");
     if (calls[0]?.event.type === "ui_message_part") {
       expect(calls[0].event.isNew).toBe(true);
       expect(calls[0].event.partIndex).toBe(0);
       expect(calls[0].event.part.type).toBe("reasoning");
       if (calls[0].event.part.type === "reasoning") {
-        expect(calls[0].event.part.text).toBe("think-1");
-      }
-    }
-    if (calls[1]?.event.type === "ui_message_part") {
-      expect(calls[1].event.isNew).toBe(false);
-      expect(calls[1].event.partIndex).toBe(0);
-      expect(calls[1].event.part.type).toBe("reasoning");
-      if (calls[1].event.part.type === "reasoning") {
-        expect(calls[1].event.part.text).toBe("think-1 think-2");
+        expect(calls[0].event.part.text).toBe("think-1 think-2");
       }
     }
     expect(buffer.hasPendingReasoning()).toBe(false);
@@ -326,6 +312,7 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
+    await flushThrottledBroadcasts(session.id);
 
     const partEvents = calls.filter(
       (call) => call.event.type === "ui_message_part"
@@ -495,5 +482,55 @@ describe("handleBufferedMessage", () => {
         .join("")
     );
     expect(assistantTexts).toEqual(["answer-1", "answer-2"]);
+  });
+
+  test("ignores live user_message_chunk outside replay mode", async () => {
+    const session = createSession("chat-stream-live-user-chunk");
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    const handled = await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        isReplayingHistory: false,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "should-not-apply" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    expect(handled).toBe(false);
+    expect(calls).toHaveLength(0);
+    expect(session.uiState.currentUserId).toBeUndefined();
+    expect(session.uiState.messages.size).toBe(0);
+  });
+
+  test("drops assistant chunk when update turnId mismatches active turn", async () => {
+    const session = createSession("chat-stream-turn-id-guard");
+    session.activeTurnId = "turn-active";
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    const handled = await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        isReplayingHistory: false,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          turnId: "turn-stale",
+          content: { type: "text", text: "late chunk" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    expect(handled).toBe(false);
+    expect(calls).toHaveLength(0);
+    expect(session.uiState.currentAssistantId).toBeUndefined();
+    expect(session.uiState.messages.size).toBe(0);
   });
 });

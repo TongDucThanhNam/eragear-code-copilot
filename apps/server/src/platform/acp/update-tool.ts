@@ -1,5 +1,6 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type { UIMessage } from "@repo/shared";
+import { createLogger } from "@/platform/logging/structured-logger";
 import { toStoredToolCallContent } from "@/shared/utils/content-block.util";
 import {
   buildToolPartForUpdate,
@@ -12,6 +13,17 @@ import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 import { isToolCallCreate, isToolCallUpdate } from "./update-types";
 
 const TOOL_CALL_FALLBACK_KIND = "other";
+const TOOL_CALL_ID_MAX_LENGTH = 256;
+const TOOL_CALL_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
+const logger = createLogger("Debug");
+
+function isValidToolCallId(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= TOOL_CALL_ID_MAX_LENGTH &&
+    TOOL_CALL_ID_PATTERN.test(value)
+  );
+}
 
 export async function handleToolCallCreate(
   context: SessionUpdateContext
@@ -25,6 +37,13 @@ export async function handleToolCallCreate(
     finalizeStreamingForCurrentAssistant,
   } = context;
   if (!isToolCallCreate(update)) {
+    return false;
+  }
+  if (!isValidToolCallId(update.toolCallId)) {
+    logger.warn("Dropped tool_call with invalid toolCallId", {
+      chatId,
+      toolCallIdLength: update.toolCallId.length,
+    });
     return false;
   }
 
@@ -119,6 +138,13 @@ export async function handleToolCallUpdate(
     finalizeStreamingForCurrentAssistant,
   } = context;
   if (!isToolCallUpdate(update)) {
+    return false;
+  }
+  if (!isValidToolCallId(update.toolCallId)) {
+    logger.warn("Dropped tool_call_update with invalid toolCallId", {
+      chatId,
+      toolCallIdLength: update.toolCallId.length,
+    });
     return false;
   }
 

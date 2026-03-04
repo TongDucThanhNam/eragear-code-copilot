@@ -23,11 +23,52 @@ type SuppressReason = "replay_suppressed";
 export async function handleBufferedMessage(
   context: SessionUpdateContext
 ): Promise<boolean> {
-  appendAgentChunksToBuffer(context);
   return await handleUiChunkUpdate(context);
 }
 
-function appendAgentChunksToBuffer(context: SessionUpdateContext): void {
+const TURN_ID_MAX_LENGTH = 128;
+const TURN_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
+
+function sanitizeTurnId(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (
+    trimmed.length === 0 ||
+    trimmed.length > TURN_ID_MAX_LENGTH ||
+    !TURN_ID_PATTERN.test(trimmed)
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function readTurnIdFromMeta(meta: unknown): string | undefined {
+  if (!meta || typeof meta !== "object") {
+    return undefined;
+  }
+  const record = meta as Record<string, unknown>;
+  const direct =
+    sanitizeTurnId(record.turnId) ??
+    sanitizeTurnId(record.turn_id) ??
+    sanitizeTurnId(record["turn-id"]);
+  if (direct) {
+    return direct;
+  }
+  if (record.turn && typeof record.turn === "object") {
+    const turnRecord = record.turn as Record<string, unknown>;
+    return sanitizeTurnId(turnRecord.id);
+  }
+  return undefined;
+}
+
+function readUpdateTurnId(update: SessionUpdate): string | undefined {
+  const asRecord = update as unknown as Record<string, unknown>;
+  return sanitizeTurnId(asRecord.turnId) ?? readTurnIdFromMeta(asRecord._meta);
+}
+
+function appendAcceptedAgentChunkToBuffer(context: SessionUpdateContext): void {
   const { buffer, update } = context;
   if (update.sessionUpdate === "agent_message_chunk") {
     buffer.appendContent(toStoredContentBlock(update.content));
@@ -63,7 +104,28 @@ async function handleUiChunkUpdate(
     return false;
   }
 
+  const updateTurnId = readUpdateTurnId(update);
+  if (!isReplayingHistory && updateTurnId && session.activeTurnId) {
+    if (updateTurnId !== session.activeTurnId) {
+      logger.warn("Ignoring stale ACP chunk with mismatched turnId", {
+        chatId,
+        updateType: update.sessionUpdate,
+        updateTurnId,
+        activeTurnId: session.activeTurnId,
+      });
+      return false;
+    }
+  }
+
   if (update.sessionUpdate === "user_message_chunk") {
+    if (!isReplayingHistory) {
+      // Canonical live user input is emitted by SendMessageService. Ignore
+      // provider-origin user chunks in live mode to avoid cross-turn resets.
+      logger.warn("Ignoring live user_message_chunk outside replay", {
+        chatId,
+      });
+      return false;
+    }
     await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, buffer, {
       suppressBroadcast: suppressReplayBroadcast,
     });
@@ -97,6 +159,7 @@ async function handleUiChunkUpdate(
     return true;
   }
 
+  appendAcceptedAgentChunkToBuffer(context);
   const preferredMessageId = session.uiState.currentAssistantId;
   await updateAssistantChunkType({
     chatId,
