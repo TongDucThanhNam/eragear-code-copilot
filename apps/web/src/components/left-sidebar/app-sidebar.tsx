@@ -1,10 +1,11 @@
 "use client";
 
-import { IconFileAi, IconInnerShadowTop } from "@tabler/icons-react";
-import { useEffect, useMemo } from "react";
+import { IconInnerShadowTop } from "@tabler/icons-react";
 import type * as React from "react";
-import { NavProjectTree } from "@/components/nav-project-tree";
-import { NavUser } from "@/components/nav-user";
+import { useEffect, useMemo } from "react";
+import { getAgentIconComponent } from "@/components/left-sidebar/agent-icons";
+import { NavProjectTree } from "@/components/left-sidebar/nav-project-tree";
+import { NavUser } from "@/components/left-sidebar/nav-user";
 import {
   Sidebar,
   SidebarContent,
@@ -16,21 +17,6 @@ import {
 } from "@/components/ui/sidebar";
 import { trpc } from "@/lib/trpc";
 import { useChatStatusStore } from "@/store/chat-status-store";
-import { ClaudeAI, OpenAI, OpenCode } from "./ui/icons";
-
-const getAgentIcon = (agentTitle: string | undefined) => {
-  // console.log("agentTitle:", agentTitle);
-  switch (agentTitle) {
-    case "Claude Code":
-      return ClaudeAI;
-    case "OpenCode":
-      return OpenCode;
-    case "Codex":
-      return OpenAI;
-    default:
-      return IconFileAi;
-  }
-};
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { data: me } = trpc.auth.getMe.useQuery();
@@ -42,18 +28,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   );
   useEffect(() => {
-    if (!(sessionPageQuery.hasNextPage && !sessionPageQuery.isFetchingNextPage)) {
+    if (
+      !(sessionPageQuery.hasNextPage && !sessionPageQuery.isFetchingNextPage)
+    ) {
       return;
     }
-    void sessionPageQuery.fetchNextPage();
+    sessionPageQuery.fetchNextPage();
   }, [
     sessionPageQuery.fetchNextPage,
     sessionPageQuery.hasNextPage,
     sessionPageQuery.isFetchingNextPage,
   ]);
   const sessions = useMemo(
-    () =>
-      sessionPageQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    () => sessionPageQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [sessionPageQuery.data]
   );
   const activeChatId = useChatStatusStore((state) => state.activeChatId);
@@ -93,9 +80,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         name: s.name
           ? s.name
           : s.agentName
-          ? s.agentName
-          : `Session ${s.id.slice(0, 8)}`,
-        icon: getAgentIcon(s.agentName),
+            ? s.agentName
+            : `Session ${s.id.slice(0, 8)}`,
+        icon: getAgentIconComponent({
+          agentId: s.agentId,
+          agentName: s.agentName,
+          agentTitle: s.agentInfo?.title,
+          agentType: s.agentInfo?.name,
+        }),
         agentName: s.agentName,
         agentInfo: s.agentInfo,
         agentCapabilities: s.agentCapabilities,

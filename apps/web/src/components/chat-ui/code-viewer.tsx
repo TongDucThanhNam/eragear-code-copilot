@@ -158,14 +158,14 @@ function FileContentLoader({ filePath }: { filePath: string }) {
       clearSyncTimer();
       if (dirtyRef.current) {
         dirtyRef.current = false;
-        void syncEditorBuffer({ isDirty: false });
+        syncEditorBuffer({ isDirty: false });
       }
       return;
     }
     dirtyRef.current = true;
     clearSyncTimer();
     syncTimerRef.current = setTimeout(() => {
-      void syncEditorBuffer({ isDirty: true, content: next });
+      syncEditorBuffer({ isDirty: true, content: next });
     }, DIRTY_SYNC_DEBOUNCE_MS);
   };
 
@@ -188,7 +188,7 @@ function FileContentLoader({ filePath }: { filePath: string }) {
             onClick={() => {
               if (draftModeEnabled) {
                 discardDraft();
-                void clearDirtyBuffer();
+                clearDirtyBuffer();
                 setDraftModeEnabled(false);
                 return;
               }

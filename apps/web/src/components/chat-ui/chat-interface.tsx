@@ -3,9 +3,9 @@ import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { resolveSessionBootstrapPhase } from "@/components/chat-ui/chat-bootstrap-phase";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
+import { ChatMessagesPane } from "@/components/chat-ui/chat-interface/chat-messages-pane";
+import { ChatPlanDockPane } from "@/components/chat-ui/chat-interface/chat-plan-dock-pane";
 import { ChatInput } from "@/components/chat-ui/chat-input";
-import { ChatMessages } from "@/components/chat-ui/chat-messages";
-import { ChatPlanDock } from "@/components/chat-ui/chat-plan-dock";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import { Button } from "@/components/ui/button";
@@ -24,8 +24,6 @@ import {
 } from "@/store/chat-status-store";
 import {
   useChatMessageCount,
-  useChatMessages,
-  useChatTerminalOutputs,
 } from "@/store/chat-stream-store";
 import { useFileStore } from "@/store/file-store";
 import { useProjectStore } from "@/store/project-store";
@@ -33,37 +31,6 @@ import { useProjectStore } from "@/store/project-store";
 interface ChatInterfaceProps {
   initialChatId?: string | null;
   onChatIdChange?: (chatId: string | null) => void;
-}
-
-interface ChatMessagesPaneProps {
-  chatId: string | null;
-  canLoadOlder: boolean;
-  isLoadingOlder: boolean;
-  onLoadOlder: () => void;
-}
-
-function ChatMessagesPane({
-  chatId,
-  canLoadOlder,
-  isLoadingOlder,
-  onLoadOlder,
-}: ChatMessagesPaneProps) {
-  const messages = useChatMessages(chatId);
-  const terminalOutputs = useChatTerminalOutputs(chatId);
-  return (
-    <ChatMessages
-      canLoadOlder={canLoadOlder}
-      isLoadingOlder={isLoadingOlder}
-      messages={messages}
-      onLoadOlder={onLoadOlder}
-      terminalOutputs={terminalOutputs}
-    />
-  );
-}
-
-function ChatPlanDockPane({ chatId }: { chatId: string | null }) {
-  const messages = useChatMessages(chatId);
-  return <ChatPlanDock messages={messages} />;
 }
 
 function getBootstrapPhaseLabel(phase: SessionBootstrapPhase): string {

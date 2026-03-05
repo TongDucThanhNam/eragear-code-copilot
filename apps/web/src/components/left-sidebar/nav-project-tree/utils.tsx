@@ -1,5 +1,5 @@
 import { Pin } from "lucide-react";
-import { ClaudeAI, OpenAI, OpenCode } from "@/components/ui/icons";
+import { renderAgentIcon } from "@/components/left-sidebar/agent-icons";
 import type { SessionItem } from "./types";
 
 export const UNKNOWN_PROJECT_ID = "unknown";
@@ -11,18 +11,18 @@ export const AGENT_RESUME_TEMPLATE_BY_TYPE: Record<string, string> = {
   gemini: `gemini --resume ${SESSION_ID_PLACEHOLDER}`,
 };
 
-export const getAgentIcon = (agentName: string | undefined) => {
-  switch (agentName) {
-    case "Claude Code":
-      return <ClaudeAI className="h-4 w-4" />;
-    case "OpenCode":
-      return <OpenCode className="h-4 w-4" />;
-    case "Codex":
-      return <OpenAI className="h-4 w-4" />;
-    default:
-      return null;
-  }
-};
+export const getAgentIcon = (
+  session: Pick<SessionItem, "agentName" | "agentId" | "agentInfo">
+) =>
+  renderAgentIcon(
+    {
+      agentId: session.agentId,
+      agentName: session.agentName,
+      agentTitle: session.agentInfo?.title,
+      agentType: session.agentInfo?.name,
+    },
+    "h-4 w-4"
+  );
 
 export const renderPinnedIcon = (isPinned: boolean) =>
   isPinned ? <Pin className="mr-1.5 h-3 w-3 text-muted-foreground" /> : null;

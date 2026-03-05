@@ -30,6 +30,7 @@ import type {
 import {
   formatDiscoveredUpdatedAt,
   getDiscoveredSessionLabel,
+  getAgentIcon,
   getSessionDisplayId,
 } from "./utils";
 
@@ -600,7 +601,12 @@ export function NavProjectTreeDialogs({
                   </div>
                   <div>
                     <strong>Agent:</strong>{" "}
-                    {selectedSessionForDetails.agentName || "Unknown"}
+                    <span className="inline-flex items-center gap-1.5">
+                      {getAgentIcon(selectedSessionForDetails)}
+                      <span>
+                        {selectedSessionForDetails.agentName || "Unknown"}
+                      </span>
+                    </span>
                   </div>
                   <div>
                     <strong>Status:</strong> {selectedSessionForDetails.status}

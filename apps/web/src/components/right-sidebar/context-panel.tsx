@@ -26,10 +26,16 @@ export function ContextPanel() {
           </TabsList>
         </div>
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <TabsContent className="relative m-0 h-full min-h-0 overflow-hidden" value="files">
+          <TabsContent
+            className="relative m-0 h-full min-h-0 overflow-hidden"
+            value="files"
+          >
             <FileTree />
           </TabsContent>
-          <TabsContent className="relative m-0 h-full min-h-0 overflow-hidden" value="changes">
+          <TabsContent
+            className="relative m-0 h-full min-h-0 overflow-hidden"
+            value="changes"
+          >
             <DiffViewer />
           </TabsContent>
         </div>

@@ -2,18 +2,15 @@
 
 import {
   Check,
-  Code2,
-  Cpu,
   Edit2,
   Globe,
-  MessageSquare,
   Plus,
-  Sparkles,
   Terminal,
   Trash2,
 } from "lucide-react";
 import React from "react";
 import { toast } from "sonner";
+import { renderAgentIcon } from "@/components/left-sidebar/agent-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -187,20 +184,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   };
 
-  const getAgentIcon = (type: string) => {
-    switch (type) {
-      case "claude":
-        return <MessageSquare className="h-4 w-4" />;
-      case "codex":
-        return <Cpu className="h-4 w-4" />;
-      case "opencode":
-        return <Code2 className="h-4 w-4" />;
-      case "gemini":
-        return <Sparkles className="h-4 w-4" />;
-      default:
-        return <Terminal className="h-4 w-4" />;
-    }
-  };
+  const getAgentIcon = (type: string, name?: string) =>
+    renderAgentIcon({ agentType: type, agentName: name }, "h-4 w-4");
 
   return (
     <>
@@ -274,7 +259,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <div className="flex items-center gap-2">
                           <div className="shrink-0 rounded-md bg-muted p-2">
-                            {getAgentIcon(agent.type)}
+                            {getAgentIcon(agent.type, agent.name)}
                           </div>
                           <CardTitle className="font-medium text-base">
                             {agent.name}

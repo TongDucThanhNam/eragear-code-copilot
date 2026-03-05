@@ -16,13 +16,16 @@ interface ApiKeyVerifyResponse {
 }
 
 const verifyApiKeyViaHttp = async (serverUrl: string, apiKey: string) => {
-  const response = await fetch(buildHttpApiUrl(serverUrl, "/api/auth/api-key/verify"), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ key: apiKey }),
-  });
+  const response = await fetch(
+    buildHttpApiUrl(serverUrl, "/api/auth/api-key/verify"),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ key: apiKey }),
+    }
+  );
 
   if (!response.ok) {
     throw new Error(`API key verification failed (${response.status})`);
@@ -153,9 +156,12 @@ export function ConnectionSetupDialog() {
           5000
         );
         try {
-          const healthRes = await fetch(buildHttpApiUrl(localUrl, "/api/health"), {
-            signal: healthController.signal,
-          });
+          const healthRes = await fetch(
+            buildHttpApiUrl(localUrl, "/api/health"),
+            {
+              signal: healthController.signal,
+            }
+          );
           if (!healthRes.ok) {
             throw new Error("Server health check failed");
           }

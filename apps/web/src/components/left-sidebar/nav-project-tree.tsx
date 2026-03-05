@@ -418,7 +418,9 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
         if (!params.append) {
           return result.sessions;
         }
-        const merged = new Map(prev.map((session) => [session.sessionId, session]));
+        const merged = new Map(
+          prev.map((session) => [session.sessionId, session])
+        );
         for (const session of result.sessions) {
           merged.set(session.sessionId, session);
         }
@@ -528,7 +530,9 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
 
   const getResumeTemplateForSession = (session: SessionItem) => {
     if (session.agentId) {
-      const configuredTemplate = agentsById.get(session.agentId)?.resumeCommandTemplate;
+      const configuredTemplate = agentsById.get(
+        session.agentId
+      )?.resumeCommandTemplate;
       if (configuredTemplate) {
         return configuredTemplate;
       }
@@ -622,7 +626,10 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
 
           return (
             <ProjectRow
-              agents={agents.map((agent) => ({ id: agent.id, name: agent.name }))}
+              agents={agents.map((agent) => ({
+                id: agent.id,
+                name: agent.name,
+              }))}
               discoverContext={discoverContext}
               discoverIsLoading={discoverIsLoading}
               isActive={isActive}
@@ -708,7 +715,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
         onEditProjectSubmit={handleEditProjectSubmit}
         onLoadDiscoveredSession={handleLoadDiscoveredSession}
         onLoadMoreDiscoveredSessions={() => {
-          void handleLoadMoreDiscoveredSessions();
+          handleLoadMoreDiscoveredSessions();
         }}
         onRefreshDiscoverSessions={handleRefreshDiscoverSessions}
         onRenameSubmit={handleRenameSubmit}

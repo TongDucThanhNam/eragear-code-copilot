@@ -4,15 +4,15 @@ import { createWSClient, wsLink } from "@trpc/client";
 import { useEffect, useMemo } from "react";
 import ReactDOM from "react-dom/client";
 import { ConnectionSetupDialog } from "./components/connection-setup-dialog";
-import Loader from "./components/loader";
 import { ThemeProvider } from "./components/theme-provider";
+import Loader from "./components/ui/loader";
 import { Toaster } from "./components/ui/sonner";
 import { buildTrpcWsUrl } from "./lib/server-url";
 import { trpc } from "./lib/trpc";
 import { routeTree } from "./routeTree.gen";
 import { useServerConfigStore } from "./store/server-config-store";
 
-const DEFAULT_SERVER_URL = "ws://localhost:3000";
+const DEFAULT_SERVER_URL = "ws://localhost:3010";
 
 const router = createRouter({
   routeTree,
@@ -77,7 +77,7 @@ function ConfiguredApp({
     return createWSClient({
       url: wsUrl,
       connectionParams: async () => {
-        const key = apiKey.trim();
+        const key = await apiKey.trim();
         if (!key) {
           return {};
         }
@@ -105,8 +105,8 @@ function ConfiguredApp({
   return (
     <trpc.Provider
       client={trpcClient}
-      queryClient={queryClient}
       key={`${wsUrl}|${apiKey.trim()}`}
+      queryClient={queryClient}
     >
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />

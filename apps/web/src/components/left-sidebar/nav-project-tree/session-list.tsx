@@ -4,10 +4,6 @@ import { Link } from "@tanstack/react-router";
 import { Archive, Copy, Info, Pen, Pin, PinOff, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
-} from "@/components/ui/sidebar";
-import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuGroup,
@@ -16,7 +12,11 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
   ContextMenuTrigger,
-} from "../ui/context-menu";
+} from "@/components/ui/context-menu";
+import {
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+} from "@/components/ui/sidebar";
 import type { SessionItem } from "./types";
 import {
   getAgentIcon,
@@ -78,7 +78,7 @@ export function SessionList({
                   }
                 >
                   <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                    {getAgentIcon(session.agentName)}
+                    {getAgentIcon(session)}
                     <span className="min-w-0 flex-1 truncate">
                       {getSessionDisplayId(session)}
                     </span>
@@ -104,7 +104,7 @@ export function SessionList({
         </ContextMenuTrigger>
         <ContextMenuContent className="w-64">
           <ContextMenuLabel className="flex items-center gap-1.5 font-medium text-foreground">
-            {getAgentIcon(session.agentName)}
+            {getAgentIcon(session)}
             <span className="min-w-0 flex-1 truncate">{rawSessionId}</span>
             <ContextMenuShortcut className="uppercase">
               {statusLabel}

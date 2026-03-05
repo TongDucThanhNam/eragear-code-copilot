@@ -28,7 +28,7 @@ export function FileTree() {
 
   return (
     <FileTreeComponent
-      className="h-full min-h-0 overflow-y-auto overscroll-contain pb-3 pr-1 [scrollbar-gutter:stable]"
+      className="h-full min-h-0 overflow-y-auto overscroll-contain pr-1 pb-3 [scrollbar-gutter:stable]"
       expanded={expandedPaths}
       onExpandedChange={setExpandedPaths}
       onSelect={(path: string) => setSelectedFile(path)}

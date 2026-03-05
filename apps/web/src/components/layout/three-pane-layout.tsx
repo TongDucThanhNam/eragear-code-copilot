@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ContextPanel } from "@/components/context-panel/context-panel";
+import { ContextPanel } from "@/components/right-sidebar/context-panel";
 import {
   ResizableHandle,
   ResizablePanel,

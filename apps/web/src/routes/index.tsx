@@ -4,9 +4,9 @@ import {
   useSearch,
 } from "@tanstack/react-router";
 import { z } from "zod";
-import { AppSidebar } from "@/components/app-sidebar";
+import { AppSidebar } from "@/components/left-sidebar/app-sidebar";
 import { ChatInterface } from "@/components/chat-ui/chat-interface";
-import { CodeViewer } from "@/components/code-viewer";
+import { CodeViewer } from "@/components/chat-ui/code-viewer";
 import { ThreePaneLayout } from "@/components/layout/three-pane-layout";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { useFileStore } from "@/store/file-store";

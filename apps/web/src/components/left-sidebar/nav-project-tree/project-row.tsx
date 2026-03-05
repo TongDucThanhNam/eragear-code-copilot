@@ -8,18 +8,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
-  SidebarMenuAction,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuSub,
-} from "@/components/ui/sidebar";
-import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
-} from "../ui/context-menu";
+} from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,7 +24,13 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
+} from "@/components/ui/dropdown-menu";
+import {
+  SidebarMenuAction,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+} from "@/components/ui/sidebar";
 import { SessionList } from "./session-list";
 import type { DiscoverContext, SessionItem } from "./types";
 
@@ -53,7 +53,10 @@ interface ProjectRowProps {
   discoverIsLoading: boolean;
   discoverContext: DiscoverContext | null;
   onSelectProject: (projectId: string) => void;
-  onCreateSession: (params: { projectId: string; agent: AgentOption }) => Promise<void>;
+  onCreateSession: (params: {
+    projectId: string;
+    agent: AgentOption;
+  }) => Promise<void>;
   onOpenDiscoverDialog: (params: {
     projectId: string;
     projectName: string;
@@ -91,14 +94,18 @@ export function ProjectRow({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <Collapsible asChild className="group/collapsible" defaultOpen={isActive}>
+        <Collapsible
+          asChild
+          className="group/collapsible"
+          defaultOpen={isActive}
+        >
           <SidebarMenuItem>
             <CollapsibleTrigger asChild>
               <SidebarMenuButton
                 onClick={() => onSelectProject(project.id)}
                 tooltip={project.name}
               >
-                <Folder className="group-data-[collapsible=icon]:!size-4 size-4 shrink-0 fill-none text-muted-foreground" />
+                <Folder className="size-4 shrink-0 fill-none text-muted-foreground group-data-[collapsible=icon]:size-4!" />
                 <span className="truncate font-medium">{project.name}</span>
                 <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
               </SidebarMenuButton>
@@ -123,7 +130,8 @@ export function ProjectRow({
                   const requestKey = `${project.id}:${agent.id}`;
                   const isPending =
                     isCreatingSession && pendingCreateSessionKey === requestKey;
-                  const isLastAgent = agent.id === agents[agents.length - 1]?.id;
+                  const isLastAgent =
+                    agent.id === agents[agents.length - 1]?.id;
 
                   return (
                     <Fragment key={agent.id}>
@@ -131,7 +139,10 @@ export function ProjectRow({
                         disabled={isSessionBootstrapPending}
                         onClick={async (e) => {
                           e.stopPropagation();
-                          await onCreateSession({ projectId: project.id, agent });
+                          await onCreateSession({
+                            projectId: project.id,
+                            agent,
+                          });
                         }}
                       >
                         {isPending ? (
@@ -151,7 +162,9 @@ export function ProjectRow({
                 <DropdownMenuSeparator />
 
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>Import Existing</DropdownMenuSubTrigger>
+                  <DropdownMenuSubTrigger>
+                    Import Existing
+                  </DropdownMenuSubTrigger>
                   <DropdownMenuPortal>
                     <DropdownMenuSubContent>
                       {agents.map((agent) => {
@@ -161,8 +174,8 @@ export function ProjectRow({
                           discoverContext.agentId === agent.id;
                         return (
                           <DropdownMenuItem
-                            key={agent.id}
                             disabled={isSessionBootstrapPending}
+                            key={agent.id}
                             onClick={async (e) => {
                               e.stopPropagation();
                               await onOpenDiscoverDialog({

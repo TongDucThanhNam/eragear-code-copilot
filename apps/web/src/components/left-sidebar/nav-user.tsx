@@ -2,7 +2,7 @@
 
 import { ChevronsUpDown, Settings } from "lucide-react";
 import { useState } from "react";
-import { SettingsDialog } from "@/components/settings-dialog";
+import { SettingsDialog } from "@/components/left-sidebar/settings-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,

@@ -6,7 +6,6 @@ import {
   ChevronDown,
   FileTextIcon,
   SearchIcon,
-  TerminalIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -48,7 +47,6 @@ import {
   PromptInputCommandEmpty,
   PromptInputCommandGroup,
   PromptInputCommandInput,
-  PromptInputCommandItem,
   PromptInputCommandList,
   PromptInputCommandSeparator,
   PromptInputFooter,
@@ -63,22 +61,34 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
-  usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import { CommandDialog } from "@/components/ui/command";
 import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { MovingBorder } from "@/components/ui/moving-border";
 import { ATTACHMENT_HARD_LIMIT_BYTES } from "@/config/attachments";
-import { cn } from "@/lib/utils";
 import { useFileStore } from "@/store/file-store";
+import { MentionMenu, type MentionItem } from "./chat-input/mention-menu";
+import {
+  MAX_QUICK_SLASH_COMMANDS,
+  MAX_RECENT_SLASH_COMMANDS,
+  SLASH_COMMAND_RECENTS_STORAGE_KEY,
+  areStringArraysEqual,
+  findMentionTrigger,
+  normalizeConfigOptions,
+  normalizeModelProviders,
+  parseRecentSlashCommandNames,
+  readRecentSlashCommandNames,
+} from "./chat-input/shared";
+import { SlashCommandActionMenuItem } from "./chat-input/slash-command-action-menu-item";
+import { SlashCommandInlinePopup } from "./chat-input/slash-command-inline-popup";
+import { SlashCommandPaletteItem } from "./chat-input/slash-command-palette-item";
 import {
   isPromptSubmitDisabled,
   resolvePromptInputSubmitStatus,
 } from "./chat-input-submit-status";
 import {
   type SlashCommand,
-  SlashCommandPopup,
   type SlashCommandPopupRef,
 } from "./slash-command-popup";
 
@@ -119,419 +129,7 @@ export interface ChatInputProps {
   onCancel?: () => void;
 }
 
-const SLASH_COMMAND_RECENTS_STORAGE_KEY =
-  "eragear.chat-input.recent-slash-commands";
-const MAX_RECENT_SLASH_COMMANDS = 8;
-const MAX_QUICK_SLASH_COMMANDS = 4;
-
-type ChatInputModel = ChatInputProps["availableModels"][number];
-
-function normalizeRecentSlashCommandNames(raw: unknown): string[] {
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  return raw
-    .filter((item): item is string => typeof item === "string" && !!item)
-    .slice(0, MAX_RECENT_SLASH_COMMANDS);
-}
-
-function parseRecentSlashCommandNames(raw: string | null): string[] {
-  if (!raw) {
-    return [];
-  }
-  try {
-    return normalizeRecentSlashCommandNames(JSON.parse(raw));
-  } catch {
-    return [];
-  }
-}
-
-function areStringArraysEqual(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function normalizeModelProviders(model: ChatInputModel): string[] {
-  const candidates = [
-    ...(Array.isArray(model.providers) ? model.providers : []),
-    model.provider,
-  ];
-  const normalized = new Set<string>();
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") {
-      continue;
-    }
-    const provider = candidate.trim().toLowerCase();
-    if (!provider) {
-      continue;
-    }
-    normalized.add(provider);
-  }
-  return [...normalized];
-}
-
-function readRecentSlashCommandNames(): string[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-  return parseRecentSlashCommandNames(
-    window.localStorage.getItem(SLASH_COMMAND_RECENTS_STORAGE_KEY)
-  );
-}
-
-function applySlashCommandSelection({
-  commandName,
-  setInput,
-  textareaRef,
-}: {
-  commandName: string;
-  setInput: (value: string) => void;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-}) {
-  const commandText = `/${commandName} `;
-  setInput(commandText);
-
-  const textarea = textareaRef.current;
-  if (!textarea) {
-    return;
-  }
-
-  textarea.focus();
-  requestAnimationFrame(() => {
-    const cursorPos = commandText.length;
-    textarea.selectionStart = cursorPos;
-    textarea.selectionEnd = cursorPos;
-  });
-}
-
-function SlashCommandActionMenuItem({
-  command,
-  textareaRef,
-  onCommandApplied,
-}: {
-  command: SlashCommand;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  onCommandApplied?: (commandName: string) => void;
-}) {
-  const controller = usePromptInputController();
-
-  const handleSelect = useCallback(() => {
-    applySlashCommandSelection({
-      commandName: command.name,
-      setInput: controller.textInput.setInput,
-      textareaRef,
-    });
-    onCommandApplied?.(command.name);
-  }, [
-    command.name,
-    controller.textInput.setInput,
-    onCommandApplied,
-    textareaRef,
-  ]);
-
-  return (
-    <PromptInputActionMenuItem className="items-start" onSelect={handleSelect}>
-      <TerminalIcon className="mt-0.5 size-4 text-muted-foreground" />
-      <div className="min-w-0 space-y-0.5">
-        <div className="font-medium text-xs">/{command.name}</div>
-        <div className="truncate text-muted-foreground text-xs">
-          {command.description}
-        </div>
-      </div>
-    </PromptInputActionMenuItem>
-  );
-}
-
-function SlashCommandPaletteItem({
-  command,
-  textareaRef,
-  onCommandApplied,
-  onClose,
-}: {
-  command: SlashCommand;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  onCommandApplied?: (commandName: string) => void;
-  onClose: () => void;
-}) {
-  const controller = usePromptInputController();
-
-  const handleSelect = useCallback(() => {
-    onClose();
-    requestAnimationFrame(() => {
-      applySlashCommandSelection({
-        commandName: command.name,
-        setInput: controller.textInput.setInput,
-        textareaRef,
-      });
-      onCommandApplied?.(command.name);
-    });
-  }, [
-    command.name,
-    controller.textInput.setInput,
-    onClose,
-    onCommandApplied,
-    textareaRef,
-  ]);
-
-  return (
-    <PromptInputCommandItem
-      onSelect={handleSelect}
-      value={`${command.name} ${command.description}`}
-    >
-      <TerminalIcon className="size-4 text-muted-foreground" />
-      <div className="min-w-0">
-        <div className="font-medium text-xs">/{command.name}</div>
-        <div className="truncate text-muted-foreground text-xs">
-          {command.description}
-        </div>
-      </div>
-    </PromptInputCommandItem>
-  );
-}
-
-function SlashCommandInlinePopup({
-  commands,
-  textareaRef,
-  popupRef,
-  onCommandApplied,
-}: {
-  commands: SlashCommand[];
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  popupRef: RefObject<SlashCommandPopupRef | null>;
-  onCommandApplied?: (commandName: string) => void;
-}) {
-  const controller = usePromptInputController();
-
-  const handleSelectCommand = useCallback(
-    (command: SlashCommand) => {
-      applySlashCommandSelection({
-        commandName: command.name,
-        setInput: controller.textInput.setInput,
-        textareaRef,
-      });
-      onCommandApplied?.(command.name);
-    },
-    [controller.textInput.setInput, onCommandApplied, textareaRef]
-  );
-
-  return (
-    <SlashCommandPopup
-      commands={commands}
-      inputValue={controller.textInput.value}
-      onSelectCommand={handleSelectCommand}
-      ref={popupRef}
-    />
-  );
-}
-
-interface MentionItem {
-  path: string;
-  name: string;
-  dir: string;
-}
-
-const findMentionTrigger = (value: string, cursor: number) => {
-  const upToCursor = value.slice(0, cursor);
-  const atIndex = upToCursor.lastIndexOf("@");
-  if (atIndex === -1) {
-    return null;
-  }
-
-  const before = upToCursor.slice(0, atIndex);
-  if (before.length > 0 && !/\\s/.test(before.slice(-1))) {
-    return null;
-  }
-
-  const query = upToCursor.slice(atIndex + 1);
-  if (query.includes(" ") || query.includes("\\n")) {
-    return null;
-  }
-
-  return { start: atIndex, query };
-};
-
-interface RenderableConfigValue {
-  value: string;
-  name: string;
-  description?: string | null;
-  groupLabel?: string;
-}
-
-function normalizeConfigOptions(options: SessionConfigOption[]): Array<{
-  id: string;
-  name: string;
-  category?: string | null;
-  currentValue: string;
-  values: RenderableConfigValue[];
-}> {
-  const output: Array<{
-    id: string;
-    name: string;
-    category?: string | null;
-    currentValue: string;
-    values: RenderableConfigValue[];
-  }> = [];
-
-  for (const option of options) {
-    if (option.type !== "select") {
-      continue;
-    }
-    const values: RenderableConfigValue[] = [];
-    for (const item of option.options) {
-      if ("options" in item) {
-        for (const nested of item.options) {
-          values.push({
-            value: nested.value,
-            name: nested.name,
-            description: nested.description,
-            groupLabel: item.name,
-          });
-        }
-        continue;
-      }
-      values.push({
-        value: item.value,
-        name: item.name,
-        description: item.description,
-      });
-    }
-    if (values.length === 0) {
-      continue;
-    }
-    output.push({
-      id: option.id,
-      name: option.name,
-      category: option.category,
-      currentValue: option.currentValue,
-      values,
-    });
-  }
-
-  return output;
-}
-
-function MentionMenu({
-  open,
-  items,
-  activeIndex,
-  onActiveIndexChange,
-  mentionStart,
-  textareaRef,
-  onAddMention,
-  onClose,
-  registerSelect,
-}: {
-  open: boolean;
-  items: MentionItem[];
-  activeIndex: number;
-  onActiveIndexChange: (index: number) => void;
-  mentionStart: number | null;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  onAddMention: (path: string) => void;
-  onClose: () => void;
-  registerSelect: (fn: ((index?: number) => void) | null) => void;
-}) {
-  const controller = usePromptInputController();
-
-  const handleSelect = useCallback(
-    (path: string) => {
-      const textarea = textareaRef.current;
-      if (!textarea || mentionStart === null) {
-        return;
-      }
-
-      const value = controller.textInput.value;
-      const cursor = textarea.selectionStart ?? value.length;
-      const before = value.slice(0, mentionStart);
-      const after = value.slice(cursor);
-      const mentionText = `@${path}`;
-      const nextValue = `${before}${mentionText} ${after}`;
-
-      controller.textInput.setInput(nextValue);
-      onAddMention(path);
-      onClose();
-
-      requestAnimationFrame(() => {
-        const pos = before.length + mentionText.length + 1;
-        textarea.focus();
-        textarea.selectionStart = pos;
-        textarea.selectionEnd = pos;
-      });
-    },
-    [controller.textInput, mentionStart, onAddMention, onClose, textareaRef]
-  );
-
-  const selectAtIndex = useCallback(
-    (index?: number) => {
-      const targetIndex = index ?? activeIndex;
-      const item = items[targetIndex];
-      if (item) {
-        handleSelect(item.path);
-      }
-    },
-    [activeIndex, handleSelect, items]
-  );
-
-  useEffect(() => {
-    registerSelect(selectAtIndex);
-    return () => registerSelect(null);
-  }, [registerSelect, selectAtIndex]);
-
-  if (!open) {
-    return null;
-  }
-
-  return (
-    <div className="absolute right-2 bottom-full left-2 z-50 mb-2">
-      <div className="rounded-lg border bg-popover shadow-lg">
-        <div className="max-h-72 overflow-auto p-1">
-          {items.length === 0 ? (
-            <div className="px-3 py-2 text-muted-foreground text-sm">
-              No matching files.
-            </div>
-          ) : (
-            items.map((item, index) => (
-              <button
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-                  index === activeIndex
-                    ? "bg-accent text-accent-foreground"
-                    : "hover:bg-accent/60"
-                )}
-                key={item.path}
-                onClick={() => handleSelect(item.path)}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => onActiveIndexChange(index)}
-                type="button"
-              >
-                <div className="flex size-7 items-center justify-center rounded-md border bg-muted/60">
-                  <FileTextIcon className="size-3.5 text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{item.name}</div>
-                  {item.dir && (
-                    <div className="truncate text-muted-foreground text-xs">
-                      {item.dir}
-                    </div>
-                  )}
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const ChatInputBase = ({
+export const ChatInput = memo(function ChatInput({
   textareaRef,
   status,
   connStatus,
@@ -548,7 +146,7 @@ const ChatInputBase = ({
   projectRules = [],
   availableCommands = [],
   onCancel,
-}: ChatInputProps) => {
+}: ChatInputProps) {
   const files = useFileStore((state) => state.files);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [mentions, setMentions] = useState<{ id: string; path: string }[]>([]);
@@ -1175,7 +773,4 @@ const ChatInputBase = ({
       </PromptInputProvider>
     </div>
   );
-};
-
-export const ChatInput = memo(ChatInputBase);
-ChatInput.displayName = "ChatInput";
+});
