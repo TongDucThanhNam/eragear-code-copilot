@@ -16,6 +16,7 @@ import {
   EmptyMedia,
 } from "@/components/ui/empty";
 import { useChat } from "@/hooks/use-chat";
+import { chatDebug } from "@/hooks/use-chat-debug";
 import { prepareImageForPrompt } from "@/lib/image-prompt";
 import { trpc } from "@/lib/trpc";
 import {
@@ -465,16 +466,53 @@ export function ChatInterface({
   useEffect(() => {
     const requestId = activePendingPermission?.requestId ?? null;
     if (!requestId) {
+      chatDebug("permission", "chat interface closing permission dialog", {
+        chatId: chatId ?? null,
+        pendingRequestId: pendingPermission?.requestId ?? null,
+        activeRequestId: null,
+        dialogOpen: permissionDialogOpen,
+        handledRequestId: handledPermissionIdRef.current,
+      });
       setPermissionDialogOpen(false);
       lastPermissionIdRef.current = null;
       return;
     }
     if (requestId !== lastPermissionIdRef.current) {
+      chatDebug("permission", "chat interface opening permission dialog", {
+        chatId: chatId ?? null,
+        pendingRequestId: pendingPermission?.requestId ?? null,
+        activeRequestId: requestId,
+        previousRequestId: lastPermissionIdRef.current,
+        dialogOpen: permissionDialogOpen,
+        handledRequestId: handledPermissionIdRef.current,
+      });
       lastPermissionIdRef.current = requestId;
       handledPermissionIdRef.current = null;
       setPermissionDialogOpen(true);
     }
-  }, [activePendingPermission?.requestId]);
+  }, [
+    activePendingPermission?.requestId,
+    chatId,
+    pendingPermission?.requestId,
+    permissionDialogOpen,
+  ]);
+
+  useEffect(() => {
+    chatDebug("permission", "chat interface permission state changed", {
+      chatId: chatId ?? null,
+      pendingRequestId: pendingPermission?.requestId ?? null,
+      activeRequestId: activePendingPermission?.requestId ?? null,
+      dialogOpen: permissionDialogOpen,
+      visible: permissionDialogOpen || Boolean(activePendingPermission),
+      handledRequestId: handledPermissionIdRef.current,
+      lastRequestId: lastPermissionIdRef.current,
+    });
+  }, [
+    activePendingPermission?.requestId,
+    chatId,
+    pendingPermission?.requestId,
+    permissionDialogOpen,
+  ]);
 
   const handlePermissionDecision = useCallback(
     async (decision: string) => {

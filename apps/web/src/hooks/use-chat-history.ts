@@ -87,6 +87,31 @@ export function runSharedInFlightLoad(
   return inFlight;
 }
 
+export function applyLoadedHistoryToState(
+  state: MessageState,
+  messages: UIMessage[]
+): MessageState {
+  if (messages.length === 0) {
+    return state;
+  }
+  if (state.order.length === 0) {
+    return replaceMessagesState(messages);
+  }
+  return mergeMessagesIntoState(state, messages);
+}
+
+function batchContainsPermissionPayload(messages: UIMessage[]): boolean {
+  return messages.some((message) =>
+    message.parts.some(
+      (part) =>
+        (part.type.startsWith("tool-") &&
+          "state" in part &&
+          part.state === "approval-requested") ||
+        part.type === "data-permission-options"
+    )
+  );
+}
+
 export function useChatHistory({
   chatId,
   connStatus,
@@ -251,15 +276,38 @@ export function useChatHistory({
               normalizedMessages[normalizedMessages.length - 1]?.id ?? null,
           });
           if (normalizedMessages.length > 0) {
-            updateMessageState((prev) => {
-              if (force || prev.order.length === 0) {
-                return replaceMessagesState(normalizedMessages);
-              }
-              return mergeMessagesIntoState(prev, normalizedMessages);
-            });
-            setPendingPermission(
-              findPendingPermission(messageStateRef.current.byId.values())
+            const previousPendingPermission = findPendingPermission(
+              messageStateRef.current.byId.values()
             );
+            const previousMessageCount = messageStateRef.current.order.length;
+            updateMessageState((prev) =>
+              applyLoadedHistoryToState(prev, normalizedMessages)
+            );
+            const nextPendingPermission = findPendingPermission(
+              messageStateRef.current.byId.values()
+            );
+            if (
+              force ||
+              batchContainsPermissionPayload(normalizedMessages) ||
+              previousPendingPermission?.requestId !==
+                nextPendingPermission?.requestId
+            ) {
+              chatDebug("permission", "history snapshot merged into client state", {
+                chatId: activeChatId,
+                force,
+                normalizedCount: normalizedMessages.length,
+                previousMessageCount,
+                nextMessageCount: messageStateRef.current.order.length,
+                previousPendingRequestId:
+                  previousPendingPermission?.requestId ?? null,
+                nextPendingRequestId: nextPendingPermission?.requestId ?? null,
+                mergeMode:
+                  previousMessageCount === 0 ? "replace-empty" : "merge-existing",
+                snapshotContainsPermissionPayload:
+                  batchContainsPermissionPayload(normalizedMessages),
+              });
+            }
+            setPendingPermission(nextPendingPermission);
           }
 
           historyNextCursorRef.current = page.nextCursor;

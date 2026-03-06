@@ -10,15 +10,12 @@ import type {
   SessionModeState,
   UIMessage,
 } from "@repo/shared";
-import { processSessionEvent } from "@repo/shared";
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from "react";
+import { findPendingPermission, processSessionEvent } from "@repo/shared";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { useCallback } from "react";
 import { useChatStreamStore } from "@/store/chat-stream-store";
 import { useFileStore } from "@/store/file-store";
+import type { UseChatOptions } from "./use-chat.types";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
 import { nextLifecycleOnSubscriptionEvent } from "./use-chat-connection.machine";
 import { chatDebug } from "./use-chat-debug";
@@ -26,11 +23,11 @@ import {
   applyPartUpdate,
   finalizeStreamingMessagesInState,
   type MessageState,
+  messageHasPendingApproval,
   upsertMessageIntoState,
 } from "./use-chat-message-state";
 import { normalizeMessage } from "./use-chat-normalize";
 import { resolveSessionEventTurnGuard } from "./use-chat-turn-guards";
-import type { UseChatOptions } from "./use-chat.types";
 
 interface UseChatSessionEventHandlerParams {
   loadHistory: (force?: boolean) => Promise<void>;
@@ -66,14 +63,19 @@ export function reconcileMessageUpsertAfterStatus(
 ): MessageState {
   const nextMessage = reconcileLateTerminalMessageSnapshot(message, status);
   const nextState = upsertMessageIntoState(state, nextMessage);
-  if (
-    status !== "ready" &&
-    status !== "inactive" &&
-    status !== "error"
-  ) {
+  if (status !== "ready" && status !== "inactive" && status !== "error") {
     return nextState;
   }
-  if (hasPendingApprovalRequest(nextMessage)) {
+  // Check ALL messages for pending approval, not just the upserted one.
+  // A ui_message event for a *different* message should NOT trigger
+  // finalization of a message that is awaiting permission.
+  // Note: finalizeStreamingMessagesInState also performs a per-message
+  // approval guard, but this early exit avoids unnecessary state cloning
+  // for the common single-permission case.
+  if (messageHasPendingApproval(nextMessage)) {
+    return nextState;
+  }
+  if (stateHasAnyPendingApproval(nextState)) {
     return nextState;
   }
   return finalizeStreamingMessagesInState(nextState);
@@ -83,15 +85,11 @@ function reconcileLateTerminalMessageSnapshot(
   message: UIMessage,
   status: ChatStatus
 ): UIMessage {
-  if (
-    status !== "ready" &&
-    status !== "inactive" &&
-    status !== "error"
-  ) {
+  if (status !== "ready" && status !== "inactive" && status !== "error") {
     return message;
   }
 
-  const hasPendingApproval = hasPendingApprovalRequest(message);
+  const hasPendingApproval = messageHasPendingApproval(message);
   if (!hasPendingApproval) {
     return message;
   }
@@ -121,13 +119,109 @@ function reconcileLateTerminalMessageSnapshot(
   };
 }
 
-function hasPendingApprovalRequest(message: UIMessage): boolean {
-  return message.parts.some(
-    (part) =>
+function stateHasAnyPendingApproval(state: MessageState): boolean {
+  for (const message of state.orderedMessages) {
+    if (messageHasPendingApproval(message)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getPermissionEventMeta(
+  event: BroadcastEvent
+): Record<string, unknown> | null {
+  if (event.type === "chat_status") {
+    if (event.status !== "awaiting_permission") {
+      return null;
+    }
+    return {
+      eventType: event.type,
+      status: event.status,
+      turnId: event.turnId ?? null,
+    };
+  }
+
+  if (event.type === "ui_message") {
+    let requestId: string | null = null;
+    let toolCallId: string | null = null;
+    let hasPermissionOptions = false;
+
+    for (const part of event.message.parts) {
+      if (
+        part.type.startsWith("tool-") &&
+        "state" in part &&
+        part.state === "approval-requested"
+      ) {
+        const toolPart = part as Extract<
+          UIMessage["parts"][number],
+          { type: `tool-${string}`; state: "approval-requested" }
+        >;
+        requestId = toolPart.approval.id;
+        toolCallId = toolPart.toolCallId;
+      } else if (part.type === "data-permission-options") {
+        hasPermissionOptions = true;
+      }
+    }
+
+    if (!(requestId || hasPermissionOptions)) {
+      return null;
+    }
+
+    return {
+      eventType: event.type,
+      messageId: event.message.id,
+      messageRole: event.message.role,
+      partsCount: event.message.parts.length,
+      requestId,
+      toolCallId,
+      hasPermissionOptions,
+      turnId: event.turnId ?? null,
+    };
+  }
+
+  if (event.type === "ui_message_part") {
+    const part = event.part;
+    if (
       part.type.startsWith("tool-") &&
       "state" in part &&
       part.state === "approval-requested"
-  );
+    ) {
+      const toolPart = part as Extract<
+        UIMessage["parts"][number],
+        { type: `tool-${string}`; state: "approval-requested" }
+      >;
+      return {
+        eventType: event.type,
+        messageId: event.messageId,
+        messageRole: event.messageRole,
+        partId: event.partId ?? null,
+        partIndex: event.partIndex,
+        partType: part.type,
+        partState: toolPart.state,
+        isNew: event.isNew,
+        requestId: toolPart.approval.id,
+        toolCallId: toolPart.toolCallId,
+        turnId: event.turnId ?? null,
+      };
+    }
+    if (part.type === "data-permission-options") {
+      const data = part.data as { requestId?: unknown } | undefined;
+      return {
+        eventType: event.type,
+        messageId: event.messageId,
+        messageRole: event.messageRole,
+        partId: event.partId ?? null,
+        partIndex: event.partIndex,
+        partType: part.type,
+        isNew: event.isNew,
+        requestId: typeof data?.requestId === "string" ? data.requestId : null,
+        turnId: event.turnId ?? null,
+      };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -179,6 +273,10 @@ export function useChatSessionEventHandler(
 
   return useCallback(
     (event: BroadcastEvent) => {
+      const permissionEventMeta = getPermissionEventMeta(event);
+      const previousPendingPermission = permissionEventMeta
+        ? findPendingPermission(messageStateRef.current.byId.values())
+        : null;
       if (
         event.type === "connected" ||
         event.type === "chat_status" ||
@@ -369,10 +467,27 @@ export function useChatSessionEventHandler(
           ...(event.type === "chat_status"
             ? { status: event.status, turnId: event.turnId ?? null }
             : {}),
-          ...(event.type === "chat_finish" ? { turnId: event.turnId ?? null } : {}),
+          ...(event.type === "chat_finish"
+            ? { turnId: event.turnId ?? null }
+            : {}),
         });
       }
       activeTurnIdRef.current = nextActiveTurnId;
+      if (permissionEventMeta) {
+        const nextPendingPermission = findPendingPermission(
+          messageStateRef.current.byId.values()
+        );
+        chatDebug("permission", "processed permission-related session event", {
+          chatId: activeChatIdRef.current,
+          connectedChatId: connectedChatIdRef.current,
+          activeTurnId: activeTurnIdRef.current,
+          previousPendingRequestId:
+            previousPendingPermission?.requestId ?? null,
+          nextPendingRequestId: nextPendingPermission?.requestId ?? null,
+          messageCount: messageStateRef.current.order.length,
+          ...permissionEventMeta,
+        });
+      }
     },
     [
       activeChatIdRef,

@@ -274,6 +274,31 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const pendingPermissionFromMessages = useChatPendingPermission(chatId);
   const pendingPermission =
     pendingPermissionFromMessages ?? transientPendingPermission;
+
+  useEffect(() => {
+    chatDebug("permission", "resolved pending permission sources", {
+      chatId: chatId ?? null,
+      status,
+      connStatus,
+      streamLifecycle,
+      fromMessagesRequestId: pendingPermissionFromMessages?.requestId ?? null,
+      transientRequestId: transientPendingPermission?.requestId ?? null,
+      resolvedRequestId: pendingPermission?.requestId ?? null,
+      resolvedSource: pendingPermissionFromMessages
+        ? "messages"
+        : transientPendingPermission
+          ? "transient"
+          : "none",
+    });
+  }, [
+    chatId,
+    connStatus,
+    streamLifecycle,
+    status,
+    pendingPermissionFromMessages?.requestId,
+    transientPendingPermission?.requestId,
+    pendingPermission?.requestId,
+  ]);
   // Derived state
   const isStreaming = isChatBusyStatus(status);
   return {

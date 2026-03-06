@@ -368,16 +368,19 @@ export function useChatMessageCount(chatId: string | null | undefined): number {
 export function useChatPendingPermission(
   chatId: string | null | undefined
 ): PermissionRequest | null {
-  return useChatStreamStore((state) => {
+  const messageState = useChatStreamStore((state) => {
     if (!chatId) {
-      return EMPTY_PENDING_PERMISSION;
+      return EMPTY_MESSAGE_STATE;
     }
-    const messages = state.byChatId[chatId]?.messageState.byId.values();
-    if (!messages) {
-      return EMPTY_PENDING_PERMISSION;
-    }
-    return findPendingPermission(messages);
+    return state.byChatId[chatId]?.messageState ?? EMPTY_MESSAGE_STATE;
   });
+
+  return useMemo(() => {
+    if (messageState === EMPTY_MESSAGE_STATE) {
+      return EMPTY_PENDING_PERMISSION;
+    }
+    return findPendingPermission(messageState.byId.values());
+  }, [messageState]);
 }
 
 export function readTerminalOutputBuffer(

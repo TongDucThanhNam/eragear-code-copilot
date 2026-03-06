@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "@repo/shared";
 import { replaceMessagesState } from "./use-chat-message-state";
 import {
+  applyLoadedHistoryToState,
   normalizeOlderHistoryBatchOrder,
   runSharedInFlightLoad,
 } from "./use-chat-history";
@@ -98,5 +99,59 @@ describe("normalizeOlderHistoryBatchOrder", () => {
 
     const normalized = normalizeOlderHistoryBatchOrder(batch, currentState);
     expect(normalized.map((message) => message.id)).toEqual(["m0", "m1", "m2"]);
+  });
+});
+
+describe("applyLoadedHistoryToState", () => {
+  test("keeps richer live permission parts when forced history snapshot is stale", () => {
+    const currentState = replaceMessagesState([
+      {
+        id: "m-permission",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "checking", state: "done" },
+          {
+            type: "tool-bash",
+            toolCallId: "tool-1",
+            state: "approval-requested",
+            input: { cmd: "cat secrets.txt" },
+            approval: { id: "req-1" },
+          },
+          {
+            type: "data-permission-options",
+            data: {
+              requestId: "req-1",
+              options: [{ id: "allow-once", label: "Allow once" }],
+            },
+          },
+        ],
+      },
+    ]);
+
+    const nextState = applyLoadedHistoryToState(currentState, [
+      {
+        id: "m-permission",
+        role: "assistant",
+        parts: [{ type: "text", text: "checking", state: "done" }],
+      },
+    ]);
+
+    expect(nextState.byId.get("m-permission")?.parts).toEqual([
+      { type: "text", text: "checking", state: "done" },
+      {
+        type: "tool-bash",
+        toolCallId: "tool-1",
+        state: "approval-requested",
+        input: { cmd: "cat secrets.txt" },
+        approval: { id: "req-1" },
+      },
+      {
+        type: "data-permission-options",
+        data: {
+          requestId: "req-1",
+          options: [{ id: "allow-once", label: "Allow once" }],
+        },
+      },
+    ]);
   });
 });
