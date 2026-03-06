@@ -1,11 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import type {
-  SessionRuntimePort,
-} from "@/modules/session";
+import { ENV } from "@/config/environment";
+import type { SessionRuntimePort } from "@/modules/session";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { createPermissionHandler } from "./permission";
+import {
+  getTurnIdMigrationSnapshot,
+  resetTurnIdMigrationSnapshotForTests,
+} from "./turn-id-observability";
 
 function createSession(chatId: string): ChatSession {
   return {
@@ -49,8 +52,9 @@ function createRuntime(
       }
     },
     isLockHeld: (chatId) => heldLocks.has(chatId),
-    broadcast: async (_chatId, event) => {
+    broadcast: (_chatId, event) => {
       events.push(event);
+      return Promise.resolve();
     },
     get runExclusiveCalls() {
       return runExclusiveCalls;
@@ -59,6 +63,11 @@ function createRuntime(
 }
 
 describe("createPermissionHandler", () => {
+  afterEach(() => {
+    ENV.acpTurnIdPolicy = "compat";
+    resetTurnIdMigrationSnapshotForTests();
+  });
+
   test("emits permission updates via ui_message_part without full ui_message snapshot", async () => {
     const session = createSession("chat-1");
     const events: BroadcastEvent[] = [];
@@ -92,8 +101,7 @@ describe("createPermissionHandler", () => {
     expect(
       events.some(
         (event) =>
-          event.type === "ui_message_part" &&
-          event.part.type === "tool-execute"
+          event.type === "ui_message_part" && event.part.type === "tool-execute"
       )
     ).toBe(true);
     expect(
@@ -133,7 +141,9 @@ describe("createPermissionHandler", () => {
           title: "Run command",
           rawInput: { command: "pwd" },
         },
-        options: [{ optionId: "allow_once", kind: "allow_once", name: "Allow" }],
+        options: [
+          { optionId: "allow_once", kind: "allow_once", name: "Allow" },
+        ],
       },
     });
 
@@ -153,5 +163,72 @@ describe("createPermissionHandler", () => {
     await expect(responsePromise).resolves.toEqual({
       outcome: { outcome: "selected", optionId: "allow_once" },
     });
+  });
+
+  test("cancels stale permission requests that target a different turn", async () => {
+    const session = createSession("chat-stale-permission");
+    session.activeTurnId = "turn-live";
+    const events: BroadcastEvent[] = [];
+    const runtime = createRuntime(session, events);
+    const handler = createPermissionHandler(runtime);
+
+    await expect(
+      handler({
+        chatId: "chat-stale-permission",
+        isReplayingHistory: false,
+        request: {
+          sessionId: "session-1",
+          toolCall: {
+            toolCallId: "tool-1",
+            kind: "execute",
+            title: "Run command",
+            rawInput: { command: "ls" },
+            _meta: { turnId: "turn-stale" },
+          },
+          options: [],
+        },
+      })
+    ).resolves.toEqual({
+      outcome: { outcome: "cancelled" },
+    });
+
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(events).toHaveLength(0);
+    expect(getTurnIdMigrationSnapshot().drops.staleTurnMismatch).toBe(1);
+  });
+
+  test("cancels non-native permission requests under strict turnId policy", async () => {
+    ENV.acpTurnIdPolicy = "require-native";
+    const session = createSession("chat-native-permission");
+    session.activeTurnId = "turn-live";
+    const events: BroadcastEvent[] = [];
+    const runtime = createRuntime(session, events);
+    const handler = createPermissionHandler(runtime);
+
+    await expect(
+      handler({
+        chatId: "chat-native-permission",
+        isReplayingHistory: false,
+        request: {
+          sessionId: "session-1",
+          toolCall: {
+            toolCallId: "tool-1",
+            kind: "execute",
+            title: "Run command",
+            rawInput: { command: "ls" },
+            _meta: { turnId: "turn-live" },
+          },
+          options: [],
+        },
+      })
+    ).resolves.toEqual({
+      outcome: { outcome: "cancelled" },
+    });
+
+    const snapshot = getTurnIdMigrationSnapshot();
+    expect(snapshot.permissionRequests.metaFallback).toBe(1);
+    expect(snapshot.drops.requireNativePolicy).toBe(1);
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(events).toHaveLength(0);
   });
 });

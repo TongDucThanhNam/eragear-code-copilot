@@ -200,6 +200,38 @@ describe("createToolCallHandlers", () => {
     expect(output.truncated).toBe(true);
   });
 
+  test("broadcasts terminal output with the terminal owner turnId", async () => {
+    const events: Array<{ chatId: string; event: BroadcastEvent }> = [];
+    const session = createSession("chat-terminal-turn", tmpDir);
+    session.activeTurnId = "turn-1";
+    const runtime = createRuntime(session, { broadcastEvents: events });
+    const handlers = createToolCallHandlers(runtime);
+
+    const created = await handlers.createTerminal(session.id, {
+      sessionId: session.id,
+      command: TERMINAL_COMMAND,
+      args: nodeEvalArgs("process.stdout.write('hi');"),
+    });
+    await withTimeout(
+      handlers.waitForTerminalExit(session.id, {
+        sessionId: session.id,
+        terminalId: created.terminalId,
+      })
+    );
+
+    const terminalEvent = events.find(
+      (entry) =>
+        entry.chatId === session.id &&
+        entry.event.type === "terminal_output" &&
+        entry.event.terminalId === created.terminalId
+    );
+    expect(terminalEvent).toBeDefined();
+    expect(terminalEvent?.event.type).toBe("terminal_output");
+    if (terminalEvent?.event.type === "terminal_output") {
+      expect(terminalEvent.event.turnId).toBe("turn-1");
+    }
+  });
+
   test("clamps requested outputByteLimit by hard cap", async () => {
     ENV.terminalOutputHardCapBytes = 64;
     const session = createSession("chat-cap-clamp", tmpDir);

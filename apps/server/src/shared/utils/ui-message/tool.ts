@@ -159,6 +159,7 @@ export function buildToolApprovalResponsePart(params: {
   input?: unknown;
   approvalId: string;
   approved: boolean;
+  cancelled?: boolean;
   reason?: string;
   meta?: unknown;
 }): ToolUIPart {
@@ -170,7 +171,7 @@ export function buildToolApprovalResponsePart(params: {
       type: toToolPartType(normalizeToolName(params.toolName)),
       toolCallId: params.toolCallId,
       title: params.title ?? params.toolName,
-      state: "output-denied",
+      state: params.cancelled ? "output-cancelled" : "output-denied",
       input: resolveToolInput(params.input),
       approval: {
         id: params.approvalId,

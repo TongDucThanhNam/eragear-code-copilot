@@ -35,6 +35,12 @@ describe("use-chat connection machine", () => {
   test("promotes lifecycle to live on connected/chat_status events", () => {
     const connectedEvent: BroadcastEvent = { type: "connected" };
     const statusEvent: BroadcastEvent = { type: "chat_status", status: "ready" };
+    const deltaEvent: BroadcastEvent = {
+      type: "ui_message_delta",
+      messageId: "msg-1",
+      partIndex: 0,
+      delta: "hello",
+    };
 
     expect(
       nextLifecycleOnSubscriptionEvent({
@@ -46,6 +52,12 @@ describe("use-chat connection machine", () => {
       nextLifecycleOnSubscriptionEvent({
         current: "bootstrapping",
         event: statusEvent,
+      })
+    ).toBe("live");
+    expect(
+      nextLifecycleOnSubscriptionEvent({
+        current: "subscribing",
+        event: deltaEvent,
       })
     ).toBe("live");
   });

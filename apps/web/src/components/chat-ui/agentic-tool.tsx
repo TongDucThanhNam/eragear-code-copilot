@@ -9,6 +9,7 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool";
+import { useChatTerminalSnapshots } from "@/store/chat-stream-store";
 import {
   type ParsedToolOutput,
   toToolViewState,
@@ -17,19 +18,19 @@ import { FileDiffView } from "./file-diff-view";
 import { TerminalView } from "./terminal-view";
 
 interface ToolMessagePartProps {
+  chatId: string | null;
   tool: ToolUIPart;
   parsedOutput: ParsedToolOutput;
-  terminalOutputs?: Record<string, string>;
 }
 
 export const ToolMessagePart = memo(
-  ({ tool, parsedOutput, terminalOutputs }: ToolMessagePartProps) => {
+  ({ chatId, tool, parsedOutput }: ToolMessagePartProps) => {
     const viewState = toToolViewState(tool);
     const { result, terminalIds, diffs } = parsedOutput;
-    const terminalOutput = terminalIds
-      .map((terminalId) => terminalOutputs?.[terminalId] ?? "")
-      .filter((entry) => entry.length > 0)
-      .join("");
+    const terminalSnapshots = useChatTerminalSnapshots(chatId, terminalIds);
+    const hasTerminalOutput = terminalSnapshots.some(
+      (snapshot) => snapshot.totalChars > 0
+    );
     const errorText =
       tool.state === "output-error"
         ? tool.errorText
@@ -43,9 +44,9 @@ export const ToolMessagePart = memo(
         <ToolHeader state={viewState} title={tool.title} type={tool.type} />
         <ToolContent>
           {tool.input !== undefined ? <ToolInput input={tool.input} /> : null}
-          {terminalIds.length > 0 && terminalOutput.length > 0 && (
+          {terminalIds.length > 0 && hasTerminalOutput && (
             <div className="mt-2">
-              <TerminalView output={terminalOutput} />
+              <TerminalView terminalSnapshots={terminalSnapshots} />
             </div>
           )}
           {diffs.length > 0 && (

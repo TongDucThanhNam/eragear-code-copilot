@@ -1,5 +1,6 @@
 "use client";
 
+import type { ToolUIPart } from "@repo/shared";
 import {
   Collapsible,
   CollapsibleContent,
@@ -12,7 +13,6 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import type { ToolUIPart } from "ai";
 import { ChevronDownIcon, Code } from "lucide-react";
 import type { ComponentProps } from "react";
 import { getStatusBadge } from "./tool";
@@ -48,6 +48,8 @@ const toToolBadgeState = (state: ToolUIPart["state"]): ToolBadgeState => {
     case "approval-responded":
     case "output-available":
       return "completed";
+    case "output-cancelled":
+      return "cancelled";
     case "output-error":
     case "output-denied":
       return "error";

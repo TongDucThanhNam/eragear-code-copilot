@@ -146,7 +146,7 @@ export type BroadcastEvent =
       isAbort: boolean;
       turnId?: string;
     }
-  | { type: "ui_message"; message: UIMessage }
+  | { type: "ui_message"; message: UIMessage; turnId?: string }
   | {
       type: "ui_message_part";
       messageId: string;
@@ -156,12 +156,14 @@ export type BroadcastEvent =
       part: UIMessagePart;
       isNew: boolean;
       createdAt?: number;
+      turnId?: string;
     }
   | {
       type: "ui_message_delta";
       messageId: string;
       partIndex: number;
       delta: string;
+      turnId?: string;
     }
   | { type: "file_modified"; path: string }
   | {
@@ -182,7 +184,12 @@ export type BroadcastEvent =
     }
   | { type: "current_mode_update"; modeId: string }
   | { type: "current_model_update"; modelId: string }
-  | { type: "terminal_output"; terminalId: string; data: string }
+  | {
+      type: "terminal_output";
+      terminalId: string;
+      data: string;
+      turnId?: string;
+    }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string };
 

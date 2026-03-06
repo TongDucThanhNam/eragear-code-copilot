@@ -10,6 +10,7 @@ import {
   flushPendingPlanPersistenceForTests,
   handlePlanUpdate,
 } from "./update-plan";
+import { resolveSessionUpdateTurnId } from "./update-turn-id";
 
 function createSession(chatId: string): ChatSession {
   return {
@@ -94,6 +95,12 @@ describe("handlePlanUpdate", () => {
           { content: "new content", priority: "medium", status: "pending" },
         ],
       },
+      turnIdResolution: resolveSessionUpdateTurnId({
+        sessionUpdate: "plan",
+        entries: [
+          { content: "new content", priority: "medium", status: "pending" },
+        ],
+      }),
       sessionRuntime: runtime,
       sessionRepo: repo,
       suppressReplayBroadcast: false,
@@ -126,6 +133,16 @@ describe("handlePlanUpdate", () => {
           },
         ],
       },
+      turnIdResolution: resolveSessionUpdateTurnId({
+        sessionUpdate: "plan",
+        entries: [
+          {
+            content: "same content",
+            priority: "medium",
+            status: "in_progress",
+          },
+        ],
+      }),
       sessionRuntime: runtime,
       sessionRepo: repo,
       suppressReplayBroadcast: false,
@@ -153,6 +170,12 @@ describe("handlePlanUpdate", () => {
           { content: "same content", priority: "medium", status: "pending" },
         ],
       },
+      turnIdResolution: resolveSessionUpdateTurnId({
+        sessionUpdate: "plan",
+        entries: [
+          { content: "same content", priority: "medium", status: "pending" },
+        ],
+      }),
       sessionRuntime: runtime,
       sessionRepo: repo,
       suppressReplayBroadcast: false,

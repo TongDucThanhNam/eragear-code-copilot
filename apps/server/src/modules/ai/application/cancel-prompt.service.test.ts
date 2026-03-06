@@ -15,11 +15,18 @@ function createSession(): ChatSession {
     role: "assistant",
     parts: [
       {
+        type: "tool-edit",
+        toolCallId: "tool-0",
+        state: "input-available",
+        title: "Edit file",
+        input: { path: "src/index.ts" },
+      },
+      {
         type: "tool-bash",
         toolCallId: "tool-1",
         state: "approval-requested",
         title: "Run command",
-        input: null,
+        input: { cmd: "ls" },
         approval: { id: "req-1" },
       },
       {
@@ -33,7 +40,16 @@ function createSession(): ChatSession {
     ],
   };
   uiState.messages.set(message.id, message);
-  uiState.toolPartIndex.set("tool-1", { messageId: message.id, partIndex: 0 });
+  uiState.toolPartIndex.set("tool-0", {
+    messageId: message.id,
+    partIndex: 0,
+    turnId: "turn-1",
+  });
+  uiState.toolPartIndex.set("tool-1", {
+    messageId: message.id,
+    partIndex: 1,
+    turnId: "turn-1",
+  });
   return {
     id: "chat-1",
     userId: "user-1",
@@ -131,7 +147,7 @@ function createGatewayStub(params: {
 }
 
 describe("CancelPromptService", () => {
-  test("clears pending permissions and emits cancelled permission UI updates", async () => {
+  test("cancels all current-turn tool parts and clears pending permission UI", async () => {
     const session = createSession();
     const events: BroadcastEvent[] = [];
     const resolvedOutcomes: unknown[] = [];
@@ -158,17 +174,30 @@ describe("CancelPromptService", () => {
     expect(session.pendingPermissions.size).toBe(0);
     expect(resolvedOutcomes).toEqual([{ outcome: { outcome: "cancelled" } }]);
 
+    const runningToolEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "ui_message_part" }> =>
+        event.type === "ui_message_part" && event.part.type === "tool-edit"
+    );
+    expect(runningToolEvent).toBeDefined();
+    expect(runningToolEvent?.part).toMatchObject({
+      type: "tool-edit",
+      toolCallId: "tool-0",
+      state: "output-cancelled",
+      input: { path: "src/index.ts" },
+    });
+
     const toolPartEvent = events.find(
       (event): event is Extract<BroadcastEvent, { type: "ui_message_part" }> =>
         event.type === "ui_message_part" && event.part.type === "tool-bash"
     );
     expect(toolPartEvent).toBeDefined();
+    expect(toolPartEvent?.turnId).toBe("turn-1");
     expect(events.some((event) => event.type === "ui_message")).toBe(false);
     const toolPart = toolPartEvent?.part;
     expect(toolPart).toMatchObject({
       type: "tool-bash",
       toolCallId: "tool-1",
-      state: "output-denied",
+      state: "output-cancelled",
       approval: {
         id: "req-1",
         approved: false,
@@ -181,6 +210,7 @@ describe("CancelPromptService", () => {
         event.part.type === "data-permission-options"
     );
     expect(optionsPartEvent).toBeDefined();
+    expect(optionsPartEvent?.turnId).toBe("turn-1");
     if (!optionsPartEvent || optionsPartEvent.part.type !== "data-permission-options") {
       throw new Error("Expected permission options part update event");
     }

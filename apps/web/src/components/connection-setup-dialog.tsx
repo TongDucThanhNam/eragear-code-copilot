@@ -2,80 +2,48 @@
 
 import { AlertCircle, Globe, Key, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { createWSClient, wsLink } from "@trpc/client";
 import {
-  buildHttpApiUrl,
   buildTrpcWsUrl,
+  DEFAULT_SERVER_URL,
   normalizeServerUrl,
 } from "@/lib/server-url";
+import { trpc } from "@/lib/trpc";
 import { useServerConfigStore } from "@/store/server-config-store";
 
-interface ApiKeyVerifyResponse {
-  valid?: boolean;
-  error?: { message?: string; code?: string } | null;
-  key?: { userId?: string } | null;
-}
-
-const verifyApiKeyViaHttp = async (serverUrl: string, apiKey: string) => {
-  const response = await fetch(
-    buildHttpApiUrl(serverUrl, "/api/auth/api-key/verify"),
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ key: apiKey }),
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(`API key verification failed (${response.status})`);
-  }
-
-  const payload = (await response.json()) as ApiKeyVerifyResponse;
-  if (!payload.valid) {
-    const message = payload.error?.message || "Invalid API key";
-    throw new Error(message);
-  }
-
-  return payload;
-};
-
-const verifyWebSocketEndpoint = async (serverUrl: string, timeoutMs = 5000) => {
-  const wsUrl = buildTrpcWsUrl(serverUrl);
-  await new Promise<void>((resolve, reject) => {
-    const socket = new WebSocket(wsUrl);
-    const timer = window.setTimeout(() => {
-      socket.close();
-      reject(new Error("WebSocket connection timed out"));
-    }, timeoutMs);
-
-    const cleanup = () => {
-      window.clearTimeout(timer);
-      socket.removeEventListener("open", handleOpen);
-      socket.removeEventListener("error", handleError);
-      socket.removeEventListener("close", handleClose);
-    };
-
-    const handleOpen = () => {
-      cleanup();
-      socket.close();
-      resolve();
-    };
-
-    const handleError = () => {
-      cleanup();
-      reject(new Error("WebSocket endpoint is unreachable"));
-    };
-
-    const handleClose = () => {
-      cleanup();
-      reject(new Error("WebSocket endpoint rejected the connection"));
-    };
-
-    socket.addEventListener("open", handleOpen);
-    socket.addEventListener("error", handleError);
-    socket.addEventListener("close", handleClose);
+const verifyApiKeyViaTrpc = async (serverUrl: string, apiKey: string) => {
+  const wsClient = createWSClient({
+    url: buildTrpcWsUrl(serverUrl),
+    connectionParams: async () => ({ apiKey }),
   });
+
+  const client = trpc.createClient({
+    links: [wsLink({ client: wsClient })],
+  });
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    window.setTimeout(
+      () => reject(new Error("WebSocket connection timed out")),
+      5000
+    );
+  });
+
+  try {
+    const me = await Promise.race([client.auth.getMe.query(), timeoutPromise]);
+    if (!me?.user) {
+      throw new Error("Invalid API key");
+    }
+    return me;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message.toLowerCase() : String(error);
+    if (message.includes("unauthorized")) {
+      throw new Error("Invalid API key");
+    }
+    throw error;
+  } finally {
+    wsClient.close();
+  }
 };
 
 export function ConnectionSetupDialog() {
@@ -87,7 +55,7 @@ export function ConnectionSetupDialog() {
     setApiKey,
     setConfigured,
   } = useServerConfigStore();
-  const [localUrl, setLocalUrl] = useState(serverUrl || "ws://localhost:3000");
+  const [localUrl, setLocalUrl] = useState(serverUrl || DEFAULT_SERVER_URL);
   const [localApiKey, setLocalApiKey] = useState(apiKey);
 
   const [status, setStatus] = useState<
@@ -150,30 +118,11 @@ export function ConnectionSetupDialog() {
 
     setTimeout(async () => {
       try {
-        const healthController = new AbortController();
-        const healthTimer = window.setTimeout(
-          () => healthController.abort(),
-          5000
-        );
-        try {
-          const healthRes = await fetch(
-            buildHttpApiUrl(localUrl, "/api/health"),
-            {
-              signal: healthController.signal,
-            }
-          );
-          if (!healthRes.ok) {
-            throw new Error("Server health check failed");
-          }
-        } finally {
-          window.clearTimeout(healthTimer);
-        }
-        const result = await verifyApiKeyViaHttp(localUrl, normalizedApiKey);
-        await verifyWebSocketEndpoint(localUrl);
+        const result = await verifyApiKeyViaTrpc(localUrl, normalizedApiKey);
         const normalizedServerUrl = normalizeServerUrl(localUrl);
 
         console.info("[Connect] API key verified", {
-          userId: result.key?.userId,
+          userId: result.user?.id,
         });
         setServerUrl(normalizedServerUrl);
         setApiKey(normalizedApiKey);
@@ -192,11 +141,35 @@ export function ConnectionSetupDialog() {
         // Set error message
         const msg =
           err instanceof Error ? err.message : "Authentication failed";
-        setErrorMessage(
-          msg.toLowerCase().includes("key")
-            ? "Invalid API key. Please check your credentials."
-            : msg
-        );
+        if (msg.toLowerCase().includes("key")) {
+          setErrorMessage("Invalid API key. Please check your credentials.");
+          return;
+        }
+
+        const normalizedTarget = (() => {
+          try {
+            return normalizeServerUrl(localUrl);
+          } catch {
+            return DEFAULT_SERVER_URL;
+          }
+        })();
+        const lowered = msg.toLowerCase();
+        const isNetworkError =
+          lowered.includes("load failed") ||
+          lowered.includes("fetch") ||
+          lowered.includes("unable to connect") ||
+          lowered.includes("timed out") ||
+          lowered.includes("unreachable") ||
+          lowered.includes("rejected") ||
+          lowered.includes("refused");
+        if (isNetworkError) {
+          setErrorMessage(
+            `Cannot reach server at ${normalizedTarget}. Start apps/server and retry.`
+          );
+          return;
+        }
+
+        setErrorMessage(msg);
       }
     }, 500);
   };
@@ -245,7 +218,7 @@ export function ConnectionSetupDialog() {
                     setErrorMessage(null);
                   }
                 }}
-                placeholder="ws://localhost:3000"
+                placeholder={DEFAULT_SERVER_URL}
                 value={localUrl}
               />
             </div>

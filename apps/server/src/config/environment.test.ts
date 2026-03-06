@@ -147,6 +147,27 @@ describe("environment worker invariants", () => {
     expect(result.stdout.trim()).toBe(String(16 * 1024 * 1024));
   });
 
+  test("defaults ACP_TURN_ID_POLICY to compat", () => {
+    const result = readEnvironmentValueInSubprocess(
+      {
+        ACP_TURN_ID_POLICY: "",
+      },
+      "acpTurnIdPolicy"
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("compat");
+  });
+
+  test("fails fast on invalid ACP_TURN_ID_POLICY values", () => {
+    const result = importEnvironmentInSubprocess({
+      ACP_TURN_ID_POLICY: "meta_only",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("ACP_TURN_ID_POLICY must be one of");
+  });
+
   test("defaults and overrides LOG_OUTPUT_FORMAT by runtime environment", () => {
     const prodDefault = readEnvironmentValueInSubprocess(
       {

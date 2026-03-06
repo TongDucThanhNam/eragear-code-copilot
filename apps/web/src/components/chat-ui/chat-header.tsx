@@ -28,7 +28,20 @@ export interface ChatHeaderProps {
   loadNotSupported?: boolean;
 }
 
-const ChatHeaderBase = ({
+const getConnectionTone = (connStatus: ChatHeaderProps["connStatus"]) => {
+  switch (connStatus) {
+    case "connected":
+      return "animate-pulse text-green-500";
+    case "connecting":
+      return "animate-pulse text-amber-500";
+    case "error":
+      return "text-red-500";
+    default:
+      return "text-muted-foreground";
+  }
+};
+
+export const ChatHeader = memo(function ChatHeader({
   agentDisplay,
   projectName,
   connStatus,
@@ -36,7 +49,7 @@ const ChatHeaderBase = ({
   onResumeChat,
   isResuming,
   loadNotSupported,
-}: ChatHeaderProps) => {
+}: ChatHeaderProps) {
   return (
     <div className="flex shrink-0 items-center justify-between bg-background/50 px-4 py-2 backdrop-blur-sm">
       <SidebarTrigger className="-ml-1" />
@@ -56,20 +69,7 @@ const ChatHeaderBase = ({
             )}
           </div>
           <div className="mt-1 flex items-center gap-1.5">
-            <Radio
-              className={`h-3 w-3 ${(() => {
-                switch (connStatus) {
-                  case "connected":
-                    return "animate-pulse text-green-500";
-                  case "connecting":
-                    return "animate-pulse text-amber-500";
-                  case "error":
-                    return "text-red-500";
-                  default:
-                    return "text-muted-foreground";
-                }
-              })()}`}
-            />
+            <Radio className={`h-3 w-3 ${getConnectionTone(connStatus)}`} />
             <span className="font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
               {connStatus}
             </span>
@@ -126,7 +126,4 @@ const ChatHeaderBase = ({
       </div>
     </div>
   );
-};
-
-export const ChatHeader = memo(ChatHeaderBase);
-ChatHeader.displayName = "ChatHeader";
+});

@@ -2,8 +2,8 @@ import type * as acp from "@agentclientprotocol/sdk";
 import type { UIMessage } from "@repo/shared";
 import { createLogger } from "@/platform/logging/structured-logger";
 import {
-  toStoredToolCallContent,
   type StoredContentContext,
+  toStoredToolCallContent,
 } from "@/shared/utils/content-block.util";
 import {
   buildToolPartForUpdate,
@@ -17,14 +17,29 @@ import { isToolCallCreate, isToolCallUpdate } from "./update-types";
 
 const TOOL_CALL_FALLBACK_KIND = "other";
 const TOOL_CALL_ID_MAX_LENGTH = 256;
-const TOOL_CALL_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
+const WHITESPACE_PATTERN = /\s/u;
 const logger = createLogger("Debug");
+
+interface ToolPartIndex {
+  messageId: string;
+  partIndex: number;
+}
+
+function hasSafeToolCallIdCharacters(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 0x1f || code === 0x7f || WHITESPACE_PATTERN.test(character)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 function isValidToolCallId(value: string): boolean {
   return (
     value.length > 0 &&
     value.length <= TOOL_CALL_ID_MAX_LENGTH &&
-    TOOL_CALL_ID_PATTERN.test(value)
+    hasSafeToolCallIdCharacters(value)
   );
 }
 
@@ -68,6 +83,7 @@ export async function handleToolCallCreate(
     session.toolCalls.set(update.toolCallId, sanitizedToolCall);
   }
   if (session) {
+    const eventTurnId = context.turnIdResolution.turnId ?? session.activeTurnId;
     const previousToolIndex = session.uiState.toolPartIndex.get(
       update.toolCallId
     );
@@ -81,6 +97,7 @@ export async function handleToolCallCreate(
       state: session.uiState,
       messageId: session.uiState.currentAssistantId,
       part: toolPart,
+      turnId: eventTurnId,
     });
     const messageWithLocations = sanitizedToolCall.locations?.length
       ? upsertToolLocationsPart({
@@ -90,36 +107,17 @@ export async function handleToolCallCreate(
           messageId: message.id,
         })
       : message;
-    if (!suppressReplayBroadcast) {
-      const nextToolIndex = session.uiState.toolPartIndex.get(
-        update.toolCallId
-      );
-      if (nextToolIndex && nextToolIndex.messageId === message.id) {
-        await broadcastUiMessagePart({
-          chatId,
-          sessionRuntime,
-          message,
-          partIndex: nextToolIndex.partIndex,
-          isNew:
-            !previousToolIndex ||
-            previousToolIndex.messageId !== nextToolIndex.messageId ||
-            previousToolIndex.partIndex !== nextToolIndex.partIndex,
-        });
-      }
-      const locationPartIndex = findToolLocationsPartIndex(
-        messageWithLocations ?? message,
-        update.toolCallId
-      );
-      if (locationPartIndex >= 0) {
-        await broadcastUiMessagePart({
-          chatId,
-          sessionRuntime,
-          message: messageWithLocations ?? message,
-          partIndex: locationPartIndex,
-          isNew: previousLocationPartIndex < 0,
-        });
-      }
-    }
+    await broadcastToolCallParts({
+      chatId,
+      sessionRuntime,
+      toolCallId: update.toolCallId,
+      message,
+      messageWithLocations,
+      previousToolIndex,
+      previousLocationPartIndex,
+      suppressReplayBroadcast,
+      turnId: eventTurnId,
+    });
   }
   return true;
 }
@@ -129,6 +127,7 @@ export async function handleToolCallUpdate(
     SessionUpdateContext,
     | "chatId"
     | "update"
+    | "turnIdResolution"
     | "sessionRuntime"
     | "suppressReplayBroadcast"
     | "buffer"
@@ -171,6 +170,7 @@ export async function handleToolCallUpdate(
   }
 
   if (session) {
+    const eventTurnId = context.turnIdResolution.turnId ?? session.activeTurnId;
     const previousToolIndex = session.uiState.toolPartIndex.get(
       update.toolCallId
     );
@@ -197,6 +197,7 @@ export async function handleToolCallUpdate(
       state: session.uiState,
       messageId: session.uiState.currentAssistantId,
       part: toolPart,
+      turnId: eventTurnId,
     });
     const nextLocations =
       update.locations === undefined
@@ -208,38 +209,77 @@ export async function handleToolCallUpdate(
       locations: nextLocations,
       messageId: message.id,
     });
-    if (!suppressReplayBroadcast) {
-      const nextToolIndex = session.uiState.toolPartIndex.get(
-        update.toolCallId
-      );
-      if (nextToolIndex && nextToolIndex.messageId === message.id) {
-        await broadcastUiMessagePart({
-          chatId,
-          sessionRuntime,
-          message,
-          partIndex: nextToolIndex.partIndex,
-          isNew:
-            !previousToolIndex ||
-            previousToolIndex.messageId !== nextToolIndex.messageId ||
-            previousToolIndex.partIndex !== nextToolIndex.partIndex,
-        });
-      }
-      const locationPartIndex = findToolLocationsPartIndex(
-        messageWithLocations ?? message,
-        update.toolCallId
-      );
-      if (locationPartIndex >= 0) {
-        await broadcastUiMessagePart({
-          chatId,
-          sessionRuntime,
-          message: messageWithLocations ?? message,
-          partIndex: locationPartIndex,
-          isNew: previousLocationPartIndex < 0,
-        });
-      }
-    }
+    await broadcastToolCallParts({
+      chatId,
+      sessionRuntime,
+      toolCallId: update.toolCallId,
+      message,
+      messageWithLocations,
+      previousToolIndex,
+      previousLocationPartIndex,
+      suppressReplayBroadcast,
+      turnId: eventTurnId,
+    });
   }
   return true;
+}
+
+async function broadcastToolCallParts(params: {
+  chatId: string;
+  sessionRuntime: SessionUpdateContext["sessionRuntime"];
+  toolCallId: string;
+  message: UIMessage;
+  messageWithLocations: UIMessage | null | undefined;
+  previousToolIndex?: ToolPartIndex;
+  previousLocationPartIndex: number;
+  suppressReplayBroadcast: boolean;
+  turnId?: string;
+}): Promise<void> {
+  const {
+    chatId,
+    sessionRuntime,
+    toolCallId,
+    message,
+    messageWithLocations,
+    previousToolIndex,
+    previousLocationPartIndex,
+    suppressReplayBroadcast,
+    turnId,
+  } = params;
+  if (suppressReplayBroadcast) {
+    return;
+  }
+  const resolvedToolIndex =
+    sessionRuntime.get(chatId)?.uiState.toolPartIndex.get(toolCallId) ??
+    undefined;
+  if (resolvedToolIndex && resolvedToolIndex.messageId === message.id) {
+    await broadcastUiMessagePart({
+      chatId,
+      sessionRuntime,
+      message,
+      partIndex: resolvedToolIndex.partIndex,
+      isNew:
+        !previousToolIndex ||
+        previousToolIndex.messageId !== resolvedToolIndex.messageId ||
+        previousToolIndex.partIndex !== resolvedToolIndex.partIndex,
+      turnId,
+    });
+  }
+  const locationPartIndex = findToolLocationsPartIndex(
+    messageWithLocations ?? message,
+    toolCallId
+  );
+  if (locationPartIndex < 0) {
+    return;
+  }
+  await broadcastUiMessagePart({
+    chatId,
+    sessionRuntime,
+    message: messageWithLocations ?? message,
+    partIndex: locationPartIndex,
+    isNew: previousLocationPartIndex < 0,
+    turnId,
+  });
 }
 
 function mergeToolCallUpdate(

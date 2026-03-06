@@ -264,6 +264,7 @@ export class SendMessageService {
           await this.sessionRuntime.broadcast(input.chatId, {
             type: "ui_message",
             message: uiMessage,
+            turnId,
           });
 
           const promptTask = this.promptTaskRunner
@@ -287,11 +288,6 @@ export class SendMessageService {
             });
           aggregate.setActivePromptTask(turnId, promptTask);
         } catch (error) {
-          await aggregate.markError(
-            { chatId: input.chatId, broadcast },
-            turnId
-          );
-          aggregate.clearTurnState();
           const errorText =
             error instanceof Error
               ? error.message
@@ -300,6 +296,11 @@ export class SendMessageService {
             type: "error",
             error: errorText,
           });
+          await aggregate.markReadyAfterTurnCompletion(
+            { chatId: input.chatId, broadcast },
+            turnId
+          );
+          aggregate.clearTurnState();
           throw error;
         }
 

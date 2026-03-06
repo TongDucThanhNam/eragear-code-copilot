@@ -12,7 +12,10 @@ import { createId } from "@/shared/utils/id.util";
 export function createUiMessageState(): UiMessageState {
   return {
     messages: new Map<string, UIMessage>(),
-    toolPartIndex: new Map<string, { messageId: string; partIndex: number }>(),
+    toolPartIndex: new Map<
+      string,
+      { messageId: string; partIndex: number; turnId?: string }
+    >(),
     lastAssistantId: undefined,
   };
 }
@@ -62,8 +65,9 @@ export function upsertToolPart(params: {
   state: UiMessageState;
   messageId?: string;
   part: ToolUIPart;
+  turnId?: string;
 }): { message: UIMessage; part: ToolUIPart } {
-  const { state, messageId, part } = params;
+  const { state, messageId, part, turnId } = params;
   const existing = state.toolPartIndex.get(part.toolCallId);
   if (existing) {
     const existingMessage = state.messages.get(existing.messageId);
@@ -89,6 +93,7 @@ export function upsertToolPart(params: {
         state.toolPartIndex.set(part.toolCallId, {
           messageId: updatedMessage.id,
           partIndex: targetPartIndex,
+          turnId: turnId ?? existing.turnId,
         });
         return { message: updatedMessage, part };
       }
@@ -103,6 +108,7 @@ export function upsertToolPart(params: {
   state.toolPartIndex.set(part.toolCallId, {
     messageId: updatedMessage.id,
     partIndex: updatedMessage.parts.length - 1,
+    ...(turnId ? { turnId } : {}),
   });
   return { message: updatedMessage, part };
 }

@@ -21,6 +21,13 @@ Event types quan trọng:
 - `terminal_output` → output realtime theo `terminalId`.
 - `current_mode_update`, `available_commands_update`, `connected`, `heartbeat`, `error`.
 
+Quy tắc state machine:
+
+- `chat_status` là source of truth duy nhất cho state của session/input.
+- `chat_finish` chỉ kết thúc turn và gọi `onFinish`; không tự set `ready`.
+- `error` dùng cho toast/logging/diagnostics. Nếu server không emit
+  `chat_status=error`, client không được tự khóa session chỉ vì `error`.
+
 ## Streaming Contract
 
 - `ui_message` là **snapshot đầy đủ** cho `message.id`, client phải **upsert theo id**.
@@ -50,6 +57,8 @@ Tối ưu re-render bằng cách tách dữ liệu:
 - `messageOrder: string[]`
 - `chatStatus: ChatStatus`
 - `pendingPermission` suy từ `ToolUIPart.state === "approval-requested"`
+- `output-cancelled` là terminal state riêng cho tool calls bị huỷ bởi
+  `cancelPrompt`; không được normalize về `output-available` hay `output-error`.
 
 Chỉ render list bằng `messageOrder`, lookup `messages.get(id)`.
 
@@ -129,7 +138,8 @@ const chatStatus = useStore(chatStore, (s) => s.chatStatus);
 4. On `chat_status`:
    - Update state UI tổng (loading/streaming).
 5. On `chat_finish`:
-   - Tắt trạng thái streaming.
+   - Tắt trạng thái streaming cho message/turn.
+   - Không tự set session về `ready`; chờ `chat_status`.
    - Có thể trigger haptics/analytics ở client.
 
 ## Render Mượt (100 điểm)
@@ -195,7 +205,7 @@ function useChat(chatId: string) {
 ## Error & Reconnect
 
 - Nếu stream lỗi, client có thể:
-  - set `chat_status = error`
+  - hiển thị error surface
   - retry subscribe bằng `onSessionEvents` để nhận buffer mới nhất.
 - `onSessionEvents` tự replay `messageBuffer` ở runtime, nên reconnect vẫn đủ data.
 

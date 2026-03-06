@@ -5,7 +5,11 @@
  * Used by both web and native adapters.
  */
 
-import type { UIMessage } from "../ui-message";
+import {
+  finalizeToolPartAsCancelled,
+  finalizeToolPartAsPreliminaryOutput,
+  type UIMessage,
+} from "../ui-message";
 import type {
   AgentInfo,
   AvailableCommand,
@@ -254,37 +258,19 @@ function attachOptionalPartId(
 }
 
 function finalizeToolPartAfterFinish(
-  part: Extract<UIMessage["parts"][number], { type: `tool-${string}` }>
+  part: Extract<UIMessage["parts"][number], { type: `tool-${string}` }>,
+  stopReason: string
 ) {
-  if (
-    part.state !== "input-streaming" &&
-    part.state !== "input-available" &&
-    part.state !== "approval-responded"
-  ) {
-    return part;
+  if (stopReason === "cancelled") {
+    return finalizeToolPartAsCancelled(part);
   }
-
-  const withMetadata =
-    "callProviderMetadata" in part && part.callProviderMetadata
-      ? { callProviderMetadata: part.callProviderMetadata }
-      : {};
-
-  return {
-    type: part.type,
-    toolCallId: part.toolCallId,
-    ...(part.title ? { title: part.title } : {}),
-    ...(part.providerExecuted !== undefined
-      ? { providerExecuted: part.providerExecuted }
-      : {}),
-    state: "output-available" as const,
-    input: part.input ?? null,
-    output: null,
-    preliminary: true,
-    ...withMetadata,
-  };
+  return finalizeToolPartAsPreliminaryOutput(part);
 }
 
-function finalizeMessageAfterFinish(message: UIMessage): UIMessage {
+function finalizeMessageAfterFinish(
+  message: UIMessage,
+  stopReason: string
+): UIMessage {
   let changed = false;
   const parts = message.parts.map((part) => {
     if (
@@ -298,7 +284,7 @@ function finalizeMessageAfterFinish(message: UIMessage): UIMessage {
       };
     }
     if (isToolPart(part)) {
-      const nextToolPart = finalizeToolPartAfterFinish(part);
+      const nextToolPart = finalizeToolPartAfterFinish(part, stopReason);
       if (nextToolPart !== part) {
         changed = true;
       }
@@ -478,7 +464,7 @@ export function processSessionEvent(
           callbacks.getMessagesForPermission?.()
         );
       const finalizedFinishMessage = finishMessage
-        ? finalizeMessageAfterFinish(finishMessage)
+        ? finalizeMessageAfterFinish(finishMessage, event.stopReason)
         : undefined;
       if (finalizedFinishMessage) {
         if (callbacks.onMessageUpsert) {
@@ -487,7 +473,6 @@ export function processSessionEvent(
           upsertMessageFromCallbackState(callbacks, finalizedFinishMessage);
         }
       }
-      callbacks.onStatusChange?.("ready");
       callbacks.onFinish?.({
         stopReason: event.stopReason,
         finishReason: event.finishReason,

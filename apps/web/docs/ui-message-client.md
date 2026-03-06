@@ -22,6 +22,7 @@ upsert theo `message.id` và render theo `UIMessagePart`.
   - Hiển thị diagnostic empty-state khi session active nhưng chưa có message
   - Tính trạng thái streaming từ `part.state`
   - Đồng bộ status từ `chat_status` (không gate cứng theo `turnId`)
+  - `error` chỉ dùng cho toast/diagnostic; không tự ép status nếu server chưa phát `chat_status`
 - `apps/web/src/components/chat-ui/chat-messages.tsx`
   - Render các `UIMessagePart`
   - Parse tool output (diff/terminal/content)
@@ -54,6 +55,8 @@ upsert theo `message.id` và render theo `UIMessagePart`.
 - `isAbort`: true khi stopReason = `cancelled`
 
 Client nên fallback lấy message theo `messageId` nếu `message` không có.
+`chat_finish` không được coi là tín hiệu session đã về `ready`; state đó phải
+đến từ `chat_status`.
 
 ## Render UIMessagePart
 
@@ -68,11 +71,15 @@ Client nên fallback lấy message theo `messageId` nếu `message` không có.
 
 `ToolUIPart.state === "approval-requested"` mang `approval.id`.
 Options lấy từ `data-permission-options` (requestId + options).
+Khi turn bị `cancelPrompt`, server sẽ scrub `data-permission-options` và mark
+tool part thành `output-cancelled`.
 
 ## Tool output & terminal
 
 - `ToolUIPart.output`: `ToolCallContent[]` (content/diff/terminal)
 - `terminal_output` stream log theo `terminalId`
+- Render thêm terminal state `output-cancelled` như aborted/cancelled, không
+  map sang completed hay error.
 
 ## Khi thêm part mới
 

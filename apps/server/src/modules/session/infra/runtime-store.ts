@@ -8,7 +8,6 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { cloneBroadcastEvent } from "@/shared/utils/broadcast-event.util";
@@ -28,33 +27,6 @@ function getLogger() {
     loggerInstance = createLogger("Debug");
   }
   return loggerInstance;
-}
-
-function shouldLogStreamEvent(event: BroadcastEvent): boolean {
-  return event.type === "ui_message" || event.type === "ui_message_part";
-}
-
-function buildStreamEventContext(
-  event: BroadcastEvent
-): Record<string, unknown> {
-  if (event.type === "ui_message") {
-    return {
-      messageId: event.message.id,
-      partsCount: event.message.parts.length,
-    };
-  }
-  if (event.type === "ui_message_part") {
-    return {
-      messageId: event.messageId,
-      partId: event.partId,
-      partIndex: event.partIndex,
-      isNew: event.isNew,
-      partType: event.part.type,
-    };
-  }
-  return {
-    eventType: event.type,
-  };
 }
 
 export interface SessionRuntimeStorePolicy {
@@ -397,7 +369,10 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     // SQLite write amplification. We still retain them in runtime buffer so
     // short WS reconnects can replay in-order chunk snapshots.
     const durable =
-      options?.durable ?? (event.type === "ui_message_part" ? false : true);
+      options?.durable ??
+      (event.type === "ui_message_part" || event.type === "ui_message_delta"
+        ? false
+        : true);
     const retainInBuffer = options?.retainInBuffer ?? true;
 
     if (durable) {
@@ -418,17 +393,6 @@ export class SessionRuntimeStore implements SessionRuntimePort {
       }
     }
 
-    if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
-      getLogger().debug("Session runtime event broadcast", {
-        chatId,
-        eventType: event.type,
-        durable,
-        retainInBuffer,
-        subscriberCount: session.subscriberCount,
-        bufferSize: session.messageBuffer.length,
-        ...buildStreamEventContext(event),
-      });
-    }
     session.emitter.emit("data", cloneBroadcastEvent(event));
   }
 }

@@ -21,6 +21,7 @@ export const Route = createFileRoute("/")({
 function ChatPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const { chatId: urlChatId } = useSearch({ from: Route.fullPath });
+  const selectedFile = useFileStore((state) => state.selectedFile);
 
   const handleChatIdChange = (newChatId: string | null) => {
     if (newChatId) {
@@ -42,42 +43,27 @@ function ChatPage() {
       <AppSidebar variant="sidebar" />
       <SidebarInset>
         <ThreePaneLayout>
-          <ChatWrapper
-            initialChatId={urlChatId}
-            onChatIdChange={handleChatIdChange}
-          />
+          <>
+            <div
+              className={
+                selectedFile
+                  ? "hidden"
+                  : "flex h-dvh min-h-0 flex-col overflow-hidden"
+              }
+            >
+              <ChatInterface
+                initialChatId={urlChatId}
+                onChatIdChange={handleChatIdChange}
+              />
+            </div>
+            {selectedFile ? (
+              <div className="absolute inset-0 z-10 flex h-full flex-col bg-background">
+                <CodeViewer />
+              </div>
+            ) : null}
+          </>
         </ThreePaneLayout>
       </SidebarInset>
     </SidebarProvider>
-  );
-}
-
-function ChatWrapper({
-  initialChatId,
-  onChatIdChange,
-}: {
-  initialChatId?: string;
-  onChatIdChange: (id: string | null) => void;
-}) {
-  const selectedFile = useFileStore((state) => state.selectedFile);
-
-  return (
-    <>
-      <div
-        className={
-          selectedFile ? "hidden" : "flex h-dvh min-h-0 flex-col overflow-hidden"
-        }
-      >
-        <ChatInterface
-          initialChatId={initialChatId}
-          onChatIdChange={onChatIdChange}
-        />
-      </div>
-      {selectedFile && (
-        <div className="absolute inset-0 z-10 flex h-full flex-col bg-background">
-          <CodeViewer />
-        </div>
-      )}
-    </>
   );
 }

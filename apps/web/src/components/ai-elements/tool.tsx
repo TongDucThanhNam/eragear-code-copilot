@@ -1,6 +1,6 @@
 "use client";
 
-import type { ToolUIPart } from "ai";
+import type { ToolUIPart } from "@repo/shared";
 import {
   CheckCircleIcon,
   ChevronDownIcon,
@@ -31,7 +31,13 @@ export const Tool = ({ className, ...props }: ToolProps) => (
 export interface ToolHeaderProps {
   title?: string;
   type: ToolUIPart["type"];
-  state: "pending" | "running" | "completed" | "error" | "approval-requested";
+  state:
+    | "pending"
+    | "running"
+    | "completed"
+    | "error"
+    | "cancelled"
+    | "approval-requested";
   className?: string;
 }
 
@@ -42,6 +48,7 @@ export const getStatusBadge = (state: ToolHeaderProps["state"]) => {
 
     "approval-requested": "Awaiting Approval",
     completed: "Completed",
+    cancelled: "Cancelled",
     error: "Error",
   };
 
@@ -51,6 +58,7 @@ export const getStatusBadge = (state: ToolHeaderProps["state"]) => {
 
     "approval-requested": <ClockIcon className="size-4 text-yellow-600" />,
     completed: <CheckCircleIcon className="size-4 text-green-600" />,
+    cancelled: <XCircleIcon className="size-4 text-muted-foreground" />,
     error: <XCircleIcon className="size-4 text-red-600" />,
   };
 

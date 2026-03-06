@@ -256,6 +256,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       processGroupId,
       lifecycleState: "running",
       outputBuffer: "",
+      turnId: session.activeTurnId,
       outputBufferBytes: Buffer.alloc(0),
       outputByteLimit,
       truncated: false,
@@ -294,6 +295,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
           type: "terminal_output",
           terminalId: termId,
           data: text,
+          ...(termState.turnId ? { turnId: termState.turnId } : {}),
         },
         {
           durable: false,

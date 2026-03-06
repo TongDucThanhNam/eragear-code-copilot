@@ -4,6 +4,7 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import type { TurnIdResolution } from "./update-turn-id";
 
 export type SessionUpdate = acp.SessionUpdate;
 
@@ -13,6 +14,7 @@ export interface SessionUpdateContext {
   isReplayingHistory: boolean;
   suppressReplayBroadcast: boolean;
   update: SessionUpdate;
+  turnIdResolution: TurnIdResolution;
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
   finalizeStreamingForCurrentAssistant: (

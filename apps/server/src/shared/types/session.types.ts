@@ -223,7 +223,10 @@ export interface UiMessageState {
   /** Current user message ID for replayed chunks */
   currentUserId?: string;
   /** Tool part lookup by tool call ID */
-  toolPartIndex: Map<string, { messageId: string; partIndex: number }>;
+  toolPartIndex: Map<
+    string,
+    { messageId: string; partIndex: number; turnId?: string }
+  >;
 }
 
 /**
@@ -282,7 +285,7 @@ export type BroadcastEvent =
       isAbort: boolean;
       turnId?: string;
     }
-  | { type: "ui_message"; message: UIMessage }
+  | { type: "ui_message"; message: UIMessage; turnId?: string }
   | {
       type: "ui_message_part";
       messageId: string;
@@ -292,16 +295,14 @@ export type BroadcastEvent =
       part: UIMessagePart;
       isNew: boolean;
       createdAt?: number;
+      turnId?: string;
     }
-  /**
-   * @deprecated Legacy incremental stream event kept for backward
-   * compatibility. Canonical server path emits `ui_message_part` snapshots.
-   */
   | {
       type: "ui_message_delta";
       messageId: string;
       delta: string;
       partIndex: number;
+      turnId?: string;
     }
   | { type: "file_modified"; path: string }
   | { type: "current_mode_update"; modeId: string }
@@ -314,7 +315,12 @@ export type BroadcastEvent =
   | { type: "session_info_update"; sessionInfo: SessionInfo }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string }
-  | { type: "terminal_output"; terminalId: string; data: string };
+  | {
+      type: "terminal_output";
+      terminalId: string;
+      data: string;
+      turnId?: string;
+    };
 
 /**
  * A session stored in persistent storage
@@ -445,6 +451,7 @@ export interface ChatSession {
       title?: string;
       input?: unknown;
       meta?: unknown;
+      turnId?: string;
     }
   >;
   /** Active tool calls */
@@ -498,6 +505,8 @@ export interface TerminalState {
   processGroupId?: number;
   /** Output buffer */
   outputBuffer: string;
+  /** Turn identifier that created this terminal stream */
+  turnId?: string;
   /** Output buffer bytes for accurate byte-limit truncation */
   outputBufferBytes?: Buffer;
   /** Optional byte limit for output */

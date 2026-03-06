@@ -294,6 +294,7 @@ describe("RespondPermissionService", () => {
   test("clears stale data-permission-options payload after response", async () => {
     const session = createSession("user-1");
     const events: BroadcastEvent[] = [];
+    session.activeTurnId = "turn-1";
     session.uiState.messages.set("msg-1", {
       id: "msg-1",
       role: "assistant",
@@ -326,6 +327,7 @@ describe("RespondPermissionService", () => {
       toolCallId: "tool-1",
       toolName: "bash",
       title: "Bash",
+      turnId: "turn-1",
     });
     const service = new RespondPermissionService(createRuntime(session, events));
 
@@ -342,6 +344,7 @@ describe("RespondPermissionService", () => {
         event.part.type === "data-permission-options"
     );
     expect(optionsPartEvent).toBeDefined();
+    expect(optionsPartEvent?.turnId).toBe("turn-1");
     if (!optionsPartEvent || optionsPartEvent.part.type !== "data-permission-options") {
       throw new Error("Expected permission options part update event");
     }

@@ -161,12 +161,15 @@ export class PromptTaskRunner {
           broadcast,
           errorMessage: reason,
         });
-        await this.emitCancelledChatFinish({
+        if (fallbackMessageId) {
+          session.uiState.lastAssistantId = fallbackMessageId;
+        }
+        await this.finalizeCurrentTurnArtifacts({
           chatId,
           aggregate,
           turnId,
           broadcast,
-          messageId: fallbackMessageId,
+          session,
         });
         await this.sessionGateway.stopAndCleanup({
           chatId,
@@ -195,15 +198,20 @@ export class PromptTaskRunner {
         activeTurnId: session.activeTurnId,
         error: normalizedError,
       });
-
-      if (aggregate.isCurrentTurn(turnId)) {
-        await aggregate.markError({ chatId, broadcast }, turnId);
-        aggregate.clearActiveTurnIf(turnId);
-        await broadcast(chatId, {
-          type: "error",
-          error: normalizedError,
-        });
-      }
+      await this.finalizeCurrentTurnArtifacts({
+        chatId,
+        aggregate,
+        turnId,
+        broadcast,
+        session,
+      });
+      await this.sessionGateway.stopAndCleanup({
+        chatId,
+        session,
+        turnId: aggregate.isCurrentTurn(turnId) ? turnId : undefined,
+        reason: normalizedError,
+        killProcess: true,
+      });
     } finally {
       aggregate.clearActivePromptTaskIf(turnId);
     }
@@ -249,9 +257,11 @@ export class PromptTaskRunner {
         timestamp: createdAt,
       });
       session.uiState.messages.set(uiMessage.id, uiMessage);
+      session.uiState.lastAssistantId = uiMessage.id;
       await broadcast(chatId, {
         type: "ui_message",
         message: uiMessage,
+        turnId,
       });
       return uiMessage.id;
     } catch (persistError) {
@@ -271,12 +281,6 @@ export class PromptTaskRunner {
     const { chatId, aggregate, prompt, broadcast, turnId } = params;
     const session = aggregate.raw;
     if (!session.sessionId) {
-      await this.emitCancelledChatFinish({
-        chatId,
-        aggregate,
-        turnId,
-        broadcast,
-      });
       await this.sessionGateway.stopAndCleanup({
         chatId,
         session,
@@ -493,11 +497,23 @@ export class PromptTaskRunner {
       error instanceof AiSessionRuntimeError &&
       (error.kind === "process_exited" || error.kind === "session_unavailable")
     ) {
-      await this.emitCancelledChatFinish({
+      await this.persistAssistantFallbackMessage({
         chatId,
         aggregate,
         turnId,
         broadcast,
+        errorMessage:
+          error.message ||
+          (error.kind === "process_exited"
+            ? "Agent process exited"
+            : "Agent session is unavailable"),
+      });
+      await this.finalizeCurrentTurnArtifacts({
+        chatId,
+        aggregate,
+        turnId,
+        broadcast,
+        session,
       });
       await this.sessionGateway.stopAndCleanup({
         chatId,
@@ -530,49 +546,66 @@ export class PromptTaskRunner {
       broadcast,
       errorMessage: errorText || "Failed to send message",
     });
-    await aggregate.markError({ chatId, broadcast }, turnId);
-    aggregate.clearActiveTurnIf(turnId);
-    throw new AppError({
-      message: errorText || "Failed to send message",
-      code: "SEND_MESSAGE_FAILED",
-      statusCode: HTTP_STATUS.BAD_GATEWAY,
-      module: "ai",
-      op: AI_OP.PROMPT_SEND,
-      cause: error,
-      details: { chatId, turnId },
+    await this.finalizeTurnReadyAfterError({
+      chatId,
+      aggregate,
+      turnId,
+      broadcast,
+      session,
+      errorMessage: errorText || "Failed to send message",
     });
+    return "return_null";
   }
 
-  /**
-   * Ensure cancelled/error termination paths still emit `chat_finish` so
-   * clients can close loading state deterministically.
-   */
-  private async emitCancelledChatFinish(params: {
+  private async finalizeCurrentTurnArtifacts(params: {
     chatId: string;
     aggregate: SessionRuntimeEntity;
     turnId: string;
     broadcast: SessionRuntimePort["broadcast"];
-    messageId?: string;
+    session: ChatSession;
   }): Promise<void> {
-    const { chatId, aggregate, turnId, broadcast, messageId } = params;
+    const { chatId, aggregate, turnId, broadcast, session } = params;
     await this.sessionRuntime.runExclusive(chatId, async () => {
       if (!aggregate.isCurrentTurn(turnId)) {
         return;
       }
-
-      const session = aggregate.raw;
-      const activeAssistantMessageId =
-        aggregate.currentStreamingAssistantMessage()?.id;
-      const resolvedMessageId =
-        messageId ?? activeAssistantMessageId ?? aggregate.assistantMessageId;
-      if (resolvedMessageId) {
-        setChatFinishMessage(session, resolvedMessageId, turnId);
-      }
-      aggregate.setChatFinishStopReason("cancelled", turnId);
-      await aggregate.maybeBroadcastChatFinish({
+      await this.finalizeAssistantArtifactsUnderLock({
         chatId,
+        aggregate,
+        session,
         broadcast,
+        turnId,
       });
+    });
+  }
+
+  private async finalizeTurnReadyAfterError(params: {
+    chatId: string;
+    aggregate: SessionRuntimeEntity;
+    turnId: string;
+    broadcast: SessionRuntimePort["broadcast"];
+    session: ChatSession;
+    errorMessage: string;
+  }): Promise<void> {
+    const { chatId, aggregate, turnId, broadcast, session, errorMessage } =
+      params;
+    await this.sessionRuntime.runExclusive(chatId, async () => {
+      if (!aggregate.isCurrentTurn(turnId)) {
+        return;
+      }
+      await this.finalizeAssistantArtifactsUnderLock({
+        chatId,
+        aggregate,
+        session,
+        broadcast,
+        turnId,
+      });
+      await broadcast(chatId, {
+        type: "error",
+        error: errorMessage,
+      });
+      await aggregate.markReadyAfterTurnCompletion({ chatId, broadcast }, turnId);
+      aggregate.clearActiveTurnIf(turnId);
     });
   }
 
@@ -607,16 +640,21 @@ export class PromptTaskRunner {
       broadcast,
       errorMessage: "Failed to send message",
     });
-    await aggregate.markError({ chatId, broadcast }, turnId);
-    aggregate.clearActiveTurnIf(turnId);
-    throw new AppError({
-      message: "Failed to send message",
-      code: "SEND_MESSAGE_FAILED",
-      statusCode: HTTP_STATUS.BAD_GATEWAY,
-      module: "ai",
-      op: AI_OP.PROMPT_SEND,
-      details: { chatId, turnId },
+    await this.finalizeCurrentTurnArtifacts({
+      chatId,
+      aggregate,
+      turnId,
+      broadcast,
+      session,
     });
+    await this.sessionGateway.stopAndCleanup({
+      chatId,
+      session,
+      turnId: aggregate.isCurrentTurn(turnId) ? turnId : undefined,
+      reason: "Failed to send message",
+      killProcess: true,
+    });
+    return null;
   }
 
   private async finalizePromptSuccess(params: {
@@ -637,118 +675,16 @@ export class PromptTaskRunner {
     // a streaming update is queued, causing the update to create a NEW
     // assistant message instead of appending to the existing one.
     await this.sessionRuntime.runExclusive(chatId, async () => {
-      if (session.buffer?.hasPendingReasoning()) {
-        const bufferedMessageId = session.buffer.ensureMessageId(
-          session.uiState.currentAssistantId
-        );
-        const currentAssistantMessage = getOrCreateAssistantMessage(
-          session.uiState,
-          bufferedMessageId
-        );
-        let updatedAssistantMessage = currentAssistantMessage;
-        const pendingReasoning = session.buffer.consumePendingReasoning();
-        if (pendingReasoning?.blocks.length) {
-          const previousPartsLength = currentAssistantMessage.parts.length;
-          for (const block of pendingReasoning.blocks) {
-            updatedAssistantMessage = appendReasoningBlock(
-              updatedAssistantMessage,
-              block,
-              "done"
-            );
-          }
-          if (updatedAssistantMessage !== currentAssistantMessage) {
-            session.uiState.messages.set(
-              updatedAssistantMessage.id,
-              updatedAssistantMessage
-            );
-            const partIndex = updatedAssistantMessage.parts.length - 1;
-            const isNew =
-              updatedAssistantMessage.parts.length > previousPartsLength;
-            const part =
-              partIndex >= 0
-                ? updatedAssistantMessage.parts[partIndex]
-                : undefined;
-            if (partIndex >= 0 && part) {
-              const partEvent = buildUiMessagePartEvent({
-                chatId,
-                message: updatedAssistantMessage,
-                partIndex,
-                isNew,
-              });
-              if (partEvent) {
-                await broadcast(chatId, partEvent);
-              }
-            }
-          }
-        }
-      }
-
-      if (session.buffer) {
-        const message = session.buffer.flush();
-        if (message) {
-          this.logger.debug("SendMessageService flushed assistant buffer", {
-            chatId,
-            messageId: message.id,
-            contentBlocks: message.contentBlocks.length,
-            reasoningBlocks: message.reasoningBlocks?.length ?? 0,
-            turnId,
-          });
-          await this.sessionRepo.appendMessage(chatId, session.userId, {
-            id: message.id,
-            role: "assistant",
-            content: message.content,
-            contentBlocks: message.contentBlocks,
-            reasoning: message.reasoning,
-            reasoningBlocks: message.reasoningBlocks,
-            timestamp: this.clock.nowMs(),
-          });
-        }
-      }
-
-      const current = aggregate.currentStreamingAssistantMessage();
-      if (current) {
-        // Set chatFinish.messageId BEFORE clearing currentAssistantId.
-        // This ensures maybeBroadcastChatFinish always has the correct
-        // messageId, even if currentAssistantId is cleared.
-        setChatFinishMessage(session, current.id, turnId);
-
-        const finalizedMessage = finalizeStreamingParts(current);
-        if (finalizedMessage !== current) {
-          session.uiState.messages.set(finalizedMessage.id, finalizedMessage);
-          for (
-            let index = 0;
-            index < finalizedMessage.parts.length;
-            index += 1
-          ) {
-            const previousPart = current.parts[index];
-            const nextPart = finalizedMessage.parts[index];
-            if (!(previousPart && nextPart) || previousPart === nextPart) {
-              continue;
-            }
-            const partEvent = buildUiMessagePartEvent({
-              chatId,
-              message: finalizedMessage,
-              partIndex: index,
-              isNew: false,
-            });
-            if (partEvent) {
-              await broadcast(chatId, partEvent);
-            }
-          }
-        }
-        this.logger.debug("SendMessageService finalized streaming message", {
+      const finalizedAssistantMessageId =
+        await this.finalizeAssistantArtifactsUnderLock({
           chatId,
-          messageId: finalizedMessage.id,
-          parts: finalizedMessage.parts.length,
-          emittedPartUpdates:
-            finalizedMessage === current
-              ? 0
-              : finalizedMessage.parts.reduce((count, part, index) => {
-                  return part !== current.parts[index] ? count + 1 : count;
-                }, 0),
+          aggregate,
+          session,
+          broadcast,
           turnId,
         });
-        aggregate.clearCurrentStreamingAssistantId();
+      if (finalizedAssistantMessageId) {
+        setChatFinishMessage(session, finalizedAssistantMessageId, turnId);
       }
 
       aggregate.setChatFinishStopReason(stopReason, turnId);
@@ -775,6 +711,127 @@ export class PromptTaskRunner {
       }
       aggregate.clearActiveTurnIf(turnId);
     });
+  }
+
+  private async finalizeAssistantArtifactsUnderLock(params: {
+    chatId: string;
+    aggregate: SessionRuntimeEntity;
+    session: ChatSession;
+    broadcast: SessionRuntimePort["broadcast"];
+    turnId: string;
+  }): Promise<string | undefined> {
+    const { chatId, aggregate, session, broadcast, turnId } = params;
+    let finalizedAssistantMessageId: string | undefined;
+
+    if (session.buffer?.hasPendingReasoning()) {
+      const bufferedMessageId = session.buffer.ensureMessageId(
+        session.uiState.currentAssistantId
+      );
+      const currentAssistantMessage = getOrCreateAssistantMessage(
+        session.uiState,
+        bufferedMessageId
+      );
+      let updatedAssistantMessage = currentAssistantMessage;
+      const pendingReasoning = session.buffer.consumePendingReasoning();
+      if (pendingReasoning?.blocks.length) {
+        const previousPartsLength = currentAssistantMessage.parts.length;
+        for (const block of pendingReasoning.blocks) {
+          updatedAssistantMessage = appendReasoningBlock(
+            updatedAssistantMessage,
+            block,
+            "done"
+          );
+        }
+        if (updatedAssistantMessage !== currentAssistantMessage) {
+          session.uiState.messages.set(
+            updatedAssistantMessage.id,
+            updatedAssistantMessage
+          );
+          const partIndex = updatedAssistantMessage.parts.length - 1;
+          const isNew =
+            updatedAssistantMessage.parts.length > previousPartsLength;
+          const part =
+            partIndex >= 0 ? updatedAssistantMessage.parts[partIndex] : undefined;
+          if (partIndex >= 0 && part) {
+            const partEvent = buildUiMessagePartEvent({
+              chatId,
+              message: updatedAssistantMessage,
+              partIndex,
+              isNew,
+              turnId,
+            });
+            if (partEvent) {
+              await broadcast(chatId, partEvent);
+            }
+          }
+        }
+      }
+    }
+
+    if (session.buffer) {
+      const message = session.buffer.flush();
+      if (message) {
+        finalizedAssistantMessageId = message.id;
+        this.logger.debug("SendMessageService flushed assistant buffer", {
+          chatId,
+          messageId: message.id,
+          contentBlocks: message.contentBlocks.length,
+          reasoningBlocks: message.reasoningBlocks?.length ?? 0,
+          turnId,
+        });
+        await this.sessionRepo.appendMessage(chatId, session.userId, {
+          id: message.id,
+          role: "assistant",
+          content: message.content,
+          contentBlocks: message.contentBlocks,
+          reasoning: message.reasoning,
+          reasoningBlocks: message.reasoningBlocks,
+          timestamp: this.clock.nowMs(),
+        });
+      }
+    }
+
+    const current = aggregate.currentStreamingAssistantMessage();
+    if (!current) {
+      return finalizedAssistantMessageId;
+    }
+
+    finalizedAssistantMessageId = current.id;
+    const finalizedMessage = finalizeStreamingParts(current);
+    if (finalizedMessage !== current) {
+      session.uiState.messages.set(finalizedMessage.id, finalizedMessage);
+      for (let index = 0; index < finalizedMessage.parts.length; index += 1) {
+        const previousPart = current.parts[index];
+        const nextPart = finalizedMessage.parts[index];
+        if (!(previousPart && nextPart) || previousPart === nextPart) {
+          continue;
+        }
+        const partEvent = buildUiMessagePartEvent({
+          chatId,
+          message: finalizedMessage,
+          partIndex: index,
+          isNew: false,
+          turnId,
+        });
+        if (partEvent) {
+          await broadcast(chatId, partEvent);
+        }
+      }
+    }
+    this.logger.debug("SendMessageService finalized streaming message", {
+      chatId,
+      messageId: finalizedMessage.id,
+      parts: finalizedMessage.parts.length,
+      emittedPartUpdates:
+        finalizedMessage === current
+          ? 0
+          : finalizedMessage.parts.reduce((count, part, index) => {
+              return part !== current.parts[index] ? count + 1 : count;
+            }, 0),
+      turnId,
+    });
+    aggregate.clearCurrentStreamingAssistantId();
+    return finalizedAssistantMessageId;
   }
 }
 

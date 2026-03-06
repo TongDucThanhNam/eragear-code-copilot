@@ -1,121 +1,28 @@
 "use client";
 
-import type { TextUIPart, UIMessage, UIMessagePart } from "@repo/shared";
-import { CheckIcon, CopyIcon } from "lucide-react";
-import { memo, useMemo, useState } from "react";
-import { toast } from "sonner";
+import type { TextUIPart, UIMessagePart } from "@repo/shared";
+import { memo, useMemo } from "react";
 import {
   Message,
-  MessageAction,
   MessageActions,
   MessageContent,
 } from "@/components/ai-elements/message";
-import { ChainOfThought } from "@/components/chat-ui/agentic-chain";
 import {
   buildMessageCopyText,
   type FilePart,
-  getMessageTerminalIds,
   isDataPart,
-  isMessageStreaming,
-  resolveAssistantFinalVisibility,
   type SourcePart,
-  splitMessageParts,
 } from "@/components/chat-ui/agentic-message-utils";
-import {
-  AttachmentList,
-  TextMessagePart,
-  UserTextParts,
-} from "@/components/chat-ui/agentic-parts";
+import { AttachmentList } from "@/components/chat-ui/agentic-parts/attachment-list";
+import { UserTextParts } from "@/components/chat-ui/agentic-parts/user-text-parts";
+import { AssistantMessageBody } from "@/components/chat-ui/agentic-message/assistant-message-body";
+import { CopyMessageAction } from "@/components/chat-ui/agentic-message/copy-message-action";
+import { useChatMessageById } from "@/store/chat-stream-store";
 
 export interface AgenticMessageProps {
-  message: UIMessage;
-  terminalOutputs?: Record<string, string>;
+  chatId: string | null;
+  messageId: string;
 }
-
-const CopyMessageAction = memo(({ text }: { text: string }) => {
-  const [isCopied, setIsCopied] = useState(false);
-
-  const handleCopy = async () => {
-    if (!text) {
-      return;
-    }
-
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
-      toast.error("Clipboard API not available");
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(text);
-      setIsCopied(true);
-      toast.success("Copied message");
-      setTimeout(() => setIsCopied(false), 2000);
-    } catch (error) {
-      toast.error("Failed to copy message");
-    }
-  };
-
-  const Icon = isCopied ? CheckIcon : CopyIcon;
-
-  return (
-    <MessageAction
-      aria-label="Copy message"
-      disabled={!text}
-      label="Copy message"
-      onClick={handleCopy}
-      tooltip={isCopied ? "Copied" : "Copy"}
-    >
-      <Icon className="size-3.5" />
-    </MessageAction>
-  );
-});
-CopyMessageAction.displayName = "CopyMessageAction";
-
-const AssistantMessageBody = ({
-  parts,
-  terminalOutputs,
-}: {
-  parts: UIMessagePart[];
-  terminalOutputs?: Record<string, string>;
-}) => {
-  const { chainItems, finalText, finalAttachments } = useMemo(
-    () => splitMessageParts(parts),
-    [parts]
-  );
-  const streaming = useMemo(() => isMessageStreaming(parts), [parts]);
-  const finalVisibility = useMemo(
-    () =>
-      resolveAssistantFinalVisibility({
-        finalText,
-        finalAttachmentsCount: finalAttachments.length,
-        isStreaming: streaming,
-        chainItemsCount: chainItems.length,
-      }),
-    [chainItems.length, finalAttachments.length, finalText, streaming]
-  );
-
-  return (
-    <>
-      {chainItems.length > 0 && (
-        <ChainOfThought
-          isStreaming={streaming}
-          items={chainItems}
-          terminalOutputs={terminalOutputs}
-        />
-      )}
-      {finalVisibility.shouldRenderFinal && (
-        <div className="space-y-3">
-          {finalVisibility.showFinalText ? (
-            <TextMessagePart text={finalText ?? ""} variant="final" />
-          ) : null}
-          {finalVisibility.showFinalAttachments ? (
-            <AttachmentList items={finalAttachments} />
-          ) : null}
-        </div>
-      )}
-    </>
-  );
-};
 
 const getUserMessageParts = (parts: UIMessagePart[]) => {
   const displayParts = parts.filter((part) => !isDataPart(part));
@@ -131,35 +38,14 @@ const getUserMessageParts = (parts: UIMessagePart[]) => {
   return { textParts, attachmentParts };
 };
 
-const areTerminalOutputsEqual = (
-  prev: Record<string, string> | undefined,
-  next: Record<string, string> | undefined,
-  message: UIMessage
-) => {
-  const terminalIds = getMessageTerminalIds(message);
-  if (terminalIds.length === 0) {
-    return true;
+export const AgenticMessage = memo(function AgenticMessage({
+  chatId,
+  messageId,
+}: AgenticMessageProps) {
+  const message = useChatMessageById(chatId, messageId);
+  if (!message) {
+    return null;
   }
-  if (prev === next) {
-    return true;
-  }
-  if (!(prev && next)) {
-    return false;
-  }
-  for (const terminalId of terminalIds) {
-    const prevValue = prev[terminalId] ?? "";
-    const nextValue = next[terminalId] ?? "";
-    if (prevValue !== nextValue) {
-      return false;
-    }
-  }
-  return true;
-};
-
-const AgenticMessageBase = ({
-  message,
-  terminalOutputs,
-}: AgenticMessageProps) => {
   const copyText = useMemo(() => buildMessageCopyText(message), [message]);
   const userParts = useMemo(
     () => (message.role === "user" ? getUserMessageParts(message.parts) : null),
@@ -174,8 +60,8 @@ const AgenticMessageBase = ({
         {message.role === "assistant" ? (
           <MessageContent>
             <AssistantMessageBody
+              chatId={chatId}
               parts={message.parts}
-              terminalOutputs={terminalOutputs}
             />
           </MessageContent>
         ) : showUserContent ? (
@@ -198,19 +84,8 @@ const AgenticMessageBase = ({
       </div>
     </Message>
   );
-};
-
-export const AgenticMessage = memo(
-  AgenticMessageBase,
-  (prevProps, nextProps) => {
-    if (prevProps.message !== nextProps.message) {
-      return false;
-    }
-    return areTerminalOutputsEqual(
-      prevProps.terminalOutputs,
-      nextProps.terminalOutputs,
-      prevProps.message
-    );
-  }
+},
+  (prevProps, nextProps) =>
+    prevProps.chatId === nextProps.chatId &&
+    prevProps.messageId === nextProps.messageId
 );
-AgenticMessage.displayName = "AgenticMessage";

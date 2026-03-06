@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { UIMessage } from "@repo/shared";
-import { replaceMessagesState } from "@/hooks/use-chat-message-state";
-import { useChatStreamStore } from "./chat-stream-store";
+import {
+  applyTextDeltaUpdate,
+  replaceMessagesState,
+} from "@/hooks/use-chat-message-state";
+import {
+  CHAT_TERMINAL_OUTPUT_MAX_CHARS,
+  readCombinedTerminalOutput,
+  TERMINAL_OUTPUT_MAX_CHARS,
+  useChatStreamStore,
+} from "./chat-stream-store";
 
 const CHAT_ID = "chat-1";
 const CHAT_ID_2 = "chat-2";
@@ -37,13 +45,13 @@ describe("chat-stream-store", () => {
     expect(afterMessageState).toBe(beforeMessageState);
   });
 
-  test("updateMessageState keeps terminalOutputs reference stable", () => {
+  test("updateMessageState keeps terminal buffer reference stable", () => {
     useChatStreamStore
       .getState()
-      .setTerminalOutputs(CHAT_ID, { "term-1": "log line" });
-    const beforeTerminalOutputs = useChatStreamStore
-      .getState()
-      .getTerminalOutputs(CHAT_ID);
+      .appendTerminalOutput(CHAT_ID, "term-1", "log line");
+    const beforeTerminalBuffers = useChatStreamStore.getState().byChatId[
+      CHAT_ID
+    ]?.terminalBuffers;
 
     useChatStreamStore.getState().updateMessageState(CHAT_ID, (prev) =>
       replaceMessagesState([
@@ -52,10 +60,10 @@ describe("chat-stream-store", () => {
       ])
     );
 
-    const afterTerminalOutputs = useChatStreamStore
-      .getState()
-      .getTerminalOutputs(CHAT_ID);
-    expect(afterTerminalOutputs).toBe(beforeTerminalOutputs);
+    const afterTerminalBuffers = useChatStreamStore.getState().byChatId[
+      CHAT_ID
+    ]?.terminalBuffers;
+    expect(afterTerminalBuffers).toBe(beforeTerminalBuffers);
   });
 
   test("clearChat removes only the target chat snapshot", () => {
@@ -105,11 +113,38 @@ describe("chat-stream-store", () => {
     expect(orderedMessageLengths).toEqual([1, 2]);
   });
 
+  test("updateMessageState preserves message order reference for delta-only updates", () => {
+    const store = useChatStreamStore.getState();
+    store.updateMessageState(CHAT_ID, () =>
+      replaceMessagesState([createAssistantMessage("msg-1", "hello")])
+    );
+
+    const beforeOrder = useChatStreamStore
+      .getState()
+      .getMessageState(CHAT_ID).order;
+
+    store.updateMessageState(CHAT_ID, (prev) =>
+      applyTextDeltaUpdate(prev, {
+        messageId: "msg-1",
+        partIndex: 0,
+        delta: " world",
+      })
+    );
+
+    const afterState = useChatStreamStore.getState().getMessageState(CHAT_ID);
+    expect(afterState.order).toBe(beforeOrder);
+    expect(afterState.byId.get("msg-1")?.parts[0]).toEqual({
+      type: "text",
+      text: "hello world",
+      state: "done",
+    });
+  });
+
   test("appendTerminalOutput publishes a new terminal output reference", () => {
     const terminalOutputSizes: number[] = [];
     const unsubscribe = useChatStreamStore.subscribe((nextState, prevState) => {
-      const nextOutputs = nextState.byChatId[CHAT_ID]?.terminalOutputs;
-      const prevOutputs = prevState.byChatId[CHAT_ID]?.terminalOutputs;
+      const nextOutputs = nextState.byChatId[CHAT_ID]?.terminalBuffers;
+      const prevOutputs = prevState.byChatId[CHAT_ID]?.terminalBuffers;
       if (nextOutputs && nextOutputs !== prevOutputs) {
         terminalOutputSizes.push(Object.keys(nextOutputs).length);
       }
@@ -141,5 +176,75 @@ describe("chat-stream-store", () => {
     expect(chatIds.includes("chat-1")).toBe(false);
     expect(chatIds.includes("chat-2")).toBe(false);
     expect(chatIds.includes("chat-22")).toBe(true);
+  });
+
+  test("readCombinedTerminalOutput returns only the selected terminal ids", () => {
+    const store = useChatStreamStore.getState();
+    store.appendTerminalOutput(CHAT_ID, "term-1", "stdout");
+    store.appendTerminalOutput(CHAT_ID, "term-2", "stderr");
+    store.appendTerminalOutput(CHAT_ID, "term-3", "ignored");
+
+    expect(
+      readCombinedTerminalOutput(
+        useChatStreamStore.getState().byChatId[CHAT_ID]?.terminalBuffers ?? {},
+        ["term-1", "term-2"]
+      )
+    ).toBe("stdoutstderr");
+  });
+
+  test("appendTerminalOutput caps each terminal buffer to the latest max chars", () => {
+    const store = useChatStreamStore.getState();
+    const oversizedChunk = "a".repeat(TERMINAL_OUTPUT_MAX_CHARS + 1024);
+
+    store.appendTerminalOutput(CHAT_ID, "term-1", oversizedChunk);
+
+    const terminalBuffer =
+      useChatStreamStore.getState().byChatId[CHAT_ID]?.terminalBuffers["term-1"];
+    const output = readCombinedTerminalOutput(
+      useChatStreamStore.getState().byChatId[CHAT_ID]?.terminalBuffers ?? {},
+      ["term-1"]
+    );
+    expect(output.length).toBe(TERMINAL_OUTPUT_MAX_CHARS);
+    expect(output).toBe(oversizedChunk.slice(-TERMINAL_OUTPUT_MAX_CHARS));
+    expect(terminalBuffer?.startOffset ?? 0).toBe(1024);
+  });
+
+  test("appendTerminalOutput prunes oldest terminal buffers when chat budget is exceeded", () => {
+    const store = useChatStreamStore.getState();
+    const terminalChunk = "x".repeat(300 * 1024);
+
+    for (let index = 1; index <= 5; index += 1) {
+      store.appendTerminalOutput(CHAT_ID, `term-${index}`, terminalChunk);
+    }
+
+    const snapshot = useChatStreamStore.getState().byChatId[CHAT_ID];
+    const terminalIds = Object.keys(snapshot?.terminalBuffers ?? {});
+
+    expect(snapshot?.terminalTotalChars ?? 0).toBeLessThanOrEqual(
+      CHAT_TERMINAL_OUTPUT_MAX_CHARS
+    );
+    expect(terminalIds.includes("term-1")).toBe(false);
+    expect(terminalIds.includes("term-5")).toBe(true);
+  });
+
+  test("appendTerminalOutput withstands 50k packets while staying within bounds", () => {
+    const store = useChatStreamStore.getState();
+
+    for (let index = 0; index < 50_000; index += 1) {
+      store.appendTerminalOutput(CHAT_ID, "term-1", `${index % 10}`);
+    }
+
+    const terminalBuffer =
+      useChatStreamStore.getState().byChatId[CHAT_ID]?.terminalBuffers["term-1"];
+    const output = readCombinedTerminalOutput(
+      useChatStreamStore.getState().byChatId[CHAT_ID]?.terminalBuffers ?? {},
+      ["term-1"]
+    );
+
+    expect(terminalBuffer?.totalChars ?? 0).toBeLessThanOrEqual(
+      TERMINAL_OUTPUT_MAX_CHARS
+    );
+    expect(output.length).toBe(50_000);
+    expect(output.endsWith("9")).toBe(true);
   });
 });

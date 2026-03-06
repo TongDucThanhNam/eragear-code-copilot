@@ -31,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DEFAULT_SERVER_URL } from "@/lib/server-url";
 import { trpc } from "@/lib/trpc";
 import { useServerConfigStore } from "@/store/server-config-store";
 
@@ -213,7 +214,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   <Input
                     id="serverUrl"
                     onChange={(e) => setServerUrl(e.target.value)}
-                    placeholder="ws://localhost:3000"
+                    placeholder={DEFAULT_SERVER_URL}
                     value={serverUrl}
                   />
                 </div>

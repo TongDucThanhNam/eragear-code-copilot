@@ -6,6 +6,7 @@ import {
   ListDashboardProjectsService,
   ListDashboardSessionsService,
 } from "@/modules/ops";
+import { getTurnIdMigrationSnapshot } from "@/platform/acp/turn-id-observability";
 import type { OpsServiceFactory } from "@/modules/service-factories";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
@@ -31,6 +32,7 @@ export function createOpsServices(
     logStore: deps.logStore,
     getCacheStats: deps.getCacheStats,
     getBackgroundRunnerState: deps.getBackgroundRunnerState,
+    getAcpTurnIdMigrationSnapshot: getTurnIdMigrationSnapshot,
   });
   const dashboardPageDataService = new GetDashboardPageDataService({
     listDashboardProjects: dashboardProjectsService,

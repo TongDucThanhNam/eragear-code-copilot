@@ -1,5 +1,9 @@
 import type { UIMessage } from "@repo/shared";
-import { findUiMessageInsertIndex } from "@repo/shared";
+import {
+  finalizeToolPartAsCancelled,
+  finalizeToolPartAsPreliminaryOutput,
+  findUiMessageInsertIndex,
+} from "@repo/shared";
 
 /**
  * Normalized message state optimized for id-based upsert plus stable render
@@ -20,6 +24,12 @@ export interface MessagePartUpdateChunk {
   part: UIMessage["parts"][number];
   isNew: boolean;
   createdAt?: number;
+}
+
+export interface MessageTextDeltaUpdateChunk {
+  messageId: string;
+  partIndex: number;
+  delta: string;
 }
 
 function areStructurallyEqualParts(
@@ -44,6 +54,7 @@ const TOOL_PART_STATE_RANK: Record<string, number> = {
   "output-available": 5,
   "output-error": 5,
   "output-denied": 5,
+  "output-cancelled": 5,
 };
 
 function shouldKeepExistingPart(
@@ -272,6 +283,34 @@ export const upsertMessageIntoState = (
   message: UIMessage
 ): MessageState => mergeMessagesIntoState(state, [message]);
 
+function replaceMessageAtKnownIndex(
+  state: MessageState,
+  nextMessage: UIMessage
+): MessageState {
+  const currentMessage = state.byId.get(nextMessage.id);
+  if (currentMessage === nextMessage) {
+    return state;
+  }
+
+  const index = state.indexById.get(nextMessage.id);
+  if (index === undefined) {
+    return mergeMessagesIntoState(state, [nextMessage]);
+  }
+
+  const nextById = new Map(state.byId);
+  nextById.set(nextMessage.id, nextMessage);
+
+  const nextOrderedMessages = [...state.orderedMessages];
+  nextOrderedMessages[index] = nextMessage;
+
+  return {
+    byId: nextById,
+    order: state.order,
+    indexById: state.indexById,
+    orderedMessages: nextOrderedMessages,
+  };
+}
+
 /**
  * Apply part-level stream updates. If an update cannot be applied safely
  * without regressing already newer state, keep the current state and wait for
@@ -299,36 +338,29 @@ export const applyPartUpdate = (
 
   const nextParts = [...existing.parts];
   const incomingPart = attachPartId(update.part, update.partId);
-  let changed = false;
   if (update.isNew) {
     if (update.partIndex < 0) {
       return state;
     }
     if (update.partIndex === nextParts.length) {
       nextParts.push(incomingPart);
-      changed = true;
     } else if (update.partIndex < nextParts.length) {
       const existingPart = nextParts[update.partIndex];
-      if (existingPart && areStructurallyEqualParts(existingPart, incomingPart)) {
-        const nextPart = attachPartId(incomingPart, readPartId(existingPart));
-        nextParts[update.partIndex] = nextPart;
-        changed = existingPart !== nextPart;
-      } else {
-        if (existingPart && shouldKeepExistingPart(existingPart, incomingPart)) {
-          if (update.partIndex === 0) {
-            return state;
-          }
-          nextParts.push(incomingPart);
-          changed = true;
-        } else {
-          nextParts[update.partIndex] = incomingPart;
-          changed = true;
+      const nextPart = attachPartId(incomingPart, readPartId(existingPart));
+      if (existingPart && areStructurallyEqualParts(existingPart, nextPart)) {
+        return state;
+      }
+      if (existingPart && shouldKeepExistingPart(existingPart, nextPart)) {
+        if (update.partIndex === 0) {
+          return state;
         }
+        nextParts.push(nextPart);
+      } else {
+        nextParts[update.partIndex] = nextPart;
       }
     } else {
       // Out-of-order isNew update beyond current array length.
       nextParts.push(incomingPart);
-      changed = true;
     }
   } else {
     if (update.partIndex < 0) {
@@ -336,62 +368,71 @@ export const applyPartUpdate = (
     }
     if (update.partIndex < nextParts.length) {
       const existingPart = nextParts[update.partIndex];
+      const nextPart = attachPartId(incomingPart, readPartId(existingPart));
       if (
         existingPart &&
-        !areStructurallyEqualParts(existingPart, incomingPart) &&
-        shouldKeepExistingPart(existingPart, incomingPart)
+        !areStructurallyEqualParts(existingPart, nextPart) &&
+        shouldKeepExistingPart(existingPart, nextPart)
       ) {
         return state;
       }
-      const nextPart = attachPartId(incomingPart, readPartId(existingPart));
+      if (existingPart && areStructurallyEqualParts(existingPart, nextPart)) {
+        return state;
+      }
       nextParts[update.partIndex] = nextPart;
-      changed = existingPart !== nextPart;
     } else {
       return state;
     }
-  }
-
-  if (!changed) {
-    return state;
   }
 
   const nextMessage: UIMessage = {
     ...existing,
     parts: nextParts,
   };
-  return mergeMessagesIntoState(state, [nextMessage]);
+  return replaceMessageAtKnownIndex(state, nextMessage);
+};
+
+export const applyTextDeltaUpdate = (
+  state: MessageState,
+  update: MessageTextDeltaUpdateChunk
+): MessageState => {
+  if (update.delta.length === 0) {
+    return state;
+  }
+
+  const existing = state.byId.get(update.messageId);
+  if (!existing) {
+    return state;
+  }
+
+  const targetPart = existing.parts[update.partIndex];
+  if (
+    !targetPart ||
+    (targetPart.type !== "text" && targetPart.type !== "reasoning")
+  ) {
+    return state;
+  }
+
+  const nextParts = [...existing.parts];
+  nextParts[update.partIndex] = {
+    ...targetPart,
+    text: `${targetPart.text}${update.delta}`,
+  };
+
+  const nextMessage: UIMessage = {
+    ...existing,
+    parts: nextParts,
+  };
+  return replaceMessageAtKnownIndex(state, nextMessage);
 };
 
 function finalizeToolPartAfterReady(
   part: Extract<UIMessage["parts"][number], { type: `tool-${string}` }>
 ): UIMessage["parts"][number] {
-  if (
-    part.state !== "input-streaming" &&
-    part.state !== "input-available" &&
-    part.state !== "approval-requested" &&
-    part.state !== "approval-responded"
-  ) {
-    return part;
+  if (part.state === "approval-requested") {
+    return finalizeToolPartAsCancelled(part);
   }
-
-  const withMetadata =
-    "callProviderMetadata" in part && part.callProviderMetadata
-      ? { callProviderMetadata: part.callProviderMetadata }
-      : {};
-
-  return {
-    type: part.type,
-    toolCallId: part.toolCallId,
-    ...(part.title ? { title: part.title } : {}),
-    ...(part.providerExecuted !== undefined
-      ? { providerExecuted: part.providerExecuted }
-      : {}),
-    state: "output-available" as const,
-    input: part.input ?? null,
-    output: null,
-    preliminary: true,
-    ...withMetadata,
-  };
+  return finalizeToolPartAsPreliminaryOutput(part);
 }
 
 function finalizeMessageAfterReady(message: UIMessage): UIMessage {

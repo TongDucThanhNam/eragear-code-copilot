@@ -396,6 +396,13 @@ describe("SendMessageService", () => {
       expect(submittedEvent.turnId).toBe(result.turnId);
     }
 
+    const userMessageEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "ui_message" }> =>
+        event.type === "ui_message" && event.message.id === result.userMessageId
+    );
+    expect(userMessageEvent).toBeDefined();
+    expect(userMessageEvent?.turnId).toBe(result.turnId);
+
     const finishEvent = events.find((event) => event.type === "chat_finish");
     expect(finishEvent).toBeDefined();
     if (finishEvent?.type === "chat_finish") {
@@ -665,7 +672,7 @@ describe("SendMessageService", () => {
     expect(bufferedMessageIdAtPrompt).toBeNull();
   });
 
-  test("clears active turn and reports error when user-message persistence fails", async () => {
+  test("clears active turn and returns to ready when user-message persistence fails", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
     let promptCalls = 0;
@@ -693,7 +700,12 @@ describe("SendMessageService", () => {
     expect(session.activePromptTask).toBeUndefined();
     expect(
       events.some(
-        (event) => event.type === "chat_status" && event.status === "error"
+        (event) => event.type === "error" && event.error === "sqlite unavailable"
+      )
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) => event.type === "chat_status" && event.status === "ready"
       )
     ).toBe(true);
   });
@@ -799,7 +811,7 @@ describe("SendMessageService", () => {
     });
   });
 
-  test("marks chat error when prompt task throws unexpectedly", async () => {
+  test("returns chat to ready when prompt request fails but session remains alive", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
     const session = createChatSession({
@@ -815,13 +827,20 @@ describe("SendMessageService", () => {
     });
     await flushAsync();
 
-    const errorStatusEvent = events.find(
+    const readyEvent = events.find(
       (event) =>
         event.type === "chat_status" &&
-        event.status === "error" &&
+        event.status === "ready" &&
         event.turnId === result.turnId
     );
-    expect(errorStatusEvent).toBeDefined();
+    expect(readyEvent).toBeDefined();
+    expect(
+      events.some(
+        (event) =>
+          event.type === "error" &&
+          event.error.includes("unexpected prompt crash")
+      )
+    ).toBe(true);
     expect(repo.appendedMessages).toHaveLength(2);
     expect(repo.appendedMessages[1]?.message.role).toBe("assistant");
     expect(repo.appendedMessages[1]?.message.content).toContain(
@@ -831,7 +850,7 @@ describe("SendMessageService", () => {
     expect(session.activePromptTask).toBeUndefined();
   });
 
-  test("emits chat_finish before cleanup when agent process exits mid-turn", async () => {
+  test("marks chat error without synthetic chat_finish when agent process exits mid-turn", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
     const session = createChatSession({
@@ -848,15 +867,11 @@ describe("SendMessageService", () => {
     await flushAsync();
     await flushAsync();
 
-    const finishEvent = events.find(
-      (event): event is Extract<BroadcastEvent, { type: "chat_finish" }> =>
-        event.type === "chat_finish" && event.turnId === result.turnId
-    );
-    expect(finishEvent).toBeDefined();
-    if (finishEvent) {
-      expect(finishEvent.stopReason).toBe("cancelled");
-      expect(finishEvent.finishReason).toBe("other");
-    }
+    expect(
+      events.some(
+        (event) => event.type === "chat_finish" && event.turnId === result.turnId
+      )
+    ).toBe(false);
 
     const errorStatusEvent = events.find(
       (event): event is Extract<BroadcastEvent, { type: "chat_status" }> =>

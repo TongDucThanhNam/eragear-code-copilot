@@ -79,6 +79,7 @@ const TOOL_PART_SCHEMA = z
       "output-available",
       "output-error",
       "output-denied",
+      "output-cancelled",
     ]),
     title: z.string().optional(),
     providerExecuted: z.boolean().optional(),
@@ -216,6 +217,7 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .object({
       type: z.literal("ui_message"),
       message: UI_MESSAGE_SCHEMA,
+      turnId: z.string().optional(),
     })
     .passthrough(),
   z
@@ -228,6 +230,7 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
       part: UI_MESSAGE_PART_SCHEMA,
       isNew: z.boolean(),
       createdAt: z.number().finite().optional(),
+      turnId: z.string().optional(),
     })
     .passthrough(),
   z
@@ -236,6 +239,7 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
       messageId: z.string(),
       partIndex: z.number().int().nonnegative(),
       delta: z.string(),
+      turnId: z.string().optional(),
     })
     .passthrough(),
   z
@@ -279,6 +283,7 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
       type: z.literal("terminal_output"),
       terminalId: z.string(),
       data: z.string(),
+      turnId: z.string().optional(),
     })
     .passthrough(),
   z

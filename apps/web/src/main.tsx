@@ -7,12 +7,10 @@ import { ConnectionSetupDialog } from "./components/connection-setup-dialog";
 import { ThemeProvider } from "./components/theme-provider";
 import Loader from "./components/ui/loader";
 import { Toaster } from "./components/ui/sonner";
-import { buildTrpcWsUrl } from "./lib/server-url";
+import { buildTrpcWsUrl, DEFAULT_SERVER_URL } from "./lib/server-url";
 import { trpc } from "./lib/trpc";
 import { routeTree } from "./routeTree.gen";
 import { useServerConfigStore } from "./store/server-config-store";
-
-const DEFAULT_SERVER_URL = "ws://localhost:3010";
 
 const router = createRouter({
   routeTree,

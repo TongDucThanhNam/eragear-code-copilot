@@ -16,7 +16,7 @@
     "desktop:build": "tauri build"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.13.0",
+    "@agentclientprotocol/sdk": "0.15.0",
     "@base-ui/react": "^1.0.0",
     "@eragear-code-copilot/env": "workspace:*",
     "@hookform/resolvers": "^5.1.1",

@@ -88,6 +88,7 @@ export type ToolViewState =
   | "running"
   | "completed"
   | "error"
+  | "cancelled"
   | "approval-requested";
 
 export const toToolViewState = (tool: ToolUIPart): ToolViewState => {
@@ -105,6 +106,8 @@ export const toToolViewState = (tool: ToolUIPart): ToolViewState => {
     case "output-error":
     case "output-denied":
       return "error";
+    case "output-cancelled":
+      return "cancelled";
     default:
       return "pending";
   }
@@ -113,7 +116,8 @@ export const toToolViewState = (tool: ToolUIPart): ToolViewState => {
 const isToolActive = (tool: ToolUIPart) =>
   tool.state !== "output-available" &&
   tool.state !== "output-error" &&
-  tool.state !== "output-denied";
+  tool.state !== "output-denied" &&
+  tool.state !== "output-cancelled";
 
 const isPartActive = (part: UIMessagePart) => {
   if (part.type === "text" || part.type === "reasoning") {
@@ -136,6 +140,9 @@ export const getActiveIndex = (parts: UIMessagePart[]) => {
 
 export const isMessageStreaming = (parts: UIMessagePart[]) =>
   parts.some((part) => isPartActive(part));
+
+export const isChainStreaming = (parts: UIMessagePart[]) =>
+  splitMessageParts(parts).chainItems.some((part) => isPartActive(part));
 
 export const buildMessageCopyText = (message: UIMessage) => {
   const textParts = message.parts

@@ -8,6 +8,7 @@ import type {
   SessionInfo,
   SessionModelState,
   SessionModeState,
+  UIMessage,
 } from "@repo/shared";
 import { processSessionEvent } from "@repo/shared";
 import type {
@@ -23,12 +24,14 @@ import { nextLifecycleOnSubscriptionEvent } from "./use-chat-connection.machine"
 import { chatDebug } from "./use-chat-debug";
 import {
   applyPartUpdate,
+  applyTextDeltaUpdate,
   finalizeStreamingMessagesInState,
   type MessageState,
   upsertMessageIntoState,
 } from "./use-chat-message-state";
 import { normalizeMessage, shouldLogChatStreamDebug } from "./use-chat-normalize";
 import { logChatStreamDebug } from "./use-chat-stream-debug";
+import { resolveSessionEventTurnGuard } from "./use-chat-turn-guards";
 import type { UseChatOptions } from "./use-chat.types";
 
 interface UseChatSessionEventHandlerParams {
@@ -39,12 +42,13 @@ interface UseChatSessionEventHandlerParams {
   activeChatIdRef: MutableRefObject<string | null>;
   connectedChatIdRef: MutableRefObject<string | null>;
   messageStateRef: MutableRefObject<MessageState>;
-  terminalOutputsRef: MutableRefObject<Record<string, string>>;
   modesRef: MutableRefObject<SessionModeState | null>;
   modelsRef: MutableRefObject<SessionModelState | null>;
   commandsRef: MutableRefObject<AvailableCommand[]>;
   activeTurnIdRef: MutableRefObject<string | null>;
+  blockedTurnIdsRef: MutableRefObject<Set<string>>;
   isResumingRef: MutableRefObject<boolean>;
+  statusRef: MutableRefObject<ChatStatus>;
   setStreamLifecycle: Dispatch<SetStateAction<StreamLifecycle>>;
   setStatus: Dispatch<SetStateAction<ChatStatus>>;
   setConnStatus: Dispatch<SetStateAction<ConnectionStatus>>;
@@ -55,6 +59,22 @@ interface UseChatSessionEventHandlerParams {
   setConfigOptions: Dispatch<SetStateAction<SessionConfigOption[]>>;
   setSessionInfo: Dispatch<SetStateAction<SessionInfo | null>>;
   setError: Dispatch<SetStateAction<string | null>>;
+}
+
+export function reconcileMessageUpsertAfterStatus(
+  state: MessageState,
+  message: UIMessage,
+  status: ChatStatus
+): MessageState {
+  const nextState = upsertMessageIntoState(state, message);
+  if (
+    status !== "ready" &&
+    status !== "inactive" &&
+    status !== "error"
+  ) {
+    return nextState;
+  }
+  return finalizeStreamingMessagesInState(nextState);
 }
 
 export function useChatSessionEventHandler(
@@ -68,12 +88,13 @@ export function useChatSessionEventHandler(
     activeChatIdRef,
     connectedChatIdRef,
     messageStateRef,
-    terminalOutputsRef,
     modesRef,
     modelsRef,
     commandsRef,
     activeTurnIdRef,
+    blockedTurnIdsRef,
     isResumingRef,
+    statusRef,
     setStreamLifecycle,
     setStatus,
     setConnStatus,
@@ -85,21 +106,6 @@ export function useChatSessionEventHandler(
     setSessionInfo,
     setError,
   } = params;
-
-  const isTurnMatched = useCallback(
-    (turnId?: string) => {
-      if (!turnId) {
-        return true;
-      }
-      const activeTurnId = activeTurnIdRef.current;
-      if (!activeTurnId) {
-        activeTurnIdRef.current = turnId;
-        return true;
-      }
-      return activeTurnId === turnId;
-    },
-    [activeTurnIdRef]
-  );
 
   return useCallback(
     (event: BroadcastEvent) => {
@@ -149,6 +155,30 @@ export function useChatSessionEventHandler(
           state: messageStateRef.current,
         });
       }
+      const turnGuard = resolveSessionEventTurnGuard({
+        activeTurnId: activeTurnIdRef.current,
+        blockedTurnIds: blockedTurnIdsRef.current,
+        event,
+        isResuming: isResumingRef.current,
+        status: statusRef.current,
+      });
+      if (turnGuard.ignore) {
+        chatDebug("stream", "ignored stale session event by turn guard", {
+          chatId: activeChatIdRef.current,
+          eventType: event.type,
+          activeTurnId: activeTurnIdRef.current,
+          ...(event.type === "chat_status" || event.type === "chat_finish"
+            ? { turnId: event.turnId ?? null }
+            : {}),
+        });
+        return;
+      }
+      if (
+        turnGuard.nextActiveTurnId &&
+        activeTurnIdRef.current !== turnGuard.nextActiveTurnId
+      ) {
+        activeTurnIdRef.current = turnGuard.nextActiveTurnId;
+      }
       // Only mark connectedChatIdRef when the event proves a live runtime
       // subscription. "connected" is only emitted for runtime-backed
       // subscriptions (server-side gate). "chat_status" with a non-inactive
@@ -170,25 +200,30 @@ export function useChatSessionEventHandler(
         activeChatIdRef.current &&
         (event.type === "ui_message" ||
           event.type === "ui_message_part" ||
+          event.type === "ui_message_delta" ||
           event.type === "chat_finish")
       ) {
         connectedChatIdRef.current = activeChatIdRef.current;
       }
-      if (event.type === "chat_finish" && !isTurnMatched(event.turnId)) {
-        return;
-      }
+      setStreamLifecycle((prev) =>
+        nextLifecycleOnSubscriptionEvent({ current: prev, event })
+      );
       if (event.type === "ui_message_delta") {
-        chatDebug("stream", "ignored deprecated ui_message_delta event", {
+        chatDebug("stream", "applied ui_message_delta event", {
           chatId: activeChatIdRef.current,
           messageId: event.messageId,
           partIndex: event.partIndex,
           deltaLength: event.delta.length,
         });
+        updateMessageState((prev) =>
+          applyTextDeltaUpdate(prev, {
+            messageId: event.messageId,
+            partIndex: event.partIndex,
+            delta: event.delta,
+          })
+        );
         return;
       }
-      setStreamLifecycle((prev) =>
-        nextLifecycleOnSubscriptionEvent({ current: prev, event })
-      );
       processSessionEvent(
         event,
         {
@@ -201,7 +236,11 @@ export function useChatSessionEventHandler(
           onMessageUpsert: (message) => {
             const normalizedMessage = normalizeMessage(message);
             updateMessageState((prev) =>
-              upsertMessageIntoState(prev, normalizedMessage)
+              reconcileMessageUpsertAfterStatus(
+                prev,
+                normalizedMessage,
+                statusRef.current
+              )
             );
           },
           onMessagePartUpdate: (partEvent) => {
@@ -231,7 +270,7 @@ export function useChatSessionEventHandler(
             if (!activeChatId) {
               return;
             }
-            terminalOutputsRef.current = useChatStreamStore
+            useChatStreamStore
               .getState()
               .appendTerminalOutput(activeChatId, terminalId, data);
           },
@@ -240,7 +279,6 @@ export function useChatSessionEventHandler(
           },
           onError: (eventError) => {
             setError(eventError);
-            setStatus("error");
             onError?.(eventError);
           },
           onFinish,
@@ -289,10 +327,10 @@ export function useChatSessionEventHandler(
     [
       activeChatIdRef,
       activeTurnIdRef,
+      blockedTurnIdsRef,
       commandsRef,
       connectedChatIdRef,
       isResumingRef,
-      isTurnMatched,
       loadHistory,
       messageStateRef,
       modelsRef,
@@ -309,7 +347,7 @@ export function useChatSessionEventHandler(
       setSessionInfo,
       setStatus,
       setStreamLifecycle,
-      terminalOutputsRef,
+      statusRef,
       updateMessageState,
     ]
   );

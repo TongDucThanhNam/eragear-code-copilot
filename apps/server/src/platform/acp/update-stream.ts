@@ -1,9 +1,9 @@
 import type { SessionRuntimePort } from "@/modules/session";
-import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
+import type { UIMessage } from "@repo/shared";
 import {
-  toStoredContentBlock,
   type StoredContentContext,
+  toStoredContentBlock,
 } from "@/shared/utils/content-block.util";
 import {
   appendContentBlock,
@@ -12,63 +12,20 @@ import {
   getOrCreateAssistantMessage,
   getOrCreateUserMessage,
 } from "@/shared/utils/ui-message.util";
+import { broadcastUiMessageDelta } from "./ui-message-delta";
 import { broadcastUiMessagePart } from "./ui-message-part";
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 
 const logger = createLogger("Debug");
 
-type SuppressReason = "replay_suppressed";
-
 /**
  * Handle ACP message/thought/user chunks by updating server-side UIMessage
- * state and emitting canonical part-level stream snapshots.
+ * state and emitting canonical append-only text deltas plus part snapshots.
  */
 export async function handleBufferedMessage(
   context: SessionUpdateContext
 ): Promise<boolean> {
   return await handleUiChunkUpdate(context);
-}
-
-const TURN_ID_MAX_LENGTH = 128;
-const TURN_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
-
-function sanitizeTurnId(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  if (
-    trimmed.length === 0 ||
-    trimmed.length > TURN_ID_MAX_LENGTH ||
-    !TURN_ID_PATTERN.test(trimmed)
-  ) {
-    return undefined;
-  }
-  return trimmed;
-}
-
-function readTurnIdFromMeta(meta: unknown): string | undefined {
-  if (!meta || typeof meta !== "object") {
-    return undefined;
-  }
-  const record = meta as Record<string, unknown>;
-  const direct =
-    sanitizeTurnId(record.turnId) ??
-    sanitizeTurnId(record.turn_id) ??
-    sanitizeTurnId(record["turn-id"]);
-  if (direct) {
-    return direct;
-  }
-  if (record.turn && typeof record.turn === "object") {
-    const turnRecord = record.turn as Record<string, unknown>;
-    return sanitizeTurnId(turnRecord.id);
-  }
-  return undefined;
-}
-
-function readUpdateTurnId(update: SessionUpdate): string | undefined {
-  const asRecord = update as unknown as Record<string, unknown>;
-  return sanitizeTurnId(asRecord.turnId) ?? readTurnIdFromMeta(asRecord._meta);
 }
 
 function appendAcceptedAgentChunkToBuffer(
@@ -77,7 +34,9 @@ function appendAcceptedAgentChunkToBuffer(
 ): void {
   const { buffer, update } = context;
   if (update.sessionUpdate === "agent_message_chunk") {
-    buffer.appendContent(toStoredContentBlock(update.content, storedContentContext));
+    buffer.appendContent(
+      toStoredContentBlock(update.content, storedContentContext)
+    );
     return;
   }
   if (update.sessionUpdate === "agent_thought_chunk") {
@@ -114,19 +73,6 @@ async function handleUiChunkUpdate(
     update.sessionUpdate !== "user_message_chunk"
   ) {
     return false;
-  }
-
-  const updateTurnId = readUpdateTurnId(update);
-  if (!isReplayingHistory && updateTurnId && session.activeTurnId) {
-    if (updateTurnId !== session.activeTurnId) {
-      logger.warn("Ignoring stale ACP chunk with mismatched turnId", {
-        chatId,
-        updateType: update.sessionUpdate,
-        updateTurnId,
-        activeTurnId: session.activeTurnId,
-      });
-      return false;
-    }
   }
 
   if (update.sessionUpdate === "user_message_chunk") {
@@ -199,6 +145,7 @@ async function handleUiChunkUpdate(
       providerMetadata,
       sessionRuntime,
       storedContentContext,
+      updateTurnId: context.turnIdResolution.turnId ?? session.activeTurnId,
     });
     // Prevent duplicate reasoning append when chunk type transitions/finalizes.
     buffer.consumePendingReasoning();
@@ -216,8 +163,83 @@ async function handleUiChunkUpdate(
     providerMetadata,
     sessionRuntime,
     storedContentContext,
+    updateTurnId: context.turnIdResolution.turnId ?? session.activeTurnId,
   });
   return true;
+}
+
+async function broadcastStreamingTextLikeUpdate(params: {
+  chatId: string;
+  message: UIMessage;
+  updatedMessage: UIMessage;
+  partIndex: number;
+  isNew: boolean;
+  sessionRuntime: SessionUpdateContext["sessionRuntime"];
+  turnId?: string;
+}): Promise<void> {
+  const {
+    chatId,
+    message,
+    updatedMessage,
+    partIndex,
+    isNew,
+    sessionRuntime,
+    turnId,
+  } = params;
+  const nextPart = updatedMessage.parts[partIndex];
+  if (!(nextPart?.type === "text" || nextPart?.type === "reasoning")) {
+    return;
+  }
+
+  if (isNew) {
+    await broadcastUiMessagePart({
+      chatId,
+      sessionRuntime,
+      message: updatedMessage,
+      partIndex,
+      isNew: true,
+      turnId,
+    });
+    return;
+  }
+
+  const previousPart = message.parts[partIndex];
+  if (!(previousPart?.type === "text" || previousPart?.type === "reasoning")) {
+    await broadcastUiMessagePart({
+      chatId,
+      sessionRuntime,
+      message: updatedMessage,
+      partIndex,
+      isNew: false,
+      turnId,
+    });
+    return;
+  }
+
+  if (
+    previousPart.type !== nextPart.type ||
+    !nextPart.text.startsWith(previousPart.text)
+  ) {
+    await broadcastUiMessagePart({
+      chatId,
+      sessionRuntime,
+      message: updatedMessage,
+      partIndex,
+      isNew: false,
+      turnId,
+    });
+    return;
+  }
+
+  const delta = nextPart.text.slice(previousPart.text.length);
+  await broadcastUiMessageDelta({
+    chatId,
+    sessionRuntime,
+    messageId: updatedMessage.id,
+    partIndex,
+    delta,
+    turnId,
+  });
 }
 
 async function appendAssistantChunk(params: {
@@ -233,6 +255,7 @@ async function appendAssistantChunk(params: {
     | undefined;
   sessionRuntime: SessionUpdateContext["sessionRuntime"];
   storedContentContext: StoredContentContext;
+  updateTurnId?: string;
 }): Promise<void> {
   const {
     chatId,
@@ -245,6 +268,7 @@ async function appendAssistantChunk(params: {
     providerMetadata,
     sessionRuntime,
     storedContentContext,
+    updateTurnId,
   } = params;
 
   const messageId = buffer.ensureMessageId(preferredMessageId);
@@ -262,12 +286,6 @@ async function appendAssistantChunk(params: {
   }
 
   if (suppressReplayBroadcast) {
-    logSuppressedChunk({
-      chatId,
-      messageId,
-      chunkType: "message",
-      suppressReason: "replay_suppressed",
-    });
     return;
   }
 
@@ -276,21 +294,19 @@ async function appendAssistantChunk(params: {
   }
 
   if (block.type === "text") {
-    // Broadcast full text-part snapshots on every chunk (without delta).
-    // Throttled to coalesce rapid ACP chunks into fewer WebSocket messages
-    // while keeping streaming UX responsive (~80 ms latency ceiling).
     const nextPartIndex = updatedMessage.parts.length - 1;
     if (nextPartIndex < 0) {
       return;
     }
     const isNew = updatedMessage.parts.length > previousPartsLength;
-    await broadcastUiMessagePart({
+    await broadcastStreamingTextLikeUpdate({
       chatId,
       sessionRuntime,
-      message: updatedMessage,
+      message,
+      updatedMessage,
       partIndex: nextPartIndex,
       isNew,
-      immediate: false,
+      turnId: updateTurnId,
     });
     return;
   }
@@ -310,6 +326,7 @@ async function appendAssistantChunk(params: {
       message: updatedMessage,
       partIndex: index,
       isNew: true,
+      turnId: updateTurnId,
     });
   }
 }
@@ -327,6 +344,7 @@ async function appendAssistantReasoningChunk(params: {
     | undefined;
   sessionRuntime: SessionUpdateContext["sessionRuntime"];
   storedContentContext: StoredContentContext;
+  updateTurnId?: string;
 }): Promise<void> {
   const {
     chatId,
@@ -339,6 +357,7 @@ async function appendAssistantReasoningChunk(params: {
     providerMetadata,
     sessionRuntime,
     storedContentContext,
+    updateTurnId,
   } = params;
 
   const messageId = buffer.ensureMessageId(preferredMessageId);
@@ -356,12 +375,6 @@ async function appendAssistantReasoningChunk(params: {
   }
 
   if (suppressReplayBroadcast) {
-    logSuppressedChunk({
-      chatId,
-      messageId,
-      chunkType: "reasoning",
-      suppressReason: "replay_suppressed",
-    });
     return;
   }
 
@@ -374,13 +387,14 @@ async function appendAssistantReasoningChunk(params: {
     return;
   }
   const isNew = updatedMessage.parts.length > previousPartsLength;
-  await broadcastUiMessagePart({
+  await broadcastStreamingTextLikeUpdate({
     chatId,
     sessionRuntime,
-    message: updatedMessage,
+    message,
+    updatedMessage,
     partIndex: nextPartIndex,
     isNew,
-    immediate: false,
+    turnId: updateTurnId,
   });
 }
 
@@ -435,21 +449,4 @@ export function isStreamingUpdate(update: SessionUpdate) {
     update.sessionUpdate === "tool_call_update" ||
     update.sessionUpdate === "plan"
   );
-}
-
-function logSuppressedChunk(params: {
-  chatId: string;
-  messageId: string;
-  chunkType: "message" | "reasoning";
-  suppressReason: SuppressReason;
-}): void {
-  if (!shouldEmitRuntimeLog("debug")) {
-    return;
-  }
-  logger.debug("ACP ui chunk broadcast suppressed", {
-    chatId: params.chatId,
-    messageId: params.messageId,
-    chunkType: params.chunkType,
-    reason: params.suppressReason,
-  });
 }

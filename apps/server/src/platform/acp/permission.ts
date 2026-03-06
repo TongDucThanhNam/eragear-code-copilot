@@ -10,6 +10,7 @@
 
 import type * as acp from "@agentclientprotocol/sdk";
 import type { UIMessage } from "@repo/shared";
+import { ENV } from "@/config/environment";
 import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
@@ -20,7 +21,12 @@ import {
   getToolNameFromCall,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
+import {
+  recordTurnIdDrop,
+  recordTurnIdResolution,
+} from "./turn-id-observability";
 import { broadcastUiMessagePart } from "./ui-message-part";
+import { resolveToolCallTurnId } from "./update-turn-id";
 
 const logger = createLogger("Debug");
 
@@ -59,9 +65,26 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
     }
 
     const requestId = createId("req");
+    const turnIdResolution = resolveToolCallTurnId(toolCall);
     const cancelledResponse: acp.RequestPermissionResponse = {
       outcome: { outcome: "cancelled" },
     };
+    recordTurnIdResolution("permissionRequest", turnIdResolution.source);
+    if (
+      ENV.acpTurnIdPolicy === "require-native" &&
+      turnIdResolution.source !== "native"
+    ) {
+      logger.warn(
+        "Cancelling ACP permission request without native turnId under strict policy",
+        {
+          chatId,
+          toolCallId: toolCall.toolCallId,
+          turnIdSource: turnIdResolution.source,
+        }
+      );
+      recordTurnIdDrop("requireNativePolicy");
+      return Promise.resolve(cancelledResponse);
+    }
     logger.debug("ACP permission request received", {
       chatId,
       requestId,
@@ -106,110 +129,44 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
 
       const toolName = getToolNameFromCall(toolCall);
       const title = toolCall.title ?? toolCall.kind ?? toolName;
-      session.pendingPermissions.set(requestId, {
-        resolve: (decision: unknown) => {
-          resolveOnce(decision as acp.RequestPermissionResponse);
-        },
+      const eventTurnId = turnIdResolution.turnId ?? session.activeTurnId;
+      if (
+        shouldCancelPermissionRequestForTurn({
+          chatId,
+          requestId,
+          toolCallId: toolCall.toolCallId,
+          eventTurnId,
+          activeTurnId: session.activeTurnId,
+          resolveOnce,
+          cancelledResponse,
+        })
+      ) {
+        return;
+      }
+
+      registerPendingPermission({
+        session,
+        requestId,
+        resolveOnce,
         options,
-        toolCallId: toolCall.toolCallId,
+        toolCall,
         toolName,
         title,
-        input: toolCall.rawInput,
-        meta: toolCall._meta,
+        turnId: eventTurnId,
       });
 
       try {
-        const runtime = new SessionRuntimeEntity(session);
-        await runtime.markAwaitingPermission({
+        await publishPermissionRequestUi({
           chatId,
-          broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
-        });
-
-        const previousToolIndex = session.uiState.toolPartIndex.get(
-          toolCall.toolCallId
-        );
-        const previousOptionsPartIndex = findPermissionOptionsPartIndex(
-          session.uiState.messages.get(session.uiState.currentAssistantId ?? "") ??
-            null,
-          requestId
-        );
-        const toolPart = buildToolApprovalPart({
-          toolCallId: toolCall.toolCallId,
+          requestId,
+          session,
+          sessionRuntime,
+          toolCall,
           toolName,
           title,
-          input: toolCall.rawInput,
-          approvalId: requestId,
-          meta: toolCall._meta,
+          options,
+          turnId: eventTurnId,
         });
-        const { message } = upsertToolPart({
-          state: session.uiState,
-          messageId: session.uiState.currentAssistantId,
-          part: toolPart,
-        });
-        let messageWithPermissionOptions = message;
-        let optionsPartIndex = -1;
-        if (options.length > 0) {
-          const optionsPart = {
-            type: "data-permission-options" as const,
-            data: {
-              requestId,
-              toolCallId: toolCall.toolCallId,
-              options,
-            },
-          };
-          const existingOptionsPartIndex = message.parts.findIndex(
-            (part) =>
-              part.type === "data-permission-options" &&
-              typeof part.data === "object" &&
-              part.data !== null &&
-              (part.data as { requestId?: string }).requestId === requestId
-          );
-          const nextParts = [...message.parts];
-          if (existingOptionsPartIndex >= 0) {
-            nextParts[existingOptionsPartIndex] = optionsPart;
-          } else {
-            nextParts.push(optionsPart);
-          }
-          messageWithPermissionOptions = {
-            ...message,
-            parts: nextParts,
-          };
-          session.uiState.messages.set(
-            messageWithPermissionOptions.id,
-            messageWithPermissionOptions
-          );
-          optionsPartIndex = findPermissionOptionsPartIndex(
-            messageWithPermissionOptions,
-            requestId
-          );
-        }
-        const nextToolIndex = session.uiState.toolPartIndex.get(
-          toolCall.toolCallId
-        );
-        if (
-          nextToolIndex &&
-          nextToolIndex.messageId === messageWithPermissionOptions.id
-        ) {
-          await broadcastUiMessagePart({
-            chatId,
-            sessionRuntime,
-            message: messageWithPermissionOptions,
-            partIndex: nextToolIndex.partIndex,
-            isNew:
-              !previousToolIndex ||
-              previousToolIndex.messageId !== nextToolIndex.messageId ||
-              previousToolIndex.partIndex !== nextToolIndex.partIndex,
-          });
-        }
-        if (optionsPartIndex >= 0) {
-          await broadcastUiMessagePart({
-            chatId,
-            sessionRuntime,
-            message: messageWithPermissionOptions,
-            partIndex: optionsPartIndex,
-            isNew: previousOptionsPartIndex < 0,
-          });
-        }
       } catch (error) {
         if (session.pendingPermissions.has(requestId)) {
           session.pendingPermissions.delete(requestId);
@@ -224,6 +181,234 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
     });
 
     return await responsePromise;
+  };
+}
+
+function shouldCancelPermissionRequestForTurn(params: {
+  chatId: string;
+  requestId: string;
+  toolCallId: string;
+  eventTurnId: string | undefined;
+  activeTurnId: string | undefined;
+  resolveOnce: (decision: acp.RequestPermissionResponse) => void;
+  cancelledResponse: acp.RequestPermissionResponse;
+}): boolean {
+  const {
+    chatId,
+    requestId,
+    toolCallId,
+    eventTurnId,
+    activeTurnId,
+    resolveOnce,
+    cancelledResponse,
+  } = params;
+  if (!eventTurnId) {
+    return false;
+  }
+  if (!activeTurnId) {
+    logger.warn(
+      "Cancelling late ACP permission request after active turn cleared",
+      {
+        chatId,
+        requestId,
+        toolCallId,
+        turnId: eventTurnId,
+      }
+    );
+    recordTurnIdDrop("lateAfterTurnCleared");
+    resolveOnce(cancelledResponse);
+    return true;
+  }
+  if (activeTurnId === eventTurnId) {
+    return false;
+  }
+  logger.warn(
+    "Cancelling stale ACP permission request with mismatched turnId",
+    {
+      chatId,
+      requestId,
+      toolCallId,
+      turnId: eventTurnId,
+      activeTurnId,
+    }
+  );
+  recordTurnIdDrop("staleTurnMismatch");
+  resolveOnce(cancelledResponse);
+  return true;
+}
+
+function registerPendingPermission(params: {
+  session: NonNullable<ReturnType<SessionRuntimePort["get"]>>;
+  requestId: string;
+  resolveOnce: (decision: acp.RequestPermissionResponse) => void;
+  options: acp.RequestPermissionRequest["options"];
+  toolCall: acp.RequestPermissionRequest["toolCall"];
+  toolName: string;
+  title: string;
+  turnId?: string;
+}): void {
+  const {
+    session,
+    requestId,
+    resolveOnce,
+    options,
+    toolCall,
+    toolName,
+    title,
+    turnId,
+  } = params;
+  session.pendingPermissions.set(requestId, {
+    resolve: (decision: unknown) => {
+      resolveOnce(decision as acp.RequestPermissionResponse);
+    },
+    options,
+    toolCallId: toolCall.toolCallId,
+    toolName,
+    title,
+    input: toolCall.rawInput,
+    meta: toolCall._meta,
+    turnId,
+  });
+}
+
+async function publishPermissionRequestUi(params: {
+  chatId: string;
+  requestId: string;
+  session: NonNullable<ReturnType<SessionRuntimePort["get"]>>;
+  sessionRuntime: SessionRuntimePort;
+  toolCall: acp.RequestPermissionRequest["toolCall"];
+  toolName: string;
+  title: string;
+  options: acp.RequestPermissionRequest["options"];
+  turnId?: string;
+}): Promise<void> {
+  const {
+    chatId,
+    requestId,
+    session,
+    sessionRuntime,
+    toolCall,
+    toolName,
+    title,
+    options,
+    turnId,
+  } = params;
+  const runtime = new SessionRuntimeEntity(session);
+  await runtime.markAwaitingPermission({
+    chatId,
+    broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+  });
+
+  const previousToolIndex = session.uiState.toolPartIndex.get(
+    toolCall.toolCallId
+  );
+  const previousOptionsPartIndex = findPermissionOptionsPartIndex(
+    session.uiState.messages.get(session.uiState.currentAssistantId ?? "") ??
+      null,
+    requestId
+  );
+  const toolPart = buildToolApprovalPart({
+    toolCallId: toolCall.toolCallId,
+    toolName,
+    title,
+    input: toolCall.rawInput,
+    approvalId: requestId,
+    meta: toolCall._meta,
+  });
+  const { message } = upsertToolPart({
+    state: session.uiState,
+    messageId: session.uiState.currentAssistantId,
+    part: toolPart,
+    turnId,
+  });
+  const { messageWithPermissionOptions, optionsPartIndex } =
+    upsertPermissionOptionsPart({
+      message,
+      requestId,
+      toolCallId: toolCall.toolCallId,
+      options,
+      session,
+    });
+  const nextToolIndex = session.uiState.toolPartIndex.get(toolCall.toolCallId);
+  if (
+    nextToolIndex &&
+    nextToolIndex.messageId === messageWithPermissionOptions.id
+  ) {
+    await broadcastUiMessagePart({
+      chatId,
+      sessionRuntime,
+      message: messageWithPermissionOptions,
+      partIndex: nextToolIndex.partIndex,
+      isNew:
+        !previousToolIndex ||
+        previousToolIndex.messageId !== nextToolIndex.messageId ||
+        previousToolIndex.partIndex !== nextToolIndex.partIndex,
+      turnId,
+    });
+  }
+  if (optionsPartIndex < 0) {
+    return;
+  }
+  await broadcastUiMessagePart({
+    chatId,
+    sessionRuntime,
+    message: messageWithPermissionOptions,
+    partIndex: optionsPartIndex,
+    isNew: previousOptionsPartIndex < 0,
+    turnId,
+  });
+}
+
+function upsertPermissionOptionsPart(params: {
+  message: UIMessage;
+  requestId: string;
+  toolCallId: string;
+  options: acp.RequestPermissionRequest["options"];
+  session: NonNullable<ReturnType<SessionRuntimePort["get"]>>;
+}): {
+  messageWithPermissionOptions: UIMessage;
+  optionsPartIndex: number;
+} {
+  const { message, requestId, toolCallId, options, session } = params;
+  if (options.length === 0) {
+    return {
+      messageWithPermissionOptions: message,
+      optionsPartIndex: -1,
+    };
+  }
+
+  const optionsPart = {
+    type: "data-permission-options" as const,
+    data: {
+      requestId,
+      toolCallId,
+      options,
+    },
+  };
+  const existingOptionsPartIndex = findPermissionOptionsPartIndex(
+    message,
+    requestId
+  );
+  const nextParts = [...message.parts];
+  if (existingOptionsPartIndex >= 0) {
+    nextParts[existingOptionsPartIndex] = optionsPart;
+  } else {
+    nextParts.push(optionsPart);
+  }
+  const messageWithPermissionOptions = {
+    ...message,
+    parts: nextParts,
+  };
+  session.uiState.messages.set(
+    messageWithPermissionOptions.id,
+    messageWithPermissionOptions
+  );
+  return {
+    messageWithPermissionOptions,
+    optionsPartIndex: findPermissionOptionsPartIndex(
+      messageWithPermissionOptions,
+      requestId
+    ),
   };
 }
 

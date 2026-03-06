@@ -2,16 +2,25 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import "xterm/css/xterm.css";
+import type { TerminalOutputSnapshot } from "@/store/chat-stream-store";
+import { getTerminalWritePlan } from "./terminal-view-plan";
 
 interface TerminalViewProps {
-  output: string;
+  terminalSnapshots: readonly TerminalOutputSnapshot[];
 }
 
-export function TerminalView({ output }: TerminalViewProps) {
+function writeChunks(term: Terminal, chunks: readonly string[]) {
+  for (const chunk of chunks) {
+    if (chunk.length > 0) {
+      term.write(chunk);
+    }
+  }
+}
+
+export function TerminalView({ terminalSnapshots }: TerminalViewProps) {
   const divRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
-  const writtenRef = useRef<number>(0);
+  const renderedSnapshotsRef = useRef<readonly TerminalOutputSnapshot[]>([]);
 
   useEffect(() => {
     if (!divRef.current) {
@@ -37,9 +46,7 @@ export function TerminalView({ output }: TerminalViewProps) {
     fitAddon.fit();
 
     termRef.current = term;
-    fitRef.current = fitAddon;
 
-    // Handle resize
     const handleResize = () => {
       fitAddon.fit();
     };
@@ -51,28 +58,25 @@ export function TerminalView({ output }: TerminalViewProps) {
     };
   }, []);
 
-  // Handle output updates
   useEffect(() => {
     const term = termRef.current;
     if (!term) {
       return;
     }
 
-    // Initial write or update
-    if (writtenRef.current === 0 && output.length > 0) {
-      term.write(output);
-      writtenRef.current = output.length;
-    } else if (output.length > writtenRef.current) {
-      const newPart = output.slice(writtenRef.current);
-      term.write(newPart);
-      writtenRef.current = output.length;
-    } else if (output.length < writtenRef.current) {
-      // Reset if output shrunk (cleared)
-      term.reset();
-      term.write(output);
-      writtenRef.current = output.length;
+    const writePlan = getTerminalWritePlan(
+      renderedSnapshotsRef.current,
+      terminalSnapshots
+    );
+    if (writePlan.type === "noop") {
+      return;
     }
-  }, [output]);
+    if (writePlan.type === "reset") {
+      term.reset();
+    }
+    writeChunks(term, writePlan.chunks);
+    renderedSnapshotsRef.current = terminalSnapshots;
+  }, [terminalSnapshots]);
 
   return (
     <div

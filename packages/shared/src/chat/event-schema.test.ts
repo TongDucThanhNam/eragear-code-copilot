@@ -82,6 +82,7 @@ describe("parseBroadcastEventClientSafe", () => {
   test("sanitizes ui_message payload by dropping unknown parts", () => {
     const parsed = parseBroadcastEventClientSafe({
       type: "ui_message",
+      turnId: "turn-1",
       message: {
         id: "msg-1",
         role: "assistant",
@@ -96,6 +97,7 @@ describe("parseBroadcastEventClientSafe", () => {
     if (!parsed.ok || parsed.value.type !== "ui_message") {
       return;
     }
+    expect(parsed.value.turnId).toBe("turn-1");
     expect(parsed.value.message.parts).toEqual([
       { type: "text", text: "final text", state: "done" },
     ]);
@@ -140,6 +142,7 @@ describe("parseBroadcastEventClientSafe", () => {
         output: { ok: true },
       },
       isNew: true,
+      turnId: "turn-2",
     });
 
     expect(parsed.ok).toBe(true);
@@ -150,6 +153,48 @@ describe("parseBroadcastEventClientSafe", () => {
     expect(parsed.value.partIndex).toBe(1);
     expect(parsed.value.isNew).toBe(true);
     expect(parsed.value.partId).toBe("part-1");
+    expect(parsed.value.turnId).toBe("turn-2");
+  });
+
+  test("accepts output-cancelled tool parts", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "ui_message_part",
+      messageId: "msg-2",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: {
+        type: "tool-bash",
+        toolCallId: "tool-2",
+        state: "output-cancelled",
+        input: { cmd: "sleep 10" },
+      },
+      isNew: false,
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "ui_message_part") {
+      return;
+    }
+    expect(parsed.value.part).toMatchObject({
+      type: "tool-bash",
+      toolCallId: "tool-2",
+      state: "output-cancelled",
+    });
+  });
+
+  test("parses terminal_output payload with optional turnId", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "terminal_output",
+      terminalId: "term-1",
+      data: "stdout",
+      turnId: "turn-3",
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "terminal_output") {
+      return;
+    }
+    expect(parsed.value.turnId).toBe("turn-3");
   });
 
   test("rejects ui_message_part payload with invalid partId", () => {
@@ -186,6 +231,22 @@ describe("parseBroadcastEventClientSafe", () => {
       return;
     }
     expect(parsed.kind).toBe("invalid_payload");
+  });
+
+  test("parses ui_message_delta payload with optional turnId", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "ui_message_delta",
+      messageId: "msg-1",
+      partIndex: 0,
+      delta: "hello",
+      turnId: "turn-1",
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "ui_message_delta") {
+      return;
+    }
+    expect(parsed.value.turnId).toBe("turn-1");
   });
 
   test("parses current_model_update payload", () => {

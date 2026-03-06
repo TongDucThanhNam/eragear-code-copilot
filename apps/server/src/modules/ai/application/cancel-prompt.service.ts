@@ -7,16 +7,16 @@
  * @module modules/ai/application/cancel-prompt.service
  */
 
-import type { UIMessage } from "@repo/shared";
+import {
+  finalizeToolPartAsCancelled,
+  type ToolUIPart,
+  type UIMessage,
+} from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
-import {
-  buildToolApprovalResponsePart,
-  upsertToolPart,
-} from "@/shared/utils/ui-message.util";
 import { AI_OP, HTTP_STATUS } from "./ai.constants";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { AiSessionRuntimeError } from "./ports/ai-session-runtime.port";
@@ -100,30 +100,48 @@ export class CancelPromptService {
       if (!currentSession || currentSession !== activeSession) {
         return;
       }
+      const cancelledToolCallIds = new Set<string>();
+      const activeTurnId = currentSession.activeTurnId;
+      if (activeTurnId) {
+        for (const [toolCallId, location] of currentSession.uiState.toolPartIndex) {
+          if (location.turnId !== activeTurnId) {
+            continue;
+          }
+          const updated = await cancelToolPartById({
+            chatId,
+            session: currentSession,
+            sessionRuntime: this.sessionRuntime,
+            toolCallId,
+            turnId: activeTurnId,
+          });
+          if (updated) {
+            cancelledToolCallIds.add(toolCallId);
+          }
+        }
+      }
       for (const [requestId, pending] of currentSession.pendingPermissions) {
+        const turnId = pending.turnId ?? currentSession.activeTurnId;
+        if (pending.toolCallId && !cancelledToolCallIds.has(pending.toolCallId)) {
+          await cancelToolPartById({
+            chatId,
+            session: currentSession,
+            sessionRuntime: this.sessionRuntime,
+            toolCallId: pending.toolCallId,
+            turnId,
+          });
+        }
         if (!pending.toolCallId) {
           continue;
         }
-        const previousToolIndex = currentSession.uiState.toolPartIndex.get(
-          pending.toolCallId
-        );
-        const toolPart = buildToolApprovalResponsePart({
-          toolCallId: pending.toolCallId,
-          toolName: pending.toolName ?? "tool",
-          title: pending.title,
-          input: pending.input,
-          approvalId: requestId,
-          approved: false,
-          reason: "cancelled",
-          meta: pending.meta,
-        });
-        const { message } = upsertToolPart({
-          state: currentSession.uiState,
-          part: toolPart,
-        });
         const nextToolIndex = currentSession.uiState.toolPartIndex.get(
           pending.toolCallId
         );
+        const message = nextToolIndex
+          ? currentSession.uiState.messages.get(nextToolIndex.messageId)
+          : undefined;
+        if (!message) {
+          continue;
+        }
         const updatedPermissionOptions = clearPermissionOptionsPart(
           message,
           requestId
@@ -135,29 +153,6 @@ export class CancelPromptService {
             messageWithUpdates
           );
         }
-        if (
-          nextToolIndex &&
-          nextToolIndex.messageId === messageWithUpdates.id
-        ) {
-          const previousToolLocation = previousToolIndex?.messageId
-            ? previousToolIndex
-            : undefined;
-          const nextToolPart = messageWithUpdates.parts[nextToolIndex.partIndex];
-          if (nextToolPart) {
-            const partEvent = buildUiMessagePartEvent({
-              chatId,
-              message: messageWithUpdates,
-              partIndex: nextToolIndex.partIndex,
-              isNew:
-                !previousToolLocation ||
-                previousToolLocation.messageId !== nextToolIndex.messageId ||
-                previousToolLocation.partIndex !== nextToolIndex.partIndex,
-            });
-            if (partEvent) {
-              await this.sessionRuntime.broadcast(chatId, partEvent);
-            }
-          }
-        }
         if (updatedPermissionOptions.partIndex >= 0) {
           const optionsPart =
             messageWithUpdates.parts[updatedPermissionOptions.partIndex];
@@ -167,6 +162,7 @@ export class CancelPromptService {
               message: messageWithUpdates,
               partIndex: updatedPermissionOptions.partIndex,
               isNew: false,
+              turnId,
             });
             if (partEvent) {
               await this.sessionRuntime.broadcast(chatId, partEvent);
@@ -178,6 +174,93 @@ export class CancelPromptService {
     });
     return { ok: true };
   }
+}
+
+async function cancelToolPartById(params: {
+  chatId: string;
+  session: ChatSession;
+  sessionRuntime: SessionRuntimePort;
+  toolCallId: string;
+  turnId?: string;
+}): Promise<boolean> {
+  const { chatId, session, sessionRuntime, toolCallId, turnId } = params;
+  const existingLocation = session.uiState.toolPartIndex.get(toolCallId);
+  if (!existingLocation) {
+    return false;
+  }
+  const existingMessage = session.uiState.messages.get(existingLocation.messageId);
+  if (!existingMessage) {
+    session.uiState.toolPartIndex.delete(toolCallId);
+    return false;
+  }
+  const resolvedPartIndex = findToolPartIndexByCallId(
+    existingMessage,
+    toolCallId,
+    existingLocation.partIndex
+  );
+  if (resolvedPartIndex < 0) {
+    session.uiState.toolPartIndex.delete(toolCallId);
+    return false;
+  }
+  const existingPart = existingMessage.parts[resolvedPartIndex];
+  if (!existingPart || !isToolPart(existingPart, toolCallId)) {
+    return false;
+  }
+  const cancelledPart = finalizeToolPartAsCancelled(existingPart);
+  if (cancelledPart === existingPart) {
+    session.uiState.toolPartIndex.set(toolCallId, {
+      ...existingLocation,
+      partIndex: resolvedPartIndex,
+      turnId: turnId ?? existingLocation.turnId,
+    });
+    return false;
+  }
+  const updatedParts = [...existingMessage.parts];
+  updatedParts[resolvedPartIndex] = cancelledPart;
+  const updatedMessage: UIMessage = {
+    ...existingMessage,
+    parts: updatedParts,
+  };
+  session.uiState.messages.set(updatedMessage.id, updatedMessage);
+  session.uiState.toolPartIndex.set(toolCallId, {
+    messageId: updatedMessage.id,
+    partIndex: resolvedPartIndex,
+    turnId: turnId ?? existingLocation.turnId,
+  });
+  const partEvent = buildUiMessagePartEvent({
+    chatId,
+    message: updatedMessage,
+    partIndex: resolvedPartIndex,
+    isNew: false,
+    turnId,
+  });
+  if (partEvent) {
+    await sessionRuntime.broadcast(chatId, partEvent);
+  }
+  return true;
+}
+
+function findToolPartIndexByCallId(
+  message: UIMessage,
+  toolCallId: string,
+  preferredIndex: number
+): number {
+  if (isToolPart(message.parts[preferredIndex], toolCallId)) {
+    return preferredIndex;
+  }
+  return message.parts.findIndex((part) => isToolPart(part, toolCallId));
+}
+
+function isToolPart(
+  part: UIMessage["parts"][number] | undefined,
+  toolCallId: string
+): part is ToolUIPart {
+  return Boolean(
+    part &&
+      part.type.startsWith("tool-") &&
+      "toolCallId" in part &&
+      part.toolCallId === toolCallId
+  );
 }
 
 function clearPermissionOptionsPart(

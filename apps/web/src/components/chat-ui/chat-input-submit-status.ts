@@ -18,11 +18,7 @@ export function resolvePromptInputSubmitStatus(params: {
   connStatus: SubmitConnectionStatus;
   status: SubmitChatStatus;
 }): SubmitChatStatus {
-  const { connStatus, status } = params;
-  if (connStatus === "connected" && status === "error") {
-    return "ready";
-  }
-  return status;
+  return params.status;
 }
 
 export function isPromptSubmitDisabled(params: {
@@ -32,9 +28,11 @@ export function isPromptSubmitDisabled(params: {
   if (params.connStatus !== "connected") {
     return true;
   }
-  return (
-    params.status === "submitted" ||
-    params.status === "connecting" ||
-    params.status === "cancelling"
-  );
+  if (
+    params.status === "streaming" ||
+    params.status === "awaiting_permission"
+  ) {
+    return false;
+  }
+  return params.status !== "ready";
 }

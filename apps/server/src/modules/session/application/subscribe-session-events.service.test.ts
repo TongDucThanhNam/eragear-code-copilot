@@ -193,7 +193,11 @@ describe("SubscribeSessionEventsService", () => {
     };
     uiState.messages.set(assistantMessage.id, assistantMessage);
     uiState.currentAssistantId = assistantMessage.id;
-    const session = createSession({ uiState, messageBuffer: [] });
+    const session = createSession({
+      uiState,
+      activeTurnId: "turn-live",
+      messageBuffer: [],
+    });
     const runtime = createSessionRuntime(session);
     const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
 
@@ -203,6 +207,7 @@ describe("SubscribeSessionEventsService", () => {
       {
         type: "ui_message",
         message: assistantMessage,
+        turnId: "turn-live",
       },
     ]);
   });

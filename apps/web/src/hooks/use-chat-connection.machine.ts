@@ -59,6 +59,7 @@ export function nextLifecycleOnSubscriptionEvent(params: {
     switch (params.event.type) {
       case "ui_message":
       case "ui_message_part":
+      case "ui_message_delta":
       case "chat_finish":
       case "current_mode_update":
       case "current_model_update":

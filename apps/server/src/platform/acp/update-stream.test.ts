@@ -14,6 +14,7 @@ import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { flushThrottledBroadcasts } from "./broadcast-throttle";
 import { SessionBuffering } from "./update-buffer";
 import { handleBufferedMessage } from "./update-stream";
+import { resolveSessionUpdateTurnId } from "./update-turn-id";
 import type { SessionUpdate } from "./update-types";
 
 function createSession(chatId: string): ChatSession {
@@ -85,6 +86,7 @@ function createContext(params: {
     isReplayingHistory,
     suppressReplayBroadcast,
     update: params.update,
+    turnIdResolution: resolveSessionUpdateTurnId(params.update),
     sessionRuntime: params.runtime,
     sessionRepo: {} as SessionRepositoryPort,
     finalizeStreamingForCurrentAssistant:
@@ -93,7 +95,7 @@ function createContext(params: {
 }
 
 describe("handleBufferedMessage", () => {
-  test("coalesces text chunk snapshots and emits latest part state", async () => {
+  test("streams text chunks as create-plus-delta events", async () => {
     const session = createSession("chat-stream-text");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -120,20 +122,25 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
-    await flushThrottledBroadcasts(session.id);
-
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(calls[0]?.event.type).toBe("ui_message_part");
+    expect(calls[1]?.event.type).toBe("ui_message_delta");
     if (calls[0]?.event.type === "ui_message_part") {
       expect(calls[0].event.partId).toEqual(expect.any(String));
       expect(calls[0].event.isNew).toBe(true);
       expect(calls[0].event.partIndex).toBe(0);
       expect(calls[0].event.part.type).toBe("text");
       if (calls[0].event.part.type === "text") {
-        expect(calls[0].event.part.text).toBe("Hello world");
+        expect(calls[0].event.part.text).toBe("Hello");
       }
     }
     const assistantId = session.uiState.currentAssistantId;
+    expect(assistantId).toEqual(expect.any(String));
+    if (calls[1]?.event.type === "ui_message_delta" && assistantId) {
+      expect(calls[1].event.messageId).toBe(assistantId);
+      expect(calls[1].event.partIndex).toBe(0);
+      expect(calls[1].event.delta).toBe(" world");
+    }
     const message = assistantId
       ? session.uiState.messages.get(assistantId)
       : undefined;
@@ -145,7 +152,47 @@ describe("handleBufferedMessage", () => {
     }
   });
 
-  test("stores escaped html text in text-part snapshots", async () => {
+  test("broadcast text payload volume stays append-only across long streams", async () => {
+    const session = createSession("chat-stream-linear");
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+    const chunk = "0123456789";
+
+    for (let index = 0; index < 200; index += 1) {
+      await handleBufferedMessage(
+        createContext({
+          chatId: session.id,
+          buffer,
+          runtime,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: chunk } as StoredContentBlock,
+          } as SessionUpdate,
+        })
+      );
+    }
+
+    const streamedChars = calls.reduce((total, call) => {
+      if (
+        call.event.type === "ui_message_part" &&
+        call.event.part.type === "text"
+      ) {
+        return total + call.event.part.text.length;
+      }
+      if (call.event.type === "ui_message_delta") {
+        return total + call.event.delta.length;
+      }
+      return total;
+    }, 0);
+
+    expect(streamedChars).toBe(chunk.length * 200);
+    expect(calls[0]?.event.type).toBe("ui_message_part");
+    expect(
+      calls.slice(1).every((call) => call.event.type === "ui_message_delta")
+    ).toBe(true);
+  });
+
+  test("stores escaped html text in initial part and delta payloads", async () => {
     const session = createSession("chat-stream-escape");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -172,15 +219,17 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
-    await flushThrottledBroadcasts(session.id);
-
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(calls[0]?.event.type).toBe("ui_message_part");
+    expect(calls[1]?.event.type).toBe("ui_message_delta");
     if (calls[0]?.event.type === "ui_message_part") {
       expect(calls[0].event.part.type).toBe("text");
       if (calls[0].event.part.type === "text") {
-        expect(calls[0].event.part.text).toBe("safe&lt;tag&gt;");
+        expect(calls[0].event.part.text).toBe("safe");
       }
+    }
+    if (calls[1]?.event.type === "ui_message_delta") {
+      expect(calls[1].event.delta).toBe("&lt;tag&gt;");
     }
     const assistantId = session.uiState.currentAssistantId;
     const message = assistantId
@@ -193,7 +242,7 @@ describe("handleBufferedMessage", () => {
     }
   });
 
-  test("coalesces reasoning chunk snapshots and emits latest part state", async () => {
+  test("streams reasoning chunks as create-plus-delta events", async () => {
     const session = createSession("chat-reasoning-buffer");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -220,18 +269,21 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
-    await flushThrottledBroadcasts(session.id);
-
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(calls[0]?.event.type).toBe("ui_message_part");
+    expect(calls[1]?.event.type).toBe("ui_message_delta");
     if (calls[0]?.event.type === "ui_message_part") {
       expect(calls[0].event.partId).toEqual(expect.any(String));
       expect(calls[0].event.isNew).toBe(true);
       expect(calls[0].event.partIndex).toBe(0);
       expect(calls[0].event.part.type).toBe("reasoning");
       if (calls[0].event.part.type === "reasoning") {
-        expect(calls[0].event.part.text).toBe("think-1 think-2");
+        expect(calls[0].event.part.text).toBe("think-1");
       }
+    }
+    if (calls[1]?.event.type === "ui_message_delta") {
+      expect(calls[1].event.partIndex).toBe(0);
+      expect(calls[1].event.delta).toBe(" think-2");
     }
     expect(buffer.hasPendingReasoning()).toBe(false);
     const assistantId = session.uiState.currentAssistantId;
@@ -254,8 +306,9 @@ describe("handleBufferedMessage", () => {
     const buffer = new SessionBuffering();
     let finalizeCalls = 0;
 
-    const finalize = async () => {
+    const finalize = () => {
       finalizeCalls += 1;
+      return Promise.resolve();
     };
 
     await handleBufferedMessage(
@@ -499,7 +552,10 @@ describe("handleBufferedMessage", () => {
         isReplayingHistory: false,
         update: {
           sessionUpdate: "user_message_chunk",
-          content: { type: "text", text: "should-not-apply" } as StoredContentBlock,
+          content: {
+            type: "text",
+            text: "should-not-apply",
+          } as StoredContentBlock,
         } as SessionUpdate,
       })
     );
@@ -510,29 +566,45 @@ describe("handleBufferedMessage", () => {
     expect(session.uiState.messages.size).toBe(0);
   });
 
-  test("drops assistant chunk when update turnId mismatches active turn", async () => {
-    const session = createSession("chat-stream-turn-id-guard");
-    session.activeTurnId = "turn-active";
+  test("emits turnId on live assistant streaming events", async () => {
+    const session = createSession("chat-stream-turn-id");
+    session.activeTurnId = "turn-live";
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
 
-    const handled = await handleBufferedMessage(
+    await handleBufferedMessage(
       createContext({
         chatId: session.id,
         buffer,
         runtime,
-        isReplayingHistory: false,
         update: {
           sessionUpdate: "agent_message_chunk",
-          turnId: "turn-stale",
-          content: { type: "text", text: "late chunk" } as StoredContentBlock,
+          turnId: "turn-live",
+          content: { type: "text", text: "hello" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          turnId: "turn-live",
+          content: { type: "text", text: " world" } as StoredContentBlock,
         } as SessionUpdate,
       })
     );
 
-    expect(handled).toBe(false);
-    expect(calls).toHaveLength(0);
-    expect(session.uiState.currentAssistantId).toBeUndefined();
-    expect(session.uiState.messages.size).toBe(0);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.event.type).toBe("ui_message_part");
+    expect(calls[1]?.event.type).toBe("ui_message_delta");
+    if (calls[0]?.event.type === "ui_message_part") {
+      expect(calls[0].event.turnId).toBe("turn-live");
+    }
+    if (calls[1]?.event.type === "ui_message_delta") {
+      expect(calls[1].event.turnId).toBe("turn-live");
+    }
   });
 });

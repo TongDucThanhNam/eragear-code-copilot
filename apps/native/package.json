@@ -12,7 +12,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.13.0",
+    "@agentclientprotocol/sdk": "0.15.0",
     "@better-auth/expo": "catalog:",
     "@eragear-code-copilot/env": "workspace:*",
     "@expo/metro-runtime": "~6.1.2",

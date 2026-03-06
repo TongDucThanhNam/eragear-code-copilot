@@ -1,4 +1,4 @@
-const DEFAULT_SERVER_URL = "ws://localhost:3000";
+const FALLBACK_SERVER_URL = "ws://localhost:3010";
 const PROTOCOL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//;
 const TRPC_SUFFIX = "/trpc";
 
@@ -47,15 +47,47 @@ function joinPath(basePath: string, nextPath: string): string {
   return `${base}${next}` || "/";
 }
 
-export function normalizeServerUrl(rawValue?: string): string {
-  const url = parseServerUrl(rawValue);
-  url.protocol = toWsProtocol(url.protocol);
-  url.pathname = stripTrailingTrpcPath(url.pathname);
-  url.search = "";
-  url.hash = "";
-
+function formatNormalizedServerUrl(url: URL): string {
   const path = url.pathname === "/" ? "" : url.pathname;
   return `${url.protocol}//${url.host}${path}`;
+}
+
+function normalizeUrlObject(url: URL): string {
+  url.protocol = toWsProtocol(url.protocol);
+  url.pathname = stripTrailingTrpcPath(url.pathname);
+  // Desktop builds can resolve localhost to IPv6 (::1) while backend listens on IPv4.
+  // Normalize to loopback IPv4 to avoid connection-refused flakiness.
+  if (
+    url.hostname === "localhost" ||
+    url.hostname === "0.0.0.0" ||
+    url.hostname === "::1" ||
+    url.hostname === "[::1]"
+  ) {
+    url.hostname = "127.0.0.1";
+  }
+  url.search = "";
+  url.hash = "";
+  return formatNormalizedServerUrl(url);
+}
+
+function resolveDefaultServerUrl(): string {
+  const envValue = String(import.meta.env.VITE_SERVER_URL ?? "").trim();
+  if (!envValue) {
+    return FALLBACK_SERVER_URL;
+  }
+
+  try {
+    const url = new URL(withFallbackProtocol(envValue));
+    return normalizeUrlObject(url);
+  } catch {
+    return FALLBACK_SERVER_URL;
+  }
+}
+
+export const DEFAULT_SERVER_URL = resolveDefaultServerUrl();
+
+export function normalizeServerUrl(rawValue?: string): string {
+  return normalizeUrlObject(parseServerUrl(rawValue));
 }
 
 export function buildTrpcWsUrl(rawValue?: string): string {

@@ -15,10 +15,7 @@ import { findPendingPermission } from "@repo/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getChatMessageStateSnapshot,
-  getChatTerminalOutputsSnapshot,
-  useChatMessages,
   useChatStreamStore,
-  useChatTerminalOutputs,
 } from "@/store/chat-stream-store";
 import {
   nextLifecycleOnChatIdChange,
@@ -69,14 +66,12 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   const messageStateRef = useRef<MessageState>(
     getChatMessageStateSnapshot(chatId ?? null)
   );
-  const terminalOutputsRef = useRef<Record<string, string>>(
-    getChatTerminalOutputsSnapshot(chatId ?? null)
-  );
   const modesRef = useRef<SessionModeState | null>(null);
   const modelsRef = useRef<SessionModelState | null>(null);
   const commandsRef = useRef<AvailableCommand[]>(commands);
   const isResumingRef = useRef(false);
   const activeTurnIdRef = useRef<string | null>(null);
+  const blockedTurnIdsRef = useRef<Set<string>>(new Set());
   const activeChatIdRef = useRef<string | null>(chatId ?? null);
   const previousChatIdRef = useRef<string | null>(chatId ?? null);
   const connectedChatIdRef = useRef<string | null>(null);
@@ -86,8 +81,7 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   const hasLocalModelOverrideRef = useRef(false);
   const hasLocalConfigOverrideRef = useRef(false);
 
-  const messages = useChatMessages(chatId);
-  const terminalOutputs = useChatTerminalOutputs(chatId);
+  const messages = getChatMessageStateSnapshot(chatId ?? null).orderedMessages;
 
   useEffect(() => {
     statusRef.current = status;
@@ -122,18 +116,18 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
     messageStateRef.current = useChatStreamStore
       .getState()
       .getMessageState(activeChatId);
-  }, [chatId, messages]);
-
-  useEffect(() => {
-    const activeChatId = chatId ?? null;
-    if (!activeChatId) {
-      terminalOutputsRef.current = getChatTerminalOutputsSnapshot(null);
-      return;
-    }
-    terminalOutputsRef.current = useChatStreamStore
-      .getState()
-      .getTerminalOutputs(activeChatId);
-  }, [chatId, terminalOutputs]);
+    return useChatStreamStore.subscribe((nextState, prevState) => {
+      const nextMessageState =
+        nextState.byChatId[activeChatId]?.messageState ??
+        getChatMessageStateSnapshot(null);
+      const prevMessageState =
+        prevState.byChatId[activeChatId]?.messageState ??
+        getChatMessageStateSnapshot(null);
+      if (nextMessageState !== prevMessageState) {
+        messageStateRef.current = nextMessageState;
+      }
+    });
+  }, [chatId]);
 
   const updateMessageState = useCallback(
     (updater: (prev: MessageState) => MessageState) => {
@@ -177,7 +171,6 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
 
   return {
     messages,
-    terminalOutputs,
     status,
     setStatus,
     connStatus,
@@ -209,12 +202,12 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
     loadSessionSupported,
     setLoadSessionSupported,
     messageStateRef,
-    terminalOutputsRef,
     modesRef,
     modelsRef,
     commandsRef,
     isResumingRef,
     activeTurnIdRef,
+    blockedTurnIdsRef,
     activeChatIdRef,
     previousChatIdRef,
     connectedChatIdRef,

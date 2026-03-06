@@ -48,6 +48,13 @@ Server stream qua `onSessionEvents`:
 - `heartbeat` (reserved/optional, currently not emitted by runtime pipeline)
 - `error`
 
+Rule quan trọng:
+
+- `chat_status` là single source of truth cho session state ở client.
+- `chat_finish` chỉ kết thúc 1 prompt turn; không tự imply `ready`.
+- `error` là event chẩn đoán/phản hồi lỗi, không phải state transition thay cho
+  `chat_status`.
+
 ### 3.4 ChatStatus
 
 - `inactive`: session không chạy (chỉ có history hoặc đã bị ngắt)
@@ -79,6 +86,10 @@ Payload:
 - `isAbort`: true khi stopReason = `cancelled`
 
 Client có thể fallback bằng cách lookup `messageId` trong state nếu `message` thiếu.
+
+`chat_finish` chỉ được emit khi server thực sự có `stopReason` từ ACP prompt
+response. Không synthesize `chat_finish(cancelled)` cho process crash hoặc
+session transport failure.
 
 ## 4) tRPC Procedures (Contract)
 
@@ -129,6 +140,8 @@ Client có thể fallback bằng cách lookup `messageId` trong state nếu `mes
 - Server replay `messageBuffer` sau snapshot nhưng **không replay historical
   `chat_status`/`chat_finish`** để tránh stale transition sau reconnect.
 - `chat_status` được emit khi status đổi.
+- Recoverable turn failures có thể emit `error` rồi đưa `chat_status` về
+  `ready`; fatal runtime failures emit `error` + `chat_status=error`.
 - Trước khi emit snapshot, server có thể reconcile trạng thái busy bị stale:
   nếu không còn active turn và không còn pending permission thì chuyển về
   `ready`.
@@ -164,7 +177,10 @@ Client contract:
 
 - `tool_call` / `tool_call_update` → `ToolUIPart` state:
   - `input-streaming`, `input-available`, `output-available`, `output-error`,
-    `approval-requested`, `approval-responded`, `output-denied`
+    `approval-requested`, `approval-responded`, `output-denied`,
+    `output-cancelled`
+- `output-cancelled` là client-side canonical final state cho mọi tool call
+  chưa hoàn tất khi current turn bị `session/cancel`.
 - `data-tool-locations` được gửi nếu có `locations`.
 
 ### 5.5 Terminal output
@@ -243,7 +259,7 @@ với `apps/server`.
 
 - [ ] Map `chat_status` → UI state (`inactive` | `connecting` | `ready` | `submitted` | `streaming` | `awaiting_permission` | `cancelling` | `error`).
 - [ ] Không drop `chat_status` chỉ vì `turnId` mismatch; status là session-level snapshot.
-- [ ] Lắng nghe `chat_finish` để kết thúc turn (onFinish kiểu AI SDK).
+- [ ] Lắng nghe `chat_finish` để kết thúc turn (onFinish kiểu AI SDK), nhưng không tự set session về `ready` chỉ vì nhận `chat_finish`.
 - [ ] Có thể gate `chat_finish` theo `turnId` để bỏ qua stale turn completion.
 - [ ] `isAbort === true` khi `stopReason === cancelled`.
 
@@ -264,10 +280,14 @@ với `apps/server`.
 
 - [ ] Render `tool-*` parts theo state:
   - `input-streaming`, `input-available`
-  - `approval-requested`, `approval-responded`, `output-denied`
+  - `approval-requested`, `approval-responded`, `output-denied`,
+    `output-cancelled`
   - `output-available`, `output-error`
 - [ ] Lấy options từ `data-permission-options` và gọi
   `respondToPermissionRequest({ chatId, requestId, decision })`.
+- [ ] Khi `cancelPrompt`, ACP client phải preemptively mark mọi non-finished
+  tool call của current turn thành `output-cancelled` trước khi chờ agent trả
+  `chat_finish(cancelled)`.
 - [ ] Nếu có `data-tool-locations`, dùng `toolCallId` + `locations` cho follow-along (optional).
 
 ### 10.6 Terminal Output
@@ -283,7 +303,8 @@ với `apps/server`.
 
 ### 10.8 Error Handling
 
-- [ ] Handle `error` events và set UI state về error.
+- [ ] Handle `error` events cho toast/logging/diagnostics.
+- [ ] Chỉ `chat_status` mới được quyền đổi state machine của input/session UI.
 - [ ] Disable input khi `chat_status !== ready` hoặc `chat_status === error`.
 
 ## 10) References

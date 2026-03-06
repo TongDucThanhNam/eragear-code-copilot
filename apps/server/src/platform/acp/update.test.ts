@@ -1,10 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { ENV } from "@/config/environment";
 import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
+import {
+  getTurnIdMigrationSnapshot,
+  resetTurnIdMigrationSnapshotForTests,
+} from "./turn-id-observability";
 import { createSessionUpdateHandler, SessionBuffering } from "./update";
 import { parseSessionUpdatePayload } from "./update-schema";
 
@@ -96,6 +101,11 @@ function createRepo() {
 }
 
 describe("createSessionUpdateHandler", () => {
+  afterEach(() => {
+    ENV.acpTurnIdPolicy = "compat";
+    resetTurnIdMigrationSnapshotForTests();
+  });
+
   test("applies current_mode_update and persists metadata", async () => {
     const session = createSession("chat-mode");
     const { runtime, events } = createRuntime(session);
@@ -611,6 +621,93 @@ describe("createSessionUpdateHandler", () => {
         (event as { type?: string }).type === "chat_status"
     );
     expect(statusEvents).toHaveLength(0);
+  });
+
+  test("ignores stale tool updates that target a different turn", async () => {
+    const session = createSession("chat-stale-tool-turn");
+    session.activeTurnId = "turn-live";
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+        status: "in_progress",
+        _meta: { turnId: "turn-stale" },
+      },
+    });
+
+    expect(session.toolCalls.size).toBe(0);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "ui_message_part",
+      })
+    );
+    expect(getTurnIdMigrationSnapshot().drops.staleTurnMismatch).toBe(1);
+  });
+
+  test("ignores stale assistant chunks that target a different turn", async () => {
+    const session = createSession("chat-stale-assistant-turn");
+    session.activeTurnId = "turn-live";
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        turnId: "turn-stale",
+        content: { type: "text", text: "late chunk" },
+      } as never,
+    });
+
+    expect(session.uiState.currentAssistantId).toBeUndefined();
+    expect(session.uiState.messages.size).toBe(0);
+    expect(events).toHaveLength(0);
+    expect(getTurnIdMigrationSnapshot().drops.staleTurnMismatch).toBe(1);
+  });
+
+  test("drops turn-scoped live updates without native turnId under strict policy", async () => {
+    ENV.acpTurnIdPolicy = "require-native";
+    const session = createSession("chat-strict-turn-policy");
+    session.activeTurnId = "turn-live";
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        _meta: { turnId: "turn-live" },
+        content: { type: "text", text: "hello" },
+      } as never,
+    });
+
+    expect(session.uiState.messages.size).toBe(0);
+    expect(events).toHaveLength(0);
+    expect(getTurnIdMigrationSnapshot()).toEqual(
+      expect.objectContaining({
+        sessionUpdates: {
+          native: 0,
+          metaFallback: 1,
+          missing: 0,
+        },
+        drops: expect.objectContaining({
+          requireNativePolicy: 1,
+        }),
+      })
+    );
   });
 
   test("syncs mode/model from config options when legacy state is absent", async () => {

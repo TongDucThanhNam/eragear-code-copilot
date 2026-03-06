@@ -24,14 +24,11 @@ import {
   parseToolOutput,
   toToolViewState,
 } from "./agentic-message-utils";
-import {
-  FileMessagePart,
-  getFileIcon,
-  getSourceIcon,
-  ReasoningMessagePart,
-  SourceMessagePart,
-  TextMessagePart,
-} from "./agentic-parts";
+import { FileMessagePart } from "./agentic-parts/file-message-part";
+import { ReasoningMessagePart } from "./agentic-parts/reasoning-message-part";
+import { getFileIcon, getSourceIcon } from "./agentic-parts/shared";
+import { SourceMessagePart } from "./agentic-parts/source-message-part";
+import { TextMessagePart } from "./agentic-parts/text-message-part";
 import { ToolMessagePart } from "./agentic-tool";
 
 const getChainIcon = (part: UIMessagePart, isActive: boolean) => {
@@ -40,6 +37,8 @@ const getChainIcon = (part: UIMessagePart, isActive: boolean) => {
     const tone =
       viewState === "error"
         ? "text-destructive"
+        : viewState === "cancelled"
+          ? "text-muted-foreground"
         : viewState === "completed"
           ? "text-emerald-500"
           : viewState === "approval-requested"
@@ -77,18 +76,20 @@ const getChainIcon = (part: UIMessagePart, isActive: boolean) => {
   return <SparklesIcon className="size-3.5 text-muted-foreground" />;
 };
 
-const ChainStep = ({
+const renderChainStep = ({
+  itemKey,
   part,
   isLast,
   isActive,
   children,
 }: {
+  itemKey: string;
   part: UIMessagePart;
   isLast: boolean;
   isActive: boolean;
   children: ReactNode;
 }) => (
-  <div className="flex gap-3">
+  <div className="flex gap-3" key={itemKey}>
     <div className="flex w-6 flex-col items-center">
       <div
         className={cn(
@@ -104,12 +105,12 @@ const ChainStep = ({
   </div>
 );
 
-const ChainContent = ({
+const renderChainContent = ({
+  chatId,
   part,
-  terminalOutputs,
 }: {
+  chatId: string | null;
   part: UIMessagePart;
-  terminalOutputs?: Record<string, string>;
 }) => {
   if (part.type === "text") {
     return <TextMessagePart text={part.text} variant="chain" />;
@@ -136,8 +137,8 @@ const ChainContent = ({
     const parsedOutput = parseToolOutput(toolPart.output);
     return (
       <ToolMessagePart
+        chatId={chatId}
         parsedOutput={parsedOutput}
-        terminalOutputs={terminalOutputs}
         tool={toolPart}
       />
     );
@@ -147,13 +148,13 @@ const ChainContent = ({
 };
 
 export const ChainOfThought = ({
+  chatId,
   items,
   isStreaming,
-  terminalOutputs,
 }: {
+  chatId: string | null;
   items: UIMessagePart[];
   isStreaming: boolean;
-  terminalOutputs?: Record<string, string>;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const activeIndex = useMemo(() => getActiveIndex(items), [items]);
@@ -217,16 +218,16 @@ export const ChainOfThought = ({
             if (!item) {
               return null;
             }
-            return (
-              <ChainStep
-                isActive={index === activeIndex}
-                isLast={index === items.length - 1}
-                key={key}
-                part={item}
-              >
-                <ChainContent part={item} terminalOutputs={terminalOutputs} />
-              </ChainStep>
-            );
+            return renderChainStep({
+              itemKey: key,
+              part: item,
+              isActive: index === activeIndex,
+              isLast: index === items.length - 1,
+              children: renderChainContent({
+                chatId,
+                part: item,
+              }),
+            });
           })}
         </div>
       </CollapsibleContent>

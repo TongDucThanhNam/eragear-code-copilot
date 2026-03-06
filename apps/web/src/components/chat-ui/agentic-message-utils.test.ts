@@ -3,8 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   deduplicateKeys,
   getPartKey,
+  isChainStreaming,
+  isMessageStreaming,
   parseToolOutput,
   resolveAssistantFinalVisibility,
+  splitMessageParts,
 } from "./agentic-message-utils";
 
 describe("parseToolOutput", () => {
@@ -63,6 +66,28 @@ describe("resolveAssistantFinalVisibility", () => {
     expect(visibility.showFinalText).toBe(false);
     expect(visibility.showFinalAttachments).toBe(false);
     expect(visibility.shouldRenderFinal).toBe(false);
+  });
+});
+
+describe("assistant message streaming state", () => {
+  test("keeps chain idle when only trailing final text is still streaming", () => {
+    const parts: UIMessagePart[] = [
+      {
+        type: "tool-bash",
+        toolCallId: "tool-1",
+        state: "output-available",
+        input: { cmd: "pwd" },
+        output: "/repo",
+      },
+      { type: "text", text: "final answer", state: "streaming" },
+    ];
+
+    const { chainItems, finalText } = splitMessageParts(parts);
+
+    expect(chainItems).toHaveLength(1);
+    expect(finalText).toBe("final answer");
+    expect(isChainStreaming(parts)).toBe(false);
+    expect(isMessageStreaming(parts)).toBe(true);
   });
 });
 

@@ -145,8 +145,9 @@ export function buildUiMessagePartEvent(params: {
   message: UIMessage;
   partIndex: number;
   isNew: boolean;
+  turnId?: string;
 }): UiMessagePartEvent | null {
-  const { chatId, message, partIndex, isNew } = params;
+  const { chatId, message, partIndex, isNew, turnId } = params;
   const part = message.parts[partIndex];
   if (!part) {
     return null;
@@ -175,6 +176,7 @@ export function buildUiMessagePartEvent(params: {
     ...(typeof message.createdAt === "number"
       ? { createdAt: message.createdAt }
       : {}),
+    ...(turnId ? { turnId } : {}),
   };
 }
 

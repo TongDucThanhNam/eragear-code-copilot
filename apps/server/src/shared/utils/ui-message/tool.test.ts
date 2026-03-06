@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type * as acp from "@agentclientprotocol/sdk";
-import { buildToolPartForUpdate } from "./tool";
+import { buildToolApprovalResponsePart, buildToolPartForUpdate } from "./tool";
 
 describe("tool ui message sanitization", () => {
   test("escapes HTML in tool error output text", () => {
@@ -86,5 +86,30 @@ describe("tool ui message sanitization", () => {
     expect(part.errorText).toContain('"path": "/tmp/missing.html"');
     expect(part.errorText).toContain('"message": "Invalid params: File not found"');
     expect(part.errorText).toContain('"code": -32602');
+  });
+
+  test("builds output-cancelled tool part for cancelled permission requests", () => {
+    const part = buildToolApprovalResponsePart({
+      toolCallId: "tool-5",
+      toolName: "bash",
+      approvalId: "req-5",
+      approved: false,
+      cancelled: true,
+      reason: "cancelled",
+      input: { cmd: "sleep 10" },
+    });
+
+    expect(part).toEqual({
+      type: "tool-bash",
+      toolCallId: "tool-5",
+      title: "bash",
+      state: "output-cancelled",
+      input: { cmd: "sleep 10" },
+      approval: {
+        id: "req-5",
+        approved: false,
+        reason: "cancelled",
+      },
+    });
   });
 });

@@ -45,7 +45,6 @@ export interface UseChatResult {
   connStatus: ConnectionStatus;
   isStreaming: boolean;
   pendingPermission: PermissionRequest | null;
-  terminalOutputs: Record<string, string>;
   modes: SessionModeState | null;
   models: SessionModelState | null;
   supportsModelSwitching: boolean;

@@ -534,6 +534,90 @@ describe("processSessionEvent config/session-info updates", () => {
       state: "done",
     });
   });
+
+  test("marks unfinished tool parts as cancelled when chat_finish stopReason is cancelled", () => {
+    const finishMessage = createAssistantMessage("msg-cancelled", [
+      {
+        type: "tool-bash",
+        toolCallId: "tool-1",
+        title: "Run",
+        state: "approval-requested",
+        input: { cmd: "ls" },
+        approval: { id: "req-1" },
+      },
+      {
+        type: "tool-edit",
+        toolCallId: "tool-2",
+        title: "Edit",
+        state: "approval-responded",
+        input: { path: "index.ts" },
+        approval: { id: "req-2", approved: true, reason: "allow_once" },
+      },
+    ]);
+
+    let upserted: UIMessage | null = null;
+
+    processSessionEvent(
+      {
+        type: "chat_finish",
+        stopReason: "cancelled",
+        finishReason: "other",
+        messageId: "msg-cancelled",
+        isAbort: true,
+      },
+      { currentModes: null, currentModels: null },
+      {
+        getMessageById: () => finishMessage,
+        onMessageUpsert: (message) => {
+          upserted = message;
+        },
+      }
+    );
+
+    expect(upserted?.parts).toEqual([
+      {
+        type: "tool-bash",
+        toolCallId: "tool-1",
+        title: "Run",
+        state: "output-cancelled",
+        input: { cmd: "ls" },
+        approval: {
+          id: "req-1",
+          approved: false,
+          reason: "cancelled",
+        },
+      },
+      {
+        type: "tool-edit",
+        toolCallId: "tool-2",
+        title: "Edit",
+        state: "output-cancelled",
+        input: { path: "index.ts" },
+        approval: { id: "req-2", approved: true, reason: "allow_once" },
+      },
+    ]);
+  });
+
+  test("does not coerce chat status to ready when chat_finish arrives", () => {
+    const chatStates: string[] = [];
+
+    processSessionEvent(
+      {
+        type: "chat_finish",
+        stopReason: "end_turn",
+        finishReason: "stop",
+        isAbort: false,
+      },
+      { currentModes: null, currentModels: null },
+      {
+        onStatusChange: (status) => {
+          chatStates.push(status);
+        },
+      }
+    );
+
+    expect(chatStates).toEqual([]);
+  });
 });
 
 describe("processSessionEvent available_commands_update", () => {

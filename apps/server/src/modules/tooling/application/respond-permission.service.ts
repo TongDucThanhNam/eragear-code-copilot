@@ -311,6 +311,7 @@ export class RespondPermissionService {
         const { message } = upsertToolPart({
           state: session.uiState,
           part: toolPart,
+          turnId: pending.turnId ?? session.activeTurnId,
         });
         const nextToolIndex = session.uiState.toolPartIndex.get(
           pending.toolCallId
@@ -340,6 +341,7 @@ export class RespondPermissionService {
                 !previousToolLocation ||
                 previousToolLocation.messageId !== nextToolIndex.messageId ||
                 previousToolLocation.partIndex !== nextToolIndex.partIndex,
+              turnId: pending.turnId ?? session.activeTurnId,
             });
             if (partEvent) {
               await this.sessionRuntime.broadcast(input.chatId, partEvent);
@@ -355,6 +357,7 @@ export class RespondPermissionService {
               message: messageWithUpdates,
               partIndex: updatedPermissionOptions.partIndex,
               isNew: false,
+              turnId: pending.turnId ?? session.activeTurnId,
             });
             if (partEvent) {
               await this.sessionRuntime.broadcast(input.chatId, partEvent);

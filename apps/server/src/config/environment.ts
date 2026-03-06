@@ -89,6 +89,8 @@ import {
 } from "./environment.parsers";
 import { type EnvKey, envSchema } from "./environment.schema";
 
+export type AcpTurnIdPolicy = "compat" | "require-native";
+
 function assertBunRuntime(): void {
   const bunVersion = process.versions?.bun;
   if (typeof bunVersion === "string" && bunVersion.length > 0) {
@@ -121,6 +123,19 @@ function createEnvInput(
   }
 
   return out;
+}
+
+function resolveAcpTurnIdPolicy(value: string | undefined): AcpTurnIdPolicy {
+  const normalized = toTrimmedString(value, "compat").toLowerCase();
+  if (normalized === "compat") {
+    return "compat";
+  }
+  if (normalized === "require-native" || normalized === "require_native") {
+    return "require-native";
+  }
+  throw new Error(
+    "[Config] ACP_TURN_ID_POLICY must be one of: compat, require-native."
+  );
 }
 
 const bootConfig = loadBootConfigValues();
@@ -170,6 +185,7 @@ if (isProd && !sqliteWorkerEnabled) {
 }
 const defaultApiKeyRateLimitWindowMs = 60_000;
 const defaultApiKeyRateLimitMaxRequests = 3000;
+const acpTurnIdPolicy = resolveAcpTurnIdPolicy(env.ACP_TURN_ID_POLICY);
 const authBaseUrl =
   env.AUTH_BASE_URL ?? `http://${normalizedAuthHost}:${wsPort}`;
 const allowlistConfig = resolveAllowlistConfig({
@@ -349,6 +365,8 @@ export const ENV = {
     env.TERMINAL_OUTPUT_HARD_CAP_BYTES,
     DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES
   ),
+  /** Migration policy controlling whether live ACP turn-scoped ingress must carry a native turnId */
+  acpTurnIdPolicy,
   /** Structured policy map for agent command invocations */
   allowedAgentCommandPolicies,
   /** Structured policy map for terminal command invocations */

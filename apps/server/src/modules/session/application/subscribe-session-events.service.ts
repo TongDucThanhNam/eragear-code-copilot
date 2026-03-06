@@ -1,4 +1,3 @@
-import type { UIMessage } from "@repo/shared";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { NotFoundError } from "@/shared/errors";
@@ -195,13 +194,6 @@ export class SubscribeSessionEventsService {
       bufferedEvents: snapshot.bufferedEvents,
       subscribe(listener) {
         const wrappedListener = (event: BroadcastEvent) => {
-          if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
-            logger.debug("Session event forwarded to subscriber", {
-              chatId,
-              eventType: event.type,
-              ...buildStreamEventContext(event),
-            });
-          }
           listener(event);
         };
         deliveredListener = wrappedListener;
@@ -254,33 +246,6 @@ export class SubscribeSessionEventsService {
   }
 }
 
-function shouldLogStreamEvent(event: BroadcastEvent): boolean {
-  return event.type === "ui_message" || event.type === "ui_message_part";
-}
-
-function buildStreamEventContext(
-  event: BroadcastEvent
-): Record<string, unknown> {
-  if (event.type === "ui_message") {
-    return {
-      messageId: event.message.id,
-      partsCount: event.message.parts.length,
-    };
-  }
-  if (event.type === "ui_message_part") {
-    return {
-      messageId: event.messageId,
-      partId: event.partId,
-      partIndex: event.partIndex,
-      isNew: event.isNew,
-      partType: event.part.type,
-    };
-  }
-  return {
-    eventType: event.type,
-  };
-}
-
 function countEventType(
   events: BroadcastEvent[],
   type: BroadcastEvent["type"]
@@ -311,17 +276,23 @@ function buildBufferedEvents(session: ChatSession): {
       return left.id.localeCompare(right.id);
     }
   );
-  const replaySnapshotMap = new Map<string, UIMessage>();
+  const replaySnapshotEventMap = new Map<
+    string,
+    Extract<BroadcastEvent, { type: "ui_message" }>
+  >();
+  const activeAssistantId = session.uiState.currentAssistantId;
   for (const event of replayEvents) {
     if (event.type !== "ui_message") {
       continue;
     }
-    replaySnapshotMap.set(event.message.id, event.message);
+    replaySnapshotEventMap.set(event.message.id, event);
   }
   const effectiveSnapshots =
     snapshotMessages.length > 0
       ? snapshotMessages
-      : Array.from(replaySnapshotMap.values()).sort((left, right) => {
+      : Array.from(replaySnapshotEventMap.values())
+          .map((event) => event.message)
+          .sort((left, right) => {
           const leftCreatedAt = left.createdAt ?? 0;
           const rightCreatedAt = right.createdAt ?? 0;
           if (leftCreatedAt !== rightCreatedAt) {
@@ -329,12 +300,19 @@ function buildBufferedEvents(session: ChatSession): {
           }
           return left.id.localeCompare(right.id);
         });
-  const snapshotEvents = effectiveSnapshots.map((message) =>
-    cloneBroadcastEvent({
+  const snapshotEvents = effectiveSnapshots.map((message) => {
+    const replaySnapshot = replaySnapshotEventMap.get(message.id);
+    const turnId =
+      replaySnapshot?.turnId ??
+      (session.activeTurnId && message.id === activeAssistantId
+        ? session.activeTurnId
+        : undefined);
+    return cloneBroadcastEvent({
       type: "ui_message",
       message,
-    })
-  );
+      ...(turnId ? { turnId } : {}),
+    });
+  });
 
   const passThroughEvents = cloneBroadcastEvents(
     replayEvents.filter((event) => {
@@ -346,7 +324,6 @@ function buildBufferedEvents(session: ChatSession): {
     })
   );
 
-  const activeAssistantId = session.uiState.currentAssistantId;
   const activeSnapshot = activeAssistantId
     ? effectiveSnapshots.find((message) => message.id === activeAssistantId)
     : undefined;

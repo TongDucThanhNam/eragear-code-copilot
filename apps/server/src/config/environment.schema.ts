@@ -88,6 +88,7 @@ export const envSchema = z.object({
   ACP_NDJSON_MAX_LINE_BYTES: z.string().optional(),
   ACP_NDJSON_MAX_BUFFERED_BYTES: z.string().optional(),
   ACP_STDERR_MAX_TOTAL_BYTES: z.string().optional(),
+  ACP_TURN_ID_POLICY: z.string().optional(),
   RUNTIME_NODE_ROLE: z.string().optional(),
   RUNTIME_WRITER_URL: z.string().optional(),
   RUNTIME_INTERNAL_TOKEN: z.string().optional(),

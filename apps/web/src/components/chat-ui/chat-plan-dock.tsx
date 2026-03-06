@@ -1,6 +1,6 @@
 "use client";
 
-import type { ToolUIPart, UIMessage } from "@repo/shared";
+import type { ToolUIPart } from "@repo/shared";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Queue,
@@ -17,46 +17,15 @@ import { cn } from "@/lib/utils";
 
 type PlanStatus = "pending" | "in_progress" | "completed" | "failed";
 
-interface PlanEntry {
+export interface PlanEntry {
   content: string;
   status: PlanStatus;
 }
 
-interface PlanSnapshot {
+export interface PlanSnapshot {
   entries: PlanEntry[];
   toolCallId: string;
 }
-
-const isPlanOutput = (
-  output: ToolUIPart["output"]
-): output is { entries: PlanEntry[] } => {
-  if (!output || typeof output !== "object" || Array.isArray(output)) {
-    return false;
-  }
-  const entries = (output as { entries?: unknown }).entries;
-  return Array.isArray(entries);
-};
-
-const getLatestPlanSnapshot = (messages: UIMessage[]): PlanSnapshot | null => {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    for (let j = message.parts.length - 1; j >= 0; j -= 1) {
-      const part = message.parts[j];
-      if (part.type !== "tool-plan") {
-        continue;
-      }
-      const toolPart = part as ToolUIPart;
-      if (!isPlanOutput(toolPart.output)) {
-        continue;
-      }
-      return {
-        entries: toolPart.output.entries,
-        toolCallId: toolPart.toolCallId,
-      };
-    }
-  }
-  return null;
-};
 
 const getPlanSummary = (entries: PlanEntry[]) => {
   const total = entries.length;
@@ -81,50 +50,47 @@ const getPlanSummary = (entries: PlanEntry[]) => {
   return parts.join(" · ");
 };
 
-const PlanHeaderContent = memo(
-  ({
-    total,
-    summary,
-    isStreaming,
-  }: {
-    total: number;
-    summary: string;
-    isStreaming: boolean;
-  }) => (
-    <div className="flex w-full items-center justify-between gap-3">
-      <QueueSectionLabel
-        className={cn(isStreaming && "animate-pulse")}
-        count={total}
-        label="steps"
-      />
-      {summary ? (
-        <span
-          className={cn(
-            "text-muted-foreground text-xs",
-            isStreaming && "animate-pulse"
-          )}
-        >
-          {summary}
-        </span>
-      ) : null}
-    </div>
-  )
+const renderPlanHeaderContent = ({
+  total,
+  summary,
+  isStreaming,
+}: {
+  total: number;
+  summary: string;
+  isStreaming: boolean;
+}) => (
+  <div className="flex w-full items-center justify-between gap-3">
+    <QueueSectionLabel
+      className={cn(isStreaming && "animate-pulse")}
+      count={total}
+      label="steps"
+    />
+    {summary ? (
+      <span
+        className={cn(
+          "text-muted-foreground text-xs",
+          isStreaming && "animate-pulse"
+        )}
+      >
+        {summary}
+      </span>
+    ) : null}
+  </div>
 );
-PlanHeaderContent.displayName = "PlanHeaderContent";
 
-const PlanEntries = memo(({ entries }: { entries: PlanEntry[] }) => (
+const renderPlanEntries = (entries: PlanEntry[]) => (
   <QueueList>
     {entries.map((entry, index) => {
       const isCompleted = entry.status === "completed";
       const isInProgress = entry.status === "in_progress";
       const isFailed = entry.status === "failed";
+
       return (
         <QueueItem key={`${entry.content}-${index}`}>
           <div className="flex items-start gap-2">
             <QueueItemIndicator
               className={cn(
-                isInProgress &&
-                  "animate-pulse border-blue-500/70 bg-blue-500/20",
+                isInProgress && "animate-pulse border-blue-500/70 bg-blue-500/20",
                 isFailed && "border-red-500/70 bg-red-500/20"
               )}
               completed={isCompleted}
@@ -144,18 +110,15 @@ const PlanEntries = memo(({ entries }: { entries: PlanEntry[] }) => (
       );
     })}
   </QueueList>
-));
-PlanEntries.displayName = "PlanEntries";
+);
 
 export interface ChatPlanDockProps {
-  messages: UIMessage[];
+  planSnapshot: PlanSnapshot | null;
 }
 
-const ChatPlanDockBase = ({ messages }: ChatPlanDockProps) => {
-  const planSnapshot = useMemo(
-    () => getLatestPlanSnapshot(messages),
-    [messages]
-  );
+export const ChatPlanDock = memo(function ChatPlanDock({
+  planSnapshot,
+}: ChatPlanDockProps) {
   const [isOpen, setIsOpen] = useState(true);
   const lastPlanIdRef = useRef<string | null>(null);
 
@@ -191,20 +154,19 @@ const ChatPlanDockBase = ({ messages }: ChatPlanDockProps) => {
       <Queue className={cn("bg-background/90")}>
         <QueueSection onOpenChange={setIsOpen} open={isOpen}>
           <QueueSectionTrigger>
-            <PlanHeaderContent
-              isStreaming={isStreaming}
-              summary={summary}
-              total={planSnapshot.entries.length}
-            />
+            {renderPlanHeaderContent({
+              isStreaming,
+              summary,
+              total: planSnapshot.entries.length,
+            })}
           </QueueSectionTrigger>
           <QueueSectionContent>
-            <PlanEntries entries={planSnapshot.entries} />
+            {renderPlanEntries(planSnapshot.entries)}
           </QueueSectionContent>
         </QueueSection>
       </Queue>
     </div>
   );
-};
-
-export const ChatPlanDock = memo(ChatPlanDockBase);
-ChatPlanDock.displayName = "ChatPlanDock";
+},
+  (prevProps, nextProps) => prevProps.planSnapshot === nextProps.planSnapshot
+);

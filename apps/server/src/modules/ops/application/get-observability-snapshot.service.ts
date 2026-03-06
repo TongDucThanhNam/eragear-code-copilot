@@ -6,10 +6,27 @@
  * @module modules/ops/application/get-observability-snapshot.service
  */
 
+import { ENV } from "@/config/environment";
 import type { SessionRuntimePort } from "@/modules/session";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import type { LogEntry } from "@/shared/types/log.types";
+
+interface AcpTurnIdMigrationCounters {
+  native: number;
+  metaFallback: number;
+  missing: number;
+}
+
+interface AcpTurnIdMigrationSnapshot {
+  sessionUpdates: AcpTurnIdMigrationCounters;
+  permissionRequests: AcpTurnIdMigrationCounters;
+  drops: {
+    requireNativePolicy: number;
+    staleTurnMismatch: number;
+    lateAfterTurnCleared: number;
+  };
+}
 
 interface CacheStatsSnapshot {
   size: number;
@@ -79,17 +96,20 @@ export class GetObservabilitySnapshotService {
   private readonly logStore: LogStorePort;
   private readonly getCacheStats: () => CacheStatsSnapshot;
   private readonly getBackgroundRunnerState: () => BackgroundRunnerState | null;
+  private readonly getAcpTurnIdMigrationSnapshot: () => AcpTurnIdMigrationSnapshot;
 
   constructor(params: {
     sessionRuntime: SessionRuntimePort;
     logStore: LogStorePort;
     getCacheStats: () => CacheStatsSnapshot;
     getBackgroundRunnerState: () => BackgroundRunnerState | null;
+    getAcpTurnIdMigrationSnapshot: () => AcpTurnIdMigrationSnapshot;
   }) {
     this.sessionRuntime = params.sessionRuntime;
     this.logStore = params.logStore;
     this.getCacheStats = params.getCacheStats;
     this.getBackgroundRunnerState = params.getBackgroundRunnerState;
+    this.getAcpTurnIdMigrationSnapshot = params.getAcpTurnIdMigrationSnapshot;
   }
 
   execute() {
@@ -118,6 +138,10 @@ export class GetObservabilitySnapshotService {
       },
       cache: this.getCacheStats(),
       background: this.getBackgroundRunnerState(),
+      acp: {
+        turnIdPolicy: ENV.acpTurnIdPolicy,
+        turnIdMigration: this.getAcpTurnIdMigrationSnapshot(),
+      },
     };
   }
 }

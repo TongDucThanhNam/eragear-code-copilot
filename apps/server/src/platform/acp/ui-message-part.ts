@@ -27,6 +27,7 @@ export async function broadcastUiMessagePart(params: {
   message: UIMessage;
   partIndex: number;
   isNew: boolean;
+  turnId?: string;
   /**
    * When `false`, the broadcast is throttled and coalesced with nearby
    * chunks for the same part. Defaults to `true` (send immediately).
@@ -46,6 +47,7 @@ export async function broadcastUiMessagePart(params: {
     message,
     partIndex,
     isNew,
+    turnId: params.turnId,
   });
   if (!event) {
     return;

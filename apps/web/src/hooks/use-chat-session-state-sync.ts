@@ -21,7 +21,6 @@ import { useCallback, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   getChatMessageStateSnapshot,
-  getChatTerminalOutputsSnapshot,
   useChatStreamStore,
 } from "@/store/chat-stream-store";
 import { nextLifecycleOnChatIdChange } from "./use-chat-connection.machine";
@@ -37,12 +36,12 @@ interface UseChatSessionStateSyncParams {
   previousChatIdRef: MutableRefObject<string | null>;
   connectedChatIdRef: MutableRefObject<string | null>;
   messageStateRef: MutableRefObject<MessageState>;
-  terminalOutputsRef: MutableRefObject<Record<string, string>>;
   modesRef: MutableRefObject<SessionModeState | null>;
   modelsRef: MutableRefObject<SessionModelState | null>;
   commandsRef: MutableRefObject<AvailableCommand[]>;
   isResumingRef: MutableRefObject<boolean>;
   activeTurnIdRef: MutableRefObject<string | null>;
+  blockedTurnIdsRef: MutableRefObject<Set<string>>;
   hasLocalModeOverrideRef: MutableRefObject<boolean>;
   hasLocalModelOverrideRef: MutableRefObject<boolean>;
   hasLocalConfigOverrideRef: MutableRefObject<boolean>;
@@ -73,12 +72,12 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     previousChatIdRef,
     connectedChatIdRef,
     messageStateRef,
-    terminalOutputsRef,
     modesRef,
     modelsRef,
     commandsRef,
     isResumingRef,
     activeTurnIdRef,
+    blockedTurnIdsRef,
     hasLocalModeOverrideRef,
     hasLocalModelOverrideRef,
     hasLocalConfigOverrideRef,
@@ -178,10 +177,8 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     hasLocalConfigOverrideRef.current = false;
     if (chatId) {
       messageStateRef.current = streamStore.getMessageState(chatId);
-      terminalOutputsRef.current = streamStore.getTerminalOutputs(chatId);
     } else {
       messageStateRef.current = getChatMessageStateSnapshot(null);
-      terminalOutputsRef.current = getChatTerminalOutputsSnapshot(null);
     }
     resetHistoryState();
     setPendingPermission(null);
@@ -200,6 +197,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     setLoadSessionSupported(undefined);
     isResumingRef.current = false;
     activeTurnIdRef.current = null;
+    blockedTurnIdsRef.current.clear();
     setStreamLifecycle(nextLifecycle);
     if (nextLifecycle === "idle") {
       setConnStatus("idle");
@@ -210,6 +208,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     }
   }, [
     activeTurnIdRef,
+    blockedTurnIdsRef,
     chatId,
     commandsRef,
     connectedChatIdRef,
@@ -237,7 +236,6 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     setStatus,
     setStreamLifecycle,
     setSupportsModelSwitching,
-    terminalOutputsRef,
   ]);
 
   useEffect(() => {

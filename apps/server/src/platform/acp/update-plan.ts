@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { createLogger } from "@/platform/logging/structured-logger";
 import {
   buildPlanToolPart,
   getPlanToolCallId,
@@ -9,6 +10,7 @@ import { broadcastUiMessagePart } from "./ui-message-part";
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 
 const PLAN_PERSIST_DEBOUNCE_MS = 250;
+const logger = createLogger("Debug");
 
 interface PendingPlanPersistence {
   timer: ReturnType<typeof setTimeout>;
@@ -49,17 +51,9 @@ async function persistPlanNow(
   chatId: string,
   pending: Omit<PendingPlanPersistence, "timer">
 ): Promise<void> {
-  try {
-    await pending.sessionRepo.updateMetadata(chatId, pending.userId, {
-      plan: pending.plan,
-    });
-  } catch (error) {
-    console.warn("Failed to persist debounced plan metadata", {
-      chatId,
-      userId: pending.userId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  await pending.sessionRepo.updateMetadata(chatId, pending.userId, {
+    plan: pending.plan,
+  });
 }
 
 function schedulePlanPersistence(params: {
@@ -79,10 +73,16 @@ function schedulePlanPersistence(params: {
       return;
     }
     pendingPlanPersistenceByChat.delete(chatId);
-    void persistPlanNow(chatId, {
+    persistPlanNow(chatId, {
       userId: latest.userId,
       plan: latest.plan,
       sessionRepo: latest.sessionRepo,
+    }).catch((error) => {
+      logger.warn("Failed to persist debounced plan metadata", {
+        chatId,
+        userId: latest.userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
   }, PLAN_PERSIST_DEBOUNCE_MS);
   if (typeof timer === "object" && "unref" in timer) {
@@ -128,6 +128,7 @@ export async function handlePlanUpdate(
     SessionUpdateContext,
     | "chatId"
     | "update"
+    | "turnIdResolution"
     | "sessionRuntime"
     | "sessionRepo"
     | "suppressReplayBroadcast"
@@ -176,12 +177,14 @@ export async function handlePlanUpdate(
   }
 
   if (session) {
+    const eventTurnId = context.turnIdResolution.turnId ?? session.activeTurnId;
     const planToolCallId = getPlanToolCallId(chatId);
     const previousPlanIndex = session.uiState.toolPartIndex.get(planToolCallId);
     const planTool = buildPlanToolPart(effectivePlan, planToolCallId);
     const { message } = upsertToolPart({
       state: session.uiState,
       part: planTool,
+      turnId: eventTurnId,
     });
     if (shouldBroadcast && !suppressReplayBroadcast) {
       const nextPlanIndex = session.uiState.toolPartIndex.get(planToolCallId);
@@ -195,6 +198,7 @@ export async function handlePlanUpdate(
             !previousPlanIndex ||
             previousPlanIndex.messageId !== nextPlanIndex.messageId ||
             previousPlanIndex.partIndex !== nextPlanIndex.partIndex,
+          turnId: eventTurnId,
         });
       }
     }

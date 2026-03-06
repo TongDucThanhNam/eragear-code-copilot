@@ -1,8 +1,5 @@
 import { ChatMessages } from "@/components/chat-ui/chat-messages";
-import {
-  useChatMessages,
-  useChatTerminalOutputs,
-} from "@/store/chat-stream-store";
+import { useChatMessageIds } from "@/store/chat-stream-store";
 
 interface ChatMessagesPaneProps {
   chatId: string | null;
@@ -17,15 +14,14 @@ export function ChatMessagesPane({
   isLoadingOlder,
   onLoadOlder,
 }: ChatMessagesPaneProps) {
-  const messages = useChatMessages(chatId);
-  const terminalOutputs = useChatTerminalOutputs(chatId);
+  const messageIds = useChatMessageIds(chatId);
   return (
     <ChatMessages
       canLoadOlder={canLoadOlder}
+      chatId={chatId}
       isLoadingOlder={isLoadingOlder}
-      messages={messages}
+      messageIds={messageIds}
       onLoadOlder={onLoadOlder}
-      terminalOutputs={terminalOutputs}
     />
   );
 }

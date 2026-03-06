@@ -23,7 +23,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const utils = trpc.useUtils();
   const {
     messages,
-    terminalOutputs,
     status,
     setStatus,
     connStatus,
@@ -55,12 +54,12 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     loadSessionSupported,
     setLoadSessionSupported,
     messageStateRef,
-    terminalOutputsRef,
     modesRef,
     modelsRef,
     commandsRef,
     isResumingRef,
     activeTurnIdRef,
+    blockedTurnIdsRef,
     activeChatIdRef,
     previousChatIdRef,
     connectedChatIdRef,
@@ -120,12 +119,12 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     previousChatIdRef,
     connectedChatIdRef,
     messageStateRef,
-    terminalOutputsRef,
     modesRef,
     modelsRef,
     commandsRef,
     isResumingRef,
     activeTurnIdRef,
+    blockedTurnIdsRef,
     hasLocalModeOverrideRef,
     hasLocalModelOverrideRef,
     hasLocalConfigOverrideRef,
@@ -158,7 +157,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       connStatus,
       streamLifecycle,
     });
-    void loadHistoryRef.current();
+    loadHistoryRef.current();
   }, [chatId, connStatus, streamLifecycle]);
 
   const { ensureLiveSubscription } = useLiveSubscriptionGate({
@@ -181,12 +180,13 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     activeChatIdRef,
     connectedChatIdRef,
     messageStateRef,
-    terminalOutputsRef,
     modesRef,
     modelsRef,
     commandsRef,
     activeTurnIdRef,
+    blockedTurnIdsRef,
     isResumingRef,
+    statusRef,
     setStreamLifecycle,
     setStatus,
     setConnStatus,
@@ -230,6 +230,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     isActiveChat,
     statusRef,
     activeTurnIdRef,
+    blockedTurnIdsRef,
     isResumingRef,
     setStatus,
     setConnStatus,
@@ -280,7 +281,6 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     connStatus,
     isStreaming,
     pendingPermission,
-    terminalOutputs,
     // Session state
     modes,
     models,

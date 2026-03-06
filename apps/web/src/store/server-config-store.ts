@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { DEFAULT_SERVER_URL } from "@/lib/server-url";
 
 interface ServerConfigState {
   serverUrl: string;
@@ -10,8 +11,6 @@ interface ServerConfigState {
   setConfigured: (configured: boolean) => void;
   clearConfig: () => void;
 }
-
-const DEFAULT_SERVER_URL = "ws://localhost:3000";
 
 export const useServerConfigStore = create<ServerConfigState>()(
   persist(

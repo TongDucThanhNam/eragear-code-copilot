@@ -23,6 +23,10 @@ import {
   deriveResumeSessionSyncPlan,
   isRuntimeAuthoritativeHistory,
 } from "./use-chat-resume-sync";
+import {
+  rememberBlockedTurnId,
+  shouldRollbackSendMessageFailure,
+} from "./use-chat-turn-guards";
 
 function readConfigOptionValueLabel(
   option: SessionConfigOption | undefined,
@@ -99,6 +103,7 @@ interface UseChatActionsParams {
   isActiveChat: (targetChatId: string) => boolean;
   statusRef: MutableRefObject<ChatStatus>;
   activeTurnIdRef: MutableRefObject<string | null>;
+  blockedTurnIdsRef: MutableRefObject<Set<string>>;
   isResumingRef: MutableRefObject<boolean>;
   setStatus: Dispatch<SetStateAction<ChatStatus>>;
   setConnStatus: Dispatch<SetStateAction<ConnectionStatus>>;
@@ -130,6 +135,7 @@ export function useChatActions({
   isActiveChat,
   statusRef,
   activeTurnIdRef,
+  blockedTurnIdsRef,
   isResumingRef,
   setStatus,
   setConnStatus,
@@ -203,11 +209,23 @@ export function useChatActions({
         }
         setError(null);
         activeTurnIdRef.current = res.turnId ?? null;
+        if (res.turnId) {
+          blockedTurnIdsRef.current.delete(res.turnId);
+        }
         return { submitted: res.status === "submitted" };
       } catch (sendError) {
         console.error("Failed to send message", sendError);
         if (!isActiveChat(activeChatId) || readOnly) {
           return { submitted: false };
+        }
+        const currentStatus = statusRef.current;
+        if (!shouldRollbackSendMessageFailure(currentStatus)) {
+          chatDebug("stream", "ignored sendMessage rollback after status advanced", {
+            chatId: activeChatId,
+            previousStatus,
+            currentStatus,
+          });
+          return { submitted: true };
         }
         const errorCode = readTrpcErrorCode(sendError);
         if (errorCode === "CONFLICT") {
@@ -225,6 +243,7 @@ export function useChatActions({
     },
     [
       activeTurnIdRef,
+      blockedTurnIdsRef,
       chatId,
       isActiveChat,
       readOnly,
@@ -499,15 +518,17 @@ export function useChatActions({
       return;
     }
     const activeChatId = chatId;
+    const turnIdToBlock = activeTurnIdRef.current;
     try {
       await stopSessionMutation.mutateAsync({ chatId: activeChatId });
       if (!isActiveChat(activeChatId)) {
         return;
       }
+      rememberBlockedTurnId(blockedTurnIdsRef.current, turnIdToBlock);
+      activeTurnIdRef.current = null;
       setStreamLifecycle("idle");
       setConnStatus("idle");
       setStatus("inactive");
-      activeTurnIdRef.current = null;
     } catch (stopError) {
       if (!isActiveChat(activeChatId)) {
         return;
@@ -519,6 +540,7 @@ export function useChatActions({
     }
   }, [
     activeTurnIdRef,
+    blockedTurnIdsRef,
     chatId,
     isActiveChat,
     setConnStatus,

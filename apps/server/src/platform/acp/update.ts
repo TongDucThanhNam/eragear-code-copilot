@@ -7,6 +7,7 @@
  * @module infra/acp/update
  */
 
+import { ENV } from "@/config/environment";
 import type {
   SessionBufferingPort,
   SessionRepositoryPort,
@@ -29,11 +30,16 @@ import {
   disposeThrottledBroadcasts,
   flushThrottledBroadcasts,
 } from "./broadcast-throttle";
+import {
+  recordTurnIdDrop,
+  recordTurnIdResolution,
+} from "./turn-id-observability";
 import { broadcastUiMessagePart } from "./ui-message-part";
 import { SessionBuffering as SessionBufferingImpl } from "./update-buffer";
 import { handlePlanUpdate } from "./update-plan";
 import { handleBufferedMessage, isStreamingUpdate } from "./update-stream";
 import { handleToolCallCreate, handleToolCallUpdate } from "./update-tool";
+import { resolveSessionUpdateTurnId } from "./update-turn-id";
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 import { isReplayChunk } from "./update-types";
 
@@ -105,6 +111,7 @@ async function finalizeStreamingForCurrentAssistant(
           message: updatedMessage,
           partIndex: nextPartIndex,
           isNew,
+          turnId: session.activeTurnId,
         });
       }
     }
@@ -140,8 +147,90 @@ async function finalizeStreamingForCurrentAssistant(
       message: finalizedMessage,
       partIndex: index,
       isNew: false,
+      turnId: session.activeTurnId,
     });
   }
+}
+
+function isTurnScopedSessionUpdate(update: SessionUpdate): boolean {
+  return (
+    update.sessionUpdate === "user_message_chunk" ||
+    update.sessionUpdate === "agent_message_chunk" ||
+    update.sessionUpdate === "agent_thought_chunk" ||
+    update.sessionUpdate === "tool_call" ||
+    update.sessionUpdate === "tool_call_update" ||
+    update.sessionUpdate === "plan"
+  );
+}
+
+function shouldIgnoreStaleTurnScopedUpdate(params: {
+  chatId: string;
+  isReplayingHistory: boolean;
+  sessionRuntime: SessionRuntimePort;
+  update: SessionUpdate;
+  turnIdResolution: ReturnType<typeof resolveSessionUpdateTurnId>;
+}): boolean {
+  const {
+    chatId,
+    isReplayingHistory,
+    sessionRuntime,
+    update,
+    turnIdResolution,
+  } = params;
+  if (isReplayingHistory || !isTurnScopedSessionUpdate(update)) {
+    return false;
+  }
+
+  recordTurnIdResolution("sessionUpdate", turnIdResolution.source);
+
+  if (
+    ENV.acpTurnIdPolicy === "require-native" &&
+    turnIdResolution.source !== "native"
+  ) {
+    logger.warn(
+      "Ignoring ACP update without native turnId under strict policy",
+      {
+        chatId,
+        sessionUpdate: update.sessionUpdate,
+        turnIdSource: turnIdResolution.source,
+      }
+    );
+    recordTurnIdDrop("requireNativePolicy");
+    return true;
+  }
+
+  const session = sessionRuntime.get(chatId);
+  if (!session) {
+    return false;
+  }
+
+  const updateTurnId = turnIdResolution.turnId;
+  if (!updateTurnId) {
+    return false;
+  }
+
+  if (!session.activeTurnId) {
+    logger.warn("Ignoring late ACP update after active turn cleared", {
+      chatId,
+      sessionUpdate: update.sessionUpdate,
+      updateTurnId,
+    });
+    recordTurnIdDrop("lateAfterTurnCleared");
+    return true;
+  }
+
+  if (session.activeTurnId !== updateTurnId) {
+    logger.warn("Ignoring stale ACP update with mismatched turnId", {
+      chatId,
+      sessionUpdate: update.sessionUpdate,
+      updateTurnId,
+      activeTurnId: session.activeTurnId,
+    });
+    recordTurnIdDrop("staleTurnMismatch");
+    return true;
+  }
+
+  return false;
 }
 
 function summarizeUpdate(update: SessionUpdate) {
@@ -213,6 +302,22 @@ function summarizeUpdate(update: SessionUpdate) {
         sessionUpdate: update.sessionUpdate,
         hasMeta: "_meta" in update ? Boolean(update._meta) : false,
       };
+  }
+}
+
+function shouldLogSessionUpdateSummary(update: SessionUpdate): boolean {
+  switch (update.sessionUpdate) {
+    case "current_mode_update":
+    case "available_commands_update":
+    case "config_option_update":
+    case "session_info_update":
+    case "tool_call":
+    case "plan":
+      return true;
+    case "tool_call_update":
+      return update.status === "completed" || update.status === "failed";
+    default:
+      return false;
   }
 }
 
@@ -453,6 +558,7 @@ export function createSessionUpdateHandler(
     update: SessionUpdate;
   }) {
     const { chatId, buffer, isReplayingHistory, update } = params;
+    const turnIdResolution = resolveSessionUpdateTurnId(update);
 
     trackReplayEvents(buffer, isReplayingHistory, update);
 
@@ -461,7 +567,7 @@ export function createSessionUpdateHandler(
       Boolean(sessionRuntime.get(chatId)?.suppressReplayBroadcast);
     const isDebugEnabled = shouldEmitRuntimeLog("debug");
     const summary = isDebugEnabled ? summarizeUpdate(update) : undefined;
-    if (isDebugEnabled && summary) {
+    if (isDebugEnabled && summary && shouldLogSessionUpdateSummary(update)) {
       logger.debug("ACP session update", {
         chatId,
         isReplayingHistory,
@@ -469,79 +575,146 @@ export function createSessionUpdateHandler(
         ...summary,
       });
     }
-    if (suppressReplay && isDebugEnabled && summary) {
-      logger.debug("ACP replay update broadcast suppressed", {
-        chatId,
-        replayEventCount: buffer.replayEventCount,
-        ...summary,
-      });
-    }
 
     await sessionRuntime.runExclusive(chatId, async () => {
-      await maybeMarkStreaming(
-        chatId,
-        isReplayingHistory,
-        update,
-        sessionRuntime
-      );
-
-      const activeSession = sessionRuntime.get(chatId);
-      if (activeSession && update.sessionUpdate !== "user_message_chunk") {
-        // Keep user chunk aggregation bounded to one contiguous user stream.
-        activeSession.uiState.currentUserId = undefined;
-      }
-
-      const context: SessionUpdateContext = {
+      await processSessionUpdateUnderLock({
         chatId,
         buffer,
         isReplayingHistory,
-        suppressReplayBroadcast: suppressReplay,
+        suppressReplay,
         update,
+        turnIdResolution,
         sessionRuntime,
         sessionRepo,
-        finalizeStreamingForCurrentAssistant,
-      };
-
-      const handledByChunkPipeline = await handleBufferedMessage(context);
-
-      if (await handleModeUpdate(context)) {
-        return;
-      }
-      if (await handleCommandsUpdate(context)) {
-        return;
-      }
-      if (await handleConfigOptionsUpdate(context)) {
-        return;
-      }
-      if (await handleSessionInfoUpdate(context)) {
-        return;
-      }
-      if (await handlePlanUpdate(context)) {
-        return;
-      }
-      if (await handleToolCallCreate(context)) {
-        return;
-      }
-      if (await handleToolCallUpdate(context)) {
-        return;
-      }
-
-      if (summary && !handledByChunkPipeline) {
-        const ignoredContext = {
-          chatId,
-          ...summary,
-        };
-        if (shouldWarnUnhandledChunkUpdate(update)) {
-          logger.warn("ACP chunk update ignored by pipeline", ignoredContext);
-        } else if (isDebugEnabled) {
-          logger.debug(
-            "ACP session update ignored by pipeline",
-            ignoredContext
-          );
-        }
-      }
+        summary,
+        isDebugEnabled,
+      });
     });
   };
+}
+
+async function processSessionUpdateUnderLock(params: {
+  chatId: string;
+  buffer: SessionBufferingPort;
+  isReplayingHistory: boolean;
+  suppressReplay: boolean;
+  update: SessionUpdate;
+  turnIdResolution: ReturnType<typeof resolveSessionUpdateTurnId>;
+  sessionRuntime: SessionRuntimePort;
+  sessionRepo: SessionRepositoryPort;
+  summary: ReturnType<typeof summarizeUpdate> | undefined;
+  isDebugEnabled: boolean;
+}): Promise<void> {
+  const {
+    chatId,
+    buffer,
+    isReplayingHistory,
+    suppressReplay,
+    update,
+    turnIdResolution,
+    sessionRuntime,
+    sessionRepo,
+    summary,
+    isDebugEnabled,
+  } = params;
+  if (
+    shouldIgnoreStaleTurnScopedUpdate({
+      chatId,
+      isReplayingHistory,
+      sessionRuntime,
+      update,
+      turnIdResolution,
+    })
+  ) {
+    return;
+  }
+
+  await maybeMarkStreaming(chatId, isReplayingHistory, update, sessionRuntime);
+  clearCurrentUserStreamPointer(chatId, update, sessionRuntime);
+
+  const context: SessionUpdateContext = {
+    chatId,
+    buffer,
+    isReplayingHistory,
+    suppressReplayBroadcast: suppressReplay,
+    update,
+    turnIdResolution,
+    sessionRuntime,
+    sessionRepo,
+    finalizeStreamingForCurrentAssistant,
+  };
+
+  const handledByChunkPipeline = await handleBufferedMessage(context);
+  const handled = await dispatchSessionUpdate(context);
+  if (!summary || handledByChunkPipeline || handled) {
+    return;
+  }
+  logIgnoredSessionUpdate({
+    chatId,
+    update,
+    summary,
+    isDebugEnabled,
+  });
+}
+
+function clearCurrentUserStreamPointer(
+  chatId: string,
+  update: SessionUpdate,
+  sessionRuntime: SessionRuntimePort
+): void {
+  const activeSession = sessionRuntime.get(chatId);
+  if (!activeSession || update.sessionUpdate === "user_message_chunk") {
+    return;
+  }
+  // Keep user chunk aggregation bounded to one contiguous user stream.
+  activeSession.uiState.currentUserId = undefined;
+}
+
+async function dispatchSessionUpdate(
+  context: SessionUpdateContext
+): Promise<boolean> {
+  if (await handleModeUpdate(context)) {
+    return true;
+  }
+  if (await handleCommandsUpdate(context)) {
+    return true;
+  }
+  if (await handleConfigOptionsUpdate(context)) {
+    return true;
+  }
+  if (await handleSessionInfoUpdate(context)) {
+    return true;
+  }
+  if (await handlePlanUpdate(context)) {
+    return true;
+  }
+  if (await handleToolCallCreate(context)) {
+    return true;
+  }
+  if (await handleToolCallUpdate(context)) {
+    return true;
+  }
+  return false;
+}
+
+function logIgnoredSessionUpdate(params: {
+  chatId: string;
+  update: SessionUpdate;
+  summary: ReturnType<typeof summarizeUpdate>;
+  isDebugEnabled: boolean;
+}): void {
+  const { chatId, update, summary, isDebugEnabled } = params;
+  const ignoredContext = {
+    chatId,
+    ...summary,
+  };
+  if (shouldWarnUnhandledChunkUpdate(update)) {
+    logger.warn("ACP chunk update ignored by pipeline", ignoredContext);
+    return;
+  }
+  if (isDebugEnabled) {
+    logger.debug("ACP session update ignored by pipeline", ignoredContext);
+  }
 }
 
 function trackReplayEvents(
@@ -569,13 +742,6 @@ async function maybeMarkStreaming(
   }
   const runtime = new SessionRuntimeEntity(session);
   if (!runtime.shouldStreamFromActivity()) {
-    if (shouldEmitRuntimeLog("debug")) {
-      logger.debug("Skip streaming status update without active turn", {
-        chatId,
-        sessionUpdate: update.sessionUpdate,
-        chatStatus: session.chatStatus,
-      });
-    }
     return;
   }
   await runtime.markStreamingFromActivity({

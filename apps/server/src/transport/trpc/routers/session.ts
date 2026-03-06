@@ -29,33 +29,6 @@ import { protectedProcedure, router } from "../base";
 
 const logger = createLogger("tRPC");
 
-function shouldLogStreamEvent(event: BroadcastEvent): boolean {
-  return event.type === "ui_message" || event.type === "ui_message_part";
-}
-
-function buildStreamEventContext(
-  event: BroadcastEvent
-): Record<string, unknown> {
-  if (event.type === "ui_message") {
-    return {
-      messageId: event.message.id,
-      partsCount: event.message.parts.length,
-    };
-  }
-  if (event.type === "ui_message_part") {
-    return {
-      messageId: event.messageId,
-      partId: event.partId,
-      partIndex: event.partIndex,
-      isNew: event.isNew,
-      partType: event.part.type,
-    };
-  }
-  return {
-    eventType: event.type,
-  };
-}
-
 export const sessionRouter = router({
   /** Create a new session for a project */
   createSession: protectedProcedure
@@ -295,24 +268,10 @@ export const sessionRouter = router({
           });
 
           for (const event of subscription.bufferedEvents) {
-            if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
-              logger.debug("tRPC onSessionEvents buffered event", {
-                chatId: input.chatId,
-                eventType: event.type,
-                ...buildStreamEventContext(event),
-              });
-            }
             emit.next(event);
           }
 
           unsubscribe = subscription.subscribe((event) => {
-            if (shouldEmitRuntimeLog("debug") && shouldLogStreamEvent(event)) {
-              logger.debug("tRPC onSessionEvents live event", {
-                chatId: input.chatId,
-                eventType: event.type,
-                ...buildStreamEventContext(event),
-              });
-            }
             emit.next(event);
           });
         };

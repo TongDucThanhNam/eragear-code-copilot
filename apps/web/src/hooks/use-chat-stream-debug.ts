@@ -2,8 +2,7 @@ import type { BroadcastEvent } from "@repo/shared";
 import type { MessageState } from "./use-chat-message-state";
 
 /**
- * Legacy diagnostic helper for deprecated `ui_message_delta` events.
- * Canonical streaming now uses `ui_message_part` snapshots.
+ * Diagnostic helper for append-only text/reasoning delta events.
  */
 export function describeDeltaTarget(params: {
   event: Extract<BroadcastEvent, { type: "ui_message_delta" }>;

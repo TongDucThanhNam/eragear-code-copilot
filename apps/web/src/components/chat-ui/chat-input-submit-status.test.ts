@@ -5,13 +5,13 @@ import {
 } from "./chat-input-submit-status";
 
 describe("resolvePromptInputSubmitStatus", () => {
-  test("normalizes connected+error to ready", () => {
+  test("keeps connected error unchanged", () => {
     expect(
       resolvePromptInputSubmitStatus({
         connStatus: "connected",
         status: "error",
       })
-    ).toBe("ready");
+    ).toBe("error");
   });
 
   test("keeps streaming unchanged", () => {
@@ -68,5 +68,14 @@ describe("isPromptSubmitDisabled", () => {
         status: "streaming",
       })
     ).toBe(false);
+  });
+
+  test("disables submit when session is in error state", () => {
+    expect(
+      isPromptSubmitDisabled({
+        connStatus: "connected",
+        status: "error",
+      })
+    ).toBe(true);
   });
 });
