@@ -4,12 +4,7 @@ import { FileTextIcon } from "lucide-react";
 import { useCallback, useEffect, type RefObject } from "react";
 import { usePromptInputController } from "@/components/ai-elements/prompt-input";
 import { cn } from "@/lib/utils";
-
-export interface MentionItem {
-  path: string;
-  name: string;
-  dir: string;
-}
+import type { MentionItem } from "./shared";
 
 interface MentionMenuProps {
   open: boolean;

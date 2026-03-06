@@ -191,6 +191,7 @@ export function ChatInterface({
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const handledPermissionIdRef = useRef<string | null>(null);
   const lastPermissionIdRef = useRef<string | null>(null);
+  chatIdRef.current = chatId;
   const handleChatError = useCallback((err: string) => {
     toast.error(err);
   }, []);
@@ -460,10 +461,6 @@ export function ChatInterface({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onChatIdChange, quickSwitchSessions]);
-
-  useEffect(() => {
-    chatIdRef.current = chatId;
-  }, [chatId]);
 
   useEffect(() => {
     const requestId = activePendingPermission?.requestId ?? null;

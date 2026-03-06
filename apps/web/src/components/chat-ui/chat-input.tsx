@@ -14,6 +14,7 @@ import {
   memo,
   type RefObject,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -68,13 +69,15 @@ import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { MovingBorder } from "@/components/ui/moving-border";
 import { ATTACHMENT_HARD_LIMIT_BYTES } from "@/config/attachments";
 import { useFileStore } from "@/store/file-store";
-import { MentionMenu, type MentionItem } from "./chat-input/mention-menu";
+import { MentionMenu } from "./chat-input/mention-menu";
 import {
   MAX_QUICK_SLASH_COMMANDS,
   MAX_RECENT_SLASH_COMMANDS,
   SLASH_COMMAND_RECENTS_STORAGE_KEY,
   areStringArraysEqual,
+  buildMentionItems,
   findMentionTrigger,
+  type MentionItem,
   normalizeConfigOptions,
   normalizeModelProviders,
   parseRecentSlashCommandNames,
@@ -154,6 +157,7 @@ export const ChatInput = memo(function ChatInput({
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionStart, setMentionStart] = useState<number | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const deferredMentionQuery = useDeferredValue(mentionQuery);
   const [slashCommandPickerOpen, setSlashCommandPickerOpen] = useState(false);
   const [recentSlashCommandNames, setRecentSlashCommandNames] = useState<
     string[]
@@ -273,28 +277,12 @@ export const ChatInput = memo(function ChatInput({
     slashCommands.length > quickSlashCommands.length;
 
   const mentionItems = useMemo(() => {
-    const normalized = mentionQuery.trim().toLowerCase();
-    const activeTabPaths = activeTabs.map((tab) => tab.path);
-    const seen = new Set<string>();
-    const candidates = normalized
-      ? files.filter((path) => path.toLowerCase().includes(normalized))
-      : [...activeTabPaths, ...files];
-
-    const unique = candidates.filter((path) => {
-      if (seen.has(path)) {
-        return false;
-      }
-      seen.add(path);
-      return true;
+    return buildMentionItems({
+      activeTabs,
+      files,
+      mentionQuery: deferredMentionQuery,
     });
-
-    return unique.slice(0, 60).map((path) => {
-      const parts = path.split("/");
-      const name = parts.pop() ?? path;
-      const dir = parts.join("/");
-      return { path, name, dir };
-    });
-  }, [activeTabs, files, mentionQuery]);
+  }, [activeTabs, deferredMentionQuery, files]);
 
   useEffect(() => {
     if (!mentionOpen) {

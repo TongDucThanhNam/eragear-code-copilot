@@ -147,9 +147,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setStreamLifecycle,
   });
   const loadHistoryRef = useRef(loadHistory);
-  useEffect(() => {
-    loadHistoryRef.current = loadHistory;
-  }, [loadHistory]);
+  loadHistoryRef.current = loadHistory;
 
   // Load stored history once, merging pages by message.id
   useEffect(() => {

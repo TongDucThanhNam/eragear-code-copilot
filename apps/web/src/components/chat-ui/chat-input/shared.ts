@@ -21,6 +21,12 @@ export interface NormalizedConfigOption {
   values: RenderableConfigValue[];
 }
 
+export interface MentionItem {
+  path: string;
+  name: string;
+  dir: string;
+}
+
 type ChatInputModelLike = {
   provider?: string;
   providers?: string[];
@@ -129,6 +135,42 @@ export function findMentionTrigger(value: string, cursor: number) {
   }
 
   return { start: atIndex, query };
+}
+
+export function buildMentionItems({
+  activeTabs,
+  files,
+  mentionQuery,
+  limit = 60,
+}: {
+  activeTabs: { path: string }[];
+  files: string[];
+  mentionQuery: string;
+  limit?: number;
+}): MentionItem[] {
+  const normalizedQuery = mentionQuery.trim().toLowerCase();
+  const activeTabPaths = activeTabs.map((tab) => tab.path);
+  const candidates = normalizedQuery
+    ? files.filter((path) => path.toLowerCase().includes(normalizedQuery))
+    : [...activeTabPaths, ...files];
+  const items: MentionItem[] = [];
+  const seen = new Set<string>();
+
+  for (const path of candidates) {
+    if (seen.has(path)) {
+      continue;
+    }
+    seen.add(path);
+    const parts = path.split("/");
+    const name = parts.pop() ?? path;
+    const dir = parts.join("/");
+    items.push({ path, name, dir });
+    if (items.length >= limit) {
+      break;
+    }
+  }
+
+  return items;
 }
 
 export function normalizeConfigOptions(

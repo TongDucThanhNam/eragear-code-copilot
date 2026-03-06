@@ -81,31 +81,14 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   const hasLocalModelOverrideRef = useRef(false);
   const hasLocalConfigOverrideRef = useRef(false);
 
+  statusRef.current = status;
+  connStatusRef.current = connStatus;
+  activeChatIdRef.current = chatId ?? null;
+  modesRef.current = modes;
+  modelsRef.current = models;
+  commandsRef.current = commands;
+
   const messages = getChatMessageStateSnapshot(chatId ?? null).orderedMessages;
-
-  useEffect(() => {
-    statusRef.current = status;
-  }, [status]);
-
-  useEffect(() => {
-    connStatusRef.current = connStatus;
-  }, [connStatus]);
-
-  useEffect(() => {
-    activeChatIdRef.current = chatId ?? null;
-  }, [chatId]);
-
-  useEffect(() => {
-    modesRef.current = modes;
-  }, [modes]);
-
-  useEffect(() => {
-    modelsRef.current = models;
-  }, [models]);
-
-  useEffect(() => {
-    commandsRef.current = commands;
-  }, [commands]);
 
   useEffect(() => {
     const activeChatId = chatId ?? null;
