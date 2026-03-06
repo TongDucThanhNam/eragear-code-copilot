@@ -33,7 +33,6 @@ upsert theo `message.id` và render theo `UIMessagePart`.
 - `ui_message`: snapshot đầy đủ, luôn upsert theo `message.id`.
 - `ui_message_part`: apply theo `messageId` + `partIndex` + `isNew`.
   Nếu không apply được thì drop an toàn và chờ snapshot kế tiếp.
-- `ui_message_delta`: legacy compatibility event, client mới có thể bỏ qua.
 
 ## Resume Sync
 

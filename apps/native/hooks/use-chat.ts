@@ -381,12 +381,6 @@ export function useChat(options: UseChatOptions = {}) {
       const normalizedEvent = event;
       const currentModes = store.modes;
       const currentModels = store.models;
-      // Only batch ui_message_delta (text append). Snapshots (ui_message)
-      // must apply immediately so the canonical state is never stale.
-      const onMessageUpsert =
-        normalizedEvent.type === "ui_message_delta"
-          ? scheduleMessagesUpdate
-          : applyMessagesImmediate;
 
       processSessionEvent(
         normalizedEvent,
@@ -394,14 +388,10 @@ export function useChat(options: UseChatOptions = {}) {
         {
           onStatusChange: store.setStatus,
           onConnStatusChange: store.setConnStatus,
-          onMessageUpsert,
+          onMessageUpsert: applyMessagesImmediate,
           onMessagePartUpdate: applyMessagePartUpdate,
-          // Wrap getMessageById to read pending batch first.
-          // During batched streaming, ui_message_delta events
-          // accumulate in pendingMessagesRef before flushing to
-          // the store. Without this, each delta reads the STALE
-          // store value and only the last delta per 50ms window
-          // survives — all intermediate text is lost.
+          // Part streaming batches through onMessagePartUpdate, so reads must
+          // still consult the pending batch before falling back to store state.
           getMessageById: (id: string) =>
             pendingMessagesRef.current.get(id) ?? getMessageById(id),
           getCommands: () => useChatStore.getState().commands,

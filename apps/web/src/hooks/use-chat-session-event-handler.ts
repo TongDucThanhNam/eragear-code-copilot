@@ -24,13 +24,11 @@ import { nextLifecycleOnSubscriptionEvent } from "./use-chat-connection.machine"
 import { chatDebug } from "./use-chat-debug";
 import {
   applyPartUpdate,
-  applyTextDeltaUpdate,
   finalizeStreamingMessagesInState,
   type MessageState,
   upsertMessageIntoState,
 } from "./use-chat-message-state";
-import { normalizeMessage, shouldLogChatStreamDebug } from "./use-chat-normalize";
-import { logChatStreamDebug } from "./use-chat-stream-debug";
+import { normalizeMessage } from "./use-chat-normalize";
 import { resolveSessionEventTurnGuard } from "./use-chat-turn-guards";
 import type { UseChatOptions } from "./use-chat.types";
 
@@ -66,7 +64,8 @@ export function reconcileMessageUpsertAfterStatus(
   message: UIMessage,
   status: ChatStatus
 ): MessageState {
-  const nextState = upsertMessageIntoState(state, message);
+  const nextMessage = reconcileLateTerminalMessageSnapshot(message, status);
+  const nextState = upsertMessageIntoState(state, nextMessage);
   if (
     status !== "ready" &&
     status !== "inactive" &&
@@ -74,7 +73,78 @@ export function reconcileMessageUpsertAfterStatus(
   ) {
     return nextState;
   }
+  if (hasPendingApprovalRequest(nextMessage)) {
+    return nextState;
+  }
   return finalizeStreamingMessagesInState(nextState);
+}
+
+function reconcileLateTerminalMessageSnapshot(
+  message: UIMessage,
+  status: ChatStatus
+): UIMessage {
+  if (
+    status !== "ready" &&
+    status !== "inactive" &&
+    status !== "error"
+  ) {
+    return message;
+  }
+
+  const hasPendingApproval = hasPendingApprovalRequest(message);
+  if (!hasPendingApproval) {
+    return message;
+  }
+
+  let changed = false;
+  const parts = message.parts.map((part) => {
+    if (
+      (part.type === "text" || part.type === "reasoning") &&
+      part.state === "streaming"
+    ) {
+      changed = true;
+      return {
+        ...part,
+        state: "done" as const,
+      };
+    }
+    return part;
+  });
+
+  if (!changed) {
+    return message;
+  }
+
+  return {
+    ...message,
+    parts,
+  };
+}
+
+function hasPendingApprovalRequest(message: UIMessage): boolean {
+  return message.parts.some(
+    (part) =>
+      part.type.startsWith("tool-") &&
+      "state" in part &&
+      part.state === "approval-requested"
+  );
+}
+
+/**
+ * Keep the most recently completed turn id until a new turn starts or the
+ * runtime is explicitly torn down. Late same-turn deltas/part updates can
+ * still arrive immediately after terminal status events, and clearing too
+ * early drops the tail of the assistant response.
+ */
+export function reconcileActiveTurnIdAfterEvent(params: {
+  activeTurnId: string | null;
+  event: BroadcastEvent;
+}): string | null {
+  const { activeTurnId, event } = params;
+  if (event.type === "error") {
+    return null;
+  }
+  return activeTurnId;
 }
 
 export function useChatSessionEventHandler(
@@ -148,13 +218,6 @@ export function useChatSessionEventHandler(
             : {}),
         });
       }
-      if (shouldLogChatStreamDebug()) {
-        logChatStreamDebug({
-          event,
-          activeChatId: activeChatIdRef.current,
-          state: messageStateRef.current,
-        });
-      }
       const turnGuard = resolveSessionEventTurnGuard({
         activeTurnId: activeTurnIdRef.current,
         blockedTurnIds: blockedTurnIdsRef.current,
@@ -200,7 +263,6 @@ export function useChatSessionEventHandler(
         activeChatIdRef.current &&
         (event.type === "ui_message" ||
           event.type === "ui_message_part" ||
-          event.type === "ui_message_delta" ||
           event.type === "chat_finish")
       ) {
         connectedChatIdRef.current = activeChatIdRef.current;
@@ -208,22 +270,6 @@ export function useChatSessionEventHandler(
       setStreamLifecycle((prev) =>
         nextLifecycleOnSubscriptionEvent({ current: prev, event })
       );
-      if (event.type === "ui_message_delta") {
-        chatDebug("stream", "applied ui_message_delta event", {
-          chatId: activeChatIdRef.current,
-          messageId: event.messageId,
-          partIndex: event.partIndex,
-          deltaLength: event.delta.length,
-        });
-        updateMessageState((prev) =>
-          applyTextDeltaUpdate(prev, {
-            messageId: event.messageId,
-            partIndex: event.partIndex,
-            delta: event.delta,
-          })
-        );
-        return;
-      }
       processSessionEvent(
         event,
         {
@@ -297,22 +343,6 @@ export function useChatSessionEventHandler(
         updateMessageState((prev) => finalizeStreamingMessagesInState(prev));
       }
       if (
-        event.type === "chat_finish" &&
-        event.turnId &&
-        activeTurnIdRef.current &&
-        activeTurnIdRef.current === event.turnId
-      ) {
-        activeTurnIdRef.current = null;
-      }
-      if (
-        event.type === "chat_status" &&
-        event.status === "ready" &&
-        event.turnId &&
-        activeTurnIdRef.current === event.turnId
-      ) {
-        activeTurnIdRef.current = null;
-      }
-      if (
         event.type === "chat_status" &&
         event.status === "inactive" &&
         !isResumingRef.current
@@ -320,9 +350,29 @@ export function useChatSessionEventHandler(
         setStreamLifecycle("idle");
         setConnStatus("idle");
       }
-      if (event.type === "error") {
-        activeTurnIdRef.current = null;
+      const previousActiveTurnId = activeTurnIdRef.current;
+      const nextActiveTurnId = reconcileActiveTurnIdAfterEvent({
+        activeTurnId: previousActiveTurnId,
+        event,
+      });
+      if (
+        previousActiveTurnId !== nextActiveTurnId ||
+        ((event.type === "chat_finish" ||
+          (event.type === "chat_status" && event.status === "ready")) &&
+          previousActiveTurnId)
+      ) {
+        chatDebug("stream", "reconciled active turn after session event", {
+          chatId: activeChatIdRef.current,
+          eventType: event.type,
+          previousActiveTurnId,
+          nextActiveTurnId,
+          ...(event.type === "chat_status"
+            ? { status: event.status, turnId: event.turnId ?? null }
+            : {}),
+          ...(event.type === "chat_finish" ? { turnId: event.turnId ?? null } : {}),
+        });
       }
+      activeTurnIdRef.current = nextActiveTurnId;
     },
     [
       activeChatIdRef,

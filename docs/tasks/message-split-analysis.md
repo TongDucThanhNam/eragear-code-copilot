@@ -44,16 +44,16 @@ The server creates exactly ONE message per assistant turn:
 
 ### Event Broadcasting
 - **User messages**: Broadcast as `ui_message` (includes full message with `createdAt`)
-- **Assistant message chunks**: Broadcast as `ui_message_part` (isNew) or `ui_message_delta`
+- **Assistant message chunks**: Broadcast as `ui_message_part` snapshots (`isNew=true` on create, `isNew=false` on append/finalize)
 - **CRITICAL: `broadcastUiMessagePart` does NOT include `createdAt`** — only sends messageId, messageRole, partIndex, part, isNew
 - **Tool calls**: Broadcast as `ui_message_part` via `broadcastUiMessagePart`
 - **`chat_finish`**: Includes full message WITH `createdAt` via `maybeBroadcastChatFinish`
 
 ### Part Lifecycle Within One Message
 When agent sends: text → tool → text:
-1. First text → `ui_message_part(partIndex=0, text(streaming), isNew=true)` then `ui_message_delta`
+1. First text → `ui_message_part(partIndex=0, text(streaming), isNew=true)` then throttled `ui_message_part(partIndex=0, text(streaming), isNew=false)`
 2. Tool call → `finalizeStreaming` (text→done) → `ui_message_part(partIndex=0, text(done), isNew=false)` → then `ui_message_part(partIndex=1, tool, isNew=true)`
-3. More text → `ui_message_part(partIndex=2, text(streaming), isNew=true)` then `ui_message_delta`
+3. More text → `ui_message_part(partIndex=2, text(streaming), isNew=true)` then throttled `ui_message_part(partIndex=2, text(streaming), isNew=false)`
 
 Result in ONE message: `[text(done), tool, text(streaming)]`
 

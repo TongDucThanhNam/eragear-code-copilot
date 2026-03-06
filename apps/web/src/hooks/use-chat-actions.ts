@@ -220,11 +220,15 @@ export function useChatActions({
         }
         const currentStatus = statusRef.current;
         if (!shouldRollbackSendMessageFailure(currentStatus)) {
-          chatDebug("stream", "ignored sendMessage rollback after status advanced", {
-            chatId: activeChatId,
-            previousStatus,
-            currentStatus,
-          });
+          chatDebug(
+            "stream",
+            "ignored sendMessage rollback after status advanced",
+            {
+              chatId: activeChatId,
+              previousStatus,
+              currentStatus,
+            }
+          );
           return { submitted: true };
         }
         const errorCode = readTrpcErrorCode(sendError);

@@ -166,6 +166,31 @@ describe("resolveSessionEventTurnGuard", () => {
     });
   });
 
+  test("accepts explicit same-turn part updates after ready while completed turn is still tracked", () => {
+    const event: BroadcastEvent = {
+      type: "ui_message_part",
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "tail", state: "done" },
+      isNew: false,
+      turnId: "turn-1",
+    };
+
+    expect(
+      resolveSessionEventTurnGuard({
+        activeTurnId: "turn-1",
+        blockedTurnIds: new Set(),
+        event,
+        isResuming: false,
+        status: "ready",
+      })
+    ).toEqual({
+      ignore: false,
+      nextActiveTurnId: "turn-1",
+    });
+  });
+
   test("allows turnless streaming parts while submit is pending", () => {
     const event: BroadcastEvent = {
       type: "ui_message_part",

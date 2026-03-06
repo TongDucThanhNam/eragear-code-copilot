@@ -370,9 +370,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     // short WS reconnects can replay in-order chunk snapshots.
     const durable =
       options?.durable ??
-      (event.type === "ui_message_part" || event.type === "ui_message_delta"
-        ? false
-        : true);
+      (event.type === "ui_message_part" ? false : true);
     const retainInBuffer = options?.retainInBuffer ?? true;
 
     if (durable) {

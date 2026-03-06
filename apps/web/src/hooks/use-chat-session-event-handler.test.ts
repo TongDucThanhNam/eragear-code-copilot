@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import type { ChatStatus, UIMessage } from "@repo/shared";
-import { replaceMessagesState } from "./use-chat-message-state";
-import { reconcileMessageUpsertAfterStatus } from "./use-chat-session-event-handler";
+import {
+  applyPartUpdate,
+  finalizeStreamingMessagesInState,
+  replaceMessagesState,
+} from "./use-chat-message-state";
+import {
+  reconcileActiveTurnIdAfterEvent,
+  reconcileMessageUpsertAfterStatus,
+} from "./use-chat-session-event-handler";
+import { resolveSessionEventTurnGuard } from "./use-chat-turn-guards";
 
 function reconcileMessage(
   current: UIMessage[],
@@ -65,7 +73,7 @@ describe("reconcileMessageUpsertAfterStatus", () => {
     ]);
   });
 
-  test("cancels stale approval-requested tool snapshots after chat is ready", () => {
+  test("preserves approval-requested tool snapshots after chat is ready", () => {
     const next = reconcileMessage(
       [],
       {
@@ -88,13 +96,9 @@ describe("reconcileMessageUpsertAfterStatus", () => {
       {
         type: "tool-bash",
         toolCallId: "tool-2",
-        state: "output-cancelled",
+        state: "approval-requested",
         input: { cmd: "cat secrets.txt" },
-        approval: {
-          id: "req-2",
-          approved: false,
-          reason: "cancelled",
-        },
+        approval: { id: "req-2" },
       },
     ]);
   });
@@ -112,6 +116,114 @@ describe("reconcileMessageUpsertAfterStatus", () => {
 
     expect(next.byId.get("m3")?.parts).toEqual([
       { type: "text", text: "still going", state: "streaming" },
+    ]);
+  });
+});
+
+describe("reconcileActiveTurnIdAfterEvent", () => {
+  test("keeps completed turn id after chat_finish so late same-turn updates are still accepted", () => {
+    expect(
+      reconcileActiveTurnIdAfterEvent({
+        activeTurnId: "turn-1",
+        event: {
+          type: "chat_finish",
+          stopReason: "end_turn",
+          finishReason: "stop",
+          isAbort: false,
+          turnId: "turn-1",
+        },
+      })
+    ).toBe("turn-1");
+  });
+
+  test("keeps completed turn id after ready status to avoid truncating tail part updates", () => {
+    expect(
+      reconcileActiveTurnIdAfterEvent({
+        activeTurnId: "turn-1",
+        event: {
+          type: "chat_status",
+          status: "ready",
+          turnId: "turn-1",
+        },
+      })
+    ).toBe("turn-1");
+  });
+
+  test("clears active turn on stream error", () => {
+    expect(
+      reconcileActiveTurnIdAfterEvent({
+        activeTurnId: "turn-1",
+        event: {
+          type: "error",
+          error: "socket closed",
+        },
+      })
+    ).toBeNull();
+  });
+
+  test("preserves same-turn tail part update after ready without truncating text", () => {
+    const readyEvent = {
+      type: "chat_status" as const,
+      status: "ready" as const,
+      turnId: "turn-1",
+    };
+    const latePartEvent = {
+      type: "ui_message_part" as const,
+      messageId: "m1",
+      messageRole: "assistant" as const,
+      partIndex: 0,
+      part: { type: "text" as const, text: "Hello world", state: "done" as const },
+      isNew: false,
+      turnId: "turn-1",
+    };
+
+    let activeTurnId: string | null = "turn-1";
+    let status: ChatStatus = "streaming";
+    let state = replaceMessagesState([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello", state: "streaming" }],
+      },
+    ]);
+
+    const readyGuard = resolveSessionEventTurnGuard({
+      activeTurnId,
+      blockedTurnIds: new Set(),
+      event: readyEvent,
+      isResuming: false,
+      status,
+    });
+    expect(readyGuard.ignore).toBe(false);
+    activeTurnId = reconcileActiveTurnIdAfterEvent({
+      activeTurnId,
+      event: readyEvent,
+    });
+    state = finalizeStreamingMessagesInState(state);
+    status = "ready";
+
+    const partGuard = resolveSessionEventTurnGuard({
+      activeTurnId,
+      blockedTurnIds: new Set(),
+      event: latePartEvent,
+      isResuming: false,
+      status,
+    });
+    expect(partGuard).toEqual({
+      ignore: false,
+      nextActiveTurnId: "turn-1",
+    });
+
+    state = applyPartUpdate(state, {
+      messageId: latePartEvent.messageId,
+      messageRole: latePartEvent.messageRole,
+      partIndex: latePartEvent.partIndex,
+      part: latePartEvent.part,
+      isNew: latePartEvent.isNew,
+    });
+
+    expect(state.byId.get("m1")?.parts).toEqual([
+      { type: "text", text: "Hello world", state: "done" },
     ]);
   });
 });

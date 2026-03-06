@@ -38,6 +38,8 @@ if (!rootElement.innerHTML) {
 
 function App() {
   const { serverUrl, apiKey, isConfigured } = useServerConfigStore();
+
+  // check whether serverUrl and API key valid.
   const hasConnectionConfig =
     isConfigured && Boolean(serverUrl.trim()) && Boolean(apiKey.trim());
 
@@ -84,6 +86,7 @@ function ConfiguredApp({
     });
   }, [wsUrl, apiKey]);
 
+  // TODO: Explain this.
   useEffect(() => {
     return () => {
       wsClient.close();

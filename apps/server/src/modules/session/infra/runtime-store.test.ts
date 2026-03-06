@@ -462,7 +462,7 @@ describe("SessionRuntimeStore.broadcast", () => {
     expect(session.messageBuffer).toEqual([]);
   });
 
-  test("supports ephemeral broadcasts that skip outbox and replay buffer", async () => {
+  test("supports ephemeral part broadcasts that skip outbox and replay buffer", async () => {
     const outboxCalls: BroadcastEvent[] = [];
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
       sessionBufferLimit: 10,
@@ -479,10 +479,12 @@ describe("SessionRuntimeStore.broadcast", () => {
     await store.broadcast(
       "chat-1",
       {
-        type: "ui_message_delta",
+        type: "ui_message_part",
         messageId: "msg-1",
+        messageRole: "assistant",
         partIndex: 0,
-        delta: "hello",
+        part: { type: "text", text: "hello", state: "streaming" },
+        isNew: true,
       },
       {
         durable: false,
@@ -494,10 +496,12 @@ describe("SessionRuntimeStore.broadcast", () => {
     expect(session.messageBuffer).toEqual([]);
     expect(received).toEqual([
       {
-        type: "ui_message_delta",
+        type: "ui_message_part",
         messageId: "msg-1",
+        messageRole: "assistant",
         partIndex: 0,
-        delta: "hello",
+        part: { type: "text", text: "hello", state: "streaming" },
+        isNew: true,
       },
     ]);
   });

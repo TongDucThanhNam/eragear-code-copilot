@@ -5,11 +5,11 @@ import {
   IMAGE_PROMPT_QUALITY_STEPS,
 } from "@/config/attachments";
 
-export type PreparedPromptImage = {
+export interface PreparedPromptImage {
   base64: string;
   mimeType: string;
   sizeBytes: number;
-};
+}
 
 type PrepareImageErrorCode = "unsupported" | "too_large" | "encode_failed";
 
@@ -94,7 +94,7 @@ export function formatBytes(bytes: number): string {
     Math.floor(Math.log(bytes) / Math.log(1024)),
     units.length - 1
   );
-  const value = bytes / Math.pow(1024, exponent);
+  const value = bytes / 1024 ** exponent;
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[exponent]}`;
 }
 
@@ -224,11 +224,7 @@ function canvasToBlob(
   quality: number
 ): Promise<Blob | null> {
   return new Promise((resolve) => {
-    canvas.toBlob(
-      (blob) => resolve(blob),
-      mimeType,
-      clampQuality(quality)
-    );
+    canvas.toBlob((blob) => resolve(blob), mimeType, clampQuality(quality));
   });
 }
 

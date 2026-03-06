@@ -28,11 +28,6 @@ liệu, không phải tự parse raw ACP.
 - `terminal_output`: stream output cho terminal
 - `connected`, `heartbeat`, `error`
 
-Ghi chú tương thích:
-
-- `ui_message_delta` vẫn còn trong schema để tương thích client cũ, nhưng
-  không còn là stream primitive của server path canonical.
-
 ## Quy tắc upsert
 
 - `UIMessage.id` là khóa chính, client **phải upsert theo id**

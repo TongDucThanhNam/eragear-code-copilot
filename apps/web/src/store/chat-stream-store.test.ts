@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { UIMessage } from "@repo/shared";
 import {
-  applyTextDeltaUpdate,
+  applyPartUpdate,
   replaceMessagesState,
 } from "@/hooks/use-chat-message-state";
 import {
@@ -113,7 +113,7 @@ describe("chat-stream-store", () => {
     expect(orderedMessageLengths).toEqual([1, 2]);
   });
 
-  test("updateMessageState preserves message order reference for delta-only updates", () => {
+  test("updateMessageState preserves message order reference for part-only updates", () => {
     const store = useChatStreamStore.getState();
     store.updateMessageState(CHAT_ID, () =>
       replaceMessagesState([createAssistantMessage("msg-1", "hello")])
@@ -124,10 +124,12 @@ describe("chat-stream-store", () => {
       .getMessageState(CHAT_ID).order;
 
     store.updateMessageState(CHAT_ID, (prev) =>
-      applyTextDeltaUpdate(prev, {
+      applyPartUpdate(prev, {
         messageId: "msg-1",
+        messageRole: "assistant",
         partIndex: 0,
-        delta: " world",
+        part: { type: "text", text: "hello world", state: "done" },
+        isNew: false,
       })
     );
 

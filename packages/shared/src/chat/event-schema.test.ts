@@ -220,10 +220,12 @@ describe("parseBroadcastEventClientSafe", () => {
 
   test("classifies malformed known event payload as invalid", () => {
     const parsed = parseBroadcastEventClientSafe({
-      type: "ui_message_delta",
+      type: "ui_message_part",
       messageId: 123,
+      messageRole: "assistant",
       partIndex: "0",
-      delta: "x",
+      part: { type: "text", text: "x", state: "streaming" },
+      isNew: true,
     });
 
     expect(parsed.ok).toBe(false);
@@ -231,22 +233,6 @@ describe("parseBroadcastEventClientSafe", () => {
       return;
     }
     expect(parsed.kind).toBe("invalid_payload");
-  });
-
-  test("parses ui_message_delta payload with optional turnId", () => {
-    const parsed = parseBroadcastEventClientSafe({
-      type: "ui_message_delta",
-      messageId: "msg-1",
-      partIndex: 0,
-      delta: "hello",
-      turnId: "turn-1",
-    });
-
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok || parsed.value.type !== "ui_message_delta") {
-      return;
-    }
-    expect(parsed.value.turnId).toBe("turn-1");
   });
 
   test("parses current_model_update payload", () => {

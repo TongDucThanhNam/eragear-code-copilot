@@ -126,7 +126,7 @@ const finalCreatedAt = serverCreatedAt ?? tentativeCreatedAt;
 
 ### Broadcast Types
 - User messages → `ui_message` (full message with createdAt)
-- Assistant text → `ui_message_part` (first chunk, isNew=true) then `ui_message_delta`
+- Assistant text → `ui_message_part` (create with `isNew=true`, append/finalize with `isNew=false`)
 - Tool calls → `ui_message_part` 
 - Turn end → `chat_finish` (full message with createdAt)
 

@@ -26,12 +26,6 @@ export interface MessagePartUpdateChunk {
   createdAt?: number;
 }
 
-export interface MessageTextDeltaUpdateChunk {
-  messageId: string;
-  partIndex: number;
-  delta: string;
-}
-
 function areStructurallyEqualParts(
   left: UIMessage["parts"][number],
   right: UIMessage["parts"][number]
@@ -384,40 +378,6 @@ export const applyPartUpdate = (
       return state;
     }
   }
-
-  const nextMessage: UIMessage = {
-    ...existing,
-    parts: nextParts,
-  };
-  return replaceMessageAtKnownIndex(state, nextMessage);
-};
-
-export const applyTextDeltaUpdate = (
-  state: MessageState,
-  update: MessageTextDeltaUpdateChunk
-): MessageState => {
-  if (update.delta.length === 0) {
-    return state;
-  }
-
-  const existing = state.byId.get(update.messageId);
-  if (!existing) {
-    return state;
-  }
-
-  const targetPart = existing.parts[update.partIndex];
-  if (
-    !targetPart ||
-    (targetPart.type !== "text" && targetPart.type !== "reasoning")
-  ) {
-    return state;
-  }
-
-  const nextParts = [...existing.parts];
-  nextParts[update.partIndex] = {
-    ...targetPart,
-    text: `${targetPart.text}${update.delta}`,
-  };
 
   const nextMessage: UIMessage = {
     ...existing,

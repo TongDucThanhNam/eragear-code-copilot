@@ -43,9 +43,7 @@ function RootComponent() {
         disableTransitionOnChange
         storageKey="vite-ui-theme"
       >
-        {/* <div className="grid grid-rows-[auto_1fr] h-svh"> */}
         <Outlet />
-        {/* </div> */}
         <Toaster richColors />
         <ConnectionSetupDialog />
       </ThemeProvider>

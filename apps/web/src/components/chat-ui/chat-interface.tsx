@@ -228,6 +228,11 @@ export function ChatInterface({
     readOnly: false,
     onError: handleChatError,
   });
+  const activePendingPermission =
+    pendingPermission?.requestId &&
+    pendingPermission.requestId === handledPermissionIdRef.current
+      ? null
+      : pendingPermission;
   const createSessionMutation = trpc.createSession.useMutation();
   const messageCount = useChatMessageCount(chatId);
   const effectiveConnStatus = status === "inactive" ? "idle" : connStatus;
@@ -461,7 +466,7 @@ export function ChatInterface({
   }, [chatId]);
 
   useEffect(() => {
-    const requestId = pendingPermission?.requestId ?? null;
+    const requestId = activePendingPermission?.requestId ?? null;
     if (!requestId) {
       setPermissionDialogOpen(false);
       lastPermissionIdRef.current = null;
@@ -472,11 +477,11 @@ export function ChatInterface({
       handledPermissionIdRef.current = null;
       setPermissionDialogOpen(true);
     }
-  }, [pendingPermission?.requestId]);
+  }, [activePendingPermission?.requestId]);
 
   const handlePermissionDecision = useCallback(
     async (decision: string) => {
-      const requestId = pendingPermission?.requestId;
+      const requestId = activePendingPermission?.requestId;
       if (!requestId || handledPermissionIdRef.current === requestId) {
         return;
       }
@@ -490,17 +495,17 @@ export function ChatInterface({
         setPermissionDialogOpen(true);
       }
     },
-    [pendingPermission?.requestId, respondToPermission]
+    [activePendingPermission?.requestId, respondToPermission]
   );
 
   const defaultRejectDecision = useMemo(() => {
     return getRejectDecision(
-      (pendingPermission?.options as
+      (activePendingPermission?.options as
         | Array<Record<string, unknown>>
         | { options?: Array<Record<string, unknown>> }
         | undefined) ?? undefined
     );
-  }, [pendingPermission?.options]);
+  }, [activePendingPermission?.options]);
 
   const handlePermissionSelect = useCallback(
     (decision: string) => {
@@ -534,7 +539,7 @@ export function ChatInterface({
         setPermissionDialogOpen(true);
         return;
       }
-      const requestId = pendingPermission?.requestId;
+      const requestId = activePendingPermission?.requestId;
       if (!requestId || handledPermissionIdRef.current === requestId) {
         setPermissionDialogOpen(false);
         return;
@@ -548,7 +553,7 @@ export function ChatInterface({
     [
       defaultRejectDecision,
       handlePermissionDecision,
-      pendingPermission?.requestId,
+      activePendingPermission?.requestId,
     ]
   );
 
@@ -932,6 +937,8 @@ export function ChatInterface({
     status === "error"
       ? "Chat stream was interrupted before messages arrived."
       : "Session is running but no messages were synced yet.";
+  const permissionDialogVisible =
+    permissionDialogOpen || Boolean(activePendingPermission);
 
   if (shouldShowBootstrapState) {
     return (
@@ -1002,6 +1009,7 @@ export function ChatInterface({
           chatId={chatId}
           isLoadingOlder={isLoadingOlderHistory}
           onLoadOlder={handleLoadOlderHistory}
+          status={status}
         />
         {shouldShowConnectionOverlay && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/35 backdrop-blur-[1px]">
@@ -1080,8 +1088,8 @@ export function ChatInterface({
         onOpenChange={handlePermissionDialogOpenChange}
         onReject={handlePermissionReject}
         onSelect={handlePermissionSelect}
-        open={permissionDialogOpen}
-        request={pendingPermission}
+        open={permissionDialogVisible}
+        request={activePendingPermission}
       />
     </div>
   );

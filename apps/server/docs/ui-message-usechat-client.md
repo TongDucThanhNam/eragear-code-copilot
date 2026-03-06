@@ -32,8 +32,8 @@ Quy tắc state machine:
 
 - `ui_message` là **snapshot đầy đủ** cho `message.id`, client phải **upsert theo id**.
 - Thứ tự message chuẩn theo `message.createdAt` (unix ms). Không suy thứ tự theo thời điểm event tới client.
-- Server buffer ACP chunks và chỉ emit `ui_message_part` khi part đã hoàn chỉnh.
-- `ui_message_delta` chỉ còn compatibility path, client mới có thể bỏ qua an toàn.
+- Server canonical path stream text/reasoning/tool updates bằng `ui_message_part`
+  (text/reasoning được coalesce/throttle theo part snapshot).
 - Không tự parse raw ACP ở client.
 - Message có thể được gửi lặp lại nhiều lần trong streaming. Upsert là idempotent.
 - `sendMessage` mutation trả `turnId`; client nên dùng `turnId` để correlate HTTP ack với `chat_status`/`chat_finish` cho cùng turn.

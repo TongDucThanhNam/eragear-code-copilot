@@ -1,6 +1,11 @@
 "use client";
 
 import { memo } from "react";
+import { Shimmer } from "@/components/ai-elements/shimmer";
+import {
+  Message,
+  MessageContent,
+} from "@/components/ai-elements/message";
 import {
   Conversation,
   ConversationContent,
@@ -12,14 +17,28 @@ import { Button } from "@/components/ui/button";
 export interface ChatMessagesProps {
   chatId: string | null;
   messageIds: readonly string[];
+  showThinkingPlaceholder?: boolean;
   canLoadOlder?: boolean;
   isLoadingOlder?: boolean;
   onLoadOlder?: () => void;
 }
 
+const ThinkingMessagePlaceholder = memo(function ThinkingMessagePlaceholder() {
+  return (
+    <Message from="assistant">
+      <MessageContent className="text-muted-foreground text-sm">
+        <div aria-live="polite" role="status">
+          <Shimmer duration={1}>Thinking...</Shimmer>
+        </div>
+      </MessageContent>
+    </Message>
+  );
+});
+
 export const ChatMessages = memo(function ChatMessages({
   chatId,
   messageIds,
+  showThinkingPlaceholder = false,
   canLoadOlder = false,
   isLoadingOlder = false,
   onLoadOlder,
@@ -49,6 +68,7 @@ export const ChatMessages = memo(function ChatMessages({
             messageId={messageId}
           />
         ))}
+        {showThinkingPlaceholder ? <ThinkingMessagePlaceholder /> : null}
       </ConversationContent>
       <ConversationScrollButton className="bottom-5 z-10 shadow-sm" />
     </Conversation>
@@ -57,6 +77,7 @@ export const ChatMessages = memo(function ChatMessages({
   (prevProps, nextProps) =>
     prevProps.chatId === nextProps.chatId &&
     prevProps.messageIds === nextProps.messageIds &&
+    prevProps.showThinkingPlaceholder === nextProps.showThinkingPlaceholder &&
     prevProps.canLoadOlder === nextProps.canLoadOlder &&
     prevProps.isLoadingOlder === nextProps.isLoadingOlder &&
     prevProps.onLoadOlder === nextProps.onLoadOlder

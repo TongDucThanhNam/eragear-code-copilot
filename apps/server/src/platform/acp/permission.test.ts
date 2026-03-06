@@ -5,6 +5,7 @@ import type { SessionRuntimePort } from "@/modules/session";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { createPermissionHandler } from "./permission";
+import { scheduleThrottledBroadcast } from "./broadcast-throttle";
 import {
   getTurnIdMigrationSnapshot,
   resetTurnIdMigrationSnapshotForTests,
@@ -112,6 +113,82 @@ describe("createPermissionHandler", () => {
       )
     ).toBe(true);
     expect(events.some((event) => event.type === "ui_message")).toBe(false);
+
+    const pendingEntry = Array.from(session.pendingPermissions.values())[0];
+    if (!pendingEntry) {
+      throw new Error("Expected pending permission entry");
+    }
+    pendingEntry.resolve({
+      outcome: { outcome: "selected", optionId: "allow_once" },
+    });
+    await expect(responsePromise).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "allow_once" },
+    });
+  });
+
+  test("flushes pending throttled assistant chunks before permission events", async () => {
+    const session = createSession("chat-ordered-permission");
+    const events: BroadcastEvent[] = [];
+    const runtime = createRuntime(session, events);
+    const handler = createPermissionHandler(runtime);
+
+    scheduleThrottledBroadcast({
+      chatId: "chat-ordered-permission",
+      messageId: "msg-1",
+      partIndex: 0,
+      isNew: false,
+      sessionRuntime: runtime,
+      event: {
+        type: "ui_message_part",
+        messageId: "msg-1",
+        messageRole: "assistant",
+        partIndex: 0,
+        part: {
+          type: "text",
+          text: "stream tail",
+          state: "streaming",
+        },
+        isNew: false,
+      },
+      options: {
+        durable: false,
+        retainInBuffer: true,
+      },
+    });
+
+    const responsePromise = handler({
+      chatId: "chat-ordered-permission",
+      isReplayingHistory: false,
+      request: {
+        sessionId: "session-ordered",
+        toolCall: {
+          toolCallId: "tool-ordered",
+          kind: "execute",
+          title: "Run command",
+          rawInput: { command: "ls" },
+        },
+        options: [{ optionId: "allow_once", kind: "allow_once", name: "Allow" }],
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events[0]).toEqual({
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: {
+        type: "text",
+        text: "stream tail",
+        state: "streaming",
+      },
+      isNew: false,
+    });
+    expect(events[1]).toEqual({
+      type: "chat_status",
+      status: "awaiting_permission",
+    });
 
     const pendingEntry = Array.from(session.pendingPermissions.values())[0];
     if (!pendingEntry) {

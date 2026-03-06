@@ -297,13 +297,6 @@ export type BroadcastEvent =
       createdAt?: number;
       turnId?: string;
     }
-  | {
-      type: "ui_message_delta";
-      messageId: string;
-      delta: string;
-      partIndex: number;
-      turnId?: string;
-    }
   | { type: "file_modified"; path: string }
   | { type: "current_mode_update"; modeId: string }
   | { type: "current_model_update"; modelId: string }

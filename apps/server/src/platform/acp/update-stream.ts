@@ -12,7 +12,6 @@ import {
   getOrCreateAssistantMessage,
   getOrCreateUserMessage,
 } from "@/shared/utils/ui-message.util";
-import { broadcastUiMessageDelta } from "./ui-message-delta";
 import { broadcastUiMessagePart } from "./ui-message-part";
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 
@@ -20,7 +19,7 @@ const logger = createLogger("Debug");
 
 /**
  * Handle ACP message/thought/user chunks by updating server-side UIMessage
- * state and emitting canonical append-only text deltas plus part snapshots.
+ * state and emitting canonical part snapshots for the web/native clients.
  */
 export async function handleBufferedMessage(
   context: SessionUpdateContext
@@ -216,29 +215,17 @@ async function broadcastStreamingTextLikeUpdate(params: {
     return;
   }
 
-  if (
-    previousPart.type !== nextPart.type ||
-    !nextPart.text.startsWith(previousPart.text)
-  ) {
-    await broadcastUiMessagePart({
-      chatId,
-      sessionRuntime,
-      message: updatedMessage,
-      partIndex,
-      isNew: false,
-      turnId,
-    });
-    return;
-  }
-
-  const delta = nextPart.text.slice(previousPart.text.length);
-  await broadcastUiMessageDelta({
+  const canThrottleSnapshot =
+    previousPart.type === nextPart.type &&
+    nextPart.text.startsWith(previousPart.text);
+  await broadcastUiMessagePart({
     chatId,
     sessionRuntime,
-    messageId: updatedMessage.id,
+    message: updatedMessage,
     partIndex,
-    delta,
+    isNew: false,
     turnId,
+    immediate: !canThrottleSnapshot,
   });
 }
 

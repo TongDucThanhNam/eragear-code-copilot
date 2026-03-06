@@ -6,6 +6,7 @@
  */
 import { isChatBusyStatus } from "@repo/shared";
 import { useCallback, useEffect, useRef } from "react";
+import { useChatPendingPermission } from "@/store/chat-stream-store";
 import { trpc } from "@/lib/trpc";
 import type { UseChatOptions, UseChatResult } from "./use-chat.types";
 import { useChatActions } from "./use-chat-actions";
@@ -31,7 +32,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setStreamLifecycle,
     subscriptionEpoch,
     setSubscriptionEpoch,
-    pendingPermission,
+    pendingPermission: transientPendingPermission,
     setPendingPermission,
     error,
     setError,
@@ -272,6 +273,9 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       setSubscriptionEpoch((prev) => prev + 1);
     }, []),
   });
+  const pendingPermissionFromMessages = useChatPendingPermission(chatId);
+  const pendingPermission =
+    pendingPermissionFromMessages ?? transientPendingPermission;
   // Derived state
   const isStreaming = isChatBusyStatus(status);
   return {

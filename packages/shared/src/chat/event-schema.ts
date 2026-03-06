@@ -235,15 +235,6 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .passthrough(),
   z
     .object({
-      type: z.literal("ui_message_delta"),
-      messageId: z.string(),
-      partIndex: z.number().int().nonnegative(),
-      delta: z.string(),
-      turnId: z.string().optional(),
-    })
-    .passthrough(),
-  z
-    .object({
       type: z.literal("file_modified"),
       path: z.string(),
     })
@@ -314,7 +305,6 @@ const BROADCAST_EVENT_TYPES = [
   "chat_finish",
   "ui_message",
   "ui_message_part",
-  "ui_message_delta",
   "file_modified",
   "available_commands_update",
   "config_options_update",

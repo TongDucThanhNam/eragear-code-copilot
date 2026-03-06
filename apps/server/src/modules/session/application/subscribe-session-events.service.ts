@@ -316,11 +316,7 @@ function buildBufferedEvents(session: ChatSession): {
 
   const passThroughEvents = cloneBroadcastEvents(
     replayEvents.filter((event) => {
-      return (
-        event.type !== "ui_message" &&
-        event.type !== "ui_message_part" &&
-        event.type !== "ui_message_delta"
-      );
+      return event.type !== "ui_message" && event.type !== "ui_message_part";
     })
   );
 

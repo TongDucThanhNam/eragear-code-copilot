@@ -153,7 +153,8 @@ Server đảm nhiệm:
 - merge message chunks theo `message.id`
 - tool parts update theo `toolCallId`
 - finalize streaming parts khi `turn_end`/`prompt_end`
-- buffer ACP text/reasoning chunks và chỉ emit khi part hoàn chỉnh
+- buffer/coalesce ACP text/reasoning chunks và emit `ui_message_part` snapshot
+  theo part
 - emit `ui_message_part` làm primitive stream chính cho text/reasoning/tool/metadata
   updates (part-level surgical updates)
 - emit `ui_message` snapshot cho upsert/idempotent recovery path
@@ -163,8 +164,6 @@ Client contract:
 - `ui_message`: upsert full snapshot theo `message.id`
 - `ui_message_part`: apply theo `messageId` + `partIndex` + `isNew`; nếu không apply
   được thì bỏ qua an toàn và chờ snapshot kế tiếp
-- `ui_message_delta`: chỉ còn legacy compatibility trong schema, không phải
-  canonical stream path
 
 ### 5.3 Permission events
 

@@ -37,21 +37,6 @@ type RawSessionStateData = Omit<
   agentInfo?: RawAgentInfo;
 };
 
-export function shouldLogChatStreamDebug(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  const debugFlag = (
-    window as typeof window & {
-      __ERAGEAR_CHAT_DEBUG__?: boolean;
-    }
-  ).__ERAGEAR_CHAT_DEBUG__;
-  if (typeof debugFlag === "boolean") {
-    return debugFlag;
-  }
-  return import.meta.env.DEV;
-}
-
 export const normalizeMessage = (message: unknown): UIMessage => {
   const parsed = parseUiMessageClientSafe(message);
   if (!parsed.ok) {

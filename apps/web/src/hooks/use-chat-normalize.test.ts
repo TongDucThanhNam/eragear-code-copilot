@@ -28,10 +28,12 @@ describe("use-chat normalize", () => {
 
   test("parseBroadcastEvent classifies malformed known events as invalid payload", () => {
     const parsed = parseBroadcastEvent({
-      type: "ui_message_delta",
+      type: "ui_message_part",
       messageId: 123,
+      messageRole: "assistant",
       partIndex: "0",
-      delta: "x",
+      part: { type: "text", text: "x", state: "streaming" },
+      isNew: true,
     });
 
     expect(parsed.status).toBe("invalid_payload");

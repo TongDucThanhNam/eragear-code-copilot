@@ -242,21 +242,23 @@ describe("SubscribeSessionEventsService", () => {
     const runtime = createSessionRuntime(session);
     const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
     const subscription = await service.execute("user-1", "chat-1");
-    const deltaEvent = {
-      type: "ui_message_delta" as const,
+    const partEvent = {
+      type: "ui_message_part" as const,
       messageId: "msg-1",
+      messageRole: "assistant" as const,
       partIndex: 0,
-      delta: "queued",
+      part: { type: "text" as const, text: "queued", state: "streaming" as const },
+      isNew: true,
     };
 
-    session.emitter.emit("data", deltaEvent);
+    session.emitter.emit("data", partEvent);
 
     const received: unknown[] = [];
     const unsubscribe = subscription.subscribe((event) => {
       received.push(event);
     });
 
-    expect(received).toEqual([deltaEvent]);
+    expect(received).toEqual([partEvent]);
     unsubscribe();
     await subscription.release();
   });

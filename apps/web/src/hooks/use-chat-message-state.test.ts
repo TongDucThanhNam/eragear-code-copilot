@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "@repo/shared";
 import {
   applyPartUpdate,
-  applyTextDeltaUpdate,
   createEmptyMessageState,
   finalizeStreamingMessagesInState,
   mergeMessagesIntoState,
@@ -334,52 +333,6 @@ describe("use-chat-message-state", () => {
       isNew: false,
     });
     expect(resultUpdate).toBe(initial);
-  });
-
-  test("applyTextDeltaUpdate appends delta without changing message order", () => {
-    const initial = replaceMessagesState([
-      {
-        id: "m1",
-        role: "assistant",
-        parts: [{ type: "text", text: "Hello", state: "streaming" }],
-      },
-      createMessage("m2", "two"),
-    ]);
-
-    const updated = applyTextDeltaUpdate(initial, {
-      messageId: "m1",
-      partIndex: 0,
-      delta: " world",
-    });
-
-    expect(updated.order).toBe(initial.order);
-    expect(updated.indexById).toBe(initial.indexById);
-    expect(updated.byId.get("m1")?.parts[0]).toEqual({
-      type: "text",
-      text: "Hello world",
-      state: "streaming",
-    });
-    expect(updated.byId.get("m2")).toBe(initial.byId.get("m2"));
-  });
-
-  test("applyTextDeltaUpdate ignores missing targets", () => {
-    const initial = replaceMessagesState([createMessage("m1", "one")]);
-
-    expect(
-      applyTextDeltaUpdate(initial, {
-        messageId: "missing",
-        partIndex: 0,
-        delta: "x",
-      })
-    ).toBe(initial);
-
-    expect(
-      applyTextDeltaUpdate(initial, {
-        messageId: "m1",
-        partIndex: 3,
-        delta: "x",
-      })
-    ).toBe(initial);
   });
 
   test("finalizeStreamingMessagesInState closes lingering text/reasoning streams", () => {

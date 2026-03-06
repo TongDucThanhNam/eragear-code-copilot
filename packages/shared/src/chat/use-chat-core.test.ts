@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "../ui-message";
-import { applySessionState, processSessionEvent } from "./use-chat-core";
+import {
+  applySessionState,
+  findPendingPermission,
+  processSessionEvent,
+} from "./use-chat-core";
 import type { BroadcastEvent } from "./types";
 
 function createAssistantMessage(
@@ -49,108 +53,6 @@ function applyEventWithMessages(
 
   return ordered;
 }
-
-describe("processSessionEvent ui_message_delta", () => {
-  test("applies text delta to the existing assistant message", () => {
-    const initialMessage = createAssistantMessage("msg-1", [
-      { type: "text", text: "Hello", state: "streaming" },
-    ]);
-    const event: BroadcastEvent = {
-      type: "ui_message_delta",
-      messageId: "msg-1",
-      partIndex: 0,
-      delta: " world",
-    };
-
-    const next = applyEventWithMessages(event, [initialMessage]);
-    expect(next).toHaveLength(1);
-    expect(next[0]?.parts[0]).toEqual({
-      type: "text",
-      text: "Hello world",
-      state: "streaming",
-    });
-  });
-
-  test("applies reasoning delta to the indexed reasoning part", () => {
-    const initialMessage = createAssistantMessage("msg-1", [
-      { type: "reasoning", text: "Step 1", state: "streaming" },
-      { type: "text", text: "Answer", state: "streaming" },
-      { type: "reasoning", text: " / Step 2", state: "streaming" },
-    ]);
-    const event: BroadcastEvent = {
-      type: "ui_message_delta",
-      messageId: "msg-1",
-      partIndex: 0,
-      delta: " / Step 3",
-    };
-
-    const next = applyEventWithMessages(event, [initialMessage]);
-    expect(next).toHaveLength(1);
-    expect(next[0]?.parts[0]).toEqual({
-      type: "reasoning",
-      text: "Step 1 / Step 3",
-      state: "streaming",
-    });
-    expect(next[0]?.parts[2]).toEqual({
-      type: "reasoning",
-      text: " / Step 2",
-      state: "streaming",
-    });
-  });
-
-  test("treats missing base text as empty string when applying delta", () => {
-    const malformedMessage = createAssistantMessage("msg-1", [
-      {
-        type: "text",
-        state: "streaming",
-      } as unknown as UIMessage["parts"][number],
-    ]);
-    const event: BroadcastEvent = {
-      type: "ui_message_delta",
-      messageId: "msg-1",
-      partIndex: 0,
-      delta: "hello",
-    };
-
-    const next = applyEventWithMessages(event, [malformedMessage]);
-    expect(next[0]?.parts[0]).toEqual({
-      type: "text",
-      text: "hello",
-      state: "streaming",
-    });
-  });
-
-  test("ignores delta updates when target message is missing", () => {
-    const currentMessages: UIMessage[] = [];
-    const event: BroadcastEvent = {
-      type: "ui_message_delta",
-      messageId: "missing",
-      partIndex: 0,
-      delta: "x",
-    };
-
-    const next = applyEventWithMessages(event, currentMessages);
-    expect(next).toEqual([]);
-  });
-
-  test("ignores delta updates when target part index is invalid", () => {
-    const currentMessages: UIMessage[] = [
-      createAssistantMessage("msg-1", [{ type: "text", text: "a", state: "streaming" }]),
-    ];
-    const event: BroadcastEvent = {
-      type: "ui_message_delta",
-      messageId: "msg-1",
-      partIndex: 5,
-      delta: "x",
-    };
-    const next = applyEventWithMessages(event, currentMessages);
-    expect(next[0]?.parts[0]).toEqual({
-      type: "text",
-      text: "a",
-      state: "streaming",
-    });
-  });
-});
 
 describe("processSessionEvent ui_message_part", () => {
   test("adds a new assistant part when isNew is true", () => {
@@ -235,6 +137,37 @@ describe("processSessionEvent ui_message_part", () => {
       text: "Answer",
       state: "done",
       id: "part-msg1-0",
+    });
+  });
+});
+
+describe("findPendingPermission", () => {
+  test("prefers the latest approval-requested tool part", () => {
+    const olderPending = createAssistantMessage("msg-older", [
+      {
+        type: "tool-bash",
+        toolCallId: "tool-old",
+        title: "Old request",
+        state: "approval-requested",
+        approval: { id: "req-old" },
+      },
+    ]);
+    const latestPending = createAssistantMessage("msg-latest", [
+      {
+        type: "tool-bash",
+        toolCallId: "tool-new",
+        title: "New request",
+        state: "approval-requested",
+        approval: { id: "req-new" },
+      },
+    ]);
+
+    expect(findPendingPermission([olderPending, latestPending])).toEqual({
+      requestId: "req-new",
+      toolCallId: "tool-new",
+      title: "New request",
+      input: undefined,
+      options: undefined,
     });
   });
 });

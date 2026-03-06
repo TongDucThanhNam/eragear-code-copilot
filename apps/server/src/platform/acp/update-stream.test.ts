@@ -95,7 +95,7 @@ function createContext(params: {
 }
 
 describe("handleBufferedMessage", () => {
-  test("streams text chunks as create-plus-delta events", async () => {
+  test("streams text chunks as create-plus-part events", async () => {
     const session = createSession("chat-stream-text");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -122,9 +122,10 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
+    await flushThrottledBroadcasts(session.id);
     expect(calls).toHaveLength(2);
     expect(calls[0]?.event.type).toBe("ui_message_part");
-    expect(calls[1]?.event.type).toBe("ui_message_delta");
+    expect(calls[1]?.event.type).toBe("ui_message_part");
     if (calls[0]?.event.type === "ui_message_part") {
       expect(calls[0].event.partId).toEqual(expect.any(String));
       expect(calls[0].event.isNew).toBe(true);
@@ -134,13 +135,16 @@ describe("handleBufferedMessage", () => {
         expect(calls[0].event.part.text).toBe("Hello");
       }
     }
+    if (calls[1]?.event.type === "ui_message_part") {
+      expect(calls[1].event.isNew).toBe(false);
+      expect(calls[1].event.partIndex).toBe(0);
+      expect(calls[1].event.part.type).toBe("text");
+      if (calls[1].event.part.type === "text") {
+        expect(calls[1].event.part.text).toBe("Hello world");
+      }
+    }
     const assistantId = session.uiState.currentAssistantId;
     expect(assistantId).toEqual(expect.any(String));
-    if (calls[1]?.event.type === "ui_message_delta" && assistantId) {
-      expect(calls[1].event.messageId).toBe(assistantId);
-      expect(calls[1].event.partIndex).toBe(0);
-      expect(calls[1].event.delta).toBe(" world");
-    }
     const message = assistantId
       ? session.uiState.messages.get(assistantId)
       : undefined;
@@ -152,7 +156,7 @@ describe("handleBufferedMessage", () => {
     }
   });
 
-  test("broadcast text payload volume stays append-only across long streams", async () => {
+  test("coalesces long text streams into the latest part snapshot", async () => {
     const session = createSession("chat-stream-linear");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -171,28 +175,22 @@ describe("handleBufferedMessage", () => {
         })
       );
     }
+    await flushThrottledBroadcasts(session.id);
 
-    const streamedChars = calls.reduce((total, call) => {
-      if (
-        call.event.type === "ui_message_part" &&
-        call.event.part.type === "text"
-      ) {
-        return total + call.event.part.text.length;
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.event.type === "ui_message_part")).toBe(
+      true
+    );
+    if (calls[1]?.event.type === "ui_message_part") {
+      expect(calls[1].event.isNew).toBe(false);
+      expect(calls[1].event.part.type).toBe("text");
+      if (calls[1].event.part.type === "text") {
+        expect(calls[1].event.part.text).toBe(chunk.repeat(200));
       }
-      if (call.event.type === "ui_message_delta") {
-        return total + call.event.delta.length;
-      }
-      return total;
-    }, 0);
-
-    expect(streamedChars).toBe(chunk.length * 200);
-    expect(calls[0]?.event.type).toBe("ui_message_part");
-    expect(
-      calls.slice(1).every((call) => call.event.type === "ui_message_delta")
-    ).toBe(true);
+    }
   });
 
-  test("stores escaped html text in initial part and delta payloads", async () => {
+  test("stores escaped html text in part snapshots", async () => {
     const session = createSession("chat-stream-escape");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -219,17 +217,21 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
+    await flushThrottledBroadcasts(session.id);
     expect(calls).toHaveLength(2);
     expect(calls[0]?.event.type).toBe("ui_message_part");
-    expect(calls[1]?.event.type).toBe("ui_message_delta");
+    expect(calls[1]?.event.type).toBe("ui_message_part");
     if (calls[0]?.event.type === "ui_message_part") {
       expect(calls[0].event.part.type).toBe("text");
       if (calls[0].event.part.type === "text") {
         expect(calls[0].event.part.text).toBe("safe");
       }
     }
-    if (calls[1]?.event.type === "ui_message_delta") {
-      expect(calls[1].event.delta).toBe("&lt;tag&gt;");
+    if (calls[1]?.event.type === "ui_message_part") {
+      expect(calls[1].event.part.type).toBe("text");
+      if (calls[1].event.part.type === "text") {
+        expect(calls[1].event.part.text).toBe("safe&lt;tag&gt;");
+      }
     }
     const assistantId = session.uiState.currentAssistantId;
     const message = assistantId
@@ -242,7 +244,7 @@ describe("handleBufferedMessage", () => {
     }
   });
 
-  test("streams reasoning chunks as create-plus-delta events", async () => {
+  test("streams reasoning chunks as create-plus-part events", async () => {
     const session = createSession("chat-reasoning-buffer");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
@@ -269,9 +271,10 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
+    await flushThrottledBroadcasts(session.id);
     expect(calls).toHaveLength(2);
     expect(calls[0]?.event.type).toBe("ui_message_part");
-    expect(calls[1]?.event.type).toBe("ui_message_delta");
+    expect(calls[1]?.event.type).toBe("ui_message_part");
     if (calls[0]?.event.type === "ui_message_part") {
       expect(calls[0].event.partId).toEqual(expect.any(String));
       expect(calls[0].event.isNew).toBe(true);
@@ -281,9 +284,13 @@ describe("handleBufferedMessage", () => {
         expect(calls[0].event.part.text).toBe("think-1");
       }
     }
-    if (calls[1]?.event.type === "ui_message_delta") {
+    if (calls[1]?.event.type === "ui_message_part") {
+      expect(calls[1].event.isNew).toBe(false);
       expect(calls[1].event.partIndex).toBe(0);
-      expect(calls[1].event.delta).toBe(" think-2");
+      expect(calls[1].event.part.type).toBe("reasoning");
+      if (calls[1].event.part.type === "reasoning") {
+        expect(calls[1].event.part.text).toBe("think-1 think-2");
+      }
     }
     expect(buffer.hasPendingReasoning()).toBe(false);
     const assistantId = session.uiState.currentAssistantId;
@@ -596,14 +603,15 @@ describe("handleBufferedMessage", () => {
         } as SessionUpdate,
       })
     );
+    await flushThrottledBroadcasts(session.id);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]?.event.type).toBe("ui_message_part");
-    expect(calls[1]?.event.type).toBe("ui_message_delta");
+    expect(calls[1]?.event.type).toBe("ui_message_part");
     if (calls[0]?.event.type === "ui_message_part") {
       expect(calls[0].event.turnId).toBe("turn-live");
     }
-    if (calls[1]?.event.type === "ui_message_delta") {
+    if (calls[1]?.event.type === "ui_message_part") {
       expect(calls[1].event.turnId).toBe("turn-live");
     }
   });

@@ -103,7 +103,12 @@ export function getPermissionOptions(
 export function findPendingPermission(
   messages: Iterable<UIMessage>
 ): PermissionRequest | null {
-  for (const message of messages) {
+  const orderedMessages = Array.isArray(messages) ? messages : [...messages];
+  for (let index = orderedMessages.length - 1; index >= 0; index -= 1) {
+    const message = orderedMessages[index];
+    if (!message) {
+      continue;
+    }
     for (const part of message.parts) {
       if (
         isToolPart(part) &&
@@ -144,21 +149,6 @@ export function upsertMessage(
   return updated;
 }
 
-function warnDroppedDelta(params: {
-  event: Extract<BroadcastEvent, { type: "ui_message_delta" }>;
-  reason: "message_not_found" | "part_not_found";
-}): void {
-  if (typeof console === "undefined" || typeof console.warn !== "function") {
-    return;
-  }
-  console.warn("[Chat] Dropped ui_message_delta", {
-    reason: params.reason,
-    messageId: params.event.messageId,
-    partIndex: params.event.partIndex,
-    deltaLength: params.event.delta.length,
-  });
-}
-
 function warnDroppedPart(params: {
   event: Extract<BroadcastEvent, { type: "ui_message_part" }>;
   reason: "message_not_found" | "part_not_found";
@@ -173,28 +163,6 @@ function warnDroppedPart(params: {
     isNew: params.event.isNew,
     partType: params.event.part.type,
   });
-}
-
-function applyMessageDelta(params: {
-  message: UIMessage;
-  partIndex: number;
-  delta: string;
-}): UIMessage | null {
-  const { message, partIndex, delta } = params;
-  if (!delta) {
-    return message;
-  }
-  const part = message.parts[partIndex];
-  if (!part || (part.type !== "text" && part.type !== "reasoning")) {
-    return null;
-  }
-  const updatedPart = { ...part, text: `${part.text ?? ""}${delta}` };
-  const updatedParts = [...message.parts];
-  updatedParts[partIndex] = updatedPart;
-  return {
-    ...message,
-    parts: updatedParts,
-  };
 }
 
 function applyMessagePartUpdate(params: {
@@ -505,35 +473,6 @@ export function processSessionEvent(
         callbacks.onPendingPermissionChange?.(pendingPermission);
       }
 
-      return;
-    }
-
-    case "ui_message_delta": {
-      const prev = callbacks.getMessageById?.(event.messageId);
-      if (!prev) {
-        warnDroppedDelta({ event, reason: "message_not_found" });
-        return;
-      }
-
-      const nextMessage = applyMessageDelta({
-        message: prev,
-        partIndex: event.partIndex,
-        delta: event.delta,
-      });
-      if (!nextMessage) {
-        warnDroppedDelta({ event, reason: "part_not_found" });
-        return;
-      }
-
-      const wasStreaming = isMessageStreaming(prev);
-      const nowStreaming = isMessageStreaming(nextMessage);
-
-      if (callbacks.onMessageUpsert) {
-        callbacks.onMessageUpsert(nextMessage);
-      } else {
-        upsertMessageFromCallbackState(callbacks, nextMessage);
-      }
-      callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
       return;
     }
 

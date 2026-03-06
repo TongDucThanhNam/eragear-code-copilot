@@ -1,4 +1,8 @@
-import type { UIMessage } from "@repo/shared";
+import {
+  findPendingPermission,
+  type PermissionRequest,
+  type UIMessage,
+} from "@repo/shared";
 import { useMemo } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
@@ -16,6 +20,7 @@ const EMPTY_MESSAGE_STATE: MessageState = createEmptyMessageState();
 const EMPTY_MESSAGES: UIMessage[] = [];
 const EMPTY_MESSAGE_IDS: readonly string[] = [];
 const EMPTY_MESSAGE: UIMessage | null = null;
+const EMPTY_PENDING_PERMISSION: PermissionRequest | null = null;
 const EMPTY_TERMINAL_OUTPUT = "";
 const EMPTY_TERMINAL_CHUNKS: readonly string[] = [];
 const EMPTY_TERMINAL_SELECTION: readonly (string | TerminalOutputBuffer | null)[] =
@@ -357,6 +362,21 @@ export function useChatMessageCount(chatId: string | null | undefined): number {
       return 0;
     }
     return state.byChatId[chatId]?.messageState.order.length ?? 0;
+  });
+}
+
+export function useChatPendingPermission(
+  chatId: string | null | undefined
+): PermissionRequest | null {
+  return useChatStreamStore((state) => {
+    if (!chatId) {
+      return EMPTY_PENDING_PERMISSION;
+    }
+    const messages = state.byChatId[chatId]?.messageState.byId.values();
+    if (!messages) {
+      return EMPTY_PENDING_PERMISSION;
+    }
+    return findPendingPermission(messages);
   });
 }
 

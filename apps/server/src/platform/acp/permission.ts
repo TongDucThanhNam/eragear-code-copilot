@@ -25,6 +25,7 @@ import {
   recordTurnIdDrop,
   recordTurnIdResolution,
 } from "./turn-id-observability";
+import { flushThrottledBroadcasts } from "./broadcast-throttle";
 import { broadcastUiMessagePart } from "./ui-message-part";
 import { resolveToolCallTurnId } from "./update-turn-id";
 
@@ -293,6 +294,10 @@ async function publishPermissionRequestUi(params: {
     options,
     turnId,
   } = params;
+  // Permission requests are authoritative turn transitions. Flush any
+  // coalesced text/reasoning deltas first so clients observe the tool
+  // approval state after the latest streamed assistant content.
+  await flushThrottledBroadcasts(chatId);
   const runtime = new SessionRuntimeEntity(session);
   await runtime.markAwaitingPermission({
     chatId,
