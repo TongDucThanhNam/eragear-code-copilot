@@ -17,6 +17,7 @@ import type {
   TerminalState,
 } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
+import { scheduleThrottledBroadcast } from "./broadcast-throttle";
 import { createToolCallHandlers } from "./tool-calls";
 
 const OUTSIDE_PROJECT_ROOT_REGEX = /outside project root/i;
@@ -519,6 +520,53 @@ describe("createToolCallHandlers", () => {
     expect(events).toContainEqual({
       chatId: session.id,
       event: { type: "file_modified", path: "nested/deeper/new.txt" },
+    });
+  });
+
+  test("flushes pending ui_message_part broadcasts before file_modified", async () => {
+    const events: Array<{ chatId: string; event: BroadcastEvent }> = [];
+    const session = createSession("chat-write-flush-order", tmpDir);
+    const runtime = createRuntime(session, { broadcastEvents: events });
+    const handlers = createToolCallHandlers(runtime);
+
+    scheduleThrottledBroadcast({
+      chatId: session.id,
+      messageId: "msg-1",
+      partIndex: 0,
+      isNew: false,
+      sessionRuntime: runtime,
+      event: {
+        type: "ui_message_part",
+        messageId: "msg-1",
+        messageRole: "assistant",
+        partIndex: 0,
+        part: {
+          type: "text",
+          text: "pending chunk",
+          state: "streaming",
+        },
+        isNew: false,
+      },
+      options: {},
+    });
+
+    await handlers.writeTextFileForChat(session.id, {
+      sessionId: session.id,
+      path: "notes.txt",
+      content: "updated",
+    });
+
+    expect(events[0]?.event.type).toBe("ui_message_part");
+    if (events[0]?.event.type === "ui_message_part") {
+      expect(events[0].event.part).toMatchObject({
+        type: "text",
+        text: "pending chunk",
+        state: "streaming",
+      });
+    }
+    expect(events[1]).toEqual({
+      chatId: session.id,
+      event: { type: "file_modified", path: "notes.txt" },
     });
   });
 

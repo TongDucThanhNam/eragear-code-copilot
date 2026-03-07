@@ -593,6 +593,141 @@ describe("createSessionUpdateHandler", () => {
     });
   });
 
+  test("flushes pending assistant part broadcasts before replay user snapshots", async () => {
+    const session = createSession("chat-replay-ordering");
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+    const buffer = new SessionBuffering();
+
+    await handler({
+      chatId: session.id,
+      buffer,
+      isReplayingHistory: true,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Hello" },
+      },
+    });
+
+    await handler({
+      chatId: session.id,
+      buffer,
+      isReplayingHistory: true,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: " world" },
+      },
+    });
+
+    await handler({
+      chatId: session.id,
+      buffer,
+      isReplayingHistory: true,
+      update: {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "next question" },
+      },
+    });
+
+    const flushedPartIndex = events.findIndex((event) => {
+      return (
+        typeof event === "object" &&
+        event !== null &&
+        "type" in event &&
+        (event as { type?: string }).type === "ui_message_part" &&
+        "part" in event &&
+        (event as { part?: { type?: string; text?: string } }).part?.type ===
+          "text" &&
+        (
+          event as { part?: { type?: string; text?: string } }
+        ).part?.text === "Hello world"
+      );
+    });
+    const snapshotIndex = events.findIndex((event) => {
+      return (
+        typeof event === "object" &&
+        event !== null &&
+        "type" in event &&
+        (event as { type?: string }).type === "ui_message"
+      );
+    });
+
+    expect(flushedPartIndex).toBeGreaterThanOrEqual(0);
+    expect(snapshotIndex).toBeGreaterThan(flushedPartIndex);
+  });
+
+  test("sanitizes tool locations before storing and broadcasting them", async () => {
+    const session = createSession("chat-tool-locations");
+    session.projectRoot = process.cwd();
+    session.cwd = process.cwd();
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        kind: "read",
+        title: "Read project file",
+        locations: [
+          {
+            path: "apps/server/src/platform/acp/update.ts",
+            line: 12,
+          },
+          {
+            path: "/etc/shadow",
+            line: 1,
+          },
+        ],
+      } as never,
+    });
+
+    expect(session.toolCalls.get("tool-1")?.locations).toEqual([
+      {
+        path: "apps/server/src/platform/acp/update.ts",
+        line: 12,
+      },
+    ]);
+
+    const locationEvent = events.find((event) => {
+      return (
+        typeof event === "object" &&
+        event !== null &&
+        "type" in event &&
+        (event as { type?: string }).type === "ui_message_part" &&
+        "part" in event &&
+        (event as { part?: { type?: string } }).part?.type ===
+          "data-tool-locations"
+      );
+    }) as
+      | {
+          type: "ui_message_part";
+          part: {
+            type: "data-tool-locations";
+            data: {
+              toolCallId: string;
+              locations: Array<{ path: string; line?: number }>;
+            };
+          };
+        }
+      | undefined;
+
+    expect(locationEvent?.part.data).toEqual({
+      toolCallId: "tool-1",
+      locations: [
+        {
+          path: "apps/server/src/platform/acp/update.ts",
+          line: 12,
+        },
+      ],
+    });
+  });
+
   test("does not mark chat as streaming when no active turn is present", async () => {
     const session = createSession("chat-no-active-turn");
     session.chatStatus = "ready";

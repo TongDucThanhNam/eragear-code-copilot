@@ -6,6 +6,10 @@ import {
   toStoredToolCallContent,
 } from "@/shared/utils/content-block.util";
 import {
+  resolvePathWithinRoot,
+  toPortableRelativePath,
+} from "@/shared/utils/path-within-root.util";
+import {
   buildToolPartForUpdate,
   buildToolPartFromCall,
   upsertToolLocationsPart,
@@ -72,12 +76,21 @@ export async function handleToolCallCreate(
   const storedContentContext: StoredContentContext | undefined = session
     ? { userId: session.userId, chatId }
     : undefined;
+  const sanitizedLocations = session
+    ? await sanitizeToolCallLocations({
+        chatId,
+        toolCallId: update.toolCallId,
+        projectRoot: session.projectRoot,
+        locations: update.locations,
+      })
+    : update.locations;
 
   const { sessionUpdate: _sessionUpdate, ...toolCall } = update;
   const sanitizedToolCall: acp.ToolCall = {
     ...toolCall,
     kind: toolCall.kind ?? TOOL_CALL_FALLBACK_KIND,
     content: toStoredToolCallContent(toolCall.content, storedContentContext),
+    locations: sanitizedLocations ?? undefined,
   };
   if (session) {
     session.toolCalls.set(update.toolCallId, sanitizedToolCall);
@@ -161,25 +174,36 @@ export async function handleToolCallUpdate(
   const storedContentContext: StoredContentContext | undefined = session
     ? { userId: session.userId, chatId }
     : undefined;
+  const sanitizedUpdate = session
+    ? {
+        ...update,
+        locations: await sanitizeToolCallLocations({
+          chatId,
+          toolCallId: update.toolCallId,
+          projectRoot: session.projectRoot,
+          locations: update.locations,
+        }),
+      }
+    : update;
   if (session) {
-    const existing = session.toolCalls.get(update.toolCallId);
+    const existing = session.toolCalls.get(sanitizedUpdate.toolCallId);
     const mergedToolCall = existing
-      ? mergeToolCallUpdate(existing, update, storedContentContext)
-      : createToolCallFromUpdate(update, storedContentContext);
-    session.toolCalls.set(update.toolCallId, mergedToolCall);
+      ? mergeToolCallUpdate(existing, sanitizedUpdate, storedContentContext)
+      : createToolCallFromUpdate(sanitizedUpdate, storedContentContext);
+    session.toolCalls.set(sanitizedUpdate.toolCallId, mergedToolCall);
   }
 
   if (session) {
     const eventTurnId = context.turnIdResolution.turnId ?? session.activeTurnId;
     const previousToolIndex = session.uiState.toolPartIndex.get(
-      update.toolCallId
+      sanitizedUpdate.toolCallId
     );
     const previousLocationPartIndex = findToolLocationsPartIndex(
       session.uiState.messages.get(session.uiState.currentAssistantId ?? "") ??
         null,
-      update.toolCallId
+      sanitizedUpdate.toolCallId
     );
-    const mergedToolCall = session.toolCalls.get(update.toolCallId);
+    const mergedToolCall = session.toolCalls.get(sanitizedUpdate.toolCallId);
     if (!mergedToolCall) {
       return true;
     }
@@ -200,19 +224,19 @@ export async function handleToolCallUpdate(
       turnId: eventTurnId,
     });
     const nextLocations =
-      update.locations === undefined
+      sanitizedUpdate.locations === undefined
         ? mergedToolCall.locations
-        : (update.locations ?? undefined);
+        : (sanitizedUpdate.locations ?? undefined);
     const messageWithLocations = upsertToolLocationsPart({
       state: session.uiState,
-      toolCallId: update.toolCallId,
+      toolCallId: sanitizedUpdate.toolCallId,
       locations: nextLocations,
       messageId: message.id,
     });
     await broadcastToolCallParts({
       chatId,
       sessionRuntime,
-      toolCallId: update.toolCallId,
+      toolCallId: sanitizedUpdate.toolCallId,
       message,
       messageWithLocations,
       previousToolIndex,
@@ -222,6 +246,47 @@ export async function handleToolCallUpdate(
     });
   }
   return true;
+}
+
+async function sanitizeToolCallLocations(params: {
+  chatId: string;
+  toolCallId: string;
+  projectRoot: string;
+  locations?: acp.ToolCallLocation[] | null;
+}): Promise<acp.ToolCallLocation[] | null | undefined> {
+  const { chatId, toolCallId, projectRoot, locations } = params;
+  if (locations === undefined || locations === null) {
+    return locations;
+  }
+
+  const sanitized: acp.ToolCallLocation[] = [];
+  for (const location of locations) {
+    try {
+      const { canonicalRootPath, canonicalTargetPath } =
+        await resolvePathWithinRoot({
+          rootPath: projectRoot,
+          inputPath: location.path,
+        });
+      const relativePath =
+        toPortableRelativePath({
+          canonicalRootPath,
+          canonicalTargetPath,
+        }) || ".";
+      sanitized.push({
+        ...location,
+        path: relativePath,
+      });
+    } catch (error) {
+      logger.warn("Dropped tool_call location outside project root", {
+        chatId,
+        toolCallId,
+        path: location.path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return sanitized;
 }
 
 async function broadcastToolCallParts(params: {

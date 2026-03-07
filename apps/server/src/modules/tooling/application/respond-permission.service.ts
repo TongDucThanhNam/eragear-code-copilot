@@ -8,7 +8,6 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
-import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
@@ -16,6 +15,7 @@ import { NotFoundError, ValidationError } from "@/shared/errors";
 import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
 import {
   buildToolApprovalResponsePart,
+  clearPermissionOptionsPart,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
 
@@ -316,17 +316,11 @@ export class RespondPermissionService {
         const nextToolIndex = session.uiState.toolPartIndex.get(
           pending.toolCallId
         );
-        const updatedPermissionOptions = clearPermissionOptionsPart(
-          message,
-          input.requestId
-        );
-        const messageWithUpdates = updatedPermissionOptions.message;
-        if (messageWithUpdates !== message) {
-          session.uiState.messages.set(
-            messageWithUpdates.id,
-            messageWithUpdates
-          );
-        }
+        const updatedPermissionOptions = clearPermissionOptionsPart({
+          state: session.uiState,
+          requestId: input.requestId,
+        });
+        const messageWithUpdates = updatedPermissionOptions?.message ?? message;
         if (nextToolIndex && nextToolIndex.messageId === messageWithUpdates.id) {
           const previousToolLocation = previousToolIndex?.messageId
             ? previousToolIndex
@@ -348,7 +342,7 @@ export class RespondPermissionService {
             }
           }
         }
-        if (updatedPermissionOptions.partIndex >= 0) {
+        if (updatedPermissionOptions && updatedPermissionOptions.partIndex >= 0) {
           const updatedOptionsPart =
             messageWithUpdates.parts[updatedPermissionOptions.partIndex];
           if (updatedOptionsPart) {
@@ -377,45 +371,4 @@ export class RespondPermissionService {
 
     return resolvedResponse;
   }
-}
-
-function clearPermissionOptionsPart(
-  message: UIMessage,
-  requestId: string
-): { message: UIMessage; partIndex: number } {
-  const partIndex = message.parts.findIndex((part) => {
-    return (
-      part.type === "data-permission-options" &&
-      part.data &&
-      typeof part.data === "object" &&
-      (part.data as { requestId?: unknown }).requestId === requestId
-    );
-  });
-  if (partIndex < 0) {
-    return { message, partIndex: -1 };
-  }
-  const part = message.parts[partIndex];
-  if (!part || part.type !== "data-permission-options") {
-    return { message, partIndex: -1 };
-  }
-  const currentData =
-    part.data && typeof part.data === "object"
-      ? (part.data as Record<string, unknown>)
-      : {};
-  const scrubbedPart = {
-    ...part,
-    data: {
-      ...currentData,
-      options: [],
-    },
-  } satisfies UIMessage["parts"][number];
-  const nextParts = [...message.parts];
-  nextParts[partIndex] = scrubbedPart;
-  return {
-    message: {
-      ...message,
-      parts: nextParts,
-    },
-    partIndex,
-  };
 }

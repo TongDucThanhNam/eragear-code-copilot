@@ -5,6 +5,7 @@ import type { SessionRuntimePort } from "@/modules/session/application/ports/ses
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
+import { RespondPermissionService } from "@/modules/tooling/application/respond-permission.service";
 import { CancelPromptService } from "./cancel-prompt.service";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 
@@ -219,5 +220,61 @@ describe("CancelPromptService", () => {
       toolCallId: "tool-1",
       options: [],
     });
+  });
+
+  test("clears pending permissions before awaiting agent cancel", async () => {
+    const session = createSession();
+    const events: BroadcastEvent[] = [];
+    const resolvedOutcomes: unknown[] = [];
+    const pending = session.pendingPermissions.get("req-1");
+    if (pending) {
+      pending.resolve = (decision: unknown) => {
+        resolvedOutcomes.push(decision);
+      };
+    }
+    const runtime = createSessionRuntimeStub({ session, events });
+    let markCancelPromptStarted: (() => void) | undefined;
+    const cancelPromptStarted = new Promise<void>((resolve) => {
+      markCancelPromptStarted = resolve;
+    });
+    let releaseCancelPrompt: (() => void) | undefined;
+    const cancelPromptBlocked = new Promise<void>((resolve) => {
+      releaseCancelPrompt = resolve;
+    });
+    const cancelService = new CancelPromptService(runtime, {
+      requireAuthorizedSession: () => session,
+      requireAuthorizedRuntime: () => new SessionRuntimeEntity(session),
+      assertSessionRunning: () => undefined,
+      prompt: async () => ({ stopReason: "end_turn" }),
+      cancelPrompt: async () => {
+        markCancelPromptStarted?.();
+        await cancelPromptBlocked;
+      },
+      setSessionMode: async () => undefined,
+      setSessionModel: async () => undefined,
+      setSessionConfigOption: async () => [],
+      stopAndCleanup: async () => undefined,
+      clearPendingPermissionsAsCancelled: (targetSession: ChatSession) => {
+        new SessionRuntimeEntity(targetSession).cancelPendingPermissionsAsCancelled();
+      },
+    });
+    const respondService = new RespondPermissionService(runtime);
+
+    const cancelPromise = cancelService.execute("user-1", "chat-1");
+    await cancelPromptStarted;
+
+    await expect(
+      respondService.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        requestId: "req-1",
+        decision: "allow",
+      })
+    ).rejects.toThrow(/permission request not found|already handled/i);
+
+    releaseCancelPrompt?.();
+    await expect(cancelPromise).resolves.toEqual({ ok: true });
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(resolvedOutcomes).toEqual([{ outcome: { outcome: "cancelled" } }]);
   });
 });

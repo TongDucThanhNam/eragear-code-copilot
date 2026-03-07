@@ -33,11 +33,134 @@ function areStructurallyEqualParts(
   if (left === right) {
     return true;
   }
-  try {
-    return JSON.stringify(left) === JSON.stringify(right);
-  } catch {
+  if (left.type !== right.type) {
     return false;
   }
+
+  if (left.type === "text" || left.type === "reasoning") {
+    return (
+      left.text === right.text &&
+      left.state === right.state &&
+      areEqualUnknownValues(left.providerMetadata, right.providerMetadata)
+    );
+  }
+
+  if (left.type.startsWith("tool-") && right.type.startsWith("tool-")) {
+    return (
+      left.toolCallId === right.toolCallId &&
+      left.state === right.state &&
+      left.title === right.title &&
+      left.providerExecuted === right.providerExecuted &&
+      areEqualUnknownValues(left.input, right.input) &&
+      areEqualUnknownValues(
+        "output" in left ? left.output : undefined,
+        "output" in right ? right.output : undefined
+      ) &&
+      areEqualUnknownValues(
+        "errorText" in left ? left.errorText : undefined,
+        "errorText" in right ? right.errorText : undefined
+      ) &&
+      areEqualUnknownValues(
+        "approval" in left ? left.approval : undefined,
+        "approval" in right ? right.approval : undefined
+      ) &&
+      areEqualUnknownValues(
+        "callProviderMetadata" in left ? left.callProviderMetadata : undefined,
+        "callProviderMetadata" in right
+          ? right.callProviderMetadata
+          : undefined
+      )
+    );
+  }
+
+  if (left.type === "source-url") {
+    return (
+      left.sourceId === right.sourceId &&
+      left.url === right.url &&
+      left.title === right.title &&
+      areEqualUnknownValues(left.providerMetadata, right.providerMetadata)
+    );
+  }
+
+  if (left.type === "source-document") {
+    return (
+      left.sourceId === right.sourceId &&
+      left.mediaType === right.mediaType &&
+      left.title === right.title &&
+      left.filename === right.filename &&
+      areEqualUnknownValues(left.providerMetadata, right.providerMetadata)
+    );
+  }
+
+  if (left.type === "file") {
+    return (
+      left.mediaType === right.mediaType &&
+      left.url === right.url &&
+      left.filename === right.filename &&
+      areEqualUnknownValues(left.providerMetadata, right.providerMetadata)
+    );
+  }
+
+  if (left.type === "step-start") {
+    return true;
+  }
+
+  if (left.type.startsWith("data-") && right.type.startsWith("data-")) {
+    return (
+      left.id === right.id &&
+      areEqualUnknownValues(left.data, right.data)
+    );
+  }
+
+  return false;
+}
+
+function areEqualUnknownValues(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!(Array.isArray(left) && Array.isArray(right))) {
+      return false;
+    }
+    if (left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index += 1) {
+      if (!areEqualUnknownValues(left[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (
+    typeof left !== "object" ||
+    typeof right !== "object" ||
+    left instanceof Date ||
+    right instanceof Date
+  ) {
+    return false;
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  for (const key of leftKeys) {
+    if (!Object.prototype.hasOwnProperty.call(rightRecord, key)) {
+      return false;
+    }
+    if (!areEqualUnknownValues(leftRecord[key], rightRecord[key])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 const TOOL_PART_STATE_RANK: Record<string, number> = {

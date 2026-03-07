@@ -263,6 +263,47 @@ describe("SubscribeSessionEventsService", () => {
     await subscription.release();
   });
 
+  test("coalesces queued text part updates before subscribe listener attaches", async () => {
+    const session = createSession();
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const subscription = await service.execute("user-1", "chat-1");
+    session.emitter.emit("data", {
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "a", state: "streaming" },
+      isNew: true,
+    });
+    session.emitter.emit("data", {
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "ab", state: "streaming" },
+      isNew: false,
+    });
+
+    const received: unknown[] = [];
+    const unsubscribe = subscription.subscribe((event) => {
+      received.push(event);
+    });
+
+    expect(received).toEqual([
+      {
+        type: "ui_message_part",
+        messageId: "msg-1",
+        messageRole: "assistant",
+        partIndex: 0,
+        part: { type: "text", text: "ab", state: "streaming" },
+        isNew: false,
+      },
+    ]);
+    unsubscribe();
+    await subscription.release();
+  });
+
   test("release decrements subscriber count on replacement runtime session", async () => {
     const session = createSession();
     const runtime = createSessionRuntime(session);
@@ -451,5 +492,34 @@ describe("SubscribeSessionEventsService", () => {
     expect(received).toEqual([]);
     unsubscribe();
     await subscription.release();
+  });
+
+  test("replays buffered error diagnostics on reconnect", async () => {
+    const assistantMessage: UIMessage = {
+      id: "msg-1",
+      role: "assistant",
+      parts: [{ type: "text", text: "done", state: "done" }],
+    };
+    const session = createSession({
+      messageBuffer: [
+        { type: "ui_message", message: assistantMessage },
+        { type: "error", error: "Agent process exited" },
+      ],
+    });
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+
+    const subscription = await service.execute("user-1", "chat-1");
+
+    expect(subscription.bufferedEvents).toEqual([
+      {
+        type: "ui_message",
+        message: assistantMessage,
+      },
+      {
+        type: "error",
+        error: "Agent process exited",
+      },
+    ]);
   });
 });

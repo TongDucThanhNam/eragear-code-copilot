@@ -47,6 +47,7 @@ export class SubscribeSessionEventsService {
     const sessionRuntime = this.sessionRuntime;
     const sessionRepo = this.sessionRepo;
     const pendingLiveEvents: BroadcastEvent[] = [];
+    const pendingLiveEventIndexByKey = new Map<string, number>();
     let deliveredListener: ((event: BroadcastEvent) => void) | null = null;
     let released = false;
     let stoppedSnapshot:
@@ -115,7 +116,11 @@ export class SubscribeSessionEventsService {
             deliveredListener(cloned);
             return;
           }
-          pendingLiveEvents.push(cloned);
+          queuePendingLiveEvent(
+            pendingLiveEvents,
+            pendingLiveEventIndexByKey,
+            cloned
+          );
         };
         session.emitter.on("data", internalListener);
         // Keep subscriberCount synchronized with the actual live listener
@@ -199,6 +204,7 @@ export class SubscribeSessionEventsService {
         deliveredListener = wrappedListener;
         if (pendingLiveEvents.length > 0) {
           const queued = pendingLiveEvents.splice(0, pendingLiveEvents.length);
+          pendingLiveEventIndexByKey.clear();
           for (const event of queued) {
             wrappedListener(event);
           }
@@ -216,6 +222,7 @@ export class SubscribeSessionEventsService {
         released = true;
         deliveredListener = null;
         pendingLiveEvents.length = 0;
+        pendingLiveEventIndexByKey.clear();
         session.emitter.off("data", internalListener);
         await sessionRuntime.runExclusive(chatId, async () => {
           assertSessionMutationLock({
@@ -244,6 +251,37 @@ export class SubscribeSessionEventsService {
       },
     };
   }
+}
+
+function queuePendingLiveEvent(
+  pendingLiveEvents: BroadcastEvent[],
+  pendingLiveEventIndexByKey: Map<string, number>,
+  event: BroadcastEvent
+): void {
+  const coalesceKey = getQueuedLiveEventCoalesceKey(event);
+  if (!coalesceKey) {
+    pendingLiveEvents.push(event);
+    return;
+  }
+  const existingIndex = pendingLiveEventIndexByKey.get(coalesceKey);
+  if (existingIndex === undefined) {
+    pendingLiveEventIndexByKey.set(coalesceKey, pendingLiveEvents.length);
+    pendingLiveEvents.push(event);
+    return;
+  }
+  pendingLiveEvents[existingIndex] = event;
+}
+
+function getQueuedLiveEventCoalesceKey(
+  event: BroadcastEvent
+): string | undefined {
+  if (event.type !== "ui_message_part") {
+    return undefined;
+  }
+  if (event.part.type !== "text" && event.part.type !== "reasoning") {
+    return undefined;
+  }
+  return `${event.messageId}:${event.partIndex}`;
 }
 
 function countEventType(

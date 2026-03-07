@@ -9,6 +9,7 @@ import {
 } from "./ui-message/content";
 import { buildProviderMetadataFromMeta as buildProviderMetadataFromMetaImpl } from "./ui-message/metadata";
 import {
+  clearPermissionOptionsPart as clearPermissionOptionsPartImpl,
   createUiMessageState as createUiMessageStateImpl,
   finalizeStreamingParts as finalizeStreamingPartsImpl,
   getOrCreateAssistantMessage as getOrCreateAssistantMessageImpl,
@@ -39,6 +40,7 @@ export const buildToolPartForUpdate = buildToolPartForUpdateImpl;
 export const buildToolPartFromCall = buildToolPartFromCallImpl;
 export const buildUserMessageFromBlocks = buildUserMessageFromBlocksImpl;
 export const contentBlockToParts = contentBlockToPartsImpl;
+export const clearPermissionOptionsPart = clearPermissionOptionsPartImpl;
 export const createUiMessageState = createUiMessageStateImpl;
 export const finalizeStreamingParts = finalizeStreamingPartsImpl;
 export const getOrCreateAssistantMessage = getOrCreateAssistantMessageImpl;

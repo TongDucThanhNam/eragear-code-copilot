@@ -171,6 +171,51 @@ export function upsertToolLocationsPart(params: {
   });
 }
 
+export function clearPermissionOptionsPart(params: {
+  state: UiMessageState;
+  requestId: string;
+}): { message: UIMessage; partIndex: number } | null {
+  const { state, requestId } = params;
+  for (const message of state.messages.values()) {
+    const partIndex = message.parts.findIndex((part) => {
+      return (
+        part.type === "data-permission-options" &&
+        typeof part.data === "object" &&
+        part.data !== null &&
+        (part.data as { requestId?: unknown }).requestId === requestId
+      );
+    });
+    if (partIndex < 0) {
+      continue;
+    }
+    const part = message.parts[partIndex];
+    if (!part || part.type !== "data-permission-options") {
+      continue;
+    }
+    const currentData =
+      part.data && typeof part.data === "object"
+        ? (part.data as Record<string, unknown>)
+        : {};
+    const scrubbedPart = {
+      ...part,
+      data: {
+        ...currentData,
+        options: [],
+      },
+    } satisfies UIMessage["parts"][number];
+    const nextParts = [...message.parts];
+    nextParts[partIndex] = scrubbedPart;
+    return {
+      message: setMessage(state, {
+        ...message,
+        parts: nextParts,
+      }),
+      partIndex,
+    };
+  }
+  return null;
+}
+
 function ensureMessage(
   state: UiMessageState,
   role: UIMessageRole,

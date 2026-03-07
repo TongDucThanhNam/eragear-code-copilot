@@ -26,6 +26,7 @@ import { toPortableRelativePath } from "@/shared/utils/path-within-root.util";
 import { normalizeTimeoutMs } from "@/shared/utils/timeout.util";
 import { ENV } from "../../config/environment";
 import type { TerminalState } from "../../shared/types/session.types";
+import { flushThrottledBroadcasts } from "./broadcast-throttle";
 import {
   clearTerminalKillTimer,
   envArrayToRecord,
@@ -167,6 +168,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
         canonicalRootPath,
         canonicalTargetPath: filePath,
       });
+      await flushThrottledBroadcasts(chatId);
       await sessionRuntime.broadcast(chatId, {
         type: "file_modified",
         path: relativePath || requestPath.replace(/\\/g, "/"),

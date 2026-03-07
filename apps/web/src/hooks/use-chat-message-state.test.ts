@@ -853,6 +853,65 @@ describe("use-chat-message-state", () => {
     });
   });
 
+  test("applyPartUpdate treats semantically equal tool payloads as unchanged even when object key order differs", () => {
+    const initial = replaceMessagesState([
+      {
+        id: "m-equal-tool",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-bash",
+            toolCallId: "tool-1",
+            state: "output-available",
+            input: {
+              cmd: "ls",
+              flags: {
+                all: true,
+                long: true,
+              },
+            },
+            output: {
+              exitCode: 0,
+              meta: {
+                alpha: 1,
+                beta: 2,
+              },
+            },
+          },
+        ],
+      },
+    ]);
+
+    const updated = applyPartUpdate(initial, {
+      messageId: "m-equal-tool",
+      messageRole: "assistant",
+      partId: "tool:1",
+      partIndex: 0,
+      isNew: false,
+      part: {
+        type: "tool-bash",
+        toolCallId: "tool-1",
+        state: "output-available",
+        input: {
+          flags: {
+            long: true,
+            all: true,
+          },
+          cmd: "ls",
+        },
+        output: {
+          meta: {
+            beta: 2,
+            alpha: 1,
+          },
+          exitCode: 0,
+        },
+      },
+    });
+
+    expect(updated).toBe(initial);
+  });
+
   test("applyPartUpdate accepts approval-requested over output-cancelled (regression)", () => {
     const initial = replaceMessagesState([
       {
