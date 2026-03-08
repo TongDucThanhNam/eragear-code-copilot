@@ -13,6 +13,7 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import type { ChatSession } from "@/shared/types/session.types";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
@@ -351,6 +352,15 @@ async function handleModeUpdate(
   }
 
   const session = sessionRuntime.get(chatId);
+  if (!canApplyModeUpdate(session, update.currentModeId)) {
+    logger.warn("Rejected ACP current mode update outside advertised modes", {
+      chatId,
+      requestedModeId: update.currentModeId,
+      availableModeIds: session?.modes?.availableModes.map((mode) => mode.id) ?? [],
+    });
+    return true;
+  }
+
   if (session) {
     if (session.modes) {
       session.modes.currentModeId = update.currentModeId;
@@ -392,6 +402,19 @@ async function handleModeUpdate(
     });
   }
   return true;
+}
+
+function canApplyModeUpdate(
+  session: ChatSession | undefined,
+  requestedModeId: string
+): boolean {
+  if (!session?.modes) {
+    return false;
+  }
+  if (session.modes.availableModes.length === 0) {
+    return false;
+  }
+  return session.modes.availableModes.some((mode) => mode.id === requestedModeId);
 }
 
 function readModeUpdateReason(

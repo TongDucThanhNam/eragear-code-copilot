@@ -3,7 +3,10 @@ import { EventEmitter } from "node:events";
 import type { SessionEventOutboxPort } from "@/modules/session/application/ports/session-event-outbox.port";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
-import { SessionRuntimeStore } from "./runtime-store";
+import {
+  SessionMutationQueueOverflowError,
+  SessionRuntimeStore,
+} from "./runtime-store";
 
 const OUTBOX_FAILURE_RE = /outbox failure/;
 
@@ -260,6 +263,87 @@ describe("SessionRuntimeStore.runExclusive", () => {
     expect(executionOrder).toEqual(
       Array.from({ length: 64 }, (_, index) => index)
     );
+  });
+
+  test("rejects excess queued waiters once the per-chat cap is exceeded", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 20,
+      eventBusPublishMaxQueuePerChat: 1,
+    });
+    const firstStarted = createDeferred<void>();
+    const releaseFirst = createDeferred<void>();
+
+    const first = store.runExclusive("chat-1", async () => {
+      firstStarted.resolve();
+      await releaseFirst.promise;
+      return "first";
+    });
+    await firstStarted.promise;
+
+    const second = store.runExclusive("chat-1", async () => "second");
+    const third = store
+      .runExclusive("chat-1", async () => "third")
+      .catch((error) => error);
+
+    await flushAsync();
+    expect(await third).toBeInstanceOf(SessionMutationQueueOverflowError);
+
+    releaseFirst.resolve();
+    await expect(first).resolves.toBe("first");
+    await expect(second).resolves.toBe("second");
+  });
+
+  test("keeps queued waiter count bounded under 10k concurrent mutation attempts", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 20,
+      eventBusPublishMaxQueuePerChat: 8,
+    });
+    const firstStarted = createDeferred<void>();
+    const releaseFirst = createDeferred<void>();
+
+    const first = store.runExclusive("chat-1", async () => {
+      firstStarted.resolve();
+      await releaseFirst.promise;
+      return -1;
+    });
+    await firstStarted.promise;
+
+    const attempts = Array.from({ length: 10_000 }, (_, index) =>
+      store
+        .runExclusive("chat-1", async () => index)
+        .then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          (reason) => ({ status: "rejected" as const, reason })
+        )
+    );
+
+    await flushAsync();
+
+    const waiters =
+      (
+        store as unknown as {
+          queuedMutationWaiters: Map<string, Array<() => void>>;
+        }
+      ).queuedMutationWaiters.get("chat-1")?.length ?? 0;
+    expect(waiters).toBeLessThanOrEqual(8);
+
+    releaseFirst.resolve();
+    const results = await Promise.all(attempts);
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
+    const rejected = results.filter((result) => result.status === "rejected");
+
+    expect(fulfilled.length).toBeGreaterThan(0);
+    expect(rejected.length).toBeGreaterThan(0);
+    expect(
+      rejected.every(
+        (result) => result.reason instanceof SessionMutationQueueOverflowError
+      )
+    ).toBe(true);
+    await expect(first).resolves.toBe(-1);
   });
 });
 

@@ -23,7 +23,10 @@ describe("use-chat normalize", () => {
       value: 1,
     });
 
-    expect(parsed).toEqual({ status: "ignored_unknown_event" });
+    expect(parsed).toEqual({
+      status: "ignored_unknown_event",
+      error: "Unknown chat broadcast event type: future_event",
+    });
   });
 
   test("parseBroadcastEvent classifies malformed known events as invalid payload", () => {

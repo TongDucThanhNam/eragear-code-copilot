@@ -21,6 +21,15 @@ let loggerInstance: ReturnType<typeof createLogger> | null = null;
 const MIN_LOCK_WAIT_WARNING_MS = 100;
 const QUEUE_PRESSURE_LOG_INTERVAL_MS = 1000;
 
+export class SessionMutationQueueOverflowError extends Error {
+  constructor(chatId: string, maxWaiters: number) {
+    super(
+      `Session mutation queue overflow for chat ${chatId} (max waiters: ${maxWaiters})`
+    );
+    this.name = "SessionMutationQueueOverflowError";
+  }
+}
+
 function getLogger() {
   if (!loggerInstance) {
     loggerInstance = createLogger("Debug");
@@ -83,6 +92,8 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   private readonly queuedMutationWaiters = new Map<string, Array<() => void>>();
   /** Last queue pressure warning timestamp per chat */
   private readonly lastQueuePressureLogAt = new Map<string, number>();
+  /** Last queue overflow warning timestamp per chat */
+  private readonly lastQueueOverflowLogAt = new Map<string, number>();
   /** Per-request lock re-entry context keyed by chat id */
   private readonly lockContextStorage = new AsyncLocalStorage<
     Map<string, number>
@@ -172,6 +183,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     this.chatLockTails.delete(chatId);
     this.queuedMutationsPerChat.delete(chatId);
     this.lastQueuePressureLogAt.delete(chatId);
+    this.lastQueueOverflowLogAt.delete(chatId);
     this.resolveQueuedMutationWaiters(chatId);
   }
 
@@ -297,6 +309,13 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   private waitForQueuedMutationSlot(chatId: string): Promise<void> {
     return new Promise<void>((resolve) => {
       const current = this.queuedMutationWaiters.get(chatId) ?? [];
+      if (current.length >= this.maxQueuedMutationsPerChat) {
+        this.logQueueOverflow(chatId, current.length);
+        throw new SessionMutationQueueOverflowError(
+          chatId,
+          this.maxQueuedMutationsPerChat
+        );
+      }
       current.push(resolve);
       this.queuedMutationWaiters.set(chatId, current);
     });
@@ -336,6 +355,20 @@ export class SessionRuntimeStore implements SessionRuntimePort {
       chatId,
       pending,
       maxPending: this.maxQueuedMutationsPerChat,
+    });
+  }
+
+  private logQueueOverflow(chatId: string, waiters: number): void {
+    const now = Date.now();
+    const lastLoggedAt = this.lastQueueOverflowLogAt.get(chatId) ?? 0;
+    if (now - lastLoggedAt < QUEUE_PRESSURE_LOG_INTERVAL_MS) {
+      return;
+    }
+    this.lastQueueOverflowLogAt.set(chatId, now);
+    getLogger().warn("Session mutation waiter queue overflow", {
+      chatId,
+      waiters,
+      maxWaiters: this.maxQueuedMutationsPerChat,
     });
   }
 

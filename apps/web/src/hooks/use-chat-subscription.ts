@@ -108,6 +108,9 @@ export function useChatSubscription(params: UseChatSubscriptionParams) {
         }
         const parsedEvent = parseBroadcastEvent(rawEvent);
         if (parsedEvent.status === "ignored_unknown_event") {
+          console.warn("[Client] Ignored unknown session event", {
+            error: parsedEvent.error,
+          });
           return;
         }
         if (parsedEvent.status === "invalid_payload") {

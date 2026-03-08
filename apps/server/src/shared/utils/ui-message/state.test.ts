@@ -178,6 +178,7 @@ describe("createUiMessageState", () => {
     });
 
     expect(initialToolEvent?.partId).toEqual(expect.any(String));
+    expect(initialToolEvent?.partId).toBe("tool:tool-1");
     expect(movedToolEvent?.partId).toBe(initialToolEvent?.partId);
   });
 

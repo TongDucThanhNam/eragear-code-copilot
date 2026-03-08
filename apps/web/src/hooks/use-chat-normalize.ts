@@ -98,7 +98,7 @@ export const normalizeSessionStateData = (
 
 export type ParseBroadcastEventResult =
   | { status: "ok"; event: BroadcastEvent }
-  | { status: "ignored_unknown_event" }
+  | { status: "ignored_unknown_event"; error: string }
   | { status: "invalid_payload"; error: string };
 
 export const parseBroadcastEvent = (
@@ -109,7 +109,7 @@ export const parseBroadcastEvent = (
     return { status: "ok", event: parsed.value };
   }
   if (parsed.kind === "unknown_event") {
-    return { status: "ignored_unknown_event" };
+    return { status: "ignored_unknown_event", error: parsed.error };
   }
   return { status: "invalid_payload", error: parsed.error };
 };

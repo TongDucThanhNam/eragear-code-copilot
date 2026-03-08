@@ -7,6 +7,8 @@ interface LogDetailProps {
 }
 
 export function LogDetail({ entry, onClose }: LogDetailProps) {
+  const meta = entry?.meta ? JSON.stringify(entry.meta) : "";
+
   return (
     <aside
       aria-live="polite"
@@ -80,6 +82,10 @@ export function LogDetail({ entry, onClose }: LogDetailProps) {
           <span className="log-detail-value">
             {entry?.error?.message ?? entry?.message ?? "--"}
           </span>
+        </div>
+        <div className="log-detail-row">
+          <span className="log-detail-label">Metadata</span>
+          <span className="log-detail-value">{meta || "--"}</span>
         </div>
         <div className="log-detail-stack">{entry?.error?.stack ?? ""}</div>
       </div>

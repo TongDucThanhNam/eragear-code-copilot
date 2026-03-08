@@ -36,6 +36,10 @@ function createSession(chatId: string): ChatSession {
           id: "mode-old",
           name: "Old",
         },
+        {
+          id: "mode-new",
+          name: "New",
+        },
       ],
     },
   } satisfies Partial<ChatSession> as ChatSession;
@@ -138,6 +142,33 @@ describe("createSessionUpdateHandler", () => {
       reason: "agent_exit_plan_mode",
       metadata: { source: "tool_call", toolCallId: "tool-1" },
     });
+  });
+
+  test("rejects current_mode_update outside advertised modes", async () => {
+    const session = createSession("chat-mode-invalid");
+    const { runtime, events } = createRuntime(session);
+    const { repo, metadataCalls } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "current_mode_update",
+        currentModeId: "hacker_mode",
+        reason: "spoofed_mode",
+        metadata: { source: "agent" },
+      },
+    });
+
+    expect(session.modes?.currentModeId).toBe("mode-old");
+    expect(metadataCalls).toHaveLength(0);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "current_mode_update",
+      })
+    );
   });
 
   test("applies available_commands_update and persists metadata", async () => {

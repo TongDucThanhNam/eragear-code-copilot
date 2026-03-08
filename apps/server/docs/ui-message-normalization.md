@@ -7,7 +7,8 @@ liệu, không phải tự parse raw ACP.
 ## Mục tiêu
 
 - Một nguồn dữ liệu thống nhất: `UIMessage` + `UIMessagePart`
-- Client chỉ cần **upsert theo `message.id`**, không xử lý raw ACP
+- Client chỉ cần **upsert theo `message.id`**, không xử lý raw ACP trên
+  realtime chat stream
 - Quy tắc stream/tool/permission nằm ở server (single source of truth)
 
 ## Luồng dữ liệu
@@ -127,5 +128,8 @@ normalize JSON. Live terminal output vẫn stream qua event `terminal_output`.
 
 ## Lưu ý
 
-- Không broadcast `session_update`/raw ACP xuống client.
+- Không broadcast `session_update`/raw ACP qua `onSessionEvents`.
+- Khi cần truy ngược raw ACP để debug mapping/server behavior, dùng Dashboard
+  Logs hoặc `GET /api/logs?acpOnly=1` để xem `ACP raw session update` đã được
+  sanitize/redact.
 - Nếu thêm UIMessagePart mới, update mapping + docs client tương ứng.

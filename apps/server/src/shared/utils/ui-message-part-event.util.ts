@@ -67,6 +67,14 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex").slice(0, 16);
 }
 
+function createIntrinsicTokenId(prefix: string, token: string): string {
+  const direct = `${prefix}:${token}`;
+  if (isValidPartId(direct)) {
+    return direct;
+  }
+  return `${prefix}:${hashToken(token)}`;
+}
+
 function readPartRecordId(part: UIMessagePart): string | undefined {
   const id = (part as { id?: unknown }).id;
   if (typeof id === "string" && isValidPartId(id)) {
@@ -90,28 +98,28 @@ function readPartIntrinsicId(part: UIMessagePart): string | undefined {
   }
 
   if (isToolPart(part)) {
-    return `tool:${hashToken(part.toolCallId)}`;
+    return createIntrinsicTokenId("tool", part.toolCallId);
   }
   if (part.type === "source-url" || part.type === "source-document") {
-    return `source:${hashToken(part.sourceId)}`;
+    return createIntrinsicTokenId("source", part.sourceId);
   }
   if (part.type === "file") {
-    return `file:${hashToken(part.url)}`;
+    return createIntrinsicTokenId("file", part.url);
   }
   if (part.type === "data-tool-locations") {
     const data = part.data as { toolCallId?: unknown };
     if (typeof data?.toolCallId === "string" && data.toolCallId.length > 0) {
-      return `tool-locations:${hashToken(data.toolCallId)}`;
+      return createIntrinsicTokenId("tool-locations", data.toolCallId);
     }
   }
   if (part.type === "data-permission-options") {
     const data = part.data as { requestId?: unknown };
     if (typeof data?.requestId === "string" && data.requestId.length > 0) {
-      return `permission:${hashToken(data.requestId)}`;
+      return createIntrinsicTokenId("permission", data.requestId);
     }
   }
   if (isDataPart(part) && typeof part.id === "string") {
-    return `data:${hashToken(part.id)}`;
+    return createIntrinsicTokenId("data", part.id);
   }
 
   return undefined;

@@ -53,5 +53,8 @@ Nguồn: `src/bootstrap/server.ts`.
 Hiện tại là `logs-first` hardening:
 
 - có correlation logging + runtime snapshot.
+- ACP raw session updates được log dưới message `ACP raw session update`
+  (payload đã sanitize/redact) và truy cập qua Dashboard Logs hoặc
+  `GET /api/logs?acpOnly=1`.
 - chưa export metrics/traces qua Prometheus/OTLP collector.
 - chưa có distributed tracing end-to-end qua external backend.

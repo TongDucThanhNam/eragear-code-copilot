@@ -33,6 +33,11 @@ function rangeToFrom(range: string): number | undefined {
 }
 
 function entrySearchText(entry: LogEntry): string {
+  const metaText = entry.meta
+    ? Object.entries(entry.meta)
+        .map(([key, value]) => `${key} ${String(value ?? "")}`)
+        .join(" ")
+    : "";
   return [
     entry.message,
     entry.source ?? "",
@@ -45,6 +50,7 @@ function entrySearchText(entry: LogEntry): string {
     entry.traceId ?? "",
     entry.chatId ?? "",
     entry.id,
+    metaText,
   ]
     .join(" ")
     .toLowerCase();

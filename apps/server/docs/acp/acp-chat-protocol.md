@@ -9,7 +9,9 @@ client có thể build một `useChat` theo phong cách AI SDK chỉ bằng tRPC
 - **Server**: chịu trách nhiệm ACP session lifecycle, mapping ACP → UIMessage,
   và phát stream events.
 - **Client**: chỉ consume tRPC endpoints + events trong tài liệu này.
-- **Không** expose raw ACP xuống client.
+- **Không** expose raw ACP qua `onSessionEvents`.
+- Raw ACP đã sanitize/redact vẫn phải truy cập được cho debug qua log pipeline:
+  Dashboard Logs hoặc `GET /api/logs?acpOnly=1`.
 
 ## 2) Versioning
 
@@ -238,7 +240,8 @@ Notes:
 
 ### 9.1 Client compatibility rules (normative)
 
-- Unknown event type: client **phải ignore an toàn** và tiếp tục stream.
+- Unknown event type: client **phải ignore để giữ forward compatibility**,
+  nhưng **phải log warning/telemetry rõ ràng** thay vì silent drop.
 - Known event type nhưng payload sai schema: client **phải drop event đó**,
   log warning, và tiếp tục stream (không được crash subscription).
 - `ui_message` / `chat_finish.message`: nếu có unknown `UIMessagePart`, client
@@ -289,9 +292,11 @@ với `apps/server`.
   - `output-available`, `output-error`
 - [ ] Lấy options từ `data-permission-options` và gọi
   `respondToPermissionRequest({ chatId, requestId, decision })`.
-- [ ] Khi `cancelPrompt`, ACP client phải preemptively mark mọi non-finished
-  tool call của current turn thành `output-cancelled` trước khi chờ agent trả
-  `chat_finish(cancelled)`.
+- [ ] Khi `cancelPrompt`, client có thể preemptively mark mọi non-finished
+  tool call của current turn thành `output-cancelled` để UX phản hồi ngay.
+- [ ] Server là authority cho stale-turn rejection: mọi `tool_call` /
+  `tool_call_update` tới muộn với `turnId` lệch hoặc đã bị clear phải bị drop
+  trước khi tới client.
 - [ ] Nếu có `data-tool-locations`, dùng `toolCallId` + `locations` cho follow-along (optional).
 
 ### 10.6 Terminal Output

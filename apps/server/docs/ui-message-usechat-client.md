@@ -36,6 +36,9 @@ Quy tắc state machine:
 - Server canonical path stream text/reasoning/tool updates bằng `ui_message_part`
   (text/reasoning được coalesce/throttle theo part snapshot).
 - Không tự parse raw ACP ở client.
+- Nếu cần debug mapping/backend behavior, tra `ACP raw session update` trong
+  Dashboard Logs hoặc `GET /api/logs?acpOnly=1` thay vì đòi raw ACP từ
+  `onSessionEvents`.
 - Message có thể được gửi lặp lại nhiều lần trong streaming. Upsert là idempotent.
 - `sendMessage` mutation trả `turnId`; client nên dùng `turnId` để correlate HTTP ack với `chat_status`/`chat_finish` cho cùng turn.
 - Thứ tự hiển thị:
