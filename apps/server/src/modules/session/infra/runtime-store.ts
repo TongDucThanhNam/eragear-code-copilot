@@ -279,15 +279,14 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   }
 
   private async reserveQueuedMutationSlot(chatId: string): Promise<void> {
-    while (true) {
-      const pending = this.queuedMutationsPerChat.get(chatId) ?? 0;
-      if (pending < this.maxQueuedMutationsPerChat) {
-        this.queuedMutationsPerChat.set(chatId, pending + 1);
-        return;
-      }
-      this.logQueuePressure(chatId, pending);
-      await this.waitForQueuedMutationSlot(chatId);
+    const pending = this.queuedMutationsPerChat.get(chatId) ?? 0;
+    const waiters = this.queuedMutationWaiters.get(chatId);
+    if (pending < this.maxQueuedMutationsPerChat && !waiters?.length) {
+      this.queuedMutationsPerChat.set(chatId, pending + 1);
+      return;
     }
+    this.logQueuePressure(chatId, pending);
+    await this.waitForQueuedMutationSlot(chatId);
   }
 
   private releaseQueuedMutationSlot(chatId: string): void {
@@ -295,14 +294,14 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     if (pending === undefined) {
       return;
     }
+    if (this.transferQueuedMutationSlot(chatId)) {
+      return;
+    }
     const nextPending = pending - 1;
     if (nextPending <= 0) {
       this.queuedMutationsPerChat.delete(chatId);
     } else {
       this.queuedMutationsPerChat.set(chatId, nextPending);
-    }
-    if (nextPending < this.maxQueuedMutationsPerChat) {
-      this.resolveNextQueuedMutationWaiter(chatId);
     }
   }
 
@@ -321,16 +320,17 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     });
   }
 
-  private resolveNextQueuedMutationWaiter(chatId: string): void {
+  private transferQueuedMutationSlot(chatId: string): boolean {
     const waiters = this.queuedMutationWaiters.get(chatId);
     if (!waiters || waiters.length === 0) {
-      return;
+      return false;
     }
     const next = waiters.shift();
     if (waiters.length === 0) {
       this.queuedMutationWaiters.delete(chatId);
     }
     next?.();
+    return true;
   }
 
   private resolveQueuedMutationWaiters(chatId: string): void {
@@ -401,10 +401,8 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     // short WS reconnects can replay in-order chunk snapshots.
     const durable =
       options?.durable ??
-      (event.type === "ui_message_part" ||
-      event.type === "ui_message_part_removed"
-        ? false
-        : true);
+      (event.type !== "ui_message_part" &&
+        event.type !== "ui_message_part_removed");
     const retainInBuffer = options?.retainInBuffer ?? true;
 
     if (durable) {
@@ -473,9 +471,7 @@ export class SessionRuntimeStore implements SessionRuntimePort {
   }
 }
 
-function isPromiseLike(
-  value: void | Promise<void>
-): value is Promise<void> {
+function isPromiseLike(value: void | Promise<void>): value is Promise<void> {
   return (
     typeof value === "object" &&
     value !== null &&

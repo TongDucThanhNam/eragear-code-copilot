@@ -16,6 +16,7 @@
     "lint:fix": "bunx biome check --write .",
     "lint:full": "bunx biome check .",
     "smoke:auth-dashboard": "bun run ./scripts/smoke-auth-dashboard.ts",
+    "smoke:dashboard-log-auth": "bun run ./scripts/smoke-dashboard-log-auth.ts",
     "start": "bun run build && bun run dist/index.mjs",
     "start:dist": "bun run dist/index.mjs",
     "test:auth-dashboard": "bun test ./src/platform/auth/auth-dashboard.integration.test.ts ./src/transport/http/utils/response-headers.test.ts",

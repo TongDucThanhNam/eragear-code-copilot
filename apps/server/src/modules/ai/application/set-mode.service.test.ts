@@ -19,10 +19,13 @@ async function flushAsync(): Promise<void> {
   });
 }
 
-function createSessionRuntimeStub(): SessionRuntimePort {
+function createSessionRuntimeStub(): SessionRuntimePort & {
+  broadcasts: Array<{ chatId: string; event: BroadcastEvent }>;
+} {
   const sessions = new Map<string, ChatSession>();
   const lockTails = new Map<string, Promise<void>>();
   const heldLocks = new Set<string>();
+  const broadcasts: Array<{ chatId: string; event: BroadcastEvent }> = [];
 
   return {
     set(chatId, session) {
@@ -76,8 +79,14 @@ function createSessionRuntimeStub(): SessionRuntimePort {
       return heldLocks.has(chatId);
     },
     broadcast(_chatId: string, _event: BroadcastEvent) {
+      broadcasts.push({ chatId: _chatId, event: _event });
       return Promise.resolve();
     },
+    get broadcasts() {
+      return broadcasts;
+    },
+  } satisfies SessionRuntimePort & {
+    broadcasts: Array<{ chatId: string; event: BroadcastEvent }>;
   };
 }
 
@@ -205,5 +214,44 @@ describe("SetModeService", () => {
 
     releaseRpc.resolve();
     await pending;
+  });
+
+  test("broadcasts current_mode_update after a successful switch", async () => {
+    const session = createSession();
+    session.configOptions = [
+      {
+        id: "mode",
+        name: "Mode",
+        category: "mode",
+        type: "select",
+        currentValue: "code",
+        options: [{ value: "code", name: "Code" }],
+      },
+    ] as ChatSession["configOptions"];
+    const sessionRuntime = createSessionRuntimeStub();
+
+    const service = new SetModeService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionMode: async () => undefined,
+      })
+    );
+
+    await service.execute("user-1", "chat-1", "architect");
+
+    expect(sessionRuntime.broadcasts).toEqual([
+      {
+        chatId: "chat-1",
+        event: { type: "current_mode_update", modeId: "architect" },
+      },
+      {
+        chatId: "chat-1",
+        event: {
+          type: "config_options_update",
+          configOptions: session.configOptions!,
+        },
+      },
+    ]);
   });
 });

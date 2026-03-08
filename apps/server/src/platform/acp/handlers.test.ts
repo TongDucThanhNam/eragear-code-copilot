@@ -5,7 +5,7 @@ import type {
 } from "@/modules/session";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
-import { createSessionHandlers } from "./handlers";
+import { createSessionHandlers, serializeRawPayloadForLog } from "./handlers";
 import { SessionBuffering } from "./update";
 
 function createSession(chatId: string): ChatSession {
@@ -85,5 +85,39 @@ describe("createSessionHandlers", () => {
     expect(session.modes?.currentModeId).toBe("mode-old");
     expect(metadataCalls).toHaveLength(0);
     expect(events).toHaveLength(0);
+  });
+});
+
+describe("serializeRawPayloadForLog", () => {
+  test("redacts sensitive keys and truncates oversized arrays and strings", () => {
+    const serialized = serializeRawPayloadForLog({
+      sessionUpdate: "assistant_message_chunk",
+      text: "secret",
+      nested: {
+        input: { prompt: "hidden" },
+        values: Array.from({ length: 25 }, (_, index) => ({
+          index,
+          output: "x".repeat(300),
+        })),
+      },
+    });
+
+    expect(serialized).toContain('"text":"[redacted:6 chars]"');
+    expect(serialized).toContain('"input":"[redacted:object]"');
+    expect(serialized).toContain("[...5 more items]");
+    expect(serialized).not.toContain('"output":"xxxxxxxxxx');
+  });
+
+  test("does not mark repeated references as circular when there is no cycle", () => {
+    const shared = { message: "shared" };
+
+    const serialized = serializeRawPayloadForLog({
+      first: shared,
+      second: shared,
+    });
+
+    expect(serialized).toContain('"first":{"message":"shared"}');
+    expect(serialized).toContain('"second":{"message":"shared"}');
+    expect(serialized).not.toContain("[circular]");
   });
 });

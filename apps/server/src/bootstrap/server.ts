@@ -19,6 +19,7 @@ import { WebSocketServer } from "ws";
 import { installConsoleLogger } from "../platform/logging/logger";
 import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
+import { patchObservabilityContext } from "../shared/utils/observability-context.util";
 import { withTimeout } from "../shared/utils/timeout.util";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
@@ -319,6 +320,7 @@ export function createApp(
     if (!authContext) {
       return c.json({ error: "Unauthorized" }, 401);
     }
+    patchObservabilityContext({ userId: authContext.userId });
     return next();
   });
 

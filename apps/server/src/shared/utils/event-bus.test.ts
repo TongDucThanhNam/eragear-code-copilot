@@ -39,6 +39,7 @@ describe("EventBus.publish", () => {
     expect(delivery).toEqual(["listener-1", "listener-2"]);
     expect(logs.length).toBe(2);
     expect(logs[0]?.message).toBe("[EventBus] Listener error");
+    expect(logs[0]?.context?.errorStack).toContain("listener failed");
     expect(logs[1]?.message).toBe(
       "[EventBus] Publish completed with listener failures"
     );

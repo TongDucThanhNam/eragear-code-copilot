@@ -112,10 +112,15 @@ export class GetObservabilitySnapshotService {
     this.getAcpTurnIdMigrationSnapshot = params.getAcpTurnIdMigrationSnapshot;
   }
 
-  execute() {
+  async execute(userId: string) {
     const now = Date.now();
-    const { entries } = this.logStore.list({ order: "desc" });
-    const sessions = this.sessionRuntime.getAll();
+    const { entries } = await this.logStore.query({
+      order: "desc",
+      userId,
+    });
+    const sessions = this.sessionRuntime
+      .getAll()
+      .filter((session) => session.userId === userId);
     const pendingPermissions = sessions.reduce((acc, session) => {
       return acc + session.pendingPermissions.size;
     }, 0);

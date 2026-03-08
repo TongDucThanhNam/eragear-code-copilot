@@ -116,7 +116,6 @@ export class BackgroundRunner {
       {
         source: "background",
         taskName: spec.name,
-        taskRunId,
       },
       async () => {
         try {

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { appendFile, readdir, unlink } from "node:fs/promises";
+import { appendFile, readdir, readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { ENV } from "@/config/environment";
 import {
@@ -10,17 +10,26 @@ import type {
   LogListResult,
   LogStorePort,
 } from "@/shared/ports/log-store.port";
-import type {
-  LogEntry,
-  LogLevel,
-  LogQuery,
-  LogStats,
+import {
+  LOG_LEVELS,
+  type LogEntry,
+  type LogLevel,
+  type LogQuery,
 } from "@/shared/types/log.types";
 import { matchesLogQuery } from "@/shared/utils/log-query.util";
 
 const LOG_DIR_NAME = "logs";
 const LOG_FILE_PREFIX = "logs-";
 const LOG_FILE_SUFFIX = ".ndjson";
+const LOG_FILE_DATE_PATTERN = new RegExp(
+  `^${LOG_FILE_PREFIX}(\\d{4}-\\d{2}-\\d{2})${LOG_FILE_SUFFIX}$`
+);
+const VALID_LOG_LEVELS = new Set<LogLevel>(LOG_LEVELS);
+
+interface BufferedLogLine {
+  datePart: string;
+  line: string;
+}
 
 function createLevelCounts(): Record<LogLevel, number> {
   return {
@@ -44,12 +53,67 @@ function ensureLogDir(): string {
   return logDir;
 }
 
+function parseLogFileDate(file: string): string | null {
+  const match = file.match(LOG_FILE_DATE_PATTERN);
+  return match?.[1] ?? null;
+}
+
+function getUtcDayEndTimestamp(datePart: string): number {
+  return Date.parse(`${datePart}T23:59:59.999Z`);
+}
+
+function compareEntriesAscending(left: LogEntry, right: LogEntry): number {
+  if (left.timestamp !== right.timestamp) {
+    return left.timestamp - right.timestamp;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function buildLogListResult(
+  entries: LogEntry[],
+  query?: LogQuery
+): LogListResult {
+  const resolvedQuery = query ?? {};
+  const ordered = [...entries];
+  ordered.sort(compareEntriesAscending);
+
+  const filtered: LogEntry[] = [];
+  const filteredCounts = createLevelCounts();
+
+  for (const entry of ordered) {
+    if (!matchesLogQuery(entry, resolvedQuery)) {
+      continue;
+    }
+    if (!VALID_LOG_LEVELS.has(entry.level)) {
+      continue;
+    }
+    filteredCounts[entry.level] += 1;
+    filtered.push(entry);
+  }
+
+  if ((resolvedQuery.order ?? "desc") === "desc") {
+    filtered.reverse();
+  }
+
+  const limit = resolvedQuery.limit;
+  const limited =
+    typeof limit === "number" ? filtered.slice(0, limit) : filtered;
+
+  return {
+    entries: limited,
+    stats: {
+      total: filtered.length,
+      levels: filteredCounts,
+    },
+  };
+}
+
 class LogFileSink {
   private readonly flushIntervalMs: number;
   private readonly retentionDays?: number;
-  private readonly buffer: string[] = [];
+  private readonly buffer: BufferedLogLine[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private flushing = false;
+  private flushPromise: Promise<void> | null = null;
   private activeDate = "";
   private activePath = "";
 
@@ -59,7 +123,10 @@ class LogFileSink {
   }
 
   append(entry: LogEntry): void {
-    this.buffer.push(JSON.stringify(entry));
+    this.buffer.push({
+      datePart: formatDate(new Date(entry.timestamp)),
+      line: JSON.stringify(entry),
+    });
     this.scheduleFlush();
   }
 
@@ -74,33 +141,16 @@ class LogFileSink {
         );
       });
     }, this.flushIntervalMs);
+    this.flushTimer.unref?.();
   }
 
-  private async waitForCurrentFlush(): Promise<void> {
-    if (!this.flushing) {
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      const poll = () => {
-        if (!this.flushing) {
-          resolve();
-          return;
-        }
-        const timer = setTimeout(poll, 5);
-        timer.unref?.();
-      };
-      poll();
-    });
-  }
-
-  private resolveFilePath(): string {
-    const date = formatDate(new Date());
-    if (date !== this.activeDate) {
-      this.activeDate = date;
+  private resolveFilePath(datePart: string): string {
+    if (datePart !== this.activeDate) {
+      this.activeDate = datePart;
       const dir = ensureLogDir();
       this.activePath = path.join(
         dir,
-        `${LOG_FILE_PREFIX}${date}${LOG_FILE_SUFFIX}`
+        `${LOG_FILE_PREFIX}${datePart}${LOG_FILE_SUFFIX}`
       );
       if (this.retentionDays) {
         this.cleanupOldFiles(dir).catch((error) => {
@@ -112,10 +162,10 @@ class LogFileSink {
     }
     if (!this.activePath) {
       const dir = ensureLogDir();
-      this.activeDate = date;
+      this.activeDate = datePart;
       this.activePath = path.join(
         dir,
-        `${LOG_FILE_PREFIX}${date}${LOG_FILE_SUFFIX}`
+        `${LOG_FILE_PREFIX}${datePart}${LOG_FILE_SUFFIX}`
       );
     }
     return this.activePath;
@@ -126,27 +176,45 @@ class LogFileSink {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    if (this.flushing) {
-      await this.waitForCurrentFlush();
+    if (this.flushPromise) {
+      await this.flushPromise;
+      return;
     }
 
-    while (this.buffer.length > 0) {
-      this.flushing = true;
-      const batch = this.buffer.splice(0, this.buffer.length);
-      if (!batch.length) {
-        this.flushing = false;
-        return;
+    const flushPromise = (async () => {
+      while (this.buffer.length > 0) {
+        const batch = this.buffer.splice(0, this.buffer.length);
+        if (!batch.length) {
+          return;
+        }
+        try {
+          const batchesByDate = new Map<string, string[]>();
+          for (const entry of batch) {
+            const lines = batchesByDate.get(entry.datePart);
+            if (lines) {
+              lines.push(entry.line);
+              continue;
+            }
+            batchesByDate.set(entry.datePart, [entry.line]);
+          }
+          for (const [datePart, lines] of batchesByDate) {
+            const filePath = this.resolveFilePath(datePart);
+            const payload = `${lines.join("\n")}\n`;
+            await appendFile(filePath, payload, "utf-8");
+          }
+        } catch (error) {
+          this.buffer.unshift(...batch);
+          throw error;
+        }
       }
-      const payload = `${batch.join("\n")}\n`;
-      try {
-        const filePath = this.resolveFilePath();
-        await appendFile(filePath, payload, "utf-8");
-      } catch (error) {
-        process.stderr.write(
-          `[LogStore] Failed to append logs: ${String(error)}\n`
-        );
-      } finally {
-        this.flushing = false;
+    })();
+
+    this.flushPromise = flushPromise;
+    try {
+      await flushPromise;
+    } finally {
+      if (this.flushPromise === flushPromise) {
+        this.flushPromise = null;
       }
     }
   }
@@ -159,26 +227,27 @@ class LogFileSink {
     const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
     try {
       const files = await readdir(logDir);
-      const deletions = files
-        .filter((file) => file.startsWith(LOG_FILE_PREFIX))
-        .map(async (file) => {
-          const match = file.match(
-            new RegExp(`^${LOG_FILE_PREFIX}(\\d{4}-\\d{2}-\\d{2})`)
-          );
-          if (!match) {
-            return;
-          }
-          const datePart = match[1];
-          if (!datePart) {
-            return;
-          }
-          const timestamp = new Date(datePart).getTime();
-          if (Number.isNaN(timestamp) || timestamp >= cutoff) {
-            return;
-          }
+      for (const file of files.filter((entry) =>
+        entry.startsWith(LOG_FILE_PREFIX)
+      )) {
+        const datePart = parseLogFileDate(file);
+        if (!datePart) {
+          continue;
+        }
+        const timestamp = getUtcDayEndTimestamp(datePart);
+        if (Number.isNaN(timestamp) || timestamp >= cutoff) {
+          continue;
+        }
+        try {
           await unlink(path.join(logDir, file));
-        });
-      await Promise.allSettled(deletions);
+        } catch (error) {
+          process.stderr.write(
+            `[LogStore] Failed to delete retained log file ${file}: ${String(
+              error
+            )}\n`
+          );
+        }
+      }
     } catch (error) {
       process.stderr.write(
         `[LogStore] Failed to cleanup logs: ${String(error)}\n`
@@ -228,35 +297,21 @@ export class LogStore implements LogStorePort {
   }
 
   list(query?: LogQuery): LogListResult {
-    const entries = this.toArray();
-    const resolvedQuery = query ?? {};
-    const order = resolvedQuery.order ?? "desc";
+    return buildLogListResult(this.toArray(), query);
+  }
 
-    const filtered: LogEntry[] = [];
-    const filteredCounts = createLevelCounts();
+  async query(query?: LogQuery): Promise<LogListResult> {
+    await this.fileSink?.flush();
+    const deduped = new Map<string, LogEntry>();
 
-    for (const entry of entries) {
-      if (!matchesLogQuery(entry, resolvedQuery)) {
-        continue;
-      }
-      filteredCounts[entry.level] += 1;
-      filtered.push(entry);
+    for (const entry of await this.readPersistedEntries()) {
+      deduped.set(entry.id, entry);
+    }
+    for (const entry of this.toArray()) {
+      deduped.set(entry.id, entry);
     }
 
-    if (order === "desc") {
-      filtered.reverse();
-    }
-
-    const limit = resolvedQuery.limit;
-    const limited =
-      typeof limit === "number" ? filtered.slice(0, limit) : filtered;
-
-    const stats: LogStats = {
-      total: filtered.length,
-      levels: filteredCounts,
-    };
-
-    return { entries: limited, stats };
+    return buildLogListResult([...deduped.values()], query);
   }
 
   subscribe(listener: (entry: LogEntry) => void): () => void {
@@ -268,6 +323,77 @@ export class LogStore implements LogStorePort {
 
   async flush(): Promise<void> {
     await this.fileSink?.flush();
+  }
+
+  private async readPersistedEntries(): Promise<LogEntry[]> {
+    if (!ENV.logFileEnabled) {
+      return [];
+    }
+
+    const logDir = path.join(getStorageDirPathSync(), LOG_DIR_NAME);
+    if (!existsSync(logDir)) {
+      return [];
+    }
+
+    let files: string[];
+    try {
+      files = await readdir(logDir);
+    } catch (error) {
+      process.stderr.write(
+        `[LogStore] Failed to list log files: ${String(error)}\n`
+      );
+      return [];
+    }
+
+    const selectedFiles = files
+      .filter((file) => parseLogFileDate(file) !== null)
+      .sort();
+
+    const entries: LogEntry[] = [];
+    for (const file of selectedFiles) {
+      try {
+        const content = await readFile(path.join(logDir, file), "utf-8");
+        for (const line of content.split("\n")) {
+          const normalizedLine = line.trim();
+          if (!normalizedLine) {
+            continue;
+          }
+          try {
+            const parsed = JSON.parse(normalizedLine) as LogEntry;
+            if (
+              !parsed ||
+              typeof parsed !== "object" ||
+              typeof parsed.id !== "string" ||
+              typeof parsed.timestamp !== "number" ||
+              typeof parsed.message !== "string" ||
+              typeof parsed.level !== "string" ||
+              !VALID_LOG_LEVELS.has(parsed.level as LogLevel)
+            ) {
+              continue;
+            }
+            if (
+              parsed.userId !== undefined &&
+              typeof parsed.userId !== "string"
+            ) {
+              continue;
+            }
+            entries.push(parsed);
+          } catch (error) {
+            process.stderr.write(
+              `[LogStore] Failed to parse log line in ${file}: ${String(
+                error
+              )}\n`
+            );
+          }
+        }
+      } catch (error) {
+        process.stderr.write(
+          `[LogStore] Failed to read log file ${file}: ${String(error)}\n`
+        );
+      }
+    }
+
+    return entries;
   }
 
   private toArray(): LogEntry[] {

@@ -69,7 +69,9 @@ function getFirstTextPartText(event: BroadcastEvent): string | null {
   if (event.type !== "ui_message") {
     return null;
   }
-  const firstTextPart = event.message.parts.find((part) => part.type === "text");
+  const firstTextPart = event.message.parts.find(
+    (part) => part.type === "text"
+  );
   if (!firstTextPart || firstTextPart.type !== "text") {
     return null;
   }
@@ -344,6 +346,54 @@ describe("SessionRuntimeStore.runExclusive", () => {
       )
     ).toBe(true);
     await expect(first).resolves.toBe(-1);
+  });
+
+  test("transfers freed queue slots directly to the next waiter", () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 20,
+      eventBusPublishMaxQueuePerChat: 2,
+    });
+    let resumed = 0;
+    (
+      store as unknown as {
+        queuedMutationsPerChat: Map<string, number>;
+        queuedMutationWaiters: Map<string, Array<() => void>>;
+        releaseQueuedMutationSlot: (chatId: string) => void;
+      }
+    ).queuedMutationsPerChat.set("chat-1", 2);
+    (
+      store as unknown as {
+        queuedMutationWaiters: Map<string, Array<() => void>>;
+      }
+    ).queuedMutationWaiters.set("chat-1", [
+      () => {
+        resumed += 1;
+      },
+    ]);
+
+    (
+      store as unknown as {
+        releaseQueuedMutationSlot: (chatId: string) => void;
+      }
+    ).releaseQueuedMutationSlot("chat-1");
+
+    expect(resumed).toBe(1);
+    expect(
+      (
+        store as unknown as {
+          queuedMutationsPerChat: Map<string, number>;
+        }
+      ).queuedMutationsPerChat.get("chat-1")
+    ).toBe(2);
+    expect(
+      (
+        store as unknown as {
+          queuedMutationWaiters: Map<string, Array<() => void>>;
+        }
+      ).queuedMutationWaiters.has("chat-1")
+    ).toBe(false);
   });
 });
 
@@ -751,16 +801,20 @@ describe("SessionRuntimeStore.broadcast", () => {
     await store.broadcast("chat-1", event);
 
     if (event.type === "ui_message") {
-      const firstTextPart = event.message.parts.find((part) => part.type === "text");
+      const firstTextPart = event.message.parts.find(
+        (part) => part.type === "text"
+      );
       if (firstTextPart?.type === "text") {
         firstTextPart.text = "caller-mutated";
       }
     }
 
-    expect(getFirstTextPartText(outboxCalls[0] as BroadcastEvent)).toBe("original");
-    expect(getFirstTextPartText(session.messageBuffer[0] as BroadcastEvent)).toBe(
+    expect(getFirstTextPartText(outboxCalls[0] as BroadcastEvent)).toBe(
       "original"
     );
+    expect(
+      getFirstTextPartText(session.messageBuffer[0] as BroadcastEvent)
+    ).toBe("original");
     expect(getFirstTextPartText(event)).toBe("caller-mutated");
     expect(getFirstTextPartText(listenerEvents[0] as BroadcastEvent)).toBe(
       "listener-mutated"

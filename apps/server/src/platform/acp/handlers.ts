@@ -17,6 +17,7 @@ import type {
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
+import { withObservabilityContext } from "@/shared/utils/observability-context.util";
 import { createPermissionHandler } from "./permission";
 import { createToolCallHandlers } from "./tool-calls";
 import { createSessionUpdateHandler } from "./update";
@@ -76,166 +77,201 @@ export function createSessionHandlers(params: {
     sessionRepo
   );
   const toolCalls = createToolCallHandlers(sessionRuntime);
+  const withSessionLogContext = async <T>(work: () => Promise<T>): Promise<T> => {
+    const sessionUserId = sessionRuntime.get(chatId)?.userId;
+    return await withObservabilityContext(
+      {
+        source: "background",
+        chatId,
+        userId: sessionUserId,
+      },
+      work
+    );
+  };
   return {
     /** Handles session updates (messages, tool calls, plans, etc.) */
     async sessionUpdate(params: acp.SessionNotification) {
-      if (shouldEmitRuntimeLog("debug")) {
-        let rawPayload = "";
-        try {
-          rawPayload = JSON.stringify(
-            sanitizeRawPayloadForLog(params?.update ?? null)
-          ).slice(0, RAW_PAYLOAD_LOG_LIMIT);
-        } catch {
-          rawPayload = "[unserializable]";
+      return await withSessionLogContext(async () => {
+        if (shouldEmitRuntimeLog("debug")) {
+          let rawPayload = "";
+          try {
+            rawPayload = serializeRawPayloadForLog(params?.update ?? null).slice(
+              0,
+              RAW_PAYLOAD_LOG_LIMIT
+            );
+          } catch {
+            rawPayload = "[unserializable]";
+          }
+          logger.debug("ACP raw session update", {
+            chatId,
+            rawType: params?.update?.sessionUpdate,
+            rawPayloadLength: rawPayload.length,
+            rawPayload,
+          });
         }
-        logger.debug("ACP raw session update", {
-          chatId,
-          rawType: params?.update?.sessionUpdate,
-          rawPayloadLength: rawPayload.length,
-          rawPayload,
-        });
-      }
 
-      const validatedUpdate = parseSessionUpdatePayload(params?.update);
-      if (!validatedUpdate) {
-        logger.warn("Dropped invalid ACP session update payload", {
+        const validatedUpdate = parseSessionUpdatePayload(params?.update);
+        if (!validatedUpdate) {
+          logger.warn("Dropped invalid ACP session update payload", {
+            chatId,
+          });
+          return;
+        }
+        logger.debug("ACP handler sessionUpdate", {
           chatId,
-        });
-        return;
-      }
-      logger.debug("ACP handler sessionUpdate", {
-        chatId,
-        hasUpdate: true,
-        updateType: validatedUpdate.sessionUpdate,
-      });
-      try {
-        await handleSessionUpdate({
-          chatId,
-          buffer,
-          isReplayingHistory: getIsReplaying(),
-          update: validatedUpdate,
-        });
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        logger.error("ACP session update pipeline failed", undefined, {
-          chatId,
+          hasUpdate: true,
           updateType: validatedUpdate.sessionUpdate,
-          error: errorMessage,
         });
-        await sessionRuntime
-          .broadcast(chatId, {
-            type: "error",
-            error: `Session update failed: ${errorMessage}`,
+        try {
+          await handleSessionUpdate({
+            chatId,
+            buffer,
+            isReplayingHistory: getIsReplaying(),
+            update: validatedUpdate,
           })
-          .catch(() => undefined);
-        const session = sessionRuntime.get(chatId);
-        if (session) {
-          await new SessionRuntimeEntity(session)
-            .markError({
-              chatId,
-              broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          logger.error("ACP session update pipeline failed", undefined, {
+            chatId,
+            updateType: validatedUpdate.sessionUpdate,
+            error: errorMessage,
+          });
+          await sessionRuntime
+            .broadcast(chatId, {
+              type: "error",
+              error: `Session update failed: ${errorMessage}`,
             })
             .catch(() => undefined);
+          const session = sessionRuntime.get(chatId);
+          if (session) {
+            await new SessionRuntimeEntity(session)
+              .markError({
+                chatId,
+                broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+              })
+              .catch(() => undefined);
+          }
         }
-      }
+      });
     },
 
     /** Handles permission requests from the agent */
     async requestPermission(
       params: acp.RequestPermissionRequest
     ): Promise<acp.RequestPermissionResponse> {
-      logger.debug("ACP handler requestPermission", {
-        chatId,
-        toolCallId: params.toolCall.toolCallId,
-        toolKind: params.toolCall.kind,
-        toolTitle: params.toolCall.title,
-      });
-      return await handlePermissionRequest({
-        chatId,
-        isReplayingHistory: getIsReplaying(),
-        request: params,
+      return await withSessionLogContext(async () => {
+        logger.debug("ACP handler requestPermission", {
+          chatId,
+          toolCallId: params.toolCall.toolCallId,
+          toolKind: params.toolCall.kind,
+          toolTitle: params.toolCall.title,
+        });
+        return await handlePermissionRequest({
+          chatId,
+          isReplayingHistory: getIsReplaying(),
+          request: params,
+        });
       });
     },
 
     /** Handles file reading requests */
     async readTextFile(params: acp.ReadTextFileRequest) {
-      logger.debug("ACP handler readTextFile", {
-        chatId,
-        path: params.path,
+      return await withSessionLogContext(async () => {
+        logger.debug("ACP handler readTextFile", {
+          chatId,
+          path: params.path,
+        });
+        return await toolCalls.readTextFileForChat(chatId, params);
       });
-      return await toolCalls.readTextFileForChat(chatId, params);
     },
 
     /** Handles file writing requests */
     async writeTextFile(params: acp.WriteTextFileRequest) {
-      const hasContent = typeof params.content === "string";
-      logger.debug("ACP handler writeTextFile", {
-        chatId,
-        path: params.path,
-        hasContent,
-        contentLength: hasContent ? params.content.length : undefined,
+      return await withSessionLogContext(async () => {
+        const hasContent = typeof params.content === "string";
+        logger.debug("ACP handler writeTextFile", {
+          chatId,
+          path: params.path,
+          hasContent,
+          contentLength: hasContent ? params.content.length : undefined,
+        });
+        return await toolCalls.writeTextFileForChat(chatId, params);
       });
-      return await toolCalls.writeTextFileForChat(chatId, params);
     },
 
     /** Handles terminal creation */
     async createTerminal(params: acp.CreateTerminalRequest) {
-      logger.debug("ACP handler createTerminal", {
-        chatId,
-        command: params.command,
-        argsCount: params.args?.length ?? 0,
+      return await withSessionLogContext(async () => {
+        logger.debug("ACP handler createTerminal", {
+          chatId,
+          command: params.command,
+          argsCount: params.args?.length ?? 0,
+        });
+        return await toolCalls.createTerminal(chatId, params);
       });
-      return await toolCalls.createTerminal(chatId, params);
     },
 
     /** Handles waiting for terminal exit */
     async waitForTerminalExit(params: acp.WaitForTerminalExitRequest) {
-      logger.debug("ACP handler waitForTerminalExit", {
-        chatId,
-        terminalId: params.terminalId,
+      return await withSessionLogContext(async () => {
+        logger.debug("ACP handler waitForTerminalExit", {
+          chatId,
+          terminalId: params.terminalId,
+        });
+        return await toolCalls.waitForTerminalExit(chatId, params);
       });
-      return await toolCalls.waitForTerminalExit(chatId, params);
     },
 
     /** Handles terminal output retrieval */
     async terminalOutput(params: acp.TerminalOutputRequest) {
-      logger.debug("ACP handler terminalOutput", {
-        chatId,
-        terminalId: params.terminalId,
+      return await withSessionLogContext(async () => {
+        logger.debug("ACP handler terminalOutput", {
+          chatId,
+          terminalId: params.terminalId,
+        });
+        return await toolCalls.terminalOutput(chatId, params);
       });
-      return await toolCalls.terminalOutput(chatId, params);
     },
 
     /** Handles terminal termination */
     async killTerminal(params: acp.KillTerminalCommandRequest) {
-      logger.debug("ACP handler killTerminal", {
-        chatId,
-        terminalId: params.terminalId,
+      return await withSessionLogContext(async () => {
+        logger.debug("ACP handler killTerminal", {
+          chatId,
+          terminalId: params.terminalId,
+        });
+        return await toolCalls.killTerminal(chatId, params);
       });
-      return await toolCalls.killTerminal(chatId, params);
     },
 
     /** Handles terminal resource release */
     async releaseTerminal(params: acp.ReleaseTerminalRequest) {
-      logger.debug("ACP handler releaseTerminal", {
-        chatId,
-        terminalId: params.terminalId,
+      return await withSessionLogContext(async () => {
+        logger.debug("ACP handler releaseTerminal", {
+          chatId,
+          terminalId: params.terminalId,
+        });
+        return await toolCalls.releaseTerminal(chatId, params);
       });
-      return await toolCalls.releaseTerminal(chatId, params);
     },
   };
 }
 
-function sanitizeRawPayloadForLog(value: unknown, depth = 0): unknown {
+export function serializeRawPayloadForLog(value: unknown): string {
+  return JSON.stringify(normalizeRawPayloadForLog(value));
+}
+
+function normalizeRawPayloadForLog(
+  value: unknown,
+  depth = 0,
+  active = new WeakSet<object>()
+): unknown {
   if (value === null || value === undefined) {
     return value;
   }
   if (typeof value === "string") {
-    if (value.length <= RAW_PAYLOAD_STRING_LIMIT) {
-      return value;
-    }
-    return `${value.slice(0, RAW_PAYLOAD_STRING_LIMIT)}...[${value.length} chars]`;
+    return truncateRawPayloadString(value);
   }
   if (typeof value !== "object") {
     return value;
@@ -243,30 +279,55 @@ function sanitizeRawPayloadForLog(value: unknown, depth = 0): unknown {
   if (depth >= RAW_PAYLOAD_MAX_DEPTH) {
     return "[max-depth]";
   }
-  if (Array.isArray(value)) {
-    const out = value
-      .slice(0, RAW_PAYLOAD_MAX_ARRAY_ITEMS)
-      .map((item) => sanitizeRawPayloadForLog(item, depth + 1));
-    if (value.length > RAW_PAYLOAD_MAX_ARRAY_ITEMS) {
-      out.push(`[...${value.length - RAW_PAYLOAD_MAX_ARRAY_ITEMS} more items]`);
-    }
-    return out;
+  if (active.has(value)) {
+    return "[circular]";
   }
-  const out: Record<string, unknown> = {};
-  for (const [key, entryValue] of Object.entries(value)) {
-    if (RAW_REDACTED_KEYS.has(key)) {
-      if (typeof entryValue === "string") {
-        out[key] = `[redacted:${entryValue.length} chars]`;
-      } else if (Array.isArray(entryValue)) {
-        out[key] = `[redacted:array(${entryValue.length})]`;
-      } else if (entryValue && typeof entryValue === "object") {
-        out[key] = "[redacted:object]";
-      } else {
-        out[key] = entryValue;
+
+  active.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const limited = value.slice(0, RAW_PAYLOAD_MAX_ARRAY_ITEMS);
+      const normalized = limited.map((item) =>
+        normalizeRawPayloadForLog(item, depth + 1, active)
+      );
+      if (value.length > RAW_PAYLOAD_MAX_ARRAY_ITEMS) {
+        normalized.push(
+          `[...${value.length - RAW_PAYLOAD_MAX_ARRAY_ITEMS} more items]`
+        );
       }
-      continue;
+      return normalized;
     }
-    out[key] = sanitizeRawPayloadForLog(entryValue, depth + 1);
+
+    const normalized: Record<string, unknown> = {};
+    for (const [key, entryValue] of Object.entries(value)) {
+      if (RAW_REDACTED_KEYS.has(key)) {
+        normalized[key] = redactRawPayloadValue(entryValue);
+        continue;
+      }
+      normalized[key] = normalizeRawPayloadForLog(entryValue, depth + 1, active);
+    }
+    return normalized;
+  } finally {
+    active.delete(value);
   }
-  return out;
+}
+
+function truncateRawPayloadString(value: string): string {
+  if (value.length <= RAW_PAYLOAD_STRING_LIMIT) {
+    return value;
+  }
+  return `${value.slice(0, RAW_PAYLOAD_STRING_LIMIT)}...[${value.length} chars]`;
+}
+
+function redactRawPayloadValue(value: unknown): string | unknown {
+  if (typeof value === "string") {
+    return `[redacted:${value.length} chars]`;
+  }
+  if (Array.isArray(value)) {
+    return `[redacted:array(${value.length})]`;
+  }
+  if (value && typeof value === "object") {
+    return "[redacted:object]";
+  }
+  return value;
 }

@@ -6,8 +6,15 @@ function normalizeSource(source?: string): string {
 }
 
 export function getLogSearchText(entry: LogEntry): string {
+  const metaText = entry.meta
+    ? Object.entries(entry.meta)
+        .map(([key, value]) => `${key} ${String(value ?? "")}`)
+        .join(" ")
+    : "";
+
   return [
     entry.message,
+    entry.userId ?? "",
     entry.source ?? "",
     entry.request?.method ?? "",
     entry.request?.path ?? "",
@@ -20,6 +27,7 @@ export function getLogSearchText(entry: LogEntry): string {
     entry.taskName ?? "",
     entry.taskRunId ?? "",
     entry.id,
+    metaText,
   ]
     .join(" ")
     .toLowerCase();
@@ -37,6 +45,9 @@ export function matchesLogQuery(
   entry: LogEntry,
   query: LogQuery = {}
 ): boolean {
+  if (query.userId !== undefined && entry.userId !== query.userId) {
+    return false;
+  }
   if (query.from !== undefined && entry.timestamp < query.from) {
     return false;
   }

@@ -11,6 +11,7 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
+import { updateSessionConfigOptionCurrentValue } from "@/shared/utils/session-config-options.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import {
   AI_OP,
@@ -90,6 +91,21 @@ export class SetModeService {
           });
         }
         aggregate.setCurrentMode(modeId);
+        const configOptionUpdated = updateSessionConfigOptionCurrentValue({
+          configOptions: session.configOptions,
+          target: "mode",
+          value: modeId,
+        });
+        await this.sessionRuntime.broadcast(chatId, {
+          type: "current_mode_update",
+          modeId,
+        });
+        if (configOptionUpdated && session.configOptions) {
+          await this.sessionRuntime.broadcast(chatId, {
+            type: "config_options_update",
+            configOptions: session.configOptions,
+          });
+        }
         return { ok: true };
       });
     });

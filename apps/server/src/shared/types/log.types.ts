@@ -17,6 +17,7 @@ export interface LogEntry {
   timestamp: number;
   level: LogLevel;
   message: string;
+  userId?: string;
   source?: string;
   requestId?: string;
   traceId?: string;
@@ -32,6 +33,7 @@ export interface LogEntry {
 }
 
 export interface LogQuery {
+  userId?: string;
   levels?: LogLevel[];
   sources?: string[];
   acpOnly?: boolean;

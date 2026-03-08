@@ -1,9 +1,9 @@
 import { format } from "node:util";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LogEntry, LogLevel } from "@/shared/types/log.types";
+import { isAcpLogMessage } from "@/shared/utils/acp-log.util";
 import { createId } from "@/shared/utils/id.util";
 import { getObservabilityContext } from "@/shared/utils/observability-context.util";
-import { isAcpLogMessage } from "@/shared/utils/acp-log.util";
 import { getLogStore } from "./log-store";
 import { shouldEmitRuntimeLog } from "./runtime-log-level";
 
@@ -22,6 +22,7 @@ const nativeConsole: NativeConsole = {
 };
 
 const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
+let consoleCaptureDepth = 0;
 
 function findError(args: unknown[]): Error | undefined {
   for (const arg of args) {
@@ -90,6 +91,7 @@ function parseStructuredConsolePayload(message: string): {
   message: string;
   context?: Record<string, LogMetaValue>;
   chatId?: string;
+  userId?: string;
 } | null {
   try {
     const parsed = JSON.parse(message) as Record<string, unknown>;
@@ -107,12 +109,19 @@ function parseStructuredConsolePayload(message: string): {
       typeof (parsed.context as { chatId?: unknown }).chatId === "string"
         ? ((parsed.context as { chatId?: string }).chatId ?? undefined)
         : undefined;
+    const userId =
+      parsed.context &&
+      typeof parsed.context === "object" &&
+      typeof (parsed.context as { userId?: unknown }).userId === "string"
+        ? ((parsed.context as { userId?: string }).userId ?? undefined)
+        : undefined;
     return {
       level: payloadLevel,
       tag: payloadTag,
       message: payloadMessage,
       context: payloadContext,
       chatId,
+      userId,
     };
   } catch {
     return null;
@@ -182,46 +191,29 @@ export class Logger {
     if (payload) {
       const resolvedLevel = payload.level ?? level;
       const payloadAcpRelated = isAcpLogMessage(payload.message);
-      if (
-        payloadAcpRelated ||
-        resolvedLevel === "warn" ||
-        resolvedLevel === "error"
-      ) {
-        const mergedMeta = {
-          ...(context?.meta ?? {}),
-          ...(payload.context ?? {}),
-          ...(payload.tag ? { structuredTag: payload.tag } : {}),
-        };
-        const entry = this.buildEntry(resolvedLevel, payload.message, {
-          ...context,
-          source: payloadAcpRelated ? "acp" : context?.source,
-          chatId: context?.chatId ?? payload.chatId,
-          meta: mergedMeta,
-          error: normalizedError,
-        });
-        this.store.append(entry);
-      }
-      return;
-    }
-
-    if (level === "warn" || level === "error") {
-      const entry = this.buildEntry(level, message, {
+      const mergedMeta = {
+        ...(context?.meta ?? {}),
+        ...(payload.context ?? {}),
+        ...(payload.tag ? { structuredTag: payload.tag } : {}),
+      };
+      const entry = this.buildEntry(resolvedLevel, payload.message, {
         ...context,
-        source: acpRelated ? "acp" : context?.source,
+        source: payloadAcpRelated ? "acp" : context?.source,
+        userId: context?.userId ?? payload.userId,
+        chatId: context?.chatId ?? payload.chatId,
+        meta: mergedMeta,
         error: normalizedError,
       });
       this.store.append(entry);
       return;
     }
 
-    if (acpRelated) {
-      const entry = this.buildEntry(level, message, {
-        ...context,
-        source: "acp",
-        error: normalizedError,
-      });
-      this.store.append(entry);
-    }
+    const entry = this.buildEntry(level, message, {
+      ...context,
+      source: acpRelated ? "acp" : context?.source,
+      error: normalizedError,
+    });
+    this.store.append(entry);
   }
 
   private buildEntry(
@@ -236,15 +228,13 @@ export class Logger {
     if (observability?.route && mergedMeta.route === undefined) {
       mergedMeta.route = observability.route;
     }
-    if (observability?.userId && mergedMeta.userId === undefined) {
-      mergedMeta.userId = observability.userId;
-    }
 
     return {
       id: context?.id ?? createId("log"),
       timestamp: context?.timestamp ?? Date.now(),
       level,
       message,
+      userId: context?.userId ?? observability?.userId,
       source: context?.source ?? observability?.source,
       requestId: context?.requestId ?? observability?.requestId,
       traceId: context?.traceId ?? observability?.traceId,
@@ -274,18 +264,27 @@ export function installConsoleLogger(): Logger {
   }
   const logger = getLogger();
 
-  console.log = (...args: unknown[]) =>
-    logger.logArgs("info", "log", args, { source: "console" });
-  console.info = (...args: unknown[]) =>
-    logger.logArgs("info", "info", args, { source: "console" });
-  console.warn = (...args: unknown[]) =>
-    logger.logArgs("warn", "warn", args, { source: "console" });
-  console.error = (...args: unknown[]) =>
-    logger.logArgs("error", "error", args, { source: "console" });
-  console.debug = (...args: unknown[]) =>
-    logger.logArgs("debug", "debug", args, { source: "console" });
-  console.trace = (...args: unknown[]) =>
-    logger.logArgs("debug", "trace", args, { source: "console" });
+  const bindConsoleMethod =
+    (level: LogLevel, method: ConsoleMethod) =>
+    (...args: unknown[]) => {
+      if (consoleCaptureDepth > 0) {
+        nativeConsole[method](...args);
+        return;
+      }
+      consoleCaptureDepth += 1;
+      try {
+        logger.logArgs(level, method, args, { source: "console" });
+      } finally {
+        consoleCaptureDepth -= 1;
+      }
+    };
+
+  console.log = bindConsoleMethod("info", "log");
+  console.info = bindConsoleMethod("info", "info");
+  console.warn = bindConsoleMethod("warn", "warn");
+  console.error = bindConsoleMethod("error", "error");
+  console.debug = bindConsoleMethod("debug", "debug");
+  console.trace = bindConsoleMethod("debug", "trace");
 
   consoleInstalled = true;
   return logger;

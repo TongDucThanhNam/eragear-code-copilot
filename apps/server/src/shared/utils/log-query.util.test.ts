@@ -40,4 +40,15 @@ describe("isAcpRelatedLogEntry", () => {
     expect(isAcpRelatedLogEntry(entry)).toBe(false);
     expect(matchesLogQuery(entry, { acpOnly: true })).toBe(false);
   });
+
+  test("matches search terms inside metadata", () => {
+    const entry: LogEntry = {
+      ...baseEntry,
+      level: "info",
+      message: "Background worker ready",
+      meta: { queue: "sqlite-writes" },
+    };
+
+    expect(matchesLogQuery(entry, { search: "sqlite-writes" })).toBe(true);
+  });
 });

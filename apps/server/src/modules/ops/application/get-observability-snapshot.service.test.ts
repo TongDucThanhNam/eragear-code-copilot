@@ -15,13 +15,14 @@ describe("GetObservabilitySnapshotService", () => {
     resetTurnIdMigrationSnapshotForTests();
   });
 
-  test("includes ACP turn-id migration telemetry in observability snapshots", () => {
+  test("includes ACP turn-id migration telemetry in per-user observability snapshots", async () => {
     const entries: LogEntry[] = [
       {
         id: "log-1",
         timestamp: Date.now(),
         level: "warn",
         message: "warn",
+        userId: "user-1",
         source: "http",
         request: {
           method: "GET",
@@ -32,7 +33,20 @@ describe("GetObservabilitySnapshotService", () => {
       },
     ];
     const sessionRuntime = {
-      getAll: () => [],
+      getAll: () => [
+        {
+          id: "chat-1",
+          userId: "user-1",
+          subscriberCount: 1,
+          pendingPermissions: new Map(),
+        },
+        {
+          id: "chat-2",
+          userId: "user-2",
+          subscriberCount: 0,
+          pendingPermissions: new Map([["req-1", {}]]),
+        },
+      ],
     } as unknown as SessionRuntimePort;
     const logStore = {
       append: () => undefined,
@@ -40,6 +54,21 @@ describe("GetObservabilitySnapshotService", () => {
         entries,
         stats: {
           total: entries.length,
+          levels: {
+            debug: 0,
+            info: 0,
+            warn: 1,
+            error: 0,
+          },
+        },
+      }),
+      query: async (query) => ({
+        entries:
+          query?.userId === "user-1"
+            ? entries
+            : entries.filter((entry) => entry.userId === query?.userId),
+        stats: {
+          total: query?.userId === "user-1" ? entries.length : 0,
           levels: {
             debug: 0,
             info: 0,
@@ -70,8 +99,13 @@ describe("GetObservabilitySnapshotService", () => {
       getAcpTurnIdMigrationSnapshot: getTurnIdMigrationSnapshot,
     });
 
-    expect(service.execute()).toEqual(
+    await expect(service.execute("user-1")).resolves.toEqual(
       expect.objectContaining({
+        sessions: {
+          active: 1,
+          idle: 0,
+          pendingPermissions: 0,
+        },
         acp: {
           turnIdPolicy: "compat",
           turnIdMigration: {

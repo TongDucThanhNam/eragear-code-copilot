@@ -12,7 +12,7 @@ const LOGS_STREAM_ENDPOINT = "/api/logs/stream";
 const DEFAULT_RANGE = "all";
 const DEFAULT_ACP_ONLY = true;
 const DEFAULT_LEVELS: LogLevel[] = ["debug", "info", "warn", "error"];
-const DEFAULT_STATUSES = ["2xx", "3xx", "4xx", "5xx", "system"] as const;
+const DEFAULT_STATUSES = ["1xx", "2xx", "3xx", "4xx", "5xx", "system"] as const;
 
 type StatusBucket = (typeof DEFAULT_STATUSES)[number];
 
@@ -40,6 +40,7 @@ function entrySearchText(entry: LogEntry): string {
     : "";
   return [
     entry.message,
+    entry.userId ?? "",
     entry.source ?? "",
     entry.request?.method ?? "",
     entry.request?.path ?? "",
@@ -56,6 +57,15 @@ function entrySearchText(entry: LogEntry): string {
     .toLowerCase();
 }
 
+function pruneEntries(entries: LogEntry[], range: string): LogEntry[] {
+  const from = rangeToFrom(range);
+  const filtered =
+    from === undefined
+      ? entries
+      : entries.filter((entry) => entry.timestamp >= from);
+  return filtered.slice(0, LOG_LIMIT);
+}
+
 function statusBucket(status?: number): StatusBucket {
   if (!status) {
     return "system";
@@ -67,6 +77,9 @@ function statusBucket(status?: number): StatusBucket {
 function statusBucketLabel(bucket: StatusBucket): string {
   if (bucket === "system") {
     return "System";
+  }
+  if (bucket === "1xx") {
+    return `${bucket} Informational`;
   }
   if (bucket === "2xx") {
     return `${bucket} Success`;
@@ -141,6 +154,10 @@ export function LogsTab() {
   }, [activeTab, fetchLogs]);
 
   useEffect(() => {
+    setRawEntries((prev) => pruneEntries(prev, range));
+  }, [range]);
+
+  useEffect(() => {
     if (activeTab !== "logs" || !live) {
       return;
     }
@@ -157,16 +174,12 @@ export function LogsTab() {
     source.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data) as LogEntry;
-        const from = rangeToFrom(rangeRef.current);
-        if (from && parsed.timestamp < from) {
-          return;
-        }
         setRawEntries((prev) => {
-          const next = [parsed, ...prev];
-          if (next.length > LOG_LIMIT) {
-            next.pop();
-          }
-          return next;
+          const deduped = [
+            parsed,
+            ...prev.filter((entry) => entry.id !== parsed.id),
+          ];
+          return pruneEntries(deduped, rangeRef.current);
         });
       } catch (parseError) {
         if (console?.error) {
@@ -174,11 +187,14 @@ export function LogsTab() {
         }
       }
     };
+    source.onerror = () => {
+      fetchLogs();
+    };
 
     return () => {
       source.close();
     };
-  }, [acpOnly, activeTab, live]);
+  }, [acpOnly, activeTab, fetchLogs, live]);
 
   const handleLevelToggle = (level: LogLevel) => {
     setLevels((prev) => {
@@ -216,7 +232,11 @@ export function LogsTab() {
   };
 
   const handleLiveToggle = () => {
-    setLive((prev) => !prev);
+    const nextLive = !live;
+    setLive(nextLive);
+    if (nextLive) {
+      fetchLogs();
+    }
   };
 
   const filteredEntries = useMemo(() => {
@@ -250,6 +270,7 @@ export function LogsTab() {
       error: 0,
     };
     const statusCounts: Record<StatusBucket, number> = {
+      "1xx": 0,
       "2xx": 0,
       "3xx": 0,
       "4xx": 0,

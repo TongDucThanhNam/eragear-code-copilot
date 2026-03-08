@@ -423,19 +423,17 @@ export function parseSessionPaginationParams(
   let limit = DEFAULT_SESSION_LIST_PAGE_LIMIT;
   if (limitRaw !== undefined) {
     const parsedLimit = Number(limitRaw);
-    if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
-      return { ok: false, error: "limit must be a positive number" };
+    if (Number.isFinite(parsedLimit) && parsedLimit >= 1) {
+      limit = Math.min(Math.trunc(parsedLimit), normalizedMaxLimit);
     }
-    limit = Math.min(Math.trunc(parsedLimit), normalizedMaxLimit);
   }
 
   let offset = 0;
   if (offsetRaw !== undefined) {
     const parsedOffset = Number(offsetRaw);
-    if (!Number.isFinite(parsedOffset) || parsedOffset < 0) {
-      return { ok: false, error: "offset must be a non-negative number" };
+    if (Number.isFinite(parsedOffset) && parsedOffset >= 0) {
+      offset = Math.trunc(parsedOffset);
     }
-    offset = Math.trunc(parsedOffset);
   }
 
   return { ok: true, pagination: { limit, offset } };

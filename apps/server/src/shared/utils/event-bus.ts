@@ -119,12 +119,12 @@ export class EventBus implements EventBusPort {
         continue;
       }
       failedListeners += 1;
+      const errorDetails = toEventBusErrorDetails(result.reason);
       this.logger?.error("[EventBus] Listener error", {
         eventType: event.type,
-        error:
-          result.reason instanceof Error
-            ? result.reason.message
-            : String(result.reason),
+        error: errorDetails.message,
+        errorName: errorDetails.name,
+        errorStack: errorDetails.stack,
         timeout:
           result.reason instanceof EventBusListenerTimeoutError
             ? result.reason.timeoutMs
@@ -181,4 +181,21 @@ export class EventBus implements EventBusPort {
       }
     }
   }
+}
+
+function toEventBusErrorDetails(reason: unknown): {
+  message: string;
+  name?: string;
+  stack?: string;
+} {
+  if (reason instanceof Error) {
+    return {
+      message: reason.message,
+      name: reason.name,
+      stack: reason.stack,
+    };
+  }
+  return {
+    message: String(reason),
+  };
 }

@@ -27,6 +27,9 @@ function createLogStoreStub() {
     subscribe() {
       return () => undefined;
     },
+    query(_query?: LogQuery) {
+      return Promise.resolve(store.list(_query));
+    },
     flush() {
       return Promise.resolve();
     },
@@ -66,7 +69,7 @@ describe("Logger console normalization", () => {
     expect(entries[0]?.meta?.chunkCount).toBe(3);
   });
 
-  test("drops non-ACP informational console payloads from store", () => {
+  test("persists non-ACP informational console payloads in the store", () => {
     setRuntimeLogLevel("debug");
     const { store, entries } = createLogStoreStub();
     const logger = new Logger(store);
@@ -84,7 +87,10 @@ describe("Logger console normalization", () => {
       { source: "console" }
     );
 
-    expect(entries).toHaveLength(0);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.level).toBe("info");
+    expect(entries[0]?.message).toBe("SQLite worker started");
+    expect(entries[0]?.meta?.structuredTag).toBe("Storage");
   });
 
   test("keeps warn/error console entries for diagnostics", () => {

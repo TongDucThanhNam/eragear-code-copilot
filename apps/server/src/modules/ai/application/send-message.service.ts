@@ -81,6 +81,13 @@ export class SendMessageService {
       resourceLinks: input.resourceLinks?.length ?? 0,
     });
     const textBytes = Buffer.byteLength(input.text, "utf8");
+    const slashCommand = extractLeadingSlashCommand(input.text);
+    if (slashCommand) {
+      this.logger.info("SendMessageService slash command submitted", {
+        chatId: input.chatId,
+        command: slashCommand,
+      });
+    }
     if (textBytes > this.policy.messageContentMaxBytes) {
       throw new ValidationError(
         `Prompt text exceeds max size: ${textBytes} bytes > ${this.policy.messageContentMaxBytes}`,
@@ -364,4 +371,10 @@ export class SendMessageService {
       });
     }
   }
+}
+
+function extractLeadingSlashCommand(value: string): string | null {
+  const normalized = value.trimStart();
+  const match = normalized.match(/^\/([a-z0-9_-]+)/i);
+  return match?.[1] ?? null;
 }

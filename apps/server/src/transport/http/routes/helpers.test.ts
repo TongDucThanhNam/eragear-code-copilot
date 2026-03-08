@@ -24,6 +24,24 @@ describe("parseSessionPaginationParams", () => {
       offset: 2,
     });
   });
+
+  test("falls back to defaults when pagination params are invalid", () => {
+    const result = parseSessionPaginationParams(
+      {
+        limit: "nope",
+        offset: "-3",
+      },
+      17
+    );
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+
+    expect(result.pagination).toEqual({
+      limit: 200,
+      offset: 0,
+    });
+  });
 });
 
 describe("parseLogQueryParams", () => {

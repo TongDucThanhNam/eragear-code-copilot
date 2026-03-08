@@ -168,6 +168,7 @@ export function DashboardApp({ bootstrap }: DashboardAppProps) {
     };
     source.addEventListener("dashboard_refresh", schedule);
     source.addEventListener("settings_updated", schedule);
+    source.addEventListener("session_broadcast", schedule);
     source.addEventListener("refresh", schedule);
     return () => {
       source.close();
