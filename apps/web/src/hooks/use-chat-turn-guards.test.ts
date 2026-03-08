@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { BroadcastEvent } from "@repo/shared";
 import {
+  hasObservedTurnCompletion,
   rememberBlockedTurnId,
+  rememberCompletedTurnId,
   resolveSessionEventTurnGuard,
   shouldRollbackSendMessageFailure,
 } from "./use-chat-turn-guards";
@@ -25,6 +27,29 @@ describe("rememberBlockedTurnId", () => {
     expect(blocked.size).toBe(16);
     expect(blocked.has("turn-1")).toBe(false);
     expect(blocked.has("turn-20")).toBe(true);
+  });
+});
+
+describe("rememberCompletedTurnId", () => {
+  test("keeps the most recent completed turn ids bounded", () => {
+    const completed = new Set<string>();
+    for (let index = 1; index <= 20; index += 1) {
+      rememberCompletedTurnId(completed, `turn-${index}`);
+    }
+
+    expect(completed.size).toBe(16);
+    expect(completed.has("turn-1")).toBe(false);
+    expect(completed.has("turn-20")).toBe(true);
+  });
+});
+
+describe("hasObservedTurnCompletion", () => {
+  test("matches only explicit completed turn ids", () => {
+    const completed = new Set<string>(["turn-1"]);
+
+    expect(hasObservedTurnCompletion(completed, "turn-1")).toBe(true);
+    expect(hasObservedTurnCompletion(completed, "turn-2")).toBe(false);
+    expect(hasObservedTurnCompletion(completed, null)).toBe(false);
   });
 });
 

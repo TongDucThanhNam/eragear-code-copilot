@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
-import { updateChatStatus } from "./chat-events.util";
+import { maybeBroadcastChatFinish, updateChatStatus } from "./chat-events.util";
 
 function createSession(overrides?: Partial<ChatSession>): ChatSession {
   return {
@@ -83,5 +83,66 @@ describe("updateChatStatus", () => {
     });
 
     expect(events).toEqual([]);
+  });
+});
+
+describe("maybeBroadcastChatFinish", () => {
+  test("stores reconnect replay when turn completes without subscribers", async () => {
+    const session = createSession({
+      subscriberCount: 0,
+      chatFinish: {
+        stopReason: "end_turn",
+        messageId: "msg-1",
+        turnId: "turn-1",
+      },
+    });
+    session.uiState.messages.set("msg-1", {
+      id: "msg-1",
+      role: "assistant",
+      parts: [{ type: "text", text: "done", state: "done" }],
+    });
+    const events: BroadcastEvent[] = [];
+
+    await maybeBroadcastChatFinish({
+      chatId: session.id,
+      session,
+      broadcast: async (_chatId, event) => {
+        events.push(event);
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    const finishEvent = events[0];
+    expect(finishEvent?.type).toBe("chat_finish");
+    if (finishEvent?.type !== "chat_finish") {
+      throw new Error("Expected chat_finish event");
+    }
+    expect(session.pendingReconnectChatFinish?.event).toEqual(finishEvent);
+    expect(session.chatFinish).toBeUndefined();
+  });
+
+  test("does not store reconnect replay when subscribers were live", async () => {
+    const session = createSession({
+      subscriberCount: 2,
+      chatFinish: {
+        stopReason: "end_turn",
+        messageId: "msg-2",
+        turnId: "turn-2",
+      },
+    });
+    session.uiState.messages.set("msg-2", {
+      id: "msg-2",
+      role: "assistant",
+      parts: [{ type: "text", text: "done", state: "done" }],
+    });
+
+    await maybeBroadcastChatFinish({
+      chatId: session.id,
+      session,
+      broadcast: async () => undefined,
+    });
+
+    expect(session.pendingReconnectChatFinish).toBeUndefined();
+    expect(session.chatFinish).toBeUndefined();
   });
 });

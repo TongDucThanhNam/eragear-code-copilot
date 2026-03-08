@@ -52,6 +52,7 @@ export class SessionRuntimeEntity {
   startTurn(turnId: string): void {
     this.session.activeTurnId = turnId;
     this.session.chatFinish = { turnId };
+    this.session.pendingReconnectChatFinish = undefined;
     // Turn boundary must reset assistant-stream pointers so the next
     // assistant response never appends into a previous turn's message.
     this.session.buffer?.reset();
@@ -84,6 +85,7 @@ export class SessionRuntimeEntity {
   clearTurnState(): void {
     this.session.activeTurnId = undefined;
     this.session.activePromptTask = undefined;
+    this.session.pendingReconnectChatFinish = undefined;
   }
 
   markSubmitted(context: BroadcastContext, turnId: string): Promise<void> {

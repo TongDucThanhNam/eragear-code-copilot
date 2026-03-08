@@ -139,6 +139,8 @@ session transport failure.
   active turn).
 - Server replay `messageBuffer` sau snapshot nhưng **không replay historical
   `chat_status`/`chat_finish`** để tránh stale transition sau reconnect.
+- Nếu một turn đã hoàn tất trong lúc **không còn live subscriber**, server phải
+  replay đúng **một** `chat_finish` reconnect-safe ở lần subscribe runtime kế tiếp.
 - `chat_status` được emit khi status đổi.
 - Recoverable turn failures có thể emit `error` rồi đưa `chat_status` về
   `ready`; fatal runtime failures emit `error` + `chat_status=error`.
@@ -186,6 +188,9 @@ Client contract:
 
 - `terminal_output` event: `{ terminalId, data }`
 - Tool output chỉ chứa metadata; stream log luôn đi qua event này.
+- Server phải chunk `terminal_output` thành bounded frames và áp dụng
+  backpressure/rate control ở live stream path; không được forward nguyên xi một
+  burst stdout/stderr vô hạn vào WS/event loop.
 
 ## 6) State Machine (ChatStatus)
 

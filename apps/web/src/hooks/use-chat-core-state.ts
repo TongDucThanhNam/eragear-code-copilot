@@ -72,6 +72,7 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   const isResumingRef = useRef(false);
   const activeTurnIdRef = useRef<string | null>(null);
   const blockedTurnIdsRef = useRef<Set<string>>(new Set());
+  const completedTurnIdsRef = useRef<Set<string>>(new Set());
   const activeChatIdRef = useRef<string | null>(chatId ?? null);
   const previousChatIdRef = useRef<string | null>(chatId ?? null);
   const connectedChatIdRef = useRef<string | null>(null);
@@ -191,6 +192,7 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
     isResumingRef,
     activeTurnIdRef,
     blockedTurnIdsRef,
+    completedTurnIdsRef,
     activeChatIdRef,
     previousChatIdRef,
     connectedChatIdRef,

@@ -44,6 +44,64 @@ import {
 } from "./tool-calls.helpers";
 
 const logger = createLogger("Debug");
+const TERMINAL_OUTPUT_EVENT_MAX_CHARS = 8 * 1024;
+const TERMINAL_OUTPUT_QUEUE_HIGH_WATER_BYTES = 256 * 1024;
+const TERMINAL_OUTPUT_QUEUE_LOW_WATER_BYTES = 64 * 1024;
+
+function splitTerminalOutputForBroadcast(text: string): string[] {
+  if (text.length <= TERMINAL_OUTPUT_EVENT_MAX_CHARS) {
+    return [text];
+  }
+  const segments: string[] = [];
+  for (
+    let start = 0;
+    start < text.length;
+    start += TERMINAL_OUTPUT_EVENT_MAX_CHARS
+  ) {
+    segments.push(text.slice(start, start + TERMINAL_OUTPUT_EVENT_MAX_CHARS));
+  }
+  return segments;
+}
+
+function pauseTerminalStreams(termState: TerminalState): void {
+  if (termState.outputStreamsPaused) {
+    return;
+  }
+  termState.process.stdout?.pause();
+  termState.process.stderr?.pause();
+  termState.outputStreamsPaused = true;
+}
+
+function resumeTerminalStreams(termState: TerminalState): void {
+  if (!termState.outputStreamsPaused) {
+    return;
+  }
+  termState.process.stdout?.resume();
+  termState.process.stderr?.resume();
+  termState.outputStreamsPaused = false;
+}
+
+function enqueueTerminalOutput(termState: TerminalState, text: string): void {
+  const segments = splitTerminalOutputForBroadcast(text);
+  const queue = termState.pendingOutputChunks ?? [];
+  let queuedBytes = termState.pendingOutputBytes ?? 0;
+  for (const segment of segments) {
+    queue.push(segment);
+    queuedBytes += Buffer.byteLength(segment, "utf8");
+  }
+  termState.pendingOutputChunks = queue;
+  termState.pendingOutputBytes = queuedBytes;
+  if (queuedBytes >= TERMINAL_OUTPUT_QUEUE_HIGH_WATER_BYTES) {
+    pauseTerminalStreams(termState);
+  }
+}
+
+function maybeResumeTerminalStreams(termState: TerminalState): void {
+  const queuedBytes = termState.pendingOutputBytes ?? 0;
+  if (queuedBytes <= TERMINAL_OUTPUT_QUEUE_LOW_WATER_BYTES) {
+    resumeTerminalStreams(termState);
+  }
+}
 
 /**
  * Creates tool call handlers for a session runtime
@@ -262,16 +320,72 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       outputBufferBytes: Buffer.alloc(0),
       outputByteLimit,
       truncated: false,
+      pendingOutputChunks: [],
+      pendingOutputBytes: 0,
+      outputStreamsPaused: false,
       exitPromise,
       resolveExit,
     };
 
     session.terminals.set(termId, termState);
 
+    const flushPendingTerminalOutput = (): Promise<void> => {
+      if (termState.outputFlushPromise) {
+        return termState.outputFlushPromise;
+      }
+      termState.outputFlushPromise = (async () => {
+        while ((termState.pendingOutputChunks?.length ?? 0) > 0) {
+          const data = termState.pendingOutputChunks?.shift();
+          if (!data) {
+            continue;
+          }
+          termState.pendingOutputBytes = Math.max(
+            0,
+            (termState.pendingOutputBytes ?? 0) - Buffer.byteLength(data, "utf8")
+          );
+          maybeResumeTerminalStreams(termState);
+          try {
+            await sessionRuntime.broadcast(
+              chatId,
+              {
+                type: "terminal_output",
+                terminalId: termId,
+                data,
+                ...(termState.turnId ? { turnId: termState.turnId } : {}),
+              },
+              {
+                durable: false,
+                retainInBuffer: false,
+              }
+            );
+          } catch (error) {
+            logger.error(
+              "Failed to publish terminal output event",
+              error as Error,
+              {
+                chatId,
+                terminalId: termId,
+              }
+            );
+          }
+        }
+      })().finally(() => {
+        termState.outputFlushPromise = undefined;
+        maybeResumeTerminalStreams(termState);
+        if ((termState.pendingOutputChunks?.length ?? 0) > 0) {
+          void flushPendingTerminalOutput();
+        }
+      });
+      return termState.outputFlushPromise;
+    };
+
     const finalizeTerminal = (status: acp.WaitForTerminalExitResponse) => {
       if (termState.exitStatus) {
         return;
       }
+      termState.pendingOutputChunks = [];
+      termState.pendingOutputBytes = 0;
+      resumeTerminalStreams(termState);
       termState.exitStatus = status;
       termState.lifecycleState = "exited";
       termState.resolveExit?.(status);
@@ -290,30 +404,8 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       }
       termState.outputBufferBytes = next;
       termState.outputBuffer = next.toString("utf8");
-
-      const publishOutput = sessionRuntime.broadcast(
-        chatId,
-        {
-          type: "terminal_output",
-          terminalId: termId,
-          data: text,
-          ...(termState.turnId ? { turnId: termState.turnId } : {}),
-        },
-        {
-          durable: false,
-          retainInBuffer: false,
-        }
-      );
-      publishOutput.catch((error) => {
-        logger.error(
-          "Failed to publish terminal output event",
-          error as Error,
-          {
-            chatId,
-            terminalId: termId,
-          }
-        );
-      });
+      enqueueTerminalOutput(termState, text);
+      void flushPendingTerminalOutput();
     };
 
     termProc.stdout?.on("data", handleOutput);
@@ -321,7 +413,9 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
 
     // Handle process exit
     termProc.on("exit", (code, signal) => {
-      finalizeTerminal({ exitCode: code, signal });
+      void flushPendingTerminalOutput().finally(() => {
+        finalizeTerminal({ exitCode: code, signal });
+      });
     });
 
     termProc.on("error", (err) => {
@@ -329,7 +423,9 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
         chatId,
         terminalId: termId,
       });
-      finalizeTerminal({ exitCode: null, signal: null });
+      void flushPendingTerminalOutput().finally(() => {
+        finalizeTerminal({ exitCode: null, signal: null });
+      });
     });
 
     const terminalTimeoutMs = ENV.terminalTimeoutMs;

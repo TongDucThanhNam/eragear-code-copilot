@@ -42,6 +42,7 @@ interface UseChatSessionStateSyncParams {
   isResumingRef: MutableRefObject<boolean>;
   activeTurnIdRef: MutableRefObject<string | null>;
   blockedTurnIdsRef: MutableRefObject<Set<string>>;
+  completedTurnIdsRef: MutableRefObject<Set<string>>;
   hasLocalModeOverrideRef: MutableRefObject<boolean>;
   hasLocalModelOverrideRef: MutableRefObject<boolean>;
   hasLocalConfigOverrideRef: MutableRefObject<boolean>;
@@ -78,6 +79,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     isResumingRef,
     activeTurnIdRef,
     blockedTurnIdsRef,
+    completedTurnIdsRef,
     hasLocalModeOverrideRef,
     hasLocalModelOverrideRef,
     hasLocalConfigOverrideRef,
@@ -198,6 +200,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     isResumingRef.current = false;
     activeTurnIdRef.current = null;
     blockedTurnIdsRef.current.clear();
+    completedTurnIdsRef.current.clear();
     setStreamLifecycle(nextLifecycle);
     if (nextLifecycle === "idle") {
       setConnStatus("idle");
@@ -209,6 +212,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
   }, [
     activeTurnIdRef,
     blockedTurnIdsRef,
+    completedTurnIdsRef,
     chatId,
     commandsRef,
     connectedChatIdRef,

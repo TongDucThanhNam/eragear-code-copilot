@@ -268,6 +268,10 @@ export interface ChatFinishState {
   turnId?: string;
 }
 
+export interface PendingReconnectChatFinish {
+  event: Extract<BroadcastEvent, { type: "chat_finish" }>;
+}
+
 /**
  * Unsaved text buffer snapshot synchronized from connected clients/editors.
  */
@@ -490,6 +494,8 @@ export interface ChatSession {
   activeTurnId?: string;
   /** Pending finish data for the active prompt */
   chatFinish?: ChatFinishState;
+  /** Turn completion that must be replayed to the next reconnecting subscriber */
+  pendingReconnectChatFinish?: PendingReconnectChatFinish;
   /** Active async prompt task lifecycle (turn-correlated) */
   activePromptTask?: {
     turnId: string;
@@ -521,6 +527,14 @@ export interface TerminalState {
   outputByteLimit?: number;
   /** Whether output was truncated */
   truncated?: boolean;
+  /** Pending terminal output chunks waiting for ordered broadcast */
+  pendingOutputChunks?: string[];
+  /** Approximate UTF-8 bytes currently queued for live broadcast */
+  pendingOutputBytes?: number;
+  /** Whether stdout/stderr streams are paused due to live output backpressure */
+  outputStreamsPaused?: boolean;
+  /** In-flight ordered flush of pending live terminal output */
+  outputFlushPromise?: Promise<void>;
   /** Exit status, if available */
   exitStatus?: WaitForTerminalExitResponse;
   /** Optional kill timer for enforcing terminal timeouts */

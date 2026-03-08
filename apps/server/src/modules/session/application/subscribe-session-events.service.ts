@@ -393,9 +393,37 @@ function buildBufferedEvents(session: ChatSession): {
       session.uiState.messages.has(activeAssistantId) &&
       !hasActiveSnapshotInReplay
   );
+  const reconnectChatFinish =
+    shouldReplayPendingChatFinish(session) && session.pendingReconnectChatFinish
+      ? (cloneBroadcastEvent(session.pendingReconnectChatFinish.event) as Extract<
+          BroadcastEvent,
+          { type: "chat_finish" }
+        >)
+      : undefined;
+  if (reconnectChatFinish) {
+    session.pendingReconnectChatFinish = undefined;
+  }
 
   return {
-    events: [...snapshotEvents, ...passThroughEvents, ...pendingActiveEvents],
+    events: [
+      ...snapshotEvents,
+      ...(reconnectChatFinish ? [reconnectChatFinish] : []),
+      ...passThroughEvents,
+      ...pendingActiveEvents,
+    ],
     forcedActiveSnapshot,
   };
+}
+
+function shouldReplayPendingChatFinish(session: ChatSession): boolean {
+  if (!session.pendingReconnectChatFinish) {
+    return false;
+  }
+  if (session.activeTurnId || session.activePromptTask) {
+    return false;
+  }
+  if (session.pendingPermissions.size > 0) {
+    return false;
+  }
+  return session.chatStatus === "ready";
 }

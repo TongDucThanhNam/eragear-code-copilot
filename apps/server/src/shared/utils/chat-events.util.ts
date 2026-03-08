@@ -4,6 +4,7 @@ import type {
   ChatSession,
   ChatStatus,
 } from "../types/session.types";
+import { cloneBroadcastEvent } from "./broadcast-event.util";
 
 const STOP_REASON_TO_FINISH_REASON: Record<string, ChatFinishReason> = {
   end_turn: "stop",
@@ -104,13 +105,37 @@ export function maybeBroadcastChatFinish(params: {
   broadcast: (chatId: string, event: BroadcastEvent) => Promise<void>;
 }): Promise<void> {
   const { chatId, session, broadcast } = params;
+  const event = buildChatFinishEvent(session);
+  if (!event) {
+    return Promise.resolve();
+  }
+  return broadcast(chatId, {
+    ...event,
+  }).then(() => {
+    const reconnectEvent = cloneBroadcastEvent(event) as Extract<
+      BroadcastEvent,
+      { type: "chat_finish" }
+    >;
+    session.pendingReconnectChatFinish =
+      session.subscriberCount <= 0
+        ? {
+            event: reconnectEvent,
+          }
+        : undefined;
+    session.chatFinish = undefined;
+  });
+}
+
+export function buildChatFinishEvent(
+  session: ChatSession
+): Extract<BroadcastEvent, { type: "chat_finish" }> | null {
   const stopReason = session.chatFinish?.stopReason;
   const messageId = session.chatFinish?.messageId;
   const turnId = session.chatFinish?.turnId;
   const isAssistantActive = Boolean(session.uiState.currentAssistantId);
 
   if (!stopReason || (!messageId && isAssistantActive)) {
-    return Promise.resolve();
+    return null;
   }
 
   const resolvedMessageId = messageId ?? session.uiState.lastAssistantId;
@@ -119,7 +144,7 @@ export function maybeBroadcastChatFinish(params: {
     : undefined;
   const finishReason = mapStopReasonToFinishReason(stopReason);
 
-  return broadcast(chatId, {
+  return {
     type: "chat_finish",
     stopReason,
     finishReason,
@@ -127,7 +152,5 @@ export function maybeBroadcastChatFinish(params: {
     ...(message ? { message } : {}),
     isAbort: stopReason === "cancelled",
     ...(turnId ? { turnId } : {}),
-  }).then(() => {
-    session.chatFinish = undefined;
-  });
+  };
 }

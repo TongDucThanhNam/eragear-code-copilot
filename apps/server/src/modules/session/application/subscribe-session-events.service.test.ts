@@ -184,6 +184,61 @@ describe("SubscribeSessionEventsService", () => {
     ]);
   });
 
+  test("replays pending reconnect chat_finish exactly once", async () => {
+    const completedMessage: UIMessage = {
+      id: "msg-finish",
+      role: "assistant",
+      parts: [{ type: "text", text: "done", state: "done" }],
+    };
+    const session = createSession({
+      chatStatus: "ready",
+      uiState: (() => {
+        const uiState = createUiMessageState();
+        uiState.messages.set(completedMessage.id, completedMessage);
+        uiState.lastAssistantId = completedMessage.id;
+        return uiState;
+      })(),
+      pendingReconnectChatFinish: {
+        event: {
+          type: "chat_finish",
+          stopReason: "end_turn",
+          finishReason: "stop",
+          messageId: completedMessage.id,
+          message: completedMessage,
+          isAbort: false,
+          turnId: "turn-finish",
+        },
+      },
+    });
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+
+    const first = await service.execute("user-1", "chat-1");
+    const second = await service.execute("user-1", "chat-1");
+
+    expect(first.bufferedEvents).toEqual([
+      {
+        type: "ui_message",
+        message: completedMessage,
+      },
+      {
+        type: "chat_finish",
+        stopReason: "end_turn",
+        finishReason: "stop",
+        messageId: completedMessage.id,
+        message: completedMessage,
+        isAbort: false,
+        turnId: "turn-finish",
+      },
+    ]);
+    expect(second.bufferedEvents).toEqual([
+      {
+        type: "ui_message",
+        message: completedMessage,
+      },
+    ]);
+  });
+
   test("adds active assistant snapshot when replay buffer is missing it", async () => {
     const uiState = createUiMessageState();
     const assistantMessage: UIMessage = {

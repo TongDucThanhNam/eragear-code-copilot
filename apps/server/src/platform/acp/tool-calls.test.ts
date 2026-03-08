@@ -233,6 +233,49 @@ describe("createToolCallHandlers", () => {
     }
   });
 
+  test("chunks live terminal output into bounded ordered events", async () => {
+    const events: Array<{ chatId: string; event: BroadcastEvent }> = [];
+    const session = createSession("chat-terminal-chunks", tmpDir);
+    const runtime = createRuntime(session, { broadcastEvents: events });
+    const handlers = createToolCallHandlers(runtime);
+
+    const created = await handlers.createTerminal(session.id, {
+      sessionId: session.id,
+      command: TERMINAL_COMMAND,
+      args: nodeEvalArgs("process.stdout.write('x'.repeat(20000));"),
+    });
+    await withTimeout(
+      handlers.waitForTerminalExit(session.id, {
+        sessionId: session.id,
+        terminalId: created.terminalId,
+      })
+    );
+
+    const terminalEvents = events.filter(
+      (entry) =>
+        entry.chatId === session.id &&
+        entry.event.type === "terminal_output" &&
+        entry.event.terminalId === created.terminalId
+    );
+
+    expect(terminalEvents.length).toBeGreaterThan(1);
+    expect(
+      terminalEvents.every((entry) => {
+        if (entry.event.type !== "terminal_output") {
+          return false;
+        }
+        return entry.event.data.length <= 8 * 1024;
+      })
+    ).toBe(true);
+    expect(
+      terminalEvents
+        .map((entry) =>
+          entry.event.type === "terminal_output" ? entry.event.data : ""
+        )
+        .join("")
+    ).toHaveLength(20_000);
+  });
+
   test("clamps requested outputByteLimit by hard cap", async () => {
     ENV.terminalOutputHardCapBytes = 64;
     const session = createSession("chat-cap-clamp", tmpDir);

@@ -7,6 +7,7 @@ import type {
 import { isChatBusyStatus, isMessageStreaming } from "@repo/shared";
 
 const BLOCKED_TURN_ID_MAX = 16;
+const COMPLETED_TURN_ID_MAX = 16;
 
 function isStreamingPart(part: UIMessagePart): boolean {
   if (part.type === "text" || part.type === "reasoning") {
@@ -80,6 +81,33 @@ export function rememberBlockedTurnId(
       break;
     }
     blockedTurnIds.delete(oldest);
+  }
+}
+
+export function hasObservedTurnCompletion(
+  completedTurnIds: ReadonlySet<string>,
+  turnId?: string | null
+): boolean {
+  if (!turnId) {
+    return false;
+  }
+  return completedTurnIds.has(turnId);
+}
+
+export function rememberCompletedTurnId(
+  completedTurnIds: Set<string>,
+  turnId?: string | null
+): void {
+  if (!turnId) {
+    return;
+  }
+  completedTurnIds.add(turnId);
+  while (completedTurnIds.size > COMPLETED_TURN_ID_MAX) {
+    const oldest = completedTurnIds.values().next().value;
+    if (typeof oldest !== "string") {
+      break;
+    }
+    completedTurnIds.delete(oldest);
   }
 }
 

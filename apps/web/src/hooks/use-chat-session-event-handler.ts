@@ -25,10 +25,15 @@ import {
   finalizeStreamingMessagesInState,
   type MessageState,
   messageHasPendingApproval,
+  replaceMessagesState,
   upsertMessageIntoState,
 } from "./use-chat-message-state";
 import { normalizeMessage } from "./use-chat-normalize";
-import { resolveSessionEventTurnGuard } from "./use-chat-turn-guards";
+import {
+  hasObservedTurnCompletion,
+  rememberCompletedTurnId,
+  resolveSessionEventTurnGuard,
+} from "./use-chat-turn-guards";
 
 interface UseChatSessionEventHandlerParams {
   loadHistory: (force?: boolean) => Promise<void>;
@@ -43,6 +48,7 @@ interface UseChatSessionEventHandlerParams {
   commandsRef: MutableRefObject<AvailableCommand[]>;
   activeTurnIdRef: MutableRefObject<string | null>;
   blockedTurnIdsRef: MutableRefObject<Set<string>>;
+  completedTurnIdsRef: MutableRefObject<Set<string>>;
   isResumingRef: MutableRefObject<boolean>;
   statusRef: MutableRefObject<ChatStatus>;
   setStreamLifecycle: Dispatch<SetStateAction<StreamLifecycle>>;
@@ -91,33 +97,12 @@ function reconcileLateTerminalMessageSnapshot(
   }
 
   const hasPendingApproval = messageHasPendingApproval(message);
-  if (!hasPendingApproval) {
+  if (hasPendingApproval) {
     return message;
   }
-
-  let changed = false;
-  const parts = message.parts.map((part) => {
-    if (
-      (part.type === "text" || part.type === "reasoning") &&
-      part.state === "streaming"
-    ) {
-      changed = true;
-      return {
-        ...part,
-        state: "done" as const,
-      };
-    }
-    return part;
-  });
-
-  if (!changed) {
-    return message;
-  }
-
-  return {
-    ...message,
-    parts,
-  };
+  return finalizeStreamingMessagesInState(replaceMessagesState([message])).byId.get(
+    message.id
+  ) ?? message;
 }
 
 function stateHasAnyPendingApproval(state: MessageState): boolean {
@@ -258,6 +243,7 @@ export function useChatSessionEventHandler(
     commandsRef,
     activeTurnIdRef,
     blockedTurnIdsRef,
+    completedTurnIdsRef,
     isResumingRef,
     statusRef,
     setStreamLifecycle,
@@ -274,6 +260,20 @@ export function useChatSessionEventHandler(
 
   return useCallback(
     (event: BroadcastEvent) => {
+      if (
+        event.type === "chat_finish" &&
+        hasObservedTurnCompletion(
+          completedTurnIdsRef.current,
+          event.turnId ?? null
+        )
+      ) {
+        chatDebug("stream", "ignored duplicate chat_finish replay", {
+          chatId: activeChatIdRef.current,
+          turnId: event.turnId ?? null,
+          messageId: event.messageId ?? event.message?.id ?? null,
+        });
+        return;
+      }
       const permissionEventMeta = getPermissionEventMeta(event);
       const previousPendingPermission = permissionEventMeta
         ? findPendingPermission(messageStateRef.current.byId.values())
@@ -438,6 +438,7 @@ export function useChatSessionEventHandler(
         updateMessageState((prev) => finalizeStreamingMessagesInState(prev));
       }
       if (event.type === "chat_finish") {
+        rememberCompletedTurnId(completedTurnIdsRef.current, event.turnId ?? null);
         updateMessageState((prev) => finalizeStreamingMessagesInState(prev));
         if (messageStateRef.current.order.length === 0) {
           void loadHistory(true);
@@ -499,6 +500,7 @@ export function useChatSessionEventHandler(
       activeChatIdRef,
       activeTurnIdRef,
       blockedTurnIdsRef,
+      completedTurnIdsRef,
       commandsRef,
       connectedChatIdRef,
       isResumingRef,
