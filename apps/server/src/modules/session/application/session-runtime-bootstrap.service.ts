@@ -38,12 +38,16 @@ export class SessionRuntimeBootstrapService {
   constructor(
     sessionRepo: SessionRepositoryPort,
     sessionRuntime: SessionRuntimePort,
-    sessionAcp: SessionAcpPort
+    sessionAcp: SessionAcpPort,
+    uiMessageLimit: number
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
     this.sessionAcp = sessionAcp;
+    this.uiMessageLimit = Math.max(1, Math.trunc(uiMessageLimit));
   }
+
+  private readonly uiMessageLimit: number;
 
   async prepare(
     input: CreateRuntimeSessionInput
@@ -73,7 +77,7 @@ export class SessionRuntimeBootstrapService {
       terminals: new Map(),
       editorTextBuffers: new Map(),
       buffer,
-      uiState: createUiMessageState(),
+      uiState: createUiMessageState({ messageLimit: this.uiMessageLimit }),
       isReplayingHistory: false,
       suppressReplayBroadcast,
       importExternalHistoryOnLoad: input.importExternalHistoryOnLoad,

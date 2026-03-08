@@ -150,17 +150,20 @@ export function upsertMessage(
 }
 
 function warnDroppedPart(params: {
-  event: Extract<BroadcastEvent, { type: "ui_message_part" }>;
+  event: Extract<
+    BroadcastEvent,
+    { type: "ui_message_part" | "ui_message_part_removed" }
+  >;
   reason: "message_not_found" | "part_not_found";
 }): void {
   if (typeof console === "undefined" || typeof console.warn !== "function") {
     return;
   }
-  console.warn("[Chat] Dropped ui_message_part", {
+  console.warn(`[Chat] Dropped ${params.event.type}`, {
     reason: params.reason,
     messageId: params.event.messageId,
     partIndex: params.event.partIndex,
-    isNew: params.event.isNew,
+    ...("isNew" in params.event ? { isNew: params.event.isNew } : {}),
     partType: params.event.part.type,
   });
 }
@@ -201,6 +204,90 @@ function applyMessagePartUpdate(params: {
   return {
     ...message,
     parts: updatedParts,
+  };
+}
+
+function findPartIndexByIdentity(params: {
+  message: UIMessage;
+  partIndex: number;
+  partId?: string;
+  part: UIMessage["parts"][number];
+}): number {
+  const { message, partIndex, partId, part } = params;
+  if (typeof partId === "string" && partId.length > 0) {
+    const byIdIndex = message.parts.findIndex(
+      (candidate) => readPartId(candidate) === partId
+    );
+    if (byIdIndex >= 0) {
+      return byIdIndex;
+    }
+  }
+  if (partIndex >= 0 && partIndex < message.parts.length) {
+    const candidate = message.parts[partIndex];
+    if (candidate?.type === part.type) {
+      return partIndex;
+    }
+  }
+  if (isToolPart(part)) {
+    return message.parts.findIndex(
+      (candidate) => isToolPart(candidate) && candidate.toolCallId === part.toolCallId
+    );
+  }
+  if (part.type === "data-permission-options") {
+    const requestId = (part.data as { requestId?: unknown } | undefined)?.requestId;
+    if (typeof requestId !== "string" || requestId.length === 0) {
+      return -1;
+    }
+    return message.parts.findIndex((candidate) => {
+      if (candidate.type !== "data-permission-options") {
+        return false;
+      }
+      const candidateRequestId = (
+        candidate.data as { requestId?: unknown } | undefined
+      )?.requestId;
+      return candidateRequestId === requestId;
+    });
+  }
+  if (part.type === "data-tool-locations") {
+    const toolCallId = (
+      part.data as { toolCallId?: unknown } | undefined
+    )?.toolCallId;
+    if (typeof toolCallId !== "string" || toolCallId.length === 0) {
+      return -1;
+    }
+    return message.parts.findIndex((candidate) => {
+      if (candidate.type !== "data-tool-locations") {
+        return false;
+      }
+      const candidateToolCallId = (
+        candidate.data as { toolCallId?: unknown } | undefined
+      )?.toolCallId;
+      return candidateToolCallId === toolCallId;
+    });
+  }
+  return -1;
+}
+
+function removeMessagePart(params: {
+  message: UIMessage;
+  partIndex: number;
+  partId?: string;
+  part: Extract<BroadcastEvent, { type: "ui_message_part_removed" }>["part"];
+}): UIMessage | null {
+  const { message, partIndex, partId, part } = params;
+  const resolvedPartIndex = findPartIndexByIdentity({
+    message,
+    partIndex,
+    partId,
+    part,
+  });
+  if (resolvedPartIndex < 0) {
+    return null;
+  }
+  const nextParts = message.parts.filter((_, index) => index !== resolvedPartIndex);
+  return {
+    ...message,
+    parts: nextParts,
   };
 }
 
@@ -331,6 +418,13 @@ export interface EventProcessingCallbacks {
     part: Extract<BroadcastEvent, { type: "ui_message_part" }>["part"];
     isNew: boolean;
     createdAt?: number;
+  }) => void;
+  onMessagePartRemove?: (payload: {
+    messageId: string;
+    messageRole: UIMessage["role"];
+    partId?: string;
+    partIndex: number;
+    part: Extract<BroadcastEvent, { type: "ui_message_part_removed" }>["part"];
   }) => void;
   getMessageById?: (messageId: string) => UIMessage | undefined;
   getMessagesForPermission?: () => Iterable<UIMessage>;
@@ -543,6 +637,65 @@ export function processSessionEvent(
         partIndex: event.partIndex,
         part: event.part,
         isNew: event.isNew,
+      });
+      if (!nextMessage) {
+        warnDroppedPart({ event, reason: "part_not_found" });
+        return;
+      }
+      const wasStreaming = isMessageStreaming(prev);
+      const nowStreaming = isMessageStreaming(nextMessage);
+      if (callbacks.onMessageUpsert) {
+        callbacks.onMessageUpsert(nextMessage);
+      } else {
+        upsertMessageFromCallbackState(callbacks, nextMessage);
+      }
+      callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
+      if (callbacks.onPendingPermissionChange) {
+        const pendingPermission = findPendingPermission(
+          callbacks.getMessagesForPermission?.() ?? []
+        );
+        callbacks.onPendingPermissionChange(pendingPermission);
+      }
+      return;
+    }
+
+    case "ui_message_part_removed": {
+      const prev = callbacks.getMessageById?.(event.messageId);
+      if (callbacks.onMessagePartRemove) {
+        callbacks.onMessagePartRemove({
+          messageId: event.messageId,
+          messageRole: event.messageRole,
+          partId: event.partId,
+          partIndex: event.partIndex,
+          part: event.part,
+        });
+        const next = callbacks.getMessageById?.(event.messageId);
+        if (prev && next) {
+          callbacks.onStreamingChange?.(
+            isMessageStreaming(prev),
+            isMessageStreaming(next),
+            next
+          );
+        }
+        if (callbacks.onPendingPermissionChange) {
+          const pendingPermission = findPendingPermission(
+            callbacks.getMessagesForPermission?.() ?? []
+          );
+          callbacks.onPendingPermissionChange(pendingPermission);
+        }
+        return;
+      }
+
+      if (!prev) {
+        warnDroppedPart({ event, reason: "message_not_found" });
+        return;
+      }
+
+      const nextMessage = removeMessagePart({
+        message: prev,
+        partId: event.partId,
+        partIndex: event.partIndex,
+        part: event.part,
       });
       if (!nextMessage) {
         warnDroppedPart({ event, reason: "part_not_found" });

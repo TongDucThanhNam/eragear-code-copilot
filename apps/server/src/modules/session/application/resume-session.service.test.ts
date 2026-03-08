@@ -38,6 +38,7 @@ function createRunningSession(overrides: Partial<ChatSession> = {}): ChatSession
     terminals: new Map(),
     uiState: {
       messages: new Map(),
+      partIdIndex: new Map(),
       toolPartIndex: new Map(),
     },
     chatStatus: "ready",

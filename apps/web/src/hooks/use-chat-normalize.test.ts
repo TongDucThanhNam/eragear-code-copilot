@@ -80,4 +80,32 @@ describe("use-chat normalize", () => {
     expect(parsed.event.partId).toBe("part-1");
     expect(parsed.event.part.type).toBe("text");
   });
+
+  test("parseBroadcastEvent keeps ui_message_part_removed payload", () => {
+    const parsed = parseBroadcastEvent({
+      type: "ui_message_part_removed",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partId: "tool-locations:tool-1",
+      partIndex: 1,
+      part: {
+        type: "data-tool-locations",
+        data: {
+          toolCallId: "tool-1",
+          locations: [{ path: "src/example.ts", line: 1 }],
+        },
+      },
+    });
+
+    expect(parsed.status).toBe("ok");
+    if (
+      parsed.status !== "ok" ||
+      parsed.event.type !== "ui_message_part_removed"
+    ) {
+      return;
+    }
+    expect(parsed.event.messageId).toBe("msg-1");
+    expect(parsed.event.partId).toBe("tool-locations:tool-1");
+    expect(parsed.event.part.type).toBe("data-tool-locations");
+  });
 });

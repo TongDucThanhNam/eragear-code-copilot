@@ -216,12 +216,18 @@ export interface Plan {
 export interface UiMessageState {
   /** Messages keyed by message ID */
   messages: Map<string, UIMessage>;
+  /** Stable part-id slots keyed by messageId -> partIndex for runtime replay/live updates */
+  partIdIndex: Map<string, Map<number, string>>;
   /** Current assistant message ID for streaming chunks */
   currentAssistantId?: string;
+  /** Require a resolved turnId before accepting the next live assistant chunk after an ACP user boundary */
+  requiresTurnIdForNextAssistantChunk?: boolean;
   /** Last completed assistant message ID */
   lastAssistantId?: string;
   /** Current user message ID for replayed chunks */
   currentUserId?: string;
+  /** Source of the current contiguous user chunk stream */
+  currentUserSource?: "client" | "acp";
   /** Tool part lookup by tool call ID */
   toolPartIndex: Map<
     string,
@@ -295,6 +301,15 @@ export type BroadcastEvent =
       part: UIMessagePart;
       isNew: boolean;
       createdAt?: number;
+      turnId?: string;
+    }
+  | {
+      type: "ui_message_part_removed";
+      messageId: string;
+      messageRole: UIMessageRole;
+      partId?: string;
+      partIndex: number;
+      part: UIMessagePart;
       turnId?: string;
     }
   | { type: "file_modified"; path: string }

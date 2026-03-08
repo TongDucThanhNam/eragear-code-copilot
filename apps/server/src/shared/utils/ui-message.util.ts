@@ -14,6 +14,7 @@ import {
   finalizeStreamingParts as finalizeStreamingPartsImpl,
   getOrCreateAssistantMessage as getOrCreateAssistantMessageImpl,
   getOrCreateUserMessage as getOrCreateUserMessageImpl,
+  replaceUiMessages as replaceUiMessagesImpl,
   upsertToolLocationsPart as upsertToolLocationsPartImpl,
   upsertToolPart as upsertToolPartImpl,
 } from "./ui-message/state";
@@ -47,6 +48,7 @@ export const getOrCreateAssistantMessage = getOrCreateAssistantMessageImpl;
 export const getOrCreateUserMessage = getOrCreateUserMessageImpl;
 export const getPlanToolCallId = getPlanToolCallIdImpl;
 export const getToolNameFromCall = getToolNameFromCallImpl;
+export const replaceUiMessages = replaceUiMessagesImpl;
 export const upsertToolLocationsPart = upsertToolLocationsPartImpl;
 export const upsertToolPart = upsertToolPartImpl;
 export const buildPlanToolPart = buildPlanToolPartImpl;

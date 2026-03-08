@@ -5,6 +5,38 @@ import {
   findUiMessageInsertIndex,
 } from "@repo/shared";
 
+type MessagePart = UIMessage["parts"][number];
+type TextualPart = Extract<MessagePart, { type: "text" | "reasoning" }>;
+type ToolPart = Extract<MessagePart, { type: `tool-${string}` }>;
+type DataPart = Extract<MessagePart, { type: `data-${string}` }>;
+type SourceUrlPart = Extract<MessagePart, { type: "source-url" }>;
+type SourceDocumentPart = Extract<MessagePart, { type: "source-document" }>;
+type FilePart = Extract<MessagePart, { type: "file" }>;
+
+function isTextualPart(part: MessagePart): part is TextualPart {
+  return part.type === "text" || part.type === "reasoning";
+}
+
+function isToolMessagePart(part: MessagePart): part is ToolPart {
+  return part.type.startsWith("tool-");
+}
+
+function isDataMessagePart(part: MessagePart): part is DataPart {
+  return part.type.startsWith("data-");
+}
+
+function isSourceUrlPart(part: MessagePart): part is SourceUrlPart {
+  return part.type === "source-url";
+}
+
+function isSourceDocumentPart(part: MessagePart): part is SourceDocumentPart {
+  return part.type === "source-document";
+}
+
+function isFilePart(part: MessagePart): part is FilePart {
+  return part.type === "file";
+}
+
 /**
  * Normalized message state optimized for id-based upsert plus stable render
  * order lookup.
@@ -26,9 +58,17 @@ export interface MessagePartUpdateChunk {
   createdAt?: number;
 }
 
+export interface MessagePartRemovalChunk {
+  messageId: string;
+  messageRole: UIMessage["role"];
+  partId?: string;
+  partIndex: number;
+  part: UIMessage["parts"][number];
+}
+
 function areStructurallyEqualParts(
-  left: UIMessage["parts"][number],
-  right: UIMessage["parts"][number]
+  left: MessagePart,
+  right: MessagePart
 ): boolean {
   if (left === right) {
     return true;
@@ -37,7 +77,7 @@ function areStructurallyEqualParts(
     return false;
   }
 
-  if (left.type === "text" || left.type === "reasoning") {
+  if (isTextualPart(left) && isTextualPart(right)) {
     return (
       left.text === right.text &&
       left.state === right.state &&
@@ -45,7 +85,7 @@ function areStructurallyEqualParts(
     );
   }
 
-  if (left.type.startsWith("tool-") && right.type.startsWith("tool-")) {
+  if (isToolMessagePart(left) && isToolMessagePart(right)) {
     return (
       left.toolCallId === right.toolCallId &&
       left.state === right.state &&
@@ -73,7 +113,7 @@ function areStructurallyEqualParts(
     );
   }
 
-  if (left.type === "source-url") {
+  if (isSourceUrlPart(left) && isSourceUrlPart(right)) {
     return (
       left.sourceId === right.sourceId &&
       left.url === right.url &&
@@ -82,7 +122,7 @@ function areStructurallyEqualParts(
     );
   }
 
-  if (left.type === "source-document") {
+  if (isSourceDocumentPart(left) && isSourceDocumentPart(right)) {
     return (
       left.sourceId === right.sourceId &&
       left.mediaType === right.mediaType &&
@@ -92,7 +132,7 @@ function areStructurallyEqualParts(
     );
   }
 
-  if (left.type === "file") {
+  if (isFilePart(left) && isFilePart(right)) {
     return (
       left.mediaType === right.mediaType &&
       left.url === right.url &&
@@ -105,7 +145,7 @@ function areStructurallyEqualParts(
     return true;
   }
 
-  if (left.type.startsWith("data-") && right.type.startsWith("data-")) {
+  if (isDataMessagePart(left) && isDataMessagePart(right)) {
     return (
       left.id === right.id &&
       areEqualUnknownValues(left.data, right.data)
@@ -175,17 +215,14 @@ const TOOL_PART_STATE_RANK: Record<string, number> = {
 };
 
 function shouldKeepExistingPart(
-  existing: UIMessage["parts"][number],
-  incoming: UIMessage["parts"][number]
+  existing: MessagePart,
+  incoming: MessagePart
 ): boolean {
   if (existing.type !== incoming.type) {
     return true;
   }
 
-  if (
-    (existing.type === "text" || existing.type === "reasoning") &&
-    (incoming.type === "text" || incoming.type === "reasoning")
-  ) {
+  if (isTextualPart(existing) && isTextualPart(incoming)) {
     const existingDone = existing.state === "done";
     const incomingDone = incoming.state === "done";
     if (existingDone && !incomingDone) {
@@ -194,7 +231,7 @@ function shouldKeepExistingPart(
     return existing.text.length > incoming.text.length;
   }
 
-  if (existing.type.startsWith("tool-") && incoming.type.startsWith("tool-")) {
+  if (isToolMessagePart(existing) && isToolMessagePart(incoming)) {
     const existingState = (existing as { state?: string }).state;
     const incomingState = (incoming as { state?: string }).state;
     if (
@@ -219,17 +256,14 @@ function shouldKeepExistingPart(
 }
 
 function shouldKeepExistingSnapshotPart(
-  existing: UIMessage["parts"][number],
-  incoming: UIMessage["parts"][number]
+  existing: MessagePart,
+  incoming: MessagePart
 ): boolean {
   if (existing.type !== incoming.type) {
     return false;
   }
 
-  if (
-    (existing.type === "text" || existing.type === "reasoning") &&
-    (incoming.type === "text" || incoming.type === "reasoning")
-  ) {
+  if (isTextualPart(existing) && isTextualPart(incoming)) {
     const existingDone = existing.state === "done";
     const incomingDone = incoming.state === "done";
     if (existingDone && !incomingDone) {
@@ -238,16 +272,8 @@ function shouldKeepExistingSnapshotPart(
     return existing.text.length > incoming.text.length;
   }
 
-  if (existing.type.startsWith("tool-") && incoming.type.startsWith("tool-")) {
-    const existingToolPart = existing as Extract<
-      UIMessage["parts"][number],
-      { type: `tool-${string}` }
-    >;
-    const incomingToolPart = incoming as Extract<
-      UIMessage["parts"][number],
-      { type: `tool-${string}` }
-    >;
-    if (existingToolPart.toolCallId !== incomingToolPart.toolCallId) {
+  if (isToolMessagePart(existing) && isToolMessagePart(incoming)) {
+    if (existing.toolCallId !== incoming.toolCallId) {
       return false;
     }
     const existingState = (existing as { state?: string }).state;
@@ -294,7 +320,7 @@ function attachPartId(
 
 function findPartIndexByIdentity(params: {
   parts: UIMessage["parts"];
-  part: UIMessage["parts"][number];
+  part: MessagePart;
   partId?: string;
 }): number {
   const { parts, part, partId } = params;
@@ -307,22 +333,10 @@ function findPartIndexByIdentity(params: {
     }
   }
 
-  if (part.type.startsWith("tool-")) {
+  if (isToolMessagePart(part)) {
     return parts.findIndex(
       (candidate) =>
-        candidate.type.startsWith("tool-") &&
-        (
-          candidate as Extract<
-            UIMessage["parts"][number],
-            { type: `tool-${string}` }
-          >
-        ).toolCallId ===
-          (
-            part as Extract<
-              UIMessage["parts"][number],
-              { type: `tool-${string}` }
-            >
-          ).toolCallId
+        isToolMessagePart(candidate) && candidate.toolCallId === part.toolCallId
     );
   }
 
@@ -875,6 +889,44 @@ export const applyPartUpdate = (
     }
   }
 
+  const nextMessage: UIMessage = {
+    ...existing,
+    parts: nextParts,
+  };
+  return replaceMessageAtKnownIndex(state, nextMessage);
+};
+
+export const applyPartRemoval = (
+  state: MessageState,
+  update: MessagePartRemovalChunk
+): MessageState => {
+  const existing = state.byId.get(update.messageId);
+  if (!existing) {
+    return state;
+  }
+
+  const incomingPart = attachPartId(update.part, update.partId);
+  const resolvedPartIndex = findPartIndexByIdentity({
+    parts: existing.parts,
+    part: incomingPart,
+    partId: update.partId,
+  });
+  const targetIndex =
+    resolvedPartIndex >= 0
+      ? resolvedPartIndex
+      : update.partIndex >= 0 &&
+          update.partIndex < existing.parts.length &&
+          areStructurallyEqualParts(
+            attachPartId(existing.parts[update.partIndex]!, update.partId),
+            incomingPart
+          )
+        ? update.partIndex
+        : -1;
+  if (targetIndex < 0) {
+    return state;
+  }
+
+  const nextParts = existing.parts.filter((_, index) => index !== targetIndex);
   const nextMessage: UIMessage = {
     ...existing,
     parts: nextParts,

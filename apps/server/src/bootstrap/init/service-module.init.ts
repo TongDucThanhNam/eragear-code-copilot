@@ -100,6 +100,7 @@ export function initializeServiceModule({
     gitAdapter,
     agentRuntimeAdapter,
     sendMessagePolicy: runtimeConfig.sendMessagePolicy,
+    sessionUiMessageLimit: runtimeConfig.sessionUiMessageLimit,
     getCacheStats,
     getBackgroundRunnerState,
   };

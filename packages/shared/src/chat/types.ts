@@ -158,6 +158,15 @@ export type BroadcastEvent =
       createdAt?: number;
       turnId?: string;
     }
+  | {
+      type: "ui_message_part_removed";
+      messageId: string;
+      messageRole: UIMessage["role"];
+      partId?: string;
+      partIndex: number;
+      part: UIMessagePart;
+      turnId?: string;
+    }
   | { type: "file_modified"; path: string }
   | {
       type: "available_commands_update";

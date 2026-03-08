@@ -552,6 +552,55 @@ describe("SessionRuntimeStore.broadcast", () => {
     ]);
   });
 
+  test("defaults ui_message_part_removed to non-durable but replay-buffered", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 10,
+      lockAcquireTimeoutMs: 500,
+      eventBusPublishMaxQueuePerChat: 64,
+    });
+    const session = createSession("chat-1");
+    store.set("chat-1", session);
+    const received: BroadcastEvent[] = [];
+    session.emitter.on("data", (event) => {
+      received.push(event as BroadcastEvent);
+    });
+
+    await store.broadcast("chat-1", {
+      type: "ui_message_part_removed",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partId: "tool-locations:1",
+      partIndex: 1,
+      part: {
+        type: "data-tool-locations",
+        data: {
+          toolCallId: "tool-1",
+          locations: [{ path: "src/example.ts", line: 1 }],
+        },
+      },
+    });
+
+    expect(outboxCalls).toEqual([]);
+    expect(session.messageBuffer).toEqual([
+      {
+        type: "ui_message_part_removed",
+        messageId: "msg-1",
+        messageRole: "assistant",
+        partId: "tool-locations:1",
+        partIndex: 1,
+        part: {
+          type: "data-tool-locations",
+          data: {
+            toolCallId: "tool-1",
+            locations: [{ path: "src/example.ts", line: 1 }],
+          },
+        },
+      },
+    ]);
+    expect(received).toEqual(session.messageBuffer);
+  });
+
   test("clones broadcast events across outbox, replay buffer, and listeners", async () => {
     const outboxCalls: BroadcastEvent[] = [];
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {

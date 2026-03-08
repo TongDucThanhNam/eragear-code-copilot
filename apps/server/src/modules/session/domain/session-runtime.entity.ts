@@ -56,6 +56,7 @@ export class SessionRuntimeEntity {
     // assistant response never appends into a previous turn's message.
     this.session.buffer?.reset();
     this.session.uiState.currentAssistantId = undefined;
+    this.session.uiState.requiresTurnIdForNextAssistantChunk = undefined;
     this.session.lastAssistantChunkType = undefined;
     this.session.uiState.lastAssistantId = undefined;
   }

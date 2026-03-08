@@ -11,7 +11,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { cloneBroadcastEvent } from "@/shared/utils/broadcast-event.util";
-import { clearUiMessagePartEventCache } from "@/shared/utils/ui-message-part-event.util";
 import type { SessionEventOutboxPort } from "../application/ports/session-event-outbox.port";
 import type {
   SessionBroadcastOptions,
@@ -173,7 +172,6 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     this.chatLockTails.delete(chatId);
     this.queuedMutationsPerChat.delete(chatId);
     this.lastQueuePressureLogAt.delete(chatId);
-    clearUiMessagePartEventCache(chatId);
     this.resolveQueuedMutationWaiters(chatId);
   }
 
@@ -370,7 +368,10 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     // short WS reconnects can replay in-order chunk snapshots.
     const durable =
       options?.durable ??
-      (event.type === "ui_message_part" ? false : true);
+      (event.type === "ui_message_part" ||
+      event.type === "ui_message_part_removed"
+        ? false
+        : true);
     const retainInBuffer = options?.retainInBuffer ?? true;
 
     if (durable) {

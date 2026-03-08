@@ -546,10 +546,18 @@ describe("handleBufferedMessage", () => {
     expect(assistantTexts).toEqual(["answer-1", "answer-2"]);
   });
 
-  test("ignores live user_message_chunk outside replay mode", async () => {
+  test("accepts live user_message_chunk as a separate ACP-authored user message", async () => {
     const session = createSession("chat-stream-live-user-chunk");
     const { runtime, calls } = createRuntimeStub(session);
     const buffer = new SessionBuffering();
+    session.uiState.messages.set("client-user-1", {
+      id: "client-user-1",
+      role: "user",
+      createdAt: 1,
+      parts: [{ type: "text", text: "client-message", state: "done" }],
+    });
+    session.uiState.currentUserId = "client-user-1";
+    session.uiState.currentUserSource = "client";
 
     const handled = await handleBufferedMessage(
       createContext({
@@ -567,10 +575,97 @@ describe("handleBufferedMessage", () => {
       })
     );
 
-    expect(handled).toBe(false);
-    expect(calls).toHaveLength(0);
-    expect(session.uiState.currentUserId).toBeUndefined();
-    expect(session.uiState.messages.size).toBe(0);
+    expect(handled).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.event.type).toBe("ui_message");
+    expect(session.uiState.currentUserId).toEqual(expect.any(String));
+    expect(session.uiState.currentUserId).not.toBe("client-user-1");
+    expect(session.uiState.messages.size).toBe(2);
+    const acpUserMessage = session.uiState.currentUserId
+      ? session.uiState.messages.get(session.uiState.currentUserId)
+      : undefined;
+    const textPart = acpUserMessage?.parts[0];
+    expect(acpUserMessage?.role).toBe("user");
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe("should-not-apply");
+      expect(textPart.state).toBe("done");
+    }
+    expect(
+      session.uiState.messages.get("client-user-1")?.parts[0]
+    ).toEqual({ type: "text", text: "client-message", state: "done" });
+  });
+
+  test("drops untagged assistant chunks after a live ACP user boundary", async () => {
+    const session = createSession("chat-stream-ghost-guard");
+    session.activeTurnId = "turn-live";
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "question" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    const handledLateChunk = await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "late old answer" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    expect(handledLateChunk).toBe(true);
+    expect(session.uiState.currentAssistantId).toBeUndefined();
+    expect(
+      [...session.uiState.messages.values()].filter(
+        (message) => message.role === "assistant"
+      )
+    ).toHaveLength(0);
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          turnId: "turn-live",
+          content: { type: "text", text: "fresh answer" } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+    await flushThrottledBroadcasts(session.id);
+
+    const assistantId = session.uiState.currentAssistantId;
+    expect(assistantId).toEqual(expect.any(String));
+    const assistantMessage = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    const textPart = assistantMessage?.parts[0];
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe("fresh answer");
+    }
+    expect(
+      calls.some(
+        (call) =>
+          call.event.type === "ui_message_part" &&
+          call.event.part.type === "text" &&
+          call.event.part.text === "late old answer"
+      )
+    ).toBe(false);
   });
 
   test("emits turnId on live assistant streaming events", async () => {

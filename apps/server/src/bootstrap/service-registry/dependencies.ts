@@ -34,6 +34,7 @@ export interface ServiceRegistryDependencies {
   agentRuntimeAdapter: AgentRuntimePort;
   sessionAcpAdapter: SessionAcpPort;
   sendMessagePolicy: SendMessagePolicy;
+  sessionUiMessageLimit: number;
   getCacheStats: () => CacheStats;
   getBackgroundRunnerState: () => BackgroundRunnerState | null;
 }

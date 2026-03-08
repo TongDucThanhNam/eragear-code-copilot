@@ -265,15 +265,16 @@ describe("environment worker invariants", () => {
 
   test("falls back to defaults when positive-only numeric configs are negative", () => {
     const result = runEnvironmentSubprocess({
-      code: "import { ENV } from './src/config/environment.ts'; console.log(String(ENV.sessionBufferLimit) + ':' + String(ENV.wsMaxPayloadBytes));",
+      code: "import { ENV } from './src/config/environment.ts'; console.log([ENV.sessionBufferLimit, ENV.sessionUiMessageLimit, ENV.wsMaxPayloadBytes].join(':'));",
       overrides: {
         SESSION_BUFFER_LIMIT: "-10",
+        SESSION_UI_MESSAGE_LIMIT: "-1",
         WS_MAX_PAYLOAD_BYTES: "-4096",
       },
     });
 
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("500:16777216");
+    expect(result.stdout.trim()).toBe("500:128:16777216");
   });
 
   test("falls back allowlists in development when insecure defaults are explicitly enabled", () => {

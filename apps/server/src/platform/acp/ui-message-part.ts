@@ -1,6 +1,9 @@
 import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
-import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
+import {
+  buildUiMessagePartEvent,
+  buildUiMessagePartRemovedEvent,
+} from "@/shared/utils/ui-message-part-event.util";
 import { scheduleThrottledBroadcast } from "./broadcast-throttle";
 
 /**
@@ -42,8 +45,12 @@ export async function broadcastUiMessagePart(params: {
     isNew,
     immediate = true,
   } = params;
+  const session = sessionRuntime.get(chatId);
+  if (!session) {
+    return;
+  }
   const event = buildUiMessagePartEvent({
-    chatId,
+    state: session.uiState,
     message,
     partIndex,
     isNew,
@@ -72,4 +79,35 @@ export async function broadcastUiMessagePart(params: {
   }
 
   await sessionRuntime.broadcast(chatId, event, options);
+}
+
+export async function broadcastUiMessagePartRemoved(params: {
+  chatId: string;
+  sessionRuntime: SessionRuntimePort;
+  message: UIMessage;
+  partIndex: number;
+  turnId?: string;
+}): Promise<void> {
+  const { chatId, sessionRuntime, message, partIndex } = params;
+  const session = sessionRuntime.get(chatId);
+  if (!session) {
+    return;
+  }
+  const event = buildUiMessagePartRemovedEvent({
+    state: session.uiState,
+    message,
+    partIndex,
+    turnId: params.turnId,
+  });
+  if (!event) {
+    return;
+  }
+  await sessionRuntime.broadcast(
+    chatId,
+    event,
+    {
+      durable: false,
+      retainInBuffer: true,
+    }
+  );
 }

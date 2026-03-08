@@ -135,21 +135,27 @@ async function finalizeStreamingForCurrentAssistant(
   }
 
   // Broadcast only the parts that actually changed (streaming → done)
+  const changedPartIndexes: number[] = [];
   for (let index = 0; index < finalizedMessage.parts.length; index += 1) {
     const previousPart = nextMessage.parts[index];
     const finalizedPart = finalizedMessage.parts[index];
     if (!(previousPart && finalizedPart) || previousPart === finalizedPart) {
       continue;
     }
-    await broadcastUiMessagePart({
-      chatId,
-      sessionRuntime,
-      message: finalizedMessage,
-      partIndex: index,
-      isNew: false,
-      turnId: session.activeTurnId,
-    });
+    changedPartIndexes.push(index);
   }
+  await Promise.all(
+    changedPartIndexes.map((partIndex) =>
+      broadcastUiMessagePart({
+        chatId,
+        sessionRuntime,
+        message: finalizedMessage,
+        partIndex,
+        isNew: false,
+        turnId: session.activeTurnId,
+      })
+    )
+  );
 }
 
 function isTurnScopedSessionUpdate(update: SessionUpdate): boolean {
@@ -668,6 +674,7 @@ function clearCurrentUserStreamPointer(
   }
   // Keep user chunk aggregation bounded to one contiguous user stream.
   activeSession.uiState.currentUserId = undefined;
+  activeSession.uiState.currentUserSource = undefined;
 }
 
 async function dispatchSessionUpdate(

@@ -30,6 +30,7 @@ function readEventTurnId(event: BroadcastEvent): string | null {
     case "chat_finish":
     case "ui_message":
     case "ui_message_part":
+    case "ui_message_part_removed":
     case "terminal_output":
       return event.turnId ?? null;
     default:
@@ -43,6 +44,8 @@ function isTurnlessStreamingEvent(event: BroadcastEvent): boolean {
       return isMessageStreaming(event.message);
     case "ui_message_part":
       return isStreamingPart(event.part);
+    case "ui_message_part_removed":
+      return false;
     case "terminal_output":
       return true;
     default:

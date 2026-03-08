@@ -377,7 +377,9 @@ function buildBufferedEvents(session: ChatSession): {
           return [];
         }
         return [
-          cloneBroadcastEvent(ensureUiMessagePartEventPartId(session.id, event)),
+          cloneBroadcastEvent(
+            ensureUiMessagePartEventPartId(session.uiState, event)
+          ),
         ];
       })
     : [];

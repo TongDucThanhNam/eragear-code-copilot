@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { findPendingPermission, type UIMessage } from "@repo/shared";
 import {
+  applyPartRemoval,
   applyPartUpdate,
   createEmptyMessageState,
   finalizeStreamingMessagesInState,
@@ -643,6 +644,77 @@ describe("use-chat-message-state", () => {
     expect((storedPart as { id?: unknown } | undefined)?.id).toBe(
       "part-msg1-0"
     );
+  });
+
+  test("applyPartRemoval removes tool-locations and preserves shifted tail updates", () => {
+    const leadPart = {
+      type: "text",
+      text: "lead",
+      state: "done",
+      id: "part-lead",
+    } as UIMessage["parts"][number];
+    const tailPart = {
+      type: "text",
+      text: "tail",
+      state: "done",
+      id: "part-tail",
+    } as UIMessage["parts"][number];
+    let state = replaceMessagesState([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [
+          leadPart,
+          {
+            type: "data-tool-locations",
+            id: "tool-locations:tool-1",
+            data: {
+              toolCallId: "tool-1",
+              locations: [{ path: "src/example.ts", line: 1 }],
+            },
+          },
+          tailPart,
+        ],
+      },
+    ]);
+
+    state = applyPartRemoval(state, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partId: "tool-locations:tool-1",
+      partIndex: 1,
+      part: {
+        type: "data-tool-locations",
+        data: {
+          toolCallId: "tool-1",
+          locations: [{ path: "src/example.ts", line: 1 }],
+        },
+      },
+    });
+
+    expect(state.byId.get("m1")?.parts).toEqual([
+      leadPart,
+      tailPart,
+    ]);
+
+    state = applyPartUpdate(state, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partId: "part-tail",
+      partIndex: 1,
+      part: { type: "text", text: "tail updated", state: "done" },
+      isNew: false,
+    });
+
+    expect(state.byId.get("m1")?.parts).toEqual([
+      leadPart,
+      {
+        type: "text",
+        text: "tail updated",
+        state: "done",
+        id: "part-tail",
+      } as UIMessage["parts"][number],
+    ]);
   });
 
   test("applyPartUpdate still drops negative partIndex", () => {

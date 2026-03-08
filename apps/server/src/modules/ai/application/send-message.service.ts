@@ -261,6 +261,8 @@ export class SendMessageService {
             timestamp: submittedAt,
           });
           aggregate.raw.uiState.messages.set(uiMessage.id, uiMessage);
+          aggregate.raw.uiState.currentUserId = uiMessage.id;
+          aggregate.raw.uiState.currentUserSource = "client";
           await this.sessionRuntime.broadcast(input.chatId, {
             type: "ui_message",
             message: uiMessage,

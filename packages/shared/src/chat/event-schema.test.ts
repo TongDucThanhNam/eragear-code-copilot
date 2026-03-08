@@ -182,6 +182,32 @@ describe("parseBroadcastEventClientSafe", () => {
     });
   });
 
+  test("sanitizes ui_message_part_removed payload", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "ui_message_part_removed",
+      messageId: "msg-3",
+      messageRole: "assistant",
+      partId: "tool-locations:tool-1",
+      partIndex: 2,
+      part: {
+        type: "data-tool-locations",
+        data: {
+          toolCallId: "tool-1",
+          locations: [{ path: "src/example.ts", line: 1 }],
+        },
+      },
+      turnId: "turn-4",
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "ui_message_part_removed") {
+      return;
+    }
+    expect(parsed.value.part.type).toBe("data-tool-locations");
+    expect(parsed.value.partId).toBe("tool-locations:tool-1");
+    expect(parsed.value.turnId).toBe("turn-4");
+  });
+
   test("parses terminal_output payload with optional turnId", () => {
     const parsed = parseBroadcastEventClientSafe({
       type: "terminal_output",

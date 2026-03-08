@@ -754,7 +754,7 @@ export class PromptTaskRunner {
             partIndex >= 0 ? updatedAssistantMessage.parts[partIndex] : undefined;
           if (partIndex >= 0 && part) {
             const partEvent = buildUiMessagePartEvent({
-              chatId,
+              state: session.uiState,
               message: updatedAssistantMessage,
               partIndex,
               isNew,
@@ -807,7 +807,7 @@ export class PromptTaskRunner {
           continue;
         }
         const partEvent = buildUiMessagePartEvent({
-          chatId,
+          state: session.uiState,
           message: finalizedMessage,
           partIndex: index,
           isNew: false,

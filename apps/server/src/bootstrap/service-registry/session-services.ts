@@ -42,7 +42,8 @@ export function createSessionServices(
   const runtimeBootstrap = new SessionRuntimeBootstrapService(
     deps.sessionRepo,
     deps.sessionRuntime,
-    deps.sessionAcpAdapter
+    deps.sessionAcpAdapter,
+    deps.sessionUiMessageLimit
   );
   const messageMapper = new SessionMessageMapper(deps.sessionRuntime);
   const historyReplay = new SessionHistoryReplayService(

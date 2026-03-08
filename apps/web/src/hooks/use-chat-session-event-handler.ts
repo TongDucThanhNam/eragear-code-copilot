@@ -20,6 +20,7 @@ import type { StreamLifecycle } from "./use-chat-connection.machine";
 import { nextLifecycleOnSubscriptionEvent } from "./use-chat-connection.machine";
 import { chatDebug } from "./use-chat-debug";
 import {
+  applyPartRemoval,
   applyPartUpdate,
   finalizeStreamingMessagesInState,
   type MessageState,
@@ -281,6 +282,7 @@ export function useChatSessionEventHandler(
         event.type === "connected" ||
         event.type === "chat_status" ||
         event.type === "ui_message" ||
+        event.type === "ui_message_part_removed" ||
         event.type === "chat_finish" ||
         event.type === "error"
       ) {
@@ -360,6 +362,7 @@ export function useChatSessionEventHandler(
         !connectedChatIdRef.current &&
         activeChatIdRef.current &&
         (event.type === "ui_message" ||
+          event.type === "ui_message_part_removed" ||
           event.type === "ui_message_part" ||
           event.type === "chat_finish")
       ) {
@@ -389,6 +392,9 @@ export function useChatSessionEventHandler(
           },
           onMessagePartUpdate: (partEvent) => {
             updateMessageState((prev) => applyPartUpdate(prev, partEvent));
+          },
+          onMessagePartRemove: (partEvent) => {
+            updateMessageState((prev) => applyPartRemoval(prev, partEvent));
           },
           getMessageById: (messageId) =>
             messageStateRef.current.byId.get(messageId),

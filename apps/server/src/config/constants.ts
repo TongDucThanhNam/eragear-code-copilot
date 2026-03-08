@@ -19,6 +19,8 @@ export const DEFAULT_WS_PORT = 3000;
 export const DEFAULT_WS_HOST = "127.0.0.1";
 /** Default maximum number of messages to buffer per session */
 export const DEFAULT_SESSION_BUFFER_LIMIT = 500;
+/** Default maximum number of UI message snapshots retained in active runtime */
+export const DEFAULT_SESSION_UI_MESSAGE_LIMIT = 128;
 /** Default warning threshold for per-chat runtime lock wait latency */
 export const DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS = 15_000;
 /** Max time budget for one event bus publish attempt from session runtime */

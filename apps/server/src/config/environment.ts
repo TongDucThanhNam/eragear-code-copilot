@@ -43,6 +43,7 @@ import {
   DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT,
   DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS,
   DEFAULT_SESSION_IDLE_TIMEOUT_MS,
+  DEFAULT_SESSION_UI_MESSAGE_LIMIT,
   DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
   DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS,
   DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
@@ -321,6 +322,11 @@ export const ENV = {
   sessionBufferLimit: toPositiveInt(
     env.SESSION_BUFFER_LIMIT,
     DEFAULT_SESSION_BUFFER_LIMIT
+  ),
+  /** Maximum number of UI messages retained in active runtime memory */
+  sessionUiMessageLimit: toPositiveInt(
+    env.SESSION_UI_MESSAGE_LIMIT,
+    DEFAULT_SESSION_UI_MESSAGE_LIMIT
   ),
   /** Warning threshold for per-chat session lock acquisition latency */
   sessionLockAcquireTimeoutMs: toPositiveInt(

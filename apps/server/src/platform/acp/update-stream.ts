@@ -75,26 +75,25 @@ async function handleUiChunkUpdate(
   }
 
   if (update.sessionUpdate === "user_message_chunk") {
-    if (!isReplayingHistory) {
-      // Canonical live user input is emitted by SendMessageService. Ignore
-      // provider-origin user chunks in live mode to avoid cross-turn resets.
-      logger.warn("Ignoring live user_message_chunk outside replay", {
-        chatId,
-      });
-      return false;
-    }
     await finalizeStreamingForCurrentAssistant(chatId, sessionRuntime, buffer, {
       suppressBroadcast: suppressReplayBroadcast,
     });
     // A new user chunk indicates the next conversation turn. Reset assistant
     // streaming pointers so replay/live updates do not merge distinct answers.
     session.uiState.currentAssistantId = undefined;
+    session.uiState.requiresTurnIdForNextAssistantChunk = isReplayingHistory
+      ? undefined
+      : true;
     session.lastAssistantChunkType = undefined;
     buffer.reset();
+    if (session.uiState.currentUserSource !== "acp") {
+      session.uiState.currentUserId = undefined;
+    }
+    session.uiState.currentUserSource = "acp";
 
     const message = getOrCreateUserMessage(session.uiState);
     const block = toStoredContentBlock(update.content, storedContentContext);
-    const partState = isReplayingHistory ? "done" : "streaming";
+    const partState = "done";
     const providerMetadata = buildProviderMetadataFromMeta(
       "_meta" in update ? update._meta : undefined
     );
@@ -114,6 +113,21 @@ async function handleUiChunkUpdate(
       });
     }
     return true;
+  }
+
+  if (
+    !isReplayingHistory &&
+    session.uiState.requiresTurnIdForNextAssistantChunk &&
+    !context.turnIdResolution.turnId
+  ) {
+    logger.warn("Ignoring assistant chunk after ACP user boundary without turnId", {
+      chatId,
+      sessionUpdate: update.sessionUpdate,
+    });
+    return true;
+  }
+  if (context.turnIdResolution.turnId) {
+    session.uiState.requiresTurnIdForNextAssistantChunk = undefined;
   }
 
   appendAcceptedAgentChunkToBuffer(context, storedContentContext);
@@ -302,20 +316,26 @@ async function appendAssistantChunk(params: {
     return;
   }
 
+  const nextPartIndexes: number[] = [];
   for (
     let index = previousPartsLength;
     index < updatedMessage.parts.length;
     index += 1
   ) {
-    await broadcastUiMessagePart({
-      chatId,
-      sessionRuntime,
-      message: updatedMessage,
-      partIndex: index,
-      isNew: true,
-      turnId: updateTurnId,
-    });
+    nextPartIndexes.push(index);
   }
+  await Promise.all(
+    nextPartIndexes.map((partIndex) =>
+      broadcastUiMessagePart({
+        chatId,
+        sessionRuntime,
+        message: updatedMessage,
+        partIndex,
+        isNew: true,
+        turnId: updateTurnId,
+      })
+    )
+  );
 }
 
 async function appendAssistantReasoningChunk(params: {

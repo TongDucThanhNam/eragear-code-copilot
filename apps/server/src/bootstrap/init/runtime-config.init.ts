@@ -10,6 +10,7 @@ export interface AppRuntimeConfig {
   allowedEnvKeys: string[];
   agentTimeoutMs: number | undefined;
   sessionBufferLimit: number;
+  sessionUiMessageLimit: number;
   sessionLockAcquireTimeoutMs: number;
   sessionEventBusPublishMaxQueuePerChat: number;
   sendMessagePolicy: SendMessagePolicy;
@@ -25,6 +26,7 @@ export function resolveAppRuntimeConfig(): AppRuntimeConfig {
     allowedEnvKeys: ENV.allowedEnvKeys,
     agentTimeoutMs: ENV.agentTimeoutMs,
     sessionBufferLimit: ENV.sessionBufferLimit,
+    sessionUiMessageLimit: ENV.sessionUiMessageLimit,
     sessionLockAcquireTimeoutMs: ENV.sessionLockAcquireTimeoutMs,
     sessionEventBusPublishMaxQueuePerChat:
       ENV.sessionEventBusPublishMaxQueuePerChat,

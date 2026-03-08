@@ -1,14 +1,19 @@
 import { createHash } from "node:crypto";
 import type { UIMessage, UIMessagePart } from "@repo/shared";
-import type { BroadcastEvent } from "@/shared/types/session.types";
+import type {
+  BroadcastEvent,
+  UiMessageState,
+} from "@/shared/types/session.types";
 import { createId } from "./id.util";
 
 const PART_ID_MAX_LENGTH = 256;
 const PART_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
 
-const partIdCacheByChat = new Map<string, Map<string, string[]>>();
-
 type UiMessagePartEvent = Extract<BroadcastEvent, { type: "ui_message_part" }>;
+type UiMessagePartRemovedEvent = Extract<
+  BroadcastEvent,
+  { type: "ui_message_part_removed" }
+>;
 
 type ToolLikePart = Extract<UIMessagePart, { type: `tool-${string}` }>;
 type DataLikePart = Extract<UIMessagePart, { type: `data-${string}` }>;
@@ -21,22 +26,17 @@ function isValidPartId(value: string): boolean {
   );
 }
 
-function getChatPartIdSlots(chatId: string, messageId: string): string[] {
-  let chatCache = partIdCacheByChat.get(chatId);
-  if (!chatCache) {
-    chatCache = new Map<string, string[]>();
-    partIdCacheByChat.set(chatId, chatCache);
-  }
-  let partIds = chatCache.get(messageId);
+function getMessagePartIdSlots(state: UiMessageState, messageId: string) {
+  let partIds = state.partIdIndex.get(messageId);
   if (!partIds) {
-    partIds = [];
-    chatCache.set(messageId, partIds);
+    partIds = new Map<number, string>();
+    state.partIdIndex.set(messageId, partIds);
   }
   return partIds;
 }
 
 function hashToken(token: string): string {
-  return createHash("sha1").update(token).digest("hex").slice(0, 16);
+  return createHash("sha256").update(token).digest("hex").slice(0, 16);
 }
 
 function readPartRecordId(part: UIMessagePart): string | undefined {
@@ -94,70 +94,73 @@ function createPartId(part: UIMessagePart): string {
 }
 
 function resolvePartId(params: {
-  chatId: string;
+  state: UiMessageState;
   messageId: string;
   partIndex: number;
-  isNew: boolean;
   part: UIMessagePart;
   expectedPartCount?: number;
 }): string | undefined {
-  const { chatId, messageId, partIndex, isNew, part, expectedPartCount } = params;
+  const { state, messageId, partIndex, part, expectedPartCount } = params;
   if (partIndex < 0) {
     return undefined;
   }
-  const slots = getChatPartIdSlots(chatId, messageId);
+  const slots = getMessagePartIdSlots(state, messageId);
   if (
     typeof expectedPartCount === "number" &&
     Number.isFinite(expectedPartCount) &&
-    expectedPartCount >= 0 &&
-    slots.length > expectedPartCount
+    expectedPartCount >= 0
   ) {
-    slots.length = expectedPartCount;
+    const staleIndexes: number[] = [];
+    for (const existingPartIndex of slots.keys()) {
+      if (existingPartIndex >= expectedPartCount) {
+        staleIndexes.push(existingPartIndex);
+      }
+    }
+    for (const staleIndex of staleIndexes) {
+      slots.delete(staleIndex);
+    }
   }
 
-  if (isNew) {
-    if (slots.length === expectedPartCount && slots[partIndex]) {
-      return slots[partIndex];
+  const intrinsicPartId = readPartIntrinsicId(part);
+  if (intrinsicPartId) {
+    for (const [existingIndex, existingPartId] of slots) {
+      if (existingPartId !== intrinsicPartId) {
+        continue;
+      }
+      if (existingIndex !== partIndex) {
+        slots.delete(existingIndex);
+        slots.set(partIndex, existingPartId);
+      }
+      return existingPartId;
     }
-    while (slots.length < partIndex) {
-      slots.push(createId("part"));
-    }
-    const nextPartId = createPartId(part);
-    if (partIndex <= slots.length) {
-      slots.splice(partIndex, 0, nextPartId);
-    } else {
-      slots[partIndex] = nextPartId;
-    }
-    return slots[partIndex];
   }
 
-  const existing = slots[partIndex];
+  const existing = slots.get(partIndex);
   if (existing) {
     return existing;
   }
-  const nextPartId = createPartId(part);
-  slots[partIndex] = nextPartId;
+  const nextPartId = intrinsicPartId ?? createPartId(part);
+  slots.set(partIndex, nextPartId);
   return nextPartId;
 }
 
 export function buildUiMessagePartEvent(params: {
-  chatId: string;
+  state: UiMessageState;
   message: UIMessage;
   partIndex: number;
   isNew: boolean;
   turnId?: string;
 }): UiMessagePartEvent | null {
-  const { chatId, message, partIndex, isNew, turnId } = params;
+  const { state, message, partIndex, isNew, turnId } = params;
   const part = message.parts[partIndex];
   if (!part) {
     return null;
   }
 
   const partId = resolvePartId({
-    chatId,
+    state,
     messageId: message.id,
     partIndex,
-    isNew,
     part,
     expectedPartCount: message.parts.length,
   });
@@ -180,18 +183,48 @@ export function buildUiMessagePartEvent(params: {
   };
 }
 
+export function buildUiMessagePartRemovedEvent(params: {
+  state: UiMessageState;
+  message: UIMessage;
+  partIndex: number;
+  turnId?: string;
+}): UiMessagePartRemovedEvent | null {
+  const { state, message, partIndex, turnId } = params;
+  const part = message.parts[partIndex];
+  if (!part) {
+    return null;
+  }
+
+  const partId = resolvePartId({
+    state,
+    messageId: message.id,
+    partIndex,
+    part,
+    expectedPartCount: message.parts.length,
+  });
+
+  return {
+    type: "ui_message_part_removed",
+    messageId: message.id,
+    messageRole: message.role,
+    partId,
+    partIndex,
+    part,
+    ...(turnId ? { turnId } : {}),
+  };
+}
+
 export function ensureUiMessagePartEventPartId(
-  chatId: string,
+  state: UiMessageState,
   event: UiMessagePartEvent
 ): UiMessagePartEvent {
   if (typeof event.partId === "string" && isValidPartId(event.partId)) {
     return event;
   }
   const partId = resolvePartId({
-    chatId,
+    state,
     messageId: event.messageId,
     partIndex: event.partIndex,
-    isNew: event.isNew,
     part: event.part,
   });
   if (!partId) {
@@ -201,8 +234,4 @@ export function ensureUiMessagePartEventPartId(
     ...event,
     partId,
   };
-}
-
-export function clearUiMessagePartEventCache(chatId: string): void {
-  partIdCacheByChat.delete(chatId);
 }

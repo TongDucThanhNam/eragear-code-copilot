@@ -139,6 +139,41 @@ describe("processSessionEvent ui_message_part", () => {
       id: "part-msg1-0",
     });
   });
+
+  test("removes a part by stable identity when ui_message_part_removed arrives", () => {
+    const initialMessage = createAssistantMessage("msg-1", [
+      { type: "text", text: "Lead", state: "done", id: "part-lead" },
+      {
+        type: "data-tool-locations",
+        id: "tool-locations:tool-1",
+        data: {
+          toolCallId: "tool-1",
+          locations: [{ path: "src/example.ts", line: 1 }],
+        },
+      },
+      { type: "text", text: "Tail", state: "done", id: "part-tail" },
+    ]);
+    const event: BroadcastEvent = {
+      type: "ui_message_part_removed",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partId: "tool-locations:tool-1",
+      partIndex: 1,
+      part: {
+        type: "data-tool-locations",
+        data: {
+          toolCallId: "tool-1",
+          locations: [{ path: "src/example.ts", line: 1 }],
+        },
+      },
+    };
+
+    const next = applyEventWithMessages(event, [initialMessage]);
+    expect(next[0]?.parts).toEqual([
+      { type: "text", text: "Lead", state: "done", id: "part-lead" },
+      { type: "text", text: "Tail", state: "done", id: "part-tail" },
+    ]);
+  });
 });
 
 describe("findPendingPermission", () => {

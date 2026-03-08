@@ -15,7 +15,10 @@ import {
   upsertToolLocationsPart,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
-import { broadcastUiMessagePart } from "./ui-message-part";
+import {
+  broadcastUiMessagePart,
+  broadcastUiMessagePartRemoved,
+} from "./ui-message-part";
 import type { SessionUpdate, SessionUpdateContext } from "./update-types";
 import { isToolCallCreate, isToolCallUpdate } from "./update-types";
 
@@ -335,6 +338,15 @@ async function broadcastToolCallParts(params: {
     toolCallId
   );
   if (locationPartIndex < 0) {
+    if (previousLocationPartIndex >= 0) {
+      await broadcastUiMessagePartRemoved({
+        chatId,
+        sessionRuntime,
+        message,
+        partIndex: previousLocationPartIndex,
+        turnId,
+      });
+    }
     return;
   }
   await broadcastUiMessagePart({

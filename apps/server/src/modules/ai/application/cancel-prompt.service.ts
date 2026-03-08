@@ -152,7 +152,7 @@ async function cancelPendingPermissions(params: {
       continue;
     }
     const partEvent = buildUiMessagePartEvent({
-      chatId,
+      state: session.uiState,
       message: updatedPermissionOptions.message,
       partIndex: updatedPermissionOptions.partIndex,
       isNew: false,
@@ -216,7 +216,7 @@ async function cancelToolPartById(params: {
     turnId: turnId ?? existingLocation.turnId,
   });
   const partEvent = buildUiMessagePartEvent({
-    chatId,
+    state: session.uiState,
     message: updatedMessage,
     partIndex: resolvedPartIndex,
     isNew: false,

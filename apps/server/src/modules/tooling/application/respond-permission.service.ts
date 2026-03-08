@@ -328,7 +328,7 @@ export class RespondPermissionService {
           const nextToolPart = messageWithUpdates.parts[nextToolIndex.partIndex];
           if (nextToolPart) {
             const partEvent = buildUiMessagePartEvent({
-              chatId: input.chatId,
+              state: session.uiState,
               message: messageWithUpdates,
               partIndex: nextToolIndex.partIndex,
               isNew:
@@ -347,7 +347,7 @@ export class RespondPermissionService {
             messageWithUpdates.parts[updatedPermissionOptions.partIndex];
           if (updatedOptionsPart) {
             const partEvent = buildUiMessagePartEvent({
-              chatId: input.chatId,
+              state: session.uiState,
               message: messageWithUpdates,
               partIndex: updatedPermissionOptions.partIndex,
               isNew: false,

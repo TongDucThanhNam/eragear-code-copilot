@@ -4,7 +4,10 @@ import type {
   StoredMessage,
 } from "@/modules/session/domain/stored-session.types";
 import type { ChatSession } from "@/shared/types/session.types";
-import { finalizeStreamingParts } from "@/shared/utils/ui-message.util";
+import {
+  finalizeStreamingParts,
+  replaceUiMessages,
+} from "@/shared/utils/ui-message.util";
 import type { CreateSessionParams } from "./create-session.types";
 import {
   isExternalHistoryImportSupportedAgentCommand,
@@ -92,9 +95,7 @@ export class PersistSessionBootstrapService {
         uiMessages = shouldMergeWithRuntime
           ? mergeRuntimeAndExternalMessages(runtimeMessages, externalMessages)
           : externalMessages;
-        input.chatSession.uiState.messages = new Map(
-          uiMessages.map((message) => [message.id, message])
-        );
+        replaceUiMessages(input.chatSession.uiState, uiMessages);
       }
     }
 

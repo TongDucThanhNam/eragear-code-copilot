@@ -728,6 +728,79 @@ describe("createSessionUpdateHandler", () => {
     });
   });
 
+  test("broadcasts ui_message_part_removed when tool locations are deleted", async () => {
+    const session = createSession("chat-tool-locations-delete");
+    session.projectRoot = process.cwd();
+    session.cwd = process.cwd();
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        kind: "read",
+        title: "Read project file",
+        locations: [
+          {
+            path: "apps/server/src/platform/acp/update.ts",
+            line: 12,
+          },
+        ],
+      } as never,
+    });
+
+    events.length = 0;
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+        locations: null,
+      } as never,
+    });
+
+    const removedEvent = events.find((event) => {
+      return (
+        typeof event === "object" &&
+        event !== null &&
+        "type" in event &&
+        (event as { type?: string }).type === "ui_message_part_removed"
+      );
+    }) as
+      | {
+          type: "ui_message_part_removed";
+          partId?: string;
+          partIndex: number;
+          part: {
+            type: "data-tool-locations";
+            data: {
+              toolCallId: string;
+              locations: Array<{ path: string; line?: number }>;
+            };
+          };
+        }
+      | undefined;
+
+    expect(removedEvent).toBeDefined();
+    expect(removedEvent?.part.type).toBe("data-tool-locations");
+    expect(removedEvent?.part.data.toolCallId).toBe("tool-1");
+    expect(removedEvent?.partIndex).toBeGreaterThanOrEqual(0);
+    expect(session.uiState.messages.get(session.uiState.currentAssistantId ?? "")?.parts)
+      .not.toContainEqual(
+        expect.objectContaining({
+          type: "data-tool-locations",
+        })
+      );
+  });
+
   test("does not mark chat as streaming when no active turn is present", async () => {
     const session = createSession("chat-no-active-turn");
     session.chatStatus = "ready";

@@ -235,6 +235,17 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .passthrough(),
   z
     .object({
+      type: z.literal("ui_message_part_removed"),
+      messageId: z.string(),
+      messageRole: z.enum(["system", "user", "assistant"]),
+      partId: PART_ID_SCHEMA.optional(),
+      partIndex: z.number().int().nonnegative(),
+      part: UI_MESSAGE_PART_SCHEMA,
+      turnId: z.string().optional(),
+    })
+    .passthrough(),
+  z
+    .object({
       type: z.literal("file_modified"),
       path: z.string(),
     })
@@ -305,6 +316,7 @@ const BROADCAST_EVENT_TYPES = [
   "chat_finish",
   "ui_message",
   "ui_message_part",
+  "ui_message_part_removed",
   "file_modified",
   "available_commands_update",
   "config_options_update",
@@ -492,7 +504,10 @@ export function parseBroadcastEventClientSafe(
       ...(raw as Record<string, unknown>),
       message: uiMessage.value,
     };
-  } else if (eventType === "ui_message_part") {
+  } else if (
+    eventType === "ui_message_part" ||
+    eventType === "ui_message_part_removed"
+  ) {
     if (!isRecord(raw)) {
       return {
         ok: false,

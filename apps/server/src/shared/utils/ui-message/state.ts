@@ -9,15 +9,87 @@ import type {
 import type { UiMessageState } from "@/shared/types/session.types";
 import { createId } from "@/shared/utils/id.util";
 
-export function createUiMessageState(): UiMessageState {
-  return {
+const DEFAULT_RUNTIME_UI_MESSAGE_LIMIT = 128;
+
+export interface CreateUiMessageStateOptions {
+  messageLimit?: number;
+}
+
+class RuntimeUiMessageMap extends Map<string, UIMessage> {
+  private readonly state: UiMessageState;
+  private readonly messageLimit: number;
+
+  constructor(state: UiMessageState, messageLimit: number) {
+    super();
+    this.state = state;
+    this.messageLimit = Math.max(1, Math.trunc(messageLimit));
+  }
+
+  override get(key: string): UIMessage | undefined {
+    const value = super.get(key);
+    if (!value) {
+      return undefined;
+    }
+    super.delete(key);
+    super.set(key, value);
+    return value;
+  }
+
+  override set(key: string, value: UIMessage): this {
+    if (super.has(key)) {
+      super.delete(key);
+    }
+    super.set(key, value);
+    this.prune();
+    return this;
+  }
+
+  override delete(key: string): boolean {
+    const deleted = super.delete(key);
+    if (deleted) {
+      cleanupMessageIndexes(this.state, key);
+    }
+    return deleted;
+  }
+
+  override clear(): void {
+    const keys = [...super.keys()];
+    super.clear();
+    for (const key of keys) {
+      cleanupMessageIndexes(this.state, key);
+    }
+  }
+
+  private prune(): void {
+    while (super.size > this.messageLimit) {
+      const evictKey = findOldestEvictableMessageKey(this.state, super.keys());
+      if (!evictKey) {
+        return;
+      }
+      this.delete(evictKey);
+    }
+  }
+}
+
+export function createUiMessageState(
+  options?: CreateUiMessageStateOptions
+): UiMessageState {
+  const state = {
     messages: new Map<string, UIMessage>(),
+    partIdIndex: new Map<string, Map<number, string>>(),
     toolPartIndex: new Map<
       string,
       { messageId: string; partIndex: number; turnId?: string }
     >(),
+    requiresTurnIdForNextAssistantChunk: undefined,
     lastAssistantId: undefined,
+  } satisfies Omit<UiMessageState, "messages"> & {
+    messages: Map<string, UIMessage>;
   };
+  const messageLimit =
+    options?.messageLimit ?? DEFAULT_RUNTIME_UI_MESSAGE_LIMIT;
+  state.messages = new RuntimeUiMessageMap(state, messageLimit);
+  return state;
 }
 
 export function getOrCreateAssistantMessage(
@@ -144,11 +216,7 @@ export function upsertToolLocationsPart(params: {
     if (index < 0) {
       return message;
     }
-    const updatedMessage = setMessage(state, {
-      ...message,
-      parts: message.parts.filter((_, partIndex) => partIndex !== index),
-    });
-    return updatedMessage;
+    return removeMessagePartAtIndex(state, message, index);
   }
 
   const dataPart: DataUIPart = {
@@ -216,6 +284,16 @@ export function clearPermissionOptionsPart(params: {
   return null;
 }
 
+export function replaceUiMessages(
+  state: UiMessageState,
+  messages: Iterable<UIMessage>
+): void {
+  state.messages.clear();
+  for (const message of messages) {
+    state.messages.set(message.id, message);
+  }
+}
+
 function ensureMessage(
   state: UiMessageState,
   role: UIMessageRole,
@@ -236,6 +314,54 @@ function setMessage(state: UiMessageState, message: UIMessage): UIMessage {
   return message;
 }
 
+function removeMessagePartAtIndex(
+  state: UiMessageState,
+  message: UIMessage,
+  partIndex: number
+): UIMessage {
+  const updatedMessage = setMessage(state, {
+    ...message,
+    parts: message.parts.filter((_, index) => index !== partIndex),
+  });
+  shiftPartIndexesAfterRemoval(state, message.id, partIndex);
+  return updatedMessage;
+}
+
+function shiftPartIndexesAfterRemoval(
+  state: UiMessageState,
+  messageId: string,
+  removedPartIndex: number
+): void {
+  const partSlots = state.partIdIndex.get(messageId);
+  if (partSlots) {
+    const nextPartSlots = new Map<number, string>();
+    for (const [partIndex, partId] of partSlots) {
+      if (partIndex === removedPartIndex) {
+        continue;
+      }
+      nextPartSlots.set(
+        partIndex > removedPartIndex ? partIndex - 1 : partIndex,
+        partId
+      );
+    }
+    if (nextPartSlots.size > 0) {
+      state.partIdIndex.set(messageId, nextPartSlots);
+    } else {
+      state.partIdIndex.delete(messageId);
+    }
+  }
+
+  for (const [toolCallId, location] of state.toolPartIndex) {
+    if (location.messageId !== messageId || location.partIndex <= removedPartIndex) {
+      continue;
+    }
+    state.toolPartIndex.set(toolCallId, {
+      ...location,
+      partIndex: location.partIndex - 1,
+    });
+  }
+}
+
 function isToolPartWithCallId(
   part: UIMessagePart | undefined,
   toolCallId: string
@@ -249,4 +375,49 @@ function isToolPartWithCallId(
 
 function isToolLocationsDataPart(part: UIMessagePart): part is DataUIPart {
   return part.type === "data-tool-locations";
+}
+
+function cleanupMessageIndexes(state: UiMessageState, messageId: string): void {
+  state.partIdIndex.delete(messageId);
+  const toolCallIdsToDelete: string[] = [];
+  for (const [toolCallId, location] of state.toolPartIndex) {
+    if (location.messageId === messageId) {
+      toolCallIdsToDelete.push(toolCallId);
+    }
+  }
+  for (const toolCallId of toolCallIdsToDelete) {
+    state.toolPartIndex.delete(toolCallId);
+  }
+  if (state.currentAssistantId === messageId) {
+    state.currentAssistantId = undefined;
+  }
+  if (state.lastAssistantId === messageId) {
+    state.lastAssistantId = undefined;
+  }
+  if (state.currentUserId === messageId) {
+    state.currentUserId = undefined;
+    state.currentUserSource = undefined;
+  }
+}
+
+function findOldestEvictableMessageKey(
+  state: UiMessageState,
+  keys: IterableIterator<string>
+): string | undefined {
+  const protectedIds = new Set<string>();
+  if (state.currentAssistantId) {
+    protectedIds.add(state.currentAssistantId);
+  }
+  if (state.lastAssistantId) {
+    protectedIds.add(state.lastAssistantId);
+  }
+  if (state.currentUserId) {
+    protectedIds.add(state.currentUserId);
+  }
+  for (const key of keys) {
+    if (!protectedIds.has(key)) {
+      return key;
+    }
+  }
+  return undefined;
 }
