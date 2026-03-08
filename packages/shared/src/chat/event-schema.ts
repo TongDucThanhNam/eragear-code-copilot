@@ -272,6 +272,8 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .object({
       type: z.literal("current_mode_update"),
       modeId: z.string(),
+      reason: z.string().optional(),
+      metadata: z.unknown().optional(),
     })
     .passthrough(),
   z

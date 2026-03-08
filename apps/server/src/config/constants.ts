@@ -13,6 +13,8 @@ export const CLIENT_INFO = { name: "eragear-code-copilot", version: "0.0.1" };
 
 /** Default session idle timeout: 10 minutes in milliseconds */
 export const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+/** Grace period before aborting an active prompt when no live subscribers remain */
+export const DEFAULT_PROMPT_NO_SUBSCRIBER_ABORT_GRACE_MS = 30_000;
 /** Default WebSocket server port */
 export const DEFAULT_WS_PORT = 3000;
 /** Default WebSocket server host (local-only by default) */

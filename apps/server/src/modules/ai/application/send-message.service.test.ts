@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { ENV } from "@/config/environment";
+import { SubscribeSessionEventsService } from "@/modules/session/application/subscribe-session-events.service";
 import type {
   SessionListPageQuery,
   SessionListPageResult,
@@ -848,6 +850,59 @@ describe("SendMessageService", () => {
     );
     expect(session.activeTurnId).toBeUndefined();
     expect(session.activePromptTask).toBeUndefined();
+  });
+
+  test("aborts orphaned prompt after subscriber grace period elapses", async () => {
+    const originalGraceMs = ENV.promptNoSubscriberAbortGraceMs;
+    ENV.promptNoSubscriberAbortGraceMs = 5;
+    try {
+      const repo = new InMemorySessionRepo();
+      const events: BroadcastEvent[] = [];
+      const promptStarted = createDeferred<void>();
+      let cancelCallCount = 0;
+      const session = createChatSession({
+        prompt: async () => {
+          promptStarted.resolve();
+          return await new Promise<{ stopReason: string }>(() => undefined);
+        },
+        cancel: async () => {
+          cancelCallCount += 1;
+        },
+      });
+      session.emitter.removeAllListeners("data");
+      session.subscriberCount = 0;
+      const runtime = createSessionRuntime("chat-1", session, events);
+      const subscriptionService = new SubscribeSessionEventsService(runtime, repo);
+      const live = await subscriptionService.execute("user-1", "chat-1");
+      const unsubscribe = live.subscribe(async () => undefined);
+      const service = createService(repo, runtime);
+
+      const submitted = await service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        text: "hello",
+      });
+      await promptStarted.promise;
+
+      unsubscribe();
+      await live.release();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await flushAsync();
+
+      expect(cancelCallCount).toBe(1);
+      expect(session.activePromptTask).toBeUndefined();
+      expect(session.activeTurnId).toBeUndefined();
+      expect(
+        events.some(
+          (event) =>
+            event.type === "chat_finish" &&
+            event.turnId === submitted.turnId &&
+            event.stopReason === "cancelled"
+        )
+      ).toBe(true);
+    } finally {
+      ENV.promptNoSubscriberAbortGraceMs = originalGraceMs;
+    }
   });
 
   test("marks chat error without synthetic chat_finish when agent process exits mid-turn", async () => {

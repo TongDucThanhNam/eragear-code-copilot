@@ -6,7 +6,17 @@ import type {
 } from "@/modules/session";
 import type { TurnIdResolution } from "./update-turn-id";
 
-export type SessionUpdate = acp.SessionUpdate;
+type AcpCurrentModeUpdate = Extract<
+  acp.SessionUpdate,
+  { sessionUpdate: "current_mode_update" }
+>;
+
+export type SessionUpdate =
+  | Exclude<acp.SessionUpdate, AcpCurrentModeUpdate>
+  | (AcpCurrentModeUpdate & {
+      reason?: string;
+      metadata?: unknown;
+    });
 
 export interface SessionUpdateContext {
   chatId: string;

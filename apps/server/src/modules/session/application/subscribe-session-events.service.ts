@@ -1,7 +1,9 @@
+import { ENV } from "@/config/environment";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { NotFoundError } from "@/shared/errors";
 import type {
+  ActivePromptTask,
   BroadcastEvent,
   ChatSession,
   ChatStatus,
@@ -24,7 +26,9 @@ export interface SessionEventSubscription {
   chatStatus: ChatStatus;
   activeTurnId?: string;
   bufferedEvents: BroadcastEvent[];
-  subscribe(listener: (event: BroadcastEvent) => void): () => void;
+  subscribe(
+    listener: (event: BroadcastEvent) => void | Promise<void>
+  ): () => void;
   release(): Promise<void>;
 }
 
@@ -48,7 +52,10 @@ export class SubscribeSessionEventsService {
     const sessionRepo = this.sessionRepo;
     const pendingLiveEvents: BroadcastEvent[] = [];
     const pendingLiveEventIndexByKey = new Map<string, number>();
-    let deliveredListener: ((event: BroadcastEvent) => void) | null = null;
+    let deliveredListener:
+      | ((event: BroadcastEvent) => void | Promise<void>)
+      | null = null;
+    let liveDeliveryTail: Promise<void> | null = null;
     let released = false;
     let stoppedSnapshot:
       | {
@@ -64,7 +71,7 @@ export class SubscribeSessionEventsService {
           bufferedEvents: BroadcastEvent[];
           forcedActiveSnapshot: boolean;
           subscriberCount: number;
-          internalListener: (event: BroadcastEvent) => void;
+          internalListener: (event: BroadcastEvent) => Promise<void> | undefined;
         }
       | undefined;
 
@@ -100,6 +107,7 @@ export class SubscribeSessionEventsService {
         }
 
         session.idleSinceAt = undefined;
+        clearNoSubscriberAbortTimer(session.activePromptTask);
         const nextChatStatus = reconcileChatStatusForSubscription(session);
         if (nextChatStatus !== session.chatStatus) {
           session.chatStatus = nextChatStatus;
@@ -109,18 +117,25 @@ export class SubscribeSessionEventsService {
         const bufferedEvents = bufferedState.events;
         const internalListener = (event: BroadcastEvent) => {
           if (released) {
-            return;
+            return undefined;
           }
           const cloned = cloneBroadcastEvent(event);
           if (deliveredListener) {
-            deliveredListener(cloned);
-            return;
+            const targetListener = deliveredListener;
+            return deliverLiveEvent(
+              () => targetListener(cloned),
+              () => liveDeliveryTail,
+              (nextTail) => {
+                liveDeliveryTail = nextTail;
+              }
+            );
           }
           queuePendingLiveEvent(
             pendingLiveEvents,
             pendingLiveEventIndexByKey,
             cloned
           );
+          return undefined;
         };
         session.emitter.on("data", internalListener);
         // Keep subscriberCount synchronized with the actual live listener
@@ -198,15 +213,19 @@ export class SubscribeSessionEventsService {
       activeTurnId: snapshot.activeTurnId,
       bufferedEvents: snapshot.bufferedEvents,
       subscribe(listener) {
-        const wrappedListener = (event: BroadcastEvent) => {
-          listener(event);
-        };
+        const wrappedListener = (event: BroadcastEvent) => listener(event);
         deliveredListener = wrappedListener;
         if (pendingLiveEvents.length > 0) {
           const queued = pendingLiveEvents.splice(0, pendingLiveEvents.length);
           pendingLiveEventIndexByKey.clear();
           for (const event of queued) {
-            wrappedListener(event);
+            void deliverLiveEvent(
+              () => wrappedListener(event),
+              () => liveDeliveryTail,
+              (nextTail) => {
+                liveDeliveryTail = nextTail;
+              }
+            );
           }
         }
         return () => {
@@ -246,11 +265,112 @@ export class SubscribeSessionEventsService {
           current.subscriberCount = current.emitter.listenerCount("data");
           if (current.subscriberCount <= 0) {
             current.idleSinceAt = Date.now();
+            scheduleNoSubscriberPromptAbort(chatId, sessionRuntime, current);
+          } else {
+            clearNoSubscriberAbortTimer(current.activePromptTask);
           }
         });
       },
     };
   }
+}
+
+function clearNoSubscriberAbortTimer(
+  task: ActivePromptTask | undefined
+): void {
+  if (!task) {
+    return;
+  }
+  if (task.noSubscriberAbortTimer) {
+    clearTimeout(task.noSubscriberAbortTimer);
+    task.noSubscriberAbortTimer = undefined;
+  }
+  task.orphanedSinceAt = undefined;
+  task.noSubscriberAbortReason = undefined;
+}
+
+function scheduleNoSubscriberPromptAbort(
+  chatId: string,
+  sessionRuntime: SessionRuntimePort,
+  session: ChatSession
+): void {
+  const task = session.activePromptTask;
+  if (!task) {
+    return;
+  }
+  clearNoSubscriberAbortTimer(task);
+  task.orphanedSinceAt = Date.now();
+  task.noSubscriberAbortReason =
+    "Prompt aborted after realtime subscribers disconnected";
+  task.noSubscriberAbortTimer = setTimeout(() => {
+    void sessionRuntime.runExclusive(chatId, async () => {
+      const current = sessionRuntime.get(chatId);
+      if (!current || current !== session) {
+        return;
+      }
+      const currentTask = current.activePromptTask;
+      if (!currentTask || currentTask.turnId !== task.turnId) {
+        return;
+      }
+      current.subscriberCount = current.emitter.listenerCount("data");
+      if (current.subscriberCount > 0) {
+        clearNoSubscriberAbortTimer(currentTask);
+        return;
+      }
+      const reason =
+        currentTask.noSubscriberAbortReason ??
+        "Prompt aborted after realtime subscribers disconnected";
+      clearNoSubscriberAbortTimer(currentTask);
+      currentTask.abortController?.abort(reason);
+      logger.warn("Aborted orphaned prompt after subscriber grace period", {
+        chatId,
+        turnId: currentTask.turnId,
+        graceMs: ENV.promptNoSubscriberAbortGraceMs,
+      });
+    });
+  }, ENV.promptNoSubscriberAbortGraceMs);
+  task.noSubscriberAbortTimer.unref?.();
+}
+
+function deliverLiveEvent(
+  deliver: () => void | Promise<void>,
+  getTail: () => Promise<void> | null,
+  setTail: (tail: Promise<void> | null) => void
+): Promise<void> | undefined {
+  const currentTail = getTail();
+  if (!currentTail) {
+    const directResult = deliver();
+    if (!isPromiseLike(directResult)) {
+      return undefined;
+    }
+    const directTail = directResult.finally(() => {
+      if (getTail() === directTail) {
+        setTail(null);
+      }
+    });
+    setTail(directTail);
+    return directTail;
+  }
+
+  const queuedTail = currentTail.then(() => deliver()).then(() => undefined);
+  const normalizedTail = queuedTail.finally(() => {
+    if (getTail() === normalizedTail) {
+      setTail(null);
+    }
+  });
+  setTail(normalizedTail);
+  return normalizedTail;
+}
+
+function isPromiseLike(
+  value: void | Promise<void>
+): value is Promise<void> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "then" in value &&
+    typeof value.then === "function"
+  );
 }
 
 function queuePendingLiveEvent(

@@ -8,6 +8,8 @@ import { createId } from "./id.util";
 
 const PART_ID_MAX_LENGTH = 256;
 const PART_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
+const PART_ID_INDEX_MIN_LIMIT = 32;
+const PART_ID_INDEX_HEADROOM = 16;
 
 type UiMessagePartEvent = Extract<BroadcastEvent, { type: "ui_message_part" }>;
 type UiMessagePartRemovedEvent = Extract<
@@ -27,12 +29,38 @@ function isValidPartId(value: string): boolean {
 }
 
 function getMessagePartIdSlots(state: UiMessageState, messageId: string) {
-  let partIds = state.partIdIndex.get(messageId);
-  if (!partIds) {
-    partIds = new Map<number, string>();
-    state.partIdIndex.set(messageId, partIds);
+  const existing = state.partIdIndex.get(messageId);
+  if (existing) {
+    state.partIdIndex.delete(messageId);
+    state.partIdIndex.set(messageId, existing);
+    return existing;
   }
+  prunePartIdIndex(state);
+  const partIds = new Map<number, string>();
+  state.partIdIndex.set(messageId, partIds);
   return partIds;
+}
+
+function prunePartIdIndex(state: UiMessageState): void {
+  const maxEntries = Math.max(
+    PART_ID_INDEX_MIN_LIMIT,
+    state.messages.size + PART_ID_INDEX_HEADROOM
+  );
+
+  for (const messageId of [...state.partIdIndex.keys()]) {
+    if (state.messages.has(messageId)) {
+      continue;
+    }
+    state.partIdIndex.delete(messageId);
+  }
+
+  while (state.partIdIndex.size >= maxEntries) {
+    const oldestMessageId = state.partIdIndex.keys().next().value;
+    if (typeof oldestMessageId !== "string") {
+      return;
+    }
+    state.partIdIndex.delete(oldestMessageId);
+  }
 }
 
 function hashToken(token: string): string {

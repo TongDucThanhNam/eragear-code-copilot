@@ -197,6 +197,36 @@ describe("SessionRuntimeStore.runExclusive", () => {
     expect(order).toEqual(["outer:start", "inner:start", "outer:end"]);
   });
 
+  test("awaits async live subscribers before completing broadcast", async () => {
+    const outboxCalls: BroadcastEvent[] = [];
+    const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {
+      sessionBufferLimit: 20,
+      lockAcquireTimeoutMs: 20,
+      eventBusPublishMaxQueuePerChat: 8,
+    });
+    const session = createSession("chat-async-subscriber");
+    const releaseListener = createDeferred<void>();
+    let delivered = false;
+    session.emitter.on("data", async () => {
+      await releaseListener.promise;
+      delivered = true;
+    });
+    session.subscriberCount = session.emitter.listenerCount("data");
+    store.set(session.id, session);
+
+    const broadcastPromise = store.broadcast(session.id, {
+      type: "terminal_output",
+      terminalId: "term-1",
+      data: "hello",
+    });
+    await flushAsync();
+
+    expect(delivered).toBe(false);
+    releaseListener.resolve();
+    await broadcastPromise;
+    expect(delivered).toBe(true);
+  });
+
   test("processes queued mutations in-order under sustained contention", async () => {
     const outboxCalls: BroadcastEvent[] = [];
     const store = new SessionRuntimeStore(createOutboxStub(outboxCalls), {

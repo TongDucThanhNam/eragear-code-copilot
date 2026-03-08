@@ -39,6 +39,7 @@ import {
   DEFAULT_LOG_FLUSH_INTERVAL_MS,
   DEFAULT_MESSAGE_CONTENT_MAX_BYTES,
   DEFAULT_MESSAGE_PARTS_MAX_BYTES,
+  DEFAULT_PROMPT_NO_SUBSCRIBER_ABORT_GRACE_MS,
   DEFAULT_SESSION_BUFFER_LIMIT,
   DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT,
   DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS,
@@ -317,6 +318,11 @@ export const ENV = {
   sessionIdleTimeoutMs: toPositiveInt(
     env.SESSION_IDLE_TIMEOUT_MS,
     DEFAULT_SESSION_IDLE_TIMEOUT_MS
+  ),
+  /** Grace period before aborting a live prompt after the last subscriber disconnects */
+  promptNoSubscriberAbortGraceMs: toPositiveInt(
+    env.PROMPT_NO_SUBSCRIBER_ABORT_GRACE_MS,
+    DEFAULT_PROMPT_NO_SUBSCRIBER_ABORT_GRACE_MS
   ),
   /** Maximum number of messages to buffer per session */
   sessionBufferLimit: toPositiveInt(

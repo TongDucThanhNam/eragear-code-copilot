@@ -126,6 +126,21 @@ describe("createUiMessageState", () => {
     expect(firstPartCreated?.partId).not.toBe(secondPartCreated?.partId);
   });
 
+  test("bounds part-id index growth for orphan message ids", () => {
+    const state = createUiMessageState({ messageLimit: 4 });
+
+    for (let index = 0; index < 10_000; index += 1) {
+      buildUiMessagePartEvent({
+        state,
+        message: createMessage(`msg-orphan-${index}`),
+        partIndex: 0,
+        isNew: true,
+      });
+    }
+
+    expect(state.partIdIndex.size).toBeLessThanOrEqual(32);
+  });
+
   test("reuses intrinsic ids when a tool part moves to a later index", () => {
     const state = createUiMessageState();
     const initialMessage: UIMessage = {

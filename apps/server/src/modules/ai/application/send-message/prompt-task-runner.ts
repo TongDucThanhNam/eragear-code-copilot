@@ -56,6 +56,7 @@ interface PromptTaskParams {
   prompt: ContentBlock[];
   broadcast: SessionRuntimePort["broadcast"];
   turnId: string;
+  abortSignal?: AbortSignal;
 }
 
 export class PromptTaskRunner {
@@ -278,7 +279,7 @@ export class PromptTaskRunner {
   }
 
   private async handlePrompt(params: PromptTaskParams): Promise<void> {
-    const { chatId, aggregate, prompt, broadcast, turnId } = params;
+    const { chatId, aggregate, prompt, broadcast, turnId, abortSignal } = params;
     const session = aggregate.raw;
     if (!session.sessionId) {
       await this.sessionGateway.stopAndCleanup({
@@ -298,6 +299,7 @@ export class PromptTaskRunner {
       prompt,
       broadcast,
       turnId,
+      abortSignal,
     });
     if (!response) {
       return;
@@ -330,8 +332,10 @@ export class PromptTaskRunner {
     prompt: ContentBlock[];
     broadcast: SessionRuntimePort["broadcast"];
     turnId: string;
+    abortSignal?: AbortSignal;
   }): Promise<{ stopReason: string } | null> {
-    const { chatId, aggregate, session, prompt, broadcast, turnId } = params;
+    const { chatId, aggregate, session, prompt, broadcast, turnId, abortSignal } =
+      params;
     const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy({
       maxAttempts: this.policy.acpRetryMaxAttempts,
       retryBaseDelayMs: this.policy.acpRetryBaseDelayMs,
@@ -345,6 +349,17 @@ export class PromptTaskRunner {
           activeTurnId: session.activeTurnId,
           attempt: attempt + 1,
           maxAttempts,
+        });
+        return null;
+      }
+      if (abortSignal?.aborted) {
+        await this.handlePromptAborted({
+          chatId,
+          aggregate,
+          session,
+          broadcast,
+          turnId,
+          reason: getAbortReasonText(abortSignal.reason),
         });
         return null;
       }
@@ -384,6 +399,7 @@ export class PromptTaskRunner {
         try {
           response = await this.sessionGateway.prompt(session, prompt, {
             maxTokens: this.runtimePolicyProvider().maxTokens,
+            signal: abortSignal,
           });
         } finally {
           clearTimeout(watchdog);
@@ -405,6 +421,7 @@ export class PromptTaskRunner {
           session,
           broadcast,
           turnId,
+          abortSignal,
         });
         if (outcome === "retry") {
           continue;
@@ -435,6 +452,7 @@ export class PromptTaskRunner {
     session: ChatSession;
     broadcast: SessionRuntimePort["broadcast"];
     turnId: string;
+    abortSignal?: AbortSignal;
   }): Promise<"retry" | "return_null"> {
     const {
       error,
@@ -446,6 +464,7 @@ export class PromptTaskRunner {
       session,
       broadcast,
       turnId,
+      abortSignal,
     } = params;
     const errorText = getRuntimeErrorText(error, "unknown");
     const errorKind =
@@ -461,9 +480,35 @@ export class PromptTaskRunner {
 
     if (
       error instanceof AiSessionRuntimeError &&
+      error.kind === "cancelled"
+    ) {
+      await this.handlePromptAborted({
+        chatId,
+        aggregate,
+        session,
+        broadcast,
+        turnId,
+        reason: error.message,
+      });
+      return "return_null";
+    }
+
+    if (
+      error instanceof AiSessionRuntimeError &&
       error.kind === "retryable_transport" &&
       attempt < maxAttempts - 1
     ) {
+      if (abortSignal?.aborted) {
+        await this.handlePromptAborted({
+          chatId,
+          aggregate,
+          session,
+          broadcast,
+          turnId,
+          reason: getAbortReasonText(abortSignal.reason),
+        });
+        return "return_null";
+      }
       if (!aggregate.isCurrentTurn(turnId)) {
         this.logger.warn(
           "SendMessageService stale turn before retry delay; skipping retry",
@@ -480,6 +525,17 @@ export class PromptTaskRunner {
       await new Promise((resolve) => {
         setTimeout(resolve, getAcpRetryDelayMs(attempt + 1, retryBaseDelayMs));
       });
+      if (abortSignal?.aborted) {
+        await this.handlePromptAborted({
+          chatId,
+          aggregate,
+          session,
+          broadcast,
+          turnId,
+          reason: getAbortReasonText(abortSignal.reason),
+        });
+        return "return_null";
+      }
       if (!aggregate.isCurrentTurn(turnId)) {
         this.logger.warn("SendMessageService stale turn after retry delay", {
           chatId,
@@ -575,6 +631,38 @@ export class PromptTaskRunner {
         session,
         broadcast,
         turnId,
+      });
+    });
+  }
+
+  private async handlePromptAborted(params: {
+    chatId: string;
+    aggregate: SessionRuntimeEntity;
+    session: ChatSession;
+    broadcast: SessionRuntimePort["broadcast"];
+    turnId: string;
+    reason: string;
+  }): Promise<void> {
+    const { chatId, aggregate, session, broadcast, turnId, reason } = params;
+    await this.sessionRuntime.runExclusive(chatId, async () => {
+      if (!aggregate.isCurrentTurn(turnId)) {
+        return;
+      }
+      await this.finalizeAssistantArtifactsUnderLock({
+        chatId,
+        aggregate,
+        session,
+        broadcast,
+        turnId,
+      });
+      aggregate.setChatFinishStopReason("cancelled", turnId);
+      await aggregate.maybeBroadcastChatFinish({ chatId, broadcast });
+      await aggregate.markReadyAfterTurnCompletion({ chatId, broadcast }, turnId);
+      aggregate.clearActiveTurnIf(turnId);
+      this.logger.warn("Prompt task aborted after subscriber disconnect", {
+        chatId,
+        turnId,
+        reason,
       });
     });
   }
@@ -849,4 +937,14 @@ function getRuntimeErrorText(error: unknown, fallback: string): string {
     return error;
   }
   return fallback;
+}
+
+function getAbortReasonText(reason: unknown): string {
+  if (typeof reason === "string" && reason.trim().length > 0) {
+    return reason;
+  }
+  if (reason instanceof Error && reason.message.trim().length > 0) {
+    return reason.message;
+  }
+  return "Prompt aborted";
 }

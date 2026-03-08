@@ -56,6 +56,7 @@ function createRuntime(
   session: ChatSession,
   options?: {
     broadcastEvents?: Array<{ chatId: string; event: BroadcastEvent }>;
+    onBroadcast?: (chatId: string, event: BroadcastEvent) => Promise<void>;
   }
 ): SessionRuntimePort {
   const sessions = new Map<string, ChatSession>([[session.id, session]]);
@@ -110,6 +111,9 @@ function createRuntime(
     },
     broadcast(chatId: string, event: BroadcastEvent) {
       options?.broadcastEvents?.push({ chatId, event });
+      if (options?.onBroadcast) {
+        return options.onBroadcast(chatId, event);
+      }
       return Promise.resolve();
     },
   };
@@ -274,6 +278,46 @@ describe("createToolCallHandlers", () => {
         )
         .join("")
     ).toHaveLength(20_000);
+  });
+
+  test("keeps terminal streams paused until async broadcast drain completes", async () => {
+    const session = createSession("chat-terminal-backpressure", tmpDir);
+    let releaseBroadcast!: () => void;
+    const broadcastGate = new Promise<void>((resolve) => {
+      releaseBroadcast = resolve;
+    });
+    const runtime = createRuntime(session, {
+      onBroadcast: async (_chatId, event) => {
+        if (event.type !== "terminal_output") {
+          return;
+        }
+        await broadcastGate;
+      },
+    });
+    const handlers = createToolCallHandlers(runtime);
+
+    const created = await handlers.createTerminal(session.id, {
+      sessionId: session.id,
+      command: TERMINAL_COMMAND,
+      args: nodeEvalArgs("process.stdout.write('x'.repeat(300000));"),
+    });
+    const terminal = session.terminals.get(created.terminalId) as
+      | TerminalState
+      | undefined;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(terminal?.outputStreamsPaused).toBe(true);
+    expect((terminal?.pendingOutputBytes ?? 0) > 0).toBe(true);
+
+    releaseBroadcast();
+    await withTimeout(
+      handlers.waitForTerminalExit(session.id, {
+        sessionId: session.id,
+        terminalId: created.terminalId,
+      }),
+      5000
+    );
+    expect(terminal?.outputStreamsPaused).toBe(false);
   });
 
   test("clamps requested outputByteLimit by hard cap", async () => {

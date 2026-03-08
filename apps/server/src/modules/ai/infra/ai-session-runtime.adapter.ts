@@ -149,12 +149,13 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
   async prompt(
     session: ChatSession,
     prompt: ContentBlock[],
-    options?: { maxTokens?: number }
+    options?: { maxTokens?: number; signal?: AbortSignal }
   ): Promise<{ stopReason: string }> {
     const maxTokens =
       options?.maxTokens !== undefined
         ? Math.max(1, Math.trunc(options.maxTokens))
         : undefined;
+    const signal = options?.signal;
     const meta =
       maxTokens !== undefined
         ? {
@@ -169,21 +170,34 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
     const shouldAttachMeta =
       meta !== undefined && this.shouldAttachPromptMeta(session);
     if (!shouldAttachMeta) {
-      return await this.wrapAcpCall(() => session.conn.prompt(promptRequest));
+      return await this.runAbortablePromptRequest(
+        session,
+        signal,
+        () => this.wrapAcpCall(() => session.conn.prompt(promptRequest))
+      );
     }
     try {
-      return await this.wrapAcpCall(() =>
-        session.conn.prompt({
-          ...promptRequest,
-          _meta: meta,
-        })
+      return await this.runAbortablePromptRequest(
+        session,
+        signal,
+        () =>
+          this.wrapAcpCall(() =>
+            session.conn.prompt({
+              ...promptRequest,
+              _meta: meta,
+            })
+          )
       );
     } catch (error) {
       if (!this.shouldRetryPromptWithoutMeta(error)) {
         throw error;
       }
       this.promptMetaDisabledSessions.add(session);
-      return await this.wrapAcpCall(() => session.conn.prompt(promptRequest));
+      return await this.runAbortablePromptRequest(
+        session,
+        signal,
+        () => this.wrapAcpCall(() => session.conn.prompt(promptRequest))
+      );
     }
   }
 
@@ -264,6 +278,9 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
         currentSession.userId,
         "stopped"
       );
+      if (currentSession.activePromptTask?.noSubscriberAbortTimer) {
+        clearTimeout(currentSession.activePromptTask.noSubscriberAbortTimer);
+      }
       currentSession.activeTurnId = undefined;
       currentSession.activePromptTask = undefined;
     });
@@ -295,6 +312,49 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
     } catch (error) {
       throw this.mapAcpError(error, options);
     }
+  }
+
+  private async runAbortablePromptRequest<T>(
+    session: ChatSession,
+    signal: AbortSignal | undefined,
+    work: () => Promise<T>
+  ): Promise<T> {
+    if (!signal) {
+      return await work();
+    }
+    if (signal.aborted) {
+      throw createPromptAbortError(signal.reason);
+    }
+
+    return await new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        signal.removeEventListener("abort", onAbort);
+      };
+      const settleResolve = (value: T) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+      const settleReject = (error: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+      const onAbort = () => {
+        void this.cancelPrompt(session).catch(() => undefined);
+        settleReject(createPromptAbortError(signal.reason));
+      };
+
+      signal.addEventListener("abort", onAbort, { once: true });
+      void work().then(settleResolve, settleReject);
+    });
   }
 
   private mapAcpError(
@@ -377,4 +437,16 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
       text.includes(pattern)
     );
   }
+}
+
+function createPromptAbortError(reason: unknown): AiSessionRuntimeError {
+  const message =
+    typeof reason === "string" && reason.trim().length > 0
+      ? reason
+      : "Prompt aborted";
+  return new AiSessionRuntimeError({
+    kind: "cancelled",
+    message,
+    details: { reason: reason ?? null },
+  });
 }

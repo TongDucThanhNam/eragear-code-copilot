@@ -92,6 +92,10 @@ The Agent can also change its own mode and let the Client know by sending the `c
 }
 ```
 
+Trong codebase này, server rebroadcast event mode ra UI theo cùng `modeId` nhưng
+có thể kèm thêm `reason?: string` và `metadata?: unknown` cho diagnostics.
+Client phải bỏ qua an toàn nếu agent không gửi hai field này.
+
 #### Exiting plan modes
 
 A common case where an Agent might switch modes is from within a special "exit mode" tool that can be provided to the language model during plan/architect modes. The language model can call this tool when it determines it's ready to start implementing a solution.

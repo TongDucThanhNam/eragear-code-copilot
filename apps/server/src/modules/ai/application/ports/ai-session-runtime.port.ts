@@ -7,6 +7,7 @@ import type { ChatSession } from "@/shared/types/session.types";
 
 export type AiSessionRuntimeErrorKind =
   | "retryable_transport"
+  | "cancelled"
   | "process_exited"
   | "session_unavailable"
   | "method_not_supported"
@@ -60,7 +61,7 @@ export interface AiSessionRuntimePort {
   prompt(
     session: ChatSession,
     prompt: ContentBlock[],
-    options?: { maxTokens?: number }
+    options?: { maxTokens?: number; signal?: AbortSignal }
   ): Promise<{ stopReason: string }>;
   cancelPrompt(session: ChatSession): Promise<void>;
   setSessionMode(session: ChatSession, modeId: string): Promise<void>;

@@ -223,6 +223,28 @@ describe("parseBroadcastEventClientSafe", () => {
     expect(parsed.value.turnId).toBe("turn-3");
   });
 
+  test("parses current_mode_update diagnostics fields", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "current_mode_update",
+      modeId: "code",
+      reason: "agent_exit_plan_mode",
+      metadata: {
+        source: "tool_call",
+        toolCallId: "tool-1",
+      },
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "current_mode_update") {
+      return;
+    }
+    expect(parsed.value.reason).toBe("agent_exit_plan_mode");
+    expect(parsed.value.metadata).toEqual({
+      source: "tool_call",
+      toolCallId: "tool-1",
+    });
+  });
+
   test("rejects ui_message_part payload with invalid partId", () => {
     const parsed = parseBroadcastEventClientSafe({
       type: "ui_message_part",

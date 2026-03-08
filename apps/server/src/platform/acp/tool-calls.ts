@@ -343,7 +343,6 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
             0,
             (termState.pendingOutputBytes ?? 0) - Buffer.byteLength(data, "utf8")
           );
-          maybeResumeTerminalStreams(termState);
           try {
             await sessionRuntime.broadcast(
               chatId,
@@ -367,6 +366,8 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
                 terminalId: termId,
               }
             );
+          } finally {
+            maybeResumeTerminalStreams(termState);
           }
         }
       })().finally(() => {

@@ -184,7 +184,12 @@ export type BroadcastEvent =
       type: "session_info_update";
       sessionInfo: SessionInfo;
     }
-  | { type: "current_mode_update"; modeId: string }
+  | {
+      type: "current_mode_update";
+      modeId: string;
+      reason?: string;
+      metadata?: unknown;
+    }
   | { type: "current_model_update"; modelId: string }
   | {
       type: "terminal_output";

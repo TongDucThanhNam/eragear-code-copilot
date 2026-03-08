@@ -34,4 +34,27 @@ describe("parseSessionUpdatePayload toolCallId validation", () => {
 
     expect(parsed).toBeNull();
   });
+
+  test("accepts current_mode_update diagnostics fields", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "current_mode_update",
+      modeId: "code",
+      reason: "agent_exit_plan_mode",
+      metadata: {
+        source: "tool_call",
+        toolCallId: "tool-1",
+      },
+    });
+
+    expect(parsed).not.toBeNull();
+    expect(parsed).toMatchObject({
+      sessionUpdate: "current_mode_update",
+      currentModeId: "code",
+      reason: "agent_exit_plan_mode",
+      metadata: {
+        source: "tool_call",
+        toolCallId: "tool-1",
+      },
+    });
+  });
 });

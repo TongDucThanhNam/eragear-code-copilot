@@ -1,6 +1,7 @@
 import type { UIMessage } from "@repo/shared";
 import { AppError } from "@/shared/errors";
 import type {
+  ActivePromptTask,
   BroadcastEvent,
   ChatSession,
   ChatStatus,
@@ -62,12 +63,14 @@ export class SessionRuntimeEntity {
     this.session.uiState.lastAssistantId = undefined;
   }
 
-  setActivePromptTask(turnId: string, promise: Promise<void>): void {
-    this.session.activePromptTask = { turnId, promise };
+  setActivePromptTask(task: ActivePromptTask): void {
+    clearPromptTaskTimer(this.session.activePromptTask);
+    this.session.activePromptTask = task;
   }
 
   clearActivePromptTaskIf(turnId: string): void {
     if (this.session.activePromptTask?.turnId === turnId) {
+      clearPromptTaskTimer(this.session.activePromptTask);
       this.session.activePromptTask = undefined;
     }
   }
@@ -84,6 +87,7 @@ export class SessionRuntimeEntity {
 
   clearTurnState(): void {
     this.session.activeTurnId = undefined;
+    clearPromptTaskTimer(this.session.activePromptTask);
     this.session.activePromptTask = undefined;
     this.session.pendingReconnectChatFinish = undefined;
   }
@@ -290,4 +294,14 @@ export class SessionRuntimeEntity {
       turnId,
     });
   }
+}
+
+function clearPromptTaskTimer(task: ActivePromptTask | undefined): void {
+  if (!task?.noSubscriberAbortTimer) {
+    return;
+  }
+  clearTimeout(task.noSubscriberAbortTimer);
+  task.noSubscriberAbortTimer = undefined;
+  task.orphanedSinceAt = undefined;
+  task.noSubscriberAbortReason = undefined;
 }

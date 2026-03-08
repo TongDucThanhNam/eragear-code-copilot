@@ -85,6 +85,8 @@ const CurrentModeUpdateSchema = z
     sessionUpdate: z.literal("current_mode_update"),
     currentModeId: z.string().optional(),
     modeId: z.string().optional(),
+    reason: z.string().optional(),
+    metadata: z.unknown().optional(),
   })
   .passthrough();
 

@@ -272,6 +272,15 @@ export interface PendingReconnectChatFinish {
   event: Extract<BroadcastEvent, { type: "chat_finish" }>;
 }
 
+export interface ActivePromptTask {
+  turnId: string;
+  promise: Promise<void>;
+  abortController?: AbortController;
+  noSubscriberAbortTimer?: ReturnType<typeof setTimeout>;
+  noSubscriberAbortReason?: string;
+  orphanedSinceAt?: number;
+}
+
 /**
  * Unsaved text buffer snapshot synchronized from connected clients/editors.
  */
@@ -317,7 +326,12 @@ export type BroadcastEvent =
       turnId?: string;
     }
   | { type: "file_modified"; path: string }
-  | { type: "current_mode_update"; modeId: string }
+  | {
+      type: "current_mode_update";
+      modeId: string;
+      reason?: string;
+      metadata?: unknown;
+    }
   | { type: "current_model_update"; modelId: string }
   | {
       type: "available_commands_update";
@@ -497,10 +511,7 @@ export interface ChatSession {
   /** Turn completion that must be replayed to the next reconnecting subscriber */
   pendingReconnectChatFinish?: PendingReconnectChatFinish;
   /** Active async prompt task lifecycle (turn-correlated) */
-  activePromptTask?: {
-    turnId: string;
-    promise: Promise<void>;
-  };
+  activePromptTask?: ActivePromptTask;
   /** Full agent capabilities from initialize response */
   agentCapabilities?: Record<string, unknown>;
   /** Authentication methods supported by the agent */

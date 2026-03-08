@@ -119,6 +119,8 @@ describe("createSessionUpdateHandler", () => {
       update: {
         sessionUpdate: "current_mode_update",
         currentModeId: "mode-new",
+        reason: "agent_exit_plan_mode",
+        metadata: { source: "tool_call", toolCallId: "tool-1" },
       },
     });
 
@@ -133,6 +135,8 @@ describe("createSessionUpdateHandler", () => {
     expect(events).toContainEqual({
       type: "current_mode_update",
       modeId: "mode-new",
+      reason: "agent_exit_plan_mode",
+      metadata: { source: "tool_call", toolCallId: "tool-1" },
     });
   });
 
@@ -250,6 +254,11 @@ describe("createSessionUpdateHandler", () => {
     expect(events).toContainEqual({
       type: "current_mode_update",
       modeId: "mode-new",
+      reason: "config_option_update",
+      metadata: {
+        source: "config_option_update",
+        configId: "mode",
+      },
     });
   });
 
@@ -978,6 +987,11 @@ describe("createSessionUpdateHandler", () => {
     expect(events).toContainEqual({
       type: "current_mode_update",
       modeId: "architect",
+      reason: "config_option_update",
+      metadata: {
+        source: "config_option_update",
+        configId: "mode",
+      },
     });
     expect(events).toContainEqual({
       type: "current_model_update",

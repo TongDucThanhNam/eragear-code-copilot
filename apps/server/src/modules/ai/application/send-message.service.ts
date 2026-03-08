@@ -269,6 +269,7 @@ export class SendMessageService {
             turnId,
           });
 
+          const promptAbortController = new AbortController();
           const promptTask = this.promptTaskRunner
             .runPromptTask({
               chatId: input.chatId,
@@ -276,6 +277,7 @@ export class SendMessageService {
               prompt,
               broadcast,
               turnId,
+              abortSignal: promptAbortController.signal,
             })
             .catch((error) => {
               const errorText =
@@ -288,7 +290,11 @@ export class SendMessageService {
                 error: errorText,
               });
             });
-          aggregate.setActivePromptTask(turnId, promptTask);
+          aggregate.setActivePromptTask({
+            turnId,
+            promise: promptTask,
+            abortController: promptAbortController,
+          });
         } catch (error) {
           const errorText =
             error instanceof Error

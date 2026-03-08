@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const envSchema = z.object({
   SESSION_IDLE_TIMEOUT_MS: z.string().optional(),
+  PROMPT_NO_SUBSCRIBER_ABORT_GRACE_MS: z.string().optional(),
   SESSION_BUFFER_LIMIT: z.string().optional(),
   SESSION_UI_MESSAGE_LIMIT: z.string().optional(),
   SESSION_LOCK_ACQUIRE_TIMEOUT_MS: z.string().optional(),

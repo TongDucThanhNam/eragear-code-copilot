@@ -290,6 +290,8 @@ function summarizeUpdate(update: SessionUpdate) {
       return {
         sessionUpdate: update.sessionUpdate,
         currentModeId: update.currentModeId,
+        reason: readModeUpdateReason(update),
+        metadata: readModeUpdateMetadata(update),
         hasMeta: Boolean(update._meta),
       };
     case "config_option_update":
@@ -372,14 +374,37 @@ async function handleModeUpdate(
   logger.debug("ACP current mode update", {
     chatId,
     modeId: update.currentModeId,
+    reason: readModeUpdateReason(update),
+    metadata: readModeUpdateMetadata(update),
   });
   if (!suppressReplayBroadcast) {
     await sessionRuntime.broadcast(chatId, {
       type: "current_mode_update",
       modeId: update.currentModeId,
+      ...(readModeUpdateReason(update)
+        ? { reason: readModeUpdateReason(update) }
+        : {}),
+      ...(readModeUpdateMetadata(update) !== undefined
+        ? { metadata: readModeUpdateMetadata(update) }
+        : update._meta
+          ? { metadata: update._meta }
+          : {}),
     });
   }
   return true;
+}
+
+function readModeUpdateReason(
+  update: Extract<SessionUpdate, { sessionUpdate: "current_mode_update" }>
+): string | undefined {
+  const value = (update as Record<string, unknown>).reason;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readModeUpdateMetadata(
+  update: Extract<SessionUpdate, { sessionUpdate: "current_mode_update" }>
+): unknown {
+  return (update as Record<string, unknown>).metadata;
 }
 
 async function handleCommandsUpdate(
@@ -492,6 +517,11 @@ async function handleConfigOptionsUpdate(
       await sessionRuntime.broadcast(chatId, {
         type: "current_mode_update",
         modeId: selection.modeId,
+        reason: "config_option_update",
+        metadata: {
+          source: "config_option_update",
+          configId: modeOption.id,
+        },
       });
     }
     if (modelOption && selection.modelChanged && selection.modelId) {

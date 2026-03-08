@@ -19,7 +19,8 @@ Event types quan trọng:
 - `chat_status` → `submitted` | `streaming` | `ready` | `error` (và các trạng thái khác), có thể kèm `turnId`.
 - `chat_finish` → stopReason/finishReason/isAbort (kết thúc turn), có thể kèm `turnId`.
 - `terminal_output` → output realtime theo `terminalId`.
-- `current_mode_update`, `available_commands_update`, `connected`, `heartbeat`, `error`.
+- `current_mode_update` → mode hiện tại; server có thể kèm `reason` / `metadata` để debug tại sao mode đổi.
+- `available_commands_update`, `connected`, `heartbeat`, `error`.
 
 Quy tắc state machine:
 

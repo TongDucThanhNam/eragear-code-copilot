@@ -296,6 +296,10 @@ export class SessionAcpBootstrapService {
       await this.sessionRuntime.broadcast(chatId, {
         type: "current_mode_update",
         modeId: currentModeId,
+        reason: "session_bootstrap_snapshot",
+        metadata: {
+          source: "session_bootstrap",
+        },
       });
     }
 

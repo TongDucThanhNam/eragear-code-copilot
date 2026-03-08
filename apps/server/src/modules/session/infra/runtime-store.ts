@@ -392,6 +392,61 @@ export class SessionRuntimeStore implements SessionRuntimePort {
       }
     }
 
-    session.emitter.emit("data", cloneBroadcastEvent(event));
+    await this.emitLiveEvent(session, event);
   }
+
+  private async emitLiveEvent(
+    session: ChatSession,
+    event: BroadcastEvent
+  ): Promise<void> {
+    const listeners = session.emitter.listeners("data");
+    if (listeners.length === 0) {
+      return;
+    }
+
+    const pendingDeliveries: Promise<void>[] = [];
+    for (const listener of listeners) {
+      try {
+        const result = (
+          listener as (event: BroadcastEvent) => void | Promise<void>
+        )(cloneBroadcastEvent(event));
+        if (isPromiseLike(result)) {
+          pendingDeliveries.push(result);
+        }
+      } catch (error) {
+        getLogger().warn("Session live event listener threw", {
+          chatId: session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (pendingDeliveries.length === 0) {
+      return;
+    }
+    const settled = await Promise.allSettled(pendingDeliveries);
+    for (const result of settled) {
+      if (result.status === "fulfilled") {
+        continue;
+      }
+      getLogger().warn("Session live event delivery rejected", {
+        chatId: session.id,
+        error:
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+      });
+    }
+  }
+}
+
+function isPromiseLike(
+  value: void | Promise<void>
+): value is Promise<void> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "then" in value &&
+    typeof value.then === "function"
+  );
 }

@@ -355,6 +355,10 @@ describe("SessionAcpBootstrapService", () => {
     expect(events).toContainEqual({
       type: "current_mode_update",
       modeId: "config-mode",
+      reason: "session_bootstrap_snapshot",
+      metadata: {
+        source: "session_bootstrap",
+      },
     });
     expect(events).toContainEqual({
       type: "current_model_update",
