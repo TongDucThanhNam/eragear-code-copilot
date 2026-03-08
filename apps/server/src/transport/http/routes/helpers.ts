@@ -231,6 +231,14 @@ export function normalizeDeviceSessionItem(item: {
 const LOG_LEVEL_SET = new Set(LOG_LEVELS);
 const LOG_BOOLEAN_TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
 const LOG_BOOLEAN_FALSE_VALUES = new Set(["0", "false", "no", "off"]);
+const LOG_RANGE_TO_WINDOW_MS = {
+  "30m": 30 * 60 * 1000,
+  "2h": 2 * 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+} as const;
+
+type LogRange = keyof typeof LOG_RANGE_TO_WINDOW_MS;
 
 type ParseParamResult<T> =
   | { ok: true; value: T }
@@ -348,6 +356,22 @@ function parseAcpOnlyParam(
   };
 }
 
+function parseLogRangeParam(
+  raw: string | undefined
+): ParseParamResult<LogRange | undefined> {
+  const normalized = raw?.trim().toLowerCase();
+  if (!normalized) {
+    return { ok: true, value: undefined };
+  }
+  if (normalized in LOG_RANGE_TO_WINDOW_MS) {
+    return { ok: true, value: normalized as LogRange };
+  }
+  return {
+    ok: false,
+    error: `range must be one of: ${Object.keys(LOG_RANGE_TO_WINDOW_MS).join(", ")}`,
+  };
+}
+
 /**
  * Parses and validates log query parameters
  */
@@ -369,6 +393,19 @@ export function parseLogQueryParams(
   const toResult = parseTimestampParam("to", params.to);
   if (!toResult.ok) {
     return toResult;
+  }
+  const rangeResult = parseLogRangeParam(params.range);
+  if (!rangeResult.ok) {
+    return rangeResult;
+  }
+  if (
+    rangeResult.value !== undefined &&
+    (fromResult.value !== undefined || toResult.value !== undefined)
+  ) {
+    return {
+      ok: false,
+      error: "range cannot be combined with from/to",
+    };
   }
   if (
     fromResult.value !== undefined &&
@@ -397,11 +434,14 @@ export function parseLogQueryParams(
   return {
     ok: true,
     query: {
+      from:
+        rangeResult.value !== undefined
+          ? Date.now() - LOG_RANGE_TO_WINDOW_MS[rangeResult.value]
+          : fromResult.value,
       levels: levelsResult.value,
       sources: sourcesResult.value,
       acpOnly: acpOnlyResult.value,
       search: searchResult.value,
-      from: fromResult.value,
       to: toResult.value,
       limit: limitResult.value,
       order: orderResult.value ?? "desc",

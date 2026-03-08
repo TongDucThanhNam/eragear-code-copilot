@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDashboardState } from "@/presentation/dashboard/dashboard-view.context";
-import type { LogEntry, LogLevel } from "@/shared/types/log.types";
+import type { LogEntry, LogLevel, LogQuery } from "@/shared/types/log.types";
+import {
+  getLogSearchText,
+  matchesLogQuery,
+} from "@/shared/utils/log-query.util";
 import { LogDetail } from "./log-detail";
-import { formatTimestamp, statusClass } from "./logs-utils";
+import { formatLogText, formatTimestamp, statusClass } from "./logs-utils";
 import { TabPanel } from "./tab-panel";
 
 const LOG_LIMIT = 200;
@@ -16,54 +20,86 @@ const DEFAULT_STATUSES = ["1xx", "2xx", "3xx", "4xx", "5xx", "system"] as const;
 
 type StatusBucket = (typeof DEFAULT_STATUSES)[number];
 
-function rangeToFrom(range: string): number | undefined {
-  const now = Date.now();
+function rangeToWindowMs(range: string): number | undefined {
   switch (range) {
     case "30m":
-      return now - 30 * 60 * 1000;
+      return 30 * 60 * 1000;
     case "2h":
-      return now - 2 * 60 * 60 * 1000;
+      return 2 * 60 * 60 * 1000;
     case "24h":
-      return now - 24 * 60 * 60 * 1000;
+      return 24 * 60 * 60 * 1000;
     case "7d":
-      return now - 7 * 24 * 60 * 60 * 1000;
+      return 7 * 24 * 60 * 60 * 1000;
     default:
       return undefined;
   }
 }
 
-function entrySearchText(entry: LogEntry): string {
-  const metaText = entry.meta
-    ? Object.entries(entry.meta)
-        .map(([key, value]) => `${key} ${String(value ?? "")}`)
-        .join(" ")
-    : "";
-  return [
-    entry.message,
-    entry.userId ?? "",
-    entry.source ?? "",
-    entry.request?.method ?? "",
-    entry.request?.path ?? "",
-    entry.request?.host ?? "",
-    entry.request?.status?.toString() ?? "",
-    entry.error?.message ?? "",
-    entry.requestId ?? "",
-    entry.traceId ?? "",
-    entry.chatId ?? "",
-    entry.id,
-    metaText,
-  ]
-    .join(" ")
-    .toLowerCase();
+function compareEntriesDescending(left: LogEntry, right: LogEntry): number {
+  if (left.timestamp !== right.timestamp) {
+    return right.timestamp - left.timestamp;
+  }
+  return right.id.localeCompare(left.id);
 }
 
-function pruneEntries(entries: LogEntry[], range: string): LogEntry[] {
-  const from = rangeToFrom(range);
-  const filtered =
-    from === undefined
-      ? entries
-      : entries.filter((entry) => entry.timestamp >= from);
-  return filtered.slice(0, LOG_LIMIT);
+function buildScopedQuery(params: {
+  acpOnly: boolean;
+  range: string;
+  nowMs: number;
+}): LogQuery {
+  const windowMs = rangeToWindowMs(params.range);
+  return {
+    acpOnly: params.acpOnly || undefined,
+    from:
+      typeof windowMs === "number"
+        ? Math.max(0, params.nowMs - windowMs)
+        : undefined,
+    order: "desc",
+    limit: LOG_LIMIT,
+  };
+}
+
+function pruneEntries(
+  entries: LogEntry[],
+  params: { acpOnly: boolean; range: string; nowMs: number }
+): LogEntry[] {
+  const query = buildScopedQuery(params);
+  return entries
+    .filter((entry) => matchesLogQuery(entry, query))
+    .sort(compareEntriesDescending)
+    .slice(0, LOG_LIMIT);
+}
+
+function mergeEntries(
+  currentEntries: LogEntry[],
+  incomingEntries: LogEntry[],
+  params: { acpOnly: boolean; range: string; nowMs: number }
+): LogEntry[] {
+  const deduped = new Map<string, LogEntry>();
+  for (const entry of currentEntries) {
+    deduped.set(entry.id, entry);
+  }
+  for (const entry of incomingEntries) {
+    deduped.set(entry.id, entry);
+  }
+  return pruneEntries([...deduped.values()], params);
+}
+
+function resolveServerNow(
+  fallbackNowMs: number,
+  payloadNowMs: unknown,
+  entries: LogEntry[]
+): number {
+  if (typeof payloadNowMs === "number" && Number.isFinite(payloadNowMs)) {
+    return payloadNowMs;
+  }
+  let maxTimestamp = fallbackNowMs;
+  for (const entry of entries) {
+    if (typeof entry.timestamp === "number" && entry.timestamp > maxTimestamp) {
+      maxTimestamp = entry.timestamp;
+    }
+  }
+  return maxTimestamp;
 }
 
 function statusBucket(status?: number): StatusBucket {
@@ -111,51 +147,122 @@ export function LogsTab() {
   const [error, setError] = useState<string | null>(null);
 
   const rangeRef = useRef(range);
+  const acpOnlyRef = useRef(acpOnly);
+  const serverNowRef = useRef(Date.now());
+  const fetchRequestIdRef = useRef(0);
+  const fetchAbortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     rangeRef.current = range;
   }, [range]);
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    const params = new URLSearchParams();
-    params.set("limit", String(LOG_LIMIT));
-    params.set("order", "desc");
-    if (acpOnly) {
-      params.set("acpOnly", "1");
-    }
-    const from = rangeToFrom(range);
-    if (from) {
-      params.set("from", String(from));
-    }
+  useEffect(() => {
+    acpOnlyRef.current = acpOnly;
+  }, [acpOnly]);
 
-    try {
-      const response = await fetch(`${LOGS_ENDPOINT}?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const data = (await response.json()) as { entries?: LogEntry[] };
-      setRawEntries(Array.isArray(data.entries) ? data.entries : []);
-    } catch (fetchError) {
-      setRawEntries([]);
-      setError("Failed to load logs.");
-      if (console?.error) {
-        console.error("Failed to fetch logs:", fetchError);
-      }
-    } finally {
-      setLoading(false);
+  const updateServerNow = useCallback((nextNowMs: number): number => {
+    if (Number.isFinite(nextNowMs) && nextNowMs > serverNowRef.current) {
+      serverNowRef.current = nextNowMs;
     }
-  }, [acpOnly, range]);
+    return serverNowRef.current;
+  }, []);
+
+  const fetchLogs = useCallback(
+    async (paramsInput?: { acpOnly?: boolean; range?: string }) => {
+      const nextAcpOnly = paramsInput?.acpOnly ?? acpOnlyRef.current;
+      const nextRange = paramsInput?.range ?? rangeRef.current;
+      const requestId = fetchRequestIdRef.current + 1;
+      fetchRequestIdRef.current = requestId;
+      fetchAbortRef.current?.abort();
+
+      const abortController = new AbortController();
+      fetchAbortRef.current = abortController;
+
+      setLoading(true);
+      setError(null);
+
+      const params = new URLSearchParams();
+      params.set("limit", String(LOG_LIMIT));
+      params.set("order", "desc");
+      if (nextAcpOnly) {
+        params.set("acpOnly", "1");
+      }
+      if (nextRange !== DEFAULT_RANGE) {
+        params.set("range", nextRange);
+      }
+
+      try {
+        const response = await fetch(`${LOGS_ENDPOINT}?${params.toString()}`, {
+          signal: abortController.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = (await response.json()) as {
+          entries?: LogEntry[];
+          now?: number;
+        };
+        if (
+          abortController.signal.aborted ||
+          requestId !== fetchRequestIdRef.current
+        ) {
+          return;
+        }
+
+        const nextEntries = Array.isArray(data.entries) ? data.entries : [];
+        const nowMs = updateServerNow(
+          resolveServerNow(serverNowRef.current, data.now, nextEntries)
+        );
+        setRawEntries((prev) =>
+          mergeEntries(prev, nextEntries, {
+            acpOnly: nextAcpOnly,
+            range: nextRange,
+            nowMs,
+          })
+        );
+      } catch (fetchError) {
+        if (
+          abortController.signal.aborted ||
+          requestId !== fetchRequestIdRef.current
+        ) {
+          return;
+        }
+
+        setError("Failed to load logs.");
+        if (console?.error) {
+          console.error("Failed to fetch logs:", fetchError);
+        }
+      } finally {
+        if (requestId === fetchRequestIdRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [updateServerNow]
+  );
+
+  useEffect(() => {
+    return () => {
+      fetchAbortRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (activeTab === "logs") {
-      fetchLogs();
+      fetchLogs({ acpOnly, range });
     }
-  }, [activeTab, fetchLogs]);
+  }, [activeTab, acpOnly, range, fetchLogs]);
 
   useEffect(() => {
-    setRawEntries((prev) => pruneEntries(prev, range));
-  }, [range]);
+    setRawEntries((prev) =>
+      pruneEntries(prev, {
+        acpOnly,
+        range,
+        nowMs: serverNowRef.current,
+      })
+    );
+  }, [acpOnly, range]);
 
   useEffect(() => {
     if (activeTab !== "logs" || !live) {
@@ -171,30 +278,48 @@ export function LogsTab() {
         ? `${LOGS_STREAM_ENDPOINT}?${streamParams.toString()}`
         : LOGS_STREAM_ENDPOINT;
     const source = new EventSource(streamUrl);
+
+    const handleConnected = (event: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(event.data as string) as { ts?: number };
+        if (typeof parsed.ts === "number") {
+          updateServerNow(parsed.ts);
+        }
+      } catch (parseError) {
+        if (console?.error) {
+          console.error("Failed to parse log stream metadata:", parseError);
+        }
+      }
+    };
+
+    source.addEventListener("connected", handleConnected);
     source.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data) as LogEntry;
-        setRawEntries((prev) => {
-          const deduped = [
-            parsed,
-            ...prev.filter((entry) => entry.id !== parsed.id),
-          ];
-          return pruneEntries(deduped, rangeRef.current);
-        });
+        const nowMs = updateServerNow(
+          typeof parsed.timestamp === "number"
+            ? parsed.timestamp
+            : serverNowRef.current
+        );
+        setRawEntries((prev) =>
+          mergeEntries(prev, [parsed], {
+            acpOnly: acpOnlyRef.current,
+            range: rangeRef.current,
+            nowMs,
+          })
+        );
       } catch (parseError) {
         if (console?.error) {
           console.error("Failed to parse log entry:", parseError);
         }
       }
     };
-    source.onerror = () => {
-      fetchLogs();
-    };
 
     return () => {
+      source.removeEventListener("connected", handleConnected);
       source.close();
     };
-  }, [acpOnly, activeTab, fetchLogs, live]);
+  }, [acpOnly, activeTab, live, updateServerNow]);
 
   const handleLevelToggle = (level: LogLevel) => {
     setLevels((prev) => {
@@ -227,7 +352,10 @@ export function LogsTab() {
     setLevels(new Set(DEFAULT_LEVELS));
     setStatuses(new Set(DEFAULT_STATUSES));
     if (range === DEFAULT_RANGE) {
-      fetchLogs();
+      fetchLogs({
+        acpOnly: DEFAULT_ACP_ONLY,
+        range: DEFAULT_RANGE,
+      });
     }
   };
 
@@ -235,7 +363,7 @@ export function LogsTab() {
     const nextLive = !live;
     setLive(nextLive);
     if (nextLive) {
-      fetchLogs();
+      fetchLogs({ acpOnly, range });
     }
   };
 
@@ -255,12 +383,12 @@ export function LogsTab() {
       if (!statuses.has(bucket)) {
         return false;
       }
-      if (hasSearch && !entrySearchText(entry).includes(searchText)) {
+      if (hasSearch && !getLogSearchText(entry).includes(searchText)) {
         return false;
       }
       return true;
     });
-  }, [levels, statuses, rawEntries, search]);
+  }, [levels, rawEntries, search, statuses]);
 
   const counts = useMemo(() => {
     const levelCounts: Record<LogLevel, number> = {
@@ -316,7 +444,6 @@ export function LogsTab() {
   return (
     <TabPanel activeTab={activeTab} className="flex-1" tab="logs">
       <section className="border-2 border-ink bg-paper shadow-news">
-        {/* Header Section */}
         <div className="border-ink border-b-4 p-6">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
@@ -351,7 +478,6 @@ export function LogsTab() {
 
         <div className="p-4">
           <div className="log-shell newsprint-texture">
-            {/* Toolbar */}
             <div className="log-toolbar">
               <div className="log-toolbar-group log-toolbar-primary">
                 <div className="log-control log-range">
@@ -415,7 +541,7 @@ export function LogsTab() {
                 <button
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
-                    fetchLogs();
+                    fetchLogs({ acpOnly, range });
                   }}
                   type="button"
                 >
@@ -425,7 +551,6 @@ export function LogsTab() {
             </div>
 
             <div className="log-body">
-              {/* Filters Sidebar */}
               <aside className="log-filters">
                 <div className="log-filter-group">
                   <div className="log-filter-title">Contains level</div>
@@ -462,7 +587,6 @@ export function LogsTab() {
                 </div>
               </aside>
 
-              {/* Log Stream */}
               <div className="log-stream">
                 <div className="log-table">
                   <div className="log-table-head">
@@ -473,9 +597,7 @@ export function LogsTab() {
                     <span>Message</span>
                   </div>
                   <div className="log-list">
-                    {loading && (
-                      <div className="log-empty">Loading logs...</div>
-                    )}
+                    {loading && <div className="log-empty">Loading logs...</div>}
                     {!loading && error && (
                       <div className="log-empty">{error}</div>
                     )}
@@ -520,7 +642,9 @@ export function LogsTab() {
                                 : (entry.source ?? "--")}
                             </div>
                             <div className="log-cell log-message">
-                              {entry.error?.message ?? entry.message}
+                              {formatLogText(
+                                entry.error?.message ?? entry.message
+                              )}
                             </div>
                           </button>
                         );

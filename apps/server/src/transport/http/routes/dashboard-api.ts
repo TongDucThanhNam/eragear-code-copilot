@@ -145,12 +145,14 @@ export function registerDashboardApiRoutes(
     if (!parsed.ok) {
       return c.json({ error: parsed.error }, 400);
     }
-    return c.json(
-      await logStore.query({
-        ...parsed.query,
-        userId,
-      })
-    );
+    const result = await logStore.query({
+      ...parsed.query,
+      userId,
+    });
+    return c.json({
+      ...result,
+      now: Date.now(),
+    });
   });
 
   /**

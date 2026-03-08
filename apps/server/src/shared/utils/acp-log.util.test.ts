@@ -12,6 +12,12 @@ describe("isAcpLogMessage", () => {
     expect(isAcpLogMessage(message)).toBe(true);
   });
 
+  test("matches JSON-formatted ACP payloads", () => {
+    const message =
+      '{"jsonrpc":"2.0","method":"fs/read_text_file","params":{"sessionId":"chat-1"}}';
+    expect(isAcpLogMessage(message)).toBe(true);
+  });
+
   test("does not match unrelated logs", () => {
     expect(isAcpLogMessage("Database queue saturated")).toBe(false);
   });

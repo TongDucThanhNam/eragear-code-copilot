@@ -2,15 +2,18 @@ function normalizeMessage(message: string): string {
   return message.toLowerCase();
 }
 
-function hasAcpJsonRpcSignature(message: string): boolean {
-  const normalized = normalizeMessage(message);
-  if (!normalized.includes("jsonrpc")) {
+const ACP_METHOD_PATTERN = /["']?method["']?\s*:/i;
+
+function hasAcpJsonRpcSignature(normalizedMessage: string): boolean {
+  if (!normalizedMessage.includes("jsonrpc")) {
     return false;
   }
 
-  const hasMethod = normalized.includes("method:");
-  const hasSession = normalized.includes("sessionid");
-  const isErrorHandlingRequest = normalized.includes("error handling request");
+  const hasMethod = ACP_METHOD_PATTERN.test(normalizedMessage);
+  const hasSession = normalizedMessage.includes("sessionid");
+  const isErrorHandlingRequest = normalizedMessage.includes(
+    "error handling request"
+  );
 
   return hasMethod && (hasSession || isErrorHandlingRequest);
 }

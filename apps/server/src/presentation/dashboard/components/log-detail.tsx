@@ -1,5 +1,5 @@
 import type { LogEntry } from "@/shared/types/log.types";
-import { formatTimestamp, statusClass } from "./logs-utils";
+import { formatLogText, formatTimestamp, statusClass } from "./logs-utils";
 
 interface LogDetailProps {
   entry: LogEntry | null;
@@ -18,10 +18,12 @@ export function LogDetail({ entry, onClose }: LogDetailProps) {
         <div className="log-detail-title">
           <span>{entry?.request?.method ?? "--"}</span>
           <span>
-            {entry?.request?.path ??
-              entry?.source ??
-              entry?.message ??
-              "Pick a log entry"}
+            {formatLogText(
+              entry?.request?.path ??
+                entry?.source ??
+                entry?.message ??
+                "Pick a log entry"
+            )}
           </span>
         </div>
         <div className="log-detail-actions">
@@ -80,7 +82,7 @@ export function LogDetail({ entry, onClose }: LogDetailProps) {
         <div className="log-detail-row">
           <span className="log-detail-label">Message</span>
           <span className="log-detail-value">
-            {entry?.error?.message ?? entry?.message ?? "--"}
+            {formatLogText(entry?.error?.message ?? entry?.message ?? "--")}
           </span>
         </div>
         <div className="log-detail-row">

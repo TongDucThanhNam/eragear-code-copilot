@@ -10,6 +10,20 @@ export function formatTimestamp(timestamp: number): string {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${ms}`;
 }
 
+export function formatLogText(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "--";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export function statusClass(status?: number): string {
   if (!status) {
     return "log-status";

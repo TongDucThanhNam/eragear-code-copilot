@@ -183,10 +183,12 @@ describe("registerDashboardApiRoutes auth hardening", () => {
     const payload = (await response.json()) as {
       entries: Array<{ message: string; meta?: { worker?: string } }>;
       stats: { total: number };
+      now?: number;
     };
     expect(payload.stats.total).toBe(1);
     expect(payload.entries[0]?.message).toBe("persisted history");
     expect(payload.entries[0]?.meta?.worker).toBe("sqlite");
+    expect(typeof payload.now).toBe("number");
     expect(receivedQuery?.userId).toBe("user-1");
   });
 
