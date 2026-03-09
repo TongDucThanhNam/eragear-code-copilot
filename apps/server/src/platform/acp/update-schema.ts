@@ -1,15 +1,66 @@
 import { z } from "zod";
+import { safeJsonStringify } from "@/shared/utils/json.util";
 import type { SessionUpdate } from "./update-types";
+import { serializeRawPayloadForLog } from "./raw-payload-log.util";
+
+const SESSION_UPDATE_KIND_MAX_LENGTH = 128;
+const SESSION_UPDATE_TYPE_MAX_LENGTH = 64;
+const SESSION_UPDATE_MODE_ID_MAX_LENGTH = 128;
+const SESSION_UPDATE_REASON_MAX_LENGTH = 512;
+const SESSION_UPDATE_NAME_MAX_LENGTH = 256;
+const SESSION_UPDATE_DESCRIPTION_MAX_LENGTH = 4096;
+const SESSION_UPDATE_TEXT_MAX_LENGTH = 16384;
+const SESSION_UPDATE_VALUE_MAX_LENGTH = 512;
+const SESSION_UPDATE_CATEGORY_MAX_LENGTH = 128;
+const SESSION_UPDATE_TITLE_MAX_LENGTH = 512;
+const SESSION_UPDATE_TIMESTAMP_MAX_LENGTH = 128;
+const PLAN_ENTRY_MAX_COUNT = 256;
+const AVAILABLE_COMMANDS_MAX_COUNT = 256;
+const CONFIG_OPTIONS_MAX_COUNT = 128;
+const CONFIG_OPTION_VALUES_MAX_COUNT = 256;
+
+const SessionUpdateKindSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(SESSION_UPDATE_KIND_MAX_LENGTH);
+
+const SessionUpdateTypeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(SESSION_UPDATE_TYPE_MAX_LENGTH);
+
+const ModeIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(SESSION_UPDATE_MODE_ID_MAX_LENGTH);
+
+const BoundedNameSchema = z
+  .string()
+  .max(SESSION_UPDATE_NAME_MAX_LENGTH);
+
+const BoundedDescriptionSchema = z
+  .string()
+  .trim()
+  .max(SESSION_UPDATE_DESCRIPTION_MAX_LENGTH);
+
+const BoundedTextSchema = z.string().max(SESSION_UPDATE_TEXT_MAX_LENGTH);
+
+const BoundedValueSchema = z
+  .string()
+  .max(SESSION_UPDATE_VALUE_MAX_LENGTH);
 
 const SessionUpdateDiscriminatorSchema = z
   .object({
-    sessionUpdate: z.string(),
+    sessionUpdate: SessionUpdateKindSchema,
   })
   .passthrough();
 
 const ContentSchema = z
   .object({
-    type: z.string(),
+    type: SessionUpdateTypeSchema,
   })
   .passthrough();
 
@@ -38,8 +89,8 @@ const ToolCallSchema = z
   .object({
     sessionUpdate: z.literal("tool_call"),
     toolCallId: ToolCallIdSchema,
-    kind: z.string().optional(),
-    status: z.string().optional(),
+    kind: BoundedNameSchema.optional(),
+    status: BoundedNameSchema.optional(),
   })
   .passthrough();
 
@@ -47,7 +98,7 @@ const ToolCallUpdateSchema = z
   .object({
     sessionUpdate: z.literal("tool_call_update"),
     toolCallId: ToolCallIdSchema,
-    status: z.string().optional(),
+    status: BoundedNameSchema.optional(),
   })
   .passthrough();
 
@@ -57,12 +108,13 @@ const PlanSchema = z
     entries: z.array(
       z
         .object({
-          content: z.string(),
+          content: BoundedTextSchema,
           priority: z.enum(["high", "medium", "low"]),
           status: z.enum(["pending", "in_progress", "completed"]),
         })
         .passthrough()
-    ),
+    )
+      .max(PLAN_ENTRY_MAX_COUNT),
   })
   .passthrough();
 
@@ -72,67 +124,99 @@ const AvailableCommandsUpdateSchema = z
     availableCommands: z.array(
       z
         .object({
-          name: z.string(),
-          description: z.string(),
+          name: BoundedNameSchema,
+          description: BoundedDescriptionSchema,
         })
         .passthrough()
-    ),
+    )
+      .max(AVAILABLE_COMMANDS_MAX_COUNT),
   })
   .passthrough();
 
 const CurrentModeUpdateSchema = z
   .object({
     sessionUpdate: z.literal("current_mode_update"),
-    currentModeId: z.string().optional(),
-    modeId: z.string().optional(),
-    reason: z.string().optional(),
+    currentModeId: ModeIdSchema.optional(),
+    modeId: ModeIdSchema.optional(),
+    reason: z
+      .string()
+      .trim()
+      .max(SESSION_UPDATE_REASON_MAX_LENGTH)
+      .optional(),
     metadata: z.unknown().optional(),
   })
   .passthrough();
 
 const ConfigOptionValueSchema = z
   .object({
-    value: z.string(),
-    name: z.string(),
-    description: z.string().nullable().optional(),
+    value: BoundedValueSchema,
+    name: BoundedNameSchema,
+    description: BoundedDescriptionSchema.nullable().optional(),
   })
   .passthrough();
 
 const ConfigOptionGroupSchema = z
   .object({
-    group: z.string(),
-    name: z.string(),
-    options: z.array(ConfigOptionValueSchema),
+    group: z
+      .string()
+      .trim()
+      .min(1)
+      .max(SESSION_UPDATE_CATEGORY_MAX_LENGTH),
+    name: BoundedNameSchema,
+    options: z
+      .array(ConfigOptionValueSchema)
+      .max(CONFIG_OPTION_VALUES_MAX_COUNT),
   })
   .passthrough();
 
 const SessionConfigOptionSchema = z
   .object({
-    id: z.string(),
-    name: z.string(),
+    id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(SESSION_UPDATE_CATEGORY_MAX_LENGTH),
+    name: BoundedNameSchema,
     type: z.literal("select"),
-    currentValue: z.string(),
+    currentValue: BoundedValueSchema,
     options: z.union([
-      z.array(ConfigOptionValueSchema),
+      z.array(ConfigOptionValueSchema).max(CONFIG_OPTION_VALUES_MAX_COUNT),
       z.array(ConfigOptionGroupSchema),
     ]),
-    category: z.string().nullable().optional(),
-    description: z.string().nullable().optional(),
+    category: z
+      .string()
+      .trim()
+      .max(SESSION_UPDATE_CATEGORY_MAX_LENGTH)
+      .nullable()
+      .optional(),
+    description: BoundedDescriptionSchema.nullable().optional(),
   })
   .passthrough();
 
 const ConfigOptionUpdateSchema = z
   .object({
     sessionUpdate: z.literal("config_option_update"),
-    configOptions: z.array(SessionConfigOptionSchema),
+    configOptions: z
+      .array(SessionConfigOptionSchema)
+      .max(CONFIG_OPTIONS_MAX_COUNT),
   })
   .passthrough();
 
 const SessionInfoUpdateSchema = z
   .object({
     sessionUpdate: z.literal("session_info_update"),
-    title: z.string().nullable().optional(),
-    updatedAt: z.string().nullable().optional(),
+    title: z
+      .string()
+      .trim()
+      .max(SESSION_UPDATE_TITLE_MAX_LENGTH)
+      .nullable()
+      .optional(),
+    updatedAt: z
+      .string()
+      .trim()
+      .max(SESSION_UPDATE_TIMESTAMP_MAX_LENGTH)
+      .nullable()
+      .optional(),
   })
   .passthrough();
 
@@ -200,7 +284,9 @@ function readChunkText(value: Record<string, unknown>): string | null {
   ];
   for (const candidate of candidates) {
     if (typeof candidate === "string") {
-      return candidate;
+      return candidate.length <= SESSION_UPDATE_TEXT_MAX_LENGTH
+        ? candidate
+        : null;
     }
   }
   return null;
@@ -225,7 +311,9 @@ function normalizeChunkContent(content: unknown): Record<string, unknown> | null
       return normalizeChunkContent(nestedContent);
     }
     if (typeof candidate.content === "string") {
-      return { type: "text", text: candidate.content };
+      return candidate.content.length <= SESSION_UPDATE_TEXT_MAX_LENGTH
+        ? { type: "text", text: candidate.content }
+        : null;
     }
     return null;
   }
@@ -246,7 +334,6 @@ function normalizeChunkContent(content: unknown): Record<string, unknown> | null
       return null;
     }
     return {
-      ...candidate,
       type: "text",
       text,
     };
@@ -258,7 +345,6 @@ function normalizeChunkContent(content: unknown): Record<string, unknown> | null
       return null;
     }
     return {
-      ...candidate,
       type: "text",
       text,
     };
@@ -274,7 +360,11 @@ function normalizeChunkContent(content: unknown): Record<string, unknown> | null
 function validateKnownSessionUpdate(
   raw: unknown,
   kind: string
-): SessionUpdate | null {
+): {
+  update: SessionUpdate | null;
+  failureReason?: string;
+  failureIssues?: string[];
+} {
   if (
     kind === "user_message_chunk" ||
     kind === "agent_message_chunk" ||
@@ -282,56 +372,107 @@ function validateKnownSessionUpdate(
   ) {
     const parsed = ChunkUpdateSchema.safeParse(raw);
     if (!parsed.success) {
-      return null;
+      return buildSchemaValidationFailure(parsed.error);
     }
     const normalizedContent = normalizeChunkContent(parsed.data.content);
     if (!normalizedContent) {
-      return null;
+      return {
+        update: null,
+        failureReason:
+          "chunk content normalization failed or exceeded size limits",
+      };
     }
     return {
-      ...parsed.data,
-      content: normalizedContent,
-    } as SessionUpdate;
+      update: {
+        ...parsed.data,
+        content: normalizedContent,
+      } as SessionUpdate,
+    };
   }
   if (kind === "tool_call") {
     const parsed = ToolCallSchema.safeParse(raw);
-    return parsed.success ? (parsed.data as SessionUpdate) : null;
+    return parsed.success
+      ? { update: parsed.data as SessionUpdate }
+      : buildSchemaValidationFailure(parsed.error);
   }
   if (kind === "tool_call_update") {
     const parsed = ToolCallUpdateSchema.safeParse(raw);
-    return parsed.success ? (parsed.data as SessionUpdate) : null;
+    return parsed.success
+      ? { update: parsed.data as SessionUpdate }
+      : buildSchemaValidationFailure(parsed.error);
   }
   if (kind === "plan") {
     const parsed = PlanSchema.safeParse(raw);
-    return parsed.success ? (parsed.data as SessionUpdate) : null;
+    return parsed.success
+      ? { update: parsed.data as SessionUpdate }
+      : buildSchemaValidationFailure(parsed.error);
   }
   if (kind === "available_commands_update") {
     const parsed = AvailableCommandsUpdateSchema.safeParse(raw);
-    return parsed.success ? (parsed.data as SessionUpdate) : null;
+    return parsed.success
+      ? { update: parsed.data as SessionUpdate }
+      : buildSchemaValidationFailure(parsed.error);
   }
   if (kind === "current_mode_update") {
     const parsed = CurrentModeUpdateSchema.safeParse(raw);
     if (!parsed.success) {
-      return null;
+      return buildSchemaValidationFailure(parsed.error);
     }
     const currentModeId = parsed.data.currentModeId ?? parsed.data.modeId;
     if (!currentModeId) {
-      return null;
+      return {
+        update: null,
+        failureReason: "current_mode_update requires currentModeId or modeId",
+      };
     }
     return {
-      ...parsed.data,
-      currentModeId,
-    } as SessionUpdate;
+      update: {
+        ...parsed.data,
+        currentModeId,
+      } as SessionUpdate,
+    };
   }
   if (kind === "config_option_update") {
     const parsed = ConfigOptionUpdateSchema.safeParse(raw);
-    return parsed.success ? (parsed.data as SessionUpdate) : null;
+    return parsed.success
+      ? { update: parsed.data as SessionUpdate }
+      : buildSchemaValidationFailure(parsed.error);
   }
   if (kind === "session_info_update") {
     const parsed = SessionInfoUpdateSchema.safeParse(raw);
-    return parsed.success ? (parsed.data as SessionUpdate) : null;
+    return parsed.success
+      ? { update: parsed.data as SessionUpdate }
+      : buildSchemaValidationFailure(parsed.error);
   }
-  return null;
+  return { update: null };
+}
+
+function buildSchemaValidationFailure(error: z.ZodError<unknown>) {
+  return {
+    update: null,
+    failureReason: "schema validation failed",
+    failureIssues: error.issues.map((issue) => formatZodIssue(issue)),
+  };
+}
+
+function formatZodIssue(issue: z.ZodIssue): string {
+  const path = issue.path.length > 0 ? issue.path.join(".") : "<root>";
+  return `${path}: ${issue.message}`;
+}
+
+function logKnownSessionUpdateValidationFailure(params: {
+  kind: string;
+  raw: unknown;
+  reason?: string;
+  issues?: string[];
+}) {
+  const context = safeJsonStringify({
+    updateKind: params.kind,
+    reason: params.reason ?? "unknown validation failure",
+    issues: params.issues?.slice(0, 8),
+    rawPayload: serializeRawPayloadForLog(params.raw),
+  });
+  console.warn(`ACP known session update validation failed ${context}`);
 }
 
 function isKnownSessionUpdateKind(kind: string): boolean {
@@ -366,10 +507,16 @@ export function parseSessionUpdatePayload(raw: unknown): SessionUpdate | null {
         };
 
   const validatedKnown = validateKnownSessionUpdate(normalizedRaw, normalizedKind);
-  if (validatedKnown) {
-    return validatedKnown;
+  if (validatedKnown.update) {
+    return validatedKnown.update;
   }
   if (isKnownSessionUpdateKind(normalizedKind)) {
+    logKnownSessionUpdateValidationFailure({
+      kind: normalizedKind,
+      raw: normalizedRaw,
+      reason: validatedKnown.failureReason,
+      issues: validatedKnown.failureIssues,
+    });
     return null;
   }
 

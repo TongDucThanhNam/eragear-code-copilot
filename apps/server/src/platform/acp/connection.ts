@@ -15,6 +15,7 @@ import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { toError } from "@/shared/utils/error.util";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
+import { redactSensitiveTextSample } from "@/shared/utils/redaction.util";
 
 const logger = createLogger("Debug");
 
@@ -145,7 +146,9 @@ async function enqueueNdJsonLines(params: {
     } catch (error) {
       const parseError = new AcpProtocolParseError();
       logger.warn("Failed to parse ACP JSON line", {
-        lineSample: truncate(trimmedLine, PARSE_ERROR_SAMPLE_LIMIT),
+        lineSample: redactSensitiveTextSample(
+          truncate(trimmedLine, PARSE_ERROR_SAMPLE_LIMIT)
+        ),
         error: error instanceof Error ? error.message : String(error),
       });
       throw parseError;
@@ -187,7 +190,9 @@ function appendStderrSample(input: {
       break;
     }
 
-    const lineSample = trimmed.slice(0, remainingChars);
+    const lineSample = redactSensitiveTextSample(
+      trimmed.slice(0, remainingChars)
+    );
     input.samples.push(lineSample);
     nextSampleChars += lineSample.length;
 

@@ -1,5 +1,4 @@
 import { createReadStream } from "node:fs";
-import { createInterface } from "node:readline";
 import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import { ENV } from "@/config/environment";
@@ -28,8 +27,7 @@ export function sliceTextByLineWindow(params: {
   if (limit !== undefined && limit <= 0) {
     return "";
   }
-  const normalizedLimit =
-    limit === undefined ? undefined : Math.trunc(limit);
+  const normalizedLimit = limit === undefined ? undefined : Math.trunc(limit);
   const lines = text.split(LINE_SPLITTER_REGEX);
   const endLine =
     normalizedLimit === undefined ? undefined : startLine + normalizedLimit;
@@ -50,42 +48,107 @@ export async function readTextFileLineWindow(params: {
     params.limit === undefined ? undefined : Math.trunc(params.limit);
   const maxBytes = params.maxBytes ?? ENV.messageContentMaxBytes;
 
-  const input = createReadStream(params.filePath, { encoding: "utf8" });
-  const lineReader = createInterface({
-    input,
-    crlfDelay: Infinity,
-  });
+  const input = createReadStream(params.filePath);
+  const decoder = new TextDecoder();
   const lines: string[] = [];
+  const currentLineChunks: string[] = [];
   let currentLine = 0;
+  let currentLineBytes = 0;
   let totalBytes = 0;
+  let pendingCarriageReturn = false;
+  let sawInput = false;
+  let reachedLimit = false;
+
+  const assertWithinBudget = (nextLineBytes: number) => {
+    const separatorBytes = lines.length > 0 ? 1 : 0;
+    if (totalBytes + separatorBytes + nextLineBytes <= maxBytes) {
+      return;
+    }
+    throw RequestError.invalidParams(
+      { filePath: params.filePath, maxBytes },
+      "Requested line window exceeds maximum response size."
+    );
+  };
+
+  const appendToCurrentLine = (segment: string) => {
+    if (segment.length === 0) {
+      return;
+    }
+    if (currentLine < startLine) {
+      return;
+    }
+    const nextLineBytes = currentLineBytes + Buffer.byteLength(segment, "utf8");
+    assertWithinBudget(nextLineBytes);
+    currentLineChunks.push(segment);
+    currentLineBytes = nextLineBytes;
+  };
+
+  const finalizeCurrentLine = () => {
+    if (currentLine >= startLine) {
+      assertWithinBudget(currentLineBytes);
+      lines.push(currentLineChunks.join(""));
+      totalBytes += (lines.length > 1 ? 1 : 0) + currentLineBytes;
+      if (normalizedLimit !== undefined && lines.length >= normalizedLimit) {
+        reachedLimit = true;
+      }
+    }
+    currentLineChunks.length = 0;
+    currentLineBytes = 0;
+    currentLine += 1;
+  };
+
+  const processDecodedText = (text: string) => {
+    for (const char of text) {
+      sawInput = true;
+      if (pendingCarriageReturn) {
+        pendingCarriageReturn = false;
+        if (char === "\n") {
+          finalizeCurrentLine();
+          if (reachedLimit) {
+            return;
+          }
+          continue;
+        }
+        appendToCurrentLine("\r");
+      }
+
+      if (char === "\r") {
+        pendingCarriageReturn = true;
+        continue;
+      }
+      if (char === "\n") {
+        finalizeCurrentLine();
+        if (reachedLimit) {
+          return;
+        }
+        continue;
+      }
+      appendToCurrentLine(char);
+    }
+  };
 
   try {
-    for await (const line of lineReader) {
-      if (currentLine >= startLine) {
-        const lineBytes = Buffer.byteLength(line, "utf8");
-        const separatorBytes = lines.length > 0 ? 1 : 0;
-        const nextBytes = totalBytes + separatorBytes + lineBytes;
-        if (nextBytes > maxBytes) {
-          throw RequestError.invalidParams(
-            { filePath: params.filePath, maxBytes },
-            "Requested line window exceeds maximum response size."
-          );
-        }
-        lines.push(line);
-        totalBytes = nextBytes;
-        if (
-          normalizedLimit !== undefined &&
-          lines.length >= normalizedLimit
-        ) {
-          lineReader.close();
-          input.destroy();
-          break;
-        }
+    for await (const chunk of input) {
+      processDecodedText(decoder.decode(chunk, { stream: true }));
+      if (reachedLimit) {
+        input.destroy();
+        break;
       }
-      currentLine += 1;
+    }
+    if (!reachedLimit) {
+      const trailing = decoder.decode();
+      if (trailing.length > 0) {
+        processDecodedText(trailing);
+      }
+    }
+    if (pendingCarriageReturn) {
+      pendingCarriageReturn = false;
+      sawInput = true;
+      finalizeCurrentLine();
+    } else if (sawInput && !reachedLimit) {
+      finalizeCurrentLine();
     }
   } finally {
-    lineReader.close();
     input.destroy();
   }
 

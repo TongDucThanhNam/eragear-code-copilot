@@ -9,6 +9,7 @@
 
 import { ENV } from "@/config/environment";
 import type { LogLevel as SharedLogLevel } from "@/shared/types/log.types";
+import { safeJsonStringify } from "@/shared/utils/json.util";
 import { shouldEmitRuntimeLog } from "./runtime-log-level";
 
 export type LogLevel = SharedLogLevel;
@@ -44,7 +45,7 @@ function formatTextLogEntry(entry: LogEntry): string {
   const message = entry.message;
   const context =
     entry.context && Object.keys(entry.context).length > 0
-      ? ` ${JSON.stringify(entry.context)}`
+      ? ` ${safeJsonStringify(entry.context)}`
       : "";
   const error = entry.error ? `\n${entry.error.stack}` : "";
 
@@ -52,7 +53,7 @@ function formatTextLogEntry(entry: LogEntry): string {
 }
 
 function formatJsonLogEntry(entry: LogEntry): string {
-  return JSON.stringify({
+  return safeJsonStringify({
     ts: entry.timestamp,
     level: entry.level,
     tag: entry.tag,

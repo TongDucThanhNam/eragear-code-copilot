@@ -9,6 +9,7 @@
  */
 
 import type * as acp from "@agentclientprotocol/sdk";
+import { ENV } from "@/config/environment";
 import type {
   SessionBufferingPort,
   SessionRepositoryPort,
@@ -19,6 +20,7 @@ import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { withObservabilityContext } from "@/shared/utils/observability-context.util";
 import { createPermissionHandler } from "./permission";
+import { serializeRawPayloadForLog } from "./raw-payload-log.util";
 import { createToolCallHandlers } from "./tool-calls";
 import { createSessionUpdateHandler } from "./update";
 import { parseSessionUpdatePayload } from "./update-schema";
@@ -27,18 +29,12 @@ const logger = createLogger("Debug");
 
 /** Maximum characters to sample from raw ACP payloads for debug logging. */
 const RAW_PAYLOAD_LOG_LIMIT = 4000;
-const RAW_PAYLOAD_STRING_LIMIT = 240;
-const RAW_PAYLOAD_MAX_DEPTH = 4;
-const RAW_PAYLOAD_MAX_ARRAY_ITEMS = 20;
-const RAW_REDACTED_KEYS = new Set([
-  "text",
-  "blob",
-  "data",
-  "input",
-  "output",
-  "rawInput",
-  "rawOutput",
-]);
+
+function createCapabilityDisabledError(method: string): never {
+  throw new Error(
+    `${method} is disabled by server ACP capability policy. Enable the corresponding ACP tool setting before advertising this method to agents.`
+  );
+}
 
 /**
  * Creates ACP client handlers for managing a session
@@ -77,7 +73,9 @@ export function createSessionHandlers(params: {
     sessionRepo
   );
   const toolCalls = createToolCallHandlers(sessionRuntime);
-  const withSessionLogContext = async <T>(work: () => Promise<T>): Promise<T> => {
+  const withSessionLogContext = async <T>(
+    work: () => Promise<T>
+  ): Promise<T> => {
     const sessionUserId = sessionRuntime.get(chatId)?.userId;
     return await withObservabilityContext(
       {
@@ -95,10 +93,9 @@ export function createSessionHandlers(params: {
         if (shouldEmitRuntimeLog("debug")) {
           let rawPayload = "";
           try {
-            rawPayload = serializeRawPayloadForLog(params?.update ?? null).slice(
-              0,
-              RAW_PAYLOAD_LOG_LIMIT
-            );
+            rawPayload = serializeRawPayloadForLog(
+              params?.update ?? null
+            ).slice(0, RAW_PAYLOAD_LOG_LIMIT);
           } catch {
             rawPayload = "[unserializable]";
           }
@@ -128,7 +125,7 @@ export function createSessionHandlers(params: {
             buffer,
             isReplayingHistory: getIsReplaying(),
             update: validatedUpdate,
-          })
+          });
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
@@ -189,6 +186,9 @@ export function createSessionHandlers(params: {
     /** Handles file writing requests */
     async writeTextFile(params: acp.WriteTextFileRequest) {
       return await withSessionLogContext(async () => {
+        if (!ENV.acpFsWriteEnabled) {
+          createCapabilityDisabledError("fs/write_text_file");
+        }
         const hasContent = typeof params.content === "string";
         logger.debug("ACP handler writeTextFile", {
           chatId,
@@ -203,6 +203,9 @@ export function createSessionHandlers(params: {
     /** Handles terminal creation */
     async createTerminal(params: acp.CreateTerminalRequest) {
       return await withSessionLogContext(async () => {
+        if (!ENV.acpTerminalEnabled) {
+          createCapabilityDisabledError("terminal/create");
+        }
         logger.debug("ACP handler createTerminal", {
           chatId,
           command: params.command,
@@ -257,77 +260,4 @@ export function createSessionHandlers(params: {
     },
   };
 }
-
-export function serializeRawPayloadForLog(value: unknown): string {
-  return JSON.stringify(normalizeRawPayloadForLog(value));
-}
-
-function normalizeRawPayloadForLog(
-  value: unknown,
-  depth = 0,
-  active = new WeakSet<object>()
-): unknown {
-  if (value === null || value === undefined) {
-    return value;
-  }
-  if (typeof value === "string") {
-    return truncateRawPayloadString(value);
-  }
-  if (typeof value !== "object") {
-    return value;
-  }
-  if (depth >= RAW_PAYLOAD_MAX_DEPTH) {
-    return "[max-depth]";
-  }
-  if (active.has(value)) {
-    return "[circular]";
-  }
-
-  active.add(value);
-  try {
-    if (Array.isArray(value)) {
-      const limited = value.slice(0, RAW_PAYLOAD_MAX_ARRAY_ITEMS);
-      const normalized = limited.map((item) =>
-        normalizeRawPayloadForLog(item, depth + 1, active)
-      );
-      if (value.length > RAW_PAYLOAD_MAX_ARRAY_ITEMS) {
-        normalized.push(
-          `[...${value.length - RAW_PAYLOAD_MAX_ARRAY_ITEMS} more items]`
-        );
-      }
-      return normalized;
-    }
-
-    const normalized: Record<string, unknown> = {};
-    for (const [key, entryValue] of Object.entries(value)) {
-      if (RAW_REDACTED_KEYS.has(key)) {
-        normalized[key] = redactRawPayloadValue(entryValue);
-        continue;
-      }
-      normalized[key] = normalizeRawPayloadForLog(entryValue, depth + 1, active);
-    }
-    return normalized;
-  } finally {
-    active.delete(value);
-  }
-}
-
-function truncateRawPayloadString(value: string): string {
-  if (value.length <= RAW_PAYLOAD_STRING_LIMIT) {
-    return value;
-  }
-  return `${value.slice(0, RAW_PAYLOAD_STRING_LIMIT)}...[${value.length} chars]`;
-}
-
-function redactRawPayloadValue(value: unknown): string | unknown {
-  if (typeof value === "string") {
-    return `[redacted:${value.length} chars]`;
-  }
-  if (Array.isArray(value)) {
-    return `[redacted:array(${value.length})]`;
-  }
-  if (value && typeof value === "object") {
-    return "[redacted:object]";
-  }
-  return value;
-}
+export { serializeRawPayloadForLog } from "./raw-payload-log.util";

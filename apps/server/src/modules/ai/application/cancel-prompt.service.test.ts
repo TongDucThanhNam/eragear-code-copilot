@@ -1,13 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
-import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
-import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { RespondPermissionService } from "@/modules/tooling/application/respond-permission.service";
+import type {
+  BroadcastEvent,
+  ChatSession,
+  TerminalState,
+} from "@/shared/types/session.types";
+import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { CancelPromptService } from "./cancel-prompt.service";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
+
+const PERMISSION_NOT_FOUND_RE = /permission request not found|already handled/i;
 
 function createSession(): ChatSession {
   const uiState = createUiMessageState();
@@ -106,8 +113,9 @@ function createSessionRuntimeStub(params: {
     isLockHeld(chatId: string): boolean {
       return heldLocks.has(chatId);
     },
-    async broadcast(_chatId: string, event: BroadcastEvent): Promise<void> {
+    broadcast(_chatId: string, event: BroadcastEvent): Promise<void> {
       events.push(event);
+      return Promise.resolve();
     },
   };
 }
@@ -129,22 +137,40 @@ function createGatewayStub(params: {
       requireAuthorizedSession: () => session,
       requireAuthorizedRuntime: () => new SessionRuntimeEntity(session),
       assertSessionRunning: () => undefined,
-      prompt: async () => ({ stopReason: "end_turn" }),
-      cancelPrompt: async () => {
+      prompt: () => Promise.resolve({ stopReason: "end_turn" }),
+      cancelPrompt: () => {
         cancelPromptCalls += 1;
+        return Promise.resolve();
       },
-      setSessionMode: async () => undefined,
-      setSessionModel: async () => undefined,
-      setSessionConfigOption: async () => [],
-      stopAndCleanup: async () => undefined,
+      setSessionMode: () => Promise.resolve(undefined),
+      setSessionModel: () => Promise.resolve(undefined),
+      setSessionConfigOption: () => Promise.resolve([]),
+      stopAndCleanup: () => Promise.resolve(undefined),
       clearPendingPermissionsAsCancelled: (targetSession: ChatSession) => {
         clearCalls += 1;
-        new SessionRuntimeEntity(targetSession).cancelPendingPermissionsAsCancelled();
+        new SessionRuntimeEntity(
+          targetSession
+        ).cancelPendingPermissionsAsCancelled();
       },
     },
     getCancelPromptCalls: () => cancelPromptCalls,
     getClearCalls: () => clearCalls,
   };
+}
+
+async function waitForTerminalExit(
+  terminal: TerminalState,
+  timeoutMs = 5000
+): Promise<void> {
+  await Promise.race([
+    terminal.exitPromise.then(() => undefined),
+    new Promise<never>((_resolve, reject) => {
+      setTimeout(
+        () => reject(new Error(`timed out after ${timeoutMs}ms`)),
+        timeoutMs
+      );
+    }),
+  ]);
 }
 
 describe("CancelPromptService", () => {
@@ -212,7 +238,10 @@ describe("CancelPromptService", () => {
     );
     expect(optionsPartEvent).toBeDefined();
     expect(optionsPartEvent?.turnId).toBe("turn-1");
-    if (!optionsPartEvent || optionsPartEvent.part.type !== "data-permission-options") {
+    if (
+      !optionsPartEvent ||
+      optionsPartEvent.part.type !== "data-permission-options"
+    ) {
       throw new Error("Expected permission options part update event");
     }
     expect(optionsPartEvent.part.data).toMatchObject({
@@ -245,17 +274,19 @@ describe("CancelPromptService", () => {
       requireAuthorizedSession: () => session,
       requireAuthorizedRuntime: () => new SessionRuntimeEntity(session),
       assertSessionRunning: () => undefined,
-      prompt: async () => ({ stopReason: "end_turn" }),
+      prompt: () => Promise.resolve({ stopReason: "end_turn" }),
       cancelPrompt: async () => {
         markCancelPromptStarted?.();
         await cancelPromptBlocked;
       },
-      setSessionMode: async () => undefined,
-      setSessionModel: async () => undefined,
-      setSessionConfigOption: async () => [],
-      stopAndCleanup: async () => undefined,
+      setSessionMode: () => Promise.resolve(undefined),
+      setSessionModel: () => Promise.resolve(undefined),
+      setSessionConfigOption: () => Promise.resolve([]),
+      stopAndCleanup: () => Promise.resolve(undefined),
       clearPendingPermissionsAsCancelled: (targetSession: ChatSession) => {
-        new SessionRuntimeEntity(targetSession).cancelPendingPermissionsAsCancelled();
+        new SessionRuntimeEntity(
+          targetSession
+        ).cancelPendingPermissionsAsCancelled();
       },
     });
     const respondService = new RespondPermissionService(runtime);
@@ -270,11 +301,63 @@ describe("CancelPromptService", () => {
         requestId: "req-1",
         decision: "allow",
       })
-    ).rejects.toThrow(/permission request not found|already handled/i);
+    ).rejects.toThrow(PERMISSION_NOT_FOUND_RE);
 
     releaseCancelPrompt?.();
     await expect(cancelPromise).resolves.toEqual({ ok: true });
     expect(session.pendingPermissions.size).toBe(0);
     expect(resolvedOutcomes).toEqual([{ outcome: { outcome: "cancelled" } }]);
+  });
+
+  test("terminates active-turn terminals before marking tool output cancelled", async () => {
+    const session = createSession();
+    const events: BroadcastEvent[] = [];
+    const runtime = createSessionRuntimeStub({ session, events });
+    const child = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000);"],
+      {
+        stdio: "ignore",
+      }
+    );
+    let resolveExit:
+      | ((status: NonNullable<TerminalState["exitStatus"]>) => void)
+      | undefined;
+    const exitPromise = new Promise<NonNullable<TerminalState["exitStatus"]>>(
+      (resolve) => {
+        resolveExit = resolve;
+      }
+    );
+    child.on("exit", (code, signal) => {
+      resolveExit?.({ exitCode: code, signal });
+    });
+
+    const terminal: TerminalState = {
+      id: "term-1",
+      process: child,
+      outputBuffer: "",
+      turnId: "turn-1",
+      lifecycleState: "running",
+      exitPromise,
+      resolveExit,
+    };
+    session.terminals.set(terminal.id, terminal);
+
+    const gatewayState = createGatewayStub({
+      session,
+      cancelPromptCalls: 0,
+      clearCalls: 0,
+    });
+    const service = new CancelPromptService(runtime, gatewayState.gateway);
+
+    try {
+      await expect(service.execute("user-1", "chat-1")).resolves.toEqual({
+        ok: true,
+      });
+      await waitForTerminalExit(terminal);
+      expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+    } finally {
+      child.kill("SIGKILL");
+    }
   });
 });

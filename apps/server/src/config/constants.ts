@@ -106,6 +106,8 @@ export const DEFAULT_STORAGE_MAX_BIND_PARAMS = 900;
 export const DEFAULT_ACP_REQUEST_MAX_ATTEMPTS = 3;
 /** Default base retry delay for ACP request retries */
 export const DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS = 150;
+/** Maximum time an ACP permission request may remain unresolved */
+export const DEFAULT_ACP_PERMISSION_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 /** Maximum NDJSON line size accepted from ACP agent stdout */
 export const DEFAULT_ACP_NDJSON_MAX_LINE_BYTES = 1024 * 1024;
 /** Maximum buffered NDJSON bytes accepted before fail-fast termination */

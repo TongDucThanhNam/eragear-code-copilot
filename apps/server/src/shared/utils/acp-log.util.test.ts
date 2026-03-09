@@ -21,4 +21,9 @@ describe("isAcpLogMessage", () => {
   test("does not match unrelated logs", () => {
     expect(isAcpLogMessage("Database queue saturated")).toBe(false);
   });
+
+  test("returns false for non-string payloads instead of throwing", () => {
+    expect(isAcpLogMessage(null)).toBe(false);
+    expect(isAcpLogMessage({ method: "fs/read_text_file" })).toBe(false);
+  });
 });

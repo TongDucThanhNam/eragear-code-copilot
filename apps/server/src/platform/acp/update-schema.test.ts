@@ -1,7 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { parseSessionUpdatePayload } from "./update-schema";
 
 describe("parseSessionUpdatePayload toolCallId validation", () => {
+  afterEach(() => {
+    (
+      console.warn as typeof console.warn & {
+        mockRestore?: () => void;
+      }
+    ).mockRestore?.();
+  });
+
   test("accepts bounded tool_call ids", () => {
     const parsed = parseSessionUpdatePayload({
       sessionUpdate: "tool_call",
@@ -30,6 +38,63 @@ describe("parseSessionUpdatePayload toolCallId validation", () => {
       sessionUpdate: "tool_call_update",
       toolCallId: "a".repeat(257),
       status: "running",
+    });
+
+    expect(parsed).toBeNull();
+  });
+
+  test("logs validation failures for known update kinds instead of silently dropping them", () => {
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "current_mode_update",
+      modeId: 123,
+    });
+
+    expect(parsed).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const loggedMessage = String(warnSpy.mock.calls[0]?.[0] ?? "");
+    expect(loggedMessage).toContain("ACP known session update validation failed");
+    expect(loggedMessage).toContain("\"updateKind\":\"current_mode_update\"");
+    expect(loggedMessage).toContain("schema validation failed");
+  });
+
+  test("rejects oversized plan entry content", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "plan",
+      entries: [
+        {
+          content: "x".repeat(16385),
+          priority: "high",
+          status: "pending",
+        },
+      ],
+    });
+
+    expect(parsed).toBeNull();
+  });
+
+  test("rejects oversized available command descriptions", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "available_commands_update",
+      availableCommands: [
+        {
+          name: "lint",
+          description: "x".repeat(4097),
+        },
+      ],
+    });
+
+    expect(parsed).toBeNull();
+  });
+
+  test("rejects oversized wrapped chunk content strings", () => {
+    const parsed = parseSessionUpdatePayload({
+      sessionUpdate: "agent_message_chunk",
+      content: {
+        type: "content",
+        content: "x".repeat(16385),
+      },
     });
 
     expect(parsed).toBeNull();

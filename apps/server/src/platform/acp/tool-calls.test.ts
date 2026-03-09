@@ -22,7 +22,11 @@ import { createToolCallHandlers } from "./tool-calls";
 
 const OUTSIDE_PROJECT_ROOT_REGEX = /outside project root/i;
 const FILE_NOT_FOUND_REGEX = /File not found/i;
+const FULL_READ_TOO_LARGE_RE = /too large for full read/i;
+const FS_WRITE_DISABLED_RE = /fs\/write_text_file is disabled/i;
+const MAX_RESPONSE_SIZE_RE = /maximum response size/i;
 const TERMINAL_COMMAND = process.execPath;
+const TERMINAL_CREATE_DISABLED_RE = /terminal\/create is disabled/i;
 const LONG_OUTPUT_SCRIPT_4096 = "process.stdout.write('x'.repeat(4096));";
 const LONG_OUTPUT_SCRIPT_1024 = "process.stdout.write('x'.repeat(1024));";
 const EXIT_WITH_CODE_7_SCRIPT = "process.exit(7);";
@@ -147,6 +151,8 @@ describe("createToolCallHandlers", () => {
   const originalOutputHardCap = ENV.terminalOutputHardCapBytes;
   const originalMessageContentMaxBytes = ENV.messageContentMaxBytes;
   const originalTerminalTimeoutMs = ENV.terminalTimeoutMs;
+  const originalAcpFsWriteEnabled = ENV.acpFsWriteEnabled;
+  const originalAcpTerminalEnabled = ENV.acpTerminalEnabled;
   let tmpDir = "";
 
   beforeEach(async () => {
@@ -159,6 +165,8 @@ describe("createToolCallHandlers", () => {
     ];
     ENV.allowedEnvKeys = [];
     ENV.terminalOutputHardCapBytes = originalOutputHardCap;
+    ENV.acpFsWriteEnabled = true;
+    ENV.acpTerminalEnabled = true;
   });
 
   afterEach(async () => {
@@ -174,9 +182,41 @@ describe("createToolCallHandlers", () => {
     ENV.terminalOutputHardCapBytes = originalOutputHardCap;
     ENV.messageContentMaxBytes = originalMessageContentMaxBytes;
     ENV.terminalTimeoutMs = originalTerminalTimeoutMs;
+    ENV.acpFsWriteEnabled = originalAcpFsWriteEnabled;
+    ENV.acpTerminalEnabled = originalAcpTerminalEnabled;
     if (tmpDir) {
       await rm(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  test("rejects file writes when ACP fs write capability is disabled", async () => {
+    ENV.acpFsWriteEnabled = false;
+    const session = createSession("chat-write-disabled", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+
+    await expect(
+      handlers.writeTextFileForChat(session.id, {
+        sessionId: session.id,
+        path: "blocked.txt",
+        content: "blocked",
+      })
+    ).rejects.toThrow(FS_WRITE_DISABLED_RE);
+  });
+
+  test("rejects terminal creation when ACP terminal capability is disabled", async () => {
+    ENV.acpTerminalEnabled = false;
+    const session = createSession("chat-terminal-disabled", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+
+    await expect(
+      handlers.createTerminal(session.id, {
+        sessionId: session.id,
+        command: TERMINAL_COMMAND,
+        args: nodeEvalArgs("process.stdout.write('blocked');"),
+      })
+    ).rejects.toThrow(TERMINAL_CREATE_DISABLED_RE);
   });
 
   test("applies hard cap when outputByteLimit is omitted", async () => {
@@ -304,7 +344,26 @@ describe("createToolCallHandlers", () => {
     const terminal = session.terminals.get(created.terminalId) as
       | TerminalState
       | undefined;
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        const startedAt = Date.now();
+        const poll = () => {
+          if (terminal?.outputStreamsPaused) {
+            resolve();
+            return;
+          }
+          if (Date.now() - startedAt >= 1000) {
+            reject(
+              new Error("terminal output never paused under backpressure")
+            );
+            return;
+          }
+          setTimeout(poll, 10);
+        };
+        poll();
+      }),
+      1500
+    );
 
     expect(terminal?.outputStreamsPaused).toBe(true);
     expect((terminal?.pendingOutputBytes ?? 0) > 0).toBe(true);
@@ -506,15 +565,17 @@ describe("createToolCallHandlers", () => {
         sessionId: session.id,
         path: "big.txt",
       })
-    ).rejects.toThrow(/too large for full read/i);
+    ).rejects.toThrow(FULL_READ_TOO_LARGE_RE);
   });
 
   test("reads requested line window without full-file split allocations", async () => {
     const session = createSession("chat-line-window", tmpDir);
     const runtime = createRuntime(session);
     const handlers = createToolCallHandlers(runtime);
-    const content = Array.from({ length: 2000 }, (_, index) => `line-${index + 1}`)
-      .join("\r\n");
+    const content = Array.from(
+      { length: 2000 },
+      (_, index) => `line-${index + 1}`
+    ).join("\r\n");
     await writeFile(path.join(tmpDir, "window.txt"), content, "utf8");
 
     const result = await handlers.readTextFileForChat(session.id, {
@@ -541,7 +602,28 @@ describe("createToolCallHandlers", () => {
         line: 1,
         limit: 2,
       })
-    ).rejects.toThrow(/maximum response size/i);
+    ).rejects.toThrow(MAX_RESPONSE_SIZE_RE);
+  });
+
+  test("rejects giant single-line reads before buffering the entire line", async () => {
+    ENV.messageContentMaxBytes = 1024;
+    const session = createSession("chat-giant-line", tmpDir);
+    const runtime = createRuntime(session);
+    const handlers = createToolCallHandlers(runtime);
+    await writeFile(
+      path.join(tmpDir, "giant-line.txt"),
+      "x".repeat(4096),
+      "utf8"
+    );
+
+    await expect(
+      handlers.readTextFileForChat(session.id, {
+        sessionId: session.id,
+        path: "giant-line.txt",
+        line: 1,
+        limit: 1,
+      })
+    ).rejects.toThrow(MAX_RESPONSE_SIZE_RE);
   });
 
   test("prefers dirty editor buffer over disk content for reads", async () => {
@@ -582,7 +664,7 @@ describe("createToolCallHandlers", () => {
         line: 1,
         limit: 2,
       })
-    ).rejects.toThrow(/maximum response size/i);
+    ).rejects.toThrow(MAX_RESPONSE_SIZE_RE);
   });
 
   test("creates missing parent directories and broadcasts file_modified", async () => {
@@ -592,7 +674,10 @@ describe("createToolCallHandlers", () => {
     const handlers = createToolCallHandlers(runtime);
     const nestedFilePath = path.join(tmpDir, "nested", "deeper", "new.txt");
     session.editorTextBuffers = new Map([
-      [nestedFilePath, { content: "dirty-before-write", updatedAt: Date.now() }],
+      [
+        nestedFilePath,
+        { content: "dirty-before-write", updatedAt: Date.now() },
+      ],
     ]);
 
     await handlers.writeTextFileForChat(session.id, {

@@ -17,6 +17,7 @@ import {
 import {
   DEFAULT_ACP_NDJSON_MAX_BUFFERED_BYTES,
   DEFAULT_ACP_NDJSON_MAX_LINE_BYTES,
+  DEFAULT_ACP_PERMISSION_REQUEST_TIMEOUT_MS,
   DEFAULT_ACP_REQUEST_MAX_ATTEMPTS,
   DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS,
   DEFAULT_ACP_STDERR_MAX_TOTAL_BYTES,
@@ -44,10 +45,10 @@ import {
   DEFAULT_SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT,
   DEFAULT_SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS,
   DEFAULT_SESSION_IDLE_TIMEOUT_MS,
-  DEFAULT_SESSION_UI_MESSAGE_LIMIT,
   DEFAULT_SESSION_LIST_PAGE_MAX_LIMIT,
   DEFAULT_SESSION_LOCK_ACQUIRE_TIMEOUT_MS,
   DEFAULT_SESSION_MESSAGES_PAGE_MAX_LIMIT,
+  DEFAULT_SESSION_UI_MESSAGE_LIMIT,
   DEFAULT_SQLITE_WRITE_QUEUE_MAX_PENDING,
   DEFAULT_STORAGE_ALLOW_UNKNOWN_FS,
   DEFAULT_STORAGE_BUSY_MAX_RETRIES,
@@ -164,6 +165,8 @@ const runtimeNodeRoleRaw = toTrimmedString(env.RUNTIME_NODE_ROLE, "writer")
   .trim();
 const runtimeNodeRole: "writer" | "reader" =
   runtimeNodeRoleRaw === "reader" ? "reader" : "writer";
+const acpFsWriteEnabled = toBoolean(env.ACP_ENABLE_FS_WRITE, false);
+const acpTerminalEnabled = toBoolean(env.ACP_ENABLE_TERMINAL, false);
 const runtimeWriterUrl = toTrimmedString(env.RUNTIME_WRITER_URL, "");
 if (runtimeNodeRole === "reader" && runtimeWriterUrl.length === 0) {
   throw new Error(
@@ -377,6 +380,10 @@ export const ENV = {
     env.TERMINAL_OUTPUT_HARD_CAP_BYTES,
     DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES
   ),
+  /** Whether ACP agents may write files through client-exposed fs methods */
+  acpFsWriteEnabled,
+  /** Whether ACP agents may create terminal subprocesses through client-exposed terminal methods */
+  acpTerminalEnabled,
   /** Migration policy controlling whether live ACP turn-scoped ingress must carry a native turnId */
   acpTurnIdPolicy,
   /** Structured policy map for agent command invocations */
@@ -634,6 +641,11 @@ export const ENV = {
   acpRequestRetryBaseDelayMs: toPositiveInt(
     env.ACP_REQUEST_RETRY_BASE_DELAY_MS,
     DEFAULT_ACP_REQUEST_RETRY_BASE_DELAY_MS
+  ),
+  /** Maximum time an ACP permission request may remain unresolved */
+  acpPermissionRequestTimeoutMs: toPositiveInt(
+    env.ACP_PERMISSION_REQUEST_TIMEOUT_MS,
+    DEFAULT_ACP_PERMISSION_REQUEST_TIMEOUT_MS
   ),
   /** Maximum accepted NDJSON line size from ACP stdout */
   acpNdjsonMaxLineBytes: toPositiveInt(

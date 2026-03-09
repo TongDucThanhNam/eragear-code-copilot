@@ -92,9 +92,9 @@ The Agent can also change its own mode and let the Client know by sending the `c
 }
 ```
 
-Trong codebase này, server rebroadcast event mode ra UI theo cùng `modeId` nhưng
-có thể kèm thêm `reason?: string` và `metadata?: unknown` cho diagnostics.
-Client phải bỏ qua an toàn nếu agent không gửi hai field này.
+Implementations MAY include optional diagnostics such as `reason?: string` and
+`metadata?: unknown` alongside `modeId`. Clients SHOULD ignore these fields if
+they are absent and MUST handle them defensively if present.
 
 #### Exiting plan modes
 

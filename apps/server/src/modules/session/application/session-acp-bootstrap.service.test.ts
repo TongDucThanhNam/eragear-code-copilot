@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { AppError } from "@/shared/errors";
+import { ENV } from "@/config/environment";
+import type { AppError } from "@/shared/errors";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
@@ -80,8 +81,9 @@ function createRuntimeStub(session: ChatSession): {
     runExclusive: async <T>(_chatId: string, work: () => Promise<T>) =>
       await work(),
     isLockHeld: () => false,
-    broadcast: async (_chatId: string, event: BroadcastEvent) => {
+    broadcast: (_chatId: string, event: BroadcastEvent) => {
       events.push(event);
+      return Promise.resolve();
     },
   } as unknown as SessionRuntimePort;
   return { runtime, events };
@@ -96,12 +98,72 @@ function createSessionAcpStub(): SessionAcpPort {
 
 function createMcpConfigStub(): SessionMcpConfigService {
   return {
-    resolveServers: async () => [],
+    resolveServers: () => Promise.resolve([]),
     toAcpServers: () => [],
   } as unknown as SessionMcpConfigService;
 }
 
 describe("SessionAcpBootstrapService", () => {
+  test("advertises dangerous ACP capabilities only when explicitly enabled", async () => {
+    const originalFsWriteEnabled = ENV.acpFsWriteEnabled;
+    const originalTerminalEnabled = ENV.acpTerminalEnabled;
+    const chatSession = createChatSession("chat-capability-gating");
+    const { runtime } = createRuntimeStub(chatSession);
+    let initializeParams: Record<string, unknown> | undefined;
+
+    ENV.acpFsWriteEnabled = false;
+    ENV.acpTerminalEnabled = false;
+
+    const connection = {
+      initialize: (params: Record<string, unknown>) => {
+        initializeParams = params;
+        return Promise.resolve({
+          protocolVersion: 1,
+          agentCapabilities: {},
+        });
+      },
+      newSession: () =>
+        Promise.resolve({
+          sessionId: "sess-new",
+          configOptions: [],
+        }),
+    };
+
+    const service = new SessionAcpBootstrapService(
+      runtime,
+      {} as SessionRepositoryPort,
+      createSessionAcpStub(),
+      {
+        createAcpConnection: () => connection as never,
+      } as unknown as AgentRuntimePort,
+      createMcpConfigStub(),
+      {
+        broadcastPromptEnd: () => Promise.resolve(undefined),
+      } as unknown as SessionHistoryReplayService,
+      createLoggerStub(),
+      () => ({ defaultModel: "" })
+    );
+
+    try {
+      await service.bootstrap({
+        chatId: chatSession.id,
+        chatSession,
+        buffer: createBuffer(),
+        projectRoot: "/tmp/project",
+      });
+    } finally {
+      ENV.acpFsWriteEnabled = originalFsWriteEnabled;
+      ENV.acpTerminalEnabled = originalTerminalEnabled;
+    }
+
+    expect(initializeParams).toMatchObject({
+      clientCapabilities: {
+        fs: { readTextFile: true, writeTextFile: false },
+        terminal: false,
+      },
+    });
+  });
+
   test("prefers loadSession when agent exposes both load and resume capabilities", async () => {
     const chatSession = createChatSession("chat-load-primary");
     chatSession.suppressReplayBroadcast = true;
@@ -112,19 +174,20 @@ describe("SessionAcpBootstrapService", () => {
     };
 
     const connection = {
-      initialize: async () => ({
-        protocolVersion: 1,
-        agentCapabilities: {
-          loadSession: true,
-          sessionCapabilities: {
-            resume: true,
-            setModel: true,
+      initialize: () =>
+        Promise.resolve({
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            sessionCapabilities: {
+              resume: true,
+              setModel: true,
+            },
           },
-        },
-      }),
-      loadSession: async () => {
+        }),
+      loadSession: () => {
         calls.load += 1;
-        return {
+        return Promise.resolve({
           sessionId: "sess-load-primary",
           modes: {
             currentModeId: "mode-from-load",
@@ -137,11 +200,11 @@ describe("SessionAcpBootstrapService", () => {
             ],
           },
           configOptions: [],
-        };
+        });
       },
-      unstable_resumeSession: async () => {
+      unstable_resumeSession: () => {
         calls.resume += 1;
-        return {
+        return Promise.resolve({
           sessionId: "sess-resume-should-not-run",
           modes: {
             currentModeId: "mode-from-resume",
@@ -156,7 +219,7 @@ describe("SessionAcpBootstrapService", () => {
             ],
           },
           configOptions: [],
-        };
+        });
       },
     };
 
@@ -169,7 +232,7 @@ describe("SessionAcpBootstrapService", () => {
       } as unknown as AgentRuntimePort,
       createMcpConfigStub(),
       {
-        broadcastPromptEnd: async () => undefined,
+        broadcastPromptEnd: () => Promise.resolve(undefined),
       } as unknown as SessionHistoryReplayService,
       createLoggerStub(),
       () => ({ defaultModel: "" })
@@ -200,19 +263,20 @@ describe("SessionAcpBootstrapService", () => {
     };
 
     const connection = {
-      initialize: async () => ({
-        protocolVersion: 1,
-        agentCapabilities: {
-          loadSession: false,
-          sessionCapabilities: {
-            resume: true,
-            setModel: true,
+      initialize: () =>
+        Promise.resolve({
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: false,
+            sessionCapabilities: {
+              resume: true,
+              setModel: true,
+            },
           },
-        },
-      }),
-      loadSession: async () => {
+        }),
+      loadSession: () => {
         calls.load += 1;
-        return {
+        return Promise.resolve({
           sessionId: "sess-load-should-not-run",
           modes: {
             currentModeId: "mode-from-load",
@@ -225,11 +289,11 @@ describe("SessionAcpBootstrapService", () => {
             ],
           },
           configOptions: [],
-        };
+        });
       },
-      unstable_resumeSession: async () => {
+      unstable_resumeSession: () => {
         calls.resume += 1;
-        return {
+        return Promise.resolve({
           sessionId: "sess-resume-only",
           modes: {
             currentModeId: "mode-from-resume",
@@ -244,7 +308,7 @@ describe("SessionAcpBootstrapService", () => {
             ],
           },
           configOptions: [],
-        };
+        });
       },
     };
 
@@ -257,7 +321,7 @@ describe("SessionAcpBootstrapService", () => {
       } as unknown as AgentRuntimePort,
       createMcpConfigStub(),
       {
-        broadcastPromptEnd: async () => undefined,
+        broadcastPromptEnd: () => Promise.resolve(undefined),
       } as unknown as SessionHistoryReplayService,
       createLoggerStub(),
       () => ({ defaultModel: "" })
@@ -284,45 +348,49 @@ describe("SessionAcpBootstrapService", () => {
     const historyReplayCalls: string[] = [];
 
     const connection = {
-      initialize: async () => ({
-        protocolVersion: 1,
-        agentCapabilities: {
-          loadSession: true,
-          sessionCapabilities: {
-            resume: false,
-            setModel: true,
+      initialize: () =>
+        Promise.resolve({
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            sessionCapabilities: {
+              resume: false,
+              setModel: true,
+            },
           },
-        },
-      }),
-      loadSession: async () => ({
-        sessionId: "sess-resume",
-        modes: {
-          currentModeId: "legacy-mode",
-          availableModes: [{ id: "legacy-mode", name: "Legacy Mode" }],
-        },
-        models: {
-          currentModelId: "legacy-model",
-          availableModels: [{ modelId: "legacy-model", name: "Legacy Model" }],
-        },
-        configOptions: [
-          {
-            id: "mode",
-            name: "Mode",
-            category: "mode",
-            type: "select",
-            currentValue: "config-mode",
-            options: [{ value: "config-mode", name: "Config Mode" }],
+        }),
+      loadSession: () =>
+        Promise.resolve({
+          sessionId: "sess-resume",
+          modes: {
+            currentModeId: "legacy-mode",
+            availableModes: [{ id: "legacy-mode", name: "Legacy Mode" }],
           },
-          {
-            id: "model",
-            name: "Model",
-            category: "model",
-            type: "select",
-            currentValue: "config-model",
-            options: [{ value: "config-model", name: "Config Model" }],
+          models: {
+            currentModelId: "legacy-model",
+            availableModels: [
+              { modelId: "legacy-model", name: "Legacy Model" },
+            ],
           },
-        ],
-      }),
+          configOptions: [
+            {
+              id: "mode",
+              name: "Mode",
+              category: "mode",
+              type: "select",
+              currentValue: "config-mode",
+              options: [{ value: "config-mode", name: "Config Mode" }],
+            },
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              currentValue: "config-model",
+              options: [{ value: "config-model", name: "Config Model" }],
+            },
+          ],
+        }),
     };
 
     const service = new SessionAcpBootstrapService(
@@ -334,8 +402,9 @@ describe("SessionAcpBootstrapService", () => {
       } as unknown as AgentRuntimePort,
       createMcpConfigStub(),
       {
-        broadcastPromptEnd: async (chatId: string) => {
+        broadcastPromptEnd: (chatId: string) => {
           historyReplayCalls.push(chatId);
+          return Promise.resolve(undefined);
         },
       } as unknown as SessionHistoryReplayService,
       createLoggerStub(),
@@ -373,56 +442,59 @@ describe("SessionAcpBootstrapService", () => {
     const setModelCalls: Array<{ sessionId: string; modelId: string }> = [];
 
     const connection = {
-      initialize: async () => ({
-        protocolVersion: 1,
-        agentCapabilities: {
-          loadSession: true,
-          sessionCapabilities: {
-            resume: false,
-            setModel: true,
+      initialize: () =>
+        Promise.resolve({
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            sessionCapabilities: {
+              resume: false,
+              setModel: true,
+            },
           },
-        },
-      }),
-      newSession: async () => ({
-        sessionId: "sess-new",
-        modes: {
-          currentModeId: "ask",
-          availableModes: [{ id: "ask", name: "Ask" }],
-        },
-        models: {
-          currentModelId: "model-old",
-          availableModels: [
-            { modelId: "model-old", name: "Model Old" },
-            { modelId: "model-new", name: "Model New" },
-          ],
-        },
-        configOptions: [
-          {
-            id: "mode",
-            name: "Mode",
-            category: "mode",
-            type: "select",
-            currentValue: "ask",
-            options: [{ value: "ask", name: "Ask" }],
+        }),
+      newSession: () =>
+        Promise.resolve({
+          sessionId: "sess-new",
+          modes: {
+            currentModeId: "ask",
+            availableModes: [{ id: "ask", name: "Ask" }],
           },
-          {
-            id: "model",
-            name: "Model",
-            category: "model",
-            type: "select",
-            currentValue: "model-old",
-            options: [
-              { value: "model-old", name: "Model Old" },
-              { value: "model-new", name: "Model New" },
+          models: {
+            currentModelId: "model-old",
+            availableModels: [
+              { modelId: "model-old", name: "Model Old" },
+              { modelId: "model-new", name: "Model New" },
             ],
           },
-        ],
-      }),
-      unstable_setSessionModel: async (params: {
+          configOptions: [
+            {
+              id: "mode",
+              name: "Mode",
+              category: "mode",
+              type: "select",
+              currentValue: "ask",
+              options: [{ value: "ask", name: "Ask" }],
+            },
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              currentValue: "model-old",
+              options: [
+                { value: "model-old", name: "Model Old" },
+                { value: "model-new", name: "Model New" },
+              ],
+            },
+          ],
+        }),
+      unstable_setSessionModel: (params: {
         sessionId: string;
         modelId: string;
       }) => {
         setModelCalls.push(params);
+        return Promise.resolve(undefined);
       },
     };
 
@@ -435,7 +507,7 @@ describe("SessionAcpBootstrapService", () => {
       } as unknown as AgentRuntimePort,
       createMcpConfigStub(),
       {
-        broadcastPromptEnd: async () => undefined,
+        broadcastPromptEnd: () => Promise.resolve(undefined),
       } as unknown as SessionHistoryReplayService,
       createLoggerStub(),
       () => ({ defaultModel: "model-new" })
@@ -471,16 +543,15 @@ describe("SessionAcpBootstrapService", () => {
     const { runtime } = createRuntimeStub(chatSession);
 
     const connection = {
-      initialize: async () => ({
-        protocolVersion: 1,
-        agentCapabilities: {
-          loadSession: true,
-          sessionCapabilities: { resume: false, setModel: true },
-        },
-      }),
-      loadSession: async () => {
-        throw new Error("Internal error");
-      },
+      initialize: () =>
+        Promise.resolve({
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            sessionCapabilities: { resume: false, setModel: true },
+          },
+        }),
+      loadSession: () => Promise.reject(new Error("Internal error")),
     };
 
     const service = new SessionAcpBootstrapService(
@@ -492,7 +563,7 @@ describe("SessionAcpBootstrapService", () => {
       } as unknown as AgentRuntimePort,
       createMcpConfigStub(),
       {
-        broadcastPromptEnd: async () => undefined,
+        broadcastPromptEnd: () => Promise.resolve(undefined),
       } as unknown as SessionHistoryReplayService,
       createLoggerStub(),
       () => ({ defaultModel: "" })

@@ -14,12 +14,12 @@ import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session";
 import { createLogger } from "@/platform/logging/structured-logger";
-import { pruneEditorTextBuffers } from "@/shared/utils/editor-buffer.util";
 import {
   compileCommandPolicies,
   filterEnvAllowlist,
   isCommandInvocationAllowed,
 } from "@/shared/utils/allowlist.util";
+import { pruneEditorTextBuffers } from "@/shared/utils/editor-buffer.util";
 import { createId } from "@/shared/utils/id.util";
 import { isNodeErrno } from "@/shared/utils/node-error.util";
 import { toPortableRelativePath } from "@/shared/utils/path-within-root.util";
@@ -38,8 +38,8 @@ import {
   resolveOutputLimit,
   resolvePathInSession,
   resolveSessionRootPath,
-  sliceTextByLineWindow,
   shouldSkipTimedTermination,
+  sliceTextByLineWindow,
   terminateTerminalProcess,
 } from "./tool-calls.helpers";
 
@@ -47,6 +47,18 @@ const logger = createLogger("Debug");
 const TERMINAL_OUTPUT_EVENT_MAX_CHARS = 8 * 1024;
 const TERMINAL_OUTPUT_QUEUE_HIGH_WATER_BYTES = 256 * 1024;
 const TERMINAL_OUTPUT_QUEUE_LOW_WATER_BYTES = 64 * 1024;
+
+function assertAcpToolEnabled(params: {
+  enabled: boolean;
+  method: "fs/write_text_file" | "terminal/create";
+}): void {
+  if (params.enabled) {
+    return;
+  }
+  throw new Error(
+    `${params.method} is disabled by server ACP capability policy.`
+  );
+}
 
 function splitTerminalOutputForBroadcast(text: string): string[] {
   if (text.length <= TERMINAL_OUTPUT_EVENT_MAX_CHARS) {
@@ -103,6 +115,22 @@ function maybeResumeTerminalStreams(termState: TerminalState): void {
   }
 }
 
+function scheduleTerminalOutputFlush(params: {
+  flush: () => Promise<void>;
+  logger: typeof logger;
+  chatId: string;
+  terminalId: string;
+  reason: string;
+}): undefined {
+  params.flush().catch((error) => {
+    params.logger.error(params.reason, error as Error, {
+      chatId: params.chatId,
+      terminalId: params.terminalId,
+    });
+  });
+  return undefined;
+}
+
 /**
  * Creates tool call handlers for a session runtime
  *
@@ -131,15 +159,13 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     const limit = params.limit ?? undefined;
     const fullReadLimitBytes = ENV.messageContentMaxBytes;
     try {
-      const dirtyBufferContent = session.editorTextBuffers
-        ?.get(filePath)
-        ?.content;
+      const dirtyBufferContent =
+        session.editorTextBuffers?.get(filePath)?.content;
       if (dirtyBufferContent !== undefined) {
         if (
           line === undefined &&
           limit === undefined &&
-          Buffer.byteLength(dirtyBufferContent, "utf8") >
-            fullReadLimitBytes
+          Buffer.byteLength(dirtyBufferContent, "utf8") > fullReadLimitBytes
         ) {
           throw RequestError.invalidParams(
             {
@@ -210,6 +236,10 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     chatId: string,
     params: acp.WriteTextFileRequest
   ): Promise<acp.WriteTextFileResponse> {
+    assertAcpToolEnabled({
+      enabled: ENV.acpFsWriteEnabled,
+      method: "fs/write_text_file",
+    });
     const session = getSessionOrThrow(sessionRuntime, chatId);
     pruneEditorTextBuffers(session);
     const requestPath = requireString(params.path, "path");
@@ -248,6 +278,10 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     chatId: string,
     params: acp.CreateTerminalRequest
   ): Promise<acp.CreateTerminalResponse> {
+    assertAcpToolEnabled({
+      enabled: ENV.acpTerminalEnabled,
+      method: "terminal/create",
+    });
     const termId = createId("term");
     logger.debug("Creating terminal for ACP tool call", {
       chatId,
@@ -270,11 +304,7 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     const commandArgs = params.args ?? [];
 
     if (
-      !isCommandInvocationAllowed(
-        params.command,
-        commandArgs,
-        commandPolicies
-      )
+      !isCommandInvocationAllowed(params.command, commandArgs, commandPolicies)
     ) {
       throw RequestError.invalidParams(
         { command: params.command, args: commandArgs },
@@ -341,7 +371,8 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
           }
           termState.pendingOutputBytes = Math.max(
             0,
-            (termState.pendingOutputBytes ?? 0) - Buffer.byteLength(data, "utf8")
+            (termState.pendingOutputBytes ?? 0) -
+              Buffer.byteLength(data, "utf8")
           );
           try {
             await sessionRuntime.broadcast(
@@ -374,7 +405,16 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
         termState.outputFlushPromise = undefined;
         maybeResumeTerminalStreams(termState);
         if ((termState.pendingOutputChunks?.length ?? 0) > 0) {
-          void flushPendingTerminalOutput();
+          flushPendingTerminalOutput().catch((error) => {
+            logger.error(
+              "Failed to flush queued terminal output after drain",
+              error as Error,
+              {
+                chatId,
+                terminalId: termId,
+              }
+            );
+          });
         }
       });
       return termState.outputFlushPromise;
@@ -406,7 +446,13 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       termState.outputBufferBytes = next;
       termState.outputBuffer = next.toString("utf8");
       enqueueTerminalOutput(termState, text);
-      void flushPendingTerminalOutput();
+      scheduleTerminalOutputFlush({
+        flush: flushPendingTerminalOutput,
+        logger,
+        chatId,
+        terminalId: termId,
+        reason: "Failed to flush live terminal output",
+      });
     };
 
     termProc.stdout?.on("data", handleOutput);
@@ -414,9 +460,20 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
 
     // Handle process exit
     termProc.on("exit", (code, signal) => {
-      void flushPendingTerminalOutput().finally(() => {
-        finalizeTerminal({ exitCode: code, signal });
-      });
+      flushPendingTerminalOutput()
+        .catch((error) => {
+          logger.error(
+            "Failed to flush terminal output during process exit",
+            error as Error,
+            {
+              chatId,
+              terminalId: termId,
+            }
+          );
+        })
+        .finally(() => {
+          finalizeTerminal({ exitCode: code, signal });
+        });
     });
 
     termProc.on("error", (err) => {
@@ -424,9 +481,20 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
         chatId,
         terminalId: termId,
       });
-      void flushPendingTerminalOutput().finally(() => {
-        finalizeTerminal({ exitCode: null, signal: null });
-      });
+      flushPendingTerminalOutput()
+        .catch((error) => {
+          logger.error(
+            "Failed to flush terminal output after runtime error",
+            error as Error,
+            {
+              chatId,
+              terminalId: termId,
+            }
+          );
+        })
+        .finally(() => {
+          finalizeTerminal({ exitCode: null, signal: null });
+        });
     });
 
     const terminalTimeoutMs = ENV.terminalTimeoutMs;

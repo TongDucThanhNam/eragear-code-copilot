@@ -15,6 +15,8 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { createLogger } from "@/platform/logging/structured-logger";
+import type { PendingPermissionRequest } from "@/shared/types/session.types";
+import { settlePendingPermission } from "@/shared/utils/pending-permission.util";
 import { createId } from "@/shared/utils/id.util";
 import {
   buildToolApprovalPart,
@@ -30,6 +32,9 @@ import { broadcastUiMessagePart } from "./ui-message-part";
 import { resolveToolCallTurnId } from "./update-turn-id";
 
 const logger = createLogger("Debug");
+const CANCELLED_PERMISSION_RESPONSE: acp.RequestPermissionResponse = {
+  outcome: { outcome: "cancelled" },
+};
 
 /**
  * Creates a permission request handler for a session runtime
@@ -67,9 +72,6 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
 
     const requestId = createId("req");
     const turnIdResolution = resolveToolCallTurnId(toolCall);
-    const cancelledResponse: acp.RequestPermissionResponse = {
-      outcome: { outcome: "cancelled" },
-    };
     recordTurnIdResolution("permissionRequest", turnIdResolution.source);
     if (
       ENV.acpTurnIdPolicy === "require-native" &&
@@ -84,7 +86,7 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         }
       );
       recordTurnIdDrop("requireNativePolicy");
-      return Promise.resolve(cancelledResponse);
+      return Promise.resolve(CANCELLED_PERMISSION_RESPONSE);
     }
     logger.debug("ACP permission request received", {
       chatId,
@@ -96,6 +98,7 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
     });
 
     let settled = false;
+    let permissionTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
     let resolveResponse: (value: acp.RequestPermissionResponse) => void = () =>
       undefined;
     const responsePromise = new Promise<acp.RequestPermissionResponse>(
@@ -108,6 +111,10 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         return;
       }
       settled = true;
+      if (permissionTimeoutHandle) {
+        clearTimeout(permissionTimeoutHandle);
+        permissionTimeoutHandle = undefined;
+      }
       resolveResponse(decision);
     };
 
@@ -124,7 +131,7 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
           requestId,
           toolCallId: toolCall.toolCallId,
         });
-        resolveOnce(cancelledResponse);
+        resolveOnce(CANCELLED_PERMISSION_RESPONSE);
         return;
       }
 
@@ -139,13 +146,13 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
           eventTurnId,
           activeTurnId: session.activeTurnId,
           resolveOnce,
-          cancelledResponse,
+          cancelledResponse: CANCELLED_PERMISSION_RESPONSE,
         })
       ) {
         return;
       }
 
-      registerPendingPermission({
+      const pending = registerPendingPermission({
         session,
         requestId,
         resolveOnce,
@@ -155,6 +162,16 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         title,
         turnId: eventTurnId,
       });
+      permissionTimeoutHandle = setTimeout(() => {
+        void expirePendingPermissionRequest({
+          chatId,
+          requestId,
+          toolCallId: toolCall.toolCallId,
+          timeoutMs: ENV.acpPermissionRequestTimeoutMs,
+          sessionRuntime,
+        });
+      }, ENV.acpPermissionRequestTimeoutMs);
+      pending.timeoutHandle = permissionTimeoutHandle;
 
       try {
         await publishPermissionRequestUi({
@@ -169,15 +186,13 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
           turnId: eventTurnId,
         });
       } catch (error) {
-        if (session.pendingPermissions.has(requestId)) {
-          session.pendingPermissions.delete(requestId);
-        }
+        removePendingPermission(session, requestId);
         logger.error("Failed to publish permission request", error as Error, {
           chatId,
           requestId,
           toolCallId: toolCall.toolCallId,
         });
-        resolveOnce(cancelledResponse);
+        resolveOnce(CANCELLED_PERMISSION_RESPONSE);
       }
     });
 
@@ -247,7 +262,7 @@ function registerPendingPermission(params: {
   toolName: string;
   title: string;
   turnId?: string;
-}): void {
+}): PendingPermissionRequest {
   const {
     session,
     requestId,
@@ -258,7 +273,7 @@ function registerPendingPermission(params: {
     title,
     turnId,
   } = params;
-  session.pendingPermissions.set(requestId, {
+  const pending: PendingPermissionRequest = {
     resolve: (decision: unknown) => {
       resolveOnce(decision as acp.RequestPermissionResponse);
     },
@@ -269,6 +284,82 @@ function registerPendingPermission(params: {
     input: toolCall.rawInput,
     meta: toolCall._meta,
     turnId,
+  };
+  session.pendingPermissions.set(requestId, pending);
+  return pending;
+}
+
+function clearPendingPermissionTimer(
+  pending: { timeoutHandle?: ReturnType<typeof setTimeout> } | undefined
+): void {
+  if (!pending?.timeoutHandle) {
+    return;
+  }
+  clearTimeout(pending.timeoutHandle);
+  pending.timeoutHandle = undefined;
+}
+
+function removePendingPermission(
+  session: NonNullable<ReturnType<SessionRuntimePort["get"]>>,
+  requestId: string
+): boolean {
+  const pending = session.pendingPermissions.get(requestId);
+  if (!pending) {
+    return false;
+  }
+  clearPendingPermissionTimer(pending);
+  return session.pendingPermissions.delete(requestId);
+}
+
+async function expirePendingPermissionRequest(params: {
+  chatId: string;
+  requestId: string;
+  toolCallId: string;
+  timeoutMs: number;
+  sessionRuntime: SessionRuntimePort;
+}): Promise<void> {
+  const { chatId, requestId, toolCallId, timeoutMs, sessionRuntime } = params;
+  await sessionRuntime.runExclusive(chatId, async () => {
+    assertSessionMutationLock({
+      sessionRuntime,
+      chatId,
+      op: "acp.request_permission.timeout",
+    });
+    const session = sessionRuntime.get(chatId);
+    if (!session) {
+      return;
+    }
+    const pending = session.pendingPermissions.get(requestId);
+    if (!pending) {
+      return;
+    }
+    clearPendingPermissionTimer(pending);
+    logger.warn("ACP permission request timed out", {
+      chatId,
+      requestId,
+      toolCallId,
+      timeoutMs,
+      turnId: pending.turnId ?? session.activeTurnId,
+    });
+    const runtime = new SessionRuntimeEntity(session);
+    await settlePendingPermission({
+      chatId,
+      requestId,
+      pending,
+      session,
+      response: CANCELLED_PERMISSION_RESPONSE,
+      approved: false,
+      reason: "timeout",
+      broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+      syncStatusAfterPermissionDecision: (turnId) =>
+        runtime.syncStatusAfterPermissionDecision(
+          {
+            chatId,
+            broadcast: sessionRuntime.broadcast.bind(sessionRuntime),
+          },
+          turnId
+        ),
+    });
   });
 }
 

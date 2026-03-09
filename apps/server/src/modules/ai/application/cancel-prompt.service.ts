@@ -16,8 +16,9 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
-import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
+import { terminateSessionTerminalsByTurnId } from "@/shared/utils/session-cleanup.util";
 import { clearPermissionOptionsPart } from "@/shared/utils/ui-message.util";
+import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
 import { AI_OP, HTTP_STATUS } from "./ai.constants";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { AiSessionRuntimeError } from "./ports/ai-session-runtime.port";
@@ -109,7 +110,9 @@ export class CancelPromptService {
       }
       const activeTurnId = currentSession.activeTurnId;
       if (activeTurnId) {
-        for (const [toolCallId, location] of currentSession.uiState.toolPartIndex) {
+        await terminateSessionTerminalsByTurnId(currentSession, activeTurnId);
+        for (const [toolCallId, location] of currentSession.uiState
+          .toolPartIndex) {
           if (location.turnId !== activeTurnId) {
             continue;
           }
@@ -176,7 +179,9 @@ async function cancelToolPartById(params: {
   if (!existingLocation) {
     return false;
   }
-  const existingMessage = session.uiState.messages.get(existingLocation.messageId);
+  const existingMessage = session.uiState.messages.get(
+    existingLocation.messageId
+  );
   if (!existingMessage) {
     session.uiState.toolPartIndex.delete(toolCallId);
     return false;
@@ -191,7 +196,7 @@ async function cancelToolPartById(params: {
     return false;
   }
   const existingPart = existingMessage.parts[resolvedPartIndex];
-  if (!existingPart || !isToolPart(existingPart, toolCallId)) {
+  if (!(existingPart && isToolPart(existingPart, toolCallId))) {
     return false;
   }
   const cancelledPart = finalizeToolPartAsCancelled(existingPart);
@@ -244,8 +249,7 @@ function isToolPart(
   toolCallId: string
 ): part is ToolUIPart {
   return Boolean(
-    part &&
-      part.type.startsWith("tool-") &&
+    part?.type.startsWith("tool-") &&
       "toolCallId" in part &&
       part.toolCallId === toolCallId
   );

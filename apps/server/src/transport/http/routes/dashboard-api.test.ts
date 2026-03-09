@@ -5,6 +5,7 @@ import type { OpsServiceFactory } from "@/modules/service-factories";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LogEntry, LogQuery } from "@/shared/types/log.types";
+import { matchesLogQuery } from "@/shared/utils/log-query.util";
 import { registerDashboardApiRoutes } from "./dashboard-api";
 import type { HttpRouteDependencies } from "./deps";
 
@@ -148,29 +149,29 @@ describe("registerDashboardApiRoutes auth hardening", () => {
     const app = createApp({
       userId: "user-1",
       logStore: createLogStore({
-        onQuery: async (query) => {
+        onQuery: (query) => {
           receivedQuery = query;
-          return {
-          entries: [
-            {
-              id: "log-1",
-              timestamp: 1_700_000_000_000,
-              level: "info",
-              message: "persisted history",
-              userId: "user-1",
-              meta: { worker: "sqlite" },
+          return Promise.resolve({
+            entries: [
+              {
+                id: "log-1",
+                timestamp: 1_700_000_000_000,
+                level: "info",
+                message: "persisted history",
+                userId: "user-1",
+                meta: { worker: "sqlite" },
+              },
+            ],
+            stats: {
+              total: query?.from ? 1 : 0,
+              levels: {
+                debug: 0,
+                info: 1,
+                warn: 0,
+                error: 0,
+              },
             },
-          ],
-          stats: {
-            total: query?.from ? 1 : 0,
-            levels: {
-              debug: 0,
-              info: 1,
-              warn: 0,
-              error: 0,
-            },
-          },
-          };
+          });
         },
       }),
     });
@@ -190,6 +191,52 @@ describe("registerDashboardApiRoutes auth hardening", () => {
     expect(payload.entries[0]?.meta?.worker).toBe("sqlite");
     expect(typeof payload.now).toBe("number");
     expect(receivedQuery?.userId).toBe("user-1");
+  });
+
+  test("excludes unowned system logs from authenticated queries", async () => {
+    const app = createApp({
+      userId: "user-1",
+      logStore: createLogStore({
+        onQuery: (query) => {
+          const entries: LogEntry[] = [
+            {
+              id: "log-system",
+              timestamp: 1_700_000_000_000,
+              level: "info",
+              message: "worker heartbeat",
+            },
+            {
+              id: "log-user",
+              timestamp: 1_700_000_000_001,
+              level: "info",
+              message: "request completed",
+              userId: query?.userId,
+            },
+          ];
+
+          return Promise.resolve({
+            entries: entries.filter((entry) => matchesLogQuery(entry, query)),
+            stats: {
+              total: 2,
+              levels: {
+                debug: 0,
+                info: 2,
+                warn: 0,
+                error: 0,
+              },
+            },
+          });
+        },
+      }),
+    });
+
+    const response = await app.request("http://localhost/api/logs");
+
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {
+      entries?: Array<{ id: string }>;
+    };
+    expect(payload.entries?.map((entry) => entry.id)).toEqual(["log-user"]);
   });
 
   test("passes authenticated userId into observability snapshot", async () => {
@@ -252,6 +299,58 @@ describe("registerDashboardApiRoutes SSE lifecycle", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(unsubscribeCalls).toBe(1);
+  });
+
+  test("tears down log subscribers when the stream backpressures immediately", async () => {
+    let unsubscribeCalls = 0;
+    const app = createApp({
+      userId: "user-1",
+      logStore: createLogStore({
+        onSubscribe: (listener) => {
+          listener({
+            id: "log-1",
+            timestamp: 1_700_000_000_000,
+            level: "info",
+            message: "burst log",
+            userId: "user-1",
+          });
+          return () => {
+            unsubscribeCalls += 1;
+          };
+        },
+      }),
+    });
+
+    const response = await app.request("http://localhost/api/logs/stream");
+    const reader = response.body?.getReader();
+    await reader?.read();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(unsubscribeCalls).toBe(1);
+    await reader?.cancel();
+  });
+
+  test("tears down dashboard subscribers when the stream backpressures immediately", async () => {
+    let unsubscribeCalls = 0;
+    const app = createApp({
+      userId: "user-1",
+      eventBus: createEventBus({
+        onSubscribe: (listener) => {
+          listener({ type: "refresh" });
+          return () => {
+            unsubscribeCalls += 1;
+          };
+        },
+      }),
+    });
+
+    const response = await app.request("http://localhost/api/dashboard/stream");
+    const reader = response.body?.getReader();
+    await reader?.read();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(unsubscribeCalls).toBe(1);
+    await reader?.cancel();
   });
 
   test("returns 503 when dashboard stream initialization fails", async () => {

@@ -12,12 +12,7 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { NotFoundError, ValidationError } from "@/shared/errors";
-import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
-import {
-  buildToolApprovalResponsePart,
-  clearPermissionOptionsPart,
-  upsertToolPart,
-} from "@/shared/utils/ui-message.util";
+import { settlePendingPermission } from "@/shared/utils/pending-permission.util";
 
 const OP = "tooling.permission.respond";
 const ALLOW_KEYWORDS = [
@@ -285,80 +280,26 @@ export class RespondPermissionService {
       const response: acp.RequestPermissionResponse = {
         outcome: { outcome: "selected", optionId },
       };
-      pending.resolve(response);
-      session.pendingPermissions.delete(input.requestId);
-      resolvedResponse = response;
-
       const runtime = new SessionRuntimeEntity(session);
-      await runtime.syncStatusAfterPermissionDecision({
+      await settlePendingPermission({
         chatId: input.chatId,
+        requestId: input.requestId,
+        pending,
+        session,
+        response,
+        approved: selection.approved,
+        reason: optionId,
         broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+        syncStatusAfterPermissionDecision: (turnId) =>
+          runtime.syncStatusAfterPermissionDecision(
+            {
+              chatId: input.chatId,
+              broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+            },
+            turnId
+          ),
       });
-      if (pending.toolCallId) {
-        const previousToolIndex = session.uiState.toolPartIndex.get(
-          pending.toolCallId
-        );
-        const toolPart = buildToolApprovalResponsePart({
-          toolCallId: pending.toolCallId,
-          toolName: pending.toolName ?? "tool",
-          title: pending.title,
-          input: pending.input,
-          approvalId: input.requestId,
-          approved: selection.approved,
-          reason: optionId,
-          meta: pending.meta,
-        });
-        const { message } = upsertToolPart({
-          state: session.uiState,
-          part: toolPart,
-          turnId: pending.turnId ?? session.activeTurnId,
-        });
-        const nextToolIndex = session.uiState.toolPartIndex.get(
-          pending.toolCallId
-        );
-        const updatedPermissionOptions = clearPermissionOptionsPart({
-          state: session.uiState,
-          requestId: input.requestId,
-        });
-        const messageWithUpdates = updatedPermissionOptions?.message ?? message;
-        if (nextToolIndex && nextToolIndex.messageId === messageWithUpdates.id) {
-          const previousToolLocation = previousToolIndex?.messageId
-            ? previousToolIndex
-            : undefined;
-          const nextToolPart = messageWithUpdates.parts[nextToolIndex.partIndex];
-          if (nextToolPart) {
-            const partEvent = buildUiMessagePartEvent({
-              state: session.uiState,
-              message: messageWithUpdates,
-              partIndex: nextToolIndex.partIndex,
-              isNew:
-                !previousToolLocation ||
-                previousToolLocation.messageId !== nextToolIndex.messageId ||
-                previousToolLocation.partIndex !== nextToolIndex.partIndex,
-              turnId: pending.turnId ?? session.activeTurnId,
-            });
-            if (partEvent) {
-              await this.sessionRuntime.broadcast(input.chatId, partEvent);
-            }
-          }
-        }
-        if (updatedPermissionOptions && updatedPermissionOptions.partIndex >= 0) {
-          const updatedOptionsPart =
-            messageWithUpdates.parts[updatedPermissionOptions.partIndex];
-          if (updatedOptionsPart) {
-            const partEvent = buildUiMessagePartEvent({
-              state: session.uiState,
-              message: messageWithUpdates,
-              partIndex: updatedPermissionOptions.partIndex,
-              isNew: false,
-              turnId: pending.turnId ?? session.activeTurnId,
-            });
-            if (partEvent) {
-              await this.sessionRuntime.broadcast(input.chatId, partEvent);
-            }
-          }
-        }
-      }
+      resolvedResponse = response;
     });
 
     if (!resolvedResponse) {

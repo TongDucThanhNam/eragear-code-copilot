@@ -25,8 +25,18 @@ function enqueueSseChunk(params: {
   payload: string;
   closed: boolean;
   close: () => void;
+  closeOnBackpressure?: boolean;
 }): boolean {
   if (params.closed) {
+    return false;
+  }
+  if (
+    params.closeOnBackpressure &&
+    params.controller.desiredSize !== null &&
+    params.controller.desiredSize <= 0
+  ) {
+    // Fail fast on slow consumers so SSE buffers cannot grow without bound.
+    params.close();
     return false;
   }
   try {
@@ -220,6 +230,7 @@ export function registerDashboardApiRoutes(
               payload,
               closed,
               close,
+              closeOnBackpressure: !payload.startsWith("event: connected"),
             });
           };
 
@@ -243,6 +254,11 @@ export function registerDashboardApiRoutes(
             }
             send(`data: ${JSON.stringify(entry)}\n\n`);
           });
+          if (closed && unsubscribe) {
+            unsubscribe();
+            unsubscribe = null;
+            return;
+          }
 
           heartbeat = setInterval(() => {
             send(`: ping ${Date.now()}\n\n`);
@@ -333,6 +349,7 @@ export function registerDashboardApiRoutes(
               payload: `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
               closed,
               close,
+              closeOnBackpressure: event !== "connected",
             });
           };
 
@@ -354,6 +371,11 @@ export function registerDashboardApiRoutes(
             },
             { signal: c.req.raw.signal }
           );
+          if (closed && unsubscribe) {
+            unsubscribe();
+            unsubscribe = null;
+            return;
+          }
 
           heartbeat = setInterval(() => {
             send("ping", { ts: Date.now() });

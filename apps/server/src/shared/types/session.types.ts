@@ -272,6 +272,18 @@ export interface PendingReconnectChatFinish {
   event: Extract<BroadcastEvent, { type: "chat_finish" }>;
 }
 
+export interface PendingPermissionRequest {
+  resolve: (decision: unknown) => void;
+  options: unknown[];
+  toolCallId?: string;
+  toolName?: string;
+  title?: string;
+  input?: unknown;
+  meta?: unknown;
+  turnId?: string;
+  timeoutHandle?: ReturnType<typeof setTimeout>;
+}
+
 export interface ActivePromptTask {
   turnId: string;
   promise: Promise<void>;
@@ -467,19 +479,7 @@ export interface ChatSession {
   /** Buffer for broadcast events */
   messageBuffer: BroadcastEvent[];
   /** Pending permission requests */
-  pendingPermissions: Map<
-    string,
-    {
-      resolve: (decision: unknown) => void;
-      options: unknown[];
-      toolCallId?: string;
-      toolName?: string;
-      title?: string;
-      input?: unknown;
-      meta?: unknown;
-      turnId?: string;
-    }
-  >;
+  pendingPermissions: Map<string, PendingPermissionRequest>;
   /** Active tool calls */
   toolCalls: Map<string, ToolCall>;
   /** Active terminals */

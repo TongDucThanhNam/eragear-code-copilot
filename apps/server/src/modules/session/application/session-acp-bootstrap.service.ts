@@ -1,5 +1,6 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import { CLIENT_INFO } from "@/config/constants";
+import { ENV } from "@/config/environment";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
@@ -8,11 +9,11 @@ import type {
   SessionModelState,
   SessionModeState,
 } from "@/shared/types/session.types";
+import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import {
   syncSessionSelectionFromConfigOptions,
   updateSessionConfigOptionCurrentValue,
 } from "@/shared/utils/session-config-options.util";
-import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import type { AgentRuntimePort } from "./ports/agent-runtime.port";
 import type {
   SessionAcpPort,
@@ -212,8 +213,11 @@ export class SessionAcpBootstrapService {
       protocolVersion: 1,
       clientInfo: CLIENT_INFO,
       clientCapabilities: {
-        fs: { readTextFile: true, writeTextFile: true },
-        terminal: true,
+        fs: {
+          readTextFile: true,
+          writeTextFile: ENV.acpFsWriteEnabled,
+        },
+        terminal: ENV.acpTerminalEnabled,
       },
     });
 

@@ -10,26 +10,9 @@ import {
   terminateProcessGracefully,
 } from "./process-termination.util";
 
-/**
- * Terminates all terminal processes for a session.
- * Clears any active terminal timeout timers.
- */
-export async function terminateSessionTerminals(
-  session: ChatSession
+async function terminateTerminalStates(
+  terminalStates: TerminalState[]
 ): Promise<void> {
-  for (const [, pending] of session.pendingPermissions) {
-    try {
-      pending.resolve({ outcome: { outcome: "cancelled" } });
-    } catch {
-      // Ignore permission resolution failures during teardown.
-    }
-  }
-  session.pendingPermissions.clear();
-
-  const terminalStates = Array.from(
-    session.terminals.values()
-  ) as TerminalState[];
-
   await Promise.allSettled(
     terminalStates.map(async (termState) => {
       if (termState.killTimer) {
@@ -49,6 +32,47 @@ export async function terminateSessionTerminals(
       });
     })
   );
+}
+
+/**
+ * Terminates all terminal processes for a session.
+ * Clears any active terminal timeout timers.
+ */
+export async function terminateSessionTerminals(
+  session: ChatSession
+): Promise<void> {
+  for (const [, pending] of session.pendingPermissions) {
+    try {
+      pending.resolve({ outcome: { outcome: "cancelled" } });
+    } catch {
+      // Ignore permission resolution failures during teardown.
+    }
+  }
+  session.pendingPermissions.clear();
+
+  const terminalStates = Array.from(
+    session.terminals.values()
+  ) as TerminalState[];
+  await terminateTerminalStates(terminalStates);
 
   session.terminals.clear();
+}
+
+export async function terminateSessionTerminalsByTurnId(
+  session: ChatSession,
+  turnId: string
+): Promise<void> {
+  const terminalEntries = (
+    Array.from(session.terminals.entries()) as [string, TerminalState][]
+  ).filter((entry): entry is [string, TerminalState] => {
+    const [, termState] = entry;
+    return termState.turnId === turnId;
+  });
+  if (terminalEntries.length === 0) {
+    return;
+  }
+
+  await terminateTerminalStates(
+    terminalEntries.map(([, terminalState]) => terminalState)
+  );
 }

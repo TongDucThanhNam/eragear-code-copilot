@@ -51,4 +51,26 @@ describe("isAcpRelatedLogEntry", () => {
 
     expect(matchesLogQuery(entry, { search: "sqlite-writes" })).toBe(true);
   });
+
+  test("hides unowned system logs when filtering by authenticated user", () => {
+    const entry: LogEntry = {
+      ...baseEntry,
+      source: "system",
+      message: "Worker heartbeat",
+      userId: undefined,
+    };
+
+    expect(matchesLogQuery(entry, { userId: "user-1" })).toBe(false);
+  });
+
+  test("still hides logs that belong to a different user", () => {
+    const entry: LogEntry = {
+      ...baseEntry,
+      source: "http",
+      message: "Request completed",
+      userId: "user-2",
+    };
+
+    expect(matchesLogQuery(entry, { userId: "user-1" })).toBe(false);
+  });
 });

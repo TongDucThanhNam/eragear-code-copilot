@@ -142,6 +142,9 @@ export function LogsTab() {
     () => new Set(DEFAULT_STATUSES)
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<LogEntry | null>(
+    null
+  );
   const [live, setLive] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +164,7 @@ export function LogsTab() {
   }, [acpOnly]);
 
   const updateServerNow = useCallback((nextNowMs: number): number => {
-    if (Number.isFinite(nextNowMs) && nextNowMs > serverNowRef.current) {
+    if (Number.isFinite(nextNowMs)) {
       serverNowRef.current = nextNowMs;
     }
     return serverNowRef.current;
@@ -421,25 +424,29 @@ export function LogsTab() {
     return (
       filteredEntries.find((entry) => entry.id === selectedId) ??
       rawEntries.find((entry) => entry.id === selectedId) ??
+      (selectedSnapshot?.id === selectedId ? selectedSnapshot : null) ??
       null
     );
-  }, [filteredEntries, rawEntries, selectedId]);
+  }, [filteredEntries, rawEntries, selectedId, selectedSnapshot]);
 
-  const handleRowSelect = (entryId: string) => {
-    setSelectedId(entryId);
+  const handleRowSelect = (entry: LogEntry) => {
+    setSelectedId(entry.id);
+    setSelectedSnapshot(entry);
   };
 
   useEffect(() => {
     if (!selectedId) {
+      setSelectedSnapshot(null);
       return;
     }
-    const stillVisible = filteredEntries.some(
-      (entry) => entry.id === selectedId
-    );
-    if (!stillVisible) {
-      setSelectedId(null);
+    const currentEntry =
+      filteredEntries.find((entry) => entry.id === selectedId) ??
+      rawEntries.find((entry) => entry.id === selectedId) ??
+      null;
+    if (currentEntry) {
+      setSelectedSnapshot(currentEntry);
     }
-  }, [filteredEntries, selectedId]);
+  }, [filteredEntries, rawEntries, selectedId]);
 
   return (
     <TabPanel activeTab={activeTab} className="flex-1" tab="logs">
@@ -597,7 +604,9 @@ export function LogsTab() {
                     <span>Message</span>
                   </div>
                   <div className="log-list">
-                    {loading && <div className="log-empty">Loading logs...</div>}
+                    {loading && (
+                      <div className="log-empty">Loading logs...</div>
+                    )}
                     {!loading && error && (
                       <div className="log-empty">{error}</div>
                     )}
@@ -616,7 +625,7 @@ export function LogsTab() {
                               isSelected ? "is-selected" : ""
                             }`}
                             key={entry.id}
-                            onClick={() => handleRowSelect(entry.id)}
+                            onClick={() => handleRowSelect(entry)}
                             type="button"
                           >
                             <div className="log-cell">
@@ -653,7 +662,10 @@ export function LogsTab() {
                 </div>
                 <LogDetail
                   entry={selectedEntry}
-                  onClose={() => setSelectedId(null)}
+                  onClose={() => {
+                    setSelectedId(null);
+                    setSelectedSnapshot(null);
+                  }}
                 />
               </div>
             </div>

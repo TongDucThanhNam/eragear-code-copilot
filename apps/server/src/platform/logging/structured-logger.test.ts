@@ -40,4 +40,28 @@ describe("structured-logger", () => {
     expect(output).toContain("[Storage]");
     expect(output).toContain("SQLite write rejected");
   });
+
+  test("safely serializes circular context and bigint values", () => {
+    ENV.logOutputFormat = "json";
+    setRuntimeLogLevel("debug");
+    const infoSpy = spyOn(console, "log").mockImplementation(() => undefined);
+    const cyclic: Record<string, unknown> = { id: "root", count: 42n };
+    cyclic.self = cyclic;
+
+    expect(() => {
+      createLogger("Debug").info("Cycle safe", { cyclic });
+    }).not.toThrow();
+
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    const output = String(infoSpy.mock.calls[0]?.[0] ?? "");
+    const parsed = JSON.parse(output) as Record<string, unknown>;
+    expect(parsed.message).toBe("Cycle safe");
+    expect(parsed.context).toEqual({
+      cyclic: {
+        id: "root",
+        count: 42,
+        self: "[Circular]",
+      },
+    });
+  });
 });

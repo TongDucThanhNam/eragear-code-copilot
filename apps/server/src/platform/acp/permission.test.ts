@@ -64,8 +64,11 @@ function createRuntime(
 }
 
 describe("createPermissionHandler", () => {
+  const originalPermissionTimeoutMs = ENV.acpPermissionRequestTimeoutMs;
+
   afterEach(() => {
     ENV.acpTurnIdPolicy = "compat";
+    ENV.acpPermissionRequestTimeoutMs = originalPermissionTimeoutMs;
     resetTurnIdMigrationSnapshotForTests();
   });
 
@@ -307,5 +310,61 @@ describe("createPermissionHandler", () => {
     expect(snapshot.drops.requireNativePolicy).toBe(1);
     expect(session.pendingPermissions.size).toBe(0);
     expect(events).toHaveLength(0);
+  });
+
+  test("times out unresolved permission requests and clears pending state", async () => {
+    ENV.acpPermissionRequestTimeoutMs = 10;
+    const session = createSession("chat-timeout-permission");
+    session.activeTurnId = "turn-live";
+    const events: BroadcastEvent[] = [];
+    const runtime = createRuntime(session, events);
+    const handler = createPermissionHandler(runtime);
+
+    await expect(
+      handler({
+        chatId: "chat-timeout-permission",
+        isReplayingHistory: false,
+        request: {
+          sessionId: "session-timeout",
+          toolCall: {
+            toolCallId: "tool-timeout",
+            kind: "execute",
+            title: "Run command",
+            rawInput: { command: "env" },
+            _meta: { turnId: "turn-live" },
+          },
+          options: [
+            { optionId: "allow_once", kind: "allow_once", name: "Allow once" },
+            { optionId: "reject_once", kind: "reject_once", name: "Reject" },
+          ],
+        },
+      })
+    ).resolves.toEqual({
+      outcome: { outcome: "cancelled" },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(session.chatStatus).toBe("streaming");
+    const assistantMessage = session.uiState.currentAssistantId
+      ? session.uiState.messages.get(session.uiState.currentAssistantId)
+      : undefined;
+    const permissionOptionsPart = assistantMessage?.parts.find(
+      (part) => part.type === "data-permission-options"
+    );
+    expect(permissionOptionsPart).toBeDefined();
+    expect(permissionOptionsPart).toMatchObject({
+      type: "data-permission-options",
+      data: {
+        requestId: expect.any(String),
+        options: [],
+      },
+    });
+    expect(
+      events.filter(
+        (event) => event.type === "chat_status" && event.status === "streaming"
+      )
+    ).toHaveLength(1);
   });
 });

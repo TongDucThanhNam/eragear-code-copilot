@@ -93,8 +93,15 @@ function parseStructuredConsolePayload(message: string): {
   chatId?: string;
   userId?: string;
 } | null {
+  const normalizedMessage = message.trimStart();
+  if (
+    normalizedMessage.length === 0 ||
+    !(normalizedMessage.startsWith("{") || normalizedMessage.startsWith("["))
+  ) {
+    return null;
+  }
   try {
-    const parsed = JSON.parse(message) as Record<string, unknown>;
+    const parsed = JSON.parse(normalizedMessage) as Record<string, unknown>;
     const payloadMessage =
       typeof parsed.message === "string" ? parsed.message : null;
     if (!payloadMessage) {

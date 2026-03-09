@@ -1,4 +1,7 @@
-function normalizeMessage(message: string): string {
+function normalizeMessage(message: unknown): string {
+  if (typeof message !== "string") {
+    return "";
+  }
   return message.toLowerCase();
 }
 
@@ -18,7 +21,7 @@ function hasAcpJsonRpcSignature(normalizedMessage: string): boolean {
   return hasMethod && (hasSession || isErrorHandlingRequest);
 }
 
-export function isAcpLogMessage(message: string): boolean {
+export function isAcpLogMessage(message: unknown): boolean {
   const normalized = normalizeMessage(message);
   if (normalized.includes("acp")) {
     return true;
