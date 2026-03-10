@@ -1,0 +1,616 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://code.eragear.app/schemas/settings.json",
+  "title": "Eragear Code Copilot Settings",
+  "description": "Configuration file for Eragear Code Copilot server (compiled executable mode)",
+  "type": "object",
+  "properties": {
+    "boot": {
+      "type": "object",
+      "description": "Boot-time configuration. In compiled mode, these values are used directly. In standard mode, environment variables take precedence.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["standard", "compiled"],
+          "default": "standard",
+          "description": "Runtime mode. 'compiled' uses settings.json only, ignoring env vars. 'standard' allows env var overrides."
+        },
+
+        "PORT": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 3000,
+          "description": "Server port (alias for WS_PORT)"
+        },
+        "WS_PORT": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 3000,
+          "description": "WebSocket server port"
+        },
+        "HOST": {
+          "type": "string",
+          "default": "0.0.0.0",
+          "description": "Server host address (alias for WS_HOST)"
+        },
+        "WS_HOST": {
+          "type": "string",
+          "default": "0.0.0.0",
+          "description": "WebSocket server host address"
+        },
+        "WS_HEARTBEAT_INTERVAL_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 30000,
+          "description": "WebSocket heartbeat interval in milliseconds"
+        },
+        "WS_MAX_PAYLOAD_BYTES": {
+          "type": "integer",
+          "minimum": 1024,
+          "default": 16777216,
+          "description": "Maximum WebSocket message payload size in bytes (default: 16MB)"
+        },
+        "WS_AUTH_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 30000,
+          "description": "Timeout for unauthenticated WebSocket connections in milliseconds"
+        },
+        "WS_SESSION_REVALIDATE_INTERVAL_MS": {
+          "type": "integer",
+          "minimum": 5000,
+          "default": 60000,
+          "description": "Interval for periodic WebSocket session re-validation in milliseconds"
+        },
+        "HTTP_MAX_BODY_BYTES": {
+          "type": "integer",
+          "minimum": 1024,
+          "default": 10485760,
+          "description": "Maximum HTTP request body size in bytes (default: 10MB)"
+        },
+        "NODE_ENV": {
+          "type": "string",
+          "enum": ["development", "production", "test"],
+          "default": "production",
+          "description": "Node environment"
+        },
+
+        "AUTH_SECRET": {
+          "type": "string",
+          "minLength": 32,
+          "description": "Secret key for signing auth tokens. Must be at least 32 characters. REQUIRED in compiled mode. Generate with: openssl rand -base64 32"
+        },
+        "AUTH_BASE_URL": {
+          "type": "string",
+          "format": "uri",
+          "description": "Base URL for auth callbacks (e.g., https://your-domain.com)"
+        },
+        "AUTH_DB_PATH": {
+          "type": "string",
+          "default": ".eragear/auth.db",
+          "description": "Path to the authentication SQLite database file"
+        },
+        "AUTH_TRUSTED_ORIGINS": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["http://localhost:3000", "http://localhost:5173"],
+          "description": "List of trusted origins for CORS and Auth"
+        },
+        "AUTH_TRUSTED_PROXY_IPS": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["127.0.0.1", "::1"],
+          "description": "List of trusted reverse proxy IP addresses for X-Forwarded-For header trust"
+        },
+        "CORS_STRICT_ORIGIN": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enforce strict origin checking for CORS (must be true in production)"
+        },
+        "AUTH_ADMIN_USERNAME": {
+          "type": "string",
+          "default": "admin",
+          "description": "Username for the bootstrap admin user"
+        },
+        "AUTH_ADMIN_EMAIL": {
+          "type": "string",
+          "format": "email",
+          "description": "Email for the bootstrap admin user"
+        },
+        "AUTH_ADMIN_PASSWORD": {
+          "type": "string",
+          "minLength": 8,
+          "description": "Password for the bootstrap admin user. If not set, a random password is generated and stored in admin.credentials.json"
+        },
+        "AUTH_ALLOW_SIGNUP": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow new user sign-ups after the first admin user is created"
+        },
+        "AUTH_BOOTSTRAP_API_KEY": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically create a bootstrap API key for the admin user"
+        },
+        "AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 1800000,
+          "description": "TTL for bootstrap defaults cache in milliseconds (default: 30 minutes)"
+        },
+        "AUTH_BOOTSTRAP_CACHE_MAX_USERS": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 10000,
+          "description": "Maximum cached users in bootstrap auth cache"
+        },
+        "AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS": {
+          "type": "integer",
+          "minimum": 10,
+          "default": 2000,
+          "description": "Maximum in-flight user auth requests"
+        },
+        "AUTH_API_KEY_PREFIX": {
+          "type": "string",
+          "default": "sk_",
+          "description": "Prefix for generated API keys"
+        },
+        "AUTH_API_KEY_RATE_LIMIT_ENABLED": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable rate limiting for auth resolution"
+        },
+        "AUTH_API_KEY_RATE_LIMIT_TIME_WINDOW_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 60000,
+          "description": "Rate limit time window in milliseconds"
+        },
+        "AUTH_API_KEY_RATE_LIMIT_MAX_REQUESTS": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3000,
+          "description": "Maximum requests per rate limit window"
+        },
+        "AUTH_REQUIRE_CLOUDFLARE_ACCESS": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require Cloudflare Access authentication headers for WebSocket handshake"
+        },
+        "AUTH_CLOUDFLARE_ACCESS_CLIENT_ID": {
+          "type": "string",
+          "description": "Cloudflare Access service token client ID"
+        },
+        "AUTH_CLOUDFLARE_ACCESS_CLIENT_SECRET": {
+          "type": "string",
+          "description": "Cloudflare Access service token client secret"
+        },
+        "AUTH_CLOUDFLARE_ACCESS_JWT_PUBLIC_KEY_PEM": {
+          "type": "string",
+          "description": "Cloudflare Access JWT public key in PEM format for assertion verification"
+        },
+        "AUTH_CLOUDFLARE_ACCESS_JWT_AUDIENCE": {
+          "type": "string",
+          "description": "Cloudflare Access JWT audience claim"
+        },
+        "AUTH_CLOUDFLARE_ACCESS_JWT_ISSUER": {
+          "type": "string",
+          "description": "Cloudflare Access JWT issuer claim"
+        },
+
+        "ALLOWED_AGENT_COMMAND_POLICIES": {
+          "type": "array",
+          "description": "List of allowed agent commands with argument policies. REQUIRED in compiled mode.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "Full path to the executable (e.g., /usr/local/bin/codex)"
+              },
+              "allowAnyArgs": {
+                "type": "boolean",
+                "default": false,
+                "description": "Allow any arguments to be passed"
+              },
+              "allowedArgs": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "List of allowed argument patterns (only if allowAnyArgs is false)"
+              }
+            },
+            "required": ["command"]
+          }
+        },
+        "ALLOWED_TERMINAL_COMMAND_POLICIES": {
+          "type": "array",
+          "description": "List of allowed terminal commands with argument policies. REQUIRED in compiled mode.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "Full path to the executable (e.g., /bin/sh)"
+              },
+              "allowAnyArgs": {
+                "type": "boolean",
+                "default": false,
+                "description": "Allow any arguments to be passed"
+              },
+              "allowedArgs": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "List of allowed argument patterns (only if allowAnyArgs is false)"
+              }
+            },
+            "required": ["command"]
+          }
+        },
+        "ALLOWED_ENV_KEYS": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["NODE_ENV", "API_KEY", "DEBUG", "PATH"],
+          "description": "List of environment variable names that can be passed to spawned processes. REQUIRED in compiled mode."
+        },
+        "CONFIG_STRICT_ALLOWLIST": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enforce strict allowlist checking (reject commands not in allowlist)"
+        },
+        "ALLOW_INSECURE_DEV_DEFAULTS": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow insecure development defaults (NEVER set true in production)"
+        },
+        "ACP_ENABLE_FS_WRITE": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow agents to write to the filesystem. Keep disabled unless you explicitly trust the agent."
+        },
+        "ACP_ENABLE_TERMINAL": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow agents to execute terminal commands. Keep disabled unless you explicitly trust the agent."
+        },
+
+        "SESSION_IDLE_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 600000,
+          "description": "Idle timeout before cleaning up runtime session state in milliseconds (default: 10 minutes)"
+        },
+        "SESSION_BUFFER_LIMIT": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 500,
+          "description": "Maximum number of buffered messages per session"
+        },
+        "SESSION_UI_MESSAGE_LIMIT": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum UI messages to retain per session"
+        },
+        "SESSION_LIST_PAGE_MAX_LIMIT": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 500,
+          "description": "Maximum page size for session list endpoints"
+        },
+        "SESSION_MESSAGES_PAGE_MAX_LIMIT": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 200,
+          "description": "Maximum page size for session message endpoints"
+        },
+        "SESSION_LOCK_ACQUIRE_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 5000,
+          "description": "Timeout for acquiring session lock in milliseconds"
+        },
+        "SESSION_EVENT_BUS_PUBLISH_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 5000,
+          "description": "Timeout for publishing to session event bus"
+        },
+        "SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum queued event bus publish jobs per chat"
+        },
+        "PROMPT_NO_SUBSCRIBER_ABORT_GRACE_MS": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 5000,
+          "description": "Grace period before aborting prompt with no subscribers"
+        },
+        "MAX_TOKENS": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200000,
+          "default": 8192,
+          "description": "Default max tokens for AI prompts"
+        },
+        "DEFAULT_MODEL": {
+          "type": "string",
+          "default": "",
+          "description": "Default AI model identifier"
+        },
+        "MESSAGE_CONTENT_MAX_BYTES": {
+          "type": "integer",
+          "minimum": 1024,
+          "default": 2097152,
+          "description": "Maximum message content size in bytes (default: 2MB)"
+        },
+        "MESSAGE_PARTS_MAX_BYTES": {
+          "type": "integer",
+          "minimum": 1024,
+          "default": 4194304,
+          "description": "Maximum message parts size in bytes (default: 4MB)"
+        },
+
+        "AGENT_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum agent runtime duration in milliseconds (0 or omit = no limit)"
+        },
+        "TERMINAL_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum terminal command runtime in milliseconds (0 or omit = no limit)"
+        },
+        "TERMINAL_OUTPUT_HARD_CAP_BYTES": {
+          "type": "integer",
+          "minimum": 1024,
+          "default": 1048576,
+          "description": "Hard cap for retained terminal output bytes (default: 1MB)"
+        },
+
+        "ACP_REQUEST_MAX_ATTEMPTS": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Maximum retry attempts for ACP requests"
+        },
+        "ACP_REQUEST_RETRY_BASE_DELAY_MS": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 1000,
+          "description": "Base delay for ACP request retry backoff"
+        },
+        "ACP_PERMISSION_REQUEST_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 300000,
+          "description": "Timeout for user permission requests in milliseconds (default: 5 minutes)"
+        },
+        "ACP_NDJSON_MAX_LINE_BYTES": {
+          "type": "integer",
+          "minimum": 1024,
+          "default": 1048576,
+          "description": "Maximum NDJSON line size in bytes (default: 1MB)"
+        },
+        "ACP_NDJSON_MAX_BUFFERED_BYTES": {
+          "type": "integer",
+          "minimum": 1024,
+          "default": 4194304,
+          "description": "Maximum buffered NDJSON bytes (default: 4MB)"
+        },
+        "ACP_STDERR_MAX_TOTAL_BYTES": {
+          "type": "integer",
+          "minimum": 1024,
+          "default": 1048576,
+          "description": "Maximum total stderr bytes to retain from ACP processes"
+        },
+        "ACP_TURN_ID_POLICY": {
+          "type": "string",
+          "enum": ["compat", "require-native"],
+          "default": "compat",
+          "description": "ACP turn ID policy: 'compat' for backwards compatibility, 'require-native' for strict native turn IDs"
+        },
+
+        "LOG_LEVEL": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info",
+          "description": "Minimum log level to output"
+        },
+        "LOG_OUTPUT_FORMAT": {
+          "type": "string",
+          "enum": ["json", "text", "pretty"],
+          "default": "json",
+          "description": "Log output format"
+        },
+        "LOG_BUFFER_LIMIT": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 2000,
+          "description": "Maximum buffered log entries"
+        },
+        "LOG_FLUSH_INTERVAL_MS": {
+          "type": "integer",
+          "minimum": 50,
+          "default": 250,
+          "description": "Log buffer flush interval in milliseconds"
+        },
+        "LOG_FILE_ENABLED": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable writing logs to file"
+        },
+        "LOG_RETENTION_DAYS": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 7,
+          "description": "Number of days to retain log files"
+        },
+
+        "BACKGROUND_ENABLED": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable background task runner (cleanup, maintenance)"
+        },
+        "BACKGROUND_TICK_MS": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 1000,
+          "description": "Background runner tick interval in milliseconds"
+        },
+        "BACKGROUND_TASK_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 30000,
+          "description": "Timeout for individual background tasks"
+        },
+        "BACKGROUND_SESSION_CLEANUP_INTERVAL_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 15000,
+          "description": "Interval for session cleanup background task"
+        },
+        "BACKGROUND_CACHE_PRUNE_INTERVAL_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 300000,
+          "description": "Interval for cache prune background task"
+        },
+        "BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 300000,
+          "description": "Interval for storage maintenance background task"
+        },
+
+        "STORAGE_WORKER_ENABLED": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable SQLite worker thread for async writes (recommended for high concurrency)"
+        },
+        "STORAGE_WORKER_REQUEST_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 30000,
+          "description": "Timeout for SQLite worker requests"
+        },
+        "STORAGE_BUSY_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 10000,
+          "description": "SQLite busy timeout in milliseconds"
+        },
+        "STORAGE_BUSY_MAX_RETRIES": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5,
+          "description": "Maximum retries for SQLite busy errors"
+        },
+        "STORAGE_BUSY_RETRY_BASE_DELAY_MS": {
+          "type": "integer",
+          "minimum": 10,
+          "default": 100,
+          "description": "Base delay for SQLite retry backoff"
+        },
+        "SQLITE_WRITE_QUEUE_MAX_PENDING": {
+          "type": "integer",
+          "minimum": 10,
+          "default": 1000,
+          "description": "Maximum pending writes in SQLite queue"
+        },
+        "STORAGE_MAX_BIND_PARAMS": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 999,
+          "description": "Maximum bind parameters per SQLite query"
+        },
+        "STORAGE_INCREMENTAL_VACUUM_MIN_FREE_PAGES": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Minimum free pages to trigger incremental vacuum"
+        },
+        "STORAGE_INCREMENTAL_VACUUM_STEP_PAGES": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 50,
+          "description": "Pages to vacuum per incremental step"
+        },
+        "STORAGE_WAL_CHECKPOINT_INTERVAL_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 300000,
+          "description": "Interval for WAL checkpoint in milliseconds"
+        },
+        "STORAGE_RETENTION_HOT_DAYS": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 30,
+          "description": "Days to retain hot (recent) data before compaction"
+        },
+        "STORAGE_RETENTION_COMPACTION_BATCH_SIZE": {
+          "type": "integer",
+          "minimum": 10,
+          "default": 100,
+          "description": "Batch size for retention compaction"
+        },
+        "STORAGE_MAX_DB_SIZE_MB": {
+          "type": "integer",
+          "minimum": 10,
+          "default": 2048,
+          "description": "Maximum database size in megabytes"
+        },
+        "STORAGE_MIGRATIONS_DIR": {
+          "type": "string",
+          "description": "Custom directory for storage migrations"
+        },
+        "STORAGE_ALLOW_UNKNOWN_FS": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow storage on unknown filesystem types"
+        },
+        "STORAGE_INIT_RETRY_COOLDOWN_MS": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 5000,
+          "description": "Cooldown between storage init retries"
+        },
+
+        "EDITOR_BUFFER_TTL_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 300000,
+          "description": "TTL for editor buffer entries"
+        },
+        "EDITOR_BUFFER_MAX_FILES_PER_SESSION": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 50,
+          "description": "Maximum buffered files per session"
+        },
+
+        "RUNTIME_NODE_ROLE": {
+          "type": "string",
+          "enum": ["standalone", "writer", "reader"],
+          "default": "standalone",
+          "description": "Runtime node role for distributed deployments"
+        },
+        "RUNTIME_WRITER_URL": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the writer node (required for reader role)"
+        },
+        "RUNTIME_INTERNAL_TOKEN": {
+          "type": "string",
+          "description": "Internal token for runtime node communication"
+        }
+      },
+      "required": []
+    }
+  },
+  "required": ["boot"],
+  "additionalProperties": false
+}

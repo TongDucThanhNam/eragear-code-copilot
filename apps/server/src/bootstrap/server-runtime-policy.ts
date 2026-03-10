@@ -2,6 +2,8 @@ export interface ServerRuntimePolicy {
   wsHost: string;
   wsPort: number;
   wsMaxPayloadBytes: number;
+  wsAuthTimeoutMs: number;
+  wsSessionRevalidateIntervalMs: number;
   httpMaxBodyBytes: number;
   corsStrictOrigin: boolean;
   authAllowSignup: boolean;

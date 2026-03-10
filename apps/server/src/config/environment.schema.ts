@@ -10,6 +10,8 @@ export const envSchema = z.object({
   SESSION_EVENT_BUS_PUBLISH_MAX_QUEUE_PER_CHAT: z.string().optional(),
   WS_HEARTBEAT_INTERVAL_MS: z.string().optional(),
   WS_MAX_PAYLOAD_BYTES: z.string().optional(),
+  WS_AUTH_TIMEOUT_MS: z.string().optional(),
+  WS_SESSION_REVALIDATE_INTERVAL_MS: z.string().optional(),
   HTTP_MAX_BODY_BYTES: z.string().optional(),
   WS_PORT: z.string().optional(),
   PORT: z.string().optional(),

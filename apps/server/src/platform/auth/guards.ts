@@ -33,6 +33,7 @@ const authResolutionRateBuckets = new Map<
   }
 >();
 let lastAuthResolutionPruneAtMs = 0;
+let hasWarnedAboutOverflow = false;
 
 export interface AuthContext {
   type: "session" | "apiKey";
@@ -227,6 +228,13 @@ function pruneAuthResolutionRateBuckets(nowMs: number, windowMs: number): void {
       authResolutionRateBuckets.delete(key);
     }
   }
+  // Reset overflow warning if we're back under the tracking threshold
+  if (
+    hasWarnedAboutOverflow &&
+    authResolutionRateBuckets.size < AUTH_RESOLUTION_RATE_LIMIT_MAX_TRACKED_KEYS
+  ) {
+    hasWarnedAboutOverflow = false;
+  }
 }
 
 function resolveRateLimitBucketKey(rateLimitKey: {
@@ -255,6 +263,16 @@ function resolveRateLimitBucketKey(rateLimitKey: {
     authResolutionRateBuckets.size < AUTH_RESOLUTION_RATE_LIMIT_MAX_TRACKED_KEYS
   ) {
     return rateLimitKey;
+  }
+  if (!hasWarnedAboutOverflow) {
+    hasWarnedAboutOverflow = true;
+    logger.warn(
+      "Auth rate limit bucket overflow: too many tracked keys, using shared overflow bucket",
+      {
+        trackedKeys: authResolutionRateBuckets.size,
+        maxTrackedKeys: AUTH_RESOLUTION_RATE_LIMIT_MAX_TRACKED_KEYS,
+      }
+    );
   }
   return {
     key: AUTH_RESOLUTION_OVERFLOW_BUCKET_KEY,
@@ -291,11 +309,18 @@ function consumeAuthResolutionRateLimit(req: RequestLike): boolean {
     return true;
   }
 
-  if (bucket.count >= maxRequests) {
+  // Apply stricter limits for anonymous/overflow buckets to prevent
+  // a single source from exhausting the shared rate-limit bucket
+  const effectiveMaxRequests =
+    rateLimitKey.keyType === "anonymous" || rateLimitKey.keyType === "overflow"
+      ? Math.max(1, Math.floor(maxRequests / 30))
+      : maxRequests;
+
+  if (bucket.count >= effectiveMaxRequests) {
     logger.warn("Auth resolution rate limit exceeded", {
       keyType: rateLimitKey.keyType,
       windowMs,
-      maxRequests,
+      maxRequests: effectiveMaxRequests,
     });
     return false;
   }
@@ -416,7 +441,26 @@ export function createAuthContextResolver(authService: AuthApiService) {
   };
 }
 
+/**
+ * Check if request headers contain any authentication credentials
+ * (session cookie or API key in headers). Used by the WS upgrade handler
+ * to decide whether to verify credentials before accepting the connection.
+ */
+export function hasAuthCredentialsInHeaders(
+  headers: Headers | Record<string, string | string[] | undefined>
+): boolean {
+  const normalized = normalizeHeaders(headers);
+  if (extractSessionTokenFromCookie(normalized)) {
+    return true;
+  }
+  if (extractApiKeyFromHeaders(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 export function resetAuthResolutionRateLimitForTests(): void {
   authResolutionRateBuckets.clear();
   lastAuthResolutionPruneAtMs = 0;
+  hasWarnedAboutOverflow = false;
 }

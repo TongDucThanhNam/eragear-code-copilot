@@ -65,10 +65,12 @@ import {
   DEFAULT_STORAGE_WORKER_ENABLED,
   DEFAULT_STORAGE_WORKER_REQUEST_TIMEOUT_MS,
   DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES,
+  DEFAULT_WS_AUTH_TIMEOUT_MS,
   DEFAULT_WS_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WS_HOST,
   DEFAULT_WS_MAX_PAYLOAD_BYTES,
   DEFAULT_WS_PORT,
+  DEFAULT_WS_SESSION_REVALIDATE_INTERVAL_MS,
   HARD_MAX_APP_MAX_TOKENS,
   HARD_MAX_SESSION_LIST_PAGE_LIMIT,
   HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
@@ -361,6 +363,16 @@ export const ENV = {
   wsMaxPayloadBytes: toPositiveInt(
     env.WS_MAX_PAYLOAD_BYTES,
     DEFAULT_WS_MAX_PAYLOAD_BYTES
+  ),
+  /** Timeout for unauthenticated WebSocket connections in milliseconds */
+  wsAuthTimeoutMs: toPositiveInt(
+    env.WS_AUTH_TIMEOUT_MS,
+    DEFAULT_WS_AUTH_TIMEOUT_MS
+  ),
+  /** Interval for periodic WebSocket session re-validation in milliseconds */
+  wsSessionRevalidateIntervalMs: toPositiveInt(
+    env.WS_SESSION_REVALIDATE_INTERVAL_MS,
+    DEFAULT_WS_SESSION_REVALIDATE_INTERVAL_MS
   ),
   /** Maximum accepted HTTP request body size for JSON API endpoints */
   httpMaxBodyBytes: toPositiveInt(

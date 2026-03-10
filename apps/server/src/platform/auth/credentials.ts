@@ -88,5 +88,8 @@ export function getOrCreateAdminCredentials(): AdminCredentials {
     mode: AUTH_FILE_PRIVATE_MODE,
   });
   chmodSync(credentialsPath, AUTH_FILE_PRIVATE_MODE);
+  logger.warn(
+    `Plaintext admin credentials stored at ${credentialsPath}. Consider using AUTH_ADMIN_PASSWORD env var and deleting this file after initial setup.`
+  );
   return credentials;
 }

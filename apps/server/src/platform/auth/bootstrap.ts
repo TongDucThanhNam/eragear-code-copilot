@@ -151,6 +151,9 @@ async function ensureBootstrapApiKey(
       });
       chmodSync(apiKeyPath, AUTH_FILE_PRIVATE_MODE);
       logger.info("Bootstrap API key generated", { apiKeyPath });
+      logger.warn(
+        `Plaintext API key stored at ${apiKeyPath}. Consider saving the key elsewhere and deleting this file after initial setup.`
+      );
     }
   } catch (error) {
     logger.warn("Failed to bootstrap API key", {

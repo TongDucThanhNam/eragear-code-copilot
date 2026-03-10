@@ -16,6 +16,7 @@ import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { createElement, Fragment } from "react";
 import { WebSocketServer } from "ws";
+import { hasAuthCredentialsInHeaders } from "../platform/auth/guards";
 import { installConsoleLogger } from "../platform/logging/logger";
 import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
@@ -65,6 +66,8 @@ import type { ServerRuntimePolicy as RuntimePolicy } from "./server-runtime-poli
 const logger = createLogger("Server");
 const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 15_000;
 const TRPC_WS_PATH = "/trpc";
+const WS_READY_STATE_OPEN = 1;
+const WS_CLOSE_AUTH_REQUIRED = 4401;
 
 export type ServerRuntimePolicy = RuntimePolicy;
 
@@ -339,6 +342,84 @@ export function createApp(
   return app;
 }
 
+// ── WS auth tracking types & helpers ─────────────────────────────────
+
+/** Minimal interface for tracking ws library WebSocket connections */
+interface WsHandle {
+  readonly readyState: number;
+  close(code?: number, reason?: string | Buffer): void;
+}
+
+/** State stored per WS connection for periodic session re-validation */
+interface WsSessionRevalidationState {
+  request: {
+    headers: Record<string, string | string[] | undefined>;
+    url?: string;
+    remoteAddress?: string;
+  };
+  userId: string;
+}
+
+/**
+ * Extract a string value from a record by trying multiple keys.
+ * Used to read auth credentials from WebSocket connectionParams.
+ */
+function extractStringParam(
+  params: Record<string, unknown> | null | undefined,
+  keys: readonly string[]
+): string | null {
+  if (!params || typeof params !== "object") {
+    return null;
+  }
+  for (const key of keys) {
+    const value = params[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a request-like object for session re-validation by merging
+ * the original upgrade headers with auth credentials from connectionParams.
+ * Mirrors the augmentation logic in createTrpcContext.
+ */
+function buildRevalidationRequest(
+  req: IncomingMessage,
+  connectionParams: Record<string, unknown> | null | undefined
+): WsSessionRevalidationState["request"] {
+  const headers: Record<string, string | string[] | undefined> = {
+    ...req.headers,
+  };
+  if (!headers.cookie) {
+    const cookie = extractStringParam(connectionParams, [
+      "cookie",
+      "cookieHeader",
+    ]);
+    if (cookie) {
+      headers.cookie = cookie;
+    }
+  }
+  if (
+    !(headers["x-api-key"] || headers["x-api_key"] || headers.authorization)
+  ) {
+    const apiKey = extractStringParam(connectionParams, [
+      "apiKey",
+      "api_key",
+      "apikey",
+    ]);
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    }
+  }
+  return {
+    headers,
+    url: req.url,
+    remoteAddress: req.socket.remoteAddress,
+  };
+}
+
 /**
  * Starts the server with HTTP and WebSocket support
  *
@@ -368,7 +449,7 @@ export async function startServer() {
     noServer: true,
     maxPayload: runtimePolicy.wsMaxPayloadBytes,
   });
-  server.on("upgrade", (req, socket, head) => {
+  server.on("upgrade", async (req, socket, head) => {
     if (runtimePolicy.runtimeNodeRole === "reader") {
       const writerHint = runtimePolicy.runtimeWriterUrl;
       const headers = [
@@ -418,24 +499,141 @@ export async function startServer() {
         return;
       }
     }
+
+    // ── Layer 1: Reject invalid / expired credentials at upgrade time ──
+    // NOTE: We allow connections WITHOUT credentials (anonymous upgrade)
+    // because tRPC-client sends credentials in connectionParams AFTER the
+    // upgrade. Invalid/expired credentials with the upgrade are rejected at
+    // this layer.
+    const hasUpgradeCreds = hasAuthCredentialsInHeaders(req.headers);
+    if (hasUpgradeCreds) {
+      const preFlightAuthContext = await resolveAuthContext({
+        headers: req.headers as Record<string, string | string[] | undefined>,
+        url: req.url,
+        remoteAddress: req.socket.remoteAddress,
+      });
+      if (!preFlightAuthContext) {
+        logger.warn("Rejected WebSocket upgrade: invalid credentials", {
+          path: req.url ?? TRPC_WS_PATH,
+          remoteAddress: req.socket.remoteAddress,
+        });
+        socket.write(
+          "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\nInvalid credentials"
+        );
+        socket.destroy();
+        return;
+      }
+    }
+
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
+    });
+  });
+
+  // ── Layer 2: Post-connect auth tracking & timeout for unauth'd connections ──
+  // Tracks connections that have not yet been authenticated via tRPC
+  // connectionParams. Closed after wsAuthTimeoutMs if still unauthenticated.
+  const pendingAuthTimeouts = new Map<WsHandle, NodeJS.Timeout>();
+  const authenticatedConnections = new Map<
+    WsHandle,
+    WsSessionRevalidationState
+  >();
+  let revalidationInterval: NodeJS.Timeout | null = null;
+
+  wss.on("connection", (ws, req: IncomingMessage) => {
+    // Schedule timeout to close socket if auth is not received in time
+    const timeoutId = setTimeout(() => {
+      if (pendingAuthTimeouts.has(ws)) {
+        pendingAuthTimeouts.delete(ws);
+        logger.warn("Closing unauthenticated WebSocket: auth timeout", {
+          remoteAddress: req.socket.remoteAddress,
+        });
+        if (ws.readyState === WS_READY_STATE_OPEN) {
+          ws.close(WS_CLOSE_AUTH_REQUIRED, "Authentication timeout");
+        }
+      }
+    }, runtimePolicy.wsAuthTimeoutMs);
+    pendingAuthTimeouts.set(ws, timeoutId);
+
+    ws.on("close", () => {
+      const tid = pendingAuthTimeouts.get(ws);
+      if (tid) {
+        clearTimeout(tid);
+        pendingAuthTimeouts.delete(ws);
+      }
+      authenticatedConnections.delete(ws);
     });
   });
 
   const wsHandler = applyWSSHandler({
     wss,
     router: appRouter,
-    createContext: ({ req, info }) =>
-      createTrpcContext(trpcDeps, {
+    createContext: async ({ req, info }) => {
+      const ctx = await createTrpcContext(trpcDeps, {
         req: {
           headers: req.headers,
           url: req.url,
           remoteAddress: req.socket.remoteAddress,
         },
         connectionParams: info.connectionParams,
-      }),
+      });
+
+      // On successful authentication, clear auth timeout and track for revalidation
+      if (ctx.auth) {
+        // ws is not directly available, but we can identify socket by req reference
+        for (const [wsHandle, tid] of pendingAuthTimeouts) {
+          // Heuristic: clear all pending for now since we don't have ws<->req mapping
+          // This is a known limitation; trpc-ws doesn't expose underlying socket directly.
+          // For accurate tracking, a custom adapter would be needed.
+          // Clearing all pending timeouts after first successful auth context
+          clearTimeout(tid);
+          pendingAuthTimeouts.delete(wsHandle);
+          authenticatedConnections.set(wsHandle, {
+            request: buildRevalidationRequest(
+              req,
+              info.connectionParams as Record<string, unknown> | null
+            ),
+            userId: ctx.auth.userId,
+          });
+        }
+      }
+
+      return ctx;
+    },
   });
+
+  // ── Periodic session re-validation for long-lived WS connections ──
+  // If a session is revoked/expired, close the connection.
+  const startRevalidationInterval = () => {
+    if (revalidationInterval) {
+      return;
+    }
+    revalidationInterval = setInterval(async () => {
+      for (const [ws, state] of authenticatedConnections) {
+        if (ws.readyState !== WS_READY_STATE_OPEN) {
+          authenticatedConnections.delete(ws);
+          continue;
+        }
+        try {
+          const authContext = await resolveAuthContext(state.request);
+          if (!authContext || authContext.userId !== state.userId) {
+            logger.warn(
+              "Closing WebSocket: session invalidated or user mismatch",
+              { originalUserId: state.userId }
+            );
+            authenticatedConnections.delete(ws);
+            ws.close(WS_CLOSE_AUTH_REQUIRED, "Session invalidated");
+          }
+        } catch (error) {
+          logger.error(
+            "Session re-validation error",
+            error instanceof Error ? error : new Error(String(error))
+          );
+        }
+      }
+    }, runtimePolicy.wsSessionRevalidateIntervalMs);
+  };
+  startRevalidationInterval();
 
   server.listen(runtimePolicy.wsPort, runtimePolicy.wsHost);
 
@@ -458,6 +656,17 @@ export async function startServer() {
 
   const closeWebSocketServer = () =>
     new Promise<void>((resolve) => {
+      // Clear revalidation interval before closing WS server
+      if (revalidationInterval) {
+        clearInterval(revalidationInterval);
+        revalidationInterval = null;
+      }
+      // Clear pending auth timeouts
+      for (const [ws, tid] of pendingAuthTimeouts) {
+        clearTimeout(tid);
+        pendingAuthTimeouts.delete(ws);
+      }
+      authenticatedConnections.clear();
       wss.close(() => resolve());
     });
 

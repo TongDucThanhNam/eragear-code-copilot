@@ -1,8 +1,11 @@
 {
+  "$schema": "./settings.schema.json",
   "boot": {
     "mode": "compiled",
     "WS_PORT": 3000,
     "WS_HOST": "0.0.0.0",
+    "WS_AUTH_TIMEOUT_MS": 30000,
+    "WS_SESSION_REVALIDATE_INTERVAL_MS": 60000,
     "AUTH_SECRET": "change_me_in_production_with_32_chars_min",
     "LOG_LEVEL": "info",
     "MAX_TOKENS": 8192,

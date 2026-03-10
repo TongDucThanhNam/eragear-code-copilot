@@ -56,6 +56,8 @@ export function resolveAppRuntimeConfig(): AppRuntimeConfig {
       wsHost: ENV.wsHost,
       wsPort: ENV.wsPort,
       wsMaxPayloadBytes: ENV.wsMaxPayloadBytes,
+      wsAuthTimeoutMs: ENV.wsAuthTimeoutMs,
+      wsSessionRevalidateIntervalMs: ENV.wsSessionRevalidateIntervalMs,
       httpMaxBodyBytes: ENV.httpMaxBodyBytes,
       corsStrictOrigin: ENV.corsStrictOrigin,
       authAllowSignup: ENV.authAllowSignup,

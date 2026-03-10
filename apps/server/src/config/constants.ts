@@ -166,3 +166,7 @@ export const DEFAULT_AUTH_BOOTSTRAP_CACHE_MAX_USERS = 10_000;
 export const DEFAULT_AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS = 2000;
 /** Require Cloudflare Access auth headers on WebSocket/tRPC handshakes */
 export const DEFAULT_AUTH_REQUIRE_CLOUDFLARE_ACCESS = false;
+/** Default timeout for unauthenticated WebSocket connections in milliseconds */
+export const DEFAULT_WS_AUTH_TIMEOUT_MS = 30_000;
+/** Default interval for periodic WebSocket session re-validation in milliseconds */
+export const DEFAULT_WS_SESSION_REVALIDATE_INTERVAL_MS = 60_000;
