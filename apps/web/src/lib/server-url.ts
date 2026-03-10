@@ -1,6 +1,7 @@
 const FALLBACK_SERVER_URL = "ws://localhost:3010";
 const PROTOCOL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//;
 const TRPC_SUFFIX = "/trpc";
+const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0"]);
 
 function withFallbackProtocol(value: string): string {
   if (PROTOCOL_REGEX.test(value)) {
@@ -52,6 +53,49 @@ function formatNormalizedServerUrl(url: URL): string {
   return `${url.protocol}//${url.host}${path}`;
 }
 
+function isLocalBrowserHost(hostname: string): boolean {
+  return (
+    LOCALHOST_HOSTS.has(hostname) ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
+export function resolveLocalDevBrowserProxyOrigin(
+  rawValue: string | undefined,
+  browserOrigin: string | undefined,
+  isDev: boolean
+): string | null {
+  if (!(isDev && rawValue && browserOrigin)) {
+    return null;
+  }
+
+  let targetUrl: URL;
+  let currentOrigin: URL;
+
+  try {
+    targetUrl = new URL(normalizeServerUrl(rawValue));
+    currentOrigin = new URL(browserOrigin);
+  } catch {
+    return null;
+  }
+
+  if (
+    !(
+      isLocalBrowserHost(targetUrl.hostname) &&
+      isLocalBrowserHost(currentOrigin.hostname)
+    )
+  ) {
+    return null;
+  }
+
+  if (targetUrl.port === currentOrigin.port) {
+    return null;
+  }
+
+  return `${toWsProtocol(currentOrigin.protocol)}//${currentOrigin.host}`;
+}
+
 function normalizeUrlObject(url: URL): string {
   url.protocol = toWsProtocol(url.protocol);
   url.pathname = stripTrailingTrpcPath(url.pathname);
@@ -91,7 +135,12 @@ export function normalizeServerUrl(rawValue?: string): string {
 }
 
 export function buildTrpcWsUrl(rawValue?: string): string {
-  const baseUrl = new URL(normalizeServerUrl(rawValue));
+  const proxiedOrigin = resolveLocalDevBrowserProxyOrigin(
+    rawValue,
+    typeof window !== "undefined" ? window.location.origin : undefined,
+    Boolean(import.meta.env.DEV)
+  );
+  const baseUrl = new URL(proxiedOrigin ?? normalizeServerUrl(rawValue));
   baseUrl.pathname = joinPath(baseUrl.pathname, TRPC_SUFFIX);
   baseUrl.search = "";
   baseUrl.hash = "";
@@ -99,7 +148,12 @@ export function buildTrpcWsUrl(rawValue?: string): string {
 }
 
 export function buildHttpApiUrl(rawValue: string, apiPath: string): string {
-  const wsBase = new URL(normalizeServerUrl(rawValue));
+  const proxiedOrigin = resolveLocalDevBrowserProxyOrigin(
+    rawValue,
+    typeof window !== "undefined" ? window.location.origin : undefined,
+    Boolean(import.meta.env.DEV)
+  );
+  const wsBase = new URL(proxiedOrigin ?? normalizeServerUrl(rawValue));
   wsBase.protocol = toHttpProtocol(wsBase.protocol);
   wsBase.pathname = joinPath(wsBase.pathname, apiPath);
   wsBase.search = "";

@@ -2,10 +2,14 @@ import { Button, ErrorView, Spinner, Surface, TextField } from "heroui-native";
 import { useState } from "react";
 import { Text, View } from "react-native";
 
-import { authClient } from "@/lib/auth-client";
+import { useBetterAuthClient } from "@/lib/auth-client";
+import { getDefaultServerUrl } from "@/lib/server-url";
+import { useAuthStore } from "@/store/auth-store";
 
 function SignIn() {
-  const [email, setEmail] = useState("");
+  const serverUrl = useAuthStore((state) => state.serverUrl);
+  const authClient = useBetterAuthClient(serverUrl || getDefaultServerUrl());
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -14,9 +18,9 @@ function SignIn() {
     setIsLoading(true);
     setError(null);
 
-    await authClient.signIn.email(
+    await authClient.signIn.username(
       {
-        email,
+        username,
         password,
       },
       {
@@ -25,7 +29,7 @@ function SignIn() {
           setIsLoading(false);
         },
         onSuccess() {
-          setEmail("");
+          setUsername("");
           setPassword("");
         },
         onFinished() {
@@ -45,13 +49,12 @@ function SignIn() {
 
       <View className="gap-3">
         <TextField>
-          <TextField.Label>Email</TextField.Label>
+          <TextField.Label>Username</TextField.Label>
           <TextField.Input
             autoCapitalize="none"
-            keyboardType="email-address"
-            onChangeText={setEmail}
-            placeholder="email@example.com"
-            value={email}
+            onChangeText={setUsername}
+            placeholder="admin"
+            value={username}
           />
         </TextField>
 

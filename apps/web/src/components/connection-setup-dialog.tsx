@@ -1,203 +1,166 @@
 "use client";
 
-import { AlertCircle, Globe, Key, Loader2 } from "lucide-react";
-import { useState } from "react";
-import { createWSClient, wsLink } from "@trpc/client";
+import { AlertCircle, Globe, Loader2, Lock, UserRound } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  buildTrpcWsUrl,
-  DEFAULT_SERVER_URL,
-  normalizeServerUrl,
-} from "@/lib/server-url";
-import { trpc } from "@/lib/trpc";
+  createBetterAuthClientForServer,
+  type BetterAuthClient,
+} from "@/lib/auth-client";
+import { DEFAULT_SERVER_URL, normalizeServerUrl } from "@/lib/server-url";
 import { useServerConfigStore } from "@/store/server-config-store";
 
-const verifyApiKeyViaTrpc = async (serverUrl: string, apiKey: string) => {
-  const wsClient = createWSClient({
-    url: buildTrpcWsUrl(serverUrl),
-    connectionParams: async () => ({ apiKey }),
-  });
+function normalizeErrorMessage(error: unknown, normalizedTarget: string) {
+  const message = error instanceof Error ? error.message : String(error);
+  const lowered = message.toLowerCase();
+  const isNetworkError =
+    lowered.includes("load failed") ||
+    lowered.includes("failed to fetch") ||
+    lowered.includes("network") ||
+    lowered.includes("timed out") ||
+    lowered.includes("unable to connect") ||
+    lowered.includes("unreachable") ||
+    lowered.includes("refused");
 
-  const client = trpc.createClient({
-    links: [wsLink({ client: wsClient })],
-  });
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    window.setTimeout(
-      () => reject(new Error("WebSocket connection timed out")),
-      5000
-    );
-  });
-
-  try {
-    const me = await Promise.race([client.auth.getMe.query(), timeoutPromise]);
-    if (!me?.user) {
-      throw new Error("Invalid API key");
-    }
-    return me;
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message.toLowerCase() : String(error);
-    if (message.includes("unauthorized")) {
-      throw new Error("Invalid API key");
-    }
-    throw error;
-  } finally {
-    wsClient.close();
+  if (isNetworkError) {
+    return `Cannot reach server at ${normalizedTarget}. Start apps/server and retry.`;
   }
-};
 
-export function ConnectionSetupDialog() {
-  const {
-    serverUrl,
-    apiKey,
-    isConfigured,
-    setServerUrl,
-    setApiKey,
-    setConfigured,
-  } = useServerConfigStore();
+  return message || "Authentication failed";
+}
+
+interface ConnectionSetupDialogProps {
+  authClient?: BetterAuthClient;
+}
+
+export function ConnectionSetupDialog({
+  authClient,
+}: ConnectionSetupDialogProps = {}) {
+  const { serverUrl, isConfigured, setServerUrl, setConfigured } =
+    useServerConfigStore();
   const [localUrl, setLocalUrl] = useState(serverUrl || DEFAULT_SERVER_URL);
-  const [localApiKey, setLocalApiKey] = useState(apiKey);
-
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [status, setStatus] = useState<
     "idle" | "connecting" | "success" | "error"
   >("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [lastVerifyAt, setLastVerifyAt] = useState<number>(0);
 
-  const isReady = Boolean(serverUrl?.trim() && apiKey?.trim());
+  useEffect(() => {
+    if (!serverUrl) {
+      return;
+    }
+    setLocalUrl(serverUrl);
+  }, [serverUrl]);
 
-  const normalizeApiKey = (value?: string | null) => {
-    if (!value) {
-      return "";
+  const normalizedConfiguredServerUrl = useMemo(() => {
+    if (!serverUrl.trim()) {
+      return null;
     }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return "";
-    }
-    if (trimmed.startsWith("{")) {
-      try {
-        const parsed = JSON.parse(trimmed) as { key?: string };
-        if (parsed?.key && typeof parsed.key === "string") {
-          return parsed.key.trim();
-        }
-      } catch {
-        // Fall through to use trimmed input as-is.
-      }
-    }
-    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-      return trimmed.slice(1, -1).trim();
-    }
-    return trimmed;
-  };
 
-  const handleConnect = () => {
+    try {
+      return normalizeServerUrl(serverUrl);
+    } catch {
+      return null;
+    }
+  }, [serverUrl]);
+
+  const isReady = Boolean(
+    localUrl.trim() && username.trim().length > 0 && password.length > 0
+  );
+  const dialogTitle = isConfigured ? "Sign in to Server" : "Connect to Server";
+  const dialogDescription = isConfigured
+    ? "Your session is missing or expired. Sign in with your server account."
+    : "Enter the server URL and your username/password to start using the application.";
+
+  async function handleSubmit(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+
     if (!localUrl.trim()) {
-      return;
-    }
-
-    const normalizedApiKey = normalizeApiKey(localApiKey);
-    const now = Date.now();
-    if (now - lastVerifyAt < 5000) {
       setStatus("error");
-      setErrorMessage("Please wait a few seconds before retrying.");
+      setErrorMessage("Server URL is required.");
       return;
     }
-    setLastVerifyAt(now);
 
-    console.info("[Connect] Attempting connection", {
-      serverUrl: localUrl,
-      hasApiKey: Boolean(normalizedApiKey),
-    });
+    if (!username.trim()) {
+      setStatus("error");
+      setErrorMessage("Username is required.");
+      return;
+    }
+
+    if (!password) {
+      setStatus("error");
+      setErrorMessage("Password is required.");
+      return;
+    }
+
+    let normalizedServerUrl: string;
+    try {
+      normalizedServerUrl = normalizeServerUrl(localUrl);
+    } catch {
+      setStatus("error");
+      setErrorMessage("Server URL is invalid.");
+      return;
+    }
+
+    const signInClient =
+      authClient &&
+      normalizedConfiguredServerUrl &&
+      normalizedConfiguredServerUrl === normalizedServerUrl
+        ? authClient
+        : createBetterAuthClientForServer(normalizedServerUrl);
 
     setStatus("connecting");
     setErrorMessage(null);
-    setConfigured(false);
-    setApiKey("");
 
-    // Don't persist config until verification succeeds.
+    try {
+      let signInError: string | null = null;
 
-    setTimeout(async () => {
-      try {
-        const result = await verifyApiKeyViaTrpc(localUrl, normalizedApiKey);
-        const normalizedServerUrl = normalizeServerUrl(localUrl);
-
-        console.info("[Connect] API key verified", {
-          userId: result.user?.id,
-        });
-        setServerUrl(normalizedServerUrl);
-        setApiKey(normalizedApiKey);
-        setConfigured(true);
-        console.info("[Connect] Stored server config");
-        setStatus("success");
-        setTimeout(() => {
-          setStatus("idle");
-        }, 500);
-      } catch (err) {
-        console.error("[Connect] API key verification failed", err);
-        setStatus("error");
-        setConfigured(false);
-        // Clear the invalid config
-        setApiKey("");
-        // Set error message
-        const msg =
-          err instanceof Error ? err.message : "Authentication failed";
-        if (msg.toLowerCase().includes("key")) {
-          setErrorMessage("Invalid API key. Please check your credentials.");
-          return;
+      const result = await signInClient.signIn.username(
+        {
+          username: username.trim(),
+          password,
+        },
+        {
+          onError(context: { error: { message?: string } }) {
+            signInError =
+              context.error.message || "Invalid username or password.";
+          },
         }
+      );
 
-        const normalizedTarget = (() => {
-          try {
-            return normalizeServerUrl(localUrl);
-          } catch {
-            return DEFAULT_SERVER_URL;
-          }
-        })();
-        const lowered = msg.toLowerCase();
-        const isNetworkError =
-          lowered.includes("load failed") ||
-          lowered.includes("fetch") ||
-          lowered.includes("unable to connect") ||
-          lowered.includes("timed out") ||
-          lowered.includes("unreachable") ||
-          lowered.includes("rejected") ||
-          lowered.includes("refused");
-        if (isNetworkError) {
-          setErrorMessage(
-            `Cannot reach server at ${normalizedTarget}. Start apps/server and retry.`
-          );
-          return;
-        }
-
-        setErrorMessage(msg);
+      if (result.error) {
+        throw new Error(result.error.message || "Invalid username or password.");
       }
-    }, 500);
-  };
 
-  // Don't render if configuration is verified
-  if (isConfigured && isReady) {
-    return null;
+      if (signInError) {
+        throw new Error(signInError);
+      }
+
+      setServerUrl(normalizedServerUrl);
+      setConfigured(true);
+      setPassword("");
+      setStatus("success");
+    } catch (error) {
+      setStatus("error");
+      setErrorMessage(normalizeErrorMessage(error, normalizedServerUrl));
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent backdrop-blur-sm">
       <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
-        <div className="flex flex-col gap-6">
+        <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-2 text-center">
-            <h2 className="font-semibold text-xl">Connect to Server</h2>
-            <p className="text-muted-foreground text-sm">
-              {status === "error"
-                ? "Connection failed. Please try again."
-                : "Enter your server details to use the application"}
-            </p>
+            <h2 className="font-semibold text-xl">{dialogTitle}</h2>
+            <p className="text-muted-foreground text-sm">{dialogDescription}</p>
           </div>
 
-          {status === "error" && errorMessage && (
+          {status === "error" && errorMessage ? (
             <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-destructive text-sm">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{errorMessage}</span>
             </div>
-          )}
+          ) : null}
 
           <div className="grid gap-4">
             <div className="grid gap-1.5">
@@ -208,17 +171,18 @@ export function ConnectionSetupDialog() {
                 <Globe className="h-4 w-4" /> Server URL
               </label>
               <input
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:font-medium file:text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 disabled={status === "connecting"}
                 id="setup-serverUrl"
-                onChange={(e) => {
-                  setLocalUrl(e.target.value);
+                onChange={(event) => {
+                  setLocalUrl(event.target.value);
                   if (status === "error") {
                     setStatus("idle");
                     setErrorMessage(null);
                   }
                 }}
                 placeholder={DEFAULT_SERVER_URL}
+                type="text"
                 value={localUrl}
               />
             </div>
@@ -226,44 +190,74 @@ export function ConnectionSetupDialog() {
             <div className="grid gap-1.5">
               <label
                 className="flex items-center gap-2 font-medium text-sm"
-                htmlFor="setup-apiKey"
+                htmlFor="setup-username"
               >
-                <Key className="h-4 w-4" /> API Key
+                <UserRound className="h-4 w-4" /> Username
               </label>
               <input
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:font-medium file:text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                autoComplete="username"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 disabled={status === "connecting"}
-                id="setup-apiKey"
-                onChange={(e) => {
-                  setLocalApiKey(e.target.value);
+                id="setup-username"
+                onChange={(event) => {
+                  setUsername(event.target.value);
                   if (status === "error") {
                     setStatus("idle");
                     setErrorMessage(null);
                   }
                 }}
-                placeholder="eg_xxxxxxxxxxxxx"
+                placeholder="admin"
+                type="text"
+                value={username}
+              />
+            </div>
+
+            <div className="grid gap-1.5">
+              <label
+                className="flex items-center gap-2 font-medium text-sm"
+                htmlFor="setup-password"
+              >
+                <Lock className="h-4 w-4" /> Password
+              </label>
+              <input
+                autoComplete="current-password"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                disabled={status === "connecting"}
+                id="setup-password"
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  if (status === "error") {
+                    setStatus("idle");
+                    setErrorMessage(null);
+                  }
+                }}
+                placeholder="Enter your password"
                 type="password"
-                value={localApiKey}
+                value={password}
               />
             </div>
           </div>
 
+          <div className="rounded-md border border-border/60 bg-muted/40 p-3 text-muted-foreground text-xs">
+            Browser login now uses `better-auth` session cookies. API keys are
+            reserved for automation and non-interactive clients.
+          </div>
+
           <button
-            className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground text-sm ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-            disabled={status === "connecting" || !localUrl.trim()}
-            onClick={handleConnect}
-            type="button"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+            disabled={!isReady || status === "connecting"}
+            type="submit"
           >
             {status === "connecting" ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Connecting...
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Authenticating...
               </>
             ) : (
-              "Connect"
+              "Sign In"
             )}
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );

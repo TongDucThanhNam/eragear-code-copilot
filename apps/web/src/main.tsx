@@ -1,8 +1,17 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { createWSClient, wsLink } from "@trpc/client";
 import { useEffect, useMemo } from "react";
 import ReactDOM from "react-dom/client";
+import {
+  BetterAuthClientProvider,
+  useBetterAuthClient,
+} from "./components/auth/auth-client-provider";
 import { ConnectionSetupDialog } from "./components/connection-setup-dialog";
 import { ThemeProvider } from "./components/theme-provider";
 import Loader from "./components/ui/loader";
@@ -36,38 +45,91 @@ if (!rootElement.innerHTML) {
   root.render(<App />);
 }
 
-function App() {
-  const { serverUrl, apiKey, isConfigured } = useServerConfigStore();
+function isUnauthorizedError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
 
-  // check whether serverUrl and API key valid.
-  const hasConnectionConfig =
-    isConfigured && Boolean(serverUrl.trim()) && Boolean(apiKey.trim());
+  const candidate = error as Error & {
+    data?: { code?: string; httpStatus?: number };
+    shape?: { data?: { code?: string; httpStatus?: number } };
+  };
+
+  return (
+    candidate.data?.code === "UNAUTHORIZED" ||
+    candidate.data?.httpStatus === 401 ||
+    candidate.shape?.data?.code === "UNAUTHORIZED" ||
+    candidate.shape?.data?.httpStatus === 401
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="dark"
+      disableTransitionOnChange
+      storageKey="vite-ui-theme"
+    >
+      <Toaster richColors />
+      <AppBootstrap />
+    </ThemeProvider>
+  );
+}
+
+function AppBootstrap() {
+  const { serverUrl, isConfigured } = useServerConfigStore();
+  const hasConnectionConfig = isConfigured && Boolean(serverUrl.trim());
 
   if (!hasConnectionConfig) {
+    return <ConnectionSetupDialog />;
+  }
+
+  return (
+    <BetterAuthClientProvider serverUrl={serverUrl}>
+      <AuthenticatedApp serverUrl={serverUrl} />
+    </BetterAuthClientProvider>
+  );
+}
+
+function AuthenticatedApp({ serverUrl }: { serverUrl: string }) {
+  const authClient = useBetterAuthClient();
+  const session = authClient.useSession();
+
+  if (session.isPending) {
     return (
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        disableTransitionOnChange
-        storageKey="vite-ui-theme"
-      >
-        <Toaster richColors />
-        <ConnectionSetupDialog />
-      </ThemeProvider>
+      <div className="flex h-dvh items-center justify-center">
+        <Loader />
+      </div>
     );
   }
 
-  return <ConfiguredApp apiKey={apiKey} serverUrl={serverUrl} />;
+  if (!session.data?.user) {
+    return <ConnectionSetupDialog authClient={authClient} />;
+  }
+
+  return <ConfiguredApp serverUrl={serverUrl} />;
 }
 
-function ConfiguredApp({
-  serverUrl,
-  apiKey,
-}: {
-  serverUrl: string;
-  apiKey: string;
-}) {
-  const queryClient = useMemo(() => new QueryClient(), []);
+function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
+  const setConfigured = useServerConfigStore((state) => state.setConfigured);
+  const queryClient = useMemo(() => {
+    const handleAuthFailure = (error: unknown) => {
+      if (!isUnauthorizedError(error)) {
+        return;
+      }
+      setConfigured(false);
+    };
+
+    return new QueryClient({
+      queryCache: new QueryCache({
+        onError: handleAuthFailure,
+      }),
+      mutationCache: new MutationCache({
+        onError: handleAuthFailure,
+      }),
+    });
+  }, [setConfigured]);
   const wsUrl = useMemo(
     () => buildTrpcWsUrl(serverUrl || DEFAULT_SERVER_URL),
     [serverUrl]
@@ -76,17 +138,9 @@ function ConfiguredApp({
   const wsClient = useMemo(() => {
     return createWSClient({
       url: wsUrl,
-      connectionParams: async () => {
-        const key = await apiKey.trim();
-        if (!key) {
-          return {};
-        }
-        return { apiKey: key };
-      },
     });
-  }, [wsUrl, apiKey]);
+  }, [wsUrl]);
 
-  // TODO: Explain this.
   useEffect(() => {
     return () => {
       wsClient.close();
@@ -106,7 +160,7 @@ function ConfiguredApp({
   return (
     <trpc.Provider
       client={trpcClient}
-      key={`${wsUrl}|${apiKey.trim()}`}
+      key={wsUrl}
       queryClient={queryClient}
     >
       <QueryClientProvider client={queryClient}>

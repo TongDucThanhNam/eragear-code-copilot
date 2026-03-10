@@ -2,9 +2,12 @@ import { Button, ErrorView, Spinner, Surface, TextField } from "heroui-native";
 import { useState } from "react";
 import { Text, View } from "react-native";
 
-import { authClient } from "@/lib/auth-client";
+import { useBetterAuthClient } from "@/lib/auth-client";
+import { getDefaultServerUrl } from "@/lib/server-url";
+import { useAuthStore } from "@/store/auth-store";
 
 function signUpHandler({
+  authClient,
   name,
   email,
   password,
@@ -14,6 +17,7 @@ function signUpHandler({
   setEmail,
   setPassword,
 }: {
+  authClient: ReturnType<typeof useBetterAuthClient>;
   name: string;
   email: string;
   password: string;
@@ -50,6 +54,8 @@ function signUpHandler({
 }
 
 export function SignUp() {
+  const serverUrl = useAuthStore((state) => state.serverUrl);
+  const authClient = useBetterAuthClient(serverUrl || getDefaultServerUrl());
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -58,6 +64,7 @@ export function SignUp() {
 
   function handlePress() {
     signUpHandler({
+      authClient,
       name,
       email,
       password,

@@ -1,7 +1,9 @@
 "use client";
 
-import { ChevronsUpDown, Settings } from "lucide-react";
+import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
+import { useBetterAuthClient } from "@/components/auth/auth-client-provider";
 import { SettingsDialog } from "@/components/left-sidebar/settings-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -19,6 +21,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useServerConfigStore } from "@/store/server-config-store";
 
 export function NavUser({
   user,
@@ -29,8 +32,45 @@ export function NavUser({
     avatar: string;
   };
 }) {
+  const authClient = useBetterAuthClient();
   const { isMobile } = useSidebar();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const setConfigured = useServerConfigStore((state) => state.setConfigured);
+
+  function forceLogoutUiState() {
+    setConfigured(false);
+  }
+
+  async function handleSignOut() {
+    if (isSigningOut) {
+      return;
+    }
+
+    setIsSigningOut(true);
+    try {
+      const result = await authClient.signOut();
+      if (result.error) {
+        forceLogoutUiState();
+        toast.error(
+          result.error.message ||
+            "Sign-out failed on the server. Local access has been closed."
+        );
+        return;
+      }
+      forceLogoutUiState();
+      toast.success("Signed out");
+    } catch (error) {
+      forceLogoutUiState();
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Sign-out failed. Local access has been closed.";
+      toast.error(message);
+    } finally {
+      setIsSigningOut(false);
+    }
+  }
 
   return (
     <>
@@ -79,12 +119,16 @@ export function NavUser({
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-
-              <DropdownMenuSeparator />
-              {/* <DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={isSigningOut}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void handleSignOut();
+                }}
+              >
                 <LogOut />
-                Log out
-              </DropdownMenuItem> */}
+                {isSigningOut ? "Signing out..." : "Log out"}
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>

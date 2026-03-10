@@ -1,10 +1,18 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { createWSClient, type TRPCClient, wsLink } from "@trpc/client";
 import { useToast } from "heroui-native";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useAuthConfigured } from "@/hooks/use-auth-config";
-import { isAuthConfigured } from "@/lib/auth-config";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+
+import {
+  clearStoredBetterAuthSession,
+  type BetterAuthClient,
+} from "@/lib/auth-client";
 import { getHttpUrl, getWsUrl } from "@/lib/env";
 import { trpc } from "@/lib/trpc";
 import { useAuthStore } from "@/store/auth-store";
@@ -12,12 +20,32 @@ import { useConnectionStore } from "@/store/connection-store";
 import type { AppRouter } from "../../server/src/transport/trpc/router";
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
+
 const MAX_WS_FAILURES = 3;
 const HEALTH_CHECK_TIMEOUT = 5000;
 
-/**
- * Check server health before attempting WebSocket connection
- */
+function trimCookieHeader(cookie: string): string {
+  return cookie.replace(/^;\s*/, "").trim();
+}
+
+function isUnauthorizedError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const candidate = error as Error & {
+    data?: { code?: string; httpStatus?: number };
+    shape?: { data?: { code?: string; httpStatus?: number } };
+  };
+
+  return (
+    candidate.data?.code === "UNAUTHORIZED" ||
+    candidate.data?.httpStatus === 401 ||
+    candidate.shape?.data?.code === "UNAUTHORIZED" ||
+    candidate.shape?.data?.httpStatus === 401
+  );
+}
+
 async function checkServerHealth(httpUrl: string): Promise<boolean> {
   try {
     const controller = new AbortController();
@@ -37,89 +65,142 @@ async function checkServerHealth(httpUrl: string): Promise<boolean> {
   }
 }
 
-export function TRPCProvider({ children }: { children: ReactNode }) {
+interface TRPCProviderProps {
+  children: ReactNode;
+  authClient: BetterAuthClient;
+}
+
+export function TRPCProvider({ children, authClient }: TRPCProviderProps) {
   const { toast } = useToast();
-  const connStatusRef = useRef<ConnectionStatus>("idle");
-  const wsClientRef = useRef<ReturnType<typeof createWSClient> | null>(null);
   const failureCountRef = useRef(0);
-  const forcedReauthRef = useRef(false);
+  const authFailureHandledRef = useRef(false);
   const healthCheckDoneRef = useRef(false);
-  const isConfigured = useAuthConfigured();
   const {
     setError: setConnectionError,
     clearError: clearConnectionError,
     setStatus: setConnectionStatus,
   } = useConnectionStore();
 
-  // Health check function - checks server before allowing WS connection
+  const forceSessionReset = useCallback(
+    async (message: string) => {
+      if (authFailureHandledRef.current) {
+        return;
+      }
+      authFailureHandledRef.current = true;
+      setConnectionStatus("error");
+      setConnectionError(message);
+
+      const { serverUrl, bumpAuthVersion } = useAuthStore.getState();
+
+      try {
+        await authClient.signOut();
+      } catch {
+        // Best effort only. We still wipe local session state below.
+      }
+
+      if (serverUrl.trim().length > 0) {
+        await clearStoredBetterAuthSession(serverUrl);
+      }
+
+      bumpAuthVersion();
+    },
+    [authClient, setConnectionError, setConnectionStatus]
+  );
+
+  const redirectToConnectionSetup = useCallback(
+    (message: string) => {
+      if (authFailureHandledRef.current) {
+        return;
+      }
+      authFailureHandledRef.current = true;
+      setConnectionStatus("error");
+      setConnectionError(message);
+      const { clearServerUrl, bumpAuthVersion } = useAuthStore.getState();
+      clearServerUrl();
+      bumpAuthVersion();
+    },
+    [setConnectionError, setConnectionStatus]
+  );
+
   const performHealthCheck = useCallback(async () => {
-    const authState = useAuthStore.getState();
-    if (!isAuthConfigured(authState)) {
+    const serverUrl = useAuthStore.getState().serverUrl;
+    if (!serverUrl.trim()) {
       return false;
     }
 
     setConnectionStatus("checking");
-    const httpUrl = getHttpUrl();
-    const isHealthy = await checkServerHealth(httpUrl);
+    const isHealthy = await checkServerHealth(getHttpUrl());
 
     if (!isHealthy) {
       console.warn(
         "[TRPCProvider] Server health check failed - server may be offline"
       );
-      setConnectionError(
-        "Server is unreachable. Please ensure the server is running."
+      redirectToConnectionSetup(
+        "Server is unreachable. Please verify the server URL and try again."
       );
-      // Clear auth to trigger redirect to login
-      authState.setApiKey(null);
       return false;
     }
 
     clearConnectionError();
     return true;
-  }, [setConnectionError, clearConnectionError, setConnectionStatus]);
+  }, [clearConnectionError, redirectToConnectionSetup, setConnectionStatus]);
 
-  const [trpcClient] = useState<TRPCClient<AppRouter>>(() => {
-    const newWsClient = createWSClient({
+  const queryClient = useMemo(() => {
+    const handleAuthFailure = (error: unknown) => {
+      if (!isUnauthorizedError(error)) {
+        return;
+      }
+      void forceSessionReset("Session expired. Please sign in again.");
+    };
+
+    return new QueryClient({
+      queryCache: new QueryCache({
+        onError: handleAuthFailure,
+      }),
+      mutationCache: new MutationCache({
+        onError: handleAuthFailure,
+      }),
+      defaultOptions: {
+        queries: {
+          staleTime: 5 * 60 * 1000,
+          retry: 2,
+        },
+        mutations: {
+          retry: 1,
+        },
+      },
+    });
+  }, [forceSessionReset]);
+
+  const wsClient = useMemo(() => {
+    return createWSClient({
       url: () => getWsUrl(),
       connectionParams: () => {
-        const { apiKey } = useAuthStore.getState();
-        return apiKey ? { apiKey } : null;
+        const cookie = trimCookieHeader(authClient.getCookie());
+        return cookie ? { cookie } : null;
       },
       onOpen: () => {
         console.log("[TRPCProvider] WebSocket connected");
         failureCountRef.current = 0;
-        forcedReauthRef.current = false;
-        connStatusRef.current = "connected";
+        authFailureHandledRef.current = false;
         setConnectionStatus("connected");
         clearConnectionError();
       },
       onClose: (cause) => {
         console.log("[TRPCProvider] WebSocket closed", cause);
-        connStatusRef.current = "idle";
+        setConnectionStatus("idle");
       },
       onError: (event) => {
-        // Use warn instead of error - this is an expected scenario when server is offline
         console.warn("[TRPCProvider] WebSocket connection failed", event);
-        connStatusRef.current = "error";
-        const authState = useAuthStore.getState();
-        if (!isAuthConfigured(authState)) {
-          // Not configured, no need to handle - user will be on login page
-          return;
-        }
         failureCountRef.current += 1;
-        if (
-          forcedReauthRef.current ||
-          failureCountRef.current < MAX_WS_FAILURES
-        ) {
+
+        if (failureCountRef.current < MAX_WS_FAILURES) {
           return;
         }
-        forcedReauthRef.current = true;
-        // Set connection error for display on login page
-        setConnectionError(
-          "Unable to connect to server. Please check if the server is running."
+
+        redirectToConnectionSetup(
+          "Unable to connect to server. Please verify the server URL and try again."
         );
-        authState.setApiKey(null);
-        // Toast is optional here since we'll show error on login page
         toast.show({
           variant: "warning",
           label: "Server unreachable",
@@ -128,57 +209,38 @@ export function TRPCProvider({ children }: { children: ReactNode }) {
         });
       },
     });
+  }, [
+    authClient,
+    clearConnectionError,
+    redirectToConnectionSetup,
+    setConnectionStatus,
+    toast,
+  ]);
 
-    wsClientRef.current = newWsClient;
-
+  const trpcClient = useMemo<TRPCClient<AppRouter>>(() => {
     return trpc.createClient({
       links: [
         wsLink({
-          client: newWsClient,
+          client: wsClient,
         }),
       ],
     });
-  });
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 5 * 60 * 1000, // 5 minutes
-            retry: 2,
-          },
-          mutations: {
-            retry: 1,
-          },
-        },
-      })
-  );
+  }, [wsClient]);
 
-  // Run health check on mount if auth is configured
   useEffect(() => {
-    const authState = useAuthStore.getState();
-    if (isAuthConfigured(authState) && !healthCheckDoneRef.current) {
-      healthCheckDoneRef.current = true;
-      performHealthCheck();
+    if (healthCheckDoneRef.current) {
+      return;
     }
+    healthCheckDoneRef.current = true;
+    void performHealthCheck();
   }, [performHealthCheck]);
 
   useEffect(() => {
     return () => {
       console.log("[TRPCProvider] Closing WebSocket connection");
-      wsClientRef.current?.close();
+      wsClient.close();
     };
-  }, []);
-
-  useEffect(() => {
-    if (!isConfigured) {
-      failureCountRef.current = 0;
-      forcedReauthRef.current = false;
-      healthCheckDoneRef.current = false;
-      wsClientRef.current?.close();
-      connStatusRef.current = "idle";
-    }
-  }, [isConfigured]);
+  }, [wsClient]);
 
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>

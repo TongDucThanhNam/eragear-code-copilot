@@ -7,7 +7,7 @@ import {
   useThemeColor,
   useToast,
 } from "heroui-native";
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -19,99 +19,163 @@ import {
 import { withUniwind } from "uniwind";
 
 import { Container } from "@/components/common/container";
-import { toHttpUrl } from "@/lib/server-url";
-import { trpc } from "@/lib/trpc";
+import {
+  clearStoredBetterAuthSession,
+  createBetterAuthClientForServer,
+} from "@/lib/auth-client";
+import { getDefaultServerUrl, toHttpUrl } from "@/lib/server-url";
 import { useAuthStore } from "@/store/auth-store";
 import { useConnectionStore } from "@/store/connection-store";
 
-// Wrap Ionicons with Uniwind for className support
 const StyledIcon = withUniwind(Ionicons);
+
+function normalizeErrorMessage(error: unknown, normalizedTarget: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const lowered = message.toLowerCase();
+  const isNetworkError =
+    lowered.includes("load failed") ||
+    lowered.includes("failed to fetch") ||
+    lowered.includes("network") ||
+    lowered.includes("timed out") ||
+    lowered.includes("unable to connect") ||
+    lowered.includes("unreachable") ||
+    lowered.includes("refused");
+
+  if (isNetworkError) {
+    return `Cannot reach server at ${normalizedTarget}. Start apps/server and retry.`;
+  }
+
+  return message || "Authentication failed.";
+}
 
 export default function LoginScreen() {
   const themeColorAccentForeground = useThemeColor("accent-foreground");
   const { toast } = useToast();
-  const utils = trpc.useUtils();
-  const { serverUrl: storedServerUrl, apiKey: storedApiKey, setServerUrl, setApiKey } = useAuthStore();
-  const { errorMessage: connectionError, clearError: clearConnectionError } = useConnectionStore();
   const hostHint = Platform.OS === "android" ? "10.0.2.2:3000" : "localhost:3000";
+  const {
+    serverUrl: storedServerUrl,
+    setServerUrl,
+    clearServerUrl,
+    bumpAuthVersion,
+  } = useAuthStore();
+  const { errorMessage: connectionError, clearError: clearConnectionError } =
+    useConnectionStore();
 
-  const [serverUrl, setServerUrlInput] = useState(storedServerUrl || "localhost:3000");
-  const [apiKey, setApiKeyInput] = useState(storedApiKey || "");
+  const [serverUrl, setServerUrlInput] = useState(
+    storedServerUrl || getDefaultServerUrl()
+  );
+  const [username, setUsernameInput] = useState("");
+  const [password, setPasswordInput] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Update local state when store changes
   useEffect(() => {
-    if (storedServerUrl) {
-      setServerUrlInput(storedServerUrl);
+    if (!storedServerUrl) {
+      return;
     }
-    if (storedApiKey) {
-      setApiKeyInput(storedApiKey);
-    }
-  }, [storedServerUrl, storedApiKey]);
+    setServerUrlInput(storedServerUrl);
+  }, [storedServerUrl]);
 
-  // Clear connection error when user starts typing
   useEffect(() => {
-    if (connectionError && (serverUrl !== storedServerUrl || apiKey !== storedApiKey)) {
+    if (connectionError && serverUrl !== storedServerUrl) {
       clearConnectionError();
     }
-  }, [serverUrl, apiKey, storedServerUrl, storedApiKey, connectionError, clearConnectionError]);
+  }, [clearConnectionError, connectionError, serverUrl, storedServerUrl]);
 
-  const testConnection = async (url: string, key: string) => {
-    // Temporarily set the server URL
-    setServerUrl(url);
-    // Set the API key temporarily to verify
-    setApiKey(key);
+  const hasStoredSession = useMemo(() => {
+    if (!storedServerUrl.trim()) {
+      return false;
+    }
 
-    // Create a quick test query
-    const result = await utils.auth.getMe.fetch();
-    return result;
-  };
+    try {
+      const client = createBetterAuthClientForServer(storedServerUrl);
+      return client.getCookie().trim().length > 0;
+    } catch {
+      return false;
+    }
+  }, [storedServerUrl]);
 
   const handleLogin = async () => {
     if (!serverUrl.trim()) {
-      setError("Server URL is required");
+      setError("Server URL is required.");
       return;
     }
-    if (!apiKey.trim()) {
-      setError("API key is required");
+
+    if (!username.trim()) {
+      setError("Username is required.");
       return;
     }
+
+    if (!password) {
+      setError("Password is required.");
+      return;
+    }
+
+    let normalizedServerUrl: string;
+    try {
+      normalizedServerUrl = toHttpUrl(serverUrl.trim());
+    } catch {
+      setError("Server URL is invalid.");
+      return;
+    }
+
+    const authClient = createBetterAuthClientForServer(normalizedServerUrl);
 
     setIsLoading(true);
     setError(null);
 
     try {
-      // Clean up the server URL
-      const cleanUrl = toHttpUrl(serverUrl.trim());
+      let signInError: string | null = null;
 
-      const result = await testConnection(cleanUrl, apiKey.trim());
+      const result = await authClient.signIn.username(
+        {
+          username: username.trim(),
+          password,
+        },
+        {
+          onError(context: { error: { message?: string } }) {
+            signInError =
+              context.error.message || "Invalid username or password.";
+          },
+        }
+      );
 
-      if (result.user) {
-        toast.show("Connected successfully!");
-      } else {
-        setApiKey(null);
-        setError("Invalid API key or server rejected connection");
-        setIsLoading(false);
+      if (result.error) {
+        throw new Error(result.error.message || "Invalid username or password.");
       }
-    } catch (err) {
-      setApiKey(null);
-      const message =
-        typeof err === "object" && err && "message" in err
-          ? String((err as { message: string }).message)
-          : "Failed to connect. Please check the server URL and API key.";
-      setError(message);
+
+      if (signInError) {
+        throw new Error(signInError);
+      }
+
+      setServerUrl(normalizedServerUrl);
+      bumpAuthVersion();
+      clearConnectionError();
+      setPasswordInput("");
+      toast.show("Signed in successfully!");
+    } catch (loginError) {
+      await clearStoredBetterAuthSession(normalizedServerUrl);
+      bumpAuthVersion();
+      setError(normalizeErrorMessage(loginError, normalizedServerUrl));
+    } finally {
       setIsLoading(false);
     }
   };
 
-  const handleClearAuth = () => {
-    setApiKey(null);
-    setApiKeyInput("");
+  const handleClearSavedSession = async () => {
+    if (storedServerUrl.trim()) {
+      await clearStoredBetterAuthSession(storedServerUrl);
+    }
+
+    clearServerUrl();
+    bumpAuthVersion();
+    clearConnectionError();
+    setPasswordInput("");
     setError(null);
-    toast.show("Disconnected");
+    setServerUrlInput(getDefaultServerUrl());
+    toast.show("Cleared saved session");
   };
 
   return (
@@ -125,11 +189,10 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View className="flex-1 items-center justify-center px-6">
-            {/* Logo/Icon */}
             <View className="mb-8 h-24 w-24 items-center justify-center rounded-full bg-accent/20">
               <StyledIcon
                 color="hsl(var(--color-accent))"
-                name="code-slash"
+                name="shield-checkmark-outline"
                 size={48}
               />
             </View>
@@ -138,10 +201,9 @@ export default function LoginScreen() {
               Eragear Code Copilot
             </Text>
             <Text className="mb-4 text-center text-muted-foreground">
-              Connect to your server
+              Sign in with your server account
             </Text>
 
-            {/* Connection Error Banner */}
             {connectionError && (
               <View className="mb-4 w-full max-w-sm rounded-lg bg-warning/20 p-3">
                 <View className="flex-row items-center gap-2">
@@ -166,8 +228,7 @@ export default function LoginScreen() {
               className="w-full max-w-sm rounded-xl p-6"
               variant="secondary"
             >
-              {/* Server URL Field */}
-              <TextField isInvalid={!!error && !apiKey.trim()}>
+              <TextField isInvalid={!!error && !serverUrl.trim()}>
                 <TextField.Label>Server URL</TextField.Label>
                 <TextField.Input
                   autoCapitalize="none"
@@ -182,34 +243,49 @@ export default function LoginScreen() {
                   value={serverUrl}
                 />
                 <TextField.Description>
-                  Enter IP address or hostname with port
+                  Enter the server hostname or IP with port.
                 </TextField.Description>
               </TextField>
 
-              {/* API Key Field */}
-              <TextField className="mt-4" isInvalid={!!error && !serverUrl.trim()}>
-                <TextField.Label>API Key</TextField.Label>
+              <TextField className="mt-4" isInvalid={!!error && !username.trim()}>
+                <TextField.Label>Username</TextField.Label>
+                <TextField.Input
+                  autoCapitalize="none"
+                  autoComplete="username"
+                  className="w-full"
+                  onChangeText={(value) => {
+                    setUsernameInput(value);
+                    setError(null);
+                  }}
+                  placeholder="admin"
+                  placeholderTextColor="hsl(var(--color-muted))"
+                  value={username}
+                />
+              </TextField>
+
+              <TextField className="mt-4" isInvalid={!!error && !password}>
+                <TextField.Label>Password</TextField.Label>
                 <View className="w-full flex-row items-center">
                   <TextField.Input
                     autoCapitalize="none"
-                    autoComplete="off"
+                    autoComplete="password"
                     className="flex-1 pr-10"
                     onChangeText={(value) => {
-                      setApiKeyInput(value);
+                      setPasswordInput(value);
                       setError(null);
                     }}
-                    placeholder="sk_..."
+                    placeholder="••••••••"
                     placeholderTextColor="hsl(var(--color-muted))"
                     secureTextEntry={!isPasswordVisible}
-                    value={apiKey}
+                    value={password}
                   />
                   <Pressable
                     accessibilityLabel={
-                      isPasswordVisible ? "Hide API key" : "Show API key"
+                      isPasswordVisible ? "Hide password" : "Show password"
                     }
                     accessibilityRole="button"
                     className="absolute right-4"
-                    onPress={() => setIsPasswordVisible(!isPasswordVisible)}
+                    onPress={() => setIsPasswordVisible((visible) => !visible)}
                   >
                     <StyledIcon
                       color="hsl(var(--color-muted))"
@@ -225,10 +301,9 @@ export default function LoginScreen() {
                 )}
               </TextField>
 
-              {/* Show Advanced Toggle */}
               <Pressable
                 className="mt-3 flex-row items-center gap-2"
-                onPress={() => setShowAdvanced(!showAdvanced)}
+                onPress={() => setShowAdvanced((visible) => !visible)}
               >
                 <StyledIcon
                   color="hsl(var(--color-muted))"
@@ -236,15 +311,14 @@ export default function LoginScreen() {
                   size={16}
                 />
                 <Text className="text-muted-foreground text-sm">
-                  {showAdvanced ? "Hide" : "Show"} advanced options
+                  {showAdvanced ? "Hide" : "Show"} saved connection
                 </Text>
               </Pressable>
 
-              {/* Advanced Options */}
               {showAdvanced && (
                 <View className="mt-4 rounded-lg border border-muted/30 p-3">
                   <Text className="mb-2 font-medium text-foreground text-sm">
-                    Connection Status
+                    Saved State
                   </Text>
                   <View className="flex-row items-center gap-2">
                     <View className="h-2 w-2 rounded-full bg-muted" />
@@ -255,28 +329,35 @@ export default function LoginScreen() {
                   <View className="mt-2 flex-row items-center gap-2">
                     <View className="h-2 w-2 rounded-full bg-muted" />
                     <Text className="text-muted-foreground text-xs">
-                      API Key: {storedApiKey ? "••••••••" : "Not configured"}
+                      Session: {hasStoredSession ? "Present" : "Not stored"}
                     </Text>
                   </View>
-                  {storedApiKey && (
+                  {(storedServerUrl || hasStoredSession) && (
                     <Button
                       className="mt-3"
-                      color="danger"
                       size="sm"
                       variant="ghost"
-                      onPress={handleClearAuth}
+                      onPress={() => {
+                        void handleClearSavedSession();
+                      }}
                     >
-                      <Button.Label>Clear Saved Credentials</Button.Label>
+                      <Button.Label>Clear Saved Session</Button.Label>
                     </Button>
                   )}
                 </View>
               )}
 
-              {/* Connect Button */}
               <Button
                 className="mt-6"
-                isDisabled={isLoading || !serverUrl.trim() || !apiKey.trim()}
-                onPress={handleLogin}
+                isDisabled={
+                  isLoading ||
+                  !serverUrl.trim() ||
+                  !username.trim() ||
+                  !password
+                }
+                onPress={() => {
+                  void handleLogin();
+                }}
                 size="lg"
               >
                 {isLoading ? (
@@ -286,21 +367,17 @@ export default function LoginScreen() {
                     size="sm"
                   />
                 ) : (
-                  <Button.Label>Connect</Button.Label>
+                  <Button.Label>Sign In</Button.Label>
                 )}
               </Button>
             </Surface>
 
             <View className="mt-8 items-center">
               <Text className="text-center text-muted-foreground text-sm">
-                First time setup?
+                Use the username/password configured on the server.
               </Text>
               <Text className="mt-1 text-center text-muted-foreground text-xs">
-                1. Start server with AUTH_BOOTSTRAP_API_KEY=true
-                {"\n"}
-                2. Copy API key from console
-                {"\n"}
-                3. Enter server URL and API key above
+                Browser and mobile now share the same Better Auth session model.
               </Text>
             </View>
           </View>

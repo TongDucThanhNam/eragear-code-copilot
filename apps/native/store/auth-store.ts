@@ -2,34 +2,31 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { getDefaultServerUrl } from "@/lib/server-url";
-
 interface AuthState {
   serverUrl: string;
-  apiKey: string | null;
+  authVersion: number;
   setServerUrl: (url: string) => void;
-  setApiKey: (key: string | null) => void;
-  isAuthenticated: boolean;
+  clearServerUrl: () => void;
+  bumpAuthVersion: () => void;
 }
-
-const DEFAULT_SERVER_URL = getDefaultServerUrl();
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
-      serverUrl: DEFAULT_SERVER_URL,
-      apiKey: null,
+      serverUrl: "",
+      authVersion: 0,
       setServerUrl: (url) => set({ serverUrl: url }),
-      setApiKey: (key) =>
-        set({ apiKey: key, isAuthenticated: Boolean(key?.trim()) }),
-      isAuthenticated: false,
+      clearServerUrl: () => set({ serverUrl: "" }),
+      bumpAuthVersion: () =>
+        set((state) => ({
+          authVersion: state.authVersion + 1,
+        })),
     }),
     {
       name: "auth-storage",
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         serverUrl: state.serverUrl,
-        apiKey: state.apiKey,
       }),
     }
   )

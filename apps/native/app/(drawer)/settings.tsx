@@ -15,6 +15,11 @@ import { withUniwind } from "uniwind";
 import { AgentIcon } from "@/components/agents/agent-icons";
 import { Container } from "@/components/common/container";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
+import {
+  clearStoredBetterAuthSession,
+  useBetterAuthClient,
+} from "@/lib/auth-client";
+import { getDefaultServerUrl } from "@/lib/server-url";
 import { trpc } from "@/lib/trpc";
 import { useAuthStore } from "@/store/auth-store";
 
@@ -32,7 +37,9 @@ export default function SettingsScreen() {
 
   const { toast } = useToast();
   const utils = trpc.useUtils();
-  const { apiKey, serverUrl, setApiKey } = useAuthStore();
+  const { serverUrl, bumpAuthVersion } = useAuthStore();
+  const authClient = useBetterAuthClient(serverUrl || getDefaultServerUrl());
+  const session = authClient.useSession();
   const isConfigured = useAuthConfigured();
 
   // Agent state
@@ -48,9 +55,19 @@ export default function SettingsScreen() {
   const [formData, setFormData] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
 
-  const handleClearApiKey = () => {
-    setApiKey(null);
-    toast.show("Disconnected");
+  const handleSignOut = async () => {
+    try {
+      await authClient.signOut();
+    } catch {
+      // Fail closed below even if the server is unreachable.
+    }
+
+    if (serverUrl.trim()) {
+      await clearStoredBetterAuthSession(serverUrl);
+    }
+
+    bumpAuthVersion();
+    toast.show("Signed out");
     router.replace("/login");
   };
 
@@ -185,18 +202,24 @@ export default function SettingsScreen() {
           {isConfigured ? (
             <View className="mt-3 gap-2">
               <Text className="text-muted-foreground text-xs">
-                Server: {serverUrl || "localhost"}
+                Server: {serverUrl || "Not configured"}
               </Text>
               <Text className="text-muted-foreground text-xs">
-                API Key:••••••••
+                User:{" "}
+                {session.data?.user?.name ||
+                  session.data?.user?.username ||
+                  session.data?.user?.email ||
+                  "Unknown"}
               </Text>
               <Button
                 className="mt-2"
                 size="sm"
                 variant="ghost"
-                onPress={handleClearApiKey}
+                onPress={() => {
+                  void handleSignOut();
+                }}
               >
-                <Button.Label>Change Server / Disconnect</Button.Label>
+                <Button.Label>Sign Out</Button.Label>
               </Button>
             </View>
           ) : (

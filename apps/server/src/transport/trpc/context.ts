@@ -27,6 +27,7 @@ export interface RequestLike {
 type ConnectionParams = Record<string, unknown> | null;
 
 const CONNECTION_PARAM_API_KEY_KEYS = ["apiKey", "api_key", "apikey"] as const;
+const CONNECTION_PARAM_COOKIE_KEYS = ["cookie", "cookieHeader"] as const;
 
 function getHeader(
   headers: Headers | Record<string, string | string[] | undefined>,
@@ -53,10 +54,23 @@ function getHeader(
 function extractApiKeyFromConnectionParams(
   connectionParams?: ConnectionParams
 ): string | null {
+  return extractTextConnectionParam(connectionParams, CONNECTION_PARAM_API_KEY_KEYS);
+}
+
+function extractCookieFromConnectionParams(
+  connectionParams?: ConnectionParams
+): string | null {
+  return extractTextConnectionParam(connectionParams, CONNECTION_PARAM_COOKIE_KEYS);
+}
+
+function extractTextConnectionParam(
+  connectionParams: ConnectionParams | undefined,
+  keys: readonly string[]
+): string | null {
   if (!connectionParams || typeof connectionParams !== "object") {
     return null;
   }
-  for (const key of CONNECTION_PARAM_API_KEY_KEYS) {
+  for (const key of keys) {
     const value = connectionParams[key];
     if (typeof value !== "string") {
       continue;
@@ -67,6 +81,26 @@ function extractApiKeyFromConnectionParams(
     }
   }
   return null;
+}
+
+function withCookieHeader(req: RequestLike, cookie: string): RequestLike {
+  if (getHeader(req.headers, "cookie") !== null) {
+    return req;
+  }
+
+  if (req.headers instanceof Headers) {
+    const nextHeaders = new Headers(req.headers);
+    nextHeaders.set("cookie", cookie);
+    return { ...req, headers: nextHeaders };
+  }
+
+  return {
+    ...req,
+    headers: {
+      ...req.headers,
+      cookie,
+    },
+  };
 }
 
 function withApiKeyHeader(req: RequestLike, apiKey: string): RequestLike {
@@ -129,13 +163,20 @@ export async function createTrpcContext(
   deps: TrpcContextDependencies,
   opts?: { req?: RequestLike; connectionParams?: ConnectionParams }
 ) {
+  const cookieFromConnectionParams = extractCookieFromConnectionParams(
+    opts?.connectionParams
+  );
   const apiKeyFromConnectionParams = extractApiKeyFromConnectionParams(
     opts?.connectionParams
   );
-  const requestWithAuth =
-    opts?.req && apiKeyFromConnectionParams
-      ? withApiKeyHeader(opts.req, apiKeyFromConnectionParams)
+  const requestWithCookie =
+    opts?.req && cookieFromConnectionParams
+      ? withCookieHeader(opts.req, cookieFromConnectionParams)
       : opts?.req;
+  const requestWithAuth =
+    requestWithCookie && apiKeyFromConnectionParams
+      ? withApiKeyHeader(requestWithCookie, apiKeyFromConnectionParams)
+      : requestWithCookie;
 
   const authContext = requestWithAuth
     ? await deps.resolveAuthContext(requestWithAuth)

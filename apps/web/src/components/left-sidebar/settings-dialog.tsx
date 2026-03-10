@@ -44,7 +44,7 @@ interface SettingsDialogProps {
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   // Server Connection State
-  const { serverUrl, apiKey, setServerUrl, setApiKey } = useServerConfigStore();
+  const { serverUrl, setServerUrl } = useServerConfigStore();
 
   // Sub-Dialog State (Add/Edit)
   const [isEditOpen, setIsEditOpen] = React.useState(false);
@@ -206,7 +206,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <h3 className="mb-3 flex items-center gap-2 font-medium">
                 <Globe className="h-4 w-4" /> Server Connection
               </h3>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3">
                 <div className="grid gap-1.5">
                   <Label className="text-xs" htmlFor="serverUrl">
                     Server URL
@@ -218,18 +218,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     value={serverUrl}
                   />
                 </div>
-                <div className="grid gap-1.5">
-                  <Label className="text-xs" htmlFor="apiKey">
-                    API Key
-                  </Label>
-                  <Input
-                    id="apiKey"
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="eg_xxxxxxxxxxxxx"
-                    type="password"
-                    value={apiKey}
-                  />
-                </div>
+                <p className="text-muted-foreground text-xs">
+                  Browser sessions now use `better-auth` cookies. Changing the
+                  server URL will require signing in again on the target server.
+                </p>
               </div>
             </div>
 

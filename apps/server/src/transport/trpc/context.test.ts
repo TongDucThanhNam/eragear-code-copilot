@@ -32,6 +32,36 @@ function toHeaders(
 }
 
 describe("createTrpcContext", () => {
+  test("maps ws connectionParams.cookie to cookie header when missing", async () => {
+    let capturedRequest: RequestLike | null = null;
+    const expectedAuth: AuthContext = {
+      type: "session",
+      userId: "user-session",
+    };
+    const deps = createDeps(async (request) => {
+      capturedRequest = request;
+      return expectedAuth;
+    });
+
+    const baseRequest: RequestLike = {
+      headers: new Headers(),
+      url: "ws://localhost:3000/trpc?connectionParams=1",
+    };
+
+    const context = await createTrpcContext(deps, {
+      req: baseRequest,
+      connectionParams: {
+        cookie: "better-auth.session_token=session-token",
+      },
+    });
+
+    expect(context.auth).toEqual(expectedAuth);
+    expect(capturedRequest).not.toBeNull();
+    expect(toHeaders(capturedRequest!.headers).get("cookie")).toBe(
+      "better-auth.session_token=session-token"
+    );
+  });
+
   test("maps ws connectionParams.apiKey to x-api-key when missing", async () => {
     let capturedRequest: RequestLike | null = null;
     const expectedAuth: AuthContext = {
@@ -85,6 +115,36 @@ describe("createTrpcContext", () => {
     expect(capturedRequest).not.toBeNull();
     expect(toHeaders(capturedRequest!.headers).get("x-api-key")).toBe(
       "eg_header_key"
+    );
+  });
+
+  test("does not override explicit cookie header from handshake", async () => {
+    let capturedRequest: RequestLike | null = null;
+    const deps = createDeps(async (request) => {
+      capturedRequest = request;
+      return {
+        type: "session",
+        userId: "user-cookie",
+      };
+    });
+
+    const baseRequest: RequestLike = {
+      headers: new Headers({
+        cookie: "better-auth.session_token=from-header",
+      }),
+      url: "ws://localhost:3000/trpc?connectionParams=1",
+    };
+
+    await createTrpcContext(deps, {
+      req: baseRequest,
+      connectionParams: {
+        cookie: "better-auth.session_token=from-connection-params",
+      },
+    });
+
+    expect(capturedRequest).not.toBeNull();
+    expect(toHeaders(capturedRequest!.headers).get("cookie")).toBe(
+      "better-auth.session_token=from-header"
     );
   });
 });
