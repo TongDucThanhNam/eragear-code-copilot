@@ -3,11 +3,11 @@ import {
   Linking,
   Pressable,
   Text,
-  useColorScheme,
   View,
 } from "react-native";
 import type { ContentBlock, ToolCallContent } from "@agentclientprotocol/sdk";
 import type { ToolUIPart } from "@repo/shared";
+import { useThemeColor } from "heroui-native";
 import { DiffPart } from "./diff-part";
 import { TerminalPart } from "./terminal-part";
 import { isTerminalOutput } from "./utils";
@@ -48,16 +48,16 @@ export function ToolResultDisplay({
   state,
   errorText,
 }: ToolResultDisplayProps) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  const foregroundColor = useThemeColor("foreground");
+  const dangerColor = useThemeColor("danger");
   const isError = state === "output-error" || state === "output-denied";
   const errorLabel = state === "output-denied" ? "Permission denied." : errorText;
   const textColor = useMemo(() => {
     if (isError) {
-      return "#ef4444";
+      return dangerColor;
     }
-    return isDark ? "#E5E7EB" : "#333333";
-  }, [isDark, isError]);
+    return foregroundColor;
+  }, [dangerColor, foregroundColor, isError]);
 
   const renderTextBlock = (text: string, key: string) => {
     const isBlock = isTerminalOutput(text) || text.includes("\n");

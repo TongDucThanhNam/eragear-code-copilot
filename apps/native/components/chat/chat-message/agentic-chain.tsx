@@ -13,7 +13,7 @@ export function ChainOfThought({
   isStreaming,
   messageId,
 }: ChainOfThoughtProps) {
-  const [isOpen, setIsOpen] = useState(isStreaming);
+  const [isOpen, setIsOpen] = useState(false);
 
   const chainSummary = useMemo(() => summarizeChainItems(items), [items]);
   const itemKeys = useMemo(() => deduplicateKeys(items), [items]);
@@ -24,12 +24,6 @@ export function ChainOfThought({
   useEffect(() => {
     setExpandedKey(activeKey ?? null);
   }, [activeKey, messageId]);
-
-  useEffect(() => {
-    if (activeKey) {
-      setIsOpen(true);
-    }
-  }, [activeKey]);
 
   if (items.length === 0) {
     return null;

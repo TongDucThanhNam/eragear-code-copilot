@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { Text, type TextProps, useColorScheme } from "react-native";
+import { useThemeColor } from "heroui-native";
+import { Text, type TextProps } from "react-native";
 
 type PlainTextProps = TextProps & {
   children?: React.ReactNode;
@@ -9,13 +10,13 @@ type PlainTextProps = TextProps & {
 };
 
 function PlainTextInner({ done, style, children, ...props }: PlainTextProps) {
-  const colorScheme = useColorScheme();
+  const foregroundColor = useThemeColor("foreground");
 
   return (
     <Text
       style={[
         {
-          color: colorScheme === "dark" ? "#E5E7EB" : "#111827",
+          color: foregroundColor,
           fontSize: 16,
           lineHeight: 22,
         },

@@ -40,7 +40,7 @@ function CollapsibleMessageTextComponent({
       {canCollapse ? (
         <Pressable onPress={() => setIsExpanded((current) => !current)}>
           <Text
-            className="font-medium text-[12px]"
+            className="font-medium text-[12px] text-muted-foreground"
             style={toggleColor ? { color: toggleColor } : undefined}
           >
             {isExpanded ? "Show less" : "Show more"}
