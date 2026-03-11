@@ -50,7 +50,7 @@ export function ModeSelector({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Overlay />
-        <Popover.Content className="w-48 p-0">
+        <Popover.Content className="w-48 p-0" presentation="popover">
           <View className="py-1">
             {availableModes.map((m) => (
               <Pressable

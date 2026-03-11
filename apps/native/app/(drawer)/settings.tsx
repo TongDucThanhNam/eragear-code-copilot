@@ -3,6 +3,8 @@ import { useRouter } from "expo-router";
 import {
   Button,
   Card,
+  Input,
+  Label,
   Surface,
   TextField,
   useThemeColor,
@@ -343,8 +345,8 @@ export default function SettingsScreen() {
 
               <View className="gap-3">
                 <TextField>
-                  <TextField.Label>Name</TextField.Label>
-                  <TextField.Input
+                  <Label>Name</Label>
+                  <Input
                     autoCapitalize="none"
                     onChangeText={(value) =>
                       setFormData((prev) => ({ ...prev, name: value }))
@@ -387,8 +389,8 @@ export default function SettingsScreen() {
                 </View>
 
                 <TextField>
-                  <TextField.Label>Command</TextField.Label>
-                  <TextField.Input
+                  <Label>Command</Label>
+                  <Input
                     autoCapitalize="none"
                     onChangeText={(value) =>
                       setFormData((prev) => ({ ...prev, command: value }))
@@ -399,8 +401,8 @@ export default function SettingsScreen() {
                 </TextField>
 
                 <TextField>
-                  <TextField.Label>Arguments</TextField.Label>
-                  <TextField.Input
+                  <Label>Arguments</Label>
+                  <Input
                     autoCapitalize="none"
                     onChangeText={(value) =>
                       setFormData((prev) => ({ ...prev, args: value }))
@@ -411,8 +413,8 @@ export default function SettingsScreen() {
                 </TextField>
 
                 <TextField>
-                  <TextField.Label>Resume Command Template</TextField.Label>
-                  <TextField.Input
+                  <Label>Resume Command Template</Label>
+                  <Input
                     autoCapitalize="none"
                     onChangeText={(value) =>
                       setFormData((prev) => ({
@@ -426,8 +428,8 @@ export default function SettingsScreen() {
                 </TextField>
 
                 <TextField>
-                  <TextField.Label>Environment (JSON)</TextField.Label>
-                  <TextField.Input
+                  <Label>Environment (JSON)</Label>
+                  <Input
                     autoCapitalize="none"
                     className="font-mono text-xs"
                     multiline

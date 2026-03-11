@@ -85,6 +85,49 @@ function createLockedRuntime(session: ChatSession) {
   return { runtime, events };
 }
 
+function createOverflowSensitiveRuntime(
+  session: ChatSession,
+  maxWaiters: number
+) {
+  const events: unknown[] = [];
+  let running = false;
+  let waiters = 0;
+  const queue: Array<() => void> = [];
+  const runtime = {
+    get(chatId: string) {
+      return chatId === session.id ? session : undefined;
+    },
+    broadcast(_chatId: string, event: unknown) {
+      events.push(event);
+      return Promise.resolve();
+    },
+    async runExclusive<T>(_chatId: string, work: () => Promise<T>): Promise<T> {
+      if (running) {
+        if (waiters >= maxWaiters) {
+          throw new Error(
+            `Session mutation queue overflow for chat ${session.id} (max waiters: ${maxWaiters})`
+          );
+        }
+        waiters += 1;
+        await new Promise<void>((resolve) => {
+          queue.push(resolve);
+        });
+        waiters -= 1;
+      }
+
+      running = true;
+      try {
+        return await work();
+      } finally {
+        running = false;
+        const next = queue.shift();
+        next?.();
+      }
+    },
+  } as unknown as SessionRuntimePort;
+  return { runtime, events };
+}
+
 function createRepo() {
   const metadataCalls: Array<{
     chatId: string;
@@ -550,6 +593,44 @@ describe("createSessionUpdateHandler", () => {
         })
       )
     );
+
+    const assistantId = session.uiState.currentAssistantId;
+    expect(assistantId).toBeDefined();
+    const assistantMessage = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    const textPart = assistantMessage?.parts.find(
+      (part) => part.type === "text"
+    );
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe(chunks.join(""));
+    }
+  });
+
+  test("pre-serializes concurrent ACP updates before runtime lock backpressure", async () => {
+    const session = createSession("chat-stream-prequeued");
+    const { runtime } = createOverflowSensitiveRuntime(session, 1);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+    const buffer = new SessionBuffering();
+    const chunks = Array.from({ length: 32 }, () => "y");
+
+    await expect(
+      Promise.all(
+        chunks.map((text) =>
+          handler({
+            chatId: session.id,
+            buffer,
+            isReplayingHistory: false,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text },
+            },
+          })
+        )
+      )
+    ).resolves.toBeDefined();
 
     const assistantId = session.uiState.currentAssistantId;
     expect(assistantId).toBeDefined();

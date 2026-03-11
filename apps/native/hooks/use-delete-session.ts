@@ -35,7 +35,7 @@ export function useDeleteSession(): UseDeleteSessionResult {
         store.clearChatFailed(chatId);
 
         await utils.getSessions.invalidate();
-        await utils.getSessionMessages.invalidate({ chatId });
+        await utils.getSessionMessagesPage.invalidate({ chatId });
         return true;
       } catch (err) {
         const message =

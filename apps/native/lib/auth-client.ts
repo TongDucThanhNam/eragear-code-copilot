@@ -7,7 +7,6 @@ import { useMemo } from "react";
 
 import { toHttpUrl } from "@/lib/server-url";
 
-const AUTH_PATH = "/api/auth";
 const SESSION_REFETCH_INTERVAL_SECONDS = 60;
 
 function getAppScheme(): string {
@@ -26,7 +25,7 @@ function sanitizeStoragePrefixSegment(value: string): string {
 }
 
 export function buildBetterAuthBaseUrl(serverUrl: string): string {
-  return `${toHttpUrl(serverUrl).replace(/\/+$/, "")}${AUTH_PATH}`;
+  return toHttpUrl(serverUrl).replace(/\/+$/, "");
 }
 
 export function buildBetterAuthStoragePrefix(serverUrl: string): string {

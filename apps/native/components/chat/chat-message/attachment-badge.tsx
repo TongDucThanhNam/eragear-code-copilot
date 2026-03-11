@@ -1,5 +1,5 @@
 import { Pressable, Text } from "react-native";
-import { cn_inline } from "./utils";
+import { cn } from "heroui-native";
 
 interface AttachmentBadgeProps {
   label: string;
@@ -14,7 +14,7 @@ export function AttachmentBadge({
 }: AttachmentBadgeProps) {
   return (
     <Pressable
-      className={cn_inline(
+      className={cn(
         "rounded border border-divider px-2 py-1",
         className
       )}

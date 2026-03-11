@@ -1,32 +1,40 @@
-import { TextField } from "heroui-native";
-import { TextInput, View } from "react-native";
+import { useThemeColor } from "heroui-native";
+import { TextInput } from "react-native";
 
 interface ChatInputAreaProps {
   value: string;
   onChangeText: (text: string) => void;
   disabled?: boolean;
+  placeholder: string;
 }
 
 export function ChatInputArea({
   value,
   onChangeText,
   disabled,
+  placeholder,
 }: ChatInputAreaProps) {
+  const [accentColor, fieldForegroundColor, fieldPlaceholderColor] =
+    useThemeColor(["accent", "field-foreground", "field-placeholder"]);
+
   return (
-    <View className="px-3 pt-3">
-      <TextField isDisabled={disabled}>
-        <TextInput
-          className="min-h-18 w-full border-0 bg-transparent px-1 text-foreground"
-          editable={!disabled}
-          multiline
-          numberOfLines={3}
-          onChangeText={onChangeText}
-          placeholder="Ask anything or type / for commands"
-          placeholderTextColor="#8e8e93"
-          textAlignVertical="top"
-          value={value}
-        />
-      </TextField>
-    </View>
+    <TextInput
+      autoCapitalize="sentences"
+      autoCorrect={false}
+      className="max-h-36 min-h-6 flex-1 py-2 text-[16px] leading-6"
+      editable={!disabled}
+      multiline
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor={fieldPlaceholderColor}
+      scrollEnabled
+      selectionColor={accentColor}
+      style={{
+        color: fieldForegroundColor,
+        textAlignVertical: "top",
+      }}
+      underlineColorAndroid="transparent"
+      value={value}
+    />
   );
 }

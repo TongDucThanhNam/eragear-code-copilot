@@ -20,7 +20,7 @@ export function AttachmentList({
   }
 
   return (
-    <View className="px-3 pt-3">
+    <View className="px-2 pb-1 pt-1">
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         {attachments.map((attachment) => {
           const label =
@@ -39,8 +39,8 @@ export function AttachmentList({
                 : "image";
 
           return (
-            <View className="mr-2 w-28" key={attachment.id}>
-              <View className="relative h-20 overflow-hidden rounded-lg bg-default-100">
+            <View className="mr-2 w-24" key={attachment.id}>
+              <View className="relative h-20 overflow-hidden rounded-2xl bg-black/20">
                 {attachment.kind === "image" ? (
                   <Image
                     className="h-full w-full"
@@ -57,13 +57,16 @@ export function AttachmentList({
                   </View>
                 )}
                 <Pressable
-                  className="absolute right-1 top-1 h-6 w-6 items-center justify-center rounded-full bg-black/60"
+                  className="absolute right-1 top-1 h-6 w-6 items-center justify-center rounded-full bg-black/55"
                   onPress={() => onRemove(attachment.id)}
                 >
                   <StyledIcon className="text-white" name="close" size={14} />
                 </Pressable>
               </View>
-              <Text className="mt-1 text-foreground text-xs" numberOfLines={1}>
+              <Text
+                className="mt-1.5 text-foreground text-xs"
+                numberOfLines={1}
+              >
                 {label}
               </Text>
               <Text className="text-[10px] text-muted-foreground">{meta}</Text>

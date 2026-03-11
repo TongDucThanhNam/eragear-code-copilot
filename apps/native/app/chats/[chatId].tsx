@@ -1,3 +1,5 @@
+import { Ionicons } from "@expo/vector-icons";
+import { Button, Surface, useThemeColor } from "heroui-native";
 import { isChatBusyStatus, type UIMessage } from "@repo/shared";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +18,8 @@ import { useMessageAttachments } from "@/hooks/use-message-attachments";
 import { trpc } from "@/lib/trpc";
 import type { ConnectionStatus, SessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
+
+const HISTORY_PAGE_LIMIT = 200;
 
 type ResumeValidationResult =
   | { valid: true; session: SessionInfo }
@@ -61,6 +65,30 @@ function computeChatTitle(
     return canResume ? "Chat (Inactive)" : "Chat (Read-only)";
   }
   return "Chat";
+}
+
+function getProjectLabel(projectRoot: string | undefined): string | null {
+  if (!projectRoot) {
+    return null;
+  }
+
+  const segments = projectRoot.split(/[\\/]/).filter(Boolean);
+  return segments.at(-1) ?? null;
+}
+
+function computeChatSubtitle(
+  session: SessionInfo | undefined,
+  isReadOnly: boolean,
+  canResume: boolean
+): string | undefined {
+  const projectLabel = getProjectLabel(session?.projectRoot);
+
+  if (isReadOnly) {
+    const modeLabel = canResume ? "Resume available" : "History only";
+    return projectLabel ? `${projectLabel} • ${modeLabel}` : modeLabel;
+  }
+
+  return projectLabel ?? "Live coding session";
 }
 
 export default function ChatScreen() {
@@ -132,8 +160,10 @@ export default function ChatScreen() {
     status,
   } = useChat();
   const insets = useSafeAreaInsets();
+  const accentColor = useThemeColor("accent");
   const [inputHeight, setInputHeight] = useState(0);
   const [forceActive, setForceActive] = useState(false);
+  const [isResumePending, setIsResumePending] = useState(false);
   const appliedHistoryRef = useRef<string | null>(null);
   const {
     attachments,
@@ -160,8 +190,13 @@ export default function ChatScreen() {
   }, [chatId, resetAttachments]);
 
   // Query for historical messages (read-only mode)
-  const messagesQuery = trpc.getSessionMessages.useQuery(
-    { chatId: chatId || "" },
+  const messagesQuery = trpc.getSessionMessagesPage.useQuery(
+    {
+      chatId: chatId || "",
+      direction: "backward",
+      limit: HISTORY_PAGE_LIMIT,
+      includeCompacted: true,
+    },
     {
       enabled: isConfigured && isReadOnly && !!chatId,
     }
@@ -196,15 +231,14 @@ export default function ChatScreen() {
     [attachments, resetAttachments, sendMessage]
   );
   const listContentPadding = Math.max(100, inputHeight + insets.bottom + 16);
-  const keyboardBottomOffset = inputHeight > 0 ? inputHeight + 16 : 0;
 
   // Load historical messages for read-only mode
   useEffect(() => {
-    if (!isReadOnly || !messagesQuery.data || !chatId) {
+    if (!(isReadOnly && messagesQuery.data && chatId)) {
       return;
     }
 
-    const history = messagesQuery.data as UIMessage[];
+    const history = messagesQuery.data.messages as UIMessage[];
     const firstId = history[0]?.id ?? "none";
     const lastId = history[history.length - 1]?.id ?? "none";
     const signature = `${chatId}:${history.length}:${firstId}:${lastId}`;
@@ -278,7 +312,11 @@ export default function ChatScreen() {
     }
 
     const validChatId = chatId as string;
+    if (isResumePending) {
+      return;
+    }
     try {
+      setIsResumePending(true);
       setForceActive(true);
       clearChatFailed(validChatId);
       setError(null);
@@ -293,13 +331,33 @@ export default function ChatScreen() {
       setForceActive(false);
       setActiveChatId(validChatId, true);
       setError(message);
+    } finally {
+      setIsResumePending(false);
     }
   };
 
   if (!chatId) {
     return (
-      <View className="flex-1 items-center justify-center bg-background">
-        <Text className="text-foreground">No Chat ID</Text>
+      <View className="flex-1 items-center justify-center bg-background px-6 dark:bg-black">
+        <Surface className="w-full max-w-sm rounded-[28px] border border-divider/70 px-6 py-7">
+          <View className="mb-4 h-14 w-14 items-center justify-center rounded-full bg-accent/10">
+            <Ionicons color={accentColor} name="chatbubbles-outline" size={28} />
+          </View>
+          <Text className="font-semibold text-foreground text-xl">
+            No chat selected
+          </Text>
+          <Text className="mt-2 text-muted-foreground text-sm leading-6">
+            Pick a session from the list or create a new one before opening the
+            chat view.
+          </Text>
+          <Button
+            className="mt-5 self-start rounded-2xl"
+            onPress={() => router.replace("/")}
+            variant="secondary"
+          >
+            Back to sessions
+          </Button>
+        </Surface>
       </View>
     );
   }
@@ -308,6 +366,11 @@ export default function ChatScreen() {
     ? messagesQuery.isLoading || messagesQuery.isFetching
     : connStatus === "connecting" && messageIds.length === 0;
   const chatTitle = computeChatTitle(currentSession, isReadOnly, canResumeChat);
+  const chatSubtitle = computeChatSubtitle(
+    currentSession,
+    isReadOnly,
+    canResumeChat
+  );
   const isStreaming = useMemo(() => {
     if (isReadOnly || connStatus !== "connected") {
       return false;
@@ -317,7 +380,7 @@ export default function ChatScreen() {
 
   return (
     <View
-      className="flex-1 bg-background"
+      className="flex-1 bg-background dark:bg-black"
       style={{
         paddingTop: insets.top,
         paddingLeft: insets.left,
@@ -325,38 +388,71 @@ export default function ChatScreen() {
       }}
     >
       <ChatHeader
+        availableModels={models?.availableModels ?? []}
+        availableModes={modes?.availableModes ?? []}
         canResume={canResumeChat}
+        currentModeId={modes?.currentModeId ?? null}
+        currentModelId={models?.currentModelId ?? null}
+        disabled={connStatus !== "connected"}
+        isResumePending={isResumePending || connStatus === "connecting"}
         isSessionStopped={isSessionStopped}
+        onModeChange={handleModeChange}
+        onModelChange={handleModelChange}
         onResume={handleResume}
         onStop={handleStop}
         status={isReadOnly ? "idle" : connStatus}
+        subtitle={chatSubtitle}
+        supportsModelSwitching={supportsModelSwitching}
         title={chatTitle}
       />
 
-      {/* Read-only banner */}
       {isReadOnly && (
-        <View className="border-divider border-b bg-default px-4 py-2">
-          <Text className="text-center text-muted text-sm">
-            {canResumeChat
-              ? "This session is inactive. Tap Resume to continue."
-              : "This session has ended. You can view the history but cannot send new messages."}
-          </Text>
-        </View>
+        <Surface
+          className="mx-4 mt-3 rounded-2xl border border-divider/60 px-4 py-3"
+          variant="secondary"
+        >
+          <View className="flex-row items-center gap-3">
+            <View className="flex-1">
+              <Text className="font-medium text-foreground text-sm">
+                {canResumeChat ? "Session paused" : "History only"}
+              </Text>
+              <Text className="mt-1 text-muted-foreground text-sm">
+                {canResumeChat
+                  ? "Resume to continue this conversation."
+                  : "Transcript is available, but new messages are disabled."}
+              </Text>
+            </View>
+            {canResumeChat ? (
+              <Button
+                className="rounded-2xl"
+                isDisabled={isResumePending}
+                onPress={handleResume}
+                size="sm"
+              >
+                {isResumePending ? "Resuming..." : "Resume"}
+              </Button>
+            ) : null}
+          </View>
+        </Surface>
       )}
 
       <View className="flex-1">
         {showLoading ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#2563eb" size="large" />
-            <Text className="mt-2 text-muted">
-              {isReadOnly ? "Loading history..." : "Connecting..."}
+          <View className="flex-1 items-center justify-center px-6">
+            <ActivityIndicator color={accentColor} size="large" />
+            <Text className="mt-4 font-medium text-foreground text-base">
+              {isReadOnly ? "Loading history" : "Restoring session"}
+            </Text>
+            <Text className="mt-1 text-center text-muted-foreground text-sm">
+              {isReadOnly
+                ? "Fetching the stored transcript."
+                : "Reconnecting and syncing messages."}
             </Text>
           </View>
         ) : (
           <ChatMessages
             contentPaddingBottom={listContentPadding}
             isStreaming={isStreaming}
-            keyboardBottomOffset={keyboardBottomOffset}
             messageIds={messageIds}
           />
         )}
@@ -368,20 +464,13 @@ export default function ChatScreen() {
           <ChatInput
             attachments={attachments}
             availableCommands={commands}
-            availableModels={models?.availableModels ?? []}
-            availableModes={modes?.availableModes ?? []}
-            currentModeId={modes?.currentModeId ?? null}
-            currentModelId={models?.currentModelId ?? null}
             disabled={connStatus !== "connected" || status !== "ready"}
             onHeightChange={handleInputHeightChange}
-            onModeChange={handleModeChange}
-            onModelChange={handleModelChange}
             onOpenAttachment={openAttachmentModal}
             onRemoveAttachment={removeAttachment}
             onSend={handleSendMessage}
             onStop={stop}
             status={status}
-            supportsModelSwitching={supportsModelSwitching}
           />
         </KeyboardStickyView>
       )}

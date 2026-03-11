@@ -1,10 +1,10 @@
-import { Surface } from "heroui-native";
+import { Ionicons } from "@expo/vector-icons";
+import { Button, useThemeColor } from "heroui-native";
 import { useState } from "react";
 import { type LayoutChangeEvent, View } from "react-native";
 import { ActionBar } from "./action-bar";
 import { AttachmentList } from "./attachment-list";
 import { ChatInputArea } from "./chat-input-area";
-import { ModeSelector } from "./mode-selector";
 import type { ChatInputProps } from "./types";
 
 export function ChatInput({
@@ -16,22 +16,31 @@ export function ChatInput({
   onOpenAttachment,
   attachments,
   onRemoveAttachment,
-  availableModes,
-  currentModeId,
-  onModeChange,
-  availableModels,
-  currentModelId,
-  supportsModelSwitching,
-  onModelChange,
   availableCommands,
-}: ChatInputProps) {
+}: Omit<
+  ChatInputProps,
+  | "availableModes"
+  | "currentModeId"
+  | "onModeChange"
+  | "availableModels"
+  | "currentModelId"
+  | "supportsModelSwitching"
+  | "onModelChange"
+>) {
   const [text, setText] = useState("");
-  const [showModeMenu, setShowModeMenu] = useState(false);
+  const [accentForegroundColor, defaultForegroundColor] = useThemeColor([
+    "accent-foreground",
+    "default-foreground",
+  ]);
 
   const hasContent = text.trim().length > 0 || attachments.length > 0;
   const canSend = !disabled && hasContent;
   const canStop = status === "streaming" || status === "awaiting_permission";
-  const isActionDisabled = canStop ? !onStop : !canSend;
+  const canRunPrimaryAction = canStop ? Boolean(onStop) : canSend;
+  const placeholder =
+    availableCommands.length > 0
+      ? "Type / for commands"
+      : "Message the assistant";
 
   const handleSend = () => {
     if (!canSend) {
@@ -49,50 +58,68 @@ export function ChatInput({
     onHeightChange?.(event.nativeEvent.layout.height);
   };
 
+  const handlePrimaryAction = () => {
+    if (canStop) {
+      onStop?.();
+      return;
+    }
+
+    handleSend();
+  };
+
   return (
-    <View className="px-3 pb-4" onLayout={handleLayout}>
-      <Surface className="overflow-hidden rounded-2xl border border-divider bg-surface">
-        {/* Mode Selector */}
-        {availableModes.length > 0 && (
-          <View className="flex-row items-center gap-2 border-divider border-b px-3 py-2">
-            <ModeSelector
-              availableModes={availableModes}
-              currentModeId={currentModeId}
-              disabled={disabled}
-              isOpen={showModeMenu}
-              onModeChange={onModeChange}
-              onOpenChange={setShowModeMenu}
-            />
-          </View>
-        )}
-
-        {/* Text Input */}
-        <AttachmentList
-          attachments={attachments}
-          onRemove={onRemoveAttachment}
-        />
-        <ChatInputArea
-          disabled={disabled}
-          onChangeText={setText}
-          value={text}
-        />
-
-        {/* Action Bar */}
+    <View
+      className="bg-background px-4 pb-4 pt-2 dark:bg-black"
+      onLayout={handleLayout}
+    >
+      <View className="flex-row items-end gap-2">
         <ActionBar
           availableCommands={availableCommands}
-          availableModels={availableModels}
-          currentModelId={currentModelId}
           disabled={disabled}
-          isActionDisabled={isActionDisabled}
-          onModelChange={onModelChange}
           onOpenAttachment={onOpenAttachment}
-          onSend={handleSend}
-          onStop={onStop}
           onSlashCommand={handleSlashCommand}
-          status={status}
-          supportsModelSwitching={supportsModelSwitching}
         />
-      </Surface>
+
+        <View className="min-h-12 flex-1 rounded-[26px] bg-default px-2 pb-2 pt-2">
+          <AttachmentList
+            attachments={attachments}
+            onRemove={onRemoveAttachment}
+          />
+
+          <View className="flex-row items-end gap-2 px-2">
+            <ChatInputArea
+              disabled={disabled}
+              onChangeText={setText}
+              placeholder={placeholder}
+              value={text}
+            />
+
+            {(hasContent || canStop) && (
+              <Button
+                className="mb-0.5 h-9 w-9 self-end rounded-full"
+                feedbackVariant="scale"
+                isDisabled={!canRunPrimaryAction}
+                isIconOnly
+                onPress={handlePrimaryAction}
+                size="sm"
+                variant={canStop ? "secondary" : "primary"}
+              >
+                <Button.Label>
+                  <Ionicons
+                    color={
+                      canStop
+                        ? defaultForegroundColor
+                        : accentForegroundColor
+                    }
+                    name={canStop ? "stop" : "arrow-up"}
+                    size={18}
+                  />
+                </Button.Label>
+              </Button>
+            )}
+          </View>
+        </View>
+      </View>
     </View>
   );
 }

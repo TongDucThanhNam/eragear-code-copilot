@@ -3,6 +3,8 @@ import { useRouter } from "expo-router";
 import {
   BottomSheet,
   Button,
+  Input,
+  Label,
   Spinner,
   Surface,
   Tabs,
@@ -54,7 +56,7 @@ function truncateSessionId(id: string | undefined): string {
   if (id.length <= 12) {
     return id;
   }
-  return `${id.slice(0, 6)}...${id.at(-6)}`;
+  return `${id.slice(0, 6)}...${id.slice(-6)}`;
 }
 
 function getSessionTitle(
@@ -809,7 +811,7 @@ export default function SessionsScreen() {
         <Tabs
           onValueChange={(key: string) => setActiveTab(key as FilterTab)}
           value={activeTab}
-          variant="pill"
+          variant="primary"
         >
           <Tabs.List className="w-full flex-row">
             <Tabs.Indicator />
@@ -865,8 +867,8 @@ export default function SessionsScreen() {
 
             <ScrollView>
               <TextField>
-                <TextField.Label>Name</TextField.Label>
-                <TextField.Input
+                <Label>Name</Label>
+                <Input
                   autoCapitalize="none"
                   onChangeText={(value) =>
                     setProjectForm((prev) => ({ ...prev, name: value }))
@@ -877,8 +879,8 @@ export default function SessionsScreen() {
               </TextField>
 
               <TextField>
-                <TextField.Label>Path</TextField.Label>
-                <TextField.Input
+                <Label>Path</Label>
+                <Input
                   autoCapitalize="none"
                   onChangeText={(value) =>
                     setProjectForm((prev) => ({ ...prev, path: value }))
@@ -889,8 +891,8 @@ export default function SessionsScreen() {
               </TextField>
 
               <TextField>
-                <TextField.Label>Description</TextField.Label>
-                <TextField.Input
+                <Label>Description</Label>
+                <Input
                   autoCapitalize="none"
                   onChangeText={(value) =>
                     setProjectForm((prev) => ({
@@ -904,8 +906,8 @@ export default function SessionsScreen() {
               </TextField>
 
               <TextField>
-                <TextField.Label>Tags</TextField.Label>
-                <TextField.Input
+                <Label>Tags</Label>
+                <Input
                   autoCapitalize="none"
                   onChangeText={(value) =>
                     setProjectForm((prev) => ({ ...prev, tags: value }))
@@ -952,8 +954,8 @@ export default function SessionsScreen() {
 
             <ScrollView>
               <TextField>
-                <TextField.Label>Name</TextField.Label>
-                <TextField.Input
+                <Label>Name</Label>
+                <Input
                   autoCapitalize="none"
                   onChangeText={(value) =>
                     setEditProjectForm((prev) => ({ ...prev, name: value }))
@@ -964,8 +966,8 @@ export default function SessionsScreen() {
               </TextField>
 
               <TextField>
-                <TextField.Label>Path</TextField.Label>
-                <TextField.Input
+                <Label>Path</Label>
+                <Input
                   autoCapitalize="none"
                   onChangeText={(value) =>
                     setEditProjectForm((prev) => ({ ...prev, path: value }))
@@ -976,8 +978,8 @@ export default function SessionsScreen() {
               </TextField>
 
               <TextField>
-                <TextField.Label>Description</TextField.Label>
-                <TextField.Input
+                <Label>Description</Label>
+                <Input
                   autoCapitalize="none"
                   onChangeText={(value) =>
                     setEditProjectForm((prev) => ({
@@ -991,8 +993,8 @@ export default function SessionsScreen() {
               </TextField>
 
               <TextField>
-                <TextField.Label>Tags</TextField.Label>
-                <TextField.Input
+                <Label>Tags</Label>
+                <Input
                   autoCapitalize="none"
                   onChangeText={(value) =>
                     setEditProjectForm((prev) => ({ ...prev, tags: value }))
@@ -1246,8 +1248,8 @@ export default function SessionsScreen() {
             </View>
 
             <TextField>
-              <TextField.Label>Rename Session</TextField.Label>
-              <TextField.Input
+              <Label>Rename Session</Label>
+              <Input
                 autoCapitalize="none"
                 onChangeText={setSessionNameDraft}
                 placeholder="Session name"

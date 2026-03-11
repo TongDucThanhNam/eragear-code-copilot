@@ -7,7 +7,7 @@ import {
 import { createWSClient, type TRPCClient, wsLink } from "@trpc/client";
 import { useToast } from "heroui-native";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   clearStoredBetterAuthSession,
@@ -75,11 +75,14 @@ export function TRPCProvider({ children, authClient }: TRPCProviderProps) {
   const failureCountRef = useRef(0);
   const authFailureHandledRef = useRef(false);
   const healthCheckDoneRef = useRef(false);
-  const {
-    setError: setConnectionError,
-    clearError: clearConnectionError,
-    setStatus: setConnectionStatus,
-  } = useConnectionStore();
+  const toastRef = useRef(toast);
+  const setConnectionError = useConnectionStore((state) => state.setError);
+  const clearConnectionError = useConnectionStore((state) => state.clearError);
+  const setConnectionStatus = useConnectionStore((state) => state.setStatus);
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   const forceSessionReset = useCallback(
     async (message: string) => {
@@ -145,7 +148,7 @@ export function TRPCProvider({ children, authClient }: TRPCProviderProps) {
     return true;
   }, [clearConnectionError, redirectToConnectionSetup, setConnectionStatus]);
 
-  const queryClient = useMemo(() => {
+  const [queryClient] = useState(() => {
     const handleAuthFailure = (error: unknown) => {
       if (!isUnauthorizedError(error)) {
         return;
@@ -170,9 +173,9 @@ export function TRPCProvider({ children, authClient }: TRPCProviderProps) {
         },
       },
     });
-  }, [forceSessionReset]);
+  });
 
-  const wsClient = useMemo(() => {
+  const [wsClient] = useState(() => {
     return createWSClient({
       url: () => getWsUrl(),
       connectionParams: () => {
@@ -201,7 +204,7 @@ export function TRPCProvider({ children, authClient }: TRPCProviderProps) {
         redirectToConnectionSetup(
           "Unable to connect to server. Please verify the server URL and try again."
         );
-        toast.show({
+        toastRef.current.show({
           variant: "warning",
           label: "Server unreachable",
           description: "Redirecting to connection settings...",
@@ -209,23 +212,17 @@ export function TRPCProvider({ children, authClient }: TRPCProviderProps) {
         });
       },
     });
-  }, [
-    authClient,
-    clearConnectionError,
-    redirectToConnectionSetup,
-    setConnectionStatus,
-    toast,
-  ]);
+  });
 
-  const trpcClient = useMemo<TRPCClient<AppRouter>>(() => {
-    return trpc.createClient({
+  const [trpcClient] = useState<TRPCClient<AppRouter>>(() =>
+    trpc.createClient({
       links: [
         wsLink({
           client: wsClient,
         }),
       ],
-    });
-  }, [wsClient]);
+    })
+  );
 
   useEffect(() => {
     if (healthCheckDoneRef.current) {
@@ -238,13 +235,15 @@ export function TRPCProvider({ children, authClient }: TRPCProviderProps) {
   useEffect(() => {
     return () => {
       console.log("[TRPCProvider] Closing WebSocket connection");
-      wsClient.close();
+      void wsClient.close();
     };
   }, [wsClient]);
 
   return (
-    <trpc.Provider client={trpcClient} queryClient={queryClient}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    </trpc.Provider>
+    <QueryClientProvider client={queryClient}>
+      <trpc.Provider client={trpcClient} queryClient={queryClient}>
+        {children}
+      </trpc.Provider>
+    </QueryClientProvider>
   );
 }

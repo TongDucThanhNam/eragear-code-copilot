@@ -56,7 +56,7 @@ function DrawerLayout() {
           </Popover.Trigger>
           <Popover.Portal>
             <Popover.Overlay />
-            <Popover.Content className="w-44 p-1">
+            <Popover.Content className="w-44 p-1" presentation="popover">
               <View className="py-1">
                 <Pressable
                   className="flex-row items-center gap-2 rounded-md px-3 py-2 active:bg-default-100"

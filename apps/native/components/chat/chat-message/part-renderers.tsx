@@ -5,9 +5,10 @@ import { PlanPart } from "./plan-part";
 import { ReasoningPart } from "./reasoning-part";
 import MarkdownText from "./text-part";
 import { ToolCallPart } from "./tool-call-part";
-import { ToolResultPart } from "./tool-result-part";
 
 interface PartRenderersProps {
+  isExpanded: boolean;
+  onToggle: () => void;
   part: UIMessagePart;
 }
 
@@ -24,13 +25,24 @@ const isPlanOutput = (
   output !== null &&
   Array.isArray((output as { entries?: unknown }).entries);
 
-export function PartRenderers({ part }: PartRenderersProps) {
+export function PartRenderers({
+  isExpanded,
+  onToggle,
+  part,
+}: PartRenderersProps) {
   switch (part.type) {
     case "text":
       return <MarkdownText>{part.text}</MarkdownText>;
 
     case "reasoning":
-      return <ReasoningPart state={part.state} text={part.text} />;
+      return (
+        <ReasoningPart
+          isExpanded={isExpanded}
+          onToggle={onToggle}
+          state={part.state}
+          text={part.text}
+        />
+      );
     case "source-url": {
       const label = part.title ?? part.url;
       return (
@@ -73,31 +85,31 @@ export function PartRenderers({ part }: PartRenderersProps) {
             content: entry.content,
             status: entry.status,
           }));
-          return <PlanPart items={items} />;
-        }
-        return (
-          <View>
+          return (
             <ToolCallPart
+              details={<PlanPart items={items} />}
               input={part.input}
+              isExpanded={isExpanded}
+              onToggle={onToggle}
               state={part.state}
               title={title}
               toolCallId={part.toolCallId}
             />
-            {(part.state === "output-available" ||
-              part.state === "output-error" ||
-              part.state === "output-denied") && (
-              <ToolResultPart
-                errorText={
-                  part.state === "output-error" ? part.errorText : undefined
-                }
-                output={
-                  part.state === "output-available" ? part.output : undefined
-                }
-                state={part.state}
-                toolCallId={part.toolCallId}
-              />
-            )}
-          </View>
+          );
+        }
+        return (
+          <ToolCallPart
+            errorText={
+              part.state === "output-error" ? part.errorText : undefined
+            }
+            input={part.input}
+            isExpanded={isExpanded}
+            onToggle={onToggle}
+            output={part.state === "output-available" ? part.output : undefined}
+            state={part.state}
+            title={title}
+            toolCallId={part.toolCallId}
+          />
         );
       }
       if (part.type.startsWith("data-")) {

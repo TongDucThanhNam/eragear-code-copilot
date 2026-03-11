@@ -95,8 +95,8 @@
         "AUTH_TRUSTED_ORIGINS": {
           "type": "array",
           "items": { "type": "string" },
-          "default": ["http://localhost:3000", "http://localhost:5173"],
-          "description": "List of trusted origins for CORS and Auth"
+          "default": ["http://localhost:3000", "http://localhost:5173", "eragear-code-copilot://"],
+          "description": "List of trusted origins for CORS and Auth. Include the Expo app scheme for native clients."
         },
         "AUTH_TRUSTED_PROXY_IPS": {
           "type": "array",

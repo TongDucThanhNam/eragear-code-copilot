@@ -610,45 +610,56 @@ export function createSessionUpdateHandler(
   sessionRuntime: SessionRuntimePort,
   sessionRepo: SessionRepositoryPort
 ) {
+  let updateTail: Promise<void> = Promise.resolve();
+
   return async function handleSessionUpdate(params: {
     chatId: string;
     buffer: SessionBufferingPort;
     isReplayingHistory: boolean;
     update: SessionUpdate;
   }) {
-    const { chatId, buffer, isReplayingHistory, update } = params;
-    const turnIdResolution = resolveSessionUpdateTurnId(update);
+    const runUpdate = updateTail.then(async () => {
+      const { chatId, buffer, isReplayingHistory, update } = params;
+      const turnIdResolution = resolveSessionUpdateTurnId(update);
 
-    trackReplayEvents(buffer, isReplayingHistory, update);
+      trackReplayEvents(buffer, isReplayingHistory, update);
 
-    const suppressReplay =
-      isReplayingHistory &&
-      Boolean(sessionRuntime.get(chatId)?.suppressReplayBroadcast);
-    const isDebugEnabled = shouldEmitRuntimeLog("debug");
-    const summary = isDebugEnabled ? summarizeUpdate(update) : undefined;
-    if (isDebugEnabled && summary && shouldLogSessionUpdateSummary(update)) {
-      logger.debug("ACP session update", {
-        chatId,
-        isReplayingHistory,
-        suppressReplay,
-        ...summary,
-      });
-    }
+      const suppressReplay =
+        isReplayingHistory &&
+        Boolean(sessionRuntime.get(chatId)?.suppressReplayBroadcast);
+      const isDebugEnabled = shouldEmitRuntimeLog("debug");
+      const summary = isDebugEnabled ? summarizeUpdate(update) : undefined;
+      if (isDebugEnabled && summary && shouldLogSessionUpdateSummary(update)) {
+        logger.debug("ACP session update", {
+          chatId,
+          isReplayingHistory,
+          suppressReplay,
+          ...summary,
+        });
+      }
 
-    await sessionRuntime.runExclusive(chatId, async () => {
-      await processSessionUpdateUnderLock({
-        chatId,
-        buffer,
-        isReplayingHistory,
-        suppressReplay,
-        update,
-        turnIdResolution,
-        sessionRuntime,
-        sessionRepo,
-        summary,
-        isDebugEnabled,
+      await sessionRuntime.runExclusive(chatId, async () => {
+        await processSessionUpdateUnderLock({
+          chatId,
+          buffer,
+          isReplayingHistory,
+          suppressReplay,
+          update,
+          turnIdResolution,
+          sessionRuntime,
+          sessionRepo,
+          summary,
+          isDebugEnabled,
+        });
       });
     });
+
+    updateTail = runUpdate.then(
+      () => undefined,
+      () => undefined
+    );
+
+    await runUpdate;
   };
 }
 

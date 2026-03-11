@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.15.0",
+    "@better-auth/expo": "catalog:",
     "@eragear-code-copilot/env": "workspace:*",
     "@hono/react-renderer": "^1.0.1",
     "@repo/shared": "workspace:*",

@@ -1,149 +1,50 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Button, cn } from "heroui-native";
+import { Button, useThemeColor } from "heroui-native";
 import { useState } from "react";
-import { ActivityIndicator, View } from "react-native";
-import { withUniwind } from "uniwind";
-import { ModelSelector } from "./model-selector";
-import { SlashCommandMenu } from "./slash-command-menu";
+import { View } from "react-native";
+import { PlusMenu } from "./plus-menu";
 import type { ChatInputProps } from "./types";
-
-const StyledIonicons = withUniwind(Ionicons);
 
 interface ActionBarProps {
   disabled?: boolean;
-  status: ChatInputProps["status"];
   onOpenAttachment?: () => void;
-  onSend: () => void;
-  onStop?: () => void;
   onSlashCommand: (command: string) => void;
-  isActionDisabled: boolean;
-  availableModels: ChatInputProps["availableModels"];
-  currentModelId: string | null;
-  supportsModelSwitching?: boolean;
-  onModelChange: (modelId: string) => void;
   availableCommands: ChatInputProps["availableCommands"];
 }
 
 export function ActionBar({
   disabled,
   onOpenAttachment,
-  onSend,
-  onStop,
   onSlashCommand,
-  isActionDisabled,
-  availableModels,
-  currentModelId,
-  supportsModelSwitching,
-  onModelChange,
   availableCommands,
-  status,
 }: ActionBarProps) {
-  const [showModelMenu, setShowModelMenu] = useState(false);
-  const [showSlashMenu, setShowSlashMenu] = useState(false);
-  const canStop = status === "streaming" || status === "awaiting_permission";
-  const isLoading =
-    status === "submitted" || status === "connecting" || status === "cancelling";
-
-  let icon = (
-    <StyledIonicons
-      className="text-default-foreground"
-      name="arrow-up"
-      size={18}
-    />
-  );
-
-  if (isLoading) {
-    icon = <ActivityIndicator color="#ffffff" size="small" />;
-  } else if (canStop) {
-    icon = (
-      <StyledIonicons
-        className="text-default-foreground"
-        name="square"
-        size={16}
-      />
-    );
-  } else if (status === "error") {
-    icon = (
-      <StyledIonicons
-        className="text-default-foreground"
-        name="close"
-        size={18}
-      />
-    );
-  }
-
-  const handleAction = () => {
-    if (isActionDisabled) {
-      return;
-    }
-    if (canStop && onStop) {
-      onStop();
-      return;
-    }
-    onSend();
-  };
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const defaultForegroundColor = useThemeColor("default-foreground");
 
   return (
-    <View className="mt-2 flex-row items-center justify-between px-3 pb-3">
-      <View className="flex-row items-center gap-2">
-        {/* Attachment Button */}
-        <Button
-          className="h-9 w-9 rounded-full"
-          isDisabled={disabled}
-          isIconOnly
-          onPress={onOpenAttachment}
-          size="sm"
-          variant="ghost"
-        >
-          <Button.Label>
-            <StyledIonicons
-              className="text-foreground/80"
-              name="add"
-              size={20}
-            />
-          </Button.Label>
-        </Button>
-
-        {/* Model Selector */}
-        {availableModels.length > 0 && (
-          <ModelSelector
-            availableModels={availableModels}
-            currentModelId={currentModelId}
-            disabled={disabled || supportsModelSwitching === false}
-            isOpen={showModelMenu}
-            onModelChange={onModelChange}
-            onOpenChange={setShowModelMenu}
-          />
-        )}
-
-        {/* Slash Commands */}
-        <SlashCommandMenu
-          availableCommands={availableCommands}
-          disabled={disabled}
-          isOpen={showSlashMenu}
-          onOpenChange={setShowSlashMenu}
-          onSelectCommand={onSlashCommand}
-        />
-      </View>
-
-      {/* Send Button */}
+    <View>
       <Button
-        className={cn(
-          "h-10 w-10 rounded-full",
-          isActionDisabled
-            ? "bg-muted"
-            : canStop
-              ? "bg-red-600"
-              : "bg-blue-600"
-        )}
-        isDisabled={isActionDisabled}
+        className="mb-0.5 h-11 w-11 shrink-0 rounded-full"
+        feedbackVariant="scale"
+        isDisabled={disabled}
         isIconOnly
-        onPress={handleAction}
+        onPress={() => setShowPlusMenu(true)}
         size="sm"
-        variant="primary"
+        variant="secondary"
       >
-        <Button.Label>{icon}</Button.Label>
+        <Button.Label>
+          <Ionicons color={defaultForegroundColor} name="add" size={20} />
+        </Button.Label>
       </Button>
+
+      <PlusMenu
+        availableCommands={availableCommands}
+        disabled={disabled}
+        isOpen={showPlusMenu}
+        onOpenAttachment={onOpenAttachment}
+        onOpenChange={setShowPlusMenu}
+        onSelectCommand={onSlashCommand}
+      />
     </View>
   );
 }

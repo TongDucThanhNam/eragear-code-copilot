@@ -33,7 +33,7 @@ export function ToolResultPart({
   return (
     <View className="mt-2">
       <Accordion
-        isDividerVisible={false}
+        hideSeparator
         selectionMode="single"
         value={isOpen ? itemValue : undefined}
         onValueChange={(nextValue: AccordionValue) => {

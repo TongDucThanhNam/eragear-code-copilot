@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
-import { betterAuth } from "better-auth";
+import { expo } from "@better-auth/expo";
+import { type BetterAuthPlugin, betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { apiKey, multiSession, username } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -34,6 +35,7 @@ export function createAuthRuntime(policy: AuthRuntimePolicy) {
     adminUsername: null,
     bootstrapApiKey: null,
   };
+  const expoPlugin = expo() as BetterAuthPlugin;
 
   const authConfig = {
     database: drizzleAdapter(authOrm, {
@@ -47,6 +49,7 @@ export function createAuthRuntime(policy: AuthRuntimePolicy) {
       enabled: true,
     },
     plugins: [
+      expoPlugin,
       username(),
       multiSession(),
       apiKey({

@@ -1,11 +1,8 @@
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
-import { Button } from "heroui-native";
-import { Share, View } from "react-native";
-import { withUniwind } from "uniwind";
-import { cn_inline } from "./utils";
-
-const StyledIonicons = withUniwind(Ionicons);
+import { memo, useState } from "react";
+import { Menu, cn, useThemeColor } from "heroui-native";
+import { Pressable } from "react-native";
 
 interface MessageActionsProps {
   text: string;
@@ -14,86 +11,96 @@ interface MessageActionsProps {
   onEdit?: () => void;
 }
 
-export function MessageActions({
+export const MessageActions = memo(function MessageActions({
   text,
   className,
   onRegenerate,
   onEdit,
 }: MessageActionsProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [foregroundColor, mutedColor] = useThemeColor([
+    "foreground",
+    "muted",
+  ]);
+
   const handleCopy = async () => {
     await Clipboard.setStringAsync(text);
+    setIsOpen(false);
   };
 
   const handleShare = async () => {
+    const { Share } = await import("react-native");
     await Share.share({ message: text });
+    setIsOpen(false);
   };
 
   return (
-    <View className={cn_inline("mt-2 flex-row items-center gap-1", className)}>
-      <Button
-        className="h-7 w-7 rounded-full"
-        isIconOnly
-        onPress={handleCopy}
-        size="sm"
-        variant="ghost"
-      >
-        <Button.Label>
-          <StyledIonicons
-            className="text-foreground/60"
-            name="copy-outline"
-            size={14}
-          />
-        </Button.Label>
-      </Button>
-      <Button
-        className="h-7 w-7 rounded-full"
-        isIconOnly
-        onPress={handleShare}
-        size="sm"
-        variant="ghost"
-      >
-        <Button.Label>
-          <StyledIonicons
-            className="text-foreground/60"
-            name="share-social-outline"
-            size={14}
-          />
-        </Button.Label>
-      </Button>
-      {onEdit && (
-        <Button
-          className="h-7 w-7 rounded-full"
-          isIconOnly
-          onPress={onEdit}
-          size="sm"
-          variant="ghost"
+    <Menu isOpen={isOpen} onOpenChange={setIsOpen}>
+      <Menu.Trigger asChild>
+        <Pressable
+          className={cn(
+            "mt-1 h-7 w-7 items-center justify-center rounded-full opacity-60 active:bg-default/60",
+            className
+          )}
         >
-          <Button.Label>
-            <StyledIonicons
-              className="text-foreground/60"
-              name="create-outline"
-              size={14}
-            />
-          </Button.Label>
-        </Button>
-      )}
-      {onRegenerate && (
-        <Button
-          className="h-7 w-7 rounded-full"
-          isIconOnly
-          onPress={onRegenerate}
-          size="sm"
-          variant="ghost"
+          <Ionicons
+            color={mutedColor}
+            name="ellipsis-horizontal"
+            size={15}
+          />
+        </Pressable>
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Overlay />
+        <Menu.Content
+          className="rounded-2xl border border-divider/70 bg-overlay p-1"
+          presentation="popover"
+          width={180}
         >
-          <Button.Label>
-            <StyledIonicons
-              className="text-foreground/60"
-              name="refresh-outline"
-              size={14}
+          <Menu.Item onPress={handleCopy}>
+            <Ionicons color={foregroundColor} name="copy-outline" size={16} />
+            <Menu.ItemTitle>Copy</Menu.ItemTitle>
+          </Menu.Item>
+          <Menu.Item onPress={handleShare}>
+            <Ionicons
+              color={foregroundColor}
+              name="share-social-outline"
+              size={16}
             />
-          </Button.Label>
-        </Button>
-      )}
-    </View>
+            <Menu.ItemTitle>Share</Menu.ItemTitle>
+          </Menu.Item>
+          {onEdit ? (
+            <Menu.Item
+              onPress={() => {
+                setIsOpen(false);
+                onEdit();
+              }}
+            >
+              <Ionicons
+                color={foregroundColor}
+                name="create-outline"
+                size={16}
+              />
+              <Menu.ItemTitle>Edit</Menu.ItemTitle>
+            </Menu.Item>
+          ) : null}
+          {onRegenerate ? (
+            <Menu.Item
+              onPress={() => {
+                setIsOpen(false);
+                onRegenerate();
+              }}
+            >
+              <Ionicons
+                color={foregroundColor}
+                name="refresh-outline"
+                size={16}
+              />
+              <Menu.ItemTitle>Regenerate</Menu.ItemTitle>
+            </Menu.Item>
+          ) : null}
+        </Menu.Content>
+      </Menu.Portal>
+    </Menu>
   );
-}
+});

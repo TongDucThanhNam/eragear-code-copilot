@@ -85,6 +85,8 @@ export interface PermissionRequest {
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 
+type MessageStateSlice = Pick<ChatState, "messageIds" | "messagesById">;
+
 interface ChatState {
   // Sessions
   sessions: SessionInfo[];
@@ -125,6 +127,7 @@ interface ChatState {
 
   setMessages: (messages: UIMessage[]) => void;
   upsertMessage: (message: UIMessage) => void;
+  upsertMessages: (messages: UIMessage[]) => void;
   getMessageById: (id: string) => UIMessage | undefined;
   getMessagesForPermission: () => Iterable<UIMessage>;
   clearSessionView: () => void;
@@ -173,6 +176,79 @@ const initialState = {
   connStatus: "idle" as ConnectionStatus,
   error: null,
 };
+
+function applyUpsertMessages(
+  state: MessageStateSlice,
+  messages: UIMessage[]
+):
+  | MessageStateSlice
+  | {
+      messagesById: Map<string, UIMessage>;
+      messageIds?: string[];
+    } {
+  let nextMap = state.messagesById;
+  let nextIds = state.messageIds;
+  let mapChanged = false;
+  let idsChanged = false;
+
+  for (const message of messages) {
+    const current = nextMap.get(message.id);
+    const exists = nextMap.has(message.id);
+
+    if (exists && current === message) {
+      continue;
+    }
+
+    if (!mapChanged) {
+      nextMap = new Map(state.messagesById);
+      mapChanged = true;
+    }
+
+    nextMap.set(message.id, message);
+
+    if (exists) {
+      const createdAtChanged =
+        current !== undefined && current.createdAt !== message.createdAt;
+
+      if (!createdAtChanged) {
+        continue;
+      }
+
+      const filteredIds = nextIds.filter((id) => id !== message.id);
+      const orderedMessages = filteredIds
+        .map((id) => nextMap.get(id))
+        .filter((value): value is UIMessage => Boolean(value));
+      const insertIndex = findUiMessageInsertIndex(orderedMessages, message);
+
+      nextIds = [...filteredIds];
+      nextIds.splice(insertIndex, 0, message.id);
+      idsChanged = true;
+      continue;
+    }
+
+    const orderedMessages = nextIds
+      .map((messageId) => nextMap.get(messageId))
+      .filter((value): value is UIMessage => Boolean(value));
+    const insertIndex = findUiMessageInsertIndex(orderedMessages, message);
+
+    nextIds = [...nextIds];
+    nextIds.splice(insertIndex, 0, message.id);
+    idsChanged = true;
+  }
+
+  if (!mapChanged) {
+    return state;
+  }
+
+  if (!idsChanged) {
+    return { messagesById: nextMap };
+  }
+
+  return {
+    messageIds: nextIds,
+    messagesById: nextMap,
+  };
+}
 
 export const useChatStore = create<ChatState>()(
   persist(
@@ -256,57 +332,9 @@ export const useChatStore = create<ChatState>()(
           return { messageIds, messagesById };
         }),
       upsertMessage: (message) =>
-        set((state) => {
-          const exists = state.messagesById.has(message.id);
-          const current = state.messagesById.get(message.id);
-          if (exists && current === message) {
-            return state;
-          }
-          const nextMap = new Map(state.messagesById);
-          nextMap.set(message.id, message);
-
-          if (exists) {
-            // Check if createdAt was newly assigned or changed. When createdAt
-            // transitions (e.g. from tentative to real server timestamp, or from
-            // undefined to a value), the message's sorted position may need to
-            // change. Re-insert at the correct position to stay consistent.
-            const createdAtChanged =
-              current !== undefined && current.createdAt !== message.createdAt;
-            if (!createdAtChanged) {
-              // Fast path: createdAt unchanged — position is stable.
-              return { messagesById: nextMap };
-            }
-            // Remove from old position and re-insert at correct position.
-            const filteredIds = state.messageIds.filter(
-              (id) => id !== message.id
-            );
-            const orderedMessages = filteredIds
-              .map((id) => nextMap.get(id))
-              .filter((m): m is UIMessage => Boolean(m));
-            const insertIndex = findUiMessageInsertIndex(
-              orderedMessages,
-              message
-            );
-            const nextIds = [...filteredIds];
-            nextIds.splice(insertIndex, 0, message.id);
-            return { messagesById: nextMap, messageIds: nextIds };
-          }
-
-          // New message: insert at the correct sorted position.
-          const orderedMessages = state.messageIds
-            .map((messageId) => state.messagesById.get(messageId))
-            .filter((value): value is UIMessage => Boolean(value));
-          const insertIndex = findUiMessageInsertIndex(
-            orderedMessages,
-            message
-          );
-          const nextIds = [...state.messageIds];
-          nextIds.splice(insertIndex, 0, message.id);
-          return {
-            messagesById: nextMap,
-            messageIds: nextIds,
-          };
-        }),
+        set((state) => applyUpsertMessages(state, [message])),
+      upsertMessages: (messages) =>
+        set((state) => applyUpsertMessages(state, messages)),
       getMessageById: (id) => get().messagesById.get(id),
       getMessagesForPermission: () => get().messagesById.values(),
 

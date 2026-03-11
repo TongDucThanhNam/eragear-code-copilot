@@ -1,6 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import {
   Button,
+  Description,
+  FieldError,
+  Input,
+  Label,
   Spinner,
   Surface,
   TextField,
@@ -229,8 +233,8 @@ export default function LoginScreen() {
               variant="secondary"
             >
               <TextField isInvalid={!!error && !serverUrl.trim()}>
-                <TextField.Label>Server URL</TextField.Label>
-                <TextField.Input
+                <Label>Server URL</Label>
+                <Input
                   autoCapitalize="none"
                   autoComplete="url"
                   className="w-full"
@@ -242,14 +246,12 @@ export default function LoginScreen() {
                   placeholderTextColor="hsl(var(--color-muted))"
                   value={serverUrl}
                 />
-                <TextField.Description>
-                  Enter the server hostname or IP with port.
-                </TextField.Description>
+                <Description>Enter the server hostname or IP with port.</Description>
               </TextField>
 
               <TextField className="mt-4" isInvalid={!!error && !username.trim()}>
-                <TextField.Label>Username</TextField.Label>
-                <TextField.Input
+                <Label>Username</Label>
+                <Input
                   autoCapitalize="none"
                   autoComplete="username"
                   className="w-full"
@@ -264,9 +266,9 @@ export default function LoginScreen() {
               </TextField>
 
               <TextField className="mt-4" isInvalid={!!error && !password}>
-                <TextField.Label>Password</TextField.Label>
+                <Label>Password</Label>
                 <View className="w-full flex-row items-center">
-                  <TextField.Input
+                  <Input
                     autoCapitalize="none"
                     autoComplete="password"
                     className="flex-1 pr-10"
@@ -296,9 +298,7 @@ export default function LoginScreen() {
                     />
                   </Pressable>
                 </View>
-                {error && (
-                  <TextField.ErrorMessage>{error}</TextField.ErrorMessage>
-                )}
+                {error ? <FieldError>{error}</FieldError> : null}
               </TextField>
 
               <Pressable

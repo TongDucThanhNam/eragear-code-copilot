@@ -42,6 +42,8 @@ interface ToolApprovalResponse {
   reason?: string;
 }
 
+const HISTORY_PAGE_LIMIT = 200;
+
 // ============================================================================
 // Hook Implementation
 // ============================================================================
@@ -92,12 +94,13 @@ export function useChat(options: UseChatOptions = {}) {
   const onFinishRef = useRef(onFinish);
   const onErrorRef = useRef(onError);
   const isResumingRef = useRef(false);
+  const resumePromiseRef = useRef<Promise<unknown> | null>(null);
   const pendingMessagesRef = useRef<Map<string, UIMessage>>(new Map());
   const messageFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
 
-  const STREAM_FLUSH_MS = 50;
+  const STREAM_FLUSH_MS = 80;
 
   // Keep refs in sync
   useEffect(() => {
@@ -167,8 +170,13 @@ export function useChat(options: UseChatOptions = {}) {
     }
   );
 
-  const sessionMessagesQuery = trpc.getSessionMessages.useQuery(
-    { chatId: activeChatId || "" },
+  const sessionMessagesQuery = trpc.getSessionMessagesPage.useQuery(
+    {
+      chatId: activeChatId || "",
+      direction: "backward",
+      limit: HISTORY_PAGE_LIMIT,
+      includeCompacted: true,
+    },
     {
       enabled:
         isConfigured &&
@@ -215,7 +223,7 @@ export function useChat(options: UseChatOptions = {}) {
     }
 
     const store = useChatStore.getState();
-    const history = sessionMessagesQuery.data;
+    const history = sessionMessagesQuery.data?.messages;
     if (Array.isArray(history)) {
       const parsedHistory = parseUiMessageArrayStrict(history);
       if (parsedHistory.ok) {
@@ -257,9 +265,8 @@ export function useChat(options: UseChatOptions = {}) {
     if (pending.size === 0) {
       return;
     }
-    for (const message of pending.values()) {
-      useChatStore.getState().upsertMessage(message);
-    }
+    const messages = Array.from(pending.values());
+    useChatStore.getState().upsertMessages(messages);
     pending.clear();
     syncPendingPermission();
   }, [syncPendingPermission]);
@@ -631,28 +638,46 @@ export function useChat(options: UseChatOptions = {}) {
   };
 
   const resumeSession = async (chatId: string) => {
+    if (resumePromiseRef.current) {
+      return await resumePromiseRef.current;
+    }
+
     const store = useChatStore.getState();
-    try {
+    const resumeOperation = (async () => {
       isResumingRef.current = true;
       store.setConnStatus("connecting");
       store.setStatus("connecting");
       await utils.getSessionState.cancel({ chatId });
       const res = await resumeSessionMutation.mutateAsync({ chatId });
       await utils.getSessionState.invalidate({ chatId });
-      await utils.getSessionMessages.invalidate({ chatId });
+      await utils.getSessionMessagesPage.invalidate({
+        chatId,
+        direction: "backward",
+        limit: HISTORY_PAGE_LIMIT,
+        includeCompacted: true,
+      });
       if (res?.promptCapabilities !== undefined) {
         store.setPromptCapabilities(res.promptCapabilities);
       }
-      isResumingRef.current = false;
       return res;
+    })();
+
+    resumePromiseRef.current = resumeOperation;
+
+    try {
+      return await resumeOperation;
     } catch (e) {
       const err = e as Error;
       store.setError(err.message);
       store.setConnStatus("error");
       store.setStatus("error");
       onErrorRef.current?.(err.message);
-      isResumingRef.current = false;
       throw e;
+    } finally {
+      isResumingRef.current = false;
+      if (resumePromiseRef.current === resumeOperation) {
+        resumePromiseRef.current = null;
+      }
     }
   };
 

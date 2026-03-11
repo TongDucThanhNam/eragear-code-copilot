@@ -1,5 +1,16 @@
-import { Modal, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import {
+  BottomSheet,
+  Button,
+  Surface,
+  useThemeColor,
+} from "heroui-native";
+import type { ComponentProps } from "react";
+import { ScrollView, Text, View } from "react-native";
+import { withUniwind } from "uniwind";
 import type { PermissionRequest } from "@/store/chat-store";
+
+const StyledIonicons = withUniwind(Ionicons);
 
 interface PermissionModalProps {
   request: PermissionRequest | null;
@@ -10,6 +21,13 @@ type NormalizedOption = {
   id: string;
   label: string;
   description?: string;
+};
+
+type ActionTone = {
+  buttonVariant: "primary" | "secondary" | "danger-soft";
+  descriptionClassName: string;
+  iconColor: string;
+  iconName: ComponentProps<typeof Ionicons>["name"];
 };
 
 const DEFAULT_OPTIONS: NormalizedOption[] = [
@@ -23,40 +41,84 @@ function normalizePermissionOptions(
   if (!options) {
     return [];
   }
+
   const rawOptions = Array.isArray(options) ? options : options.options ?? [];
-  return rawOptions
-    .map((option) => {
-      const id =
-        option.optionId ||
-        option.id ||
-        option.kind ||
-        option.name ||
-        option.label ||
-        "";
-      const label = option.label || option.name || option.optionId || id;
-      if (!id || !label) {
-        return null;
-      }
-      return { id, label, description: option.description };
-    })
-    .filter((option): option is NormalizedOption => Boolean(option));
+  const normalized: NormalizedOption[] = [];
+
+  for (const option of rawOptions) {
+    const id =
+      option.optionId ||
+      option.id ||
+      option.kind ||
+      option.name ||
+      option.label ||
+      "";
+    const label = option.label || option.name || option.optionId || id;
+
+    if (!id || !label) {
+      continue;
+    }
+
+    normalized.push({ id, label, description: option.description });
+  }
+
+  return normalized;
 }
 
-function getActionStyle(optionId: string, label: string) {
+function getActionTone(
+  optionId: string,
+  label: string,
+  colors: {
+    accentForeground: string;
+    danger: string;
+    foreground: string;
+  }
+): ActionTone {
   const value = `${optionId} ${label}`.toLowerCase();
-  if (value.includes("allow") || value.includes("approve") || value.includes("yes")) {
-    return "bg-green-600";
+
+  if (
+    value.includes("allow") ||
+    value.includes("approve") ||
+    value.includes("yes")
+  ) {
+    return {
+      buttonVariant: "primary",
+      descriptionClassName: "text-accent-foreground/80",
+      iconColor: colors.accentForeground,
+      iconName: "checkmark-circle",
+    };
   }
-  if (value.includes("deny") || value.includes("reject") || value.includes("no")) {
-    return "bg-red-600";
+
+  if (
+    value.includes("deny") ||
+    value.includes("reject") ||
+    value.includes("no")
+  ) {
+    return {
+      buttonVariant: "danger-soft",
+      descriptionClassName: "text-danger/70",
+      iconColor: colors.danger,
+      iconName: "close-circle",
+    };
   }
-  return "bg-zinc-700";
+
+  return {
+    buttonVariant: "secondary",
+    descriptionClassName: "text-muted-foreground",
+    iconColor: colors.foreground,
+    iconName: "arrow-forward-circle",
+  };
 }
 
 export function PermissionModal({
   request,
   onRespond,
 }: PermissionModalProps) {
+  const warningColor = useThemeColor("warning");
+  const accentForegroundColor = useThemeColor("accent-foreground");
+  const dangerColor = useThemeColor("danger");
+  const foregroundColor = useThemeColor("foreground");
+
   if (!request) {
     return null;
   }
@@ -70,52 +132,107 @@ export function PermissionModal({
   const actionOptions = options.length > 0 ? options : DEFAULT_OPTIONS;
 
   return (
-    <Modal animationType="slide" transparent visible={!!request}>
-      <View className="flex-1 justify-end bg-black/50">
-        <View className="max-h-[80%] min-h-[40%] rounded-t-3xl bg-zinc-900 px-6 pb-4 pt-6">
-          <Text className="mb-4 font-bold text-white text-xl">
-            Permission Request
-          </Text>
-          <Text className="mb-2 text-zinc-300">
-            The agent wants to execute:{" "}
-            <Text className="font-bold text-yellow-500">
-              {request.title || "Tool"}
-            </Text>
-          </Text>
-
-          <ScrollView
-            className="mt-3 flex-1"
-            contentContainerStyle={{ paddingBottom: 12 }}
-            style={{ minHeight: 0 }}
-          >
-            <View className="rounded-lg bg-black/30 p-3">
-              <Text className="font-mono text-xs text-zinc-400">
-                {inputText}
-              </Text>
+    <BottomSheet isOpen onOpenChange={() => {}}>
+      <BottomSheet.Portal>
+        <BottomSheet.Overlay isCloseOnPress={false} />
+        <BottomSheet.Content
+          className="rounded-t-3xl"
+          enablePanDownToClose={false}
+          snapPoints={["58%", "82%"]}
+        >
+          <View className="flex-1 p-6">
+            <View className="mb-6 flex-row items-start gap-4">
+              <View className="h-12 w-12 items-center justify-center rounded-full bg-warning/10">
+                <StyledIonicons
+                  className="text-warning"
+                  name="shield-checkmark"
+                  size={24}
+                />
+              </View>
+              <View className="flex-1">
+                <BottomSheet.Title className="font-semibold text-foreground text-lg">
+                  Permission Request
+                </BottomSheet.Title>
+                <BottomSheet.Description className="mt-1 text-muted-foreground text-sm">
+                  Review the tool call and choose how to proceed.
+                </BottomSheet.Description>
+              </View>
             </View>
-          </ScrollView>
 
-          <View className="flex-row flex-wrap gap-3 pt-4">
-            {actionOptions.map((option) => (
-              <TouchableOpacity
-                className={`flex-1 items-center rounded-xl p-4 ${getActionStyle(
-                  option.id,
-                  option.label
-                )}`}
-                key={option.id}
-                onPress={() => onRespond(requestId, option.id)}
+            <ScrollView
+              className="flex-1"
+              contentContainerStyle={{ paddingBottom: 12 }}
+              showsVerticalScrollIndicator={false}
+            >
+              <Surface
+                className="overflow-hidden border border-warning/20 p-0"
+                variant="secondary"
               >
-                <Text className="font-bold text-white">{option.label}</Text>
-                {option.description && (
-                  <Text className="mt-1 text-xs text-white/80">
-                    {option.description}
+                <View className="border-warning/20 border-b bg-warning/10 px-4 py-3">
+                  <View className="flex-row items-center gap-2">
+                    <Ionicons color={warningColor} name="terminal" size={16} />
+                    <Text className="font-semibold text-foreground text-sm">
+                      {request.title || "Tool"}
+                    </Text>
+                  </View>
+                </View>
+                <View className="px-4 py-4">
+                  <Text className="mb-2 text-muted-foreground text-xs uppercase tracking-wide">
+                    Request payload
                   </Text>
-                )}
-              </TouchableOpacity>
-            ))}
+                  <Text className="font-mono text-foreground/80 text-xs leading-5">
+                    {inputText}
+                  </Text>
+                </View>
+              </Surface>
+            </ScrollView>
+
+            <View className="border-divider border-t pt-4">
+              <Text className="mb-3 text-muted-foreground text-xs uppercase tracking-wide">
+                Choose an action
+              </Text>
+              <View className="gap-3">
+                {actionOptions.map((option) => {
+                  const tone = getActionTone(option.id, option.label, {
+                    accentForeground: accentForegroundColor,
+                    danger: dangerColor,
+                    foreground: foregroundColor,
+                  });
+
+                  return (
+                    <Button
+                      className="justify-start rounded-2xl px-4 py-4"
+                      key={option.id}
+                      onPress={() => onRespond(requestId, option.id)}
+                      variant={tone.buttonVariant}
+                    >
+                      <View className="flex-1 flex-row items-center gap-3">
+                        <View className="flex-1">
+                          <Button.Label className="text-left">
+                            {option.label}
+                          </Button.Label>
+                          {option.description ? (
+                            <Text
+                              className={`mt-1 text-left text-xs ${tone.descriptionClassName}`}
+                            >
+                              {option.description}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Ionicons
+                          color={tone.iconColor}
+                          name={tone.iconName}
+                          size={20}
+                        />
+                      </View>
+                    </Button>
+                  );
+                })}
+              </View>
+            </View>
           </View>
-        </View>
-      </View>
-    </Modal>
+        </BottomSheet.Content>
+      </BottomSheet.Portal>
+    </BottomSheet>
   );
 }

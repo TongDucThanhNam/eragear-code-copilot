@@ -1,10 +1,5 @@
 import type { ToolUIPart, UIMessagePart } from "@repo/shared";
 
-// Inline helper if not exists
-export const cn_inline = (
-  ...classes: Array<string | false | null | undefined>
-) => classes.filter(Boolean).join(" ");
-
 // Terminal output detection patterns (defined at module level for performance)
 const TERMINAL_PATTERNS = [
   /^\$ /mu, // Command prompt

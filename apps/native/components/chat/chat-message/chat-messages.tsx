@@ -1,74 +1,20 @@
-import { FlashList } from "@shopify/flash-list";
-import { memo, useCallback, useMemo, useRef } from "react";
-import type { ScrollViewProps } from "react-native";
-import { Text, View } from "react-native";
-import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import type { UIMessage } from "@repo/shared";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  FlatList,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useChatStore } from "@/store/chat-store";
-import { MemoizedMessageItemContainer } from "./message-item";
+import { MemoizedMessageItem } from "./message-item";
 
-// Helper to get timestamp from message metadata
-function getMessageTimestamp(message: {
-  metadata?: unknown;
-  createdAt?: number;
-}): number {
-  if (message.metadata && typeof message.metadata === "object") {
-    const meta = message.metadata as Record<string, unknown>;
-    if (typeof meta.timestamp === "number") {
-      return meta.timestamp;
-    }
-  }
-  if (typeof message.createdAt === "number") {
-    return message.createdAt;
-  }
-  return 0;
-}
+const NEAR_BOTTOM_THRESHOLD = 96;
+const USER_BUBBLE_WIDTH_RATIO = 0.82;
 
-// Separator component for grouping messages
-const MessageSeparator = memo(function MessageSeparator({
-  leadingItem,
-  trailingItem,
-}: {
-  leadingItem: string;
-  trailingItem: string;
-}) {
-  const { messagesById } = useChatStore.getState();
-  const prevMessage = messagesById.get(leadingItem);
-  const currentMessage = messagesById.get(trailingItem);
-
-  if (!(prevMessage && currentMessage)) {
-    return <View className="h-4" />;
-  }
-
-  // Show separator when roles change or after a significant gap
-  const isRoleChange = prevMessage.role !== currentMessage.role;
-  const prevTime = getMessageTimestamp(prevMessage);
-  const currTime = getMessageTimestamp(currentMessage);
-  const timeGap = currTime - prevTime;
-  const showTimeGap = prevTime > 0 && currTime > 0 && timeGap > 5 * 60 * 1000; // 5 minutes
-
-  if (isRoleChange) {
-    return (
-      <View className="h-6 items-center justify-center">
-        <View className="h-px w-12 bg-divider" />
-      </View>
-    );
-  }
-
-  if (showTimeGap) {
-    return (
-      <View className="h-8 items-center justify-center">
-        <View className="rounded-full bg-surface-foreground/5 px-3 py-1">
-          <Text className="text-[10px] text-muted-foreground">
-            {new Date(currTime).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
+const MessageSeparator = memo(function MessageSeparator() {
   return <View className="h-3" />;
 });
 
@@ -76,96 +22,121 @@ interface ChatMessagesProps {
   messageIds: string[];
   isStreaming: boolean;
   contentPaddingBottom?: number;
-  keyboardBottomOffset?: number;
+}
+
+interface DerivedMessage {
+  message: UIMessage;
+  isLiveMessage: boolean;
 }
 
 function ChatMessagesComponent({
   messageIds,
   isStreaming,
   contentPaddingBottom = 100,
-  keyboardBottomOffset = 0,
 }: ChatMessagesProps) {
-  const hasMessages = messageIds.length > 0;
+  const { width } = useWindowDimensions();
+  const bubbleMaxWidth = useMemo(
+    () => Math.max(180, Math.floor(width * USER_BUBBLE_WIDTH_RATIO)),
+    [width]
+  );
 
-  // Cache the last assistant message ID to avoid recalculating on every render
-  const lastAssistantMessageIdRef = useRef<string | null>(null);
-  const lastMessageSignatureRef = useRef<string>("");
+  const listRef = useRef<FlatList<DerivedMessage>>(null);
+  const isNearBottomRef = useRef(true);
+  const prevMessageCountRef = useRef(0);
+  const prevLastMessageIdRef = useRef<string | null>(null);
 
-  // Only recalculate when message order changes
-  const lastId = messageIds[messageIds.length - 1] ?? "none";
-  const nextSignature = `${messageIds.length}:${lastId}`;
-  if (nextSignature !== lastMessageSignatureRef.current) {
-    lastAssistantMessageIdRef.current = null;
-    const { messagesById } = useChatStore.getState();
+  // Derive UIMessage[] in one pass - no per-row subscriptions
+  const { messagesById } = useChatStore.getState();
+  const derivedMessages = useMemo(() => {
+    const result: DerivedMessage[] = [];
+    let lastAssistantId: string | null = null;
+
+    // Find last assistant message ID
     for (let i = messageIds.length - 1; i >= 0; i -= 1) {
-      const message = messagesById.get(messageIds[i] ?? "");
-      if (message?.role === "assistant") {
-        lastAssistantMessageIdRef.current = message.id;
+      const msg = messagesById.get(messageIds[i] ?? "");
+      if (msg?.role === "assistant") {
+        lastAssistantId = msg.id;
         break;
       }
     }
-    lastMessageSignatureRef.current = nextSignature;
-  }
 
-  const lastAssistantMessageId = lastAssistantMessageIdRef.current;
+    for (const id of messageIds) {
+      const message = messagesById.get(id);
+      if (message) {
+        result.push({
+          message,
+          isLiveMessage: isStreaming && id === lastAssistantId,
+        });
+      }
+    }
+    return result;
+  }, [messageIds, messagesById, isStreaming]);
+
+  const hasMessages = derivedMessages.length > 0;
   const listPaddingBottom = Math.max(96, contentPaddingBottom);
-  const renderScrollComponent = useCallback(
-    (props: ScrollViewProps) => (
-      <KeyboardAwareScrollView {...props} bottomOffset={keyboardBottomOffset} />
-    ),
-    [keyboardBottomOffset]
+
+  // Auto-scroll to bottom when messages change AND user is near bottom
+  const currentMessageCount = derivedMessages.length;
+  const currentLastMessageId = derivedMessages.at(-1)?.message.id ?? null;
+
+  useEffect(() => {
+    const messageCountChanged =
+      currentMessageCount !== prevMessageCountRef.current;
+    const lastMessageChanged =
+      currentLastMessageId !== prevLastMessageIdRef.current;
+
+    prevMessageCountRef.current = currentMessageCount;
+    prevLastMessageIdRef.current = currentLastMessageId;
+
+    // Only auto-scroll if:
+    // 1. User is near bottom
+    // 2. New message added OR streaming content changed
+    if (
+      isNearBottomRef.current &&
+      (messageCountChanged || (isStreaming && lastMessageChanged))
+    ) {
+      // Use requestAnimationFrame for better timing on Android
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToEnd({ animated: false });
+      });
+    }
+  }, [currentMessageCount, currentLastMessageId, isStreaming]);
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
+      const distanceFromBottom =
+        contentSize.height - layoutMeasurement.height - contentOffset.y;
+      isNearBottomRef.current = distanceFromBottom <= NEAR_BOTTOM_THRESHOLD;
+    },
+    []
   );
-  const keyExtractor = useCallback((item: string) => item, []);
-  const getItemType = useCallback((id: string) => {
-    const message = useChatStore.getState().messagesById.get(id);
-    return message?.role ?? "assistant";
-  }, []);
+
+  const keyExtractor = useCallback(
+    (item: DerivedMessage) => item.message.id,
+    []
+  );
   const renderItem = useCallback(
-    ({ item }: { item: string }) => (
-      <MemoizedMessageItemContainer
-        isLiveMessage={isStreaming && item === lastAssistantMessageId}
-        messageId={item}
+    ({ item }: { item: DerivedMessage }) => (
+      <MemoizedMessageItem
+        bubbleMaxWidth={bubbleMaxWidth}
+        isLiveMessage={item.isLiveMessage}
+        message={item.message}
       />
     ),
-    [isStreaming, lastAssistantMessageId]
+    [bubbleMaxWidth]
   );
 
   const emptyState = useMemo(
     () => (
-      <View className="flex-1 items-center justify-center px-8">
-        <View className="mb-6 h-20 w-20 items-center justify-center rounded-full bg-surface-foreground/5">
-          <View className="h-12 w-12 rounded-full bg-accent/20" />
-        </View>
-
-        <Text className="font-semibold text-foreground text-lg">
+      <View className="flex-1 items-center justify-center px-10">
+        <Text className="text-center font-semibold text-foreground text-lg">
           Start a conversation
         </Text>
-        <Text className="mt-2 text-center text-muted-foreground text-sm">
-          Send a message to start chatting with your AI assistant
+        <Text className="mt-2 text-center text-muted-foreground text-sm leading-6">
+          Ask for code changes, debugging help, or type `/` to use a command.
         </Text>
-
-        <View className="mt-8 w-full max-w-xs">
-          <Text className="mb-3 text-center text-muted-foreground text-xs uppercase tracking-wide">
-            Try asking
-          </Text>
-          <View className="flex-col gap-2">
-            <View className="rounded-lg bg-surface-foreground/5 px-4 py-3">
-              <Text className="text-center text-muted-foreground text-sm">
-                "Help me write a React component"
-              </Text>
-            </View>
-            <View className="rounded-lg bg-surface-foreground/5 px-4 py-3">
-              <Text className="text-center text-muted-foreground text-sm">
-                "Debug this code for me"
-              </Text>
-            </View>
-            <View className="rounded-lg bg-surface-foreground/5 px-4 py-3">
-              <Text className="text-center text-muted-foreground text-sm">
-                "Explain how this API works"
-              </Text>
-            </View>
-          </View>
-        </View>
       </View>
     ),
     []
@@ -179,28 +150,22 @@ function ChatMessagesComponent({
     }),
     [hasMessages, listPaddingBottom]
   );
-  const maintainVisibleContentPosition = useMemo(
-    () => ({
-      autoscrollToBottomThreshold: 120,
-      animateAutoScrollToBottom: false,
-    }),
-    []
-  );
 
   return (
-    <FlashList
+    <FlatList
       contentContainerStyle={contentContainerStyle}
-      data={messageIds}
-      getItemType={getItemType}
+      data={derivedMessages}
       ItemSeparatorComponent={MessageSeparator}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       keyExtractor={keyExtractor}
       ListEmptyComponent={hasMessages ? null : emptyState}
-      maintainVisibleContentPosition={maintainVisibleContentPosition}
-      removeClippedSubviews
+      onScroll={handleScroll}
+      ref={listRef}
+      removeClippedSubviews={false}
       renderItem={renderItem}
-      renderScrollComponent={renderScrollComponent}
+      showsVerticalScrollIndicator={false}
+      scrollEventThrottle={16}
     />
   );
 }

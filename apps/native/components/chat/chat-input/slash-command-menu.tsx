@@ -48,7 +48,7 @@ export function SlashCommandMenu({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Overlay />
-        <Popover.Content className="w-52 p-0">
+        <Popover.Content className="w-52 p-0" presentation="popover">
           <ScrollView className="max-h-60">
             <View className="py-1">
               {availableCommands.map((cmd) => (

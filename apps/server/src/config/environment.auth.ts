@@ -4,6 +4,22 @@ interface ResolveAuthTrustedOriginsParams {
   wsPort: number;
 }
 
+const NATIVE_APP_TRUSTED_ORIGINS = ["eragear-code-copilot://"] as const;
+const EXPO_DEV_TRUSTED_ORIGIN_PREFIXES = ["exp://"] as const;
+
+function isLocalDevAuthBaseUrl(authBaseUrl: string): boolean {
+  try {
+    const { hostname } = new URL(authBaseUrl);
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "0.0.0.0"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function resolveAuthTrustedOrigins(
   params: ResolveAuthTrustedOriginsParams
 ): string[] {
@@ -28,6 +44,18 @@ export function resolveAuthTrustedOrigins(
   for (const origin of defaultDevOrigins) {
     if (!authTrustedOrigins.includes(origin)) {
       authTrustedOrigins.push(origin);
+    }
+  }
+  for (const origin of NATIVE_APP_TRUSTED_ORIGINS) {
+    if (!authTrustedOrigins.includes(origin)) {
+      authTrustedOrigins.push(origin);
+    }
+  }
+  if (isLocalDevAuthBaseUrl(params.authBaseUrl)) {
+    for (const origin of EXPO_DEV_TRUSTED_ORIGIN_PREFIXES) {
+      if (!authTrustedOrigins.includes(origin)) {
+        authTrustedOrigins.push(origin);
+      }
     }
   }
   if (!authTrustedOrigins.includes(params.authBaseUrl)) {

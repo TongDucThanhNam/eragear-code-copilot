@@ -1,16 +1,10 @@
-import { compiler as compileMarkdown } from "markdown-to-jsx/native";
-import { Children, isValidElement, useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import {
   Linking,
   Pressable,
-  type ImageStyle,
-  ScrollView,
-  type StyleProp,
   Text,
-  type TextStyle,
   useColorScheme,
   View,
-  type ViewStyle,
 } from "react-native";
 import type { ContentBlock, ToolCallContent } from "@agentclientprotocol/sdk";
 import type { ToolUIPart } from "@repo/shared";
@@ -38,6 +32,17 @@ const isContentBlock = (content: unknown): content is ContentBlock =>
   "type" in content &&
   typeof (content as { type?: unknown }).type === "string";
 
+const getResourceLabel = (
+  ...candidates: Array<string | null | undefined>
+): string => {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.length > 0) {
+      return candidate;
+    }
+  }
+  return "Resource";
+};
+
 export function ToolResultDisplay({
   output,
   state,
@@ -47,135 +52,41 @@ export function ToolResultDisplay({
   const isDark = colorScheme === "dark";
   const isError = state === "output-error" || state === "output-denied";
   const errorLabel = state === "output-denied" ? "Permission denied." : errorText;
-  const onLinkPress = useCallback((url: string) => {
-    Linking.openURL(url);
-  }, []);
-  const wrapTextNodes = useCallback(
-    (node: React.ReactNode) =>
-      Children.map(node, (child) => {
-        if (typeof child === "string" || typeof child === "number") {
-          return <Text>{child}</Text>;
-        }
-        if (isValidElement(child)) {
-          return child;
-        }
-        return null;
-      }),
-    []
-  );
-  const terminalMarkdownStyles = useMemo(
-    () =>
-      ({
-        paragraph: { marginBottom: 0 },
-        text: {
-          color: isDark ? "#ffffff" : "#333333",
-          fontFamily: "monospace",
-          fontSize: 12,
-        },
-        code: {
-          color: isError ? "#ef4444" : "#22c55e",
-          fontFamily: "monospace",
-          fontSize: 12,
-        },
-        codeBlock: {
-          color: isError ? "#ef4444" : "#22c55e",
-          fontFamily: "monospace",
-          fontSize: 12,
-        },
-        codeInline: {
-          color: isError ? "#ef4444" : "#22c55e",
-          fontFamily: "monospace",
-          fontSize: 12,
-        },
-        pre: { backgroundColor: "transparent" },
-        link: { color: "#58a6ff", textDecorationLine: "underline" },
-      }) as Record<string, StyleProp<ViewStyle | TextStyle | ImageStyle>>,
-    [isDark, isError]
-  );
-  const terminalMarkdownOptions = useMemo(
-    () => ({
-      styles: terminalMarkdownStyles,
-      onLinkPress,
-    }),
-    [onLinkPress, terminalMarkdownStyles]
-  );
-  const blockMarkdownStyles = useMemo(
-    () =>
-      ({
-        paragraph: { marginBottom: 0 },
-        text: {
-          color: isDark ? "#ffffff" : "#333333",
-          fontFamily: "monospace",
-          fontSize: 12,
-        },
-        code: {
-          color: isError ? "#ef4444" : "#cccccc",
-          fontFamily: "monospace",
-          fontSize: 12,
-        },
-        codeBlock: {
-          color: isError ? "#ef4444" : "#cccccc",
-          fontFamily: "monospace",
-          fontSize: 12,
-        },
-        codeInline: {
-          color: isError ? "#ef4444" : "#cccccc",
-          fontFamily: "monospace",
-          fontSize: 12,
-        },
-        pre: { backgroundColor: "transparent" },
-        link: { color: "#58a6ff", textDecorationLine: "underline" },
-      }) as Record<string, StyleProp<ViewStyle | TextStyle | ImageStyle>>,
-    [isDark, isError]
-  );
-  const blockMarkdownOptions = useMemo(
-    () => ({
-      styles: blockMarkdownStyles,
-      onLinkPress,
-    }),
-    [blockMarkdownStyles, onLinkPress]
-  );
+  const textColor = useMemo(() => {
+    if (isError) {
+      return "#ef4444";
+    }
+    return isDark ? "#E5E7EB" : "#333333";
+  }, [isDark, isError]);
 
   const renderTextBlock = (text: string, key: string) => {
-    if (isTerminalOutput(text)) {
-      const terminalMarkdown = wrapTextNodes(
-        compileMarkdown(`\`\`\`text\n${text}\n\`\`\`\n`, terminalMarkdownOptions)
-      );
-      return (
-        <View className="max-h-48 rounded bg-surface-foreground/5 p-2" key={key}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-            {terminalMarkdown}
-          </ScrollView>
-        </View>
-      );
-    }
-
-    if (text.includes("\n")) {
-      const blockMarkdown = wrapTextNodes(
-        compileMarkdown(`\`\`\`text\n${text}\n\`\`\`\n`, blockMarkdownOptions)
-      );
-      return (
-        <View className="max-h-48 rounded bg-surface-foreground/5 p-2" key={key}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-            {blockMarkdown}
-          </ScrollView>
-        </View>
-      );
-    }
+    const isBlock = isTerminalOutput(text) || text.includes("\n");
 
     return (
-      <Text
-        className={`font-mono text-xs ${
-          isError ? "text-danger" : "text-foreground/80"
-        }`}
+      <View
+        className={isBlock ? "rounded bg-surface-foreground/5 p-2" : undefined}
         key={key}
       >
-        {text}
-      </Text>
+        <Text
+          selectable
+          style={{
+            color: textColor,
+            fontFamily: "monospace",
+            fontSize: 12,
+            lineHeight: 18,
+          }}
+        >
+          {text}
+        </Text>
+      </View>
     );
   };
 
-  const renderResourceBadge = (label: string, url?: string, key?: string) => (
+  const renderResourceBadge = (
+    label: string,
+    url?: string | null,
+    key?: string
+  ) => (
     <Pressable
       className="rounded border border-divider px-2 py-1"
       disabled={!url}
@@ -193,17 +104,30 @@ export function ToolResultDisplay({
       case "text":
         return renderTextBlock(block.text, key);
       case "resource_link":
-        return renderResourceBadge(block.title ?? block.name ?? block.uri, block.uri, key);
+        return renderResourceBadge(
+          getResourceLabel(block.title, block.name, block.uri),
+          block.uri,
+          key
+        );
       case "resource": {
-        const title = block.resource.uri ?? "Resource";
+        const title = getResourceLabel(block.resource.uri);
         if ("text" in block.resource && block.resource.text) {
           return renderTextBlock(block.resource.text, key);
         }
         return renderResourceBadge(title, block.resource.uri, key);
       }
       case "image":
+        return renderResourceBadge(
+          getResourceLabel(block.uri, block.mimeType, block.type),
+          block.uri,
+          key
+        );
       case "audio":
-        return renderResourceBadge(block.uri ?? block.mimeType ?? block.type, block.uri, key);
+        return renderResourceBadge(
+          getResourceLabel(block.mimeType, block.type),
+          undefined,
+          key
+        );
       default:
         return renderTextBlock(JSON.stringify(block, null, 2), key);
     }
