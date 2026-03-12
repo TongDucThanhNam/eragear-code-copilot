@@ -30,6 +30,7 @@ const REJECT_KEYWORDS = [
   "reject",
   "rejected",
   "deny",
+  "denying",
   "denied",
   "block",
   "blocked",
@@ -66,10 +67,15 @@ function inferDecisionIntent(decision: string): PermissionIntent | null {
   if (decision.length === 0) {
     return null;
   }
-  if (includesKeyword(decision, REJECT_KEYWORDS)) {
+  const hasReject = includesKeyword(decision, REJECT_KEYWORDS);
+  const hasAllow = includesKeyword(decision, ALLOW_KEYWORDS);
+  if (hasReject === hasAllow) {
+    return null;
+  }
+  if (hasReject) {
     return "reject";
   }
-  if (includesKeyword(decision, ALLOW_KEYWORDS)) {
+  if (hasAllow) {
     return "allow";
   }
   return null;
@@ -99,15 +105,43 @@ function inferOptionIntent(option: acp.PermissionOption): PermissionIntent | nul
     return "allow";
   }
   const tokens = getOptionTokens(option);
+  let hasReject = false;
+  let hasAllow = false;
   for (const token of tokens) {
     if (includesKeyword(token, REJECT_KEYWORDS)) {
-      return "reject";
+      hasReject = true;
     }
     if (includesKeyword(token, ALLOW_KEYWORDS)) {
-      return "allow";
+      hasAllow = true;
     }
   }
-  return null;
+  if (hasReject === hasAllow) {
+    return null;
+  }
+  return hasReject ? "reject" : "allow";
+}
+
+function scoreIntentOption(
+  option: acp.PermissionOption,
+  intent: PermissionIntent
+): number {
+  const kind = normalizeToken(option.kind);
+  if (intent === "allow") {
+    if (kind === "allow_once" || kind === "allow_always") {
+      return 4;
+    }
+    if (kind.startsWith("allow_")) {
+      return 3;
+    }
+  } else {
+    if (kind === "reject_once" || kind === "reject_always") {
+      return 4;
+    }
+    if (kind.startsWith("reject_")) {
+      return 3;
+    }
+  }
+  return inferOptionIntent(option) === intent ? 1 : 0;
 }
 
 function resolvePermissionSelection(params: {
@@ -146,9 +180,19 @@ function resolvePermissionSelection(params: {
   }
 
   if (decisionIntent) {
-    const intentMatch = options.find((option) => {
-      return inferOptionIntent(option) === decisionIntent;
-    });
+    const intentMatch = options
+      .map((option, index) => ({
+        option,
+        index,
+        score: scoreIntentOption(option, decisionIntent),
+      }))
+      .filter((item) => item.score > 0)
+      .sort((left, right) => {
+        if (left.score !== right.score) {
+          return right.score - left.score;
+        }
+        return left.index - right.index;
+      })[0]?.option;
     const intentOptionId = intentMatch ? getOptionId(intentMatch) : null;
     if (intentOptionId) {
       return {

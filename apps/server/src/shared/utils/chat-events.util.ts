@@ -21,6 +21,7 @@ const BUSY_CHAT_STATUS = [
   "cancelling",
 ] as const satisfies readonly ChatStatus[];
 const BUSY_CHAT_STATUS_SET = new Set<ChatStatus>(BUSY_CHAT_STATUS);
+export const RECONNECT_CHAT_FINISH_TTL_MS = 15 * 60_000;
 
 export function mapStopReasonToFinishReason(
   stopReason?: string
@@ -120,6 +121,7 @@ export function maybeBroadcastChatFinish(params: {
       session.subscriberCount <= 0
         ? {
             event: reconnectEvent,
+            createdAtMs: Date.now(),
           }
         : undefined;
     session.chatFinish = undefined;

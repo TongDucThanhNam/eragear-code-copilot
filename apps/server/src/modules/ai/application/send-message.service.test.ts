@@ -422,6 +422,75 @@ describe("SendMessageService", () => {
     expect(session.activeTurnId).toBeUndefined();
   });
 
+  test("materializes buffered assistant output when streaming ui state is missing", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    let session!: ChatSession;
+    session = createChatSession({
+      prompt: async () => {
+        session.buffer ??= new SessionBuffering();
+        session.buffer.ensureMessageId("msg-buffer-only");
+        session.buffer.appendContent({
+          type: "text",
+          text: "buffer only answer",
+        });
+        return { stopReason: "end_turn" };
+      },
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime);
+
+    const result = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "hello",
+    });
+
+    await flushAsync();
+    await flushAsync();
+
+    const assistantMessageEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "ui_message" }> =>
+        event.type === "ui_message" &&
+        event.message.role === "assistant" &&
+        event.message.id === "msg-buffer-only"
+    );
+    expect(assistantMessageEvent).toBeDefined();
+    if (assistantMessageEvent?.type === "ui_message") {
+      expect(assistantMessageEvent.turnId).toBe(result.turnId);
+      expect(assistantMessageEvent.message.parts).toEqual([
+        {
+          type: "text",
+          text: "buffer only answer",
+          state: "done",
+        },
+      ]);
+    }
+
+    const finishEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "chat_finish" }> =>
+        event.type === "chat_finish" && event.turnId === result.turnId
+    );
+    expect(finishEvent).toBeDefined();
+    if (finishEvent?.type === "chat_finish") {
+      expect(finishEvent.messageId).toBe("msg-buffer-only");
+      expect(finishEvent.message?.id).toBe("msg-buffer-only");
+    }
+
+    expect(session.uiState.messages.get("msg-buffer-only")).toEqual({
+      id: "msg-buffer-only",
+      role: "assistant",
+      parts: [
+        {
+          type: "text",
+          text: "buffer only answer",
+          state: "done",
+        },
+      ],
+      createdAt: expect.any(Number),
+    });
+  });
+
   test("clears stale replay flags before starting a live prompt turn", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];

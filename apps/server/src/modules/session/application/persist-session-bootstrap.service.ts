@@ -18,6 +18,12 @@ import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionMetadataPersistenceService } from "./session-metadata-persistence.service";
 
 const IMPORT_ROLE_ALLOWLIST = new Set<UIMessage["role"]>(["user", "assistant"]);
+/**
+ * Runtime replay is considered assistant-sparse when assistant volume is at
+ * most 50% of user volume. This threshold catches likely truncated ACP replay
+ * while avoiding over-eager external import for healthy timelines.
+ */
+const ASSISTANT_SPARSE_USER_RATIO_DIVISOR = 2;
 type TextStoredContentBlock = Extract<StoredContentBlock, { type: "text" }>;
 type ExternalHistoryResolver = (
   input: ExternalHistoryResolveInput
@@ -222,7 +228,7 @@ function shouldUseExternalImport(
     return true;
   }
   if (
-    runtimeSummary.assistant * 2 <= runtimeSummary.user &&
+    isAssistantSparse(runtimeSummary) &&
     externalSummary.assistant > runtimeSummary.assistant
   ) {
     return true;
@@ -253,9 +259,12 @@ function shouldAttemptExternalImportFallback(params: {
     return true;
   }
   const runtimeSummary = summarizeMessageRoles(params.runtimeMessages);
+  return runtimeSummary.assistant === 0 || isAssistantSparse(runtimeSummary);
+}
+
+function isAssistantSparse(summary: { assistant: number; user: number }): boolean {
   return (
-    runtimeSummary.assistant === 0 ||
-    runtimeSummary.assistant * 2 <= runtimeSummary.user
+    summary.assistant * ASSISTANT_SPARSE_USER_RATIO_DIVISOR <= summary.user
   );
 }
 

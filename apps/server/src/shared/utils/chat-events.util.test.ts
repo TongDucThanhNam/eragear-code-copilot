@@ -118,6 +118,9 @@ describe("maybeBroadcastChatFinish", () => {
       throw new Error("Expected chat_finish event");
     }
     expect(session.pendingReconnectChatFinish?.event).toEqual(finishEvent);
+    expect(session.pendingReconnectChatFinish?.createdAtMs).toEqual(
+      expect.any(Number)
+    );
     expect(session.chatFinish).toBeUndefined();
   });
 

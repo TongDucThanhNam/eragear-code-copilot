@@ -12,6 +12,7 @@ import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
+  buildChatFinishEvent,
   mapStopReasonToFinishReason,
   setChatFinishMessage,
 } from "@/shared/utils/chat-events.util";
@@ -386,9 +387,18 @@ export class PromptTaskRunner {
             waitMs: this.clock.nowMs() - watchdogStartedAt,
             attempt: attempt + 1,
             maxAttempts,
+            sessionId: session.sessionId,
+            processPid: session.proc.pid ?? null,
             chatStatus: session.chatStatus,
+            activeTurnId: session.activeTurnId ?? null,
+            activePromptTurnId: session.activePromptTask?.turnId ?? null,
             subscriberCount: session.subscriberCount,
             emitterSubscriberCount: session.emitter.listenerCount("data"),
+            hasBufferedContent: session.buffer?.hasContent() ?? false,
+            bufferMessageId: session.buffer?.getMessageId() ?? null,
+            currentAssistantMessageId:
+              session.uiState.currentAssistantId ?? null,
+            lastAssistantMessageId: session.uiState.lastAssistantId ?? null,
             isReplayingHistory: session.isReplayingHistory,
             suppressReplayBroadcast: session.suppressReplayBroadcast,
             sessionLoadMethod: session.sessionLoadMethod,
@@ -776,6 +786,7 @@ export class PromptTaskRunner {
       }
 
       aggregate.setChatFinishStopReason(stopReason, turnId);
+      const chatFinishPreview = buildChatFinishEvent(session);
       await aggregate.maybeBroadcastChatFinish({
         chatId,
         broadcast,
@@ -784,6 +795,11 @@ export class PromptTaskRunner {
         chatId,
         stopReason,
         finishReason: mapStopReasonToFinishReason(stopReason),
+        messageId: chatFinishPreview?.messageId ?? null,
+        hasEmbeddedMessage: Boolean(chatFinishPreview?.message),
+        previewPartsCount: chatFinishPreview?.message?.parts.length ?? 0,
+        currentAssistantMessageId: session.uiState.currentAssistantId ?? null,
+        lastAssistantMessageId: session.uiState.lastAssistantId ?? null,
         turnId,
       });
 
@@ -810,6 +826,9 @@ export class PromptTaskRunner {
   }): Promise<string | undefined> {
     const { chatId, aggregate, session, broadcast, turnId } = params;
     let finalizedAssistantMessageId: string | undefined;
+    let flushedAssistantBuffer: ReturnType<
+      NonNullable<ChatSession["buffer"]>["flush"]
+    > = null;
 
     if (session.buffer?.hasPendingReasoning()) {
       const bufferedMessageId = session.buffer.ensureMessageId(
@@ -859,6 +878,7 @@ export class PromptTaskRunner {
     if (session.buffer) {
       const message = session.buffer.flush();
       if (message) {
+        flushedAssistantBuffer = message;
         finalizedAssistantMessageId = message.id;
         this.logger.debug("SendMessageService flushed assistant buffer", {
           chatId,
@@ -881,6 +901,42 @@ export class PromptTaskRunner {
 
     const current = aggregate.currentStreamingAssistantMessage();
     if (!current) {
+      if (flushedAssistantBuffer && finalizedAssistantMessageId) {
+        const existingFinalMessage = session.uiState.messages.get(
+          finalizedAssistantMessageId
+        );
+        const materializedMessage =
+          existingFinalMessage ??
+          buildAssistantMessageFromBlocks({
+            messageId: flushedAssistantBuffer.id,
+            contentBlocks: flushedAssistantBuffer.contentBlocks,
+            reasoningBlocks: flushedAssistantBuffer.reasoningBlocks,
+            createdAt: this.clock.nowMs(),
+          });
+        if (!existingFinalMessage) {
+          session.uiState.messages.set(
+            materializedMessage.id,
+            materializedMessage
+          );
+        }
+        session.uiState.lastAssistantId = materializedMessage.id;
+        await broadcast(chatId, {
+          type: "ui_message",
+          message: materializedMessage,
+          turnId,
+        });
+        this.logger.warn(
+          "SendMessageService materialized assistant snapshot from flushed buffer",
+          {
+            chatId,
+            messageId: materializedMessage.id,
+            parts: materializedMessage.parts.length,
+            contentBlocks: flushedAssistantBuffer.contentBlocks.length,
+            reasoningBlocks: flushedAssistantBuffer.reasoningBlocks?.length ?? 0,
+            turnId,
+          }
+        );
+      }
       return finalizedAssistantMessageId;
     }
 

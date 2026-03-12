@@ -26,6 +26,7 @@ import { useChatStatusStore } from "@/store/chat-status-store";
 import { useChatStreamStore } from "@/store/chat-stream-store";
 import { useProjectStore } from "@/store/project-store";
 import { NavProjectTreeDialogs } from "./nav-project-tree/dialogs";
+import { useDiscoverSessions } from "./nav-project-tree/use-discover-sessions-state";
 import { ProjectRow } from "./nav-project-tree/project-row";
 import { SessionList } from "./nav-project-tree/session-list";
 import type {
@@ -81,25 +82,33 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const [pendingCreateSessionKey, setPendingCreateSessionKey] = useState<
     string | null
   >(null);
-  const [discoverContext, setDiscoverContext] =
-    useState<DiscoverContext | null>(null);
-  const [discoverSessions, setDiscoverSessions] = useState<
-    DiscoverSessionItem[]
-  >([]);
-  const [discoverNextCursor, setDiscoverNextCursor] = useState<string | null>(
-    null
-  );
-  const [discoverSupported, setDiscoverSupported] = useState(false);
-  const [discoverRequiresAuth, setDiscoverRequiresAuth] = useState(false);
-  const [discoverLoadSessionSupported, setDiscoverLoadSessionSupported] =
-    useState(false);
-  const [discoverError, setDiscoverError] = useState<string | null>(null);
-  const [discoverIsLoading, setDiscoverIsLoading] = useState(false);
-  const [discoverIsLoadingMore, setDiscoverIsLoadingMore] = useState(false);
-  const [pendingLoadSessionId, setPendingLoadSessionId] = useState<
-    string | null
-  >(null);
-  const [isDiscoverDialogOpen, setIsDiscoverDialogOpen] = useState(false);
+
+  const {
+    discoverContext,
+    discoverSessions,
+    discoverNextCursor,
+    discoverSupported,
+    discoverRequiresAuth,
+    discoverLoadSessionSupported,
+    discoverError,
+    discoverIsLoading,
+    discoverIsLoadingMore,
+    pendingLoadSessionId,
+    isDiscoverDialogOpen,
+    setDiscoverContext,
+    setDiscoverSessions,
+    setDiscoverNextCursor,
+    setDiscoverSupported,
+    setDiscoverRequiresAuth,
+    setDiscoverLoadSessionSupported,
+    setDiscoverError,
+    setDiscoverIsLoading,
+    setDiscoverIsLoadingMore,
+    setPendingLoadSessionId,
+    setIsDiscoverDialogOpen,
+    resetDiscoverState: resetDiscoverStateFromHook,
+  } = useDiscoverSessions();
+
   const setSessionBootstrapPhase = useChatStatusStore(
     (state) => state.setSessionBootstrapPhase
   );
@@ -379,19 +388,6 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     }
   };
 
-  const resetDiscoverState = () => {
-    setDiscoverContext(null);
-    setDiscoverSessions([]);
-    setDiscoverNextCursor(null);
-    setDiscoverSupported(false);
-    setDiscoverRequiresAuth(false);
-    setDiscoverLoadSessionSupported(false);
-    setDiscoverError(null);
-    setDiscoverIsLoading(false);
-    setDiscoverIsLoadingMore(false);
-    setPendingLoadSessionId(null);
-  };
-
   const fetchDiscoveredSessions = async (params: {
     context: DiscoverContext;
     cursor?: string;
@@ -453,7 +449,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       agentId: params.agent.id,
       agentName: params.agent.name,
     };
-    resetDiscoverState();
+    resetDiscoverStateFromHook();
     setDiscoverContext(nextContext);
     setIsDiscoverDialogOpen(true);
     await fetchDiscoveredSessions({
@@ -507,7 +503,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       });
       setSessionBootstrapPhase("initializing_agent");
       setIsDiscoverDialogOpen(false);
-      resetDiscoverState();
+      resetDiscoverStateFromHook();
       navigate({
         to: "/",
         search: { chatId: newSession.chatId },
@@ -721,7 +717,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
         onRenameSubmit={handleRenameSubmit}
         pendingLoadSessionId={pendingLoadSessionId}
         renameValue={renameValue}
-        resetDiscoverState={resetDiscoverState}
+        resetDiscoverState={resetDiscoverStateFromHook}
         selectedSessionForDetails={selectedSessionForDetails}
         setDeleteProjectTargetId={setDeleteProjectTargetId}
         setDeleteSessionTarget={setDeleteSessionTarget}

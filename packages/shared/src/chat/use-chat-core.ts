@@ -192,9 +192,60 @@ function applyMessagePartUpdate(params: {
       parts: updatedParts,
     };
   }
+  const identityIndex = findPartIndexByIdentity({
+    message,
+    partIndex,
+    partId,
+    part: incomingPart,
+  });
   const existingPart = message.parts[partIndex];
   if (!existingPart) {
+    if (identityIndex >= 0) {
+      const identityPart = message.parts[identityIndex];
+      if (!identityPart) {
+        return null;
+      }
+      const updatedParts = [...message.parts];
+      updatedParts[identityIndex] = attachOptionalPartId(
+        incomingPart,
+        readPartId(identityPart)
+      );
+      return {
+        ...message,
+        parts: updatedParts,
+      };
+    }
+    if (shouldRecoverMissingPartFromUpdate(incomingPart, partId)) {
+      return {
+        ...message,
+        parts: [...message.parts, incomingPart],
+      };
+    }
     return null;
+  }
+  if (
+    existingPart.type !== incomingPart.type &&
+    shouldRecoverMissingPartFromUpdate(incomingPart, partId)
+  ) {
+    if (identityIndex >= 0) {
+      const identityPart = message.parts[identityIndex];
+      if (!identityPart) {
+        return null;
+      }
+      const updatedParts = [...message.parts];
+      updatedParts[identityIndex] = attachOptionalPartId(
+        incomingPart,
+        readPartId(identityPart)
+      );
+      return {
+        ...message,
+        parts: updatedParts,
+      };
+    }
+    return {
+      ...message,
+      parts: [...message.parts, incomingPart],
+    };
   }
   const updatedParts = [...message.parts];
   updatedParts[partIndex] = attachOptionalPartId(
@@ -205,6 +256,19 @@ function applyMessagePartUpdate(params: {
     ...message,
     parts: updatedParts,
   };
+}
+
+function shouldRecoverMissingPartFromUpdate(
+  part: UIMessage["parts"][number],
+  partId?: string
+): boolean {
+  const hasStablePartId = typeof partId === "string" && partId.length > 0;
+  return (
+    isToolPart(part) ||
+    part.type === "data-permission-options" ||
+    part.type === "data-tool-locations" ||
+    (hasStablePartId && (part.type === "text" || part.type === "reasoning"))
+  );
 }
 
 function findPartIndexByIdentity(params: {
@@ -736,22 +800,30 @@ export function processSessionEvent(
       return;
 
     case "current_mode_update": {
-      if (context.currentModes) {
-        callbacks.onModesChange?.({
-          ...context.currentModes,
-          currentModeId: event.modeId,
-        });
-      }
+      const nextModes = context.currentModes
+        ? {
+            ...context.currentModes,
+            currentModeId: event.modeId,
+          }
+        : {
+            currentModeId: event.modeId,
+            availableModes: [],
+          };
+      callbacks.onModesChange?.(nextModes);
       return;
     }
 
     case "current_model_update": {
-      if (context.currentModels) {
-        callbacks.onModelsChange?.({
-          ...context.currentModels,
-          currentModelId: event.modelId,
-        });
-      }
+      const nextModels = context.currentModels
+        ? {
+            ...context.currentModels,
+            currentModelId: event.modelId,
+          }
+        : {
+            currentModelId: event.modelId,
+            availableModels: [],
+          };
+      callbacks.onModelsChange?.(nextModels);
       return;
     }
 

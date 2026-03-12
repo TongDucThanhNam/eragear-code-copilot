@@ -140,6 +140,55 @@ describe("processSessionEvent ui_message_part", () => {
     });
   });
 
+  test("recovers out-of-bounds non-new text update when partId is present", () => {
+    const initialMessage = createAssistantMessage("msg-1", [
+      { type: "reasoning", text: "thinking", state: "done", id: "part-r0" },
+      {
+        type: "tool-edit",
+        toolCallId: "tool-1",
+        title: "Edit",
+        state: "output-available",
+        input: { path: "index.ts" },
+      },
+    ]);
+    const event: BroadcastEvent = {
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partId: "part-text-tail",
+      partIndex: 16,
+      part: { type: "text", text: "tail", state: "streaming" },
+      isNew: false,
+    };
+
+    const next = applyEventWithMessages(event, [initialMessage]);
+    expect(next).toHaveLength(1);
+    expect(next[0]?.parts).toHaveLength(3);
+    expect(next[0]?.parts[2]).toEqual({
+      type: "text",
+      text: "tail",
+      state: "streaming",
+      id: "part-text-tail",
+    });
+  });
+
+  test("keeps dropping out-of-bounds non-new text update without partId", () => {
+    const initialMessage = createAssistantMessage("msg-1", [
+      { type: "text", text: "Answer", state: "done" },
+    ]);
+    const event: BroadcastEvent = {
+      type: "ui_message_part",
+      messageId: "msg-1",
+      messageRole: "assistant",
+      partIndex: 16,
+      part: { type: "text", text: "tail", state: "streaming" },
+      isNew: false,
+    };
+
+    const next = applyEventWithMessages(event, [initialMessage]);
+    expect(next).toEqual([initialMessage]);
+  });
+
   test("removes a part by stable identity when ui_message_part_removed arrives", () => {
     const initialMessage = createAssistantMessage("msg-1", [
       { type: "text", text: "Lead", state: "done", id: "part-lead" },
@@ -403,6 +452,60 @@ describe("processSessionEvent config/session-info updates", () => {
         { modelId: "model-1", name: "Model 1" },
         { modelId: "model-2", name: "Model 2" },
       ],
+    });
+  });
+
+  test("hydrates mode state from current_mode_update when mode state is missing", () => {
+    let nextModes:
+      | {
+          currentModeId: string;
+          availableModes: Array<{ id: string; name: string }>;
+        }
+      | null = null;
+
+    processSessionEvent(
+      {
+        type: "current_mode_update",
+        modeId: "code",
+      },
+      { currentModes: null, currentModels: null },
+      {
+        onModesChange: (modes) => {
+          nextModes = modes;
+        },
+      }
+    );
+
+    expect(nextModes).toEqual({
+      currentModeId: "code",
+      availableModes: [],
+    });
+  });
+
+  test("hydrates model state from current_model_update when model state is missing", () => {
+    let nextModels:
+      | {
+          currentModelId: string;
+          availableModels: Array<{ modelId: string; name: string }>;
+        }
+      | null = null;
+
+    processSessionEvent(
+      {
+        type: "current_model_update",
+        modelId: "model-x",
+      },
+      { currentModes: null, currentModels: null },
+      {
+        onModelsChange: (models) => {
+          nextModels = models;
+        },
+      }
+    );
+
+    expect(nextModels).toEqual({
+      currentModelId: "model-x",
+      availableModels: [],
     });
   });
 

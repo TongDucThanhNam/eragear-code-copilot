@@ -143,6 +143,7 @@ function createRepo() {
       metadataCalls.push({ chatId, userId, updates });
       return Promise.resolve();
     },
+    appendMessage: () => Promise.resolve({ appended: true as const }),
   } as unknown as SessionRepositoryPort;
   return { repo, metadataCalls };
 }
@@ -714,7 +715,7 @@ describe("createSessionUpdateHandler", () => {
     });
   });
 
-  test("flushes pending assistant part broadcasts before replay user snapshots", async () => {
+  test("does not emit assistant text part snapshots during replay chunk buffering", async () => {
     const session = createSession("chat-replay-ordering");
     const { runtime, events } = createRuntime(session);
     const { repo } = createRepo();
@@ -751,7 +752,7 @@ describe("createSessionUpdateHandler", () => {
       },
     });
 
-    const flushedPartIndex = events.findIndex((event) => {
+    const streamedPartIndex = events.findIndex((event) => {
       return (
         typeof event === "object" &&
         event !== null &&
@@ -760,9 +761,8 @@ describe("createSessionUpdateHandler", () => {
         "part" in event &&
         (event as { part?: { type?: string; text?: string } }).part?.type ===
           "text" &&
-        (
-          event as { part?: { type?: string; text?: string } }
-        ).part?.text === "Hello world"
+        (event as { part?: { type?: string; text?: string } }).part?.text ===
+          "Hello world"
       );
     });
     const snapshotIndex = events.findIndex((event) => {
@@ -774,8 +774,8 @@ describe("createSessionUpdateHandler", () => {
       );
     });
 
-    expect(flushedPartIndex).toBeGreaterThanOrEqual(0);
-    expect(snapshotIndex).toBeGreaterThan(flushedPartIndex);
+    expect(streamedPartIndex).toBe(-1);
+    expect(snapshotIndex).toBeGreaterThanOrEqual(0);
   });
 
   test("sanitizes tool locations before storing and broadcasting them", async () => {
@@ -914,12 +914,14 @@ describe("createSessionUpdateHandler", () => {
     expect(removedEvent?.part.type).toBe("data-tool-locations");
     expect(removedEvent?.part.data.toolCallId).toBe("tool-1");
     expect(removedEvent?.partIndex).toBeGreaterThanOrEqual(0);
-    expect(session.uiState.messages.get(session.uiState.currentAssistantId ?? "")?.parts)
-      .not.toContainEqual(
-        expect.objectContaining({
-          type: "data-tool-locations",
-        })
-      );
+    expect(
+      session.uiState.messages.get(session.uiState.currentAssistantId ?? "")
+        ?.parts
+    ).not.toContainEqual(
+      expect.objectContaining({
+        type: "data-tool-locations",
+      })
+    );
   });
 
   test("does not mark chat as streaming when no active turn is present", async () => {
@@ -978,6 +980,67 @@ describe("createSessionUpdateHandler", () => {
       })
     );
     expect(getTurnIdMigrationSnapshot().drops.staleTurnMismatch).toBe(1);
+  });
+
+  test("accepts late assistant chunks for recently completed turn within grace window", async () => {
+    const session = createSession("chat-late-tail-grace");
+    session.activeTurnId = undefined;
+    session.lastCompletedTurnId = "turn-done";
+    session.lastCompletedTurnAtMs = Date.now();
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        turnId: "turn-done",
+        content: { type: "text", text: "tail chunk" },
+      } as never,
+    });
+
+    expect(session.uiState.messages.size).toBe(1);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "ui_message_part",
+      })
+    );
+    expect(getTurnIdMigrationSnapshot().drops.lateAfterTurnCleared).toBe(0);
+  });
+
+  test("accepts missing-turnId assistant chunks within recently completed turn grace window", async () => {
+    const session = createSession("chat-late-tail-grace-missing-turn-id");
+    session.activeTurnId = undefined;
+    session.lastCompletedTurnId = "turn-done-missing-turn-id";
+    session.lastCompletedTurnAtMs = Date.now();
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "tail chunk" },
+      } as never,
+    });
+
+    expect(session.uiState.messages.size).toBe(1);
+    const partEvent = events.find(
+      (event): event is { type: "ui_message_part"; turnId?: string } =>
+        typeof event === "object" &&
+        event !== null &&
+        "type" in event &&
+        (event as { type?: string }).type === "ui_message_part"
+    );
+    expect(partEvent).toBeDefined();
+    expect(partEvent?.turnId).toBe("turn-done-missing-turn-id");
+    expect(getTurnIdMigrationSnapshot().drops.lateAfterTurnCleared).toBe(0);
   });
 
   test("ignores stale assistant chunks that target a different turn", async () => {

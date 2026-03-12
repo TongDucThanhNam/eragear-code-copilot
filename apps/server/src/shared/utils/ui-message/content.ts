@@ -36,10 +36,18 @@ export function appendTextPart(
   }
   const lastIndex = message.parts.length - 1;
   const last = message.parts[lastIndex];
-  if (last?.type === "text" && last.state === state) {
+  if (
+    last?.type === "text" &&
+    (last.state === state || (last.state === "done" && state === "streaming"))
+  ) {
+    const nextText = mergeTextChunk(last.text, escapedText);
+    if (nextText === last.text && !providerMetadata) {
+      return message;
+    }
     const updatedLast: TextUIPart = {
       ...last,
-      text: `${last.text}${escapedText}`,
+      text: nextText,
+      state,
       ...(providerMetadata
         ? {
             providerMetadata: mergeProviderMetadata(
@@ -63,6 +71,26 @@ export function appendTextPart(
     ...message,
     parts: [...message.parts, part],
   };
+}
+
+function mergeTextChunk(existing: string, incoming: string): string {
+  if (!incoming) {
+    return existing;
+  }
+  if (!existing) {
+    return incoming;
+  }
+  // Some ACP agents emit cumulative snapshots; others emit deltas.
+  // Normalize both into a single monotonically growing text value.
+  if (incoming.length > existing.length && incoming.startsWith(existing)) {
+    return incoming;
+  }
+  // Conservatively dedupe only long retransmitted tails. For short chunks we
+  // prefer potential duplication over accidental data loss.
+  if (incoming.length >= 32 && existing.endsWith(incoming)) {
+    return existing;
+  }
+  return `${existing}${incoming}`;
 }
 
 export function appendReasoningPart(

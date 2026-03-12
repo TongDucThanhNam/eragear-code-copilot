@@ -23,6 +23,7 @@ import {
   applyPartRemoval,
   applyPartUpdate,
   finalizeStreamingMessagesInState,
+  getPartUpdateDiagnostics,
   type MessageState,
   messageHasPendingApproval,
   replaceMessagesState,
@@ -86,6 +87,60 @@ export function reconcileMessageUpsertAfterStatus(
     return nextState;
   }
   return finalizeStreamingMessagesInState(nextState);
+}
+
+export function getChatFinishHistoryReloadDecision(params: {
+  event: Extract<BroadcastEvent, { type: "chat_finish" }>;
+  state: MessageState;
+}): {
+  shouldReload: boolean;
+  reason:
+    | "empty_message_state"
+    | "missing_embedded_finish_message"
+    | "missing_finished_message"
+    | null;
+  resolvedMessageId: string | null;
+} {
+  const { event, state } = params;
+  const resolvedMessageId = event.message?.id ?? event.messageId ?? null;
+
+  if (state.order.length === 0) {
+    return {
+      shouldReload: true,
+      reason: "empty_message_state",
+      resolvedMessageId,
+    };
+  }
+
+  if (!resolvedMessageId) {
+    return {
+      shouldReload: false,
+      reason: null,
+      resolvedMessageId: null,
+    };
+  }
+
+  if (!state.byId.has(resolvedMessageId)) {
+    return {
+      shouldReload: true,
+      reason: "missing_finished_message",
+      resolvedMessageId,
+    };
+  }
+
+  if (!event.message) {
+    return {
+      shouldReload: true,
+      reason: "missing_embedded_finish_message",
+      resolvedMessageId,
+    };
+  }
+
+  return {
+    shouldReload: false,
+    reason: null,
+    resolvedMessageId,
+  };
 }
 
 function reconcileLateTerminalMessageSnapshot(
@@ -261,6 +316,62 @@ export function useChatSessionEventHandler(
   return useCallback(
     (event: BroadcastEvent) => {
       if (
+        event.type === "current_mode_update" ||
+        event.type === "current_model_update"
+      ) {
+        const modeState = modesRef.current;
+        const modelState = modelsRef.current;
+        const isModeEvent = event.type === "current_mode_update";
+        const missingStateForSelectionEvent = isModeEvent
+          ? !modeState
+          : !modelState;
+        const meta: Record<string, unknown> =
+          isModeEvent
+            ? {
+                eventType: event.type,
+                incomingModeId: event.modeId,
+                currentModeId: modeState?.currentModeId ?? null,
+                availableModesCount: modeState?.availableModes?.length ?? 0,
+                hasModeState: Boolean(modeState),
+              }
+            : {
+                eventType: event.type,
+                incomingModelId: event.modelId,
+                currentModelId: modelState?.currentModelId ?? null,
+                availableModelsCount: modelState?.availableModels?.length ?? 0,
+                hasModelState: Boolean(modelState),
+              };
+        chatDebug("session-config", "received session selection update", {
+          chatId: activeChatIdRef.current,
+          ...meta,
+        });
+        if (missingStateForSelectionEvent) {
+          chatDebug(
+            "session-config",
+            "selection update arrived before state hydration",
+            {
+              chatId: activeChatIdRef.current,
+              ...meta,
+            }
+          );
+        }
+        if (import.meta.env.DEV) {
+          console.debug("[ACP Session Event] session selection update", {
+            chatId: activeChatIdRef.current,
+            ...meta,
+          });
+          if (missingStateForSelectionEvent) {
+            console.warn(
+              "[ACP Session Event] selection update arrived before state hydration",
+              {
+                chatId: activeChatIdRef.current,
+                ...meta,
+              }
+            );
+          }
+        }
+      }
+      if (
         event.type === "chat_finish" &&
         hasObservedTurnCompletion(
           completedTurnIdsRef.current,
@@ -308,6 +419,8 @@ export function useChatSessionEventHandler(
                 stopReason: event.stopReason,
                 finishReason: event.finishReason,
                 messageId: event.messageId ?? event.message?.id ?? null,
+                hasEmbeddedMessage: Boolean(event.message),
+                embeddedPartsCount: event.message?.parts.length ?? 0,
                 turnId: event.turnId ?? null,
               }
             : {}),
@@ -391,7 +504,80 @@ export function useChatSessionEventHandler(
             );
           },
           onMessagePartUpdate: (partEvent) => {
-            updateMessageState((prev) => applyPartUpdate(prev, partEvent));
+            updateMessageState((prev) => {
+              const nextState = applyPartUpdate(prev, partEvent);
+              if (nextState === prev) {
+                const diagnostics = getPartUpdateDiagnostics(prev, partEvent);
+                const isTextualIgnoredUpdate =
+                  partEvent.part.type === "text" ||
+                  partEvent.part.type === "reasoning";
+                const shouldLogIgnoredUpdate =
+                  diagnostics.reason !== "unchanged_or_stale" ||
+                  isTextualIgnoredUpdate;
+                if (shouldLogIgnoredUpdate) {
+                  chatDebug("stream", "ignored ui_message_part update", {
+                    chatId: activeChatIdRef.current,
+                    messageId: partEvent.messageId,
+                    partIndex: partEvent.partIndex,
+                    partId: partEvent.partId ?? null,
+                    partType: partEvent.part.type,
+                    isNew: partEvent.isNew,
+                    status: statusRef.current,
+                    ...diagnostics,
+                  });
+                }
+                if (import.meta.env.DEV && shouldLogIgnoredUpdate) {
+                  console.debug("[ACP Session Event] ignored ui_message_part", {
+                    chatId: activeChatIdRef.current,
+                    messageId: partEvent.messageId,
+                    partIndex: partEvent.partIndex,
+                    partId: partEvent.partId ?? null,
+                    partType: partEvent.part.type,
+                    isNew: partEvent.isNew,
+                    status: statusRef.current,
+                    ...diagnostics,
+                  });
+                }
+              } else {
+                const isTextualAppliedUpdate =
+                  partEvent.part.type === "text" ||
+                  partEvent.part.type === "reasoning";
+                if (isTextualAppliedUpdate) {
+                  const incomingTextLength =
+                    "text" in partEvent.part ? partEvent.part.text.length : null;
+                  chatDebug("stream", "applied ui_message_part update", {
+                    chatId: activeChatIdRef.current,
+                    messageId: partEvent.messageId,
+                    partIndex: partEvent.partIndex,
+                    partId: partEvent.partId ?? null,
+                    partType: partEvent.part.type,
+                    isNew: partEvent.isNew,
+                    status: statusRef.current,
+                    incomingTextLength,
+                  });
+                  if (import.meta.env.DEV) {
+                    console.debug("[ACP Session Event] applied ui_message_part", {
+                      chatId: activeChatIdRef.current,
+                      messageId: partEvent.messageId,
+                      partIndex: partEvent.partIndex,
+                      partId: partEvent.partId ?? null,
+                      partType: partEvent.part.type,
+                      isNew: partEvent.isNew,
+                      status: statusRef.current,
+                      incomingTextLength,
+                    });
+                  }
+                }
+              }
+              if (
+                statusRef.current === "ready" ||
+                statusRef.current === "inactive" ||
+                statusRef.current === "error"
+              ) {
+                return finalizeStreamingMessagesInState(nextState);
+              }
+              return nextState;
+            });
           },
           onMessagePartRemove: (partEvent) => {
             updateMessageState((prev) => applyPartRemoval(prev, partEvent));
@@ -401,10 +587,35 @@ export function useChatSessionEventHandler(
           getMessagesForPermission: () => messageStateRef.current.byId.values(),
           onPendingPermissionChange: setPendingPermission,
           onModesChange: (nextModes) => {
+            chatDebug("session-config", "applied mode update from event", {
+              chatId: activeChatIdRef.current,
+              currentModeId: nextModes?.currentModeId ?? null,
+              availableModesCount: nextModes?.availableModes?.length ?? 0,
+            });
+            if (import.meta.env.DEV) {
+              console.debug("[ACP Session Event] applied mode update", {
+                chatId: activeChatIdRef.current,
+                currentModeId: nextModes?.currentModeId ?? null,
+                availableModesCount: nextModes?.availableModes?.length ?? 0,
+              });
+            }
             setModes(nextModes);
             modesRef.current = nextModes;
           },
           onModelsChange: (nextModels) => {
+            chatDebug("session-config", "applied model update from event", {
+              chatId: activeChatIdRef.current,
+              currentModelId: nextModels?.currentModelId ?? null,
+              availableModelsCount: nextModels?.availableModels?.length ?? 0,
+            });
+            if (import.meta.env.DEV) {
+              console.debug("[ACP Session Event] applied model update", {
+                chatId: activeChatIdRef.current,
+                currentModelId: nextModels?.currentModelId ?? null,
+                availableModelsCount:
+                  nextModels?.availableModels?.length ?? 0,
+              });
+            }
             setModels(nextModels);
             modelsRef.current = nextModels;
           },
@@ -440,7 +651,29 @@ export function useChatSessionEventHandler(
       if (event.type === "chat_finish") {
         rememberCompletedTurnId(completedTurnIdsRef.current, event.turnId ?? null);
         updateMessageState((prev) => finalizeStreamingMessagesInState(prev));
-        if (messageStateRef.current.order.length === 0) {
+        const reloadDecision = getChatFinishHistoryReloadDecision({
+          event,
+          state: messageStateRef.current,
+        });
+        if (reloadDecision.shouldReload) {
+          chatDebug("history", "loadHistory(force=true) after chat_finish", {
+            chatId: activeChatIdRef.current,
+            turnId: event.turnId ?? null,
+            messageId: reloadDecision.resolvedMessageId,
+            hasEmbeddedMessage: Boolean(event.message),
+            reason: reloadDecision.reason,
+            localMessageCount: messageStateRef.current.order.length,
+          });
+          if (import.meta.env.DEV) {
+            console.warn("[ACP Session Event] loadHistory(force=true) after chat_finish", {
+              chatId: activeChatIdRef.current,
+              turnId: event.turnId ?? null,
+              messageId: reloadDecision.resolvedMessageId,
+              hasEmbeddedMessage: Boolean(event.message),
+              reason: reloadDecision.reason,
+              localMessageCount: messageStateRef.current.order.length,
+            });
+          }
           void loadHistory(true);
         }
       }

@@ -6,6 +6,7 @@ import {
   replaceMessagesState,
 } from "./use-chat-message-state";
 import {
+  getChatFinishHistoryReloadDecision,
   reconcileActiveTurnIdAfterEvent,
   reconcileMessageUpsertAfterStatus,
 } from "./use-chat-session-event-handler";
@@ -225,5 +226,120 @@ describe("reconcileActiveTurnIdAfterEvent", () => {
     expect(state.byId.get("m1")?.parts).toEqual([
       { type: "text", text: "Hello world", state: "done" },
     ]);
+  });
+});
+
+describe("getChatFinishHistoryReloadDecision", () => {
+  test("requests history reload when finish arrives without any local messages", () => {
+    const decision = getChatFinishHistoryReloadDecision({
+      event: {
+        type: "chat_finish",
+        stopReason: "end_turn",
+        finishReason: "stop",
+        isAbort: false,
+        messageId: "m-finish",
+        turnId: "turn-1",
+      },
+      state: replaceMessagesState([]),
+    });
+
+    expect(decision).toEqual({
+      shouldReload: true,
+      reason: "empty_message_state",
+      resolvedMessageId: "m-finish",
+    });
+  });
+
+  test("requests history reload when finish message id is missing from local state", () => {
+    const decision = getChatFinishHistoryReloadDecision({
+      event: {
+        type: "chat_finish",
+        stopReason: "end_turn",
+        finishReason: "stop",
+        isAbort: false,
+        messageId: "m-finish",
+        turnId: "turn-1",
+      },
+      state: replaceMessagesState([
+        {
+          id: "m-user",
+          role: "user",
+          parts: [{ type: "text", text: "hello" }],
+        },
+      ]),
+    });
+
+    expect(decision).toEqual({
+      shouldReload: true,
+      reason: "missing_finished_message",
+      resolvedMessageId: "m-finish",
+    });
+  });
+
+  test("requests history reload when finish omits embedded message snapshot", () => {
+    const decision = getChatFinishHistoryReloadDecision({
+      event: {
+        type: "chat_finish",
+        stopReason: "end_turn",
+        finishReason: "stop",
+        isAbort: false,
+        messageId: "m-finish",
+        turnId: "turn-1",
+      },
+      state: replaceMessagesState([
+        {
+          id: "m-user",
+          role: "user",
+          parts: [{ type: "text", text: "hello" }],
+        },
+        {
+          id: "m-finish",
+          role: "assistant",
+          parts: [{ type: "text", text: "done", state: "done" }],
+        },
+      ]),
+    });
+
+    expect(decision).toEqual({
+      shouldReload: true,
+      reason: "missing_embedded_finish_message",
+      resolvedMessageId: "m-finish",
+    });
+  });
+
+  test("skips history reload when finish embeds the assistant snapshot", () => {
+    const decision = getChatFinishHistoryReloadDecision({
+      event: {
+        type: "chat_finish",
+        stopReason: "end_turn",
+        finishReason: "stop",
+        isAbort: false,
+        messageId: "m-finish",
+        message: {
+          id: "m-finish",
+          role: "assistant",
+          parts: [{ type: "text", text: "done", state: "done" }],
+        },
+        turnId: "turn-1",
+      },
+      state: replaceMessagesState([
+        {
+          id: "m-user",
+          role: "user",
+          parts: [{ type: "text", text: "hello" }],
+        },
+        {
+          id: "m-finish",
+          role: "assistant",
+          parts: [{ type: "text", text: "done", state: "done" }],
+        },
+      ]),
+    });
+
+    expect(decision).toEqual({
+      shouldReload: false,
+      reason: null,
+      resolvedMessageId: "m-finish",
+    });
   });
 });

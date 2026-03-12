@@ -270,6 +270,7 @@ export interface ChatFinishState {
 
 export interface PendingReconnectChatFinish {
   event: Extract<BroadcastEvent, { type: "chat_finish" }>;
+  createdAtMs: number;
 }
 
 export interface PendingPermissionRequest {
@@ -506,6 +507,10 @@ export interface ChatSession {
   chatStatus: ChatStatus;
   /** Active prompt turn identifier used to correlate HTTP + WS events */
   activeTurnId?: string;
+  /** Most recently completed turn identifier kept for late-chunk grace handling */
+  lastCompletedTurnId?: string;
+  /** Timestamp (ms) when the most recent turn was marked completed */
+  lastCompletedTurnAtMs?: number;
   /** Pending finish data for the active prompt */
   chatFinish?: ChatFinishState;
   /** Turn completion that must be replayed to the next reconnecting subscriber */

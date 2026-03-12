@@ -4,6 +4,7 @@ import type { UIMessage } from "@repo/shared";
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import type { ChatSession } from "@/shared/types/session.types";
+import { RECONNECT_CHAT_FINISH_TTL_MS } from "@/shared/utils/chat-events.util";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { SubscribeSessionEventsService } from "./subscribe-session-events.service";
 
@@ -199,6 +200,7 @@ describe("SubscribeSessionEventsService", () => {
         return uiState;
       })(),
       pendingReconnectChatFinish: {
+        createdAtMs: Date.now(),
         event: {
           type: "chat_finish",
           stopReason: "end_turn",
@@ -237,6 +239,47 @@ describe("SubscribeSessionEventsService", () => {
         message: completedMessage,
       },
     ]);
+  });
+
+  test("drops stale pending reconnect chat_finish beyond TTL", async () => {
+    const completedMessage: UIMessage = {
+      id: "msg-expired-finish",
+      role: "assistant",
+      parts: [{ type: "text", text: "done", state: "done" }],
+    };
+    const session = createSession({
+      chatStatus: "ready",
+      uiState: (() => {
+        const uiState = createUiMessageState();
+        uiState.messages.set(completedMessage.id, completedMessage);
+        uiState.lastAssistantId = completedMessage.id;
+        return uiState;
+      })(),
+      pendingReconnectChatFinish: {
+        createdAtMs: Date.now() - RECONNECT_CHAT_FINISH_TTL_MS - 1,
+        event: {
+          type: "chat_finish",
+          stopReason: "end_turn",
+          finishReason: "stop",
+          messageId: completedMessage.id,
+          message: completedMessage,
+          isAbort: false,
+          turnId: "turn-expired",
+        },
+      },
+    });
+    const runtime = createSessionRuntime(session);
+    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+
+    const subscription = await service.execute("user-1", "chat-1");
+
+    expect(subscription.bufferedEvents).toEqual([
+      {
+        type: "ui_message",
+        message: completedMessage,
+      },
+    ]);
+    expect(session.pendingReconnectChatFinish).toBeUndefined();
   });
 
   test("adds active assistant snapshot when replay buffer is missing it", async () => {

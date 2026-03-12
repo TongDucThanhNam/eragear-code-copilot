@@ -12,7 +12,10 @@ import {
   cloneBroadcastEvent,
   cloneBroadcastEvents,
 } from "@/shared/utils/broadcast-event.util";
-import { reconcileChatStatusForSubscription } from "@/shared/utils/chat-events.util";
+import {
+  RECONNECT_CHAT_FINISH_TTL_MS,
+  reconcileChatStatusForSubscription,
+} from "@/shared/utils/chat-events.util";
 import { ensureUiMessagePartEventPartId } from "@/shared/utils/ui-message-part-event.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -536,7 +539,13 @@ function buildBufferedEvents(session: ChatSession): {
 }
 
 function shouldReplayPendingChatFinish(session: ChatSession): boolean {
-  if (!session.pendingReconnectChatFinish) {
+  const pending = session.pendingReconnectChatFinish;
+  if (!pending) {
+    return false;
+  }
+  const ageMs = Date.now() - pending.createdAtMs;
+  if (ageMs > RECONNECT_CHAT_FINISH_TTL_MS) {
+    session.pendingReconnectChatFinish = undefined;
     return false;
   }
   if (session.activeTurnId || session.activePromptTask) {

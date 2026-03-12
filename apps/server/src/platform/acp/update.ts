@@ -47,6 +47,7 @@ import { isReplayChunk } from "./update-types";
 export const SessionBuffering = SessionBufferingImpl;
 
 const logger = createLogger("Debug");
+const COMPLETED_TURN_LATE_CHUNK_GRACE_MS = 2500;
 
 async function finalizeStreamingForCurrentAssistant(
   chatId: string,
@@ -217,10 +218,37 @@ function shouldIgnoreStaleTurnScopedUpdate(params: {
   }
 
   if (!session.activeTurnId) {
+    const recentlyCompletedTurnId = session.lastCompletedTurnId;
+    const recentlyCompletedTurnAtMs = session.lastCompletedTurnAtMs;
+    const completedTurnAgeMs =
+      typeof recentlyCompletedTurnAtMs === "number"
+        ? Date.now() - recentlyCompletedTurnAtMs
+        : null;
+    const isWithinRecentCompletedWindow =
+      typeof completedTurnAgeMs === "number" &&
+      completedTurnAgeMs <= COMPLETED_TURN_LATE_CHUNK_GRACE_MS;
+    const isRecentLateChunk =
+      recentlyCompletedTurnId === updateTurnId &&
+      isWithinRecentCompletedWindow;
+    if (isRecentLateChunk) {
+      if (isDebugEnabled()) {
+        logger.debug("Accepting late ACP update for recently completed turn", {
+          chatId,
+          sessionUpdate: update.sessionUpdate,
+          updateTurnId,
+          completedTurnId: recentlyCompletedTurnId,
+          ageMs: completedTurnAgeMs,
+          graceMs: COMPLETED_TURN_LATE_CHUNK_GRACE_MS,
+        });
+      }
+      return false;
+    }
     logger.warn("Ignoring late ACP update after active turn cleared", {
       chatId,
       sessionUpdate: update.sessionUpdate,
       updateTurnId,
+      completedTurnId: recentlyCompletedTurnId ?? null,
+      completedTurnAgeMs,
     });
     recordTurnIdDrop("lateAfterTurnCleared");
     return true;
@@ -238,6 +266,10 @@ function shouldIgnoreStaleTurnScopedUpdate(params: {
   }
 
   return false;
+}
+
+function isDebugEnabled(): boolean {
+  return shouldEmitRuntimeLog("debug");
 }
 
 function summarizeUpdate(update: SessionUpdate) {

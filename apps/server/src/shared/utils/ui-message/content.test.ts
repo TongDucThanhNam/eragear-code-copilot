@@ -119,6 +119,58 @@ describe("append text sanitization", () => {
       expect(reasoningPart.text).toBe("&lt;b&gt;reasoning&lt;/b&gt;");
     }
   });
+
+  test("merges cumulative streaming text snapshots without duplication", () => {
+    let message = appendTextPart(
+      createAssistantMessage("msg-cumulative"),
+      "Hello",
+      "streaming"
+    );
+    message = appendTextPart(message, "Hello world", "streaming");
+
+    expect(message.parts).toHaveLength(1);
+    const textPart = message.parts[0];
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe("Hello world");
+      expect(textPart.state).toBe("streaming");
+    }
+  });
+
+  test("dedupes long retransmitted streaming tail", () => {
+    const longTail = " repeated-tail segment ".repeat(3);
+    let message = appendTextPart(
+      createAssistantMessage("msg-tail-retry"),
+      `prefix${longTail}`,
+      "streaming"
+    );
+    message = appendTextPart(message, longTail, "streaming");
+
+    expect(message.parts).toHaveLength(1);
+    const textPart = message.parts[0];
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe(`prefix${longTail}`);
+      expect(textPart.state).toBe("streaming");
+    }
+  });
+
+  test("merges late streaming tail into finalized text part", () => {
+    let message = appendTextPart(
+      createAssistantMessage("msg-late-tail"),
+      "Game nam o",
+      "done"
+    );
+    message = appendTextPart(message, " `demos/whack-mole-game/`", "streaming");
+
+    expect(message.parts).toHaveLength(1);
+    const textPart = message.parts[0];
+    expect(textPart?.type).toBe("text");
+    if (textPart?.type === "text") {
+      expect(textPart.text).toBe("Game nam o `demos/whack-mole-game/`");
+      expect(textPart.state).toBe("streaming");
+    }
+  });
 });
 
 describe("contentBlockToParts inline binary guard", () => {

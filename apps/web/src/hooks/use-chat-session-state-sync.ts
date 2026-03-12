@@ -25,6 +25,7 @@ import {
 } from "@/store/chat-stream-store";
 import { nextLifecycleOnChatIdChange } from "./use-chat-connection.machine";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
+import { chatDebug } from "./use-chat-debug";
 import type { MessageState } from "./use-chat-message-state";
 import { normalizeSessionStateData } from "./use-chat-normalize";
 
@@ -62,6 +63,34 @@ interface UseChatSessionStateSyncParams {
   setStatus: Dispatch<SetStateAction<ChatStatus>>;
   setConnStatus: Dispatch<SetStateAction<ConnectionStatus>>;
   setStreamLifecycle: Dispatch<SetStateAction<StreamLifecycle>>;
+}
+
+function logSessionStateDebug(
+  message: string,
+  meta?: Record<string, unknown>
+): void {
+  chatDebug("session-state", message, meta);
+  if (!import.meta.env.DEV) {
+    return;
+  }
+  if (meta) {
+    console.debug(`[ACP Session State] ${message}`, meta);
+    return;
+  }
+  console.debug(`[ACP Session State] ${message}`);
+}
+
+function shouldBackfillConnectedSessionState(params: {
+  normalizedSessionState: SessionStateData;
+  currentModes: SessionModeState | null;
+  currentModels: SessionModelState | null;
+}): boolean {
+  const { normalizedSessionState, currentModes, currentModels } = params;
+  const hasStateModes = normalizedSessionState.modes !== undefined;
+  const hasStateModels = normalizedSessionState.models !== undefined;
+  const missingModes = !currentModes && hasStateModes;
+  const missingModels = !currentModels && hasStateModels;
+  return missingModes || missingModels;
 }
 
 export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
@@ -103,13 +132,31 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
 
   const restoreSessionState = useCallback(
     (data: SessionStateData) => {
+      logSessionStateDebug("applySessionState start", {
+        chatId: chatId ?? null,
+        chatStatus: data.chatStatus ?? null,
+        status: data.status ?? null,
+        hasModes: data.modes !== undefined,
+        hasModels: data.models !== undefined,
+        hasConfigOptions: data.configOptions !== undefined,
+      });
       applySessionState(data, {
         onStatusChange: setStatus,
         onModesChange: (nextModes) => {
+          logSessionStateDebug("onModesChange from session state", {
+            chatId: chatId ?? null,
+            currentModeId: nextModes?.currentModeId ?? null,
+            availableModesCount: nextModes?.availableModes?.length ?? 0,
+          });
           setModes(nextModes);
           modesRef.current = nextModes;
         },
         onModelsChange: (nextModels) => {
+          logSessionStateDebug("onModelsChange from session state", {
+            chatId: chatId ?? null,
+            currentModelId: nextModels?.currentModelId ?? null,
+            availableModelsCount: nextModels?.availableModels?.length ?? 0,
+          });
           setModels(nextModels);
           modelsRef.current = nextModels;
         },
@@ -128,6 +175,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
       });
     },
     [
+      chatId,
       commandsRef,
       modesRef,
       modelsRef,
@@ -250,12 +298,39 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
 
   useEffect(() => {
     const activeChatId = chatId ?? null;
-    if (
-      !(activeChatId && normalizedSessionState) ||
-      connStatus !== "connecting"
-    ) {
+    if (!(activeChatId && normalizedSessionState)) {
       return;
     }
+    const shouldRestoreWhileConnecting = connStatus === "connecting";
+    const shouldBackfillWhileConnected =
+      connStatus === "connected" &&
+      shouldBackfillConnectedSessionState({
+        normalizedSessionState,
+        currentModes: modesRef.current,
+        currentModels: modelsRef.current,
+      });
+    if (!(shouldRestoreWhileConnecting || shouldBackfillWhileConnected)) {
+      logSessionStateDebug("skip session-state hydrate", {
+        chatId: activeChatId,
+        connStatus,
+        hasModesInState: normalizedSessionState.modes !== undefined,
+        hasModelsInState: normalizedSessionState.models !== undefined,
+        currentModesPresent: Boolean(modesRef.current),
+        currentModelsPresent: Boolean(modelsRef.current),
+      });
+      return;
+    }
+    logSessionStateDebug("hydrate session-state snapshot", {
+      chatId: activeChatId,
+      connStatus,
+      shouldRestoreWhileConnecting,
+      shouldBackfillWhileConnected,
+      hasModesInState: normalizedSessionState.modes !== undefined,
+      hasModelsInState: normalizedSessionState.models !== undefined,
+      hasConfigOptionsInState: normalizedSessionState.configOptions !== undefined,
+      currentModesPresent: Boolean(modesRef.current),
+      currentModelsPresent: Boolean(modelsRef.current),
+    });
     const stateToRestore: SessionStateData = {
       ...normalizedSessionState,
       ...(hasLocalModeOverrideRef.current ? { modes: undefined } : {}),
@@ -263,6 +338,9 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
       ...(hasLocalConfigOverrideRef.current ? { configOptions: undefined } : {}),
     };
     if (isResumingRef.current && normalizedSessionState.status === "stopped") {
+      logSessionStateDebug("skip stopped-state hydrate while resuming", {
+        chatId: activeChatId,
+      });
       return;
     }
     if (stateToRestore.status === "stopped") {
@@ -281,6 +359,8 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     hasLocalModeOverrideRef,
     hasLocalModelOverrideRef,
     isResumingRef,
+    modesRef,
+    modelsRef,
     normalizedSessionState,
     restoreSessionState,
     setLoadSessionSupported,

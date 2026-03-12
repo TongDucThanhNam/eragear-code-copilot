@@ -237,6 +237,80 @@ describe("RespondPermissionService", () => {
     });
   });
 
+  test("prefers kind-qualified allow option over ambiguous label text", async () => {
+    const session = createSession("user-1");
+    const decisions: unknown[] = [];
+    session.pendingPermissions.set("req-1", {
+      resolve: (decision) => decisions.push(decision),
+      options: [
+        {
+          optionId: "ambiguous_opt",
+          name: "I approve of denying this",
+        },
+        {
+          optionId: "allow_once",
+          name: "Allow once",
+          kind: "allow_once",
+        },
+        {
+          optionId: "reject_once",
+          name: "Reject once",
+          kind: "reject_once",
+        },
+      ],
+    });
+    const service = new RespondPermissionService(createRuntime(session));
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        requestId: "req-1",
+        decision: "allow",
+      })
+    ).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "allow_once" },
+    });
+    expect(decisions).toEqual([
+      { outcome: { outcome: "selected", optionId: "allow_once" } },
+    ]);
+  });
+
+  test("falls back to reject option when decision text is ambiguous", async () => {
+    const session = createSession("user-1");
+    const decisions: unknown[] = [];
+    session.pendingPermissions.set("req-1", {
+      resolve: (decision) => decisions.push(decision),
+      options: [
+        {
+          optionId: "allow_once",
+          name: "Allow once",
+          kind: "allow_once",
+        },
+        {
+          optionId: "reject_once",
+          name: "Reject once",
+          kind: "reject_once",
+        },
+      ],
+    });
+    const service = new RespondPermissionService(createRuntime(session));
+
+    await expect(
+      service.execute({
+        userId: "user-1",
+        chatId: "chat-1",
+        requestId: "req-1",
+        decision: "please allow and deny",
+      })
+    ).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "reject_once" },
+    });
+    expect(decisions).toEqual([
+      { outcome: { outcome: "selected", optionId: "reject_once" } },
+    ]);
+  });
+
   test("sets ready when final permission resolves without active turn", async () => {
     const session = createSession("user-1");
     const events: BroadcastEvent[] = [];

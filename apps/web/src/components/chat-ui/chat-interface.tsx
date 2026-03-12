@@ -336,27 +336,52 @@ export function ChatInterface({
   }, [activeAgentId, agentModels, sessionAgentInfo, selectedSession, chatId]);
 
   // Derived state for UI
-  const availableModes = useMemo(() => {
-    if (!modes?.availableModes) {
-      return [];
-    }
-    return modes.availableModes.map((m) => ({
-      ...m,
-      description: m.description || undefined,
-    }));
-  }, [modes?.availableModes]);
   const currentModeId = modes?.currentModeId || null;
-  const availableModels = useMemo(() => {
-    if (!models?.availableModels) {
-      return [];
-    }
-    return models.availableModels.map((m) => ({
-      modelId: m.modelId,
-      name: m.name,
-      description: m.description || undefined,
+  const availableModes = useMemo(() => {
+    const mapped = (modes?.availableModes ?? []).map((mode) => ({
+      ...mode,
+      description: mode.description || undefined,
     }));
-  }, [models?.availableModels]);
+    if (!currentModeId) {
+      return mapped;
+    }
+    if (mapped.some((mode) => mode.id === currentModeId)) {
+      return mapped;
+    }
+    // Preserve visibility of current selection even when agent omits options.
+    return [
+      ...mapped,
+      {
+        id: currentModeId,
+        name: currentModeId,
+        description: undefined,
+      },
+    ];
+  }, [currentModeId, modes?.availableModes]);
   const currentModelId = models?.currentModelId || null;
+  const availableModels = useMemo(() => {
+    const mapped = (models?.availableModels ?? []).map((model) => ({
+      modelId: model.modelId,
+      name: model.name,
+      description: model.description || undefined,
+      provider: model.provider,
+      providers: model.providers,
+    }));
+    if (!currentModelId) {
+      return mapped;
+    }
+    if (mapped.some((model) => model.modelId === currentModelId)) {
+      return mapped;
+    }
+    return [
+      ...mapped,
+      {
+        modelId: currentModelId,
+        name: currentModelId,
+        description: undefined,
+      },
+    ];
+  }, [currentModelId, models?.availableModels]);
   const availableCommands = commands;
   // Quick switch sessions
   const quickSwitchSessions = useMemo(() => {

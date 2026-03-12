@@ -105,3 +105,10 @@ Các file sau là nguồn chuẩn khi docs và thực tế có khác biệt:
 
 `docs/acp/*` chủ yếu là protocol reference (ACP schema/flows). Các tài liệu này
 không phải toàn bộ đều mapping 1:1 với file path nội bộ hiện tại.
+
+## 8. Language Policy
+
+- Nội dung implementation/policy nội bộ ưu tiên tiếng Việt + thuật ngữ kỹ thuật
+  tiếng Anh.
+- Tài liệu ACP upstream/reference có thể giữ tiếng Anh nguyên bản.
+- Khi thêm doc mới, ghi rõ language ở đầu tài liệu để giảm onboarding friction.

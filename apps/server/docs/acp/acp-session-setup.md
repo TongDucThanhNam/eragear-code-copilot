@@ -222,11 +222,14 @@ Example stdio transport configuration:
   "env": [
     {
       "name": "API_KEY",
-      "value": "secret123"
+      "value": "${MCP_API_KEY_FROM_SECRET_STORE}"
     }
   ]
 }
 ```
+
+Security note: không hardcode secret trong config/docs mẫu triển khai thực tế;
+dùng secret manager hoặc env injection ở runtime và rotate định kỳ.
 
 #### HTTP Transport
 

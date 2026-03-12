@@ -52,6 +52,8 @@ export class SessionRuntimeEntity {
 
   startTurn(turnId: string): void {
     this.session.activeTurnId = turnId;
+    this.session.lastCompletedTurnId = undefined;
+    this.session.lastCompletedTurnAtMs = undefined;
     this.session.chatFinish = { turnId };
     this.session.pendingReconnectChatFinish = undefined;
     // Turn boundary must reset assistant-stream pointers so the next
@@ -82,10 +84,16 @@ export class SessionRuntimeEntity {
   clearActiveTurnIf(turnId: string): void {
     if (this.session.activeTurnId === turnId) {
       this.session.activeTurnId = undefined;
+      this.session.lastCompletedTurnId = turnId;
+      this.session.lastCompletedTurnAtMs = Date.now();
     }
   }
 
   clearTurnState(): void {
+    if (this.session.activeTurnId) {
+      this.session.lastCompletedTurnId = this.session.activeTurnId;
+      this.session.lastCompletedTurnAtMs = Date.now();
+    }
     this.session.activeTurnId = undefined;
     clearPromptTaskTimer(this.session.activePromptTask);
     this.session.activePromptTask = undefined;

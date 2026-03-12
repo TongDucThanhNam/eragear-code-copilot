@@ -226,7 +226,9 @@ function shouldKeepExistingPart(
     const existingDone = existing.state === "done";
     const incomingDone = incoming.state === "done";
     if (existingDone && !incomingDone) {
-      return true;
+      // Accept late streaming updates that extend text even after local
+      // finalize to avoid truncating trailing chunks under event reordering.
+      return incoming.text.length <= existing.text.length;
     }
     return existing.text.length > incoming.text.length;
   }
@@ -267,7 +269,9 @@ function shouldKeepExistingSnapshotPart(
     const existingDone = existing.state === "done";
     const incomingDone = incoming.state === "done";
     if (existingDone && !incomingDone) {
-      return true;
+      // Snapshots can arrive after ready-finalize but still contain longer
+      // streaming text; keep only if they do not extend content.
+      return incoming.text.length <= existing.text.length;
     }
     return existing.text.length > incoming.text.length;
   }
@@ -385,13 +389,95 @@ function findPartIndexByIdentity(params: {
 }
 
 function shouldRecoverMissingPartFromUpdate(
-  part: UIMessage["parts"][number]
+  part: UIMessage["parts"][number],
+  partId?: string
 ): boolean {
+  const hasStablePartId = typeof partId === "string" && partId.length > 0;
   return (
     part.type.startsWith("tool-") ||
     part.type === "data-permission-options" ||
-    part.type === "data-tool-locations"
+    part.type === "data-tool-locations" ||
+    (hasStablePartId && isTextualPart(part))
   );
+}
+
+export function getPartUpdateDiagnostics(
+  state: MessageState,
+  update: MessagePartUpdateChunk
+): {
+  reason: string;
+  messageFound: boolean;
+  messagePartsLength: number;
+  identityIndex: number;
+  indexPartType: string | null;
+  existingTextLength: number | null;
+  incomingTextLength: number | null;
+} {
+  const existing = state.byId.get(update.messageId);
+  if (!existing) {
+    return {
+      reason: "message_not_found",
+      messageFound: false,
+      messagePartsLength: 0,
+      identityIndex: -1,
+      indexPartType: null,
+      existingTextLength: null,
+      incomingTextLength:
+        update.part.type === "text" || update.part.type === "reasoning"
+          ? update.part.text.length
+          : null,
+    };
+  }
+
+  const identityIndex =
+    typeof update.partId === "string" && update.partId.length > 0
+      ? existing.parts.findIndex(
+          (candidate) => readPartId(candidate) === update.partId
+        )
+      : -1;
+  const indexPart =
+    update.partIndex >= 0 && update.partIndex < existing.parts.length
+      ? existing.parts[update.partIndex]
+      : undefined;
+  const incomingTextLength =
+    update.part.type === "text" || update.part.type === "reasoning"
+      ? update.part.text.length
+      : null;
+  const existingTextLength =
+    indexPart && (indexPart.type === "text" || indexPart.type === "reasoning")
+      ? indexPart.text.length
+      : null;
+
+  let reason = "unchanged_or_stale";
+  if (update.partIndex < 0) {
+    reason = "negative_part_index";
+  } else if (!update.isNew && !indexPart && identityIndex < 0) {
+    reason = shouldRecoverMissingPartFromUpdate(update.part, update.partId)
+      ? "recoverable_out_of_bounds_update"
+      : "out_of_bounds_non_new_unresolved";
+  } else if (update.isNew && update.partIndex > existing.parts.length) {
+    reason = "is_new_out_of_bounds_gap";
+  } else if (indexPart && indexPart.type !== update.part.type) {
+    reason = "index_type_mismatch";
+  } else if (identityIndex >= 0 && identityIndex !== update.partIndex) {
+    reason = "index_drift_identity_matched";
+  } else if (
+    existingTextLength !== null &&
+    incomingTextLength !== null &&
+    existingTextLength > incomingTextLength
+  ) {
+    reason = "incoming_text_shorter_than_existing";
+  }
+
+  return {
+    reason,
+    messageFound: true,
+    messagePartsLength: existing.parts.length,
+    identityIndex,
+    indexPartType: indexPart?.type ?? null,
+    existingTextLength,
+    incomingTextLength,
+  };
 }
 
 function replacePartAtIndex(
@@ -780,7 +866,7 @@ export const applyPartUpdate = (
       if (
         existingPart &&
         existingPart.type !== incomingPart.type &&
-        shouldRecoverMissingPartFromUpdate(incomingPart)
+        shouldRecoverMissingPartFromUpdate(incomingPart, update.partId)
       ) {
         if (identityIndex >= 0) {
           const recoveredParts = replacePartAtIndex(
@@ -834,7 +920,7 @@ export const applyPartUpdate = (
       if (
         existingPart &&
         existingPart.type !== incomingPart.type &&
-        shouldRecoverMissingPartFromUpdate(incomingPart)
+        shouldRecoverMissingPartFromUpdate(incomingPart, update.partId)
       ) {
         if (identityIndex >= 0) {
           const recoveredParts = replacePartAtIndex(
@@ -882,7 +968,7 @@ export const applyPartUpdate = (
         return state;
       }
       nextParts[identityIndex] = nextPart;
-    } else if (shouldRecoverMissingPartFromUpdate(incomingPart)) {
+    } else if (shouldRecoverMissingPartFromUpdate(incomingPart, update.partId)) {
       nextParts.push(incomingPart);
     } else {
       return state;

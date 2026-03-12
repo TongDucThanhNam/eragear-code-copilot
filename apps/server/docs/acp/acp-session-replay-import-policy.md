@@ -7,6 +7,8 @@ Tài liệu này định nghĩa policy chuẩn cho luồng "Load Existing Agent 
 - External import fallback chỉ dùng để cứu dữ liệu khi replay bị thiếu, và phải
   bị kiểm soát chặt.
 
+Language: Vietnamese (technical terms giữ nguyên tiếng Anh để bám code).
+
 ## 1) Invariant bắt buộc
 
 1. Khi load session có `sessionIdToLoad`, server **luôn** ưu tiên replay từ ACP
@@ -57,6 +59,10 @@ Fallback chỉ được thử khi:
 3. Runtime replay đang assistant-sparse:
    - `assistantCount === 0`, hoặc
    - `assistantCount * 2 <= userCount`
+
+Rationale cho hệ số `2`: coi runtime replay là "assistant-sparse" khi số message
+assistant chỉ bằng hoặc thấp hơn 50% số message user, vì pattern này thường đi
+kèm replay thiếu output phía assistant khi resume/import lỗi.
 
 ### 3.3 Điều kiện được phép thay runtime snapshot bằng external
 

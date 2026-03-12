@@ -4,6 +4,8 @@ Tài liệu này định nghĩa protocol cấp server cho chat dựa trên ACP. 
 client có thể build một `useChat` theo phong cách AI SDK chỉ bằng tRPC calls +
 `onSessionEvents`, không cần parse raw ACP.
 
+Language: Vietnamese (technical terms giữ nguyên tiếng Anh để bám code).
+
 ## 1) Scope
 
 - **Server**: chịu trách nhiệm ACP session lifecycle, mapping ACP → UIMessage,
@@ -142,13 +144,17 @@ session transport failure.
 - Server replay `messageBuffer` sau snapshot nhưng **không replay historical
   `chat_status`/`chat_finish`** để tránh stale transition sau reconnect.
 - Nếu một turn đã hoàn tất trong lúc **không còn live subscriber**, server phải
-  replay đúng **một** `chat_finish` reconnect-safe ở lần subscribe runtime kế tiếp.
+  replay đúng **một** `chat_finish` reconnect-safe ở lần subscribe runtime kế
+  tiếp (one-shot, TTL 15 phút).
 - `chat_status` được emit khi status đổi.
 - Recoverable turn failures có thể emit `error` rồi đưa `chat_status` về
   `ready`; fatal runtime failures emit `error` + `chat_status=error`.
 - Trước khi emit snapshot, server có thể reconcile trạng thái busy bị stale:
   nếu không còn active turn và không còn pending permission thì chuyển về
   `ready`.
+- Reconcile status + build snapshot + attach runtime listener phải chạy trong
+  cùng critical section (`runExclusive`) để tránh race giữa snapshot và live
+  event queue.
 
 ### 5.2 ui_message + ui_message_part updates
 
@@ -316,7 +322,7 @@ với `apps/server`.
 - [ ] Chỉ `chat_status` mới được quyền đổi state machine của input/session UI.
 - [ ] Disable input khi `chat_status !== ready` hoặc `chat_status === error`.
 
-## 10) References
+## 11) References
 
 - `docs/ui-message-normalization.md`
 - `docs/acp/*` (ACP overview, prompt turn, tool calls)

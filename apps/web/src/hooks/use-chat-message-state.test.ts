@@ -300,6 +300,41 @@ describe("use-chat-message-state", () => {
     });
   });
 
+  test("applyPartUpdate accepts late longer streaming text after local done finalize", () => {
+    const initial = replaceMessagesState([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Game nam o", state: "done" }],
+      },
+    ]);
+
+    const updated = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: {
+        type: "text",
+        text: "Game nam o `demos/whack-mole-game/`",
+        state: "streaming",
+      },
+      isNew: false,
+    });
+
+    expect(updated.byId.get("m1")?.parts[0]).toEqual({
+      type: "text",
+      text: "Game nam o `demos/whack-mole-game/`",
+      state: "streaming",
+    });
+
+    const finalized = finalizeStreamingMessagesInState(updated);
+    expect(finalized.byId.get("m1")?.parts[0]).toEqual({
+      type: "text",
+      text: "Game nam o `demos/whack-mole-game/`",
+      state: "done",
+    });
+  });
+
   test("applyPartUpdate does not drop isNew part when partIndex exceeds array length (OOO)", () => {
     const initial = replaceMessagesState([createMessage("m1", "part-0")]);
 
@@ -381,6 +416,40 @@ describe("use-chat-message-state", () => {
     // Ignore invalid out-of-bounds non-new updates and wait for snapshot sync.
     expect(updated).toBe(initial);
     expect(updated.byId.get("m1")?.parts).toHaveLength(1);
+  });
+
+  test("applyPartUpdate recovers out-of-bounds non-new text update when partId is present", () => {
+    const initial = replaceMessagesState([createMessage("m1", "part-0")]);
+
+    const updated = applyPartUpdate(initial, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partId: "part-text-tail-1",
+      partIndex: 3,
+      part: { type: "text", text: "tail", state: "streaming" },
+      isNew: false,
+    });
+
+    expect(updated).not.toBe(initial);
+    const parts = updated.byId.get("m1")?.parts;
+    expect(parts).toHaveLength(2);
+    expect(parts?.[1]).toEqual({
+      type: "text",
+      text: "tail",
+      state: "streaming",
+      id: "part-text-tail-1",
+    });
+
+    const replayed = applyPartUpdate(updated, {
+      messageId: "m1",
+      messageRole: "assistant",
+      partId: "part-text-tail-1",
+      partIndex: 4,
+      part: { type: "text", text: "tail", state: "streaming" },
+      isNew: false,
+    });
+    expect(replayed).toBe(updated);
+    expect(replayed.byId.get("m1")?.parts).toHaveLength(2);
   });
 
   test("applyPartUpdate recovers missing tool part for out-of-bounds non-new approval update", () => {
@@ -616,6 +685,30 @@ describe("use-chat-message-state", () => {
     expect(afterStaleUpdate.byId.get("m1")?.parts).toEqual([
       { type: "text", text: "100 tokens", state: "streaming" },
     ]);
+  });
+
+  test("mergeMessagesIntoState accepts longer streaming snapshot after done part", () => {
+    const initial = replaceMessagesState([
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "short", state: "done" }],
+      },
+    ]);
+
+    const merged = mergeMessagesIntoState(initial, [
+      {
+        id: "m1",
+        role: "assistant",
+        parts: [{ type: "text", text: "short + tail", state: "streaming" }],
+      },
+    ]);
+
+    expect(merged.byId.get("m1")?.parts[0]).toEqual({
+      type: "text",
+      text: "short + tail",
+      state: "streaming",
+    });
   });
 
   test("applyPartUpdate stores server partId for stable client keys", () => {
