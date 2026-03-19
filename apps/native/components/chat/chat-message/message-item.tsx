@@ -1,12 +1,12 @@
 import React, { useMemo } from "react";
 import { View } from "react-native";
 import { splitMessageParts } from "./agentic-message-utils";
+import { AssistantMessageBody } from "./assistant-message-body";
 import { MessageActions } from "./message-actions";
 import { MessageHeader } from "./message-header";
-import { UserMessageBody } from "./user-message-body";
-import { AssistantMessageBody } from "./assistant-message-body";
-import { extractMessageText } from "./message-item.utils";
 import type { MessageItemProps } from "./message-item.types";
+import { extractMessageText } from "./message-item.utils";
+import { UserMessageBody } from "./user-message-body";
 
 export function MessageItem({
   bubbleMaxWidth,

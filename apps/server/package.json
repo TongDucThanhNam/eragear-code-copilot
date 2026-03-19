@@ -27,7 +27,7 @@
     "test": "bun test src"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "0.15.0",
+    "@agentclientprotocol/sdk": "0.16.1",
     "@better-auth/expo": "catalog:",
     "@eragear-code-copilot/env": "workspace:*",
     "@hono/react-renderer": "^1.0.1",

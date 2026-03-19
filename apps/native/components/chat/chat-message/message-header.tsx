@@ -1,9 +1,6 @@
-import { Text, View } from "react-native";
 import type { UIMessage } from "@repo/shared";
-import {
-  formatMessageTime,
-  getMessageTimestamp,
-} from "./message-item.utils";
+import { Text, View } from "react-native";
+import { formatMessageTime, getMessageTimestamp } from "./message-item.utils";
 
 interface MessageHeaderProps {
   message: UIMessage;

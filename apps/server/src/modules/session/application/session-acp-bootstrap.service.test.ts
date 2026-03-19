@@ -26,6 +26,26 @@ function createLoggerStub(): LoggerPort {
   };
 }
 
+function createCapturingLoggerStub(): {
+  logger: LoggerPort;
+  infoCalls: Array<{ message: string; context?: Record<string, unknown> }>;
+} {
+  const infoCalls: Array<{ message: string; context?: Record<string, unknown> }> =
+    [];
+  const noop = () => undefined;
+  return {
+    logger: {
+      debug: noop,
+      info: (message, context) => {
+        infoCalls.push({ message, context });
+      },
+      warn: noop,
+      error: noop,
+    },
+    infoCalls,
+  };
+}
+
 function createBuffer(): SessionBufferingPort {
   return {
     replayEventCount: 0,
@@ -104,6 +124,79 @@ function createMcpConfigStub(): SessionMcpConfigService {
 }
 
 describe("SessionAcpBootstrapService", () => {
+  test("emits raw ACP setup payload logs at info level", async () => {
+    const chatSession = createChatSession("chat-raw-log");
+    const { runtime } = createRuntimeStub(chatSession);
+    const { logger, infoCalls } = createCapturingLoggerStub();
+
+    const connection = {
+      initialize: () =>
+        Promise.resolve({
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: false,
+          },
+        }),
+      newSession: () =>
+        Promise.resolve({
+          sessionId: "sess-raw-log",
+          configOptions: [
+            {
+              id: "mode",
+              name: "Mode",
+              category: "mode",
+              type: "select",
+              currentValue: "default",
+              options: [{ value: "default", name: "Default" }],
+            },
+          ],
+        }),
+    };
+
+    const service = new SessionAcpBootstrapService(
+      runtime,
+      {} as SessionRepositoryPort,
+      createSessionAcpStub(),
+      {
+        createAcpConnection: () => connection as never,
+      } as unknown as AgentRuntimePort,
+      createMcpConfigStub(),
+      {
+        broadcastPromptEnd: () => Promise.resolve(undefined),
+      } as unknown as SessionHistoryReplayService,
+      logger,
+      () => ({ defaultModel: "" })
+    );
+
+    await service.bootstrap({
+      chatId: chatSession.id,
+      chatSession,
+      buffer: createBuffer(),
+      projectRoot: "/tmp/project",
+    });
+
+    expect(
+      infoCalls.filter(
+        (entry) => entry.message === "ACP raw session setup payload"
+      )
+    ).toEqual([
+      {
+        message: "ACP raw session setup payload",
+        context: expect.objectContaining({
+          chatId: "chat-raw-log",
+          step: "initialize",
+        }),
+      },
+      {
+        message: "ACP raw session setup payload",
+        context: expect.objectContaining({
+          chatId: "chat-raw-log",
+          step: "newSession",
+        }),
+      },
+    ]);
+  });
+
   test("advertises dangerous ACP capabilities only when explicitly enabled", async () => {
     const originalFsWriteEnabled = ENV.acpFsWriteEnabled;
     const originalTerminalEnabled = ENV.acpTerminalEnabled;

@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 
 const PROTOCOL_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//;
 const TRPC_SUFFIX = "/trpc";
+const TRAILING_SLASH_REGEX = /\/+$/;
 
 const LOCAL_DEV_URL_REGEX = /localhost|127\.0\.0\.1|10\.0\.2\.2/;
 
@@ -55,13 +56,15 @@ function stripTrailingTrpcPath(pathname: string): string {
 }
 
 function joinPath(basePath: string, nextPath: string): string {
-  const base = basePath === "/" ? "" : basePath.replace(/\/+$/, "");
+  const base =
+    basePath === "/" ? "" : basePath.replace(TRAILING_SLASH_REGEX, "");
   const next = nextPath.startsWith("/") ? nextPath : `/${nextPath}`;
   return `${base}${next}` || "/";
 }
 
 function toBaseUrl(url: URL): string {
-  const path = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
+  const path =
+    url.pathname === "/" ? "" : url.pathname.replace(TRAILING_SLASH_REGEX, "");
   return `${url.protocol}//${url.host}${path}`;
 }
 

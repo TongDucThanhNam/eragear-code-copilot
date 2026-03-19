@@ -33,6 +33,12 @@ export interface SessionSelectionSyncResult {
   modelChanged: boolean;
 }
 
+export interface SessionConfigOptionValue {
+  value: string;
+  name?: string;
+  description?: string | null;
+}
+
 function isConfigSelectGroup(
   value: SessionConfigSelectOptionValue | SessionConfigSelectGroupValue
 ): value is SessionConfigSelectGroupValue {
@@ -89,6 +95,38 @@ function collectConfigOptionValues(
   }
 
   return values;
+}
+
+export function getSessionConfigOptionValues(
+  option: SessionConfigOption | undefined
+): SessionConfigOptionValue[] {
+  if (!option) {
+    return [];
+  }
+  return collectConfigOptionValues(option);
+}
+
+export function hasSessionConfigOptionValue(params: {
+  option: SessionConfigOption | undefined;
+  value: string;
+}): boolean {
+  if (!hasNonEmptyString(params.value)) {
+    return false;
+  }
+  return getSessionConfigOptionValues(params.option).some(
+    (candidate) => candidate.value === params.value
+  );
+}
+
+export function getSessionConfigOptionCurrentValue(params: {
+  configOptions: SessionConfigOption[] | null | undefined;
+  target: "mode" | "model";
+}): string | undefined {
+  const option = findSessionConfigOption(params.configOptions, params.target);
+  if (!option || !hasNonEmptyString(option.currentValue)) {
+    return undefined;
+  }
+  return option.currentValue;
 }
 
 export function findSessionConfigOption(

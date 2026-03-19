@@ -164,8 +164,8 @@ function ChatMessagesComponent({
       ref={listRef}
       removeClippedSubviews={false}
       renderItem={renderItem}
-      showsVerticalScrollIndicator={false}
       scrollEventThrottle={16}
+      showsVerticalScrollIndicator={false}
     />
   );
 }

@@ -2,12 +2,14 @@ import { expoClient } from "@better-auth/expo/client";
 import { multiSessionClient, usernameClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import Constants from "expo-constants";
+// biome-ignore: The storage API requires the namespace import pattern for expo-secure-store
 import * as SecureStore from "expo-secure-store";
 import { useMemo } from "react";
 
 import { toHttpUrl } from "@/lib/server-url";
 
 const SESSION_REFETCH_INTERVAL_SECONDS = 60;
+const TRAILING_SLASH_REGEX = /\/+$/;
 
 function getAppScheme(): string {
   const rawScheme = Constants.expoConfig?.scheme ?? Constants.platform?.scheme;
@@ -25,7 +27,7 @@ function sanitizeStoragePrefixSegment(value: string): string {
 }
 
 export function buildBetterAuthBaseUrl(serverUrl: string): string {
-  return toHttpUrl(serverUrl).replace(/\/+$/, "");
+  return toHttpUrl(serverUrl).replace(TRAILING_SLASH_REGEX, "");
 }
 
 export function buildBetterAuthStoragePrefix(serverUrl: string): string {
@@ -72,4 +74,6 @@ export async function clearStoredBetterAuthSession(
   ]);
 }
 
-export type BetterAuthClient = ReturnType<typeof createBetterAuthClientForServer>;
+export type BetterAuthClient = ReturnType<
+  typeof createBetterAuthClientForServer
+>;

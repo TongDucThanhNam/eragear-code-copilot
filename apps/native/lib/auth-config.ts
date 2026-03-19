@@ -1,6 +1,6 @@
-export type AuthConfig = {
+export interface AuthConfig {
   serverUrl?: string;
-};
+}
 
 export function isAuthConfigured(config: AuthConfig): boolean {
   const serverUrl = config.serverUrl?.trim();

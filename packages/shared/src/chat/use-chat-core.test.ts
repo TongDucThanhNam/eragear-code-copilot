@@ -369,6 +369,74 @@ describe("processSessionEvent config/session-info updates", () => {
     expect(received).toEqual([configOptions]);
   });
 
+  test("derives mode and model state from config options updates", () => {
+    let nextModes: unknown = null;
+    let nextModels: unknown = null;
+
+    processSessionEvent(
+      {
+        type: "config_options_update",
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "code",
+            options: [
+              { value: "ask", name: "Ask" },
+              { value: "code", name: "Code" },
+            ],
+          },
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "model-2",
+            options: [
+              { value: "model-1", name: "Model 1" },
+              { value: "model-2", name: "Model 2" },
+            ],
+          },
+        ],
+      },
+      {
+        currentModes: {
+          currentModeId: "legacy",
+          availableModes: [{ id: "legacy", name: "Legacy" }],
+        },
+        currentModels: {
+          currentModelId: "legacy-model",
+          availableModels: [{ modelId: "legacy-model", name: "Legacy Model" }],
+        },
+      },
+      {
+        onModesChange: (modes) => {
+          nextModes = modes;
+        },
+        onModelsChange: (models) => {
+          nextModels = models;
+        },
+      }
+    );
+
+    expect(nextModes).toEqual({
+      currentModeId: "code",
+      availableModes: [
+        { id: "ask", name: "Ask", description: undefined },
+        { id: "code", name: "Code", description: undefined },
+      ],
+    });
+    expect(nextModels).toEqual({
+      currentModelId: "model-2",
+      availableModels: [
+        { modelId: "model-1", name: "Model 1", description: undefined },
+        { modelId: "model-2", name: "Model 2", description: undefined },
+      ],
+    });
+  });
+
   test("applies session info from session state snapshot", () => {
     let info: { title?: string | null; updatedAt?: string | null } | null = null;
     const connected = applySessionState(
@@ -384,6 +452,62 @@ describe("processSessionEvent config/session-info updates", () => {
     );
     expect(connected).toBe(true);
     expect(info).toEqual({ title: "Agent title" });
+  });
+
+  test("prefers config options over legacy session selection snapshot", () => {
+    let nextModes: unknown = null;
+    let nextModels: unknown = null;
+
+    applySessionState(
+      {
+        status: "running",
+        modes: {
+          currentModeId: "legacy",
+          availableModes: [{ id: "legacy", name: "Legacy" }],
+        },
+        models: {
+          currentModelId: "legacy-model",
+          availableModels: [{ modelId: "legacy-model", name: "Legacy Model" }],
+        },
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "code",
+            options: [{ value: "code", name: "Code" }],
+          },
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "model-2",
+            options: [{ value: "model-2", name: "Model 2" }],
+          },
+        ],
+      },
+      {
+        onModesChange: (modes) => {
+          nextModes = modes;
+        },
+        onModelsChange: (models) => {
+          nextModels = models;
+        },
+      }
+    );
+
+    expect(nextModes).toEqual({
+      currentModeId: "code",
+      availableModes: [{ id: "code", name: "Code", description: undefined }],
+    });
+    expect(nextModels).toEqual({
+      currentModelId: "model-2",
+      availableModels: [
+        { modelId: "model-2", name: "Model 2", description: undefined },
+      ],
+    });
   });
 
   test("skips command callback when session state commands are unchanged", () => {
@@ -451,6 +575,137 @@ describe("processSessionEvent config/session-info updates", () => {
       availableModels: [
         { modelId: "model-1", name: "Model 1" },
         { modelId: "model-2", name: "Model 2" },
+      ],
+    });
+  });
+
+  test("updates matching config options on current selection events", () => {
+    const currentConfigOptions = [
+      {
+        id: "mode",
+        name: "Mode",
+        category: "mode" as const,
+        type: "select" as const,
+        currentValue: "ask",
+        options: [
+          { value: "ask", name: "Ask" },
+          { value: "code", name: "Code" },
+        ],
+      },
+      {
+        id: "model",
+        name: "Model",
+        category: "model" as const,
+        type: "select" as const,
+        currentValue: "model-1",
+        options: [
+          { value: "model-1", name: "Model 1" },
+          { value: "model-2", name: "Model 2" },
+        ],
+      },
+    ];
+    const configSnapshots: typeof currentConfigOptions[] = [];
+    let nextModes: unknown = null;
+    let nextModels: unknown = null;
+
+    processSessionEvent(
+      {
+        type: "current_mode_update",
+        modeId: "code",
+      },
+      {
+        currentModes: {
+          currentModeId: "ask",
+          availableModes: [{ id: "ask", name: "Ask" }],
+        },
+        currentModels: null,
+        currentConfigOptions,
+      },
+      {
+        onConfigOptionsChange: (configOptions) => {
+          configSnapshots.push(configOptions);
+        },
+        onModesChange: (modes) => {
+          nextModes = modes;
+        },
+      }
+    );
+
+    processSessionEvent(
+      {
+        type: "current_model_update",
+        modelId: "model-2",
+      },
+      {
+        currentModes: null,
+        currentModels: {
+          currentModelId: "model-1",
+          availableModels: [{ modelId: "model-1", name: "Model 1" }],
+        },
+        currentConfigOptions: configSnapshots[0] ?? currentConfigOptions,
+      },
+      {
+        onConfigOptionsChange: (configOptions) => {
+          configSnapshots.push(configOptions);
+        },
+        onModelsChange: (models) => {
+          nextModels = models;
+        },
+      }
+    );
+
+    expect(configSnapshots).toEqual([
+      [
+        {
+          id: "mode",
+          name: "Mode",
+          category: "mode",
+          type: "select",
+          currentValue: "code",
+          options: [
+            { value: "ask", name: "Ask" },
+            { value: "code", name: "Code" },
+          ],
+        },
+        currentConfigOptions[1],
+      ],
+      [
+        {
+          id: "mode",
+          name: "Mode",
+          category: "mode",
+          type: "select",
+          currentValue: "code",
+          options: [
+            { value: "ask", name: "Ask" },
+            { value: "code", name: "Code" },
+          ],
+        },
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "model-2",
+          options: [
+            { value: "model-1", name: "Model 1" },
+            { value: "model-2", name: "Model 2" },
+          ],
+        },
+      ],
+    ]);
+    expect(nextModes).toEqual({
+      currentModeId: "code",
+      availableModes: [
+        { id: "ask", name: "Ask", description: undefined },
+        { id: "code", name: "Code", description: undefined },
+      ],
+    });
+    expect(nextModels).toEqual({
+      currentModelId: "model-2",
+      availableModels: [
+        { modelId: "model-1", name: "Model 1", description: undefined },
+        { modelId: "model-2", name: "Model 2", description: undefined },
       ],
     });
   });

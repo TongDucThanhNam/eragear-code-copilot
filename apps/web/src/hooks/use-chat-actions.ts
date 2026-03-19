@@ -7,7 +7,12 @@ import type {
   SessionModeState,
   UIMessage,
 } from "@repo/shared";
-import { isChatBusyStatus } from "@repo/shared";
+import {
+  findSessionConfigOption,
+  isChatBusyStatus,
+  resolveSessionSelectionState,
+  updateSessionConfigOptionCurrentValue,
+} from "@repo/shared";
 import {
   type Dispatch,
   type MutableRefObject,
@@ -98,6 +103,7 @@ function describeConfigOptionSelection(
 interface UseChatActionsParams {
   chatId: string | null | undefined;
   readOnly: boolean;
+  modes: SessionModeState | null;
   models: SessionModelState | null;
   configOptions: SessionConfigOption[];
   isActiveChat: (targetChatId: string) => boolean;
@@ -130,6 +136,7 @@ interface UseChatActionsParams {
 export function useChatActions({
   chatId,
   readOnly,
+  modes,
   models,
   configOptions,
   isActiveChat,
@@ -300,7 +307,42 @@ export function useChatActions({
         if (!isActiveChat(activeChatId)) {
           return;
         }
-        setModes((prev) => (prev ? { ...prev, currentModeId: modeId } : prev));
+        const hasModeConfigOption = Boolean(
+          findSessionConfigOption(configOptions, "mode")
+        );
+        if (hasModeConfigOption) {
+          const nextConfigOptions =
+            updateSessionConfigOptionCurrentValue({
+              configOptions,
+              target: "mode",
+              value: modeId,
+            }) ?? configOptions;
+          if (nextConfigOptions !== configOptions) {
+            setConfigOptions(nextConfigOptions);
+          }
+          setModes((prev) =>
+            resolveSessionSelectionState({
+              configOptions: nextConfigOptions,
+              modes: prev,
+              models,
+            }).modes
+          );
+          const selection = describeConfigOptionSelection(
+            nextConfigOptions,
+            findSessionConfigOption(nextConfigOptions, "mode")?.id ?? "mode",
+            modeId
+          );
+          toast.success(`Mode switched to ${selection.valueLabel}`);
+          onLocalConfigOptionMutated?.();
+        } else {
+          setModes((prev) =>
+            prev ? { ...prev, currentModeId: modeId } : prev
+          );
+          const modeName =
+            modes?.availableModes.find((mode) => mode.id === modeId)?.name ??
+            modeId;
+          toast.success(`Mode switched to ${modeName}`);
+        }
         onLocalModeMutated?.();
       } catch (modeError) {
         if (!isActiveChat(activeChatId)) {
@@ -314,9 +356,14 @@ export function useChatActions({
     },
     [
       chatId,
+      configOptions,
       isActiveChat,
+      modes,
+      models,
+      onLocalConfigOptionMutated,
       onLocalModeMutated,
       setError,
+      setConfigOptions,
       setModeMutation,
       setModes,
     ]
@@ -337,9 +384,32 @@ export function useChatActions({
         if (!isActiveChat(activeChatId)) {
           return;
         }
-        setModels((prev) =>
-          prev ? { ...prev, currentModelId: modelId } : prev
+        const hasModelConfigOption = Boolean(
+          findSessionConfigOption(configOptions, "model")
         );
+        if (hasModelConfigOption) {
+          const nextConfigOptions =
+            updateSessionConfigOptionCurrentValue({
+              configOptions,
+              target: "model",
+              value: modelId,
+            }) ?? configOptions;
+          if (nextConfigOptions !== configOptions) {
+            setConfigOptions(nextConfigOptions);
+          }
+          setModels((prev) =>
+            resolveSessionSelectionState({
+              configOptions: nextConfigOptions,
+              modes: null,
+              models: prev,
+            }).models
+          );
+          onLocalConfigOptionMutated?.();
+        } else {
+          setModels((prev) =>
+            prev ? { ...prev, currentModelId: modelId } : prev
+          );
+        }
         onLocalModelMutated?.();
         const modelName =
           models?.availableModels.find((model) => model.modelId === modelId)
@@ -371,10 +441,13 @@ export function useChatActions({
     },
     [
       chatId,
+      configOptions,
       isActiveChat,
       models,
+      onLocalConfigOptionMutated,
       onLocalModelMutated,
       setError,
+      setConfigOptions,
       setModelMutation,
       setModels,
       setSupportsModelSwitching,
@@ -413,26 +486,36 @@ export function useChatActions({
         }
         const nextConfigOptions = Array.isArray(result?.configOptions)
           ? result.configOptions
-          : configOptions;
-        if (Array.isArray(result?.configOptions)) {
-          setConfigOptions(result.configOptions);
-        } else {
-          setConfigOptions((prev) =>
-            prev.map((option) =>
+          : configOptions.map((option) =>
               option.id === configId
                 ? { ...option, currentValue: value }
                 : option
-            )
-          );
-        }
+            );
+        setConfigOptions(nextConfigOptions);
+        setModes((prev) =>
+          resolveSessionSelectionState({
+            configOptions: nextConfigOptions,
+            modes: prev,
+            models: null,
+          }).modes
+        );
+        setModels((prev) =>
+          resolveSessionSelectionState({
+            configOptions: nextConfigOptions,
+            modes: null,
+            models: prev,
+          }).models
+        );
         const selection = describeConfigOptionSelection(
           nextConfigOptions,
           configId,
           value
         );
         if (selection.category === "model") {
+          onLocalModelMutated?.();
           toast.success(`Model switched to ${selection.valueLabel}`);
         } else if (selection.category === "mode") {
+          onLocalModeMutated?.();
           toast.success(`Mode switched to ${selection.valueLabel}`);
         }
         chatDebug("config", "setConfigOption succeeded", {
@@ -472,10 +555,14 @@ export function useChatActions({
       chatId,
       configOptions,
       isActiveChat,
+      onLocalModeMutated,
+      onLocalModelMutated,
       onLocalConfigOptionMutated,
       setConfigOptionMutation,
       setConfigOptions,
       setError,
+      setModels,
+      setModes,
     ]
   );
 

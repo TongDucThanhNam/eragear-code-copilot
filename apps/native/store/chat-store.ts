@@ -1,46 +1,30 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   type AgentInfo,
+  type AvailableCommand,
   type ChatStatus,
   compareUiMessagesChronologically,
   findUiMessageInsertIndex,
+  type PromptCapabilities,
+  type SessionConfigOption,
+  type SessionInfo,
+  type SessionModelState,
+  type SessionModeState,
   type UIMessage,
 } from "@repo/shared";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-// Types matching the server's state
-export interface SessionModeState {
-  currentModeId: string;
-  availableModes: Array<{
-    id: string;
-    name: string;
-    description?: string | null;
-  }>;
-}
+export type {
+  AvailableCommand,
+  PromptCapabilities,
+  SessionConfigOption,
+  SessionInfo,
+  SessionModelState,
+  SessionModeState,
+} from "@repo/shared";
 
-export interface SessionModelState {
-  currentModelId: string;
-  availableModels: Array<{
-    modelId: string;
-    name: string;
-    description?: string | null;
-  }>;
-}
-
-export interface AvailableCommand {
-  name: string;
-  description: string;
-  input?: { hint: string };
-}
-
-export interface PromptCapabilities {
-  image?: boolean;
-  audio?: boolean;
-  embeddedContext?: boolean;
-}
-
-export interface SessionInfo {
+export interface StoredSessionInfo {
   id: string;
   sessionId?: string;
   projectId?: string | null;
@@ -53,7 +37,7 @@ export interface SessionInfo {
   };
   agentName?: string;
   status: "running" | "stopped" | "error";
-  isActive?: boolean; // true = ACP session still alive, can reconnect
+  isActive?: boolean;
   loadSessionSupported?: boolean;
   createdAt?: number;
   lastActiveAt?: number;
@@ -89,7 +73,7 @@ type MessageStateSlice = Pick<ChatState, "messageIds" | "messagesById">;
 
 interface ChatState {
   // Sessions
-  sessions: SessionInfo[];
+  sessions: StoredSessionInfo[];
   activeChatId: string | null;
   activeChatIsReadOnly: boolean;
   failedChatIds: Set<string>; // Track sessions that failed to connect
@@ -104,6 +88,8 @@ interface ChatState {
   models: SessionModelState | null;
   supportsModelSwitching: boolean;
   commands: AvailableCommand[];
+  configOptions: SessionConfigOption[];
+  sessionInfo: SessionInfo | null;
   promptCapabilities: PromptCapabilities | null;
   agentInfo: AgentInfo | null;
   loadSessionSupported: boolean | undefined;
@@ -119,10 +105,13 @@ interface ChatState {
   error: string | null;
 
   // Actions
-  setSessions: (sessions: SessionInfo[]) => void;
+  setSessions: (sessions: StoredSessionInfo[]) => void;
   setActiveChatId: (id: string | null, readOnly?: boolean) => void;
-  addSession: (session: SessionInfo) => void;
-  updateSessionStatus: (id: string, status: SessionInfo["status"]) => void;
+  addSession: (session: StoredSessionInfo) => void;
+  updateSessionStatus: (
+    id: string,
+    status: StoredSessionInfo["status"]
+  ) => void;
   removeSession: (id: string) => void;
 
   setMessages: (messages: UIMessage[]) => void;
@@ -137,6 +126,8 @@ interface ChatState {
   setModels: (models: SessionModelState | null) => void;
   setSupportsModelSwitching: (supported: boolean) => void;
   setCommands: (commands: AvailableCommand[]) => void;
+  setConfigOptions: (configOptions: SessionConfigOption[]) => void;
+  setSessionInfo: (sessionInfo: SessionInfo | null) => void;
   setPromptCapabilities: (capabilities: PromptCapabilities | null) => void;
   setAgentInfo: (info: AgentInfo | null) => void;
   setLoadSessionSupported: (supported: boolean | undefined) => void;
@@ -168,6 +159,8 @@ const initialState = {
   models: null,
   supportsModelSwitching: false,
   commands: [],
+  configOptions: [],
+  sessionInfo: null,
   promptCapabilities: null,
   agentInfo: null,
   loadSessionSupported: undefined,
@@ -285,6 +278,8 @@ export const useChatStore = create<ChatState>()(
             models: null,
             supportsModelSwitching: false,
             commands: [],
+            configOptions: [],
+            sessionInfo: null,
             promptCapabilities: null,
             agentInfo: null,
             loadSessionSupported: undefined,
@@ -352,6 +347,8 @@ export const useChatStore = create<ChatState>()(
       setSupportsModelSwitching: (supported) =>
         set({ supportsModelSwitching: supported }),
       setCommands: (commands) => set({ commands }),
+      setConfigOptions: (configOptions) => set({ configOptions }),
+      setSessionInfo: (sessionInfo) => set({ sessionInfo }),
       setPromptCapabilities: (capabilities) =>
         set({ promptCapabilities: capabilities }),
       setAgentInfo: (info) => set({ agentInfo: info }),

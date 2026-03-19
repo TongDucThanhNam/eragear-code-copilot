@@ -10,6 +10,7 @@ import type {
   SessionModeState,
 } from "@/shared/types/session.types";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
+import { serializeRawPayloadForLog } from "@/platform/acp/raw-payload-log.util";
 import {
   syncSessionSelectionFromConfigOptions,
   updateSessionConfigOptionCurrentValue,
@@ -25,6 +26,7 @@ import type { SessionHistoryReplayService } from "./session-history-replay.servi
 import type { SessionMcpConfigService } from "./session-mcp-config.service";
 
 const OP = "session.lifecycle.create";
+const RAW_SETUP_PAYLOAD_LOG_LIMIT = 4000;
 
 interface SessionConnectionResult {
   modes?: SessionModeState | null;
@@ -121,6 +123,28 @@ export class SessionAcpBootstrapService {
     this.historyReplay = historyReplay;
     this.logger = logger;
     this.runtimeConfigProvider = runtimeConfigProvider;
+  }
+
+  private logRawSetupPayload(
+    chatId: string,
+    step: "initialize" | "newSession" | "loadSession",
+    payload: unknown
+  ): void {
+    let rawPayload = "";
+    try {
+      rawPayload = serializeRawPayloadForLog(payload).slice(
+        0,
+        RAW_SETUP_PAYLOAD_LOG_LIMIT
+      );
+    } catch {
+      rawPayload = "[unserializable]";
+    }
+    this.logger.info("ACP raw session setup payload", {
+      chatId,
+      step,
+      rawPayloadLength: rawPayload.length,
+      rawPayload,
+    });
   }
 
   async bootstrap(input: BootstrapSessionInput): Promise<void> {
@@ -220,6 +244,7 @@ export class SessionAcpBootstrapService {
         terminal: ENV.acpTerminalEnabled,
       },
     });
+    this.logRawSetupPayload(chatId, "initialize", initResult);
 
     this.logger.debug("ACP initialize response", {
       chatId,
@@ -373,6 +398,7 @@ export class SessionAcpBootstrapService {
           mcpServers: acpMcpServers,
         });
       }
+      this.logRawSetupPayload(chatId, "loadSession", loadResult);
     } catch (error) {
       const method = canLoadSession ? "loadSession" : "unstable_resumeSession";
       throw new AppError({
@@ -408,6 +434,7 @@ export class SessionAcpBootstrapService {
       cwd: projectRoot,
       mcpServers: acpMcpServers,
     });
+    this.logRawSetupPayload(chatId, "newSession", newResult);
 
     chatSession.sessionId = newResult.sessionId;
     chatSession.modes = newResult.modes ?? undefined;

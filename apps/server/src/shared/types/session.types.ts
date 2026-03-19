@@ -507,6 +507,10 @@ export interface ChatSession {
   chatStatus: ChatStatus;
   /** Active prompt turn identifier used to correlate HTTP + WS events */
   activeTurnId?: string;
+  /** Most recent assistant text/reasoning ACP activity timestamp */
+  lastAssistantActivityAtMs?: number;
+  /** Turn id associated with the most recent assistant text/reasoning activity */
+  lastAssistantActivityTurnId?: string;
   /** Most recently completed turn identifier kept for late-chunk grace handling */
   lastCompletedTurnId?: string;
   /** Timestamp (ms) when the most recent turn was marked completed */

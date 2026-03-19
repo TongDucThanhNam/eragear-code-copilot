@@ -1,5 +1,5 @@
-import { Text, View } from "react-native";
 import type { UIMessagePart } from "@repo/shared";
+import { Text, View } from "react-native";
 import { CollapsibleMessageText } from "./collapsible-message-text";
 import { PartRenderers } from "./part-renderers";
 

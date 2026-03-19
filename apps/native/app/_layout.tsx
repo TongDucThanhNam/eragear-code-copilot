@@ -1,7 +1,6 @@
 import "@/global.css";
 import { Stack } from "expo-router";
-import { Spinner, useThemeColor } from "heroui-native";
-import { HeroUINativeProvider } from "heroui-native";
+import { HeroUINativeProvider, Spinner, useThemeColor } from "heroui-native";
 import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -34,10 +33,7 @@ function StackLayout() {
   }
 
   return (
-    <ConfiguredApp
-      key={`${serverUrl}:${authVersion}`}
-      serverUrl={serverUrl}
-    />
+    <ConfiguredApp key={`${serverUrl}:${authVersion}`} serverUrl={serverUrl} />
   );
 }
 

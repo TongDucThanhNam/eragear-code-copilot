@@ -19,10 +19,13 @@ async function flushAsync(): Promise<void> {
   });
 }
 
-function createSessionRuntimeStub(): SessionRuntimePort {
+function createSessionRuntimeStub(): SessionRuntimePort & {
+  broadcasts: Array<{ chatId: string; event: BroadcastEvent }>;
+} {
   const sessions = new Map<string, ChatSession>();
   const lockTails = new Map<string, Promise<void>>();
   const heldLocks = new Set<string>();
+  const broadcasts: Array<{ chatId: string; event: BroadcastEvent }> = [];
 
   return {
     set(chatId, session) {
@@ -76,8 +79,14 @@ function createSessionRuntimeStub(): SessionRuntimePort {
       return heldLocks.has(chatId);
     },
     broadcast(_chatId: string, _event: BroadcastEvent) {
+      broadcasts.push({ chatId: _chatId, event: _event });
       return Promise.resolve();
     },
+    get broadcasts() {
+      return broadcasts;
+    },
+  } satisfies SessionRuntimePort & {
+    broadcasts: Array<{ chatId: string; event: BroadcastEvent }>;
   };
 }
 
@@ -99,6 +108,11 @@ function createSession(): ChatSession {
 function createGateway(params: {
   session: ChatSession;
   setSessionModel: (session: ChatSession, modelId: string) => Promise<void>;
+  setSessionConfigOption?: (
+    session: ChatSession,
+    configId: string,
+    value: string
+  ) => Promise<NonNullable<ChatSession["configOptions"]>>;
 }): AiSessionRuntimePort {
   const aggregate = new SessionRuntimeEntity(params.session);
   return {
@@ -109,7 +123,8 @@ function createGateway(params: {
     cancelPrompt: async () => undefined,
     setSessionMode: async () => undefined,
     setSessionModel: params.setSessionModel,
-    setSessionConfigOption: async () => [],
+    setSessionConfigOption:
+      params.setSessionConfigOption ?? (async () => []),
     stopAndCleanup: async () => undefined,
     clearPendingPermissionsAsCancelled: () => undefined,
   };
@@ -157,5 +172,86 @@ describe("SetModelService", () => {
       "model-3:end",
     ]);
     expect(session.models?.currentModelId).toBe("model-3");
+  });
+
+  test("uses session config options as the canonical model mutation path", async () => {
+    const session = createSession();
+    session.models = undefined;
+    session.configOptions = [
+      {
+        id: "primaryModel",
+        name: "Primary Model",
+        category: "model",
+        type: "select",
+        currentValue: "model-1",
+        options: [
+          { value: "model-1", name: "Model 1" },
+          { value: "model-2", name: "Model 2" },
+          { value: "model-3", name: "Model 3" },
+        ],
+      },
+    ] as ChatSession["configOptions"];
+    const sessionRuntime = createSessionRuntimeStub();
+    const legacyCalls: string[] = [];
+    const configCalls: Array<{ configId: string; value: string }> = [];
+
+    const service = new SetModelService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionModel: async (_session, modelId) => {
+          legacyCalls.push(modelId);
+        },
+        setSessionConfigOption: async (_session, configId, value) => {
+          configCalls.push({ configId, value });
+          return [
+            {
+              id: "primaryModel",
+              name: "Primary Model",
+              category: "model",
+              type: "select",
+              currentValue: value,
+              options: [
+                { value: "model-1", name: "Model 1" },
+                { value: "model-2", name: "Model 2" },
+                { value: "model-3", name: "Model 3" },
+              ],
+            },
+          ] as NonNullable<ChatSession["configOptions"]>;
+        },
+      })
+    );
+
+    await service.execute("user-1", "chat-1", "model-2");
+
+    expect(legacyCalls).toEqual([]);
+    expect(configCalls).toEqual([
+      {
+        configId: "primaryModel",
+        value: "model-2",
+      },
+    ]);
+    expect(session.configOptions?.[0]?.currentValue).toBe("model-2");
+    expect(session.models!).toEqual({
+      currentModelId: "model-2",
+      availableModels: [
+        { modelId: "model-1", name: "Model 1", description: undefined },
+        { modelId: "model-2", name: "Model 2", description: undefined },
+        { modelId: "model-3", name: "Model 3", description: undefined },
+      ],
+    });
+    expect(sessionRuntime.broadcasts).toEqual([
+      {
+        chatId: "chat-1",
+        event: { type: "current_model_update", modelId: "model-2" },
+      },
+      {
+        chatId: "chat-1",
+        event: {
+          type: "config_options_update",
+          configOptions: session.configOptions!,
+        },
+      },
+    ]);
   });
 });

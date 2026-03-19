@@ -1,13 +1,8 @@
-import { useMemo } from "react";
-import {
-  Linking,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
 import type { ContentBlock, ToolCallContent } from "@agentclientprotocol/sdk";
 import type { ToolUIPart } from "@repo/shared";
 import { useThemeColor } from "heroui-native";
+import { useMemo } from "react";
+import { Linking, Pressable, Text, View } from "react-native";
 import { DiffPart } from "./diff-part";
 import { TerminalPart } from "./terminal-part";
 import { isTerminalOutput } from "./utils";
@@ -18,7 +13,9 @@ interface ToolResultDisplayProps {
   errorText?: string;
 }
 
-type ToolOutputItem = ToolCallContent | { type: string; [key: string]: unknown };
+type ToolOutputItem =
+  | ToolCallContent
+  | { type: string; [key: string]: unknown };
 
 const isToolOutputItem = (item: unknown): item is ToolOutputItem =>
   typeof item === "object" &&
@@ -51,7 +48,8 @@ export function ToolResultDisplay({
   const foregroundColor = useThemeColor("foreground");
   const dangerColor = useThemeColor("danger");
   const isError = state === "output-error" || state === "output-denied";
-  const errorLabel = state === "output-denied" ? "Permission denied." : errorText;
+  const errorLabel =
+    state === "output-denied" ? "Permission denied." : errorText;
   const textColor = useMemo(() => {
     if (isError) {
       return dangerColor;
@@ -134,7 +132,11 @@ export function ToolResultDisplay({
   };
 
   const renderOutputItem = (item: ToolOutputItem, index: number) => {
-    if (item.type === "content" && "content" in item && isContentBlock(item.content)) {
+    if (
+      item.type === "content" &&
+      "content" in item &&
+      isContentBlock(item.content)
+    ) {
       return renderContentBlock(item.content, `content-${index}`);
     }
     if (
@@ -153,10 +155,7 @@ export function ToolResultDisplay({
     }
     if (item.type === "terminal" && typeof item.terminalId === "string") {
       return (
-        <TerminalPart
-          key={`terminal-${index}`}
-          terminalId={item.terminalId}
-        />
+        <TerminalPart key={`terminal-${index}`} terminalId={item.terminalId} />
       );
     }
     if ("text" in item && typeof item.text === "string") {
@@ -198,7 +197,9 @@ export function ToolResultDisplay({
             </View>
           ))
         : renderTextBlock(
-            typeof output === "string" ? output : JSON.stringify(output, null, 2),
+            typeof output === "string"
+              ? output
+              : JSON.stringify(output, null, 2),
             "output"
           )}
     </View>

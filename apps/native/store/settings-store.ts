@@ -45,7 +45,8 @@ export const useSettingsStore = create<SettingsState>()(
       removeAgent: (id) =>
         set((state) => ({
           agents: state.agents.filter((a) => a.id !== id),
-          activeAgentId: state.activeAgentId === id ? null : state.activeAgentId,
+          activeAgentId:
+            state.activeAgentId === id ? null : state.activeAgentId,
         })),
       setActiveAgentId: (id) => set({ activeAgentId: id }),
       getAgents: () => get().agents,

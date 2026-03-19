@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
 import { useThemeColor } from "heroui-native";
+import React from "react";
 import { Text, type TextProps } from "react-native";
 
 type PlainTextProps = TextProps & {

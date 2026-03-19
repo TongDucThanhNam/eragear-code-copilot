@@ -1,9 +1,9 @@
-import { Text, View } from "react-native";
 import { useMemo } from "react";
+import { Text, View } from "react-native";
 import { summarizeChainItems } from "./agentic-chain";
+import { AttachmentList } from "./attachment-list";
 import type { AssistantRenderData } from "./message-item.types";
 import { buildPreviewText } from "./message-item.utils";
-import { AttachmentList } from "./attachment-list";
 
 interface AssistantMessagePreviewProps {
   data: AssistantRenderData;

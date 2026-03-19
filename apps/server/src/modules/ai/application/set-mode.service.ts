@@ -11,7 +11,12 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
-import { updateSessionConfigOptionCurrentValue } from "@/shared/utils/session-config-options.util";
+import {
+  findSessionConfigOption,
+  hasSessionConfigOptionValue,
+  syncSessionSelectionFromConfigOptions,
+  updateSessionConfigOptionCurrentValue,
+} from "@/shared/utils/session-config-options.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import {
   AI_OP,
@@ -26,6 +31,11 @@ const OP = AI_OP.SESSION_MODE_SET;
 interface ModeSwitchPolicy {
   acpRetryMaxAttempts: number;
   acpRetryBaseDelayMs: number;
+}
+
+interface ModeSwitchRuntimeContext {
+  aggregate: ReturnType<SetModeService["sessionGateway"]["requireAuthorizedRuntime"]>;
+  configOptionId?: string;
 }
 
 export class SetModeService {
@@ -58,8 +68,8 @@ export class SetModeService {
           chatId,
           op: OP,
         });
-        const aggregate = this.getRuntimeForModeSwitch(userId, chatId, modeId);
-        const currentSession = aggregate.raw;
+        const context = this.getRuntimeForModeSwitch(userId, chatId, modeId);
+        const currentSession = context.aggregate.raw;
         this.sessionGateway.assertSessionRunning({
           chatId,
           session: currentSession,
@@ -70,7 +80,11 @@ export class SetModeService {
         return currentSession;
       });
 
-      await this.sendModeSwitchWithRetry(chatId, modeId, session);
+      const nextConfigOptions = await this.sendModeSwitchWithRetry(
+        chatId,
+        modeId,
+        session
+      );
 
       return await this.sessionRuntime.runExclusive(chatId, async () => {
         assertSessionMutationLock({
@@ -78,8 +92,8 @@ export class SetModeService {
           chatId,
           op: OP,
         });
-        const aggregate = this.getRuntimeForModeSwitch(userId, chatId, modeId);
-        if (aggregate.raw !== session) {
+        const context = this.getRuntimeForModeSwitch(userId, chatId, modeId);
+        if (context.aggregate.raw !== session) {
           throw new AppError({
             message:
               "Session runtime changed while switching mode; please retry",
@@ -90,12 +104,30 @@ export class SetModeService {
             details: { chatId, modeId },
           });
         }
-        aggregate.setCurrentMode(modeId);
-        const configOptionUpdated = updateSessionConfigOptionCurrentValue({
-          configOptions: session.configOptions,
-          target: "mode",
-          value: modeId,
-        });
+        let configOptionUpdated = false;
+        if (context.configOptionId) {
+          if (nextConfigOptions && nextConfigOptions.length > 0) {
+            session.configOptions = nextConfigOptions;
+            configOptionUpdated = true;
+          } else {
+            configOptionUpdated = updateSessionConfigOptionCurrentValue({
+              configOptions: session.configOptions,
+              target: "mode",
+              value: modeId,
+            });
+          }
+          syncSessionSelectionFromConfigOptions(session);
+        } else {
+          context.aggregate.setCurrentMode(modeId);
+          configOptionUpdated = updateSessionConfigOptionCurrentValue({
+            configOptions: session.configOptions,
+            target: "mode",
+            value: modeId,
+          });
+          if (configOptionUpdated) {
+            syncSessionSelectionFromConfigOptions(session);
+          }
+        }
         await this.sessionRuntime.broadcast(chatId, {
           type: "current_mode_update",
           modeId,
@@ -140,7 +172,7 @@ export class SetModeService {
     userId: string,
     chatId: string,
     modeId: string
-  ) {
+  ): ModeSwitchRuntimeContext {
     const aggregate = this.sessionGateway.requireAuthorizedRuntime({
       userId,
       chatId,
@@ -149,6 +181,21 @@ export class SetModeService {
       details: { modeId },
     });
     const session = aggregate.raw;
+    const modeOption = findSessionConfigOption(session.configOptions, "mode");
+
+    if (modeOption) {
+      if (!hasSessionConfigOptionValue({ option: modeOption, value: modeId })) {
+        throw new ValidationError("Mode is not available for this session", {
+          module: "ai",
+          op: OP,
+          details: { chatId, modeId },
+        });
+      }
+      return {
+        aggregate,
+        configOptionId: modeOption.id,
+      };
+    }
 
     if (!session.modes || session.modes.availableModes.length === 0) {
       throw new ValidationError("Agent does not support mode switching", {
@@ -169,23 +216,31 @@ export class SetModeService {
       });
     }
 
-    return aggregate;
+    return { aggregate };
   }
 
   private async sendModeSwitchWithRetry(
     chatId: string,
     modeId: string,
     session: ChatSession
-  ): Promise<void> {
+  ): Promise<ChatSession["configOptions"] | null> {
     const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy({
       maxAttempts: this.policy.acpRetryMaxAttempts,
       retryBaseDelayMs: this.policy.acpRetryBaseDelayMs,
     });
+    const modeOption = findSessionConfigOption(session.configOptions, "mode");
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
+        if (modeOption) {
+          return await this.sessionGateway.setSessionConfigOption(
+            session,
+            modeOption.id,
+            modeId
+          );
+        }
         await this.sessionGateway.setSessionMode(session, modeId);
-        return;
+        return null;
       } catch (error) {
         await this.handleModeSwitchFailure({
           error,
@@ -198,6 +253,8 @@ export class SetModeService {
         });
       }
     }
+
+    return null;
   }
 
   private async handleModeSwitchFailure(params: {
@@ -229,11 +286,17 @@ export class SetModeService {
     }
 
     if (error.kind === "method_not_supported") {
-      throw new ValidationError("Agent does not support mode switching", {
-        module: "ai",
-        op: OP,
-        details: { chatId, modeId },
-      });
+      const modeOption = findSessionConfigOption(session.configOptions, "mode");
+      throw new ValidationError(
+        modeOption
+          ? "Agent does not support session configuration updates"
+          : "Agent does not support mode switching",
+        {
+          module: "ai",
+          op: OP,
+          details: { chatId, modeId },
+        }
+      );
     }
 
     if (

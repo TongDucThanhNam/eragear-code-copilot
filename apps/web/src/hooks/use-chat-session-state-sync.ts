@@ -11,7 +11,7 @@ import type {
   SessionModeState,
   SessionStateData,
 } from "@repo/shared";
-import { applySessionState } from "@repo/shared";
+import { applySessionState, resolveSessionSelectionState } from "@repo/shared";
 import type {
   Dispatch,
   MutableRefObject,
@@ -39,6 +39,7 @@ interface UseChatSessionStateSyncParams {
   messageStateRef: MutableRefObject<MessageState>;
   modesRef: MutableRefObject<SessionModeState | null>;
   modelsRef: MutableRefObject<SessionModelState | null>;
+  configOptionsRef: MutableRefObject<SessionConfigOption[]>;
   commandsRef: MutableRefObject<AvailableCommand[]>;
   isResumingRef: MutableRefObject<boolean>;
   activeTurnIdRef: MutableRefObject<string | null>;
@@ -80,17 +81,58 @@ function logSessionStateDebug(
   console.debug(`[ACP Session State] ${message}`);
 }
 
-function shouldBackfillConnectedSessionState(params: {
+function shouldBackfillModeState(
+  currentModes: SessionModeState | null,
+  nextModes: SessionModeState | null
+): boolean {
+  if (!nextModes) {
+    return false;
+  }
+  if (!currentModes) {
+    return true;
+  }
+  if (currentModes.currentModeId !== nextModes.currentModeId) {
+    return true;
+  }
+  return currentModes.availableModes.length < nextModes.availableModes.length;
+}
+
+function shouldBackfillModelState(
+  currentModels: SessionModelState | null,
+  nextModels: SessionModelState | null
+): boolean {
+  if (!nextModels) {
+    return false;
+  }
+  if (!currentModels) {
+    return true;
+  }
+  if (currentModels.currentModelId !== nextModels.currentModelId) {
+    return true;
+  }
+  return (
+    currentModels.availableModels.length < nextModels.availableModels.length
+  );
+}
+
+export function shouldBackfillConnectedSessionState(params: {
   normalizedSessionState: SessionStateData;
   currentModes: SessionModeState | null;
   currentModels: SessionModelState | null;
 }): boolean {
   const { normalizedSessionState, currentModes, currentModels } = params;
-  const hasStateModes = normalizedSessionState.modes !== undefined;
-  const hasStateModels = normalizedSessionState.models !== undefined;
-  const missingModes = !currentModes && hasStateModes;
-  const missingModels = !currentModels && hasStateModels;
-  return missingModes || missingModels;
+  const derivedSelection = resolveSessionSelectionState({
+    configOptions: normalizedSessionState.configOptions,
+    modes: normalizedSessionState.modes ?? null,
+    models: normalizedSessionState.models ?? null,
+  });
+  const nextModes = derivedSelection.modes ?? normalizedSessionState.modes ?? null;
+  const nextModels =
+    derivedSelection.models ?? normalizedSessionState.models ?? null;
+  return (
+    shouldBackfillModeState(currentModes, nextModes) ||
+    shouldBackfillModelState(currentModels, nextModels)
+  );
 }
 
 export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
@@ -104,6 +146,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     messageStateRef,
     modesRef,
     modelsRef,
+    configOptionsRef,
     commandsRef,
     isResumingRef,
     activeTurnIdRef,
@@ -166,7 +209,10 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
           commandsRef.current = nextCommands;
           setCommands(nextCommands);
         },
-        onConfigOptionsChange: setConfigOptions,
+        onConfigOptionsChange: (nextConfigOptions) => {
+          configOptionsRef.current = nextConfigOptions;
+          setConfigOptions(nextConfigOptions);
+        },
         onSessionInfoChange: setSessionInfo,
         onPromptCapabilitiesChange: setPromptCapabilities,
         onLoadSessionSupportedChange: setLoadSessionSupported,
@@ -176,6 +222,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     },
     [
       chatId,
+      configOptionsRef,
       commandsRef,
       modesRef,
       modelsRef,
@@ -241,6 +288,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     setCommands([]);
     commandsRef.current = [];
     setConfigOptions([]);
+    configOptionsRef.current = [];
     setSessionInfo(null);
     setPromptCapabilities(null);
     setAgentInfo(null);
@@ -262,6 +310,7 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     blockedTurnIdsRef,
     completedTurnIdsRef,
     chatId,
+    configOptionsRef,
     commandsRef,
     connectedChatIdRef,
     hasLocalConfigOverrideRef,

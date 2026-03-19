@@ -25,7 +25,7 @@ export function ChatHeader({
   const handleModeChange = onModeChange ?? (() => undefined);
   const handleModelChange = onModelChange ?? (() => undefined);
   return (
-    <View className="flex-row items-center justify-between bg-background px-4 pb-4 pt-2 dark:bg-black">
+    <View className="flex-row items-center justify-between bg-background px-4 pt-2 pb-4 dark:bg-black">
       <BackButton />
       <TitleSection status={status} subtitle={subtitle} title={title} />
       <HeaderMenu

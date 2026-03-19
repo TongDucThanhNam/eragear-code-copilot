@@ -11,7 +11,13 @@ import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
-import { updateSessionConfigOptionCurrentValue } from "@/shared/utils/session-config-options.util";
+import {
+  findSessionConfigOption,
+  getSessionConfigOptionCurrentValue,
+  hasSessionConfigOptionValue,
+  syncSessionSelectionFromConfigOptions,
+  updateSessionConfigOptionCurrentValue,
+} from "@/shared/utils/session-config-options.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import {
   AI_OP,
@@ -26,6 +32,11 @@ const OP = AI_OP.SESSION_MODEL_SET;
 interface ModelSwitchPolicy {
   acpRetryMaxAttempts: number;
   acpRetryBaseDelayMs: number;
+}
+
+interface ModelSwitchRuntimeContext {
+  aggregate: ReturnType<SetModelService["sessionGateway"]["requireAuthorizedRuntime"]>;
+  configOptionId?: string;
 }
 
 export class SetModelService {
@@ -56,8 +67,8 @@ export class SetModelService {
         chatId,
         op: OP,
       });
-      const aggregate = this.getRuntimeForModelSwitch(userId, chatId);
-      const session = aggregate.raw;
+      const context = this.getRuntimeForModelSwitch(userId, chatId, modelId);
+      const session = context.aggregate.raw;
       if (this.isCurrentModel(session, modelId)) {
         return { ok: true };
       }
@@ -70,14 +81,36 @@ export class SetModelService {
         details: { modelId },
       });
 
-      await this.sendModelSwitchWithRetry(chatId, session, modelId);
+      const nextConfigOptions = await this.sendModelSwitchWithRetry(
+        chatId,
+        session,
+        modelId
+      );
 
-      aggregate.setCurrentModel(modelId);
-      const configOptionUpdated = updateSessionConfigOptionCurrentValue({
-        configOptions: session.configOptions,
-        target: "model",
-        value: modelId,
-      });
+      let configOptionUpdated = false;
+      if (context.configOptionId) {
+        if (nextConfigOptions && nextConfigOptions.length > 0) {
+          session.configOptions = nextConfigOptions;
+          configOptionUpdated = true;
+        } else {
+          configOptionUpdated = updateSessionConfigOptionCurrentValue({
+            configOptions: session.configOptions,
+            target: "model",
+            value: modelId,
+          });
+        }
+        syncSessionSelectionFromConfigOptions(session);
+      } else {
+        context.aggregate.setCurrentModel(modelId);
+        configOptionUpdated = updateSessionConfigOptionCurrentValue({
+          configOptions: session.configOptions,
+          target: "model",
+          value: modelId,
+        });
+        if (configOptionUpdated) {
+          syncSessionSelectionFromConfigOptions(session);
+        }
+      }
 
       await this.sessionRuntime.broadcast(chatId, {
         type: "current_model_update",
@@ -93,7 +126,11 @@ export class SetModelService {
     });
   }
 
-  private getRuntimeForModelSwitch(userId: string, chatId: string) {
+  private getRuntimeForModelSwitch(
+    userId: string,
+    chatId: string,
+    modelId: string
+  ): ModelSwitchRuntimeContext {
     const aggregate = this.sessionGateway.requireAuthorizedRuntime({
       userId,
       chatId,
@@ -101,6 +138,21 @@ export class SetModelService {
       op: OP,
     });
     const session = aggregate.raw;
+    const modelOption = findSessionConfigOption(session.configOptions, "model");
+
+    if (modelOption) {
+      if (!hasSessionConfigOptionValue({ option: modelOption, value: modelId })) {
+        throw new ValidationError("Model is not available for this session", {
+          module: "ai",
+          op: OP,
+          details: { chatId, modelId },
+        });
+      }
+      return {
+        aggregate,
+        configOptionId: modelOption.id,
+      };
+    }
 
     if (!session.models || session.models.availableModels.length === 0) {
       throw new ValidationError("Agent does not support model switching", {
@@ -110,10 +162,30 @@ export class SetModelService {
       });
     }
 
-    return aggregate;
+    return { aggregate };
   }
 
   private isCurrentModel(session: ChatSession, modelId: string): boolean {
+    const configModelId = getSessionConfigOptionCurrentValue({
+      configOptions: session.configOptions,
+      target: "model",
+    });
+    if (configModelId) {
+      if (
+        !hasSessionConfigOptionValue({
+          option: findSessionConfigOption(session.configOptions, "model"),
+          value: modelId,
+        })
+      ) {
+        throw new ValidationError("Model is not available for this session", {
+          module: "ai",
+          op: OP,
+          details: { chatId: session.id, modelId },
+        });
+      }
+      return configModelId === modelId;
+    }
+
     const isAvailableModel = session.models?.availableModels.some(
       (model) => model.modelId === modelId
     );
@@ -131,16 +203,24 @@ export class SetModelService {
     chatId: string,
     session: ChatSession,
     modelId: string
-  ): Promise<void> {
+  ): Promise<ChatSession["configOptions"] | null> {
     const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy({
       maxAttempts: this.policy.acpRetryMaxAttempts,
       retryBaseDelayMs: this.policy.acpRetryBaseDelayMs,
     });
+    const modelOption = findSessionConfigOption(session.configOptions, "model");
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
+        if (modelOption) {
+          return await this.sessionGateway.setSessionConfigOption(
+            session,
+            modelOption.id,
+            modelId
+          );
+        }
         await this.sessionGateway.setSessionModel(session, modelId);
-        return;
+        return null;
       } catch (error) {
         await this.handleModelSwitchFailure({
           error,
@@ -153,6 +233,8 @@ export class SetModelService {
         });
       }
     }
+
+    return null;
   }
 
   private async handleModelSwitchFailure(params: {
@@ -184,11 +266,17 @@ export class SetModelService {
     }
 
     if (error.kind === "method_not_supported") {
-      throw new ValidationError("Agent does not support model switching", {
-        module: "ai",
-        op: OP,
-        details: { chatId, modelId },
-      });
+      const modelOption = findSessionConfigOption(session.configOptions, "model");
+      throw new ValidationError(
+        modelOption
+          ? "Agent does not support session configuration updates"
+          : "Agent does not support model switching",
+        {
+          module: "ai",
+          op: OP,
+          details: { chatId, modelId },
+        }
+      );
     }
 
     if (

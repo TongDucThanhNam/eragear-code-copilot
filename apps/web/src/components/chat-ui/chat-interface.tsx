@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolveSessionSelectionState } from "@repo/shared";
 import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { resolveSessionBootstrapPhase } from "@/components/chat-ui/chat-bootstrap-phase";
+import {
+  normalizeInteractionConnStatus,
+  resolveDisplayConnStatus,
+} from "@/components/chat-ui/chat-connection-display";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatMessagesPane } from "@/components/chat-ui/chat-interface/chat-messages-pane";
 import { ChatPlanDockPane } from "@/components/chat-ui/chat-interface/chat-plan-dock-pane";
@@ -237,11 +242,26 @@ export function ChatInterface({
       : pendingPermission;
   const createSessionMutation = trpc.createSession.useMutation();
   const messageCount = useChatMessageCount(chatId);
-  const effectiveConnStatus = status === "inactive" ? "idle" : connStatus;
   const selectedSession = useMemo(() => {
     if (!chatId) return undefined;
     return sessionsData.find((session: any) => session.id === chatId);
   }, [chatId, sessionsData]);
+  const displayConnStatus = useMemo(
+    () =>
+      resolveDisplayConnStatus({
+        status,
+        connStatus,
+        sessionIsActive:
+          typeof selectedSession?.isActive === "boolean"
+            ? selectedSession.isActive
+            : null,
+      }),
+    [connStatus, selectedSession?.isActive, status]
+  );
+  const effectiveConnStatus = useMemo(
+    () => normalizeInteractionConnStatus(displayConnStatus),
+    [displayConnStatus]
+  );
   const selectedSessionLoadSupported = useMemo(() => {
     if (!selectedSession) {
       return undefined;
@@ -336,9 +356,18 @@ export function ChatInterface({
   }, [activeAgentId, agentModels, sessionAgentInfo, selectedSession, chatId]);
 
   // Derived state for UI
-  const currentModeId = modes?.currentModeId || null;
+  const selectionState = useMemo(
+    () =>
+      resolveSessionSelectionState({
+        configOptions,
+        modes,
+        models,
+      }),
+    [configOptions, models, modes]
+  );
+  const currentModeId = selectionState.modes?.currentModeId || null;
   const availableModes = useMemo(() => {
-    const mapped = (modes?.availableModes ?? []).map((mode) => ({
+    const mapped = (selectionState.modes?.availableModes ?? []).map((mode) => ({
       ...mode,
       description: mode.description || undefined,
     }));
@@ -357,10 +386,10 @@ export function ChatInterface({
         description: undefined,
       },
     ];
-  }, [currentModeId, modes?.availableModes]);
-  const currentModelId = models?.currentModelId || null;
+  }, [currentModeId, selectionState.modes?.availableModes]);
+  const currentModelId = selectionState.models?.currentModelId || null;
   const availableModels = useMemo(() => {
-    const mapped = (models?.availableModels ?? []).map((model) => ({
+    const mapped = (selectionState.models?.availableModels ?? []).map((model) => ({
       modelId: model.modelId,
       name: model.name,
       description: model.description || undefined,
@@ -381,7 +410,7 @@ export function ChatInterface({
         description: undefined,
       },
     ];
-  }, [currentModelId, models?.availableModels]);
+  }, [currentModelId, selectionState.models?.availableModels]);
   const availableCommands = commands;
   // Quick switch sessions
   const quickSwitchSessions = useMemo(() => {
@@ -1055,7 +1084,7 @@ export function ChatInterface({
     <div className="relative flex size-full flex-col overflow-hidden">
       <ChatHeader
         agentDisplay={agentDisplay}
-        connStatus={effectiveConnStatus}
+        connStatus={displayConnStatus}
         isResuming={isResuming}
         loadNotSupported={resolvedLoadSessionSupported === false}
         onResumeChat={resolvedLoadSessionSupported ? handleResume : undefined}

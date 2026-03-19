@@ -1,4 +1,12 @@
-import { Alert, Button, Input, Label, Spinner, Surface, TextField } from "heroui-native";
+import {
+  Alert,
+  Button,
+  Input,
+  Label,
+  Spinner,
+  Surface,
+  TextField,
+} from "heroui-native";
 import { useState } from "react";
 import { Text, View } from "react-native";
 
@@ -92,11 +100,7 @@ export function SignUp() {
       <View className="gap-3">
         <TextField>
           <Label>Name</Label>
-          <Input
-            onChangeText={setName}
-            placeholder="John Doe"
-            value={name}
-          />
+          <Input onChangeText={setName} placeholder="John Doe" value={name} />
         </TextField>
 
         <TextField>

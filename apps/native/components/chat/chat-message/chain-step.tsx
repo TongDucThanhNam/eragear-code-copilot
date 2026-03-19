@@ -1,7 +1,7 @@
-import type React from "react";
-import { View } from "react-native";
 import type { UIMessagePart } from "@repo/shared";
 import { cn } from "heroui-native";
+import type React from "react";
+import { View } from "react-native";
 import { getChainIcon } from "./agentic-chain.utils";
 
 interface ChainStepProps {

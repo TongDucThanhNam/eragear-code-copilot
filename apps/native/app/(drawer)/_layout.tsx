@@ -10,7 +10,7 @@ import { useAppTheme } from "@/contexts/app-theme-context";
 import { useProjectStore } from "@/store/project-store";
 
 function DrawerLayout() {
-  const router = useRouter();
+  const _router = useRouter();
   const themeColorForeground = useThemeColor("foreground");
   const themeColorBackground = useThemeColor("background");
   const themeColorMuted = useThemeColor("muted");
@@ -103,10 +103,10 @@ function DrawerLayout() {
   }, [
     isLight,
     isMenuOpen,
-    router,
     themeColorAccentForeground,
     themeColorForeground,
     toggleTheme,
+    setIsAgentPickerOpen,
   ]);
 
   return (

@@ -52,6 +52,8 @@ export class SessionRuntimeEntity {
 
   startTurn(turnId: string): void {
     this.session.activeTurnId = turnId;
+    this.session.lastAssistantActivityAtMs = undefined;
+    this.session.lastAssistantActivityTurnId = undefined;
     this.session.lastCompletedTurnId = undefined;
     this.session.lastCompletedTurnAtMs = undefined;
     this.session.chatFinish = { turnId };

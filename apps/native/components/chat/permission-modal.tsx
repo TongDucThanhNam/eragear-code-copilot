@@ -1,10 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import {
-  BottomSheet,
-  Button,
-  Surface,
-  useThemeColor,
-} from "heroui-native";
+import { BottomSheet, Button, Surface, useThemeColor } from "heroui-native";
 import type { ComponentProps } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { withUniwind } from "uniwind";
@@ -17,18 +12,18 @@ interface PermissionModalProps {
   onRespond: (requestId: string, decision: string) => void;
 }
 
-type NormalizedOption = {
+interface NormalizedOption {
   id: string;
   label: string;
   description?: string;
-};
+}
 
-type ActionTone = {
+interface ActionTone {
   buttonVariant: "primary" | "secondary" | "danger-soft";
   descriptionClassName: string;
   iconColor: string;
   iconName: ComponentProps<typeof Ionicons>["name"];
-};
+}
 
 const DEFAULT_OPTIONS: NormalizedOption[] = [
   { id: "reject", label: "Deny", description: "Reject this tool call." },
@@ -42,7 +37,7 @@ function normalizePermissionOptions(
     return [];
   }
 
-  const rawOptions = Array.isArray(options) ? options : options.options ?? [];
+  const rawOptions = Array.isArray(options) ? options : (options.options ?? []);
   const normalized: NormalizedOption[] = [];
 
   for (const option of rawOptions) {
@@ -55,7 +50,7 @@ function normalizePermissionOptions(
       "";
     const label = option.label || option.name || option.optionId || id;
 
-    if (!id || !label) {
+    if (!(id && label)) {
       continue;
     }
 
@@ -110,10 +105,7 @@ function getActionTone(
   };
 }
 
-export function PermissionModal({
-  request,
-  onRespond,
-}: PermissionModalProps) {
+export function PermissionModal({ request, onRespond }: PermissionModalProps) {
   const warningColor = useThemeColor("warning");
   const accentForegroundColor = useThemeColor("accent-foreground");
   const dangerColor = useThemeColor("danger");
@@ -132,7 +124,7 @@ export function PermissionModal({
   const actionOptions = options.length > 0 ? options : DEFAULT_OPTIONS;
 
   return (
-    <BottomSheet isOpen onOpenChange={() => {}}>
+    <BottomSheet isOpen onOpenChange={undefined}>
       <BottomSheet.Portal>
         <BottomSheet.Overlay isCloseOnPress={false} />
         <BottomSheet.Content

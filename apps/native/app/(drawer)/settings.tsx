@@ -215,11 +215,11 @@ export default function SettingsScreen() {
               </Text>
               <Button
                 className="mt-2"
+                onPress={() => {
+                  handleSignOut();
+                }}
                 size="sm"
                 variant="ghost"
-                onPress={() => {
-                  void handleSignOut();
-                }}
               >
                 <Button.Label>Sign Out</Button.Label>
               </Button>
@@ -231,8 +231,8 @@ export default function SettingsScreen() {
               </Text>
               <Button
                 className="mt-2"
-                size="sm"
                 onPress={() => router.push("/login")}
+                size="sm"
               >
                 <Button.Label>Go to Login</Button.Label>
               </Button>
@@ -267,7 +267,9 @@ export default function SettingsScreen() {
                       <View className="flex-row items-center gap-2">
                         <StyledIcon
                           color={isActive ? themeColorSuccess : themeColorMuted}
-                          name={isActive ? "radio-button-on" : "radio-button-off"}
+                          name={
+                            isActive ? "radio-button-on" : "radio-button-off"
+                          }
                           size={16}
                         />
                         <AgentIcon

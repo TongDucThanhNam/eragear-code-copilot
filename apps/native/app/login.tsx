@@ -33,7 +33,10 @@ import { useConnectionStore } from "@/store/connection-store";
 
 const StyledIcon = withUniwind(Ionicons);
 
-function normalizeErrorMessage(error: unknown, normalizedTarget: string): string {
+function normalizeErrorMessage(
+  error: unknown,
+  normalizedTarget: string
+): string {
   const message = error instanceof Error ? error.message : String(error);
   const lowered = message.toLowerCase();
   const isNetworkError =
@@ -55,7 +58,8 @@ function normalizeErrorMessage(error: unknown, normalizedTarget: string): string
 export default function LoginScreen() {
   const themeColorAccentForeground = useThemeColor("accent-foreground");
   const { toast } = useToast();
-  const hostHint = Platform.OS === "android" ? "10.0.2.2:3000" : "localhost:3000";
+  const hostHint =
+    Platform.OS === "android" ? "10.0.2.2:3000" : "localhost:3000";
   const {
     serverUrl: storedServerUrl,
     setServerUrl,
@@ -147,7 +151,9 @@ export default function LoginScreen() {
       );
 
       if (result.error) {
-        throw new Error(result.error.message || "Invalid username or password.");
+        throw new Error(
+          result.error.message || "Invalid username or password."
+        );
       }
 
       if (signInError) {
@@ -246,10 +252,15 @@ export default function LoginScreen() {
                   placeholderTextColor="hsl(var(--color-muted))"
                   value={serverUrl}
                 />
-                <Description>Enter the server hostname or IP with port.</Description>
+                <Description>
+                  Enter the server hostname or IP with port.
+                </Description>
               </TextField>
 
-              <TextField className="mt-4" isInvalid={!!error && !username.trim()}>
+              <TextField
+                className="mt-4"
+                isInvalid={!!error && !username.trim()}
+              >
                 <Label>Username</Label>
                 <Input
                   autoCapitalize="none"
@@ -307,7 +318,9 @@ export default function LoginScreen() {
               >
                 <StyledIcon
                   color="hsl(var(--color-muted))"
-                  name={showAdvanced ? "chevron-up-outline" : "chevron-down-outline"}
+                  name={
+                    showAdvanced ? "chevron-up-outline" : "chevron-down-outline"
+                  }
                   size={16}
                 />
                 <Text className="text-muted-foreground text-sm">
@@ -335,11 +348,11 @@ export default function LoginScreen() {
                   {(storedServerUrl || hasStoredSession) && (
                     <Button
                       className="mt-3"
+                      onPress={() => {
+                        handleClearSavedSession();
+                      }}
                       size="sm"
                       variant="ghost"
-                      onPress={() => {
-                        void handleClearSavedSession();
-                      }}
                     >
                       <Button.Label>Clear Saved Session</Button.Label>
                     </Button>
@@ -356,7 +369,7 @@ export default function LoginScreen() {
                   !password
                 }
                 onPress={() => {
-                  void handleLogin();
+                  handleLogin();
                 }}
                 size="lg"
               >

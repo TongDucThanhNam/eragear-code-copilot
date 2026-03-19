@@ -1,12 +1,12 @@
+import type { UIMessagePart } from "@repo/shared";
+import { cn } from "heroui-native";
 import { useMemo } from "react";
 import { View } from "react-native";
-import type { UIMessagePart } from "@repo/shared";
-import { CollapsibleMessageText } from "./collapsible-message-text";
-import { MessagePartItem } from "./message-part-item";
 import { AttachmentList } from "./attachment-list";
+import { CollapsibleMessageText } from "./collapsible-message-text";
 import { splitUserMessageParts } from "./message-item.utils";
+import { MessagePartItem } from "./message-part-item";
 import { getPartKey } from "./utils";
-import { cn } from "heroui-native";
 
 interface UserMessageBodyProps {
   parts: UIMessagePart[];

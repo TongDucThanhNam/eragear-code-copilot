@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import * as Clipboard from "expo-clipboard";
+import { setStringAsync } from "expo-clipboard";
+import { cn, Menu, useThemeColor } from "heroui-native";
 import { memo, useState } from "react";
-import { Menu, cn, useThemeColor } from "heroui-native";
 import { Pressable } from "react-native";
 
 interface MessageActionsProps {
@@ -18,13 +18,10 @@ export const MessageActions = memo(function MessageActions({
   onEdit,
 }: MessageActionsProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [foregroundColor, mutedColor] = useThemeColor([
-    "foreground",
-    "muted",
-  ]);
+  const [foregroundColor, mutedColor] = useThemeColor(["foreground", "muted"]);
 
   const handleCopy = async () => {
-    await Clipboard.setStringAsync(text);
+    await setStringAsync(text);
     setIsOpen(false);
   };
 
@@ -43,11 +40,7 @@ export const MessageActions = memo(function MessageActions({
             className
           )}
         >
-          <Ionicons
-            color={mutedColor}
-            name="ellipsis-horizontal"
-            size={15}
-          />
+          <Ionicons color={mutedColor} name="ellipsis-horizontal" size={15} />
         </Pressable>
       </Menu.Trigger>
       <Menu.Portal>

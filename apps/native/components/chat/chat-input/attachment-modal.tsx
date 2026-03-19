@@ -17,14 +17,14 @@ interface AttachmentModalProps {
   canPickResource: boolean;
 }
 
-type AttachmentOption = {
+interface AttachmentOption {
   key: string;
   title: string;
   description: string;
   icon: ComponentProps<typeof Ionicons>["name"];
   enabled: boolean;
   onSelect: () => void;
-};
+}
 
 export function AttachmentModal({
   isOpen,

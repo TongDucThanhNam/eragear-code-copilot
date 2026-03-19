@@ -175,6 +175,10 @@ async function handleUiChunkUpdate(
   const providerMetadata = buildProviderMetadataFromMeta(
     "_meta" in update ? update._meta : undefined
   );
+  session.lastAssistantActivityAtMs = Date.now();
+  if (updateTurnId) {
+    session.lastAssistantActivityTurnId = updateTurnId;
+  }
 
   if (update.sessionUpdate === "agent_thought_chunk") {
     appendAssistantReasoningChunk({

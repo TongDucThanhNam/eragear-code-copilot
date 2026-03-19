@@ -9,6 +9,7 @@ import {
   getChatFinishHistoryReloadDecision,
   reconcileActiveTurnIdAfterEvent,
   reconcileMessageUpsertAfterStatus,
+  shouldFinalizeAfterReadyStatus,
 } from "./use-chat-session-event-handler";
 import { resolveSessionEventTurnGuard } from "./use-chat-turn-guards";
 
@@ -341,5 +342,33 @@ describe("getChatFinishHistoryReloadDecision", () => {
       reason: null,
       resolvedMessageId: "m-finish",
     });
+  });
+});
+
+describe("shouldFinalizeAfterReadyStatus", () => {
+  test("skips ready-finalize when the same turn already completed via chat_finish", () => {
+    expect(
+      shouldFinalizeAfterReadyStatus({
+        event: {
+          type: "chat_status",
+          status: "ready",
+          turnId: "turn-1",
+        },
+        completedTurnIds: new Set(["turn-1"]),
+      })
+    ).toBe(false);
+  });
+
+  test("keeps ready-finalize when no chat_finish was observed for the turn", () => {
+    expect(
+      shouldFinalizeAfterReadyStatus({
+        event: {
+          type: "chat_status",
+          status: "ready",
+          turnId: "turn-2",
+        },
+        completedTurnIds: new Set(["turn-1"]),
+      })
+    ).toBe(true);
   });
 });

@@ -10,7 +10,11 @@ import type {
   SessionModeState,
   UIMessage,
 } from "@repo/shared";
-import { findPendingPermission, processSessionEvent } from "@repo/shared";
+import {
+  findPendingPermission,
+  findSessionConfigOption,
+  processSessionEvent,
+} from "@repo/shared";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { useCallback } from "react";
 import { useChatStreamStore } from "@/store/chat-stream-store";
@@ -46,6 +50,7 @@ interface UseChatSessionEventHandlerParams {
   messageStateRef: MutableRefObject<MessageState>;
   modesRef: MutableRefObject<SessionModeState | null>;
   modelsRef: MutableRefObject<SessionModelState | null>;
+  configOptionsRef: MutableRefObject<SessionConfigOption[]>;
   commandsRef: MutableRefObject<AvailableCommand[]>;
   activeTurnIdRef: MutableRefObject<string | null>;
   blockedTurnIdsRef: MutableRefObject<Set<string>>;
@@ -141,6 +146,17 @@ export function getChatFinishHistoryReloadDecision(params: {
     reason: null,
     resolvedMessageId,
   };
+}
+
+export function shouldFinalizeAfterReadyStatus(params: {
+  event: Extract<BroadcastEvent, { type: "chat_status" }>;
+  completedTurnIds: ReadonlySet<string>;
+}): boolean {
+  const { event, completedTurnIds } = params;
+  if (event.status !== "ready") {
+    return false;
+  }
+  return !hasObservedTurnCompletion(completedTurnIds, event.turnId ?? null);
 }
 
 function reconcileLateTerminalMessageSnapshot(
@@ -295,6 +311,7 @@ export function useChatSessionEventHandler(
     messageStateRef,
     modesRef,
     modelsRef,
+    configOptionsRef,
     commandsRef,
     activeTurnIdRef,
     blockedTurnIdsRef,
@@ -321,10 +338,13 @@ export function useChatSessionEventHandler(
       ) {
         const modeState = modesRef.current;
         const modelState = modelsRef.current;
+        const configOptions = configOptionsRef.current;
         const isModeEvent = event.type === "current_mode_update";
-        const missingStateForSelectionEvent = isModeEvent
-          ? !modeState
-          : !modelState;
+        const matchingConfigOption = isModeEvent
+          ? findSessionConfigOption(configOptions, "mode")
+          : findSessionConfigOption(configOptions, "model");
+        const missingStateForSelectionEvent =
+          (isModeEvent ? !modeState : !modelState) && !matchingConfigOption;
         const meta: Record<string, unknown> =
           isModeEvent
             ? {
@@ -333,6 +353,7 @@ export function useChatSessionEventHandler(
                 currentModeId: modeState?.currentModeId ?? null,
                 availableModesCount: modeState?.availableModes?.length ?? 0,
                 hasModeState: Boolean(modeState),
+                hasModeConfigOption: Boolean(matchingConfigOption),
               }
             : {
                 eventType: event.type,
@@ -340,6 +361,7 @@ export function useChatSessionEventHandler(
                 currentModelId: modelState?.currentModelId ?? null,
                 availableModelsCount: modelState?.availableModels?.length ?? 0,
                 hasModelState: Boolean(modelState),
+                hasModelConfigOption: Boolean(matchingConfigOption),
               };
         chatDebug("session-config", "received session selection update", {
           chatId: activeChatIdRef.current,
@@ -361,7 +383,7 @@ export function useChatSessionEventHandler(
             ...meta,
           });
           if (missingStateForSelectionEvent) {
-            console.warn(
+            console.debug(
               "[ACP Session Event] selection update arrived before state hydration",
               {
                 chatId: activeChatIdRef.current,
@@ -489,6 +511,7 @@ export function useChatSessionEventHandler(
         {
           currentModes: modesRef.current,
           currentModels: modelsRef.current,
+          currentConfigOptions: configOptionsRef.current,
         },
         {
           onStatusChange: setStatus,
@@ -515,27 +538,18 @@ export function useChatSessionEventHandler(
                   diagnostics.reason !== "unchanged_or_stale" ||
                   isTextualIgnoredUpdate;
                 if (shouldLogIgnoredUpdate) {
+                  const meta = {
+                    chatId: activeChatIdRef.current,
+                    messageId: partEvent.messageId,
+                    partIndex: partEvent.partIndex,
+                    partId: partEvent.partId ?? null,
+                    partType: partEvent.part.type,
+                    isNew: partEvent.isNew,
+                    status: statusRef.current,
+                    ...diagnostics,
+                  };
                   chatDebug("stream", "ignored ui_message_part update", {
-                    chatId: activeChatIdRef.current,
-                    messageId: partEvent.messageId,
-                    partIndex: partEvent.partIndex,
-                    partId: partEvent.partId ?? null,
-                    partType: partEvent.part.type,
-                    isNew: partEvent.isNew,
-                    status: statusRef.current,
-                    ...diagnostics,
-                  });
-                }
-                if (import.meta.env.DEV && shouldLogIgnoredUpdate) {
-                  console.debug("[ACP Session Event] ignored ui_message_part", {
-                    chatId: activeChatIdRef.current,
-                    messageId: partEvent.messageId,
-                    partIndex: partEvent.partIndex,
-                    partId: partEvent.partId ?? null,
-                    partType: partEvent.part.type,
-                    isNew: partEvent.isNew,
-                    status: statusRef.current,
-                    ...diagnostics,
+                    ...meta,
                   });
                 }
               } else {
@@ -545,7 +559,7 @@ export function useChatSessionEventHandler(
                 if (isTextualAppliedUpdate) {
                   const incomingTextLength =
                     "text" in partEvent.part ? partEvent.part.text.length : null;
-                  chatDebug("stream", "applied ui_message_part update", {
+                  const meta = {
                     chatId: activeChatIdRef.current,
                     messageId: partEvent.messageId,
                     partIndex: partEvent.partIndex,
@@ -554,19 +568,8 @@ export function useChatSessionEventHandler(
                     isNew: partEvent.isNew,
                     status: statusRef.current,
                     incomingTextLength,
-                  });
-                  if (import.meta.env.DEV) {
-                    console.debug("[ACP Session Event] applied ui_message_part", {
-                      chatId: activeChatIdRef.current,
-                      messageId: partEvent.messageId,
-                      partIndex: partEvent.partIndex,
-                      partId: partEvent.partId ?? null,
-                      partType: partEvent.part.type,
-                      isNew: partEvent.isNew,
-                      status: statusRef.current,
-                      incomingTextLength,
-                    });
-                  }
+                  };
+                  chatDebug("stream", "applied ui_message_part update", meta);
                 }
               }
               if (
@@ -624,7 +627,10 @@ export function useChatSessionEventHandler(
             commandsRef.current = nextCommands;
             setCommands(nextCommands);
           },
-          onConfigOptionsChange: setConfigOptions,
+          onConfigOptionsChange: (nextConfigOptions) => {
+            configOptionsRef.current = nextConfigOptions;
+            setConfigOptions(nextConfigOptions);
+          },
           onSessionInfoChange: setSessionInfo,
           onTerminalOutput: (terminalId, data) => {
             const activeChatId = activeChatIdRef.current;
@@ -645,7 +651,13 @@ export function useChatSessionEventHandler(
           onFinish,
         }
       );
-      if (event.type === "chat_status" && event.status === "ready") {
+      if (
+        event.type === "chat_status" &&
+        shouldFinalizeAfterReadyStatus({
+          event,
+          completedTurnIds: completedTurnIdsRef.current,
+        })
+      ) {
         updateMessageState((prev) => finalizeStreamingMessagesInState(prev));
       }
       if (event.type === "chat_finish") {
@@ -735,6 +747,7 @@ export function useChatSessionEventHandler(
       blockedTurnIdsRef,
       completedTurnIdsRef,
       commandsRef,
+      configOptionsRef,
       connectedChatIdRef,
       isResumingRef,
       loadHistory,

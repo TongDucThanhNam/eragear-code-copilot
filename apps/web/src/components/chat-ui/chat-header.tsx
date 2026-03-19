@@ -9,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { ChatDisplayConnectionStatus } from "./chat-connection-display";
 import { SidebarTrigger } from "../ui/sidebar";
 
 export interface ChatHeaderAgentDisplay {
@@ -20,7 +21,7 @@ export interface ChatHeaderAgentDisplay {
 export interface ChatHeaderProps {
   agentDisplay: ChatHeaderAgentDisplay;
   projectName?: string | null;
-  connStatus: "idle" | "connecting" | "connected" | "error";
+  connStatus: ChatDisplayConnectionStatus;
   onStopChat: () => void;
   onResumeChat?: () => void;
   isResuming?: boolean;
@@ -35,6 +36,8 @@ const getConnectionTone = (connStatus: ChatHeaderProps["connStatus"]) => {
     case "connecting":
       return "animate-pulse text-amber-500";
     case "error":
+      return "text-red-500";
+    case "inactive":
       return "text-red-500";
     default:
       return "text-muted-foreground";
@@ -89,7 +92,7 @@ export const ChatHeader = memo(function ChatHeader({
             Disconnect
           </Button>
         )}
-        {connStatus === "idle" && onResumeChat && (
+        {(connStatus === "idle" || connStatus === "inactive") && onResumeChat && (
           <Button
             className="h-8 gap-1.5 border-green-200 bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-700 dark:border-green-800 dark:bg-green-950/20 dark:text-green-400 dark:hover:text-green-300"
             disabled={isResuming}
@@ -105,7 +108,9 @@ export const ChatHeader = memo(function ChatHeader({
             {isResuming ? "Loading..." : "Load From Agent"}
           </Button>
         )}
-        {connStatus === "idle" && !onResumeChat && loadNotSupported && (
+        {(connStatus === "idle" || connStatus === "inactive") &&
+          !onResumeChat &&
+          loadNotSupported && (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>

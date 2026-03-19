@@ -1,15 +1,15 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import type { UIMessage } from "@repo/shared";
+import { cn } from "heroui-native";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { InteractionManager, View } from "react-native";
-import type { UIMessage, UIMessagePart } from "@repo/shared";
+import { ChainOfThought } from "./agentic-chain";
 import {
   isMessageStreaming,
   resolveAssistantFinalVisibility,
 } from "./agentic-message-utils";
-import { ChainOfThought } from "./agentic-chain";
-import { CollapsibleMessageText } from "./collapsible-message-text";
-import { AttachmentList } from "./attachment-list";
 import { AssistantMessagePreview } from "./assistant-message-preview";
-import { cn } from "heroui-native";
+import { AttachmentList } from "./attachment-list";
+import { CollapsibleMessageText } from "./collapsible-message-text";
 import type { AssistantRenderData } from "./message-item.types";
 
 interface AssistantMessageBodyProps {
@@ -57,9 +57,7 @@ export function AssistantMessageBody({
   }, [isLiveMessage, isRichContentReady, messageId]);
 
   if (!isRichContentReady) {
-    return (
-      <AssistantMessagePreview data={data} isStreaming={isStreaming} />
-    );
+    return <AssistantMessagePreview data={data} isStreaming={isStreaming} />;
   }
 
   if (data.chainItems.length === 0) {

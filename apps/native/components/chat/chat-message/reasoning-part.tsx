@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, Text, View } from "react-native";
 import type { ReasoningUIPart } from "@repo/shared";
+import { Pressable, Text, View } from "react-native";
 
 interface ReasoningPartProps {
   isExpanded: boolean;
@@ -14,9 +14,7 @@ const normalizeReasoningText = (text: string) => {
   if (!trimmed) {
     return "";
   }
-  const wrapperMatch = trimmed.match(
-    /^<([a-zA-Z][\w-]*)>([\s\S]*)<\/\1>$/
-  );
+  const wrapperMatch = trimmed.match(/^<([a-zA-Z][\w-]*)>([\s\S]*)<\/\1>$/);
   let normalized = wrapperMatch ? wrapperMatch[2].trim() : text;
   if (/<[a-zA-Z][^>]*>/.test(normalized)) {
     normalized = normalized.replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -54,7 +52,7 @@ export function ReasoningPart({
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center gap-2">
             <Ionicons className="text-accent" name="bulb-outline" size={14} />
-            <Text className="text-[11px] font-semibold uppercase tracking-wide text-accent">
+            <Text className="font-semibold text-[11px] text-accent uppercase tracking-wide">
               {label}
             </Text>
           </View>
@@ -74,7 +72,7 @@ export function ReasoningPart({
           {displayText}
         </Text>
         {canExpand ? (
-          <Text className="text-[11px] font-medium text-accent">
+          <Text className="font-medium text-[11px] text-accent">
             {expanded ? "Show less" : "Show more"}
           </Text>
         ) : null}

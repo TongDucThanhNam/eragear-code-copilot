@@ -1,7 +1,7 @@
+import type { ToolUIPart } from "@repo/shared";
 import { Accordion } from "heroui-native";
 import { useState } from "react";
 import { Text, View } from "react-native";
-import type { ToolUIPart } from "@repo/shared";
 import { ToolResultDisplay } from "./tool-result-display";
 
 type AccordionValue = string | string[] | undefined;
@@ -26,22 +26,22 @@ export function ToolResultPart({
     state === "output-error"
       ? "Error"
       : state === "output-denied"
-      ? "Denied"
-      : "Completed";
+        ? "Denied"
+        : "Completed";
   const itemValue = `tool-result-${toolCallId}`;
 
   return (
     <View className="mt-2">
       <Accordion
         hideSeparator
-        selectionMode="single"
-        value={isOpen ? itemValue : undefined}
         onValueChange={(nextValue: AccordionValue) => {
           const open = Array.isArray(nextValue)
             ? nextValue.includes(itemValue)
             : nextValue === itemValue;
           setIsOpen(open);
         }}
+        selectionMode="single"
+        value={isOpen ? itemValue : undefined}
         variant="surface"
       >
         <Accordion.Item value={itemValue}>

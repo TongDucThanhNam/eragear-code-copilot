@@ -1,31 +1,41 @@
-/**
- * useChat Hook (Native)
- *
- * Native-specific adapter for the shared chat core.
- * Preserves haptics integration and Zustand store integration.
- */
-
-import type { BroadcastEvent, UIMessage, UseChatOptions } from "@repo/shared";
+import type { BroadcastEvent, UseChatOptions } from "@repo/shared";
 import {
-  applySessionState,
-  findPendingPermission,
+  type ChatStatus,
+  isChatBusyStatus,
   parseBroadcastEventClientSafe,
-  parseUiMessageArrayStrict,
   processSessionEvent,
 } from "@repo/shared";
 import { NotificationFeedbackType, notificationAsync } from "expo-haptics";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { useShallow } from "zustand/react/shallow";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
+import { useChatHistorySync } from "@/hooks/use-chat-history-sync";
+import { useChatMessageStream } from "@/hooks/use-chat-message-stream";
+import {
+  deriveResumeSessionSyncPlan,
+  getChatFinishHistoryReloadDecision,
+  shouldFinalizeAfterReadyStatus,
+} from "@/hooks/use-chat-session-sync";
+import {
+  isLiveSubscriptionReady,
+  nextLifecycleOnChatIdChange,
+  nextLifecycleOnSubscriptionError,
+  nextLifecycleOnSubscriptionEvent,
+  nextLifecycleOnSubscriptionStart,
+  type StreamLifecycle,
+} from "@/hooks/use-chat-stream-machine";
+import {
+  hasObservedTurnCompletion,
+  rememberBlockedTurnId,
+  rememberCompletedTurnId,
+  resolveSessionEventTurnGuard,
+  shouldRollbackSendMessageFailure,
+} from "@/hooks/use-chat-turn-guards";
 import { useDeleteSession } from "@/hooks/use-delete-session";
 import { type Attachment, buildSendMessagePayload } from "@/lib/attachments";
 import { trpc } from "@/lib/trpc";
 import { useChatStore } from "@/store/chat-store";
-
-// ============================================================================
-// Types
-// ============================================================================
 
 type SendMessageInput =
   | string
@@ -42,16 +52,27 @@ interface ToolApprovalResponse {
   reason?: string;
 }
 
-const HISTORY_PAGE_LIMIT = 200;
+const LIVE_SUBSCRIPTION_TIMEOUT_MS = 4000;
+const LIVE_SUBSCRIPTION_POLL_MS = 50;
 
-// ============================================================================
-// Hook Implementation
-// ============================================================================
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readTrpcErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const candidate = error as {
+    data?: { code?: unknown } | null;
+    shape?: { data?: { code?: unknown } | null } | null;
+  };
+  const code = candidate.data?.code ?? candidate.shape?.data?.code;
+  return typeof code === "string" ? code : null;
+}
 
 export function useChat(options: UseChatOptions = {}) {
   const { onFinish, onError } = options;
-
-  // Select only what we need for the hook's internal logic (subscription key)
   const isConfigured = useAuthConfigured();
   const {
     activeChatId,
@@ -62,6 +83,8 @@ export function useChat(options: UseChatOptions = {}) {
     models,
     supportsModelSwitching,
     commands,
+    configOptions,
+    sessionInfo,
     promptCapabilities,
     agentInfo,
     loadSessionSupported,
@@ -79,6 +102,8 @@ export function useChat(options: UseChatOptions = {}) {
       models: state.models,
       supportsModelSwitching: state.supportsModelSwitching,
       commands: state.commands,
+      configOptions: state.configOptions,
+      sessionInfo: state.sessionInfo,
       promptCapabilities: state.promptCapabilities,
       agentInfo: state.agentInfo,
       loadSessionSupported: state.loadSessionSupported,
@@ -89,20 +114,34 @@ export function useChat(options: UseChatOptions = {}) {
     }))
   );
 
-  const utils = trpc.useUtils();
   const hapticTriggeredRef = useRef<Set<string>>(new Set());
   const onFinishRef = useRef(onFinish);
   const onErrorRef = useRef(onError);
   const isResumingRef = useRef(false);
   const resumePromiseRef = useRef<Promise<unknown> | null>(null);
-  const pendingMessagesRef = useRef<Map<string, UIMessage>>(new Map());
-  const messageFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
+  const activeChatIdRef = useRef<string | null>(activeChatId);
+  const connectedChatIdRef = useRef<string | null>(null);
+  const activeTurnIdRef = useRef<string | null>(null);
+  const blockedTurnIdsRef = useRef<Set<string>>(new Set());
+  const completedTurnIdsRef = useRef<Set<string>>(new Set());
+  const statusRef = useRef<ChatStatus>(status);
+  const connStatusRef = useRef(connStatus);
+  const [streamLifecycle, setStreamLifecycle] = useState<StreamLifecycle>(
+    nextLifecycleOnChatIdChange({
+      hasChatId: Boolean(activeChatId),
+      readOnly: activeChatIsReadOnly,
+    })
   );
+  const previousStreamLifecycleRef = useRef(streamLifecycle);
+  const streamLifecycleRef = useRef(streamLifecycle);
+  const [subscriptionEpoch, setSubscriptionEpoch] = useState(0);
+  const {
+    applyMessagesImmediate,
+    applyMessagePartUpdate,
+    getMessageByIdWithPending,
+    resetPendingMessages,
+  } = useChatMessageStream({ getMessageById });
 
-  const STREAM_FLUSH_MS = 80;
-
-  // Keep refs in sync
   useEffect(() => {
     onFinishRef.current = onFinish;
   }, [onFinish]);
@@ -111,23 +150,25 @@ export function useChat(options: UseChatOptions = {}) {
     onErrorRef.current = onError;
   }, [onError]);
 
-  useEffect(() => {
-    return () => {
-      if (messageFlushTimerRef.current) {
-        clearTimeout(messageFlushTimerRef.current);
-      }
-    };
-  }, []);
+  activeChatIdRef.current = activeChatId;
+  statusRef.current = status;
+  connStatusRef.current = connStatus;
+  streamLifecycleRef.current = streamLifecycle;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: activeChatId is intentional - reset haptics on chat change
   useEffect(() => {
     hapticTriggeredRef.current = new Set();
-    pendingMessagesRef.current.clear();
-    if (messageFlushTimerRef.current) {
-      clearTimeout(messageFlushTimerRef.current);
-      messageFlushTimerRef.current = null;
-    }
-  }, [activeChatId]);
+    resetPendingMessages();
+    activeTurnIdRef.current = null;
+    blockedTurnIdsRef.current = new Set();
+    completedTurnIdsRef.current = new Set();
+    connectedChatIdRef.current = null;
+    setStreamLifecycle(
+      nextLifecycleOnChatIdChange({
+        hasChatId: Boolean(activeChatId),
+        readOnly: activeChatIsReadOnly,
+      })
+    );
+  }, [activeChatId, activeChatIsReadOnly, resetPendingMessages]);
 
   const triggerStreamEndHaptic = useCallback((messageId?: string) => {
     if (Platform.OS === "web") {
@@ -144,263 +185,88 @@ export function useChat(options: UseChatOptions = {}) {
     }
   }, []);
 
-  // Mutations
   const stopSessionMutation = trpc.stopSession.useMutation();
   const resumeSessionMutation = trpc.resumeSession.useMutation();
   const sendMessageMutation = trpc.sendMessage.useMutation();
   const setModeMutation = trpc.setMode.useMutation();
   const setModelMutation = trpc.setModel.useMutation();
+  const setConfigOptionMutation = trpc.setConfigOption.useMutation();
   const cancelPromptMutation = trpc.cancelPrompt.useMutation();
   const respondToPermissionMutation =
     trpc.respondToPermissionRequest.useMutation();
   const { deleteSession: deleteSessionById } = useDeleteSession();
-
-  // Snapshot state (modes/models/commands) on connect or reconnect
-  const sessionStateQuery = trpc.getSessionState.useQuery(
-    { chatId: activeChatId || "" },
-    {
-      enabled:
-        isConfigured &&
-        !!activeChatId &&
-        !activeChatIsReadOnly &&
-        connStatus === "connecting" &&
-        !isResumingRef.current,
-      retry: false,
-      staleTime: 0,
-    }
-  );
-
-  const sessionMessagesQuery = trpc.getSessionMessagesPage.useQuery(
-    {
-      chatId: activeChatId || "",
-      direction: "backward",
-      limit: HISTORY_PAGE_LIMIT,
-      includeCompacted: true,
-    },
-    {
-      enabled:
-        isConfigured &&
-        !!activeChatId &&
-        !activeChatIsReadOnly &&
-        connStatus === "connecting" &&
-        !isResumingRef.current,
-      retry: false,
-      staleTime: 0,
-    }
-  );
-
-  const applyStateToStore = useCallback(
-    (data: NonNullable<typeof sessionStateQuery.data>) => {
-      const store = useChatStore.getState();
-
-      applySessionState(data, {
-        onStatusChange: store.setStatus,
-        onModesChange: store.setModes,
-        onModelsChange: store.setModels,
-        onSupportsModelSwitchingChange: store.setSupportsModelSwitching,
-        getCommands: () => useChatStore.getState().commands,
-        onCommandsChange: (cmds) => {
-          const normalized = cmds.map((cmd) => ({
-            name: cmd.name,
-            description: cmd.description,
-            input: cmd.input,
-          }));
-          store.setCommands(normalized);
-        },
-        onPromptCapabilitiesChange: store.setPromptCapabilities,
-        onLoadSessionSupportedChange: store.setLoadSessionSupported,
-        onAgentInfoChange: store.setAgentInfo,
-        onConnStatusChange: store.setConnStatus,
-      });
-    },
-    []
-  );
+  const { loadHistory, finalizeMessagesInStore, utils } = useChatHistorySync({
+    activeChatId,
+    activeChatIsReadOnly,
+    connStatus,
+    isConfigured,
+    isResumingRef,
+    onErrorRef,
+    streamLifecycle,
+    streamLifecycleRef,
+  });
 
   useEffect(() => {
-    const data = sessionStateQuery.data;
-    if (!data || connStatus !== "connecting") {
-      return;
+    const previous = previousStreamLifecycleRef.current;
+    if (previous === "recovering" && streamLifecycle === "live") {
+      loadHistory(true);
     }
+    previousStreamLifecycleRef.current = streamLifecycle;
+  }, [loadHistory, streamLifecycle]);
 
-    const store = useChatStore.getState();
-    const history = sessionMessagesQuery.data?.messages;
-    if (Array.isArray(history)) {
-      const parsedHistory = parseUiMessageArrayStrict(history);
-      if (parsedHistory.ok) {
-        store.setMessages(parsedHistory.value);
-        store.setPendingPermission(findPendingPermission(parsedHistory.value));
-      } else {
-        store.setError(parsedHistory.error);
-        onErrorRef.current?.(parsedHistory.error);
-      }
-    }
-
-    if (data.status === "stopped") {
-      if (data.loadSessionSupported !== undefined) {
-        store.setLoadSessionSupported(data.loadSessionSupported);
-      }
-      if (data.agentInfo !== undefined) {
-        store.setAgentInfo(data.agentInfo);
-      }
-      applyStateToStore(data);
-      return;
-    }
-
-    applyStateToStore(data);
-  }, [
-    sessionStateQuery.data,
-    sessionMessagesQuery.data,
-    connStatus,
-    applyStateToStore,
-  ]);
-
-  const syncPendingPermission = useCallback(() => {
-    const store = useChatStore.getState();
-    const nextPending = findPendingPermission(store.getMessagesForPermission());
-    store.setPendingPermission(nextPending);
-  }, []);
-
-  const flushMessages = useCallback(() => {
-    const pending = pendingMessagesRef.current;
-    if (pending.size === 0) {
-      return;
-    }
-    const messages = Array.from(pending.values());
-    useChatStore.getState().upsertMessages(messages);
-    pending.clear();
-    syncPendingPermission();
-  }, [syncPendingPermission]);
-
-  const applyMessagesImmediate = useCallback(
-    (message: UIMessage) => {
-      if (messageFlushTimerRef.current) {
-        clearTimeout(messageFlushTimerRef.current);
-        messageFlushTimerRef.current = null;
-      }
-      pendingMessagesRef.current.set(message.id, message);
-      flushMessages();
-    },
-    [flushMessages]
-  );
-
-  const scheduleMessagesUpdate = useCallback(
-    (message: UIMessage) => {
-      pendingMessagesRef.current.set(message.id, message);
-      if (messageFlushTimerRef.current) {
-        return;
-      }
-      messageFlushTimerRef.current = setTimeout(() => {
-        messageFlushTimerRef.current = null;
-        flushMessages();
-      }, STREAM_FLUSH_MS);
-    },
-    [flushMessages]
-  );
-
-  const applyMessagePartUpdate = useCallback(
-    (payload: {
-      messageId: string;
-      messageRole: UIMessage["role"];
-      partIndex: number;
-      part: UIMessage["parts"][number];
-      isNew: boolean;
-      createdAt?: number;
-    }) => {
-      // Check pending batch first — during batched streaming, the store
-      // may lag behind pendingMessagesRef. Reading pending ensures
-      // subsequent part updates build on the latest accumulated state.
-      const current =
-        pendingMessagesRef.current.get(payload.messageId) ??
-        useChatStore.getState().getMessageById(payload.messageId);
-      if (!current) {
-        if (!payload.isNew && payload.partIndex > 0) {
-          return;
-        }
-        // Use server-provided createdAt if available. Otherwise leave
-        // createdAt undefined — the message will sort at the end (per
-        // compareUiMessagesChronologically) and the full ui_message
-        // snapshot or chat_finish will supply the real timestamp later.
-        applyMessagesImmediate({
-          id: payload.messageId,
-          role: payload.messageRole,
-          parts: [payload.part],
-          ...(typeof payload.createdAt === "number"
-            ? { createdAt: payload.createdAt }
-            : {}),
-        });
-        return;
-      }
-
-      const nextParts = [...current.parts];
-      if (payload.isNew) {
-        if (payload.partIndex < 0) {
-          return;
-        }
-        if (payload.partIndex <= nextParts.length) {
-          if (payload.partIndex === nextParts.length) {
-            nextParts.push(payload.part);
-          } else {
-            nextParts.splice(payload.partIndex, 0, payload.part);
-          }
-        } else {
-          // Out-of-order: index beyond current length.
-          // Append to avoid data loss; ui_message snapshot corrects position.
-          nextParts.push(payload.part);
-        }
-      } else {
-        if (payload.partIndex < 0) {
-          return;
-        }
-        if (payload.partIndex < nextParts.length) {
-          nextParts[payload.partIndex] = payload.part;
-        } else {
-          // Out-of-order: part not yet at this index.
-          // Append to avoid data loss; ui_message snapshot corrects position.
-          nextParts.push(payload.part);
-        }
-      }
-
-      const updated: UIMessage = { ...current, parts: nextParts };
-
-      // Batch streaming part updates (text/reasoning streaming, tool input streaming)
-      const partState =
-        "state" in payload.part
-          ? (payload.part as { state?: string }).state
-          : undefined;
-      const isPartStreaming =
-        partState === "streaming" || partState === "input-streaming";
-
-      if (isPartStreaming) {
-        scheduleMessagesUpdate(updated);
-      } else {
-        applyMessagesImmediate(updated);
-      }
-    },
-    [applyMessagesImmediate, scheduleMessagesUpdate]
-  );
-
-  // Subscription Handler - uses shared core logic
   const handleSessionEvent = useCallback(
     (event: BroadcastEvent) => {
+      if (
+        event.type === "chat_finish" &&
+        hasObservedTurnCompletion(
+          completedTurnIdsRef.current,
+          event.turnId ?? null
+        )
+      ) {
+        return;
+      }
+      const turnGuard = resolveSessionEventTurnGuard({
+        activeTurnId: activeTurnIdRef.current,
+        blockedTurnIds: blockedTurnIdsRef.current,
+        event,
+        isResuming: isResumingRef.current,
+        status: statusRef.current,
+      });
+      if (turnGuard.ignore) {
+        return;
+      }
+      activeTurnIdRef.current = turnGuard.nextActiveTurnId;
+      setStreamLifecycle((prev) =>
+        nextLifecycleOnSubscriptionEvent({ current: prev, event })
+      );
+      if (event.type === "connected") {
+        connectedChatIdRef.current = activeChatIdRef.current;
+      } else if (event.type === "chat_status" && event.status !== "inactive") {
+        connectedChatIdRef.current = activeChatIdRef.current;
+      } else if (
+        !connectedChatIdRef.current &&
+        activeChatIdRef.current &&
+        (event.type === "ui_message" ||
+          event.type === "ui_message_part" ||
+          event.type === "ui_message_part_removed" ||
+          event.type === "chat_finish")
+      ) {
+        connectedChatIdRef.current = activeChatIdRef.current;
+      }
       const store = useChatStore.getState();
-      // ui_message snapshots from the server are the canonical source of
-      // truth. Pass them through directly — no local merge/override.
-      const normalizedEvent = event;
-      const currentModes = store.modes;
-      const currentModels = store.models;
-
       processSessionEvent(
-        normalizedEvent,
-        { currentModes, currentModels },
+        event,
+        {
+          currentModes: store.modes,
+          currentModels: store.models,
+          currentConfigOptions: store.configOptions,
+        },
         {
           onStatusChange: store.setStatus,
           onConnStatusChange: store.setConnStatus,
           onMessageUpsert: applyMessagesImmediate,
           onMessagePartUpdate: applyMessagePartUpdate,
-          // Part streaming batches through onMessagePartUpdate, so reads must
-          // still consult the pending batch before falling back to store state.
-          getMessageById: (id: string) =>
-            pendingMessagesRef.current.get(id) ?? getMessageById(id),
+          getMessageById: getMessageByIdWithPending,
           getCommands: () => useChatStore.getState().commands,
           onModesChange: store.setModes,
           onModelsChange: store.setModels,
@@ -412,44 +278,128 @@ export function useChat(options: UseChatOptions = {}) {
             }));
             store.setCommands(normalized);
           },
+          onConfigOptionsChange: store.setConfigOptions,
+          onSessionInfoChange: store.setSessionInfo,
           onTerminalOutput: store.appendTerminalOutput,
           onError: (err) => {
             store.setError(err);
             store.setStatus("error");
+            activeTurnIdRef.current = null;
             onErrorRef.current?.(err);
           },
           onFinish: (payload) => {
             onFinishRef.current?.(payload);
           },
           onStreamingChange: (wasStreaming, nowStreaming, message) => {
-            // Trigger haptic when streaming ends
             if (wasStreaming && !nowStreaming && message.role === "assistant") {
               triggerStreamEndHaptic(message.id);
             }
           },
         }
       );
+      if (
+        event.type === "chat_status" &&
+        shouldFinalizeAfterReadyStatus({
+          event,
+          completedTurnIds: completedTurnIdsRef.current,
+        })
+      ) {
+        finalizeMessagesInStore();
+      }
+      if (event.type === "chat_finish") {
+        rememberCompletedTurnId(
+          completedTurnIdsRef.current,
+          event.turnId ?? null
+        );
+        const finalizedMessages = finalizeMessagesInStore();
+        if (
+          getChatFinishHistoryReloadDecision({
+            event,
+            messages: finalizedMessages,
+          })
+        ) {
+          loadHistory(true);
+        }
+      } else if (event.type === "error") {
+        finalizeMessagesInStore();
+        activeTurnIdRef.current = null;
+      }
+      if (
+        event.type === "chat_status" &&
+        event.status === "inactive" &&
+        !isResumingRef.current
+      ) {
+        connectedChatIdRef.current = null;
+        activeTurnIdRef.current = null;
+        setStreamLifecycle("idle");
+        store.setConnStatus("idle");
+      }
     },
     [
       applyMessagePartUpdate,
       applyMessagesImmediate,
-      scheduleMessagesUpdate,
+      finalizeMessagesInStore,
+      getMessageByIdWithPending,
+      loadHistory,
       triggerStreamEndHaptic,
-      getMessageById,
     ]
   );
 
-  // Check if this chat has already failed (prevents infinite loop)
   const shouldSubscribe =
     !!activeChatId &&
     !activeChatIsReadOnly &&
     !isChatFailed(activeChatId) &&
-    connStatus === "connected" &&
     isConfigured;
 
-  // Subscription
+  useEffect(() => {
+    if (!shouldSubscribe) {
+      return;
+    }
+    setStreamLifecycle((prev) => nextLifecycleOnSubscriptionStart(prev));
+  }, [shouldSubscribe]);
+
+  const ensureLiveSubscription = useCallback(async () => {
+    const targetChatId = activeChatIdRef.current;
+    if (!targetChatId || activeChatIsReadOnly) {
+      return false;
+    }
+    if (
+      statusRef.current === "inactive" ||
+      streamLifecycleRef.current === "recovering" ||
+      connStatusRef.current === "error"
+    ) {
+      return false;
+    }
+    if (
+      isLiveSubscriptionReady({
+        activeChatId: targetChatId,
+        connectedChatId: connectedChatIdRef.current,
+        streamLifecycle: streamLifecycleRef.current,
+      })
+    ) {
+      return true;
+    }
+    const deadline = Date.now() + LIVE_SUBSCRIPTION_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await sleep(LIVE_SUBSCRIPTION_POLL_MS);
+      if (activeChatIdRef.current !== targetChatId || activeChatIsReadOnly) {
+        return false;
+      }
+      if (
+        isLiveSubscriptionReady({
+          activeChatId: targetChatId,
+          connectedChatId: connectedChatIdRef.current,
+          streamLifecycle: streamLifecycleRef.current,
+        })
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, [activeChatIsReadOnly]);
+
   trpc.onSessionEvents.useSubscription(
-    { chatId: activeChatId || "" },
+    { chatId: activeChatId || "", subscriptionEpoch },
     {
       enabled: shouldSubscribe,
       onData(data: unknown) {
@@ -467,7 +417,6 @@ export function useChat(options: UseChatOptions = {}) {
         handleSessionEvent(parsed.value);
       },
       onError(err) {
-        console.error("Subscription error:", err);
         const store = useChatStore.getState();
         const message =
           typeof err?.message === "string" ? err.message : "Subscription error";
@@ -485,8 +434,9 @@ export function useChat(options: UseChatOptions = {}) {
           return;
         }
 
-        store.setConnStatus("error");
-        store.setStatus("error");
+        setStreamLifecycle((prev) => nextLifecycleOnSubscriptionError(prev));
+        store.setConnStatus("connecting");
+        store.setStatus("connecting");
         store.setError(message);
         onErrorRef.current?.(message);
       },
@@ -514,6 +464,20 @@ export function useChat(options: UseChatOptions = {}) {
       throw new Error(message);
     }
 
+    if (activeTurnIdRef.current && !isChatBusyStatus(statusRef.current)) {
+      activeTurnIdRef.current = null;
+    }
+    const hasLiveSubscription = await ensureLiveSubscription();
+    if (!hasLiveSubscription) {
+      const message = "Realtime stream is not connected yet. Please retry.";
+      store.setError(message);
+      return false;
+    }
+    if (streamLifecycleRef.current === "idle") {
+      setStreamLifecycle("bootstrapping");
+      store.setConnStatus("connecting");
+    }
+    const previousStatus = statusRef.current;
     store.setStatus("submitted");
 
     try {
@@ -521,15 +485,31 @@ export function useChat(options: UseChatOptions = {}) {
         normalized.text,
         normalized.files ?? []
       );
-      await sendMessageMutation.mutateAsync({
+      const res = await sendMessageMutation.mutateAsync({
         chatId: activeChatId,
         ...payload,
       });
+      store.setError(null);
+      activeTurnIdRef.current = res.turnId ?? null;
+      if (res.turnId) {
+        blockedTurnIdsRef.current.delete(res.turnId);
+      }
       return true;
     } catch (e) {
       const err = e as Error;
+      if (!shouldRollbackSendMessageFailure(statusRef.current)) {
+        return true;
+      }
+      if (readTrpcErrorCode(e) === "CONFLICT") {
+        setStreamLifecycle((prev) =>
+          prev === "idle" ? "bootstrapping" : prev
+        );
+        if (connStatusRef.current === "idle") {
+          store.setConnStatus("connecting");
+        }
+      }
       store.setError(err.message);
-      store.setStatus("error");
+      store.setStatus(previousStatus);
       onErrorRef.current?.(err.message);
       return false;
     }
@@ -572,6 +552,31 @@ export function useChat(options: UseChatOptions = {}) {
       ) {
         store.setSupportsModelSwitching(false);
       }
+      store.setError(message);
+      onErrorRef.current?.(message);
+    }
+  };
+
+  const setConfigOption = async (configId: string, value: string) => {
+    if (!activeChatId) {
+      return;
+    }
+    const store = useChatStore.getState();
+    try {
+      const result = await setConfigOptionMutation.mutateAsync({
+        chatId: activeChatId,
+        configId,
+        value,
+      });
+      const nextConfigOptions = Array.isArray(result?.configOptions)
+        ? result.configOptions
+        : store.configOptions.map((option) =>
+            option.id === configId ? { ...option, currentValue: value } : option
+          );
+      store.setConfigOptions(nextConfigOptions);
+    } catch (e) {
+      const err = e as Error;
+      const message = err?.message || "Failed to set config option";
       store.setError(message);
       onErrorRef.current?.(message);
     }
@@ -625,6 +630,10 @@ export function useChat(options: UseChatOptions = {}) {
     }
     await stopSessionMutation.mutateAsync({ chatId: activeChatId });
     const store = useChatStore.getState();
+    rememberBlockedTurnId(blockedTurnIdsRef.current, activeTurnIdRef.current);
+    activeTurnIdRef.current = null;
+    connectedChatIdRef.current = null;
+    setStreamLifecycle("idle");
     store.setConnStatus("idle");
     store.setStatus("inactive");
   };
@@ -645,20 +654,36 @@ export function useChat(options: UseChatOptions = {}) {
     const store = useChatStore.getState();
     const resumeOperation = (async () => {
       isResumingRef.current = true;
+      activeTurnIdRef.current = null;
+      blockedTurnIdsRef.current = new Set();
+      completedTurnIdsRef.current = new Set();
+      connectedChatIdRef.current = null;
+      setStreamLifecycle("bootstrapping");
       store.setConnStatus("connecting");
       store.setStatus("connecting");
       await utils.getSessionState.cancel({ chatId });
       const res = await resumeSessionMutation.mutateAsync({ chatId });
+      const syncPlan = deriveResumeSessionSyncPlan(res);
+      setSubscriptionEpoch((current) => current + 1);
       await utils.getSessionState.invalidate({ chatId });
-      await utils.getSessionMessagesPage.invalidate({
-        chatId,
-        direction: "backward",
-        limit: HISTORY_PAGE_LIMIT,
-        includeCompacted: true,
-      });
+      if (syncPlan.modes !== undefined) {
+        store.setModes(syncPlan.modes ?? null);
+      }
+      if (syncPlan.models !== undefined) {
+        store.setModels(syncPlan.models ?? null);
+      }
+      if (syncPlan.supportsModelSwitching !== undefined) {
+        store.setSupportsModelSwitching(syncPlan.supportsModelSwitching);
+      }
       if (res?.promptCapabilities !== undefined) {
         store.setPromptCapabilities(res.promptCapabilities);
       }
+      store.setMessages([]);
+      store.setPendingPermission(null);
+      store.setConnStatus("connected");
+      store.setStatus("ready");
+      isResumingRef.current = false;
+      await loadHistory(true);
       return res;
     })();
 
@@ -669,12 +694,15 @@ export function useChat(options: UseChatOptions = {}) {
     } catch (e) {
       const err = e as Error;
       store.setError(err.message);
-      store.setConnStatus("error");
-      store.setStatus("error");
+      setStreamLifecycle((prev) => nextLifecycleOnSubscriptionError(prev));
+      store.setConnStatus("connecting");
+      store.setStatus("connecting");
       onErrorRef.current?.(err.message);
       throw e;
     } finally {
-      isResumingRef.current = false;
+      if (isResumingRef.current) {
+        isResumingRef.current = false;
+      }
       if (resumePromiseRef.current === resumeOperation) {
         resumePromiseRef.current = null;
       }
@@ -694,8 +722,8 @@ export function useChat(options: UseChatOptions = {}) {
 
   return {
     // State
-    id: activeChatId, // the active chat/session ID
-    status, //
+    id: activeChatId,
+    status,
     connStatus,
     pendingPermission,
     error,
@@ -705,6 +733,8 @@ export function useChat(options: UseChatOptions = {}) {
     models,
     supportsModelSwitching,
     commands,
+    configOptions,
+    sessionInfo,
     promptCapabilities,
     agentInfo,
     loadSessionSupported,
@@ -713,6 +743,7 @@ export function useChat(options: UseChatOptions = {}) {
     sendMessage: sendMessageWithInput,
     setMode,
     setModel,
+    setConfigOption,
     stop: cancelPrompt,
     respondToPermission,
     addToolApprovalResponse,

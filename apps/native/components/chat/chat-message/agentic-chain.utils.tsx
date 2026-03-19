@@ -1,8 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ToolUIPart, UIMessagePart } from "@repo/shared";
 import { Spinner } from "heroui-native";
-import { getActiveIndex, toToolViewState } from "./agentic-message-utils";
 import type { ChainSummary } from "./agentic-chain.types";
+import { getActiveIndex, toToolViewState } from "./agentic-message-utils";
 
 export const summarizeChainItems = (items: UIMessagePart[]): ChainSummary => {
   let toolCount = 0;
@@ -43,9 +43,7 @@ export const summarizeChainItems = (items: UIMessagePart[]): ChainSummary => {
   };
 };
 
-export const getToolTone = (
-  viewState: ReturnType<typeof toToolViewState>
-) => {
+export const getToolTone = (viewState: ReturnType<typeof toToolViewState>) => {
   switch (viewState) {
     case "error":
       return "text-danger";

@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import type { ToolUIPart } from "@repo/shared";
+import type { ReactNode } from "react";
 import { memo, useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
-import type { ToolUIPart } from "@repo/shared";
 import { ToolResultDisplay } from "./tool-result-display";
 
 interface ToolCallPartProps {
@@ -23,7 +23,10 @@ const statusMeta: Record<
 > = {
   "input-streaming": { label: "Preparing", className: "text-muted" },
   "input-available": { label: "Running", className: "text-warning" },
-  "approval-requested": { label: "Awaiting approval", className: "text-warning" },
+  "approval-requested": {
+    label: "Awaiting approval",
+    className: "text-warning",
+  },
   "approval-responded": { label: "Approved", className: "text-success" },
   "output-available": { label: "Completed", className: "text-success" },
   "output-error": { label: "Failed", className: "text-danger" },
@@ -119,17 +122,17 @@ function ToolCallPartComponent({
               name="construct-outline"
               size={14}
             />
-            <Text className="font-mono text-xs font-semibold text-foreground">
+            <Text className="font-mono font-semibold text-foreground text-xs">
               {title}
             </Text>
-            {!expanded ? (
+            {expanded ? null : (
               <Text
                 className="min-w-0 flex-1 text-[11px] text-muted-foreground"
                 numberOfLines={1}
               >
                 {previewText}
               </Text>
-            ) : null}
+            )}
           </View>
           <View className="flex-row items-center gap-2">
             <Text className={`text-[10px] ${status.className}`}>
@@ -146,20 +149,20 @@ function ToolCallPartComponent({
         </View>
       </Pressable>
       {expanded ? (
-        <View className="border-divider border-t gap-2 px-3 pt-2 pb-3">
+        <View className="gap-2 border-divider border-t px-3 pt-2 pb-3">
           {inputText ? (
             <View className="gap-1">
-              <Text className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <Text className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
                 Input
               </Text>
-              <Text className="font-mono text-xs text-muted" selectable>
+              <Text className="font-mono text-muted text-xs" selectable>
                 {inputText}
               </Text>
             </View>
           ) : null}
           {hasDetails ? (
             <View className="gap-1">
-              <Text className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <Text className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
                 Result
               </Text>
               {details ?? (

@@ -31,6 +31,8 @@ import { AiSessionRuntimeError } from "../ports/ai-session-runtime.port";
 
 /** Warn when prompt has been submitted but no ACP chunk arrived in time. */
 const ACP_STREAM_WATCHDOG_MS = 5000;
+const ACP_ASSISTANT_DRAIN_IDLE_MS = 150;
+const ACP_ASSISTANT_DRAIN_MAX_WAIT_MS = 1500;
 
 interface PromptTaskRunnerPolicy {
   acpRetryMaxAttempts: number;
@@ -316,6 +318,13 @@ export class PromptTaskRunner {
       return;
     }
 
+    await this.waitForAssistantDrain({
+      chatId,
+      aggregate,
+      session,
+      turnId,
+    });
+
     await this.finalizePromptSuccess({
       chatId,
       aggregate,
@@ -450,6 +459,81 @@ export class PromptTaskRunner {
       turnId,
       maxAttempts,
     });
+  }
+
+  private async waitForAssistantDrain(params: {
+    chatId: string;
+    aggregate: SessionRuntimeEntity;
+    session: ChatSession;
+    turnId: string;
+  }): Promise<void> {
+    const { chatId, aggregate, session, turnId } = params;
+    const startedAt = this.clock.nowMs();
+    let yieldedForTrailingEvents = false;
+
+    while (aggregate.isCurrentTurn(turnId)) {
+      const now = this.clock.nowMs();
+      const sameTurnActivityAt =
+        session.lastAssistantActivityTurnId === turnId
+          ? session.lastAssistantActivityAtMs
+          : undefined;
+      const hasBufferedAssistantState = Boolean(
+        session.buffer?.hasContent() ||
+          session.uiState.currentAssistantId ||
+          session.lastAssistantChunkType
+      );
+      const idleMs =
+        typeof sameTurnActivityAt === "number"
+          ? now - sameTurnActivityAt
+          : now - startedAt;
+      const waitedMs = now - startedAt;
+      const maxWaitElapsed = waitedMs >= ACP_ASSISTANT_DRAIN_MAX_WAIT_MS;
+
+      if (typeof sameTurnActivityAt === "number") {
+        if (idleMs >= ACP_ASSISTANT_DRAIN_IDLE_MS) {
+          this.logger.debug("SendMessageService assistant stream drained", {
+            chatId,
+            turnId,
+            waitedMs,
+            idleMs,
+            lastAssistantActivityAtMs: sameTurnActivityAt,
+          });
+          return;
+        }
+      } else if (hasBufferedAssistantState) {
+        return;
+      } else if (!hasBufferedAssistantState) {
+        if (!yieldedForTrailingEvents) {
+          yieldedForTrailingEvents = true;
+          await new Promise((resolve) => {
+            queueMicrotask(resolve);
+          });
+          continue;
+        }
+        return;
+      }
+
+      if (maxWaitElapsed) {
+        this.logger.warn("SendMessageService assistant drain timed out", {
+          chatId,
+          turnId,
+          waitedMs,
+          idleMs,
+          hasBufferedAssistantState,
+          lastAssistantActivityAtMs: sameTurnActivityAt ?? null,
+          lastAssistantActivityTurnId:
+            session.lastAssistantActivityTurnId ?? null,
+          currentAssistantMessageId: session.uiState.currentAssistantId ?? null,
+          bufferHasContent: session.buffer?.hasContent() ?? false,
+          lastAssistantChunkType: session.lastAssistantChunkType ?? null,
+        });
+        return;
+      }
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50);
+      });
+    }
   }
 
   private async handlePromptRequestFailure(params: {

@@ -22,6 +22,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { buildChatRoute } from "@/app/chats/session-access";
 import { AgentIcon } from "@/components/agents/agent-icons";
 import { AgentPicker } from "@/components/agents/agent-picker";
 import { Container } from "@/components/common/container";
@@ -29,7 +30,7 @@ import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { useCreateSession } from "@/hooks/use-create-session";
 import { useDeleteSession } from "@/hooks/use-delete-session";
 import { trpc } from "@/lib/trpc";
-import type { SessionInfo } from "@/store/chat-store";
+import type { StoredSessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
 import { useProjectStore } from "@/store/project-store";
 import type { Agent } from "@/store/settings-store";
@@ -43,7 +44,7 @@ interface DiscoveredSessionItem {
   updatedAt?: string | null;
 }
 
-type ListedSession = SessionInfo & {
+type ListedSession = StoredSessionInfo & {
   name?: string | null;
   pinned?: boolean;
   archived?: boolean;
@@ -94,7 +95,7 @@ function formatTimestamp(dateValue: string | number): string {
   return date.toLocaleDateString();
 }
 
-function getSessionAgentType(session: SessionInfo): string | null {
+function getSessionAgentType(session: StoredSessionInfo): string | null {
   return (
     session.agentInfo?.title ||
     session.agentInfo?.name ||
@@ -161,9 +162,9 @@ export default function SessionsScreen() {
   const [sessionNameDraft, setSessionNameDraft] = useState("");
   const [isDiscoverModalOpen, setIsDiscoverModalOpen] = useState(false);
   const [discoverAgentId, setDiscoverAgentId] = useState<string | null>(null);
-  const [discoverSessions, setDiscoverSessions] = useState<DiscoveredSessionItem[]>(
-    []
-  );
+  const [discoverSessions, setDiscoverSessions] = useState<
+    DiscoveredSessionItem[]
+  >([]);
   const [discoverNextCursor, setDiscoverNextCursor] = useState<string | null>(
     null
   );
@@ -314,14 +315,13 @@ export default function SessionsScreen() {
   };
 
   const handleOpenSession = (chatId: string, isActive?: boolean) => {
-    const readOnly = !isActive;
+    const readOnly = isActive !== true;
     setActiveChatId(chatId, readOnly);
-    // Pass isActive as query param so chat screen knows if it's read-only
-    router.push(`/chats/${chatId}?readonly=${readOnly}`);
+    router.push(buildChatRoute(chatId, isActive));
   };
 
   const handleDeleteSession = (chatId: string) => {
-    void deleteSession(chatId);
+    deleteSession(chatId);
   };
 
   const resetDiscoverState = () => {
@@ -367,7 +367,9 @@ export default function SessionsScreen() {
         if (!params.append) {
           return result.sessions;
         }
-        const merged = new Map(prev.map((session) => [session.sessionId, session]));
+        const merged = new Map(
+          prev.map((session) => [session.sessionId, session])
+        );
         for (const session of result.sessions) {
           merged.set(session.sessionId, session);
         }
@@ -403,7 +405,7 @@ export default function SessionsScreen() {
     resetDiscoverState();
     setDiscoverAgentId(initialAgentId);
     setIsDiscoverModalOpen(true);
-    void runDiscoverSessions({
+    runDiscoverSessions({
       agentId: initialAgentId,
       append: false,
     });
@@ -412,7 +414,7 @@ export default function SessionsScreen() {
   const handleSelectDiscoverAgent = (agentId: string) => {
     setDiscoverAgentId(agentId);
     resetDiscoverState();
-    void runDiscoverSessions({
+    runDiscoverSessions({
       agentId,
       append: false,
     });
@@ -420,14 +422,13 @@ export default function SessionsScreen() {
 
   const handleLoadMoreDiscoveredSessions = () => {
     if (
-      !discoverAgentId ||
-      !discoverNextCursor ||
+      !(discoverAgentId && discoverNextCursor) ||
       discoverIsLoading ||
       discoverIsLoadingMore
     ) {
       return;
     }
-    void runDiscoverSessions({
+    runDiscoverSessions({
       agentId: discoverAgentId,
       cursor: discoverNextCursor,
       append: true,
@@ -435,7 +436,7 @@ export default function SessionsScreen() {
   };
 
   const handleLoadDiscoveredSession = async (sessionId: string) => {
-    if (!activeProject || !discoverAgentId || isCreating) {
+    if (!(activeProject && discoverAgentId) || isCreating) {
       return;
     }
 
@@ -833,7 +834,7 @@ export default function SessionsScreen() {
           </Tabs.List>
         </Tabs>
 
-        <View className="mb-3 mt-2 flex-row justify-end">
+        <View className="mt-2 mb-3 flex-row justify-end">
           <Button
             isDisabled={isCreating || !activeProject || agents.length === 0}
             onPress={handleOpenDiscoverModal}
@@ -1087,7 +1088,7 @@ export default function SessionsScreen() {
             {discoverIsLoading ? (
               <View className="mb-3 flex-row items-center">
                 <Spinner size="sm" />
-                <Text className="ml-2 text-zinc-300 text-xs">
+                <Text className="ml-2 text-xs text-zinc-300">
                   Discovering sessions...
                 </Text>
               </View>
@@ -1099,7 +1100,7 @@ export default function SessionsScreen() {
               </View>
             ) : null}
 
-            {!discoverIsLoading && !discoverError && discoverRequiresAuth ? (
+            {!(discoverIsLoading || discoverError) && discoverRequiresAuth ? (
               <View className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
                 <Text className="text-amber-300 text-xs">
                   Agent requires authentication before session discovery.
@@ -1107,19 +1108,18 @@ export default function SessionsScreen() {
               </View>
             ) : null}
 
-            {!discoverIsLoading &&
-            !discoverError &&
-            !discoverRequiresAuth &&
-            !discoverSupported ? (
+            {discoverIsLoading ||
+            discoverError ||
+            discoverRequiresAuth ||
+            discoverSupported ? null : (
               <View className="mb-3 rounded-md border border-zinc-600 bg-zinc-800/60 px-3 py-2">
                 <Text className="text-xs text-zinc-300">
                   This agent does not advertise `session/list`.
                 </Text>
               </View>
-            ) : null}
+            )}
 
-            {!discoverIsLoading &&
-            !discoverError &&
+            {!(discoverIsLoading || discoverError) &&
             discoverSupported &&
             !discoverRequiresAuth &&
             discoverSessions.length === 0 ? (
@@ -1130,8 +1130,7 @@ export default function SessionsScreen() {
               </View>
             ) : null}
 
-            {!discoverIsLoading &&
-            !discoverError &&
+            {!(discoverIsLoading || discoverError) &&
             discoverSupported &&
             !discoverRequiresAuth &&
             discoverSessions.length > 0 ? (
@@ -1169,9 +1168,11 @@ export default function SessionsScreen() {
                       ) : null}
                       <View className="mt-3">
                         <Button
-                          isDisabled={isCreating || !discoverLoadSessionSupported}
+                          isDisabled={
+                            isCreating || !discoverLoadSessionSupported
+                          }
                           onPress={() =>
-                            void handleLoadDiscoveredSession(session.sessionId)
+                            handleLoadDiscoveredSession(session.sessionId)
                           }
                         >
                           <Button.Label>
@@ -1202,7 +1203,7 @@ export default function SessionsScreen() {
                   if (!discoverAgentId) {
                     return;
                   }
-                  void runDiscoverSessions({
+                  runDiscoverSessions({
                     agentId: discoverAgentId,
                     append: false,
                   });

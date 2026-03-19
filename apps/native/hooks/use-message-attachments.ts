@@ -1,8 +1,8 @@
-import { useCallback, useState } from "react";
-import { useToast } from "heroui-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
+import { useToast } from "heroui-native";
+import { useCallback, useState } from "react";
 import {
   type Attachment,
   createAttachmentId,
@@ -44,7 +44,9 @@ export function useMessageAttachments(options: {
         const merged = [...current, ...next.slice(0, remaining)];
         const totalBytes = merged.reduce((sum, item) => sum + item.size, 0);
         if (totalBytes > MAX_TOTAL_BYTES) {
-          toast.show(`Total attachments exceed ${formatBytes(MAX_TOTAL_BYTES)}.`);
+          toast.show(
+            `Total attachments exceed ${formatBytes(MAX_TOTAL_BYTES)}.`
+          );
           return current;
         }
         return merged;
@@ -102,11 +104,10 @@ export function useMessageAttachments(options: {
 
       const next: Attachment[] = [];
       for (const asset of result.assets ?? []) {
-        if (!asset.base64 || !asset.mimeType) {
+        if (!(asset.base64 && asset.mimeType)) {
           continue;
         }
-        const size =
-          asset.fileSize ?? estimateBase64Bytes(asset.base64 ?? "");
+        const size = asset.fileSize ?? estimateBase64Bytes(asset.base64 ?? "");
         if (size > MAX_IMAGE_BYTES) {
           toast.show(`Image is too large (${formatBytes(size)}).`);
           continue;
@@ -167,8 +168,7 @@ export function useMessageAttachments(options: {
           kind: "audio",
           uri: asset.uri,
           name: asset.name ?? "audio",
-          mimeType:
-            asset.mimeType ?? guessMimeType(asset.name) ?? "audio/mpeg",
+          mimeType: asset.mimeType ?? guessMimeType(asset.name) ?? "audio/mpeg",
           base64,
           size: resolvedSize,
         });
@@ -178,7 +178,13 @@ export function useMessageAttachments(options: {
       console.error("Failed to pick audio", error);
       toast.show("Failed to attach audio.");
     }
-  }, [addAttachments, attachments.length, canAttachAudio, readFileAsBase64, toast]);
+  }, [
+    addAttachments,
+    attachments.length,
+    canAttachAudio,
+    readFileAsBase64,
+    toast,
+  ]);
 
   const pickResource = useCallback(async () => {
     try {

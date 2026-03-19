@@ -10,8 +10,8 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  clearStoredBetterAuthSession,
   type BetterAuthClient,
+  clearStoredBetterAuthSession,
 } from "@/lib/auth-client";
 import { getHttpUrl, getWsUrl } from "@/lib/env";
 import { trpc } from "@/lib/trpc";
@@ -153,7 +153,7 @@ export function TRPCProvider({ children, authClient }: TRPCProviderProps) {
       if (!isUnauthorizedError(error)) {
         return;
       }
-      void forceSessionReset("Session expired. Please sign in again.");
+      forceSessionReset("Session expired. Please sign in again.");
     };
 
     return new QueryClient({
@@ -229,13 +229,13 @@ export function TRPCProvider({ children, authClient }: TRPCProviderProps) {
       return;
     }
     healthCheckDoneRef.current = true;
-    void performHealthCheck();
+    performHealthCheck();
   }, [performHealthCheck]);
 
   useEffect(() => {
     return () => {
       console.log("[TRPCProvider] Closing WebSocket connection");
-      void wsClient.close();
+      wsClient.close();
     };
   }, [wsClient]);
 

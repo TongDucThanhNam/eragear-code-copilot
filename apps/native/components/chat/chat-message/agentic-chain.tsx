@@ -1,12 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Spinner } from "heroui-native";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { Spinner } from "heroui-native";
-import { deduplicateKeys } from "./utils";
-import { ChainStep } from "./chain-step";
-import { ChainContent } from "./chain-content";
-import { summarizeChainItems } from "./agentic-chain.utils";
 import type { ChainOfThoughtProps } from "./agentic-chain.types";
+import { summarizeChainItems } from "./agentic-chain.utils";
+import { ChainContent } from "./chain-content";
+import { ChainStep } from "./chain-step";
+import { deduplicateKeys } from "./utils";
 
 export function ChainOfThought({
   items,
@@ -23,16 +23,14 @@ export function ChainOfThought({
 
   useEffect(() => {
     setExpandedKey(activeKey ?? null);
-  }, [activeKey, messageId]);
+  }, [activeKey]);
 
   if (items.length === 0) {
     return null;
   }
 
   return (
-    <View
-      className="w-full rounded-xl border border-divider bg-surface-foreground/5"
-    >
+    <View className="w-full rounded-xl border border-divider bg-surface-foreground/5">
       <Pressable
         className="min-h-10 flex-row items-center justify-between px-3 py-2"
         onPress={() => setIsOpen((current) => !current)}

@@ -4,7 +4,9 @@ export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 export const MAX_RESOURCE_BYTES = 2 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 15 * 1024 * 1024;
 
-export type ImageAttachment = {
+const BASE64PaddingRegex = /=+$/u;
+
+export interface ImageAttachment {
   id: string;
   kind: "image";
   uri: string;
@@ -12,9 +14,9 @@ export type ImageAttachment = {
   mimeType: string;
   base64: string;
   size: number;
-};
+}
 
-export type AudioAttachment = {
+export interface AudioAttachment {
   id: string;
   kind: "audio";
   uri: string;
@@ -22,9 +24,9 @@ export type AudioAttachment = {
   mimeType: string;
   base64: string;
   size: number;
-};
+}
 
-export type ResourceAttachment = {
+export interface ResourceAttachment {
   id: string;
   kind: "resource";
   uri: string;
@@ -33,11 +35,11 @@ export type ResourceAttachment = {
   text?: string;
   blob?: string;
   size: number;
-};
+}
 
 export type Attachment = ImageAttachment | AudioAttachment | ResourceAttachment;
 
-export type SendMessageInput = {
+export interface SendMessageInput {
   text: string;
   textAnnotations?: Record<string, unknown>;
   images?: Array<{
@@ -67,7 +69,7 @@ export type SendMessageInput = {
     size?: number;
     annotations?: Record<string, unknown>;
   }>;
-};
+}
 
 const TEXT_MIME_TYPES = new Set([
   "application/json",
@@ -104,7 +106,9 @@ export function createAttachmentId(): string {
   return `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function guessMimeType(filename: string | undefined): string | undefined {
+export function guessMimeType(
+  filename: string | undefined
+): string | undefined {
   if (!filename) {
     return undefined;
   }
@@ -112,7 +116,7 @@ export function guessMimeType(filename: string | undefined): string | undefined 
   if (parts.length < 2) {
     return undefined;
   }
-  const ext = parts[parts.length - 1]?.toLowerCase() ?? "";
+  const ext = parts.at(-1)?.toLowerCase() ?? "";
   return EXTENSION_MIME_MAP[ext];
 }
 
@@ -133,7 +137,7 @@ export function isTextMimeType(
 }
 
 export function estimateBase64Bytes(base64: string): number {
-  const trimmed = base64.replace(/=+$/u, "");
+  const trimmed = base64.replace(BASE64PaddingRegex, "");
   return Math.floor((trimmed.length * 3) / 4);
 }
 

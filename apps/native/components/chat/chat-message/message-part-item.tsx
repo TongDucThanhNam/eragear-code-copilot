@@ -1,5 +1,5 @@
-import { useState } from "react";
 import type { UIMessagePart } from "@repo/shared";
+import { useState } from "react";
 import { PartRenderers } from "./part-renderers";
 import { getPartKey } from "./utils";
 

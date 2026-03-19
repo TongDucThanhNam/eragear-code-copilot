@@ -108,6 +108,11 @@ function createSession(): ChatSession {
 function createGateway(params: {
   session: ChatSession;
   setSessionMode: (session: ChatSession, modeId: string) => Promise<void>;
+  setSessionConfigOption?: (
+    session: ChatSession,
+    configId: string,
+    value: string
+  ) => Promise<NonNullable<ChatSession["configOptions"]>>;
 }): AiSessionRuntimePort {
   const aggregate = new SessionRuntimeEntity(params.session);
   return {
@@ -118,7 +123,8 @@ function createGateway(params: {
     cancelPrompt: async () => undefined,
     setSessionMode: params.setSessionMode,
     setSessionModel: async () => undefined,
-    setSessionConfigOption: async () => [],
+    setSessionConfigOption:
+      params.setSessionConfigOption ?? (async () => []),
     stopAndCleanup: async () => undefined,
     clearPendingPermissionsAsCancelled: () => undefined,
   };
@@ -225,7 +231,10 @@ describe("SetModeService", () => {
         category: "mode",
         type: "select",
         currentValue: "code",
-        options: [{ value: "code", name: "Code" }],
+        options: [
+          { value: "code", name: "Code" },
+          { value: "architect", name: "Architect" },
+        ],
       },
     ] as ChatSession["configOptions"];
     const sessionRuntime = createSessionRuntimeStub();
@@ -253,5 +262,70 @@ describe("SetModeService", () => {
         },
       },
     ]);
+  });
+
+  test("uses session config options as the canonical mode mutation path", async () => {
+    const session = createSession();
+    session.modes = undefined;
+    session.configOptions = [
+      {
+        id: "approvalMode",
+        name: "Approval Mode",
+        category: "mode",
+        type: "select",
+        currentValue: "code",
+        options: [
+          { value: "code", name: "Code" },
+          { value: "architect", name: "Architect" },
+        ],
+      },
+    ] as ChatSession["configOptions"];
+    const sessionRuntime = createSessionRuntimeStub();
+    const legacyCalls: string[] = [];
+    const configCalls: Array<{ configId: string; value: string }> = [];
+
+    const service = new SetModeService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionMode: async (_session, modeId) => {
+          legacyCalls.push(modeId);
+        },
+        setSessionConfigOption: async (_session, configId, value) => {
+          configCalls.push({ configId, value });
+          return [
+            {
+              id: "approvalMode",
+              name: "Approval Mode",
+              category: "mode",
+              type: "select",
+              currentValue: value,
+              options: [
+                { value: "code", name: "Code" },
+                { value: "architect", name: "Architect" },
+              ],
+            },
+          ] as NonNullable<ChatSession["configOptions"]>;
+        },
+      })
+    );
+
+    await service.execute("user-1", "chat-1", "architect");
+
+    expect(legacyCalls).toEqual([]);
+    expect(configCalls).toEqual([
+      {
+        configId: "approvalMode",
+        value: "architect",
+      },
+    ]);
+    expect(session.configOptions?.[0]?.currentValue).toBe("architect");
+    expect(session.modes!).toEqual({
+      currentModeId: "architect",
+      availableModes: [
+        { id: "code", name: "Code", description: undefined },
+        { id: "architect", name: "Architect", description: undefined },
+      ],
+    });
   });
 });

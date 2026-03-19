@@ -69,7 +69,7 @@ export function ChatInput({
 
   return (
     <View
-      className="bg-background px-4 pb-4 pt-2 dark:bg-black"
+      className="bg-background px-4 pt-2 pb-4 dark:bg-black"
       onLayout={handleLayout}
     >
       <View className="flex-row items-end gap-2">
@@ -80,7 +80,7 @@ export function ChatInput({
           onSlashCommand={handleSlashCommand}
         />
 
-        <View className="min-h-12 flex-1 rounded-[26px] bg-default px-2 pb-2 pt-2">
+        <View className="min-h-12 flex-1 rounded-[26px] bg-default px-2 pt-2 pb-2">
           <AttachmentList
             attachments={attachments}
             onRemove={onRemoveAttachment}
@@ -107,9 +107,7 @@ export function ChatInput({
                 <Button.Label>
                   <Ionicons
                     color={
-                      canStop
-                        ? defaultForegroundColor
-                        : accentForegroundColor
+                      canStop ? defaultForegroundColor : accentForegroundColor
                     }
                     name={canStop ? "stop" : "arrow-up"}
                     size={18}

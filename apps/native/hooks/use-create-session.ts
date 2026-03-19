@@ -1,5 +1,5 @@
-import { useCallback } from "react";
 import type { AgentInfo, ChatStatus } from "@repo/shared";
+import { useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import type {
   PromptCapabilities,
@@ -82,7 +82,9 @@ export function useCreateSession(): UseCreateSessionReturn {
           chatId: data.chatId,
         });
         if (sessionState?.supportsModelSwitching !== undefined) {
-          setSupportsModelSwitching(Boolean(sessionState.supportsModelSwitching));
+          setSupportsModelSwitching(
+            Boolean(sessionState.supportsModelSwitching)
+          );
         }
       } catch (err) {
         console.warn("Failed to fetch session state", err);
@@ -139,13 +141,6 @@ export function useCreateSession(): UseCreateSessionReturn {
       setActiveAgentMutation,
       setConnStatus,
       createSessionMutation,
-      setActiveChatId,
-      setModes,
-      setModels,
-      setPromptCapabilities,
-      setSupportsModelSwitching,
-      setAgentInfo,
-      setLoadSessionSupported,
       setStatus,
       setError,
       applySessionBootstrapState,

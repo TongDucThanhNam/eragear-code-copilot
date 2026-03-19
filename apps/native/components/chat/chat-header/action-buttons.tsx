@@ -45,7 +45,7 @@ export function ActionButtons({
       className="ml-2 rounded-full border border-danger/40 bg-danger/15 px-3.5 py-1.5"
       onPress={onStop}
     >
-      <Text className="text-xs text-danger">Stop</Text>
+      <Text className="text-danger text-xs">Stop</Text>
     </TouchableOpacity>
   );
 }

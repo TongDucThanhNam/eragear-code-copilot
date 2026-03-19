@@ -68,6 +68,7 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   );
   const modesRef = useRef<SessionModeState | null>(null);
   const modelsRef = useRef<SessionModelState | null>(null);
+  const configOptionsRef = useRef<SessionConfigOption[]>([]);
   const commandsRef = useRef<AvailableCommand[]>(commands);
   const isResumingRef = useRef(false);
   const activeTurnIdRef = useRef<string | null>(null);
@@ -87,6 +88,7 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   activeChatIdRef.current = chatId ?? null;
   modesRef.current = modes;
   modelsRef.current = models;
+  configOptionsRef.current = configOptions;
   commandsRef.current = commands;
 
   const messages = getChatMessageStateSnapshot(chatId ?? null).orderedMessages;
@@ -188,6 +190,7 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
     messageStateRef,
     modesRef,
     modelsRef,
+    configOptionsRef,
     commandsRef,
     isResumingRef,
     activeTurnIdRef,

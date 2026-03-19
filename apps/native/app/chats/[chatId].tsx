@@ -1,12 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Button, Surface, useThemeColor } from "heroui-native";
 import { isChatBusyStatus, type UIMessage } from "@repo/shared";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Button, Surface, useThemeColor } from "heroui-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
+import {
+  canResumeInactiveSession,
+  resolveChatReadOnly,
+} from "@/app/chats/session-access";
 import { ChatHeader } from "@/components/chat/chat-header/chat-header";
 import { AttachmentModal } from "@/components/chat/chat-input/attachment-modal";
 import { ChatInput } from "@/components/chat/chat-input/chat-input";
@@ -16,19 +20,19 @@ import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { useChat } from "@/hooks/use-chat";
 import { useMessageAttachments } from "@/hooks/use-message-attachments";
 import { trpc } from "@/lib/trpc";
-import type { ConnectionStatus, SessionInfo } from "@/store/chat-store";
+import type { ConnectionStatus, StoredSessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
 
 const HISTORY_PAGE_LIMIT = 200;
 
 type ResumeValidationResult =
-  | { valid: true; session: SessionInfo }
+  | { valid: true; session: StoredSessionInfo }
   | { valid: false; message: string };
 
 function validateResumeSession(
   chatId: string | undefined,
   connStatus: ConnectionStatus,
-  session: SessionInfo | undefined
+  session: StoredSessionInfo | undefined
 ): ResumeValidationResult {
   if (!chatId || connStatus === "connecting") {
     return { valid: false, message: "" };
@@ -50,7 +54,7 @@ function validateResumeSession(
 }
 
 function computeChatTitle(
-  session: SessionInfo | undefined,
+  session: StoredSessionInfo | undefined,
   isReadOnly: boolean,
   canResume: boolean
 ): string {
@@ -77,7 +81,7 @@ function getProjectLabel(projectRoot: string | undefined): string | null {
 }
 
 function computeChatSubtitle(
-  session: SessionInfo | undefined,
+  session: StoredSessionInfo | undefined,
   isReadOnly: boolean,
   canResume: boolean
 ): string | undefined {
@@ -100,7 +104,10 @@ export default function ChatScreen() {
   const chatId = Array.isArray(params.chatId)
     ? params.chatId[0]
     : params.chatId;
-  const isReadOnlyParam = params.readonly === "true";
+  const readOnlyParam = Array.isArray(params.readonly)
+    ? params.readonly[0]
+    : params.readonly;
+  const isReadOnlyParam = readOnlyParam === "true";
 
   // Guard: redirect chatId="new" to / (Sessions screen)
   useEffect(() => {
@@ -165,6 +172,8 @@ export default function ChatScreen() {
   const [forceActive, setForceActive] = useState(false);
   const [isResumePending, setIsResumePending] = useState(false);
   const appliedHistoryRef = useRef<string | null>(null);
+  const currentSession = sessions.find((session) => session.id === chatId);
+  const hasLiveSession = currentSession?.isActive === true;
   const {
     attachments,
     canAttachAudio,
@@ -179,7 +188,11 @@ export default function ChatScreen() {
     removeAttachment,
     resetAttachments,
   } = useMessageAttachments({ promptCapabilities });
-  const isReadOnly = isReadOnlyParam && !forceActive;
+  const isReadOnly = resolveChatReadOnly({
+    forceActive,
+    isReadOnlyParam,
+    sessionIsActive: currentSession?.isActive,
+  });
   const isConfigured = useAuthConfigured();
   useEffect(() => {
     setForceActive(false);
@@ -187,7 +200,7 @@ export default function ChatScreen() {
 
   useEffect(() => {
     resetAttachments();
-  }, [chatId, resetAttachments]);
+  }, [resetAttachments]);
 
   // Query for historical messages (read-only mode)
   const messagesQuery = trpc.getSessionMessagesPage.useQuery(
@@ -240,7 +253,7 @@ export default function ChatScreen() {
 
     const history = messagesQuery.data.messages as UIMessage[];
     const firstId = history[0]?.id ?? "none";
-    const lastId = history[history.length - 1]?.id ?? "none";
+    const lastId = history.at(-1)?.id ?? "none";
     const signature = `${chatId}:${history.length}:${firstId}:${lastId}`;
 
     if (appliedHistoryRef.current === signature) {
@@ -284,9 +297,10 @@ export default function ChatScreen() {
     isReadOnly,
   ]);
 
-  const currentSession = sessions.find((s) => s.id === chatId);
-
-  const canResumeChat = currentSession?.loadSessionSupported === true;
+  const canResumeChat = canResumeInactiveSession({
+    sessionIsActive: hasLiveSession,
+    loadSessionSupported: currentSession?.loadSessionSupported,
+  });
   const isSessionStopped =
     isReadOnly ||
     connStatus === "idle" ||
@@ -341,7 +355,11 @@ export default function ChatScreen() {
       <View className="flex-1 items-center justify-center bg-background px-6 dark:bg-black">
         <Surface className="w-full max-w-sm rounded-[28px] border border-divider/70 px-6 py-7">
           <View className="mb-4 h-14 w-14 items-center justify-center rounded-full bg-accent/10">
-            <Ionicons color={accentColor} name="chatbubbles-outline" size={28} />
+            <Ionicons
+              color={accentColor}
+              name="chatbubbles-outline"
+              size={28}
+            />
           </View>
           <Text className="font-semibold text-foreground text-xl">
             No chat selected
@@ -440,7 +458,7 @@ export default function ChatScreen() {
         {showLoading ? (
           <View className="flex-1 items-center justify-center px-6">
             <ActivityIndicator color={accentColor} size="large" />
-            <Text className="mt-4 font-medium text-foreground text-base">
+            <Text className="mt-4 font-medium text-base text-foreground">
               {isReadOnly ? "Loading history" : "Restoring session"}
             </Text>
             <Text className="mt-1 text-center text-muted-foreground text-sm">

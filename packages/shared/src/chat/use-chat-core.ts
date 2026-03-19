@@ -10,6 +10,10 @@ import {
   finalizeToolPartAsPreliminaryOutput,
   type UIMessage,
 } from "../ui-message";
+import {
+  resolveSessionSelectionState,
+  updateSessionConfigOptionCurrentValue,
+} from "./session-config-options";
 import type {
   AgentInfo,
   AvailableCommand,
@@ -522,6 +526,7 @@ export interface EventProcessingCallbacks {
 export interface EventProcessingContext {
   currentModes: SessionModeState | null;
   currentModels: SessionModelState | null;
+  currentConfigOptions?: SessionConfigOption[] | null;
 }
 
 function materializeMessages(messages: Iterable<UIMessage>): UIMessage[] {
@@ -793,6 +798,19 @@ export function processSessionEvent(
 
     case "config_options_update":
       callbacks.onConfigOptionsChange?.(event.configOptions || []);
+      {
+        const nextSelection = resolveSessionSelectionState({
+          configOptions: event.configOptions || [],
+          modes: context.currentModes,
+          models: context.currentModels,
+        });
+        if (nextSelection.modes !== context.currentModes) {
+          callbacks.onModesChange?.(nextSelection.modes);
+        }
+        if (nextSelection.models !== context.currentModels) {
+          callbacks.onModelsChange?.(nextSelection.models);
+        }
+      }
       return;
 
     case "session_info_update":
@@ -800,29 +818,57 @@ export function processSessionEvent(
       return;
 
     case "current_mode_update": {
-      const nextModes = context.currentModes
-        ? {
-            ...context.currentModes,
-            currentModeId: event.modeId,
-          }
-        : {
-            currentModeId: event.modeId,
-            availableModes: [],
-          };
+      const nextConfigOptions = updateSessionConfigOptionCurrentValue({
+        configOptions: context.currentConfigOptions,
+        target: "mode",
+        value: event.modeId,
+      });
+      if (nextConfigOptions !== context.currentConfigOptions && nextConfigOptions) {
+        callbacks.onConfigOptionsChange?.(nextConfigOptions);
+      }
+      const nextModes =
+        resolveSessionSelectionState({
+          configOptions: nextConfigOptions,
+          modes:
+            context.currentModes
+              ? {
+                  ...context.currentModes,
+                  currentModeId: event.modeId,
+                }
+              : {
+                  currentModeId: event.modeId,
+                  availableModes: [],
+                },
+          models: context.currentModels,
+        }).modes ?? null;
       callbacks.onModesChange?.(nextModes);
       return;
     }
 
     case "current_model_update": {
-      const nextModels = context.currentModels
-        ? {
-            ...context.currentModels,
-            currentModelId: event.modelId,
-          }
-        : {
-            currentModelId: event.modelId,
-            availableModels: [],
-          };
+      const nextConfigOptions = updateSessionConfigOptionCurrentValue({
+        configOptions: context.currentConfigOptions,
+        target: "model",
+        value: event.modelId,
+      });
+      if (nextConfigOptions !== context.currentConfigOptions && nextConfigOptions) {
+        callbacks.onConfigOptionsChange?.(nextConfigOptions);
+      }
+      const nextModels =
+        resolveSessionSelectionState({
+          configOptions: nextConfigOptions,
+          modes: context.currentModes,
+          models:
+            context.currentModels
+              ? {
+                  ...context.currentModels,
+                  currentModelId: event.modelId,
+                }
+              : {
+                  currentModelId: event.modelId,
+                  availableModels: [],
+                },
+        }).models ?? null;
       callbacks.onModelsChange?.(nextModels);
       return;
     }
@@ -907,10 +953,19 @@ export function applySessionState(
     callbacks.onStatusChange?.("ready");
   }
 
-  if (data.modes) {
+  const nextSelection = resolveSessionSelectionState({
+    configOptions: data.configOptions,
+    modes: data.modes ?? null,
+    models: data.models ?? null,
+  });
+  if (nextSelection.modes) {
+    callbacks.onModesChange?.(nextSelection.modes);
+  } else if (data.modes) {
     callbacks.onModesChange?.(data.modes);
   }
-  if (data.models) {
+  if (nextSelection.models) {
+    callbacks.onModelsChange?.(nextSelection.models);
+  } else if (data.models) {
     callbacks.onModelsChange?.(data.models);
   }
   if (data.supportsModelSwitching !== undefined) {

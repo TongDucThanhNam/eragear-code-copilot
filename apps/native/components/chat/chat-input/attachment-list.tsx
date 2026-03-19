@@ -11,16 +11,13 @@ interface AttachmentListProps {
   onRemove: (id: string) => void;
 }
 
-export function AttachmentList({
-  attachments,
-  onRemove,
-}: AttachmentListProps) {
+export function AttachmentList({ attachments, onRemove }: AttachmentListProps) {
   if (attachments.length === 0) {
     return null;
   }
 
   return (
-    <View className="px-2 pb-1 pt-1">
+    <View className="px-2 pt-1 pb-1">
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         {attachments.map((attachment) => {
           const label =
@@ -57,7 +54,7 @@ export function AttachmentList({
                   </View>
                 )}
                 <Pressable
-                  className="absolute right-1 top-1 h-6 w-6 items-center justify-center rounded-full bg-black/55"
+                  className="absolute top-1 right-1 h-6 w-6 items-center justify-center rounded-full bg-black/55"
                   onPress={() => onRemove(attachment.id)}
                 >
                   <StyledIcon className="text-white" name="close" size={14} />
