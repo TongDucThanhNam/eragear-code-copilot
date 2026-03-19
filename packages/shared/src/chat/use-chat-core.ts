@@ -298,11 +298,13 @@ function findPartIndexByIdentity(params: {
   }
   if (isToolPart(part)) {
     return message.parts.findIndex(
-      (candidate) => isToolPart(candidate) && candidate.toolCallId === part.toolCallId
+      (candidate) =>
+        isToolPart(candidate) && candidate.toolCallId === part.toolCallId
     );
   }
   if (part.type === "data-permission-options") {
-    const requestId = (part.data as { requestId?: unknown } | undefined)?.requestId;
+    const requestId = (part.data as { requestId?: unknown } | undefined)
+      ?.requestId;
     if (typeof requestId !== "string" || requestId.length === 0) {
       return -1;
     }
@@ -317,9 +319,8 @@ function findPartIndexByIdentity(params: {
     });
   }
   if (part.type === "data-tool-locations") {
-    const toolCallId = (
-      part.data as { toolCallId?: unknown } | undefined
-    )?.toolCallId;
+    const toolCallId = (part.data as { toolCallId?: unknown } | undefined)
+      ?.toolCallId;
     if (typeof toolCallId !== "string" || toolCallId.length === 0) {
       return -1;
     }
@@ -352,7 +353,9 @@ function removeMessagePart(params: {
   if (resolvedPartIndex < 0) {
     return null;
   }
-  const nextParts = message.parts.filter((_, index) => index !== resolvedPartIndex);
+  const nextParts = message.parts.filter(
+    (_, index) => index !== resolvedPartIndex
+  );
   return {
     ...message,
     parts: nextParts,
@@ -585,293 +588,41 @@ export function processSessionEvent(
       );
       return;
 
-    case "chat_finish": {
-      const finishMessage =
-        event.message ??
-        (event.messageId
-          ? callbacks.getMessageById?.(event.messageId)
-          : undefined) ??
-        findLatestStreamingAssistantMessage(
-          callbacks.getMessagesForPermission?.()
-        );
-      const finalizedFinishMessage = finishMessage
-        ? finalizeMessageAfterFinish(finishMessage, event.stopReason)
-        : undefined;
-      if (finalizedFinishMessage) {
-        if (callbacks.onMessageUpsert) {
-          callbacks.onMessageUpsert(finalizedFinishMessage);
-        } else {
-          upsertMessageFromCallbackState(callbacks, finalizedFinishMessage);
-        }
-      }
-      callbacks.onFinish?.({
-        stopReason: event.stopReason,
-        finishReason: event.finishReason,
-        messageId: event.messageId,
-        message: finalizedFinishMessage,
-        isAbort: event.isAbort,
-        turnId: event.turnId,
-      });
+    case "chat_finish":
+      handleChatFinish(event, callbacks);
       return;
-    }
 
-    case "ui_message": {
-      const prev = callbacks.getMessageById?.(event.message.id);
-      const wasStreaming = prev ? isMessageStreaming(prev) : false;
-      const nowStreaming = isMessageStreaming(event.message);
-
-      let newMessages: UIMessage[] | null = null;
-      if (callbacks.onMessageUpsert) {
-        callbacks.onMessageUpsert(event.message);
-      } else {
-        newMessages = upsertMessageFromCallbackState(callbacks, event.message);
-      }
-      callbacks.onStreamingChange?.(wasStreaming, nowStreaming, event.message);
-
-      // Update pending permission after message change
-      if (callbacks.onPendingPermissionChange) {
-        const permissionSource =
-          callbacks.getMessagesForPermission?.() ?? newMessages ?? [];
-        const pendingPermission = findPendingPermission(permissionSource);
-        callbacks.onPendingPermissionChange?.(pendingPermission);
-      }
-
+    case "ui_message":
+      handleUiMessage(event, callbacks);
       return;
-    }
 
-    case "ui_message_part": {
-      const prev = callbacks.getMessageById?.(event.messageId);
-      if (callbacks.onMessagePartUpdate) {
-        callbacks.onMessagePartUpdate({
-          messageId: event.messageId,
-          messageRole: event.messageRole,
-          partId: event.partId,
-          partIndex: event.partIndex,
-          part: event.part,
-          isNew: event.isNew,
-          createdAt: event.createdAt,
-        });
-        const next = callbacks.getMessageById?.(event.messageId);
-        if (prev && next) {
-          callbacks.onStreamingChange?.(
-            isMessageStreaming(prev),
-            isMessageStreaming(next),
-            next
-          );
-        }
-        if (callbacks.onPendingPermissionChange) {
-          const pendingPermission = findPendingPermission(
-            callbacks.getMessagesForPermission?.() ?? []
-          );
-          callbacks.onPendingPermissionChange(pendingPermission);
-        }
-        return;
-      }
-
-      if (!prev) {
-        if (!event.isNew) {
-          warnDroppedPart({ event, reason: "message_not_found" });
-          return;
-        }
-        const nextMessage: UIMessage = {
-          id: event.messageId,
-          role: event.messageRole,
-          parts: [attachOptionalPartId(event.part, event.partId)],
-          ...(typeof event.createdAt === "number"
-            ? { createdAt: event.createdAt }
-            : {}),
-        };
-        if (callbacks.onMessageUpsert) {
-          callbacks.onMessageUpsert(nextMessage);
-        } else {
-          upsertMessageFromCallbackState(callbacks, nextMessage);
-        }
-        callbacks.onStreamingChange?.(
-          false,
-          isMessageStreaming(nextMessage),
-          nextMessage
-        );
-        if (callbacks.onPendingPermissionChange) {
-          const pendingPermission = findPendingPermission(
-            callbacks.getMessagesForPermission?.() ?? []
-          );
-          callbacks.onPendingPermissionChange(pendingPermission);
-        }
-        return;
-      }
-
-      const nextMessage = applyMessagePartUpdate({
-        message: prev,
-        partId: event.partId,
-        partIndex: event.partIndex,
-        part: event.part,
-        isNew: event.isNew,
-      });
-      if (!nextMessage) {
-        warnDroppedPart({ event, reason: "part_not_found" });
-        return;
-      }
-      const wasStreaming = isMessageStreaming(prev);
-      const nowStreaming = isMessageStreaming(nextMessage);
-      if (callbacks.onMessageUpsert) {
-        callbacks.onMessageUpsert(nextMessage);
-      } else {
-        upsertMessageFromCallbackState(callbacks, nextMessage);
-      }
-      callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
-      if (callbacks.onPendingPermissionChange) {
-        const pendingPermission = findPendingPermission(
-          callbacks.getMessagesForPermission?.() ?? []
-        );
-        callbacks.onPendingPermissionChange(pendingPermission);
-      }
+    case "ui_message_part":
+      handleUiMessagePart(event, callbacks);
       return;
-    }
 
-    case "ui_message_part_removed": {
-      const prev = callbacks.getMessageById?.(event.messageId);
-      if (callbacks.onMessagePartRemove) {
-        callbacks.onMessagePartRemove({
-          messageId: event.messageId,
-          messageRole: event.messageRole,
-          partId: event.partId,
-          partIndex: event.partIndex,
-          part: event.part,
-        });
-        const next = callbacks.getMessageById?.(event.messageId);
-        if (prev && next) {
-          callbacks.onStreamingChange?.(
-            isMessageStreaming(prev),
-            isMessageStreaming(next),
-            next
-          );
-        }
-        if (callbacks.onPendingPermissionChange) {
-          const pendingPermission = findPendingPermission(
-            callbacks.getMessagesForPermission?.() ?? []
-          );
-          callbacks.onPendingPermissionChange(pendingPermission);
-        }
-        return;
-      }
-
-      if (!prev) {
-        warnDroppedPart({ event, reason: "message_not_found" });
-        return;
-      }
-
-      const nextMessage = removeMessagePart({
-        message: prev,
-        partId: event.partId,
-        partIndex: event.partIndex,
-        part: event.part,
-      });
-      if (!nextMessage) {
-        warnDroppedPart({ event, reason: "part_not_found" });
-        return;
-      }
-      const wasStreaming = isMessageStreaming(prev);
-      const nowStreaming = isMessageStreaming(nextMessage);
-      if (callbacks.onMessageUpsert) {
-        callbacks.onMessageUpsert(nextMessage);
-      } else {
-        upsertMessageFromCallbackState(callbacks, nextMessage);
-      }
-      callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
-      if (callbacks.onPendingPermissionChange) {
-        const pendingPermission = findPendingPermission(
-          callbacks.getMessagesForPermission?.() ?? []
-        );
-        callbacks.onPendingPermissionChange(pendingPermission);
-      }
+    case "ui_message_part_removed":
+      handleUiMessagePartRemoved(event, callbacks);
       return;
-    }
 
-    case "available_commands_update": {
-      const commands = normalizeAvailableCommands(event.availableCommands);
-      if (areAvailableCommandsEqual(callbacks.getCommands?.(), commands)) {
-        return;
-      }
-      callbacks.onCommandsChange?.(commands);
+    case "available_commands_update":
+      handleAvailableCommandsUpdate(event, callbacks);
       return;
-    }
 
     case "config_options_update":
-      callbacks.onConfigOptionsChange?.(event.configOptions || []);
-      {
-        const nextSelection = resolveSessionSelectionState({
-          configOptions: event.configOptions || [],
-          modes: context.currentModes,
-          models: context.currentModels,
-        });
-        if (nextSelection.modes !== context.currentModes) {
-          callbacks.onModesChange?.(nextSelection.modes);
-        }
-        if (nextSelection.models !== context.currentModels) {
-          callbacks.onModelsChange?.(nextSelection.models);
-        }
-      }
+      handleConfigOptionsUpdate(event, context, callbacks);
       return;
 
     case "session_info_update":
       callbacks.onSessionInfoChange?.(event.sessionInfo ?? null);
       return;
 
-    case "current_mode_update": {
-      const nextConfigOptions = updateSessionConfigOptionCurrentValue({
-        configOptions: context.currentConfigOptions,
-        target: "mode",
-        value: event.modeId,
-      });
-      if (nextConfigOptions !== context.currentConfigOptions && nextConfigOptions) {
-        callbacks.onConfigOptionsChange?.(nextConfigOptions);
-      }
-      const nextModes =
-        resolveSessionSelectionState({
-          configOptions: nextConfigOptions,
-          modes:
-            context.currentModes
-              ? {
-                  ...context.currentModes,
-                  currentModeId: event.modeId,
-                }
-              : {
-                  currentModeId: event.modeId,
-                  availableModes: [],
-                },
-          models: context.currentModels,
-        }).modes ?? null;
-      callbacks.onModesChange?.(nextModes);
+    case "current_mode_update":
+      handleCurrentModeUpdate(event, context, callbacks);
       return;
-    }
 
-    case "current_model_update": {
-      const nextConfigOptions = updateSessionConfigOptionCurrentValue({
-        configOptions: context.currentConfigOptions,
-        target: "model",
-        value: event.modelId,
-      });
-      if (nextConfigOptions !== context.currentConfigOptions && nextConfigOptions) {
-        callbacks.onConfigOptionsChange?.(nextConfigOptions);
-      }
-      const nextModels =
-        resolveSessionSelectionState({
-          configOptions: nextConfigOptions,
-          modes: context.currentModes,
-          models:
-            context.currentModels
-              ? {
-                  ...context.currentModels,
-                  currentModelId: event.modelId,
-                }
-              : {
-                  currentModelId: event.modelId,
-                  availableModels: [],
-                },
-        }).models ?? null;
-      callbacks.onModelsChange?.(nextModels);
+    case "current_model_update":
+      handleCurrentModelUpdate(event, context, callbacks);
       return;
-    }
 
     case "terminal_output": {
       if (event.terminalId && event.data) {
@@ -895,6 +646,286 @@ export function processSessionEvent(
 
     default:
       return;
+  }
+}
+
+function handleChatFinish(
+  event: Extract<BroadcastEvent, { type: "chat_finish" }>,
+  callbacks: EventProcessingCallbacks
+): void {
+  const finishMessage =
+    event.message ??
+    (event.messageId
+      ? callbacks.getMessageById?.(event.messageId)
+      : undefined) ??
+    findLatestStreamingAssistantMessage(callbacks.getMessagesForPermission?.());
+  const finalizedFinishMessage = finishMessage
+    ? finalizeMessageAfterFinish(finishMessage, event.stopReason)
+    : undefined;
+  if (finalizedFinishMessage) {
+    if (callbacks.onMessageUpsert) {
+      callbacks.onMessageUpsert(finalizedFinishMessage);
+    } else {
+      upsertMessageFromCallbackState(callbacks, finalizedFinishMessage);
+    }
+  }
+  callbacks.onFinish?.({
+    stopReason: event.stopReason,
+    finishReason: event.finishReason,
+    messageId: event.messageId,
+    message: finalizedFinishMessage,
+    isAbort: event.isAbort,
+    turnId: event.turnId,
+  });
+}
+
+function handleUiMessage(
+  event: Extract<BroadcastEvent, { type: "ui_message" }>,
+  callbacks: EventProcessingCallbacks
+): void {
+  const prev = callbacks.getMessageById?.(event.message.id);
+  const wasStreaming = prev ? isMessageStreaming(prev) : false;
+  const nowStreaming = isMessageStreaming(event.message);
+
+  let newMessages: UIMessage[] | null = null;
+  if (callbacks.onMessageUpsert) {
+    callbacks.onMessageUpsert(event.message);
+  } else {
+    newMessages = upsertMessageFromCallbackState(callbacks, event.message);
+  }
+  callbacks.onStreamingChange?.(wasStreaming, nowStreaming, event.message);
+
+  if (callbacks.onPendingPermissionChange) {
+    const permissionSource =
+      callbacks.getMessagesForPermission?.() ?? newMessages ?? [];
+    const pendingPermission = findPendingPermission(permissionSource);
+    callbacks.onPendingPermissionChange?.(pendingPermission);
+  }
+}
+
+function handleUiMessagePart(
+  event: Extract<BroadcastEvent, { type: "ui_message_part" }>,
+  callbacks: EventProcessingCallbacks
+): void {
+  const prev = callbacks.getMessageById?.(event.messageId);
+  if (callbacks.onMessagePartUpdate) {
+    callbacks.onMessagePartUpdate({
+      messageId: event.messageId,
+      messageRole: event.messageRole,
+      partId: event.partId,
+      partIndex: event.partIndex,
+      part: event.part,
+      isNew: event.isNew,
+      createdAt: event.createdAt,
+    });
+    const next = callbacks.getMessageById?.(event.messageId);
+    if (prev && next) {
+      callbacks.onStreamingChange?.(
+        isMessageStreaming(prev),
+        isMessageStreaming(next),
+        next
+      );
+    }
+    updatePendingPermission(callbacks);
+    return;
+  }
+
+  if (!prev) {
+    if (!event.isNew) {
+      warnDroppedPart({ event, reason: "message_not_found" });
+      return;
+    }
+    const nextMessage: UIMessage = {
+      id: event.messageId,
+      role: event.messageRole,
+      parts: [attachOptionalPartId(event.part, event.partId)],
+      ...(typeof event.createdAt === "number"
+        ? { createdAt: event.createdAt }
+        : {}),
+    };
+    if (callbacks.onMessageUpsert) {
+      callbacks.onMessageUpsert(nextMessage);
+    } else {
+      upsertMessageFromCallbackState(callbacks, nextMessage);
+    }
+    callbacks.onStreamingChange?.(
+      false,
+      isMessageStreaming(nextMessage),
+      nextMessage
+    );
+    updatePendingPermission(callbacks);
+    return;
+  }
+
+  const nextMessage = applyMessagePartUpdate({
+    message: prev,
+    partId: event.partId,
+    partIndex: event.partIndex,
+    part: event.part,
+    isNew: event.isNew,
+  });
+  if (!nextMessage) {
+    warnDroppedPart({ event, reason: "part_not_found" });
+    return;
+  }
+  const wasStreaming = isMessageStreaming(prev);
+  const nowStreaming = isMessageStreaming(nextMessage);
+  if (callbacks.onMessageUpsert) {
+    callbacks.onMessageUpsert(nextMessage);
+  } else {
+    upsertMessageFromCallbackState(callbacks, nextMessage);
+  }
+  callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
+  updatePendingPermission(callbacks);
+}
+
+function handleUiMessagePartRemoved(
+  event: Extract<BroadcastEvent, { type: "ui_message_part_removed" }>,
+  callbacks: EventProcessingCallbacks
+): void {
+  const prev = callbacks.getMessageById?.(event.messageId);
+  if (callbacks.onMessagePartRemove) {
+    callbacks.onMessagePartRemove({
+      messageId: event.messageId,
+      messageRole: event.messageRole,
+      partId: event.partId,
+      partIndex: event.partIndex,
+      part: event.part,
+    });
+    const next = callbacks.getMessageById?.(event.messageId);
+    if (prev && next) {
+      callbacks.onStreamingChange?.(
+        isMessageStreaming(prev),
+        isMessageStreaming(next),
+        next
+      );
+    }
+    updatePendingPermission(callbacks);
+    return;
+  }
+
+  if (!prev) {
+    warnDroppedPart({ event, reason: "message_not_found" });
+    return;
+  }
+
+  const nextMessage = removeMessagePart({
+    message: prev,
+    partId: event.partId,
+    partIndex: event.partIndex,
+    part: event.part,
+  });
+  if (!nextMessage) {
+    warnDroppedPart({ event, reason: "part_not_found" });
+    return;
+  }
+  const wasStreaming = isMessageStreaming(prev);
+  const nowStreaming = isMessageStreaming(nextMessage);
+  if (callbacks.onMessageUpsert) {
+    callbacks.onMessageUpsert(nextMessage);
+  } else {
+    upsertMessageFromCallbackState(callbacks, nextMessage);
+  }
+  callbacks.onStreamingChange?.(wasStreaming, nowStreaming, nextMessage);
+  updatePendingPermission(callbacks);
+}
+
+function handleAvailableCommandsUpdate(
+  event: Extract<BroadcastEvent, { type: "available_commands_update" }>,
+  callbacks: EventProcessingCallbacks
+): void {
+  const commands = normalizeAvailableCommands(event.availableCommands);
+  if (areAvailableCommandsEqual(callbacks.getCommands?.(), commands)) {
+    return;
+  }
+  callbacks.onCommandsChange?.(commands);
+}
+
+function handleConfigOptionsUpdate(
+  event: Extract<BroadcastEvent, { type: "config_options_update" }>,
+  context: EventProcessingContext,
+  callbacks: EventProcessingCallbacks
+): void {
+  callbacks.onConfigOptionsChange?.(event.configOptions || []);
+  const nextSelection = resolveSessionSelectionState({
+    configOptions: event.configOptions || [],
+    modes: context.currentModes,
+    models: context.currentModels,
+  });
+  if (nextSelection.modes !== context.currentModes) {
+    callbacks.onModesChange?.(nextSelection.modes);
+  }
+  if (nextSelection.models !== context.currentModels) {
+    callbacks.onModelsChange?.(nextSelection.models);
+  }
+}
+
+function handleCurrentModeUpdate(
+  event: Extract<BroadcastEvent, { type: "current_mode_update" }>,
+  context: EventProcessingContext,
+  callbacks: EventProcessingCallbacks
+): void {
+  const nextConfigOptions = updateSessionConfigOptionCurrentValue({
+    configOptions: context.currentConfigOptions,
+    target: "mode",
+    value: event.modeId,
+  });
+  if (nextConfigOptions !== context.currentConfigOptions && nextConfigOptions) {
+    callbacks.onConfigOptionsChange?.(nextConfigOptions);
+  }
+  const nextModes =
+    resolveSessionSelectionState({
+      configOptions: nextConfigOptions,
+      modes: context.currentModes
+        ? {
+            ...context.currentModes,
+            currentModeId: event.modeId,
+          }
+        : {
+            currentModeId: event.modeId,
+            availableModes: [],
+          },
+      models: context.currentModels,
+    }).modes ?? null;
+  callbacks.onModesChange?.(nextModes);
+}
+
+function handleCurrentModelUpdate(
+  event: Extract<BroadcastEvent, { type: "current_model_update" }>,
+  context: EventProcessingContext,
+  callbacks: EventProcessingCallbacks
+): void {
+  const nextConfigOptions = updateSessionConfigOptionCurrentValue({
+    configOptions: context.currentConfigOptions,
+    target: "model",
+    value: event.modelId,
+  });
+  if (nextConfigOptions !== context.currentConfigOptions && nextConfigOptions) {
+    callbacks.onConfigOptionsChange?.(nextConfigOptions);
+  }
+  const nextModels =
+    resolveSessionSelectionState({
+      configOptions: nextConfigOptions,
+      modes: context.currentModes,
+      models: context.currentModels
+        ? {
+            ...context.currentModels,
+            currentModelId: event.modelId,
+          }
+        : {
+            currentModelId: event.modelId,
+            availableModels: [],
+          },
+    }).models ?? null;
+  callbacks.onModelsChange?.(nextModels);
+}
+
+function updatePendingPermission(callbacks: EventProcessingCallbacks): void {
+  if (callbacks.onPendingPermissionChange) {
+    const pendingPermission = findPendingPermission(
+      callbacks.getMessagesForPermission?.() ?? []
+    );
+    callbacks.onPendingPermissionChange(pendingPermission);
   }
 }
 

@@ -14,8 +14,8 @@ import type { SessionProjectContextResolverService } from "./session-project-con
 import type { SpawnSessionProcessService } from "./spawn-session-process.service";
 
 const OP = "session.discovery.agent_list";
-const AUTH_REQUIRED_ERROR_CODE = -32000;
-const METHOD_NOT_FOUND_ERROR_CODE = -32601;
+const AUTH_REQUIRED_ERROR_CODE = -32_000;
+const METHOD_NOT_FOUND_ERROR_CODE = -32_601;
 
 interface InitializeCapabilities {
   loadSession?: unknown;
@@ -51,14 +51,14 @@ export interface DiscoverAgentSessionsResult {
 
 function createDiscoveryClient(): acp.Client {
   return {
-    async requestPermission() {
+    requestPermission() {
       return {
         outcome: {
           outcome: "cancelled",
         },
       };
     },
-    async sessionUpdate() {
+    sessionUpdate() {
       // Discovery connection does not stream UI updates.
     },
   };
@@ -78,7 +78,7 @@ function toAgentInfo(
     | null
     | undefined
 ): DiscoverAgentSessionsResult["agentInfo"] {
-  if (!value?.name || !value.version) {
+  if (!(value?.name && value.version)) {
     return null;
   }
   if (typeof value.title === "string" && value.title.length > 0) {
@@ -95,9 +95,7 @@ function toAgentInfo(
 }
 
 function toAuthMethods(
-  methods:
-    | Array<{ name: string; id: string; description: string }>
-    | undefined
+  methods: Array<{ name: string; id: string; description: string }> | undefined
 ): DiscoverAgentSessionsResult["authMethods"] {
   if (!methods || methods.length === 0) {
     return null;

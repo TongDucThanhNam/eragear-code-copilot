@@ -26,13 +26,16 @@ function createSession(overrides?: Partial<ChatSession>): ChatSession {
 
 describe("updateChatStatus", () => {
   test("broadcasts turnId for active statuses", async () => {
-    const session = createSession({ chatStatus: "submitted", activeTurnId: "turn-1" });
+    const session = createSession({
+      chatStatus: "submitted",
+      activeTurnId: "turn-1",
+    });
     const events: BroadcastEvent[] = [];
 
     await updateChatStatus({
       chatId: "chat-1",
       session,
-      broadcast: async (_chatId, event) => {
+      broadcast: (_chatId, event) => {
         events.push(event);
       },
       status: "streaming",
@@ -48,13 +51,16 @@ describe("updateChatStatus", () => {
   });
 
   test("does not broadcast turnId for inactive status", async () => {
-    const session = createSession({ chatStatus: "streaming", activeTurnId: "turn-stale" });
+    const session = createSession({
+      chatStatus: "streaming",
+      activeTurnId: "turn-stale",
+    });
     const events: BroadcastEvent[] = [];
 
     await updateChatStatus({
       chatId: "chat-1",
       session,
-      broadcast: async (_chatId, event) => {
+      broadcast: (_chatId, event) => {
         events.push(event);
       },
       status: "inactive",
@@ -76,7 +82,7 @@ describe("updateChatStatus", () => {
     await updateChatStatus({
       chatId: "chat-1",
       session,
-      broadcast: async (_chatId, event) => {
+      broadcast: (_chatId, event) => {
         events.push(event);
       },
       status: "ready",
@@ -106,7 +112,7 @@ describe("maybeBroadcastChatFinish", () => {
     await maybeBroadcastChatFinish({
       chatId: session.id,
       session,
-      broadcast: async (_chatId, event) => {
+      broadcast: (_chatId, event) => {
         events.push(event);
       },
     });

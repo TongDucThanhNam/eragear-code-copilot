@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -14,17 +14,17 @@ describe("external-history-resolver", () => {
     const historyText = [
       JSON.stringify({
         session_id: sessionId,
-        ts: 1772286691,
+        ts: 1_772_286_691,
         text: "first user",
       }),
       JSON.stringify({
         session_id: "other",
-        ts: 1772286692,
+        ts: 1_772_286_692,
         text: "ignored user",
       }),
       JSON.stringify({
         session_id: sessionId,
-        ts: 1772286693,
+        ts: 1_772_286_693,
         text: "second user",
       }),
     ].join("\n");
@@ -75,7 +75,7 @@ describe("external-history-resolver", () => {
       [
         JSON.stringify({
           session_id: sessionId,
-          ts: 1772286691,
+          ts: 1_772_286_691,
           text: "user from history",
         }),
       ].join("\n"),
@@ -95,7 +95,9 @@ describe("external-history-resolver", () => {
           payload: {
             type: "message",
             role: "assistant",
-            content: [{ type: "output_text", text: "assistant from transcript" }],
+            content: [
+              { type: "output_text", text: "assistant from transcript" },
+            ],
           },
         }),
       ].join("\n"),
@@ -123,7 +125,9 @@ describe("external-history-resolver", () => {
     expect(
       isExternalHistoryImportSupportedAgentCommand("/home/user/bin/codex-acp")
     ).toBe(true);
-    expect(isExternalHistoryImportSupportedAgentCommand("opencode")).toBe(false);
+    expect(isExternalHistoryImportSupportedAgentCommand("opencode")).toBe(
+      false
+    );
     expect(
       isExternalHistoryImportSupportedAgentCommand("claude-agent-acp")
     ).toBe(false);

@@ -423,7 +423,10 @@ export class SessionSqliteRepository implements SessionRepositoryPort {
           }
           const dedupedMessages = [...dedupedMessageById.values()];
           if (dedupedMessages.length > 0) {
-            orm.insert(sqliteSchema.sessionMessages).values(dedupedMessages).run();
+            orm
+              .insert(sqliteSchema.sessionMessages)
+              .values(dedupedMessages)
+              .run();
           }
         }
 

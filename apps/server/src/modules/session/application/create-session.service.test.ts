@@ -289,7 +289,7 @@ describe("CreateSessionService", () => {
         }),
       } as unknown as SessionProjectContextResolverService,
       {
-        resolve: async () => {
+        resolve: () => {
           resolverCallCount += 1;
           return {
             agentId: "agent-x",
@@ -353,7 +353,9 @@ describe("CreateSessionService", () => {
         execute: () => ({}) as ChatSession["proc"],
       } as unknown as SpawnSessionProcessService,
       {
-        execute: async () => ({ chatSession: createChatSession("chat-5", "user-1") }),
+        execute: async () => ({
+          chatSession: createChatSession("chat-5", "user-1"),
+        }),
       } as unknown as BootstrapSessionConnectionService,
       {
         execute: async () => undefined,

@@ -6,6 +6,9 @@ import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 import { ResumeSessionService } from "./resume-session.service";
 
+const SESSION_NOT_FOUND_REGEX = /session not found in store/i;
+const MISSING_ACP_SESSION_ID_REGEX = /missing acp sessionid/i;
+
 function createStoredSession(overrides: Record<string, unknown> = {}) {
   return {
     id: "chat-1",
@@ -22,7 +25,9 @@ function createStoredSession(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createRunningSession(overrides: Partial<ChatSession> = {}): ChatSession {
+function createRunningSession(
+  overrides: Partial<ChatSession> = {}
+): ChatSession {
   return {
     id: "chat-1",
     userId: "user-1",
@@ -85,7 +90,7 @@ describe("ResumeSessionService", () => {
       get: () => existing,
     } as unknown as SessionRuntimePort;
     const createSession = {
-      execute: async () => {
+      execute: () => {
         createCalls += 1;
         return createRunningSession();
       },
@@ -121,7 +126,7 @@ describe("ResumeSessionService", () => {
       args: ["--fast"],
       env: { HOME: "/tmp" },
     });
-    let receivedInput: unknown = undefined;
+    let receivedInput: unknown;
     const resumed = createRunningSession({
       id: "chat-1",
       modes: {
@@ -144,7 +149,7 @@ describe("ResumeSessionService", () => {
       get: () => undefined,
     } as unknown as SessionRuntimePort;
     const createSession = {
-      execute: async (input: Record<string, unknown>) => {
+      execute: (input: Record<string, unknown>) => {
         receivedInput = input;
         return resumed;
       },
@@ -190,12 +195,12 @@ describe("ResumeSessionService", () => {
       get: () => undefined,
     } as unknown as SessionRuntimePort;
     const createSession = {
-      execute: async () => createRunningSession(),
+      execute: () => createRunningSession(),
     } as unknown as CreateSessionService;
 
     const service = new ResumeSessionService(repo, runtime, createSession);
     await expect(service.execute("user-1", "chat-1")).rejects.toThrow(
-      /session not found in store/i
+      SESSION_NOT_FOUND_REGEX
     );
   });
 
@@ -207,12 +212,12 @@ describe("ResumeSessionService", () => {
       get: () => undefined,
     } as unknown as SessionRuntimePort;
     const createSession = {
-      execute: async () => createRunningSession(),
+      execute: () => createRunningSession(),
     } as unknown as CreateSessionService;
 
     const service = new ResumeSessionService(repo, runtime, createSession);
     await expect(service.execute("user-1", "chat-1")).rejects.toThrow(
-      /missing acp sessionid/i
+      MISSING_ACP_SESSION_ID_REGEX
     );
   });
 
@@ -229,7 +234,7 @@ describe("ResumeSessionService", () => {
       loadSessionSupported: true,
       supportsModelSwitching: false,
     });
-    const receivedInputs: Array<Record<string, unknown>> = [];
+    const receivedInputs: Record<string, unknown>[] = [];
     let executeCalls = 0;
 
     const repo = {
@@ -239,12 +244,13 @@ describe("ResumeSessionService", () => {
       get: () => undefined,
     } as unknown as SessionRuntimePort;
     const createSession = {
-      execute: async (input: Record<string, unknown>) => {
+      execute: (input: Record<string, unknown>) => {
         executeCalls += 1;
         receivedInputs.push(input);
         if (executeCalls === 1) {
           throw new AppError({
-            message: "Failed to resume agent session via loadSession: Internal error",
+            message:
+              "Failed to resume agent session via loadSession: Internal error",
             code: "AGENT_SESSION_LOAD_FAILED",
             statusCode: 502,
             module: "session",

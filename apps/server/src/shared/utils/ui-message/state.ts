@@ -352,7 +352,10 @@ function shiftPartIndexesAfterRemoval(
   }
 
   for (const [toolCallId, location] of state.toolPartIndex) {
-    if (location.messageId !== messageId || location.partIndex <= removedPartIndex) {
+    if (
+      location.messageId !== messageId ||
+      location.partIndex <= removedPartIndex
+    ) {
       continue;
     }
     state.toolPartIndex.set(toolCallId, {
@@ -367,9 +370,7 @@ function isToolPartWithCallId(
   toolCallId: string
 ): part is ToolUIPart {
   return Boolean(
-    part &&
-      "toolCallId" in part &&
-      part.toolCallId === toolCallId
+    part && "toolCallId" in part && part.toolCallId === toolCallId
   );
 }
 

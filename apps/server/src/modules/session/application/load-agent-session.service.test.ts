@@ -3,10 +3,10 @@ import { LoadAgentSessionService } from "./load-agent-session.service";
 
 describe("LoadAgentSessionService", () => {
   test("delegates to CreateSessionService with sessionIdToLoad", async () => {
-    const calls: Array<Record<string, unknown>> = [];
+    const calls: Record<string, unknown>[] = [];
     const expectedSession = { id: "chat-1" } as never;
     const service = new LoadAgentSessionService({
-      execute: async (input: Record<string, unknown>) => {
+      execute: (input: Record<string, unknown>) => {
         calls.push(input);
         return expectedSession;
       },

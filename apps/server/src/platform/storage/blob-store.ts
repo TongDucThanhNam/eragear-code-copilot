@@ -149,15 +149,20 @@ export function buildBlobUrlPath(blobId: string): string {
   return `/api/blobs/${encodeURIComponent(blobId)}`;
 }
 
-export function storeInlineBlobSync(input: StoreInlineBlobInput): BlobRef | null {
+export function storeInlineBlobSync(
+  input: StoreInlineBlobInput
+): BlobRef | null {
   const decoded = decodeStrictBase64(input.base64);
   if (!decoded) {
-    logger.warn("Rejected invalid inline blob payload for out-of-band storage", {
-      userId: input.userId,
-      chatId: input.chatId,
-      source: input.source,
-      base64Length: input.base64.length,
-    });
+    logger.warn(
+      "Rejected invalid inline blob payload for out-of-band storage",
+      {
+        userId: input.userId,
+        chatId: input.chatId,
+        source: input.source,
+        base64Length: input.base64.length,
+      }
+    );
     return null;
   }
 

@@ -11,7 +11,10 @@ import type {
   ResourceLink,
   ToolCallContent,
 } from "@agentclientprotocol/sdk";
-import { storeInlineBlobSync, type BlobRef } from "@/platform/storage/blob-store";
+import {
+  type BlobRef,
+  storeInlineBlobSync,
+} from "@/platform/storage/blob-store";
 import type { StoredContentBlock } from "../types/session.types";
 
 export const MAX_INLINE_BINARY_BASE64_CHARS = 64 * 1024;
@@ -28,6 +31,7 @@ export interface StoredContentContext {
  * ACP models use bigint for resource sizes, but JSON cannot encode bigint.
  * This normalizes sizes to numbers when safe, otherwise omits them.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Content block conversion requires complex type handling
 export function toStoredContentBlock(
   block: ContentBlock,
   context?: StoredContentContext
@@ -48,7 +52,7 @@ export function toStoredContentBlock(
         ? block.uri
         : undefined;
     const blobRef =
-      context && context.userId && context.chatId
+      context?.userId && context.chatId
         ? storeInlineBlobSync({
             userId: context.userId,
             chatId: context.chatId,
@@ -85,7 +89,7 @@ export function toStoredContentBlock(
         ? block.resource.uri
         : undefined;
     const blobRef =
-      context && context.userId && context.chatId
+      context?.userId && context.chatId
         ? storeInlineBlobSync({
             userId: context.userId,
             chatId: context.chatId,

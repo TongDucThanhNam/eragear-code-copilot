@@ -128,7 +128,8 @@ describe("ManageBootAllowlistsService", () => {
       expect(events).toEqual([]);
     } finally {
       if (previousBootPath === undefined) {
-        delete process.env[BOOT_CONFIG_PATH_ENV_KEY];
+        // biome-ignore: Setting to undefined is intentional for unsetting env vars
+        process.env[BOOT_CONFIG_PATH_ENV_KEY] = undefined;
       } else {
         process.env[BOOT_CONFIG_PATH_ENV_KEY] = previousBootPath;
       }
@@ -234,7 +235,8 @@ describe("ManageBootAllowlistsService", () => {
       ENV.allowedTerminalCommands = [...originalAllowedTerminalCommands];
       ENV.allowedEnvKeys = [...originalAllowedEnvKeys];
       if (previousBootPath === undefined) {
-        delete process.env[BOOT_CONFIG_PATH_ENV_KEY];
+        // biome-ignore: Setting to undefined is intentional for unsetting env vars
+        process.env[BOOT_CONFIG_PATH_ENV_KEY] = undefined;
       } else {
         process.env[BOOT_CONFIG_PATH_ENV_KEY] = previousBootPath;
       }

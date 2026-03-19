@@ -76,10 +76,12 @@ function createSessionRuntime(session: ChatSession): SessionRuntimePort {
   };
 }
 
-function createSessionRepo(storedChatIds: string[] = []): SessionRepositoryPort {
+function createSessionRepo(
+  storedChatIds: string[] = []
+): SessionRepositoryPort {
   const storedSet = new Set(storedChatIds);
   return {
-    findById: async (id: string, userId: string) => {
+    findById: (id: string, userId: string) => {
       if (!storedSet.has(id) || userId !== "user-1") {
         return undefined;
       }
@@ -97,7 +99,10 @@ describe("SubscribeSessionEventsService", () => {
       chatStatus: "streaming",
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -123,7 +128,10 @@ describe("SubscribeSessionEventsService", () => {
       pendingPermissions,
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -142,7 +150,10 @@ describe("SubscribeSessionEventsService", () => {
       },
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -173,7 +184,10 @@ describe("SubscribeSessionEventsService", () => {
       ],
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -213,7 +227,10 @@ describe("SubscribeSessionEventsService", () => {
       },
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const first = await service.execute("user-1", "chat-1");
     const second = await service.execute("user-1", "chat-1");
@@ -269,7 +286,10 @@ describe("SubscribeSessionEventsService", () => {
       },
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -297,7 +317,10 @@ describe("SubscribeSessionEventsService", () => {
       messageBuffer: [],
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -324,7 +347,10 @@ describe("SubscribeSessionEventsService", () => {
       messageBuffer: [{ type: "ui_message", message: assistantMessage }],
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -338,14 +364,21 @@ describe("SubscribeSessionEventsService", () => {
   test("queues live events emitted before subscribe listener is attached", async () => {
     const session = createSession();
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
     const subscription = await service.execute("user-1", "chat-1");
     const partEvent = {
       type: "ui_message_part" as const,
       messageId: "msg-1",
       messageRole: "assistant" as const,
       partIndex: 0,
-      part: { type: "text" as const, text: "queued", state: "streaming" as const },
+      part: {
+        type: "text" as const,
+        text: "queued",
+        state: "streaming" as const,
+      },
       isNew: true,
     };
 
@@ -364,7 +397,10 @@ describe("SubscribeSessionEventsService", () => {
   test("coalesces queued text part updates before subscribe listener attaches", async () => {
     const session = createSession();
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
     const subscription = await service.execute("user-1", "chat-1");
     session.emitter.emit("data", {
       type: "ui_message_part",
@@ -405,7 +441,10 @@ describe("SubscribeSessionEventsService", () => {
   test("release decrements subscriber count on replacement runtime session", async () => {
     const session = createSession();
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
     expect(session.subscriberCount).toBe(1);
@@ -424,7 +463,10 @@ describe("SubscribeSessionEventsService", () => {
   test("release does not decrement unrelated replacement runtime channel", async () => {
     const session = createSession();
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
     expect(session.subscriberCount).toBe(1);
@@ -462,7 +504,10 @@ describe("SubscribeSessionEventsService", () => {
       ],
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -515,7 +560,10 @@ describe("SubscribeSessionEventsService", () => {
       ],
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 
@@ -541,11 +589,15 @@ describe("SubscribeSessionEventsService", () => {
   test("returns inactive snapshot when runtime is missing but session exists in storage", async () => {
     const lockDepthByChat = new Map<string, number>();
     const runtime = {
-      set() {},
+      set() {
+        /* intentionally empty */
+      },
       get() {
         return undefined;
       },
-      delete() {},
+      delete() {
+        /* intentionally empty */
+      },
       deleteIfMatch() {
         return false;
       },
@@ -605,7 +657,10 @@ describe("SubscribeSessionEventsService", () => {
       ],
     });
     const runtime = createSessionRuntime(session);
-    const service = new SubscribeSessionEventsService(runtime, createSessionRepo());
+    const service = new SubscribeSessionEventsService(
+      runtime,
+      createSessionRepo()
+    );
 
     const subscription = await service.execute("user-1", "chat-1");
 

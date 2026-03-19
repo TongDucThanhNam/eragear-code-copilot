@@ -124,7 +124,9 @@ describe("parseBroadcastEventClientSafe", () => {
     if (!parsed.ok || parsed.value.type !== "chat_finish") {
       return;
     }
-    expect(parsed.value.message?.parts).toEqual([{ type: "text", text: "done" }]);
+    expect(parsed.value.message?.parts).toEqual([
+      { type: "text", text: "done" },
+    ]);
   });
 
   test("sanitizes ui_message_part payload", () => {

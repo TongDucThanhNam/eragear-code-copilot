@@ -170,33 +170,26 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
     const shouldAttachMeta =
       meta !== undefined && this.shouldAttachPromptMeta(session);
     if (!shouldAttachMeta) {
-      return await this.runAbortablePromptRequest(
-        session,
-        signal,
-        () => this.wrapAcpCall(() => session.conn.prompt(promptRequest))
+      return await this.runAbortablePromptRequest(session, signal, () =>
+        this.wrapAcpCall(() => session.conn.prompt(promptRequest))
       );
     }
     try {
-      return await this.runAbortablePromptRequest(
-        session,
-        signal,
-        () =>
-          this.wrapAcpCall(() =>
-            session.conn.prompt({
-              ...promptRequest,
-              _meta: meta,
-            })
-          )
+      return await this.runAbortablePromptRequest(session, signal, () =>
+        this.wrapAcpCall(() =>
+          session.conn.prompt({
+            ...promptRequest,
+            _meta: meta,
+          })
+        )
       );
     } catch (error) {
       if (!this.shouldRetryPromptWithoutMeta(error)) {
         throw error;
       }
       this.promptMetaDisabledSessions.add(session);
-      return await this.runAbortablePromptRequest(
-        session,
-        signal,
-        () => this.wrapAcpCall(() => session.conn.prompt(promptRequest))
+      return await this.runAbortablePromptRequest(session, signal, () =>
+        this.wrapAcpCall(() => session.conn.prompt(promptRequest))
       );
     }
   }
@@ -289,7 +282,7 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
         forceWindowsTreeTermination: true,
       });
     }
-    await this.sessionRuntime.runExclusive(chatId, async () => {
+    await this.sessionRuntime.runExclusive(chatId, () => {
       assertSessionMutationLock({
         sessionRuntime: this.sessionRuntime,
         chatId,
@@ -348,12 +341,12 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
         reject(error);
       };
       const onAbort = () => {
-        void this.cancelPrompt(session).catch(() => undefined);
+        this.cancelPrompt(session).catch(() => undefined);
         settleReject(createPromptAbortError(signal.reason));
       };
 
       signal.addEventListener("abort", onAbort, { once: true });
-      void work().then(settleResolve, settleReject);
+      work().then(settleResolve, settleReject);
     });
   }
 

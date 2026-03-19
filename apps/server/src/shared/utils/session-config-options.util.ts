@@ -49,9 +49,7 @@ function isConfigSelectGroup(
   );
 }
 
-function hasNonEmptyString(
-  value: string | null | undefined
-): value is string {
+function hasNonEmptyString(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
@@ -123,7 +121,7 @@ export function getSessionConfigOptionCurrentValue(params: {
   target: "mode" | "model";
 }): string | undefined {
   const option = findSessionConfigOption(params.configOptions, params.target);
-  if (!option || !hasNonEmptyString(option.currentValue)) {
+  if (!(option && hasNonEmptyString(option.currentValue))) {
     return undefined;
   }
   return option.currentValue;
@@ -146,7 +144,7 @@ function deriveModeState(
   modeOption: SessionConfigOption | undefined,
   existingModes: SessionModeState | undefined
 ): SessionModeState | undefined {
-  if (!modeOption || !hasNonEmptyString(modeOption.currentValue)) {
+  if (!(modeOption && hasNonEmptyString(modeOption.currentValue))) {
     return existingModes;
   }
 
@@ -170,7 +168,7 @@ function deriveModelState(
   modelOption: SessionConfigOption | undefined,
   existingModels: SessionModelState | undefined
 ): SessionModelState | undefined {
-  if (!modelOption || !hasNonEmptyString(modelOption.currentValue)) {
+  if (!(modelOption && hasNonEmptyString(modelOption.currentValue))) {
     return existingModels;
   }
 

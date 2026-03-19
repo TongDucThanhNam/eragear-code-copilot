@@ -35,7 +35,9 @@ interface ModelSwitchPolicy {
 }
 
 interface ModelSwitchRuntimeContext {
-  aggregate: ReturnType<SetModelService["sessionGateway"]["requireAuthorizedRuntime"]>;
+  aggregate: ReturnType<
+    SetModelService["sessionGateway"]["requireAuthorizedRuntime"]
+  >;
   configOptionId?: string;
 }
 
@@ -141,7 +143,9 @@ export class SetModelService {
     const modelOption = findSessionConfigOption(session.configOptions, "model");
 
     if (modelOption) {
-      if (!hasSessionConfigOptionValue({ option: modelOption, value: modelId })) {
+      if (
+        !hasSessionConfigOptionValue({ option: modelOption, value: modelId })
+      ) {
         throw new ValidationError("Model is not available for this session", {
           module: "ai",
           op: OP,
@@ -266,7 +270,10 @@ export class SetModelService {
     }
 
     if (error.kind === "method_not_supported") {
-      const modelOption = findSessionConfigOption(session.configOptions, "model");
+      const modelOption = findSessionConfigOption(
+        session.configOptions,
+        "model"
+      );
       throw new ValidationError(
         modelOption
           ? "Agent does not support session configuration updates"

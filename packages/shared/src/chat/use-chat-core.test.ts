@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { UIMessage } from "../ui-message";
+import type { BroadcastEvent } from "./types";
 import {
   applySessionState,
   findPendingPermission,
   processSessionEvent,
 } from "./use-chat-core";
-import type { BroadcastEvent } from "./types";
 
 function createAssistantMessage(
   id: string,
@@ -40,7 +40,9 @@ function applyEventWithMessages(
       getMessageById: (messageId) => byId.get(messageId),
       getMessagesForPermission: () => ordered,
       onMessageUpsert: (nextMessage) => {
-        const index = ordered.findIndex((message) => message.id === nextMessage.id);
+        const index = ordered.findIndex(
+          (message) => message.id === nextMessage.id
+        );
         if (index >= 0) {
           ordered[index] = nextMessage;
         } else {
@@ -270,14 +272,18 @@ describe("processSessionEvent config/session-info updates", () => {
     ];
 
     for (const event of cycleEvents) {
-      processSessionEvent(event, { currentModes: null, currentModels: null }, {
-        onConnStatusChange: (status) => {
-          connStates.push(status);
-        },
-        onStatusChange: (status) => {
-          chatStates.push(status);
-        },
-      });
+      processSessionEvent(
+        event,
+        { currentModes: null, currentModels: null },
+        {
+          onConnStatusChange: (status) => {
+            connStates.push(status);
+          },
+          onStatusChange: (status) => {
+            chatStates.push(status);
+          },
+        }
+      );
     }
 
     expect(chatStates).toEqual([
@@ -360,12 +366,16 @@ describe("processSessionEvent config/session-info updates", () => {
       type: "config_options_update",
       configOptions,
     };
-    const received: typeof configOptions[] = [];
-    processSessionEvent(event, { currentModes: null, currentModels: null }, {
-      onConfigOptionsChange: (options) => {
-        received.push(options);
-      },
-    });
+    const received: (typeof configOptions)[] = [];
+    processSessionEvent(
+      event,
+      { currentModes: null, currentModels: null },
+      {
+        onConfigOptionsChange: (options) => {
+          received.push(options);
+        },
+      }
+    );
     expect(received).toEqual([configOptions]);
   });
 
@@ -438,7 +448,8 @@ describe("processSessionEvent config/session-info updates", () => {
   });
 
   test("applies session info from session state snapshot", () => {
-    let info: { title?: string | null; updatedAt?: string | null } | null = null;
+    let info: { title?: string | null; updatedAt?: string | null } | null =
+      null;
     const connected = applySessionState(
       {
         status: "running",
@@ -518,7 +529,7 @@ describe("processSessionEvent config/session-info updates", () => {
         input: { hint: "path" },
       },
     ];
-    const received: typeof currentCommands[] = [];
+    const received: (typeof currentCommands)[] = [];
 
     applySessionState(
       {
@@ -543,12 +554,10 @@ describe("processSessionEvent config/session-info updates", () => {
   });
 
   test("applies current model update to existing model state", () => {
-    let nextModels:
-      | {
-          currentModelId: string;
-          availableModels: Array<{ modelId: string; name: string }>;
-        }
-      | null = null;
+    let nextModels: {
+      currentModelId: string;
+      availableModels: Array<{ modelId: string; name: string }>;
+    } | null = null;
     processSessionEvent(
       {
         type: "current_model_update",
@@ -604,7 +613,7 @@ describe("processSessionEvent config/session-info updates", () => {
         ],
       },
     ];
-    const configSnapshots: typeof currentConfigOptions[] = [];
+    const configSnapshots: (typeof currentConfigOptions)[] = [];
     let nextModes: unknown = null;
     let nextModels: unknown = null;
 
@@ -711,12 +720,10 @@ describe("processSessionEvent config/session-info updates", () => {
   });
 
   test("hydrates mode state from current_mode_update when mode state is missing", () => {
-    let nextModes:
-      | {
-          currentModeId: string;
-          availableModes: Array<{ id: string; name: string }>;
-        }
-      | null = null;
+    let nextModes: {
+      currentModeId: string;
+      availableModes: Array<{ id: string; name: string }>;
+    } | null = null;
 
     processSessionEvent(
       {
@@ -738,12 +745,10 @@ describe("processSessionEvent config/session-info updates", () => {
   });
 
   test("hydrates model state from current_model_update when model state is missing", () => {
-    let nextModels:
-      | {
-          currentModelId: string;
-          availableModels: Array<{ modelId: string; name: string }>;
-        }
-      | null = null;
+    let nextModels: {
+      currentModelId: string;
+      availableModels: Array<{ modelId: string; name: string }>;
+    } | null = null;
 
     processSessionEvent(
       {
@@ -841,7 +846,11 @@ describe("processSessionEvent config/session-info updates", () => {
     const streamingAssistant = createAssistantMessage("msg-live", [
       { type: "text", text: "live", state: "streaming" },
     ]);
-    const messages = [olderAssistant, createUserMessage("user-1", "question"), streamingAssistant];
+    const messages = [
+      olderAssistant,
+      createUserMessage("user-1", "question"),
+      streamingAssistant,
+    ];
 
     const next = applyEventWithMessages(
       {
@@ -955,7 +964,7 @@ describe("processSessionEvent available_commands_update", () => {
         input: { hint: "path" },
       },
     ];
-    const received: typeof currentCommands[] = [];
+    const received: (typeof currentCommands)[] = [];
 
     processSessionEvent(
       {
@@ -988,7 +997,7 @@ describe("processSessionEvent available_commands_update", () => {
         input: { hint: "path" },
       },
     ];
-    const received: typeof currentCommands[] = [];
+    const received: (typeof currentCommands)[] = [];
 
     processSessionEvent(
       {

@@ -55,11 +55,13 @@ export function normalizeAgentUpdateInput(
   }
 
   if (input.resumeCommandTemplate !== undefined) {
-    normalizedInput.resumeCommandTemplate = normalizeAgentResumeCommandTemplate({
-      type: input.type ?? "other",
-      resumeCommandTemplate: input.resumeCommandTemplate,
-      fallbackToDefault: false,
-    });
+    normalizedInput.resumeCommandTemplate = normalizeAgentResumeCommandTemplate(
+      {
+        type: input.type ?? "other",
+        resumeCommandTemplate: input.resumeCommandTemplate,
+        fallbackToDefault: false,
+      }
+    );
   }
 
   return normalizedInput;

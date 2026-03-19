@@ -3,8 +3,8 @@ import { EventEmitter } from "node:events";
 import type { UIMessage } from "@repo/shared";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
-import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import { PersistSessionBootstrapService } from "./persist-session-bootstrap.service";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionMetadataPersistenceService } from "./session-metadata-persistence.service";
 
 function createChatSession(): ChatSession {
@@ -31,12 +31,12 @@ describe("PersistSessionBootstrapService", () => {
     const calls: string[] = [];
     const appended: Array<{ id: string; role: string; content: string }> = [];
     const metadataPersistence = {
-      persist: async () => {
+      persist: () => {
         calls.push("metadata");
       },
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      replaceMessages: async (
+      replaceMessages: (
         _chatId: string,
         _userId: string,
         messages: Array<{ id: string; role: string; content: string }>
@@ -103,10 +103,10 @@ describe("PersistSessionBootstrapService", () => {
   test("does not import when external-import flag is disabled", async () => {
     const appendedIds: string[] = [];
     const metadataPersistence = {
-      persist: async () => undefined,
+      persist: () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      replaceMessages: async (
+      replaceMessages: (
         _chatId: string,
         _userId: string,
         messages: Array<{ id: string }>
@@ -149,10 +149,10 @@ describe("PersistSessionBootstrapService", () => {
   test("keeps ACP replay as primary for non-codex agents", async () => {
     const appendedIds: string[] = [];
     const metadataPersistence = {
-      persist: async () => undefined,
+      persist: () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      replaceMessages: async (
+      replaceMessages: (
         _chatId: string,
         _userId: string,
         messages: Array<{ id: string }>
@@ -166,7 +166,7 @@ describe("PersistSessionBootstrapService", () => {
     const service = new PersistSessionBootstrapService(
       metadataPersistence,
       sessionRepo,
-      async () => {
+      () => {
         resolverCalls += 1;
         return [
           {
@@ -222,10 +222,10 @@ describe("PersistSessionBootstrapService", () => {
   test("keeps ACP replay when codex replay is already healthy", async () => {
     const appendedIds: string[] = [];
     const metadataPersistence = {
-      persist: async () => undefined,
+      persist: () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      replaceMessages: async (
+      replaceMessages: (
         _chatId: string,
         _userId: string,
         messages: Array<{ id: string }>
@@ -239,7 +239,7 @@ describe("PersistSessionBootstrapService", () => {
     const service = new PersistSessionBootstrapService(
       metadataPersistence,
       sessionRepo,
-      async () => {
+      () => {
         resolverCalls += 1;
         return [
           {
@@ -307,10 +307,10 @@ describe("PersistSessionBootstrapService", () => {
   test("checks codex external history when replay fell back to stored DB snapshot", async () => {
     const appendedIds: string[] = [];
     const metadataPersistence = {
-      persist: async () => undefined,
+      persist: () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      replaceMessages: async (
+      replaceMessages: (
         _chatId: string,
         _userId: string,
         messages: Array<{ id: string }>
@@ -324,7 +324,7 @@ describe("PersistSessionBootstrapService", () => {
     const service = new PersistSessionBootstrapService(
       metadataPersistence,
       sessionRepo,
-      async () => {
+      () => {
         resolverCalls += 1;
         return [
           {
@@ -398,10 +398,10 @@ describe("PersistSessionBootstrapService", () => {
   test("uses richer external import history when runtime replay is assistant-sparse", async () => {
     const appended: Array<{ id: string; role: string; content: string }> = [];
     const metadataPersistence = {
-      persist: async () => undefined,
+      persist: () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      replaceMessages: async (
+      replaceMessages: (
         _chatId: string,
         _userId: string,
         messages: Array<{ id: string; role: string; content: string }>
@@ -447,7 +447,7 @@ describe("PersistSessionBootstrapService", () => {
     const service = new PersistSessionBootstrapService(
       metadataPersistence,
       sessionRepo,
-      async () => externalMessages
+      () => externalMessages
     );
 
     const chatSession = createChatSession();
@@ -497,10 +497,10 @@ describe("PersistSessionBootstrapService", () => {
   test("keeps runtime replay when external history is not richer", async () => {
     const appendedIds: string[] = [];
     const metadataPersistence = {
-      persist: async () => undefined,
+      persist: () => undefined,
     } as unknown as SessionMetadataPersistenceService;
     const sessionRepo = {
-      replaceMessages: async (
+      replaceMessages: (
         _chatId: string,
         _userId: string,
         messages: Array<{ id: string }>

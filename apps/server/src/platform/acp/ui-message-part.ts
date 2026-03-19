@@ -102,12 +102,8 @@ export async function broadcastUiMessagePartRemoved(params: {
   if (!event) {
     return;
   }
-  await sessionRuntime.broadcast(
-    chatId,
-    event,
-    {
-      durable: false,
-      retainInBuffer: true,
-    }
-  );
+  await sessionRuntime.broadcast(chatId, event, {
+    durable: false,
+    retainInBuffer: true,
+  });
 }

@@ -34,7 +34,9 @@ interface ModeSwitchPolicy {
 }
 
 interface ModeSwitchRuntimeContext {
-  aggregate: ReturnType<SetModeService["sessionGateway"]["requireAuthorizedRuntime"]>;
+  aggregate: ReturnType<
+    SetModeService["sessionGateway"]["requireAuthorizedRuntime"]
+  >;
   configOptionId?: string;
 }
 
@@ -62,7 +64,7 @@ export class SetModeService {
 
   async execute(userId: string, chatId: string, modeId: string) {
     return await this.runModeSwitchSerialized(chatId, async () => {
-      const session = await this.sessionRuntime.runExclusive(chatId, async () => {
+      const session = await this.sessionRuntime.runExclusive(chatId, () => {
         assertSessionMutationLock({
           sessionRuntime: this.sessionRuntime,
           chatId,

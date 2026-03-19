@@ -1,65 +1,65 @@
 export type ProviderMetadata = Record<string, unknown>;
 
-export type TextUIPart = {
+export interface TextUIPart {
   type: "text";
   text: string;
   state?: "streaming" | "done";
   providerMetadata?: ProviderMetadata;
-};
+}
 
-export type ReasoningUIPart = {
+export interface ReasoningUIPart {
   type: "reasoning";
   text: string;
   state?: "streaming" | "done";
   providerMetadata?: ProviderMetadata;
-};
+}
 
-export type SourceUrlUIPart = {
+export interface SourceUrlUIPart {
   type: "source-url";
   sourceId: string;
   url: string;
   title?: string;
   providerMetadata?: ProviderMetadata;
-};
+}
 
-export type SourceDocumentUIPart = {
+export interface SourceDocumentUIPart {
   type: "source-document";
   sourceId: string;
   mediaType: string;
   title: string;
   filename?: string;
   providerMetadata?: ProviderMetadata;
-};
+}
 
-export type FileUIPart = {
+export interface FileUIPart {
   type: "file";
   mediaType: string;
   url: string;
   filename?: string;
   providerMetadata?: ProviderMetadata;
-};
+}
 
-export type StepStartUIPart = {
+export interface StepStartUIPart {
   type: "step-start";
-};
+}
 
-export type DataUIPart = {
+export interface DataUIPart {
   type: `data-${string}`;
   id?: string;
   data: unknown;
-};
+}
 
-type ToolApprovalRequest = {
+interface ToolApprovalRequest {
   id: string;
   approved?: never;
   reason?: never;
-};
+}
 
-type ToolApprovalResponse = {
+interface ToolApprovalResponse {
   id: string;
   approved: boolean;
   reason?: string;
-};
+}
 
 export type ToolUIPart = {
   type: `tool-${string}`;
@@ -165,9 +165,9 @@ export interface UIMessage {
   parts: UIMessagePart[];
 }
 
-type ToolPartFinalizationOptions = {
+interface ToolPartFinalizationOptions {
   includeApprovalRequested?: boolean;
-};
+}
 
 function getToolPartBase(part: ToolUIPart) {
   return {

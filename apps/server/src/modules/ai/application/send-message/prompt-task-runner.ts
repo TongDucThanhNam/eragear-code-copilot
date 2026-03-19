@@ -17,13 +17,13 @@ import {
   setChatFinishMessage,
 } from "@/shared/utils/chat-events.util";
 import { createId } from "@/shared/utils/id.util";
-import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
 import {
   appendReasoningBlock,
   buildAssistantMessageFromBlocks,
   finalizeStreamingParts,
   getOrCreateAssistantMessage,
 } from "@/shared/utils/ui-message.util";
+import { buildUiMessagePartEvent } from "@/shared/utils/ui-message-part-event.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "../acp-retry-policy";
 import { AI_OP, HTTP_STATUS } from "../ai.constants";
 import type { AiSessionRuntimePort } from "../ports/ai-session-runtime.port";
@@ -282,7 +282,8 @@ export class PromptTaskRunner {
   }
 
   private async handlePrompt(params: PromptTaskParams): Promise<void> {
-    const { chatId, aggregate, prompt, broadcast, turnId, abortSignal } = params;
+    const { chatId, aggregate, prompt, broadcast, turnId, abortSignal } =
+      params;
     const session = aggregate.raw;
     if (!session.sessionId) {
       await this.sessionGateway.stopAndCleanup({
@@ -344,8 +345,15 @@ export class PromptTaskRunner {
     turnId: string;
     abortSignal?: AbortSignal;
   }): Promise<{ stopReason: string } | null> {
-    const { chatId, aggregate, session, prompt, broadcast, turnId, abortSignal } =
-      params;
+    const {
+      chatId,
+      aggregate,
+      session,
+      prompt,
+      broadcast,
+      turnId,
+      abortSignal,
+    } = params;
     const { maxAttempts, retryBaseDelayMs } = getAcpRetryPolicy({
       maxAttempts: this.policy.acpRetryMaxAttempts,
       retryBaseDelayMs: this.policy.acpRetryBaseDelayMs,
@@ -390,28 +398,31 @@ export class PromptTaskRunner {
           if (session.buffer?.hasContent()) {
             return;
           }
-          this.logger.warn("Prompt streaming watchdog: no ACP chunks observed", {
-            chatId,
-            turnId,
-            waitMs: this.clock.nowMs() - watchdogStartedAt,
-            attempt: attempt + 1,
-            maxAttempts,
-            sessionId: session.sessionId,
-            processPid: session.proc.pid ?? null,
-            chatStatus: session.chatStatus,
-            activeTurnId: session.activeTurnId ?? null,
-            activePromptTurnId: session.activePromptTask?.turnId ?? null,
-            subscriberCount: session.subscriberCount,
-            emitterSubscriberCount: session.emitter.listenerCount("data"),
-            hasBufferedContent: session.buffer?.hasContent() ?? false,
-            bufferMessageId: session.buffer?.getMessageId() ?? null,
-            currentAssistantMessageId:
-              session.uiState.currentAssistantId ?? null,
-            lastAssistantMessageId: session.uiState.lastAssistantId ?? null,
-            isReplayingHistory: session.isReplayingHistory,
-            suppressReplayBroadcast: session.suppressReplayBroadcast,
-            sessionLoadMethod: session.sessionLoadMethod,
-          });
+          this.logger.warn(
+            "Prompt streaming watchdog: no ACP chunks observed",
+            {
+              chatId,
+              turnId,
+              waitMs: this.clock.nowMs() - watchdogStartedAt,
+              attempt: attempt + 1,
+              maxAttempts,
+              sessionId: session.sessionId,
+              processPid: session.proc.pid ?? null,
+              chatStatus: session.chatStatus,
+              activeTurnId: session.activeTurnId ?? null,
+              activePromptTurnId: session.activePromptTask?.turnId ?? null,
+              subscriberCount: session.subscriberCount,
+              emitterSubscriberCount: session.emitter.listenerCount("data"),
+              hasBufferedContent: session.buffer?.hasContent() ?? false,
+              bufferMessageId: session.buffer?.getMessageId() ?? null,
+              currentAssistantMessageId:
+                session.uiState.currentAssistantId ?? null,
+              lastAssistantMessageId: session.uiState.lastAssistantId ?? null,
+              isReplayingHistory: session.isReplayingHistory,
+              suppressReplayBroadcast: session.suppressReplayBroadcast,
+              sessionLoadMethod: session.sessionLoadMethod,
+            }
+          );
         }, ACP_STREAM_WATCHDOG_MS);
         watchdog.unref?.();
         let response: { stopReason: string };
@@ -536,6 +547,7 @@ export class PromptTaskRunner {
     }
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Refactoring would require significant interface changes
   private async handlePromptRequestFailure(params: {
     error: unknown;
     attempt: number;
@@ -572,10 +584,7 @@ export class PromptTaskRunner {
       kind: errorKind,
     });
 
-    if (
-      error instanceof AiSessionRuntimeError &&
-      error.kind === "cancelled"
-    ) {
+    if (error instanceof AiSessionRuntimeError && error.kind === "cancelled") {
       await this.handlePromptAborted({
         chatId,
         aggregate,
@@ -751,7 +760,10 @@ export class PromptTaskRunner {
       });
       aggregate.setChatFinishStopReason("cancelled", turnId);
       await aggregate.maybeBroadcastChatFinish({ chatId, broadcast });
-      await aggregate.markReadyAfterTurnCompletion({ chatId, broadcast }, turnId);
+      await aggregate.markReadyAfterTurnCompletion(
+        { chatId, broadcast },
+        turnId
+      );
       aggregate.clearActiveTurnIf(turnId);
       this.logger.warn("Prompt task aborted after subscriber disconnect", {
         chatId,
@@ -786,7 +798,10 @@ export class PromptTaskRunner {
         type: "error",
         error: errorMessage,
       });
-      await aggregate.markReadyAfterTurnCompletion({ chatId, broadcast }, turnId);
+      await aggregate.markReadyAfterTurnCompletion(
+        { chatId, broadcast },
+        turnId
+      );
       aggregate.clearActiveTurnIf(turnId);
     });
   }
@@ -901,6 +916,7 @@ export class PromptTaskRunner {
     });
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Refactoring would require significant interface changes
   private async finalizeAssistantArtifactsUnderLock(params: {
     chatId: string;
     aggregate: SessionRuntimeEntity;
@@ -942,7 +958,9 @@ export class PromptTaskRunner {
           const isNew =
             updatedAssistantMessage.parts.length > previousPartsLength;
           const part =
-            partIndex >= 0 ? updatedAssistantMessage.parts[partIndex] : undefined;
+            partIndex >= 0
+              ? updatedAssistantMessage.parts[partIndex]
+              : undefined;
           if (partIndex >= 0 && part) {
             const partEvent = buildUiMessagePartEvent({
               state: session.uiState,
@@ -1016,7 +1034,8 @@ export class PromptTaskRunner {
             messageId: materializedMessage.id,
             parts: materializedMessage.parts.length,
             contentBlocks: flushedAssistantBuffer.contentBlocks.length,
-            reasoningBlocks: flushedAssistantBuffer.reasoningBlocks?.length ?? 0,
+            reasoningBlocks:
+              flushedAssistantBuffer.reasoningBlocks?.length ?? 0,
             turnId,
           }
         );

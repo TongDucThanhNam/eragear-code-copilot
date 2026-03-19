@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import {
-  findPendingPermission,
-  processSessionEvent,
   type BroadcastEvent,
   type ChatStatus,
   type ConnectionStatus,
+  findPendingPermission,
   type PermissionRequest,
+  processSessionEvent,
   type UIMessage,
 } from "@repo/shared";
+import type { SessionEventOutboxPort } from "@/modules/session/application/ports/session-event-outbox.port";
 import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import { SubscribeSessionEventsService } from "@/modules/session/application/subscribe-session-events.service";
-import type { SessionEventOutboxPort } from "@/modules/session/application/ports/session-event-outbox.port";
 import { SessionRuntimeStore } from "@/modules/session/infra/runtime-store";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
@@ -169,7 +169,10 @@ describe("permission flow e2e", () => {
     );
     const subscription = await subscriptionService.execute("user-1", chatId);
 
-    let client = applySubscriptionBootstrap(createClientHarness(), subscription);
+    let client = applySubscriptionBootstrap(
+      createClientHarness(),
+      subscription
+    );
     const liveEvents: BroadcastEvent[] = [];
     const unsubscribe = subscription.subscribe((event) => {
       liveEvents.push(event);
@@ -287,7 +290,10 @@ describe("permission flow e2e", () => {
       createSessionRepo()
     );
     const subscription = await subscriptionService.execute("user-1", chatId);
-    const client = applySubscriptionBootstrap(createClientHarness(), subscription);
+    const client = applySubscriptionBootstrap(
+      createClientHarness(),
+      subscription
+    );
 
     expect(client.status).toBe("awaiting_permission");
     expect(client.pendingPermission).toMatchObject({
@@ -298,9 +304,7 @@ describe("permission flow e2e", () => {
     expect(
       client.messages
         .find((message) => message.id === assistantMessage.id)
-        ?.parts.some(
-        (part) => part.type === "data-permission-options"
-      )
+        ?.parts.some((part) => part.type === "data-permission-options")
     ).toBe(true);
 
     const session = runtime.get(chatId);

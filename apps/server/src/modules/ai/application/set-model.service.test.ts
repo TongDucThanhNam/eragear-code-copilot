@@ -123,8 +123,7 @@ function createGateway(params: {
     cancelPrompt: async () => undefined,
     setSessionMode: async () => undefined,
     setSessionModel: params.setSessionModel,
-    setSessionConfigOption:
-      params.setSessionConfigOption ?? (async () => []),
+    setSessionConfigOption: params.setSessionConfigOption ?? (async () => []),
     stopAndCleanup: async () => undefined,
     clearPendingPermissionsAsCancelled: () => undefined,
   };
@@ -199,10 +198,10 @@ describe("SetModelService", () => {
       sessionRuntime,
       createGateway({
         session,
-        setSessionModel: async (_session, modelId) => {
+        setSessionModel: (_session, modelId) => {
           legacyCalls.push(modelId);
         },
-        setSessionConfigOption: async (_session, configId, value) => {
+        setSessionConfigOption: (_session, configId, value) => {
           configCalls.push({ configId, value });
           return [
             {
@@ -232,7 +231,7 @@ describe("SetModelService", () => {
       },
     ]);
     expect(session.configOptions?.[0]?.currentValue).toBe("model-2");
-    expect(session.models!).toEqual({
+    expect(session.models).toEqual({
       currentModelId: "model-2",
       availableModels: [
         { modelId: "model-1", name: "Model 1", description: undefined },
@@ -249,7 +248,7 @@ describe("SetModelService", () => {
         chatId: "chat-1",
         event: {
           type: "config_options_update",
-          configOptions: session.configOptions!,
+          configOptions: session.configOptions ?? null,
         },
       },
     ]);

@@ -10,11 +10,7 @@ import { LOG_LEVELS } from "@/shared/types/log.types";
 const MAX_SESSION_IDLE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_PROMPT_META_ALLOWLIST_ITEMS = 128;
 const MAX_PROMPT_META_ALLOWLIST_ITEM_LENGTH = 256;
-const ACP_PROMPT_META_POLICIES = [
-  "allowlist",
-  "always",
-  "never",
-] as const;
+const ACP_PROMPT_META_POLICIES = ["allowlist", "always", "never"] as const;
 
 export const UiSettingsSchema = z.object({
   theme: z.enum(["light", "dark", "system"]),

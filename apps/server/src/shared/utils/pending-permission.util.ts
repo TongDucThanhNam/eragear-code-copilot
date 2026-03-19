@@ -40,7 +40,9 @@ export async function settlePendingPermission(params: {
     return;
   }
 
-  const previousToolIndex = session.uiState.toolPartIndex.get(pending.toolCallId);
+  const previousToolIndex = session.uiState.toolPartIndex.get(
+    pending.toolCallId
+  );
   const toolPart = buildToolApprovalResponsePart({
     toolCallId: pending.toolCallId,
     toolName: pending.toolName ?? "tool",

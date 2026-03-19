@@ -54,13 +54,19 @@ function getHeader(
 function extractApiKeyFromConnectionParams(
   connectionParams?: ConnectionParams
 ): string | null {
-  return extractTextConnectionParam(connectionParams, CONNECTION_PARAM_API_KEY_KEYS);
+  return extractTextConnectionParam(
+    connectionParams,
+    CONNECTION_PARAM_API_KEY_KEYS
+  );
 }
 
 function extractCookieFromConnectionParams(
   connectionParams?: ConnectionParams
 ): string | null {
-  return extractTextConnectionParam(connectionParams, CONNECTION_PARAM_COOKIE_KEYS);
+  return extractTextConnectionParam(
+    connectionParams,
+    CONNECTION_PARAM_COOKIE_KEYS
+  );
 }
 
 function extractTextConnectionParam(

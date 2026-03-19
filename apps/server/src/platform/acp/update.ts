@@ -13,10 +13,10 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
-import type { ChatSession } from "@/shared/types/session.types";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
+import type { ChatSession } from "@/shared/types/session.types";
 import {
   findSessionConfigOption,
   syncSessionSelectionFromConfigOptions,
@@ -228,8 +228,7 @@ function shouldIgnoreStaleTurnScopedUpdate(params: {
       typeof completedTurnAgeMs === "number" &&
       completedTurnAgeMs <= COMPLETED_TURN_LATE_CHUNK_GRACE_MS;
     const isRecentLateChunk =
-      recentlyCompletedTurnId === updateTurnId &&
-      isWithinRecentCompletedWindow;
+      recentlyCompletedTurnId === updateTurnId && isWithinRecentCompletedWindow;
     if (isRecentLateChunk) {
       if (isDebugEnabled()) {
         logger.debug("Accepting late ACP update for recently completed turn", {
@@ -388,7 +387,8 @@ async function handleModeUpdate(
     logger.warn("Rejected ACP current mode update outside advertised modes", {
       chatId,
       requestedModeId: update.currentModeId,
-      availableModeIds: session?.modes?.availableModes.map((mode) => mode.id) ?? [],
+      availableModeIds:
+        session?.modes?.availableModes.map((mode) => mode.id) ?? [],
     });
     return true;
   }
@@ -428,7 +428,8 @@ async function handleModeUpdate(
         : {}),
       ...(readModeUpdateMetadata(update) !== undefined
         ? { metadata: readModeUpdateMetadata(update) }
-        : update._meta
+        : // biome-ignore lint/style/noNestedTernary: Intentional fallback chain for metadata
+          update._meta
           ? { metadata: update._meta }
           : {}),
     });
@@ -446,14 +447,18 @@ function canApplyModeUpdate(
   if (session.modes.availableModes.length === 0) {
     return false;
   }
-  return session.modes.availableModes.some((mode) => mode.id === requestedModeId);
+  return session.modes.availableModes.some(
+    (mode) => mode.id === requestedModeId
+  );
 }
 
 function readModeUpdateReason(
   update: Extract<SessionUpdate, { sessionUpdate: "current_mode_update" }>
 ): string | undefined {
   const value = (update as Record<string, unknown>).reason;
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }
 
 function readModeUpdateMetadata(

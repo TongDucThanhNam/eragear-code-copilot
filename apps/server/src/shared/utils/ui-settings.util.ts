@@ -123,12 +123,14 @@ export function parseUiSettingsForm(
       if (typeof rawPromptMetaAllowlist !== "string") {
         return currentSettings.app.acpPromptMetaAllowlist;
       }
-      return [...new Set(
-        rawPromptMetaAllowlist
-          .split(/[,\n]/g)
-          .map((entry) => entry.trim())
-          .filter((entry) => entry.length > 0)
-      )];
+      return [
+        ...new Set(
+          rawPromptMetaAllowlist
+            .split(/[,\n]/g)
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+        ),
+      ];
     })(),
   });
 

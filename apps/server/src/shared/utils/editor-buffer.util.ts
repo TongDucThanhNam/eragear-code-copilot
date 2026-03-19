@@ -1,7 +1,11 @@
 import { ENV } from "@/config/environment";
 import type { ChatSession } from "@/shared/types/session.types";
 
-function isExpiredBuffer(updatedAt: number, now: number, ttlMs: number): boolean {
+function isExpiredBuffer(
+  updatedAt: number,
+  now: number,
+  ttlMs: number
+): boolean {
   if (!Number.isFinite(updatedAt)) {
     return true;
   }

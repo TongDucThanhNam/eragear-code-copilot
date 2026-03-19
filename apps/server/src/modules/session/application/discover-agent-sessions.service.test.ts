@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { RequestError } from "@agentclientprotocol/sdk";
 import type { LoggerPort } from "@/shared/ports/logger.port";
-import type { AgentRuntimePort } from "./ports/agent-runtime.port";
 import { DiscoverAgentSessionsService } from "./discover-agent-sessions.service";
+import type { AgentRuntimePort } from "./ports/agent-runtime.port";
 import type { SessionAgentResolverService } from "./session-agent-resolver.service";
 import type { SessionProjectContextResolverService } from "./session-project-context-resolver.service";
 import type { SpawnSessionProcessService } from "./spawn-session-process.service";
@@ -39,13 +39,13 @@ describe("DiscoverAgentSessionsService", () => {
 
     const service = new DiscoverAgentSessionsService(
       {
-        resolve: async (input: { userId: string; projectId: string }) => {
+        resolve: (input: { userId: string; projectId: string }) => {
           projectResolverCalls.push(input);
           return { projectId: input.projectId, projectRoot: "/workspace/repo" };
         },
       } as unknown as SessionProjectContextResolverService,
       {
-        resolve: async (input: {
+        resolve: (input: {
           userId: string;
           projectId: string;
           agentId?: string;
@@ -73,7 +73,7 @@ describe("DiscoverAgentSessionsService", () => {
       {
         createAcpConnection: () =>
           ({
-            initialize: async () => ({
+            initialize: () => ({
               protocolVersion: 1,
               agentCapabilities: {
                 loadSession: true,
@@ -95,7 +95,7 @@ describe("DiscoverAgentSessionsService", () => {
                 },
               ],
             }),
-            unstable_listSessions: async (params: {
+            unstable_listSessions: (params: {
               cwd?: string | null;
               cursor?: string | null;
             }) => {
@@ -115,7 +115,7 @@ describe("DiscoverAgentSessionsService", () => {
           }) as never,
       } as unknown as AgentRuntimePort,
       createLoggerStub(),
-      async (...args) => {
+      (...args) => {
         terminateCalls.push(args);
       }
     );
@@ -145,9 +145,7 @@ describe("DiscoverAgentSessionsService", () => {
         agentEnv: { CI: "1" },
       },
     ]);
-    expect(listCalls).toEqual([
-      { cwd: "/workspace/repo", cursor: "cursor-1" },
-    ]);
+    expect(listCalls).toEqual([{ cwd: "/workspace/repo", cursor: "cursor-1" }]);
     expect(result).toEqual({
       supported: true,
       requiresAuth: false,
@@ -196,12 +194,13 @@ describe("DiscoverAgentSessionsService", () => {
         }),
       } as unknown as SessionAgentResolverService,
       {
-        execute: () => ({} as ReturnType<SpawnSessionProcessService["execute"]>),
+        execute: () =>
+          ({}) as ReturnType<SpawnSessionProcessService["execute"]>,
       } as unknown as SpawnSessionProcessService,
       {
         createAcpConnection: () =>
           ({
-            initialize: async () => ({
+            initialize: () => ({
               protocolVersion: 1,
               agentCapabilities: {
                 loadSession: true,
@@ -212,14 +211,14 @@ describe("DiscoverAgentSessionsService", () => {
                 version: "0.9.1",
               },
             }),
-            unstable_listSessions: async () => {
+            unstable_listSessions: () => {
               listCalls.push(true);
               return { sessions: [] };
             },
           }) as never,
       } as unknown as AgentRuntimePort,
       createLoggerStub(),
-      async () => undefined
+      () => undefined
     );
 
     const result = await service.execute({
@@ -260,18 +259,19 @@ describe("DiscoverAgentSessionsService", () => {
         }),
       } as unknown as SessionAgentResolverService,
       {
-        execute: () => ({} as ReturnType<SpawnSessionProcessService["execute"]>),
+        execute: () =>
+          ({}) as ReturnType<SpawnSessionProcessService["execute"]>,
       } as unknown as SpawnSessionProcessService,
       {
         createAcpConnection: () =>
           ({
-            initialize: async () => {
+            initialize: () => {
               throw RequestError.authRequired();
             },
           }) as never,
       } as unknown as AgentRuntimePort,
       createLoggerStub(),
-      async () => undefined
+      () => undefined
     );
 
     const result = await service.execute({
@@ -307,12 +307,13 @@ describe("DiscoverAgentSessionsService", () => {
         }),
       } as unknown as SessionAgentResolverService,
       {
-        execute: () => ({} as ReturnType<SpawnSessionProcessService["execute"]>),
+        execute: () =>
+          ({}) as ReturnType<SpawnSessionProcessService["execute"]>,
       } as unknown as SpawnSessionProcessService,
       {
         createAcpConnection: () =>
           ({
-            initialize: async () => ({
+            initialize: () => ({
               protocolVersion: 1,
               agentCapabilities: {
                 sessionCapabilities: {
@@ -324,13 +325,13 @@ describe("DiscoverAgentSessionsService", () => {
                 version: "1.0.0",
               },
             }),
-            unstable_listSessions: async () => {
+            unstable_listSessions: () => {
               throw RequestError.methodNotFound("session/list");
             },
           }) as never,
       } as unknown as AgentRuntimePort,
       createLoggerStub(),
-      async () => undefined
+      () => undefined
     );
 
     const result = await service.execute({

@@ -5,6 +5,9 @@ import type {
 } from "@/modules/session";
 import type { StoredSession } from "@/shared/types/session.types";
 
+const TRAILING_SLASH_REGEX = /[\\/]+$/;
+const PATH_SEGMENT_SEPARATOR_REGEX = /[/\\]+/;
+
 export class ListDashboardSessionsService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly sessionRepo: SessionRepositoryPort;
@@ -70,10 +73,10 @@ export class ListDashboardSessionsService {
 }
 
 function getProjectNameFromRootPath(projectRoot: string): string {
-  const trimmed = projectRoot.trim().replace(/[\\/]+$/, "");
+  const trimmed = projectRoot.trim().replace(TRAILING_SLASH_REGEX, "");
   if (!trimmed) {
     return projectRoot;
   }
-  const segments = trimmed.split(/[/\\]+/);
-  return segments[segments.length - 1] || projectRoot;
+  const segments = trimmed.split(PATH_SEGMENT_SEPARATOR_REGEX);
+  return segments.at(-1) || projectRoot;
 }

@@ -9,9 +9,10 @@ let previousStorageDirEnv: string | undefined;
 let previousAllowedAgentPoliciesEnv: string | undefined;
 let previousAllowedTerminalPoliciesEnv: string | undefined;
 let previousAllowedEnvKeysEnv: string | undefined;
-let blobStoreModule:
-  | typeof import("@/platform/storage/blob-store")
-  | undefined;
+let blobStoreModule: typeof import("@/platform/storage/blob-store") | undefined;
+
+// Top-level regex for performance
+const BLOB_URL_PATTERN = /^\/api\/blobs\//;
 
 beforeEach(async () => {
   previousStorageDirEnv = process.env.ERAGEAR_STORAGE_DIR;
@@ -34,24 +35,28 @@ beforeEach(async () => {
 
 afterEach(async () => {
   if (previousStorageDirEnv === undefined) {
-    delete process.env.ERAGEAR_STORAGE_DIR;
+    // biome-ignore: Setting to undefined is intentional for unsetting env vars
+    process.env.ERAGEAR_STORAGE_DIR = undefined;
   } else {
     process.env.ERAGEAR_STORAGE_DIR = previousStorageDirEnv;
   }
   if (previousAllowedAgentPoliciesEnv === undefined) {
-    delete process.env.ALLOWED_AGENT_COMMAND_POLICIES;
+    // biome-ignore: Setting to undefined is intentional for unsetting env vars
+    process.env.ALLOWED_AGENT_COMMAND_POLICIES = undefined;
   } else {
     process.env.ALLOWED_AGENT_COMMAND_POLICIES =
       previousAllowedAgentPoliciesEnv;
   }
   if (previousAllowedTerminalPoliciesEnv === undefined) {
-    delete process.env.ALLOWED_TERMINAL_COMMAND_POLICIES;
+    // biome-ignore: Setting to undefined is intentional for unsetting env vars
+    process.env.ALLOWED_TERMINAL_COMMAND_POLICIES = undefined;
   } else {
     process.env.ALLOWED_TERMINAL_COMMAND_POLICIES =
       previousAllowedTerminalPoliciesEnv;
   }
   if (previousAllowedEnvKeysEnv === undefined) {
-    delete process.env.ALLOWED_ENV_KEYS;
+    // biome-ignore: Setting to undefined is intentional for unsetting env vars
+    process.env.ALLOWED_ENV_KEYS = undefined;
   } else {
     process.env.ALLOWED_ENV_KEYS = previousAllowedEnvKeysEnv;
   }
@@ -78,9 +83,10 @@ describe("blob-store out-of-band storage", () => {
       source: "resource",
     });
     expect(ref).not.toBeNull();
-    expect(ref?.url).toMatch(/^\/api\/blobs\//);
+    expect(ref?.url).toMatch(BLOB_URL_PATTERN);
 
     const stored = await readStoredBlobForUser({
+      // biome-ignore lint/style/noNonNullAssertion: ref is confirmed non-null by previous expect check
       blobId: ref!.id,
       userId: "user-1",
     });
@@ -106,6 +112,7 @@ describe("blob-store out-of-band storage", () => {
     expect(ref).not.toBeNull();
 
     const denied = await readStoredBlobForUser({
+      // biome-ignore lint/style/noNonNullAssertion: ref is confirmed non-null by previous expect check
       blobId: ref!.id,
       userId: "other-user",
     });

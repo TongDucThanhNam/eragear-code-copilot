@@ -6,13 +6,13 @@
  * @module modules/session/application/get-session-messages.service
  */
 
+import type { UIMessage } from "@repo/shared";
 import { DEFAULT_SESSION_MESSAGES_PAGE_LIMIT } from "@/config/constants";
 import { NotFoundError, ValidationError } from "@/shared/errors";
 import {
   buildAssistantMessageFromBlocks,
   buildUserMessageFromBlocks,
 } from "@/shared/utils/ui-message.util";
-import type { UIMessage } from "@repo/shared";
 import type { StoredMessage } from "../domain/stored-session.types";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
@@ -31,21 +31,24 @@ export function mapStoredMessageToUiMessage(message: StoredMessage): UIMessage {
     };
   }
 
-  const contentBlocks =
-    message.contentBlocks ??
-    (message.content
-      ? [{ type: "text", text: message.content }]
-      : message.isCompacted
-        ? [
-            {
-              type: "text",
-              text:
-                message.role === "assistant"
-                  ? ASSISTANT_COMPACTED_TEXT
-                  : USER_COMPACTED_TEXT,
-            },
-          ]
-        : []);
+  let contentBlocks: ContentBlock[];
+  if (message.contentBlocks) {
+    contentBlocks = message.contentBlocks;
+  } else if (message.content) {
+    contentBlocks = [{ type: "text", text: message.content }];
+  } else if (message.isCompacted) {
+    contentBlocks = [
+      {
+        type: "text",
+        text:
+          message.role === "assistant"
+            ? ASSISTANT_COMPACTED_TEXT
+            : USER_COMPACTED_TEXT,
+      },
+    ];
+  } else {
+    contentBlocks = [];
+  }
   const reasoningBlocks =
     message.reasoningBlocks ??
     (message.reasoning ? [{ type: "text", text: message.reasoning }] : []);

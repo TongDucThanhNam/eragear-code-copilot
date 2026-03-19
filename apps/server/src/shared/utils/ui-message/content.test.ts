@@ -220,9 +220,7 @@ describe("contentBlockToParts inline binary guard", () => {
     });
     const resourceData = parts[1];
     if (resourceData?.type === "data-resource") {
-      expect(
-        (resourceData.data as { blob?: unknown }).blob
-      ).toBeUndefined();
+      expect((resourceData.data as { blob?: unknown }).blob).toBeUndefined();
     }
   });
 });

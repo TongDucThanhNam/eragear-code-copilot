@@ -369,6 +369,7 @@ function toPrettyJson(value: unknown): string | null {
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Error formatting requires complex type handling
 function formatErrorSummary(value: unknown, depth: number): string | null {
   if (value === null || value === undefined) {
     return null;
@@ -457,7 +458,7 @@ function formatRpcError(record: Record<string, unknown>): string | null {
       ? String(record.code)
       : null;
   const data = formatRpcErrorData(record.data);
-  if (!message && !code && !data) {
+  if (!(message || code || data)) {
     return null;
   }
 
@@ -480,12 +481,14 @@ function formatRpcErrorData(data: unknown): string | null {
   }
   if (typeof data === "string") {
     const trimmed = data.trim();
-    return trimmed.length > 0 ? truncateText(trimmed, ERROR_DATA_MAX_LENGTH) : null;
+    return trimmed.length > 0
+      ? truncateText(trimmed, ERROR_DATA_MAX_LENGTH)
+      : null;
   }
   if (typeof data === "number" || typeof data === "boolean") {
     return String(data);
   }
-  if (!isRecord(data) && !Array.isArray(data)) {
+  if (!(isRecord(data) || Array.isArray(data))) {
     return null;
   }
 
@@ -496,11 +499,15 @@ function formatRpcErrorData(data: unknown): string | null {
         ? sanitized.path.trim()
         : null;
     const details =
-      typeof sanitized.details === "string" && sanitized.details.trim().length > 0
+      typeof sanitized.details === "string" &&
+      sanitized.details.trim().length > 0
         ? sanitized.details.trim()
         : null;
     if (path && details) {
-      return truncateText(`path=${path}; details=${details}`, ERROR_DATA_MAX_LENGTH);
+      return truncateText(
+        `path=${path}; details=${details}`,
+        ERROR_DATA_MAX_LENGTH
+      );
     }
     if (path) {
       return truncateText(`path=${path}`, ERROR_DATA_MAX_LENGTH);
@@ -511,10 +518,7 @@ function formatRpcErrorData(data: unknown): string | null {
   }
 
   try {
-    return truncateText(
-      JSON.stringify(sanitized),
-      ERROR_DATA_MAX_LENGTH
-    );
+    return truncateText(JSON.stringify(sanitized), ERROR_DATA_MAX_LENGTH);
   } catch {
     return null;
   }

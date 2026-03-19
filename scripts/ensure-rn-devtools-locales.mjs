@@ -27,6 +27,7 @@ const i18nPath = path.join(
   "i18n.js"
 );
 const fallbackLocale = "en-US";
+const i18nRegex = /new t\.I18n\.I18n\(\[([^\]]+)\],"en-US"\)/;
 
 function readSupportedLocales(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -34,7 +35,7 @@ function readSupportedLocales(filePath) {
   }
 
   const source = fs.readFileSync(filePath, "utf8");
-  const match = source.match(/new t\.I18n\.I18n\(\[([^\]]+)\],"en-US"\)/);
+  const match = source.match(i18nRegex);
   if (!match) {
     return [];
   }

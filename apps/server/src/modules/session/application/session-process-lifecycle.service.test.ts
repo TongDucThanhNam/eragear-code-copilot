@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
+import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 import { SessionProcessLifecycleService } from "./session-process-lifecycle.service";
-import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
-import { createUiMessageState } from "@/shared/utils/ui-message.util";
 
 function createSession(chatId: string): ChatSession {
   return {
@@ -77,7 +77,7 @@ function createRuntimeStub(session: ChatSession): {
     isLockHeld(chatId: string) {
       return (lockDepthByChat.get(chatId) ?? 0) > 0;
     },
-    async broadcast(_chatId: string, event: BroadcastEvent) {
+    broadcast(_chatId: string, event: BroadcastEvent) {
       events.push(event);
     },
   } as SessionRuntimePort;
@@ -98,7 +98,7 @@ function createRepoStub() {
     status: "running" | "stopped";
   }> = [];
   const repo = {
-    updateStatus: async (
+    updateStatus: (
       id: string,
       userId: string,
       status: "running" | "stopped"

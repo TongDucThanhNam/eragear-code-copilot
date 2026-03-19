@@ -349,17 +349,24 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       const currentDefaultTemplate = getDefaultAgentResumeCommandTemplate(
         current.type
       );
-      const nextDefaultTemplate = getDefaultAgentResumeCommandTemplate(nextType);
-      const nextResumeCommandTemplate =
-        input.resumeCommandTemplate !== undefined
-          ? normalizeAgentResumeCommandTemplate({
-              type: nextType,
-              resumeCommandTemplate: input.resumeCommandTemplate,
-              fallbackToDefault: true,
-            })
-          : input.type && current.resumeCommandTemplate === currentDefaultTemplate
-            ? nextDefaultTemplate
-            : (current.resumeCommandTemplate ?? nextDefaultTemplate);
+      const nextDefaultTemplate =
+        getDefaultAgentResumeCommandTemplate(nextType);
+      let nextResumeCommandTemplate: string;
+      if (input.resumeCommandTemplate !== undefined) {
+        nextResumeCommandTemplate = normalizeAgentResumeCommandTemplate({
+          type: nextType,
+          resumeCommandTemplate: input.resumeCommandTemplate,
+          fallbackToDefault: true,
+        });
+      } else if (
+        input.type &&
+        current.resumeCommandTemplate === currentDefaultTemplate
+      ) {
+        nextResumeCommandTemplate = nextDefaultTemplate;
+      } else {
+        nextResumeCommandTemplate =
+          current.resumeCommandTemplate ?? nextDefaultTemplate;
+      }
       const updated: AgentConfig = {
         ...current,
         name: input.name?.trim() || current.name,

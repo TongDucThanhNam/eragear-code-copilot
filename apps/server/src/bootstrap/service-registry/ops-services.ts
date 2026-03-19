@@ -6,8 +6,8 @@ import {
   ListDashboardProjectsService,
   ListDashboardSessionsService,
 } from "@/modules/ops";
-import { getTurnIdMigrationSnapshot } from "@/platform/acp/turn-id-observability";
 import type { OpsServiceFactory } from "@/modules/service-factories";
+import { getTurnIdMigrationSnapshot } from "@/platform/acp/turn-id-observability";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
 export function createOpsServices(

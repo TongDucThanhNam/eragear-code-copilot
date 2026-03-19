@@ -46,7 +46,7 @@ export function findUiMessageInsertIndex(
   let lo = 0;
   let hi = orderedMessages.length;
   while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
+    const mid = Math.floor((lo + hi) / 2);
     const current = orderedMessages[mid];
     if (
       !current ||

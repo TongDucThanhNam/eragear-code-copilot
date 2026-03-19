@@ -15,6 +15,7 @@ import { NotFoundError, ValidationError } from "@/shared/errors";
 import { settlePendingPermission } from "@/shared/utils/pending-permission.util";
 
 const OP = "tooling.permission.respond";
+const TOKENIZE_REGEX = /[^a-z0-9]+/;
 const ALLOW_KEYWORDS = [
   "allow",
   "approve",
@@ -54,7 +55,7 @@ function tokenize(value: string): string[] {
   if (value.length === 0) {
     return [];
   }
-  const words = value.split(/[^a-z0-9]+/).filter((part) => part.length > 0);
+  const words = value.split(TOKENIZE_REGEX).filter((part) => part.length > 0);
   return [value, ...words];
 }
 
@@ -96,7 +97,9 @@ function getOptionId(option: acp.PermissionOption): string | null {
   return option.optionId.trim().length > 0 ? option.optionId : null;
 }
 
-function inferOptionIntent(option: acp.PermissionOption): PermissionIntent | null {
+function inferOptionIntent(
+  option: acp.PermissionOption
+): PermissionIntent | null {
   const kind = normalizeToken(option.kind);
   if (kind.startsWith("reject_")) {
     return "reject";
@@ -338,7 +341,9 @@ export class RespondPermissionService {
           runtime.syncStatusAfterPermissionDecision(
             {
               chatId: input.chatId,
-              broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+              broadcast: this.sessionRuntime.broadcast.bind(
+                this.sessionRuntime
+              ),
             },
             turnId
           ),

@@ -34,7 +34,9 @@ describe("compareUiMessagesChronologically", () => {
   test("pushes messages without createdAt after timestamped messages", () => {
     const timestamped = createMessage("m-ts", "assistant", 1000);
     const legacy = createMessage("m-legacy", "assistant");
-    expect(compareUiMessagesChronologically(timestamped, legacy)).toBeLessThan(0);
+    expect(compareUiMessagesChronologically(timestamped, legacy)).toBeLessThan(
+      0
+    );
   });
 });
 

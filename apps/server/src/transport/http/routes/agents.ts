@@ -100,17 +100,16 @@ export function registerAgentRoutes(
         resumeCommandTemplate,
         env,
         projectId,
-      } =
-        await parseJsonBodyWithLimit<{
-          name: string;
-          type: AgentType;
-          command: string;
-          args?: string[];
-          argsInput?: string;
-          resumeCommandTemplate?: string;
-          env?: Record<string, string>;
-          projectId?: string | null;
-        }>(c.req.raw, runtime.httpMaxBodyBytes);
+      } = await parseJsonBodyWithLimit<{
+        name: string;
+        type: AgentType;
+        command: string;
+        args?: string[];
+        argsInput?: string;
+        resumeCommandTemplate?: string;
+        env?: Record<string, string>;
+        projectId?: string | null;
+      }>(c.req.raw, runtime.httpMaxBodyBytes);
 
       if (!(name && type && command)) {
         return c.json({ error: "name, type, and command are required" }, 400);
@@ -177,18 +176,17 @@ export function registerAgentRoutes(
         resumeCommandTemplate,
         env,
         projectId,
-      } =
-        await parseJsonBodyWithLimit<{
-          id: string;
-          name?: string;
-          type?: AgentType;
-          command?: string;
-          args?: string[];
-          argsInput?: string;
-          resumeCommandTemplate?: string;
-          env?: Record<string, string>;
-          projectId?: string | null;
-        }>(c.req.raw, runtime.httpMaxBodyBytes);
+      } = await parseJsonBodyWithLimit<{
+        id: string;
+        name?: string;
+        type?: AgentType;
+        command?: string;
+        args?: string[];
+        argsInput?: string;
+        resumeCommandTemplate?: string;
+        env?: Record<string, string>;
+        projectId?: string | null;
+      }>(c.req.raw, runtime.httpMaxBodyBytes);
 
       if (!id) {
         return c.json({ error: "id is required" }, 400);

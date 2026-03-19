@@ -21,7 +21,9 @@ import {
   SessionMessagesPageInputSchema,
   UpdateSessionMetaInputSchema,
 } from "@/modules/session";
+// biome-ignore lint/style/noRestrictedImports: Platform logging required for router operations
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
+// biome-ignore lint/style/noRestrictedImports: Platform logging required for router operations
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
 import { getRequiredUserId } from "../auth-helpers";
@@ -217,6 +219,7 @@ export const sessionRouter = router({
         let unsubscribe: (() => void) | undefined;
         let disposed = false;
 
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Subscription logic requires complex error handling and event emission
         const start = async () => {
           try {
             subscription = await service.execute(userId, input.chatId);
@@ -276,6 +279,7 @@ export const sessionRouter = router({
           });
         };
 
+        // biome-ignore lint/complexity/noVoid: Intentional fire-and-forget for subscription startup
         void start();
 
         return () => {
@@ -287,6 +291,7 @@ export const sessionRouter = router({
           }
           unsubscribe?.();
           if (subscription) {
+            // biome-ignore lint/complexity/noVoid: Intentional fire-and-forget for subscription release
             void subscription.release().catch((error) => {
               if (shouldEmitRuntimeLog("debug")) {
                 logger.debug("tRPC onSessionEvents release failed", {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { safeJsonStringify } from "@/shared/utils/json.util";
-import type { SessionUpdate } from "./update-types";
 import { serializeRawPayloadForLog } from "./raw-payload-log.util";
+import type { SessionUpdate } from "./update-types";
 
 const SESSION_UPDATE_KIND_MAX_LENGTH = 128;
 const SESSION_UPDATE_TYPE_MAX_LENGTH = 64;
@@ -9,7 +9,7 @@ const SESSION_UPDATE_MODE_ID_MAX_LENGTH = 128;
 const SESSION_UPDATE_REASON_MAX_LENGTH = 512;
 const SESSION_UPDATE_NAME_MAX_LENGTH = 256;
 const SESSION_UPDATE_DESCRIPTION_MAX_LENGTH = 4096;
-const SESSION_UPDATE_TEXT_MAX_LENGTH = 16384;
+const SESSION_UPDATE_TEXT_MAX_LENGTH = 16_384;
 const SESSION_UPDATE_VALUE_MAX_LENGTH = 512;
 const SESSION_UPDATE_CATEGORY_MAX_LENGTH = 128;
 const SESSION_UPDATE_TITLE_MAX_LENGTH = 512;
@@ -37,9 +37,7 @@ const ModeIdSchema = z
   .min(1)
   .max(SESSION_UPDATE_MODE_ID_MAX_LENGTH);
 
-const BoundedNameSchema = z
-  .string()
-  .max(SESSION_UPDATE_NAME_MAX_LENGTH);
+const BoundedNameSchema = z.string().max(SESSION_UPDATE_NAME_MAX_LENGTH);
 
 const BoundedDescriptionSchema = z
   .string()
@@ -48,9 +46,7 @@ const BoundedDescriptionSchema = z
 
 const BoundedTextSchema = z.string().max(SESSION_UPDATE_TEXT_MAX_LENGTH);
 
-const BoundedValueSchema = z
-  .string()
-  .max(SESSION_UPDATE_VALUE_MAX_LENGTH);
+const BoundedValueSchema = z.string().max(SESSION_UPDATE_VALUE_MAX_LENGTH);
 
 const SessionUpdateDiscriminatorSchema = z
   .object({
@@ -76,6 +72,7 @@ const ChunkUpdateSchema = z
   .passthrough();
 
 const TOOL_CALL_ID_MAX_LENGTH = 256;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: Control characters in regex are intentional for tool call ID validation
 const TOOL_CALL_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
 const ToolCallIdSchema = z
   .string()
@@ -105,15 +102,16 @@ const ToolCallUpdateSchema = z
 const PlanSchema = z
   .object({
     sessionUpdate: z.literal("plan"),
-    entries: z.array(
-      z
-        .object({
-          content: BoundedTextSchema,
-          priority: z.enum(["high", "medium", "low"]),
-          status: z.enum(["pending", "in_progress", "completed"]),
-        })
-        .passthrough()
-    )
+    entries: z
+      .array(
+        z
+          .object({
+            content: BoundedTextSchema,
+            priority: z.enum(["high", "medium", "low"]),
+            status: z.enum(["pending", "in_progress", "completed"]),
+          })
+          .passthrough()
+      )
       .max(PLAN_ENTRY_MAX_COUNT),
   })
   .passthrough();
@@ -121,14 +119,15 @@ const PlanSchema = z
 const AvailableCommandsUpdateSchema = z
   .object({
     sessionUpdate: z.literal("available_commands_update"),
-    availableCommands: z.array(
-      z
-        .object({
-          name: BoundedNameSchema,
-          description: BoundedDescriptionSchema,
-        })
-        .passthrough()
-    )
+    availableCommands: z
+      .array(
+        z
+          .object({
+            name: BoundedNameSchema,
+            description: BoundedDescriptionSchema,
+          })
+          .passthrough()
+      )
       .max(AVAILABLE_COMMANDS_MAX_COUNT),
   })
   .passthrough();
@@ -138,11 +137,7 @@ const CurrentModeUpdateSchema = z
     sessionUpdate: z.literal("current_mode_update"),
     currentModeId: ModeIdSchema.optional(),
     modeId: ModeIdSchema.optional(),
-    reason: z
-      .string()
-      .trim()
-      .max(SESSION_UPDATE_REASON_MAX_LENGTH)
-      .optional(),
+    reason: z.string().trim().max(SESSION_UPDATE_REASON_MAX_LENGTH).optional(),
     metadata: z.unknown().optional(),
   })
   .passthrough();
@@ -157,11 +152,7 @@ const ConfigOptionValueSchema = z
 
 const ConfigOptionGroupSchema = z
   .object({
-    group: z
-      .string()
-      .trim()
-      .min(1)
-      .max(SESSION_UPDATE_CATEGORY_MAX_LENGTH),
+    group: z.string().trim().min(1).max(SESSION_UPDATE_CATEGORY_MAX_LENGTH),
     name: BoundedNameSchema,
     options: z
       .array(ConfigOptionValueSchema)
@@ -171,11 +162,7 @@ const ConfigOptionGroupSchema = z
 
 const SessionConfigOptionSchema = z
   .object({
-    id: z
-      .string()
-      .trim()
-      .min(1)
-      .max(SESSION_UPDATE_CATEGORY_MAX_LENGTH),
+    id: z.string().trim().min(1).max(SESSION_UPDATE_CATEGORY_MAX_LENGTH),
     name: BoundedNameSchema,
     type: z.literal("select"),
     currentValue: BoundedValueSchema,
@@ -252,14 +239,16 @@ function normalizeSessionUpdateKind(kind: string): string {
 
   if (
     (normalized.includes("assistant") || normalized.includes("agent")) &&
-    (normalized.endsWith("_message_chunk") || normalized.endsWith("_text_chunk"))
+    (normalized.endsWith("_message_chunk") ||
+      normalized.endsWith("_text_chunk"))
   ) {
     return "agent_message_chunk";
   }
 
   if (
     normalized.includes("user") &&
-    (normalized.endsWith("_message_chunk") || normalized.endsWith("_text_chunk"))
+    (normalized.endsWith("_message_chunk") ||
+      normalized.endsWith("_text_chunk"))
   ) {
     return "user_message_chunk";
   }
@@ -296,7 +285,9 @@ function readChunkText(value: Record<string, unknown>): string | null {
  * Normalize provider chunk payload wrappers into canonical text content blocks
  * accepted by server UIMessage mapping.
  */
-function normalizeChunkContent(content: unknown): Record<string, unknown> | null {
+function normalizeChunkContent(
+  content: unknown
+): Record<string, unknown> | null {
   const candidate = asRecord(content);
   if (!candidate) {
     return null;
@@ -357,6 +348,7 @@ function normalizeChunkContent(content: unknown): Record<string, unknown> | null
   return candidate;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Validation branching across multiple session update kinds
 function validateKnownSessionUpdate(
   raw: unknown,
   kind: string
@@ -472,6 +464,7 @@ function logKnownSessionUpdateValidationFailure(params: {
     issues: params.issues?.slice(0, 8),
     rawPayload: serializeRawPayloadForLog(params.raw),
   });
+  // biome-ignore lint/suspicious/noConsole: Logging validation failures for debugging
   console.warn(`ACP known session update validation failed ${context}`);
 }
 
@@ -506,7 +499,10 @@ export function parseSessionUpdatePayload(raw: unknown): SessionUpdate | null {
           sessionUpdate: normalizedKind,
         };
 
-  const validatedKnown = validateKnownSessionUpdate(normalizedRaw, normalizedKind);
+  const validatedKnown = validateKnownSessionUpdate(
+    normalizedRaw,
+    normalizedKind
+  );
   if (validatedKnown.update) {
     return validatedKnown.update;
   }

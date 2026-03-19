@@ -1,5 +1,7 @@
 import { ENV } from "@/config/environment";
+// biome-ignore lint/style/noRestrictedImports: Platform logging utilities needed for session event runtime
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
+// biome-ignore lint/style/noRestrictedImports: Platform logging utilities needed for session event runtime
 import { createLogger } from "@/platform/logging/structured-logger";
 import { NotFoundError } from "@/shared/errors";
 import type {
@@ -74,7 +76,9 @@ export class SubscribeSessionEventsService {
           bufferedEvents: BroadcastEvent[];
           forcedActiveSnapshot: boolean;
           subscriberCount: number;
-          internalListener: (event: BroadcastEvent) => Promise<void> | undefined;
+          internalListener: (
+            event: BroadcastEvent
+          ) => Promise<void> | undefined;
         }
       | undefined;
 
@@ -176,7 +180,7 @@ export class SubscribeSessionEventsService {
         subscribe() {
           return () => undefined;
         },
-        async release() {
+        release() {
           return;
         },
       };
@@ -222,7 +226,7 @@ export class SubscribeSessionEventsService {
           const queued = pendingLiveEvents.splice(0, pendingLiveEvents.length);
           pendingLiveEventIndexByKey.clear();
           for (const event of queued) {
-            void deliverLiveEvent(
+            deliverLiveEvent(
               () => wrappedListener(event),
               () => liveDeliveryTail,
               (nextTail) => {
@@ -246,7 +250,7 @@ export class SubscribeSessionEventsService {
         pendingLiveEvents.length = 0;
         pendingLiveEventIndexByKey.clear();
         session.emitter.off("data", internalListener);
-        await sessionRuntime.runExclusive(chatId, async () => {
+        await sessionRuntime.runExclusive(chatId, () => {
           assertSessionMutationLock({
             sessionRuntime,
             chatId,
@@ -278,9 +282,7 @@ export class SubscribeSessionEventsService {
   }
 }
 
-function clearNoSubscriberAbortTimer(
-  task: ActivePromptTask | undefined
-): void {
+function clearNoSubscriberAbortTimer(task: ActivePromptTask | undefined): void {
   if (!task) {
     return;
   }
@@ -306,7 +308,7 @@ function scheduleNoSubscriberPromptAbort(
   task.noSubscriberAbortReason =
     "Prompt aborted after realtime subscribers disconnected";
   task.noSubscriberAbortTimer = setTimeout(() => {
-    void sessionRuntime.runExclusive(chatId, async () => {
+    sessionRuntime.runExclusive(chatId, () => {
       const current = sessionRuntime.get(chatId);
       if (!current || current !== session) {
         return;
@@ -365,9 +367,7 @@ function deliverLiveEvent(
   return normalizedTail;
 }
 
-function isPromiseLike(
-  value: void | Promise<void>
-): value is Promise<void> {
+function isPromiseLike(value: void | Promise<void>): value is Promise<void> {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -454,13 +454,13 @@ function buildBufferedEvents(session: ChatSession): {
       : Array.from(replaySnapshotEventMap.values())
           .map((event) => event.message)
           .sort((left, right) => {
-          const leftCreatedAt = left.createdAt ?? 0;
-          const rightCreatedAt = right.createdAt ?? 0;
-          if (leftCreatedAt !== rightCreatedAt) {
-            return leftCreatedAt - rightCreatedAt;
-          }
-          return left.id.localeCompare(right.id);
-        });
+            const leftCreatedAt = left.createdAt ?? 0;
+            const rightCreatedAt = right.createdAt ?? 0;
+            if (leftCreatedAt !== rightCreatedAt) {
+              return leftCreatedAt - rightCreatedAt;
+            }
+            return left.id.localeCompare(right.id);
+          });
   const snapshotEvents = effectiveSnapshots.map((message) => {
     const replaySnapshot = replaySnapshotEventMap.get(message.id);
     const turnId =
@@ -496,7 +496,10 @@ function buildBufferedEvents(session: ChatSession): {
         // Snapshot-first replay is authoritative. Re-emitting historical
         // active-turn part updates that are already represented in the
         // snapshot can regress the client UI during reconnect.
-        if (activeSnapshotPartCount > 0 && event.partIndex < activeSnapshotPartCount) {
+        if (
+          activeSnapshotPartCount > 0 &&
+          event.partIndex < activeSnapshotPartCount
+        ) {
           return [];
         }
         return [
@@ -518,10 +521,9 @@ function buildBufferedEvents(session: ChatSession): {
   );
   const reconnectChatFinish =
     shouldReplayPendingChatFinish(session) && session.pendingReconnectChatFinish
-      ? (cloneBroadcastEvent(session.pendingReconnectChatFinish.event) as Extract<
-          BroadcastEvent,
-          { type: "chat_finish" }
-        >)
+      ? (cloneBroadcastEvent(
+          session.pendingReconnectChatFinish.event
+        ) as Extract<BroadcastEvent, { type: "chat_finish" }>)
       : undefined;
   if (reconnectChatFinish) {
     session.pendingReconnectChatFinish = undefined;

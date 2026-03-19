@@ -659,12 +659,17 @@ describe("handleBufferedMessage", () => {
       content: string;
     }> = [];
     const sessionRepo = {
-      appendMessage: async (
+      appendMessage: (
         chatId: string,
         userId: string,
         message: { id: string; content: string }
       ) => {
-        appendCalls.push({ chatId, userId, messageId: message.id, content: message.content });
+        appendCalls.push({
+          chatId,
+          userId,
+          messageId: message.id,
+          content: message.content,
+        });
         return { appended: true } as const;
       },
     } as SessionRepositoryPort;
@@ -715,7 +720,7 @@ describe("handleBufferedMessage", () => {
     const buffer = new SessionBuffering();
     const appendCalls: Array<{ messageId: string; content: string }> = [];
     const sessionRepo = {
-      appendMessage: async (
+      appendMessage: (
         _chatId: string,
         _userId: string,
         message: { id: string; content: string }
@@ -773,7 +778,7 @@ describe("handleBufferedMessage", () => {
     const buffer = new SessionBuffering();
     const appendCalls: Array<{ messageId: string; content: string }> = [];
     const sessionRepo = {
-      appendMessage: async (
+      appendMessage: (
         _chatId: string,
         _userId: string,
         message: { id: string; content: string }

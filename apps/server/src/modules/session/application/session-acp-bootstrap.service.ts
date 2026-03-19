@@ -1,6 +1,8 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import { CLIENT_INFO } from "@/config/constants";
 import { ENV } from "@/config/environment";
+// biome-ignore lint/style/noRestrictedImports: Platform logging utility required for session bootstrap
+import { serializeRawPayloadForLog } from "@/platform/acp/raw-payload-log.util";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
@@ -10,7 +12,6 @@ import type {
   SessionModeState,
 } from "@/shared/types/session.types";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
-import { serializeRawPayloadForLog } from "@/platform/acp/raw-payload-log.util";
 import {
   syncSessionSelectionFromConfigOptions,
   updateSessionConfigOptionCurrentValue,

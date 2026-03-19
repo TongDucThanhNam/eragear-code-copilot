@@ -33,10 +33,7 @@ function createSafeJsonReplacer(ancestors: object[]) {
       return currentValue;
     }
 
-    while (
-      ancestors.length > 0 &&
-      ancestors[ancestors.length - 1] !== this
-    ) {
+    while (ancestors.length > 0 && ancestors.at(-1) !== this) {
       ancestors.pop();
     }
 

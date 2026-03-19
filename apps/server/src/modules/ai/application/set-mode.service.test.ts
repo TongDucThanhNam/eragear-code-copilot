@@ -123,8 +123,7 @@ function createGateway(params: {
     cancelPrompt: async () => undefined,
     setSessionMode: params.setSessionMode,
     setSessionModel: async () => undefined,
-    setSessionConfigOption:
-      params.setSessionConfigOption ?? (async () => []),
+    setSessionConfigOption: params.setSessionConfigOption ?? (async () => []),
     stopAndCleanup: async () => undefined,
     clearPendingPermissionsAsCancelled: () => undefined,
   };
@@ -258,7 +257,7 @@ describe("SetModeService", () => {
         chatId: "chat-1",
         event: {
           type: "config_options_update",
-          configOptions: session.configOptions!,
+          configOptions: session.configOptions ?? null,
         },
       },
     ]);
@@ -288,10 +287,10 @@ describe("SetModeService", () => {
       sessionRuntime,
       createGateway({
         session,
-        setSessionMode: async (_session, modeId) => {
+        setSessionMode: (_session, modeId) => {
           legacyCalls.push(modeId);
         },
-        setSessionConfigOption: async (_session, configId, value) => {
+        setSessionConfigOption: (_session, configId, value) => {
           configCalls.push({ configId, value });
           return [
             {
@@ -320,7 +319,7 @@ describe("SetModeService", () => {
       },
     ]);
     expect(session.configOptions?.[0]?.currentValue).toBe("architect");
-    expect(session.modes!).toEqual({
+    expect(session.modes).toEqual({
       currentModeId: "architect",
       availableModes: [
         { id: "code", name: "Code", description: undefined },

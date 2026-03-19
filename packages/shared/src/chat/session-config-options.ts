@@ -30,9 +30,7 @@ function isConfigSelectGroup(
   );
 }
 
-function hasNonEmptyString(
-  value: string | null | undefined
-): value is string {
+function hasNonEmptyString(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
@@ -99,7 +97,7 @@ export function getSessionConfigOptionCurrentValue(params: {
   target: "mode" | "model";
 }): string | undefined {
   const option = findSessionConfigOption(params.configOptions, params.target);
-  if (!option || !hasNonEmptyString(option.currentValue)) {
+  if (!(option && hasNonEmptyString(option.currentValue))) {
     return undefined;
   }
   return option.currentValue;
@@ -109,7 +107,7 @@ function deriveModeState(
   modeOption: SessionConfigOption | undefined,
   fallbackModes: SessionModeState | null | undefined
 ): SessionModeState | null {
-  if (!modeOption || !hasNonEmptyString(modeOption.currentValue)) {
+  if (!(modeOption && hasNonEmptyString(modeOption.currentValue))) {
     return fallbackModes ?? null;
   }
 
@@ -133,7 +131,7 @@ function deriveModelState(
   modelOption: SessionConfigOption | undefined,
   fallbackModels: SessionModelState | null | undefined
 ): SessionModelState | null {
-  if (!modelOption || !hasNonEmptyString(modelOption.currentValue)) {
+  if (!(modelOption && hasNonEmptyString(modelOption.currentValue))) {
     return fallbackModels ?? null;
   }
 
@@ -178,7 +176,7 @@ export function updateSessionConfigOptionCurrentValue(params: {
   target: "mode" | "model";
   value: string;
 }): SessionConfigOption[] | null | undefined {
-  if (!hasNonEmptyString(params.value) || !params.configOptions) {
+  if (!(hasNonEmptyString(params.value) && params.configOptions)) {
     return params.configOptions;
   }
   const optionIndex = params.configOptions.findIndex((candidate) => {

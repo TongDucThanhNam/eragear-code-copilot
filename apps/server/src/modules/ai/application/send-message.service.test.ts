@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { ENV } from "@/config/environment";
-import { SubscribeSessionEventsService } from "@/modules/session/application/subscribe-session-events.service";
 import type {
   SessionListPageQuery,
   SessionListPageResult,
@@ -12,6 +11,7 @@ import type {
   SessionStorageStats,
 } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
+import { SubscribeSessionEventsService } from "@/modules/session/application/subscribe-session-events.service";
 import { SessionBuffering } from "@/platform/acp/update";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
@@ -427,7 +427,7 @@ describe("SendMessageService", () => {
     const events: BroadcastEvent[] = [];
     let session!: ChatSession;
     session = createChatSession({
-      prompt: async () => {
+      prompt: () => {
         session.buffer ??= new SessionBuffering();
         session.buffer.ensureMessageId("msg-buffer-only");
         session.buffer.appendContent({
@@ -703,11 +703,13 @@ describe("SendMessageService", () => {
     const staleAssistantId = "msg-assistant-stale";
     let session!: ChatSession;
     let assistantIdAtPrompt: string | undefined;
-    let lastChunkTypeAtPrompt: ChatSession["lastAssistantChunkType"] | undefined;
+    let lastChunkTypeAtPrompt:
+      | ChatSession["lastAssistantChunkType"]
+      | undefined;
     let bufferedMessageIdAtPrompt: string | null | undefined;
 
     session = createChatSession({
-      prompt: async () => {
+      prompt: () => {
         assistantIdAtPrompt = session.uiState.currentAssistantId;
         lastChunkTypeAtPrompt = session.lastAssistantChunkType;
         bufferedMessageIdAtPrompt = session.buffer?.getMessageId();
@@ -771,7 +773,8 @@ describe("SendMessageService", () => {
     expect(session.activePromptTask).toBeUndefined();
     expect(
       events.some(
-        (event) => event.type === "error" && event.error === "sqlite unavailable"
+        (event) =>
+          event.type === "error" && event.error === "sqlite unavailable"
       )
     ).toBe(true);
     expect(
@@ -934,14 +937,17 @@ describe("SendMessageService", () => {
           promptStarted.resolve();
           return await new Promise<{ stopReason: string }>(() => undefined);
         },
-        cancel: async () => {
+        cancel: () => {
           cancelCallCount += 1;
         },
       });
       session.emitter.removeAllListeners("data");
       session.subscriberCount = 0;
       const runtime = createSessionRuntime("chat-1", session, events);
-      const subscriptionService = new SubscribeSessionEventsService(runtime, repo);
+      const subscriptionService = new SubscribeSessionEventsService(
+        runtime,
+        repo
+      );
       const live = await subscriptionService.execute("user-1", "chat-1");
       const unsubscribe = live.subscribe(async () => undefined);
       const service = createService(repo, runtime);
@@ -993,7 +999,8 @@ describe("SendMessageService", () => {
 
     expect(
       events.some(
-        (event) => event.type === "chat_finish" && event.turnId === result.turnId
+        (event) =>
+          event.type === "chat_finish" && event.turnId === result.turnId
       )
     ).toBe(false);
 

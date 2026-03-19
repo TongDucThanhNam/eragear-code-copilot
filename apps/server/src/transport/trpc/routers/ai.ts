@@ -14,6 +14,7 @@ import {
   SetModeInputSchema,
   SetModelInputSchema,
 } from "@/modules/ai";
+// biome-ignore lint/style/noRestrictedImports: Platform logging required for router operations
 import { createLogger } from "@/platform/logging/structured-logger";
 import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";

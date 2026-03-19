@@ -171,7 +171,7 @@ const CHAT_STATUS_SCHEMA = z.enum([
 ]);
 
 const PART_ID_MAX_LENGTH = 256;
-const PART_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
+const PART_ID_PATTERN = /^[^\\s\\x00-\\x1F\\x7F]+$/;
 const PART_ID_SCHEMA = z
   .string()
   .min(1)

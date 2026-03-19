@@ -60,18 +60,26 @@ export class SessionProcessLifecycleService {
             if (transition.status === "inactive") {
               await runtime.markInactive({
                 chatId,
-                broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+                broadcast: this.sessionRuntime.broadcast.bind(
+                  this.sessionRuntime
+                ),
               });
             } else {
               await runtime.markError({
                 chatId,
-                broadcast: this.sessionRuntime.broadcast.bind(this.sessionRuntime),
+                broadcast: this.sessionRuntime.broadcast.bind(
+                  this.sessionRuntime
+                ),
               });
             }
           }
 
           if (session?.userId) {
-            await this.sessionRepo.updateStatus(chatId, session.userId, "stopped");
+            await this.sessionRepo.updateStatus(
+              chatId,
+              session.userId,
+              "stopped"
+            );
           }
           if (session) {
             await terminateSessionTerminals(session);
@@ -185,7 +193,9 @@ function isCleanExit(
   if (code === 0) {
     return true;
   }
-  return code === null && Boolean(signal && EXPECTED_TERMINATION_SIGNALS.has(signal));
+  return (
+    code === null && Boolean(signal && EXPECTED_TERMINATION_SIGNALS.has(signal))
+  );
 }
 
 function formatExitReason(

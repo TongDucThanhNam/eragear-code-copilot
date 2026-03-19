@@ -134,6 +134,7 @@ describe("LogStore persisted history", () => {
 
     const logDir = path.join(storageDir, "logs");
     const expectedDate = "2026-03-07";
+    // biome-ignore lint/correctness/noUndeclaredVariables: Bun.file is a Bun-specific API for reading files
     const content = await Bun.file(
       path.join(logDir, `logs-${expectedDate}.ndjson`)
     ).text();

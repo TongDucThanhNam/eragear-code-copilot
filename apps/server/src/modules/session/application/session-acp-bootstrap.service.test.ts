@@ -30,8 +30,10 @@ function createCapturingLoggerStub(): {
   logger: LoggerPort;
   infoCalls: Array<{ message: string; context?: Record<string, unknown> }>;
 } {
-  const infoCalls: Array<{ message: string; context?: Record<string, unknown> }> =
-    [];
+  const infoCalls: Array<{
+    message: string;
+    context?: Record<string, unknown>;
+  }> = [];
   const noop = () => undefined;
   return {
     logger: {

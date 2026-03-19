@@ -10,9 +10,9 @@ import {
 } from "@/shared/utils/ui-message.util";
 import type { CreateSessionParams } from "./create-session.types";
 import {
+  type ExternalHistoryResolveInput,
   isExternalHistoryImportSupportedAgentCommand,
   resolveExternalHistoryImportMessages,
-  type ExternalHistoryResolveInput,
 } from "./external-history-resolver";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionMetadataPersistenceService } from "./session-metadata-persistence.service";
@@ -80,7 +80,9 @@ export class PersistSessionBootstrapService {
     }
     input.chatSession.importExternalHistoryOnLoad = false;
 
-    const runtimeMessages = collectUiMessages(input.chatSession.uiState.messages);
+    const runtimeMessages = collectUiMessages(
+      input.chatSession.uiState.messages
+    );
     let uiMessages = runtimeMessages;
     if (
       shouldAttemptExternalImportFallback({
@@ -105,7 +107,10 @@ export class PersistSessionBootstrapService {
       }
     }
 
-    const messageEntries = uiMessages.map((message, index) => ({ index, message }));
+    const messageEntries = uiMessages.map((message, index) => ({
+      index,
+      message,
+    }));
     const baseTimestamp = Date.now();
     const storedMessages: StoredMessage[] = [];
 
@@ -137,7 +142,9 @@ export class PersistSessionBootstrapService {
   }
 }
 
-function normalizeMessageTimestamp(value: number | undefined): number | undefined {
+function normalizeMessageTimestamp(
+  value: number | undefined
+): number | undefined {
   if (!Number.isFinite(value)) {
     return undefined;
   }
@@ -161,7 +168,8 @@ function mapUiMessageToStoredMessage(
   const content = contentBlocks.map((block) => block.text).join("");
   const reasoning = reasoningBlocks.map((block) => block.text).join("");
   const timestamp =
-    normalizeMessageTimestamp(message.createdAt) ?? Math.trunc(fallbackTimestamp);
+    normalizeMessageTimestamp(message.createdAt) ??
+    Math.trunc(fallbackTimestamp);
 
   const stored: StoredMessage = {
     id: message.id,
@@ -199,9 +207,7 @@ function extractTextBlocks(
   return blocks;
 }
 
-function collectUiMessages(
-  source: Map<string, UIMessage>
-): UIMessage[] {
+function collectUiMessages(source: Map<string, UIMessage>): UIMessage[] {
   return sortMessagesChronologically([...source.values()]);
 }
 
@@ -262,7 +268,10 @@ function shouldAttemptExternalImportFallback(params: {
   return runtimeSummary.assistant === 0 || isAssistantSparse(runtimeSummary);
 }
 
-function isAssistantSparse(summary: { assistant: number; user: number }): boolean {
+function isAssistantSparse(summary: {
+  assistant: number;
+  user: number;
+}): boolean {
   return (
     summary.assistant * ASSISTANT_SPARSE_USER_RATIO_DIVISOR <= summary.user
   );

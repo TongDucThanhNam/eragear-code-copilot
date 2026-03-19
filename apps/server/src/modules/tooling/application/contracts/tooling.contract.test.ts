@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { SyncEditorBufferInputSchema } from "./tooling.contract";
 
+const CONTENT_IS_REQUIRED_REGEX = /content is required/i;
+
 describe("SyncEditorBufferInputSchema", () => {
   test("requires content when isDirty is true", () => {
     expect(() =>
@@ -9,7 +11,7 @@ describe("SyncEditorBufferInputSchema", () => {
         path: "src/app.ts",
         isDirty: true,
       })
-    ).toThrow(/content is required/i);
+    ).toThrow(CONTENT_IS_REQUIRED_REGEX);
   });
 
   test("allows clear payload when isDirty is false", () => {

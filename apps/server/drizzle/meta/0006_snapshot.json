@@ -81,24 +81,17 @@
       "indexes": {
         "idx_agents_user_id": {
           "name": "idx_agents_user_id",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": false
         },
         "idx_agents_project_id": {
           "name": "idx_agents_project_id",
-          "columns": [
-            "project_id"
-          ],
+          "columns": ["project_id"],
           "isUnique": false
         },
         "idx_agents_user_project_id": {
           "name": "idx_agents_user_project_id",
-          "columns": [
-            "user_id",
-            "project_id"
-          ],
+          "columns": ["user_id", "project_id"],
           "isUnique": false
         }
       },
@@ -107,12 +100,8 @@
           "name": "agents_project_id_projects_id_fk",
           "tableFrom": "agents",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -247,9 +236,7 @@
       "indexes": {
         "projects_path_unique": {
           "name": "projects_path_unique",
-          "columns": [
-            "path"
-          ],
+          "columns": ["path"],
           "isUnique": true
         }
       },
@@ -337,17 +324,12 @@
       "indexes": {
         "idx_outbox_status_next_attempt": {
           "name": "idx_outbox_status_next_attempt",
-          "columns": [
-            "status",
-            "next_attempt_at"
-          ],
+          "columns": ["status", "next_attempt_at"],
           "isUnique": false
         },
         "idx_outbox_created_at": {
           "name": "idx_outbox_created_at",
-          "columns": [
-            "created_at"
-          ],
+          "columns": ["created_at"],
           "isUnique": false
         }
       },
@@ -463,35 +445,22 @@
       "indexes": {
         "uniq_messages_session_id_message_id": {
           "name": "uniq_messages_session_id_message_id",
-          "columns": [
-            "session_id",
-            "message_id"
-          ],
+          "columns": ["session_id", "message_id"],
           "isUnique": true
         },
         "idx_messages_session_id_seq": {
           "name": "idx_messages_session_id_seq",
-          "columns": [
-            "session_id",
-            "seq"
-          ],
+          "columns": ["session_id", "seq"],
           "isUnique": false
         },
         "idx_messages_session_id_timestamp": {
           "name": "idx_messages_session_id_timestamp",
-          "columns": [
-            "session_id",
-            "timestamp"
-          ],
+          "columns": ["session_id", "timestamp"],
           "isUnique": false
         },
         "idx_messages_session_id_retained_payload_seq": {
           "name": "idx_messages_session_id_retained_payload_seq",
-          "columns": [
-            "session_id",
-            "retained_payload",
-            "seq"
-          ],
+          "columns": ["session_id", "retained_payload", "seq"],
           "isUnique": false
         }
       },
@@ -500,12 +469,8 @@
           "name": "session_messages_session_id_sessions_id_fk",
           "tableFrom": "session_messages",
           "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -711,64 +676,42 @@
       "indexes": {
         "idx_sessions_user_id": {
           "name": "idx_sessions_user_id",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": false
         },
         "idx_sessions_project_id": {
           "name": "idx_sessions_project_id",
-          "columns": [
-            "project_id"
-          ],
+          "columns": ["project_id"],
           "isUnique": false
         },
         "idx_sessions_user_project_id": {
           "name": "idx_sessions_user_project_id",
-          "columns": [
-            "user_id",
-            "project_id"
-          ],
+          "columns": ["user_id", "project_id"],
           "isUnique": false
         },
         "idx_sessions_last_active_at": {
           "name": "idx_sessions_last_active_at",
-          "columns": [
-            "last_active_at"
-          ],
+          "columns": ["last_active_at"],
           "isUnique": false
         },
         "idx_sessions_last_active_at_id": {
           "name": "idx_sessions_last_active_at_id",
-          "columns": [
-            "last_active_at",
-            "id"
-          ],
+          "columns": ["last_active_at", "id"],
           "isUnique": false
         },
         "idx_sessions_project_id_last_active_at": {
           "name": "idx_sessions_project_id_last_active_at",
-          "columns": [
-            "project_id",
-            "last_active_at"
-          ],
+          "columns": ["project_id", "last_active_at"],
           "isUnique": false
         },
         "idx_sessions_archived_pinned_last_active_at": {
           "name": "idx_sessions_archived_pinned_last_active_at",
-          "columns": [
-            "archived",
-            "pinned",
-            "last_active_at"
-          ],
+          "columns": ["archived", "pinned", "last_active_at"],
           "isUnique": false
         },
         "idx_sessions_user_last_active_at": {
           "name": "idx_sessions_user_last_active_at",
-          "columns": [
-            "user_id",
-            "last_active_at"
-          ],
+          "columns": ["user_id", "last_active_at"],
           "isUnique": false
         }
       },
@@ -777,12 +720,8 @@
           "name": "sessions_agent_id_agents_id_fk",
           "tableFrom": "sessions",
           "tableTo": "agents",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -790,12 +729,8 @@
           "name": "sessions_project_id_projects_id_fk",
           "tableFrom": "sessions",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -833,10 +768,7 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "user_settings_user_id_key_pk": {
-          "columns": [
-            "user_id",
-            "key"
-          ],
+          "columns": ["user_id", "key"],
           "name": "user_settings_user_id_key_pk"
         }
       },

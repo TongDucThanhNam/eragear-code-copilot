@@ -7,6 +7,7 @@ import type {
 import { createId } from "./id.util";
 
 const PART_ID_MAX_LENGTH = 256;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: Control characters are intentionally rejected for part ID validation
 const PART_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
 const PART_ID_INDEX_MIN_LIMIT = 32;
 const PART_ID_INDEX_HEADROOM = 16;

@@ -7,7 +7,7 @@
  * @module modules/session/application/resume-session.service
  */
 
-import { NotFoundError, ValidationError, isAppError } from "@/shared/errors";
+import { isAppError, NotFoundError, ValidationError } from "@/shared/errors";
 import type { CreateSessionService } from "./create-session.service";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -106,12 +106,7 @@ export class ResumeSessionService {
         importExternalHistoryOnLoad: true,
       });
     } catch (error) {
-      if (
-        !(
-          isAppError(error) &&
-          error.code === RESUME_FALLBACK_ERROR_CODE
-        )
-      ) {
+      if (!(isAppError(error) && error.code === RESUME_FALLBACK_ERROR_CODE)) {
         throw error;
       }
 

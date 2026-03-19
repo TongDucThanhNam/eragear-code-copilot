@@ -130,7 +130,11 @@ export class SessionRuntimeEntity {
   }
 
   markReady(context: BroadcastContext, turnId?: string): Promise<void> {
-    return this.updateStatus(context, SESSION_RUNTIME_CHAT_STATUS.READY, turnId);
+    return this.updateStatus(
+      context,
+      SESSION_RUNTIME_CHAT_STATUS.READY,
+      turnId
+    );
   }
 
   shouldStreamFromActivity(): boolean {
@@ -159,7 +163,8 @@ export class SessionRuntimeEntity {
       return SESSION_RUNTIME_CHAT_STATUS.AWAITING_PERMISSION;
     }
     if (
-      this.session.chatStatus === SESSION_RUNTIME_CHAT_STATUS.AWAITING_PERMISSION
+      this.session.chatStatus ===
+      SESSION_RUNTIME_CHAT_STATUS.AWAITING_PERMISSION
     ) {
       return this.shouldStreamFromActivity()
         ? SESSION_RUNTIME_CHAT_STATUS.STREAMING

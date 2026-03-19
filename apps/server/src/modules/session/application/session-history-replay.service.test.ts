@@ -80,7 +80,7 @@ describe("SessionHistoryReplayService", () => {
     const broadcasts: unknown[] = [];
     const runtime = {
       get: (id: string) => (id === chatId ? session : undefined),
-      broadcast: async (_chatId: string, event: unknown) => {
+      broadcast: (_chatId: string, event: unknown) => {
         broadcasts.push(event);
       },
     } as unknown as SessionRuntimePort;
@@ -92,7 +92,7 @@ describe("SessionHistoryReplayService", () => {
       }),
     } as unknown as SessionRepositoryPort;
     const mapper = {
-      broadcastStoredMessage: async () => undefined,
+      broadcastStoredMessage: () => undefined,
     } as unknown as SessionMessageMapper;
 
     const service = new SessionHistoryReplayService(
@@ -145,7 +145,7 @@ describe("SessionHistoryReplayService", () => {
       }),
     } as unknown as SessionRepositoryPort;
     const mapper = {
-      broadcastStoredMessage: async (
+      broadcastStoredMessage: (
         mappedChatId: string,
         message: { id: string }
       ) => {
@@ -165,8 +165,6 @@ describe("SessionHistoryReplayService", () => {
 
     await service.broadcastPromptEnd(chatId, createBufferStub(0));
 
-    expect(mappedCalls).toEqual([
-      { chatId, messageId: "msg-stored-1" },
-    ]);
+    expect(mappedCalls).toEqual([{ chatId, messageId: "msg-stored-1" }]);
   });
 });

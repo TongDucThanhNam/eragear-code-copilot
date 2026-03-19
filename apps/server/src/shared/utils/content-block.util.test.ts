@@ -10,9 +10,11 @@ let previousStorageDirEnv: string | undefined;
 let previousAllowedAgentPoliciesEnv: string | undefined;
 let previousAllowedTerminalPoliciesEnv: string | undefined;
 let previousAllowedEnvKeysEnv: string | undefined;
-let contentBlockUtilModule:
-  | typeof import("./content-block.util")
-  | undefined;
+let contentBlockUtilModule: typeof import("./content-block.util") | undefined;
+
+// Top-level regex patterns for performance
+const BLOB_ID_PATTERN = /^blob-/;
+const BLOB_URI_PATTERN = /^\/api\/blobs\/blob-/;
 
 beforeEach(async () => {
   previousStorageDirEnv = process.env.ERAGEAR_STORAGE_DIR;
@@ -36,24 +38,28 @@ beforeEach(async () => {
 
 afterEach(async () => {
   if (previousStorageDirEnv === undefined) {
-    delete process.env.ERAGEAR_STORAGE_DIR;
+    // biome-ignore: Setting to undefined is intentional for unsetting env vars
+    process.env.ERAGEAR_STORAGE_DIR = undefined;
   } else {
     process.env.ERAGEAR_STORAGE_DIR = previousStorageDirEnv;
   }
   if (previousAllowedAgentPoliciesEnv === undefined) {
-    delete process.env.ALLOWED_AGENT_COMMAND_POLICIES;
+    // biome-ignore: Setting to undefined is intentional for unsetting env vars
+    process.env.ALLOWED_AGENT_COMMAND_POLICIES = undefined;
   } else {
     process.env.ALLOWED_AGENT_COMMAND_POLICIES =
       previousAllowedAgentPoliciesEnv;
   }
   if (previousAllowedTerminalPoliciesEnv === undefined) {
-    delete process.env.ALLOWED_TERMINAL_COMMAND_POLICIES;
+    // biome-ignore: Setting to undefined is intentional for unsetting env vars
+    process.env.ALLOWED_TERMINAL_COMMAND_POLICIES = undefined;
   } else {
     process.env.ALLOWED_TERMINAL_COMMAND_POLICIES =
       previousAllowedTerminalPoliciesEnv;
   }
   if (previousAllowedEnvKeysEnv === undefined) {
-    delete process.env.ALLOWED_ENV_KEYS;
+    // biome-ignore: Setting to undefined is intentional for unsetting env vars
+    process.env.ALLOWED_ENV_KEYS = undefined;
   } else {
     process.env.ALLOWED_ENV_KEYS = previousAllowedEnvKeysEnv;
   }
@@ -139,7 +145,7 @@ describe("toStoredContentBlock inline binary guard", () => {
     expect(normalized).toMatchObject({
       type: "image",
       data: "",
-      uri: expect.stringMatching(/^\/api\/blobs\/blob-/),
+      uri: expect.stringMatching(BLOB_URI_PATTERN),
     });
     expect((normalized as { _meta?: Record<string, unknown> })._meta).toEqual(
       expect.objectContaining({
@@ -147,8 +153,8 @@ describe("toStoredContentBlock inline binary guard", () => {
           field: "data",
           omitted: true,
           blobRef: expect.objectContaining({
-            id: expect.stringMatching(/^blob-/),
-            url: expect.stringMatching(/^\/api\/blobs\/blob-/),
+            id: expect.stringMatching(BLOB_ID_PATTERN),
+            url: expect.stringMatching(BLOB_URI_PATTERN),
           }),
         }),
       })
@@ -176,9 +182,9 @@ describe("toStoredContentBlock inline binary guard", () => {
     if (normalized.type !== "resource") {
       return;
     }
-    expect("blob" in normalized.resource ? normalized.resource.blob : undefined).toBe(
-      ""
-    );
+    expect(
+      "blob" in normalized.resource ? normalized.resource.blob : undefined
+    ).toBe("");
     expect(
       (
         normalized.resource as {
@@ -223,7 +229,7 @@ describe("toStoredContentBlock inline binary guard", () => {
     if (normalized.type !== "resource") {
       return;
     }
-    expect(normalized.resource.uri).toMatch(/^\/api\/blobs\/blob-/);
+    expect(normalized.resource.uri).toMatch(BLOB_URI_PATTERN);
     const resourceMeta = (
       normalized.resource as {
         _meta?: Record<string, unknown>;
@@ -235,8 +241,8 @@ describe("toStoredContentBlock inline binary guard", () => {
           field: "blob",
           omitted: true,
           blobRef: expect.objectContaining({
-            id: expect.stringMatching(/^blob-/),
-            url: expect.stringMatching(/^\/api\/blobs\/blob-/),
+            id: expect.stringMatching(BLOB_ID_PATTERN),
+            url: expect.stringMatching(BLOB_URI_PATTERN),
           }),
         }),
       })

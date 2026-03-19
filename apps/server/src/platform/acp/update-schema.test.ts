@@ -4,9 +4,7 @@ import { parseSessionUpdatePayload } from "./update-schema";
 describe("parseSessionUpdatePayload toolCallId validation", () => {
   afterEach(() => {
     (
-      console.warn as typeof console.warn & {
-        mockRestore?: () => void;
-      }
+      console.warn as typeof console.warn & { mockRestore?: () => void }
     ).mockRestore?.();
   });
 
@@ -54,8 +52,10 @@ describe("parseSessionUpdatePayload toolCallId validation", () => {
     expect(parsed).toBeNull();
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const loggedMessage = String(warnSpy.mock.calls[0]?.[0] ?? "");
-    expect(loggedMessage).toContain("ACP known session update validation failed");
-    expect(loggedMessage).toContain("\"updateKind\":\"current_mode_update\"");
+    expect(loggedMessage).toContain(
+      "ACP known session update validation failed"
+    );
+    expect(loggedMessage).toContain('"updateKind":"current_mode_update"');
     expect(loggedMessage).toContain("schema validation failed");
   });
 
@@ -64,7 +64,7 @@ describe("parseSessionUpdatePayload toolCallId validation", () => {
       sessionUpdate: "plan",
       entries: [
         {
-          content: "x".repeat(16385),
+          content: "x".repeat(16_385),
           priority: "high",
           status: "pending",
         },
@@ -93,7 +93,7 @@ describe("parseSessionUpdatePayload toolCallId validation", () => {
       sessionUpdate: "agent_message_chunk",
       content: {
         type: "content",
-        content: "x".repeat(16385),
+        content: "x".repeat(16_385),
       },
     });
 

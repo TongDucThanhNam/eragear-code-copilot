@@ -50,7 +50,7 @@ export async function resolveExternalHistoryImportMessages(
     readOptionalText(path.join(codexRoot, CODEX_HISTORY_FILE_NAME)),
     readOptionalText(transcriptPath),
   ]);
-  if (!historyText || !transcriptText) {
+  if (!(historyText && transcriptText)) {
     return null;
   }
 
@@ -97,7 +97,9 @@ export function mergeCodexEntries(params: {
   }
   order = entries.length;
 
-  for (const entry of parseCodexTranscriptAssistantEntries(params.transcriptText)) {
+  for (const entry of parseCodexTranscriptAssistantEntries(
+    params.transcriptText
+  )) {
     entries.push({
       ...entry,
       order: order + entry.order,
@@ -123,7 +125,7 @@ function dedupeAdjacentEntries(
 
   const deduped: TimelineTextEntry[] = [];
   for (const entry of entries) {
-    const previous = deduped[deduped.length - 1];
+    const previous = deduped.at(-1);
     if (
       previous &&
       previous.role === entry.role &&
@@ -187,7 +189,9 @@ function parseCodexTranscriptAssistantEntries(
       continue;
     }
     const payload = asRecord(parsed.payload);
-    if (!(payload && payload.type === "message" && payload.role === "assistant")) {
+    if (
+      !(payload && payload.type === "message" && payload.role === "assistant")
+    ) {
       continue;
     }
     const timestamp = normalizeIsoTimestampMs(parsed.timestamp);

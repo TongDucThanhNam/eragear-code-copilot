@@ -12,7 +12,10 @@ import type { GitPort } from "./ports/git.port";
 
 const CHAT_NOT_FOUND_RE = /chat not found/i;
 
-function createSession(userId: string, projectRoot = "/tmp/project"): ChatSession {
+function createSession(
+  userId: string,
+  projectRoot = "/tmp/project"
+): ChatSession {
   return {
     id: "chat-1",
     userId,
@@ -95,7 +98,9 @@ describe("CodeContextService", () => {
   });
 
   test("syncs and clears unsaved editor buffer state", async () => {
-    const projectRoot = await mkdtemp(path.join(os.tmpdir(), "eragear-tooling-"));
+    const projectRoot = await mkdtemp(
+      path.join(os.tmpdir(), "eragear-tooling-")
+    );
     const session = createSession("user-1", projectRoot);
     const service = new CodeContextService(
       {
@@ -123,9 +128,9 @@ describe("CodeContextService", () => {
         content: "unsaved",
       });
 
-      const dirtyEntry = [...(session.editorTextBuffers ?? new Map()).entries()].at(
-        0
-      );
+      const dirtyEntry = [
+        ...(session.editorTextBuffers ?? new Map()).entries(),
+      ].at(0);
       expect(dirtyEntry?.[0]).toBe(path.join(projectRoot, "src/app.ts"));
       expect(dirtyEntry?.[1].content).toBe("unsaved");
 

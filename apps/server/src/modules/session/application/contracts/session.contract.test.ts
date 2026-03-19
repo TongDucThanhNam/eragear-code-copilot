@@ -6,8 +6,8 @@ import {
 import {
   CreateSessionInputSchema,
   DiscoverAgentSessionsInputSchema,
-  LoadAgentSessionInputSchema,
   ListSessionsInputSchema,
+  LoadAgentSessionInputSchema,
   SessionListPageInputSchema,
   SessionMessagesPageInputSchema,
 } from "./session.contract";

@@ -16,18 +16,18 @@ import { assertSessionMutationLock } from "@/modules/session/application/session
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { PendingPermissionRequest } from "@/shared/types/session.types";
-import { settlePendingPermission } from "@/shared/utils/pending-permission.util";
 import { createId } from "@/shared/utils/id.util";
+import { settlePendingPermission } from "@/shared/utils/pending-permission.util";
 import {
   buildToolApprovalPart,
   getToolNameFromCall,
   upsertToolPart,
 } from "@/shared/utils/ui-message.util";
+import { flushThrottledBroadcasts } from "./broadcast-throttle";
 import {
   recordTurnIdDrop,
   recordTurnIdResolution,
 } from "./turn-id-observability";
-import { flushThrottledBroadcasts } from "./broadcast-throttle";
 import { broadcastUiMessagePart } from "./ui-message-part";
 import { resolveToolCallTurnId } from "./update-turn-id";
 
@@ -163,7 +163,7 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
         turnId: eventTurnId,
       });
       permissionTimeoutHandle = setTimeout(() => {
-        void expirePendingPermissionRequest({
+        expirePendingPermissionRequest({
           chatId,
           requestId,
           toolCallId: toolCall.toolCallId,

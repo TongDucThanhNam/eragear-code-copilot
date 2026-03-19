@@ -1,11 +1,11 @@
 import type { UIMessage } from "@repo/shared";
 import type { SessionRuntimePort } from "@/modules/session";
 import { createLogger } from "@/platform/logging/structured-logger";
+import type { StoredMessage } from "@/shared/types/session.types";
 import {
   type StoredContentContext,
   toStoredContentBlock,
 } from "@/shared/utils/content-block.util";
-import type { StoredMessage } from "@/shared/types/session.types";
 import {
   appendContentBlock,
   appendReasoningBlock,
@@ -47,6 +47,7 @@ function appendAcceptedAgentChunkToBuffer(
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: UI chunk update requires complex state management
 async function handleUiChunkUpdate(
   context: SessionUpdateContext
 ): Promise<boolean> {
@@ -136,15 +137,13 @@ async function handleUiChunkUpdate(
   }
 
   appendAcceptedAgentChunkToBuffer(context, storedContentContext);
-  const recentCompletedTurn =
-    resolveRecentCompletedTurnForLateChunk(session);
+  const recentCompletedTurn = resolveRecentCompletedTurnForLateChunk(session);
   const updateTurnId =
     context.turnIdResolution.turnId ??
     session.activeTurnId ??
     recentCompletedTurn?.turnId;
   if (
-    !context.turnIdResolution.turnId &&
-    !session.activeTurnId &&
+    !(context.turnIdResolution.turnId || session.activeTurnId) &&
     recentCompletedTurn
   ) {
     logger.debug("Recovered missing turnId for late assistant chunk", {

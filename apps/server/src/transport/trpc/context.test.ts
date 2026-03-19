@@ -38,7 +38,7 @@ describe("createTrpcContext", () => {
       type: "session",
       userId: "user-session",
     };
-    const deps = createDeps(async (request) => {
+    const deps = createDeps((request) => {
       capturedRequest = request;
       return expectedAuth;
     });
@@ -57,7 +57,7 @@ describe("createTrpcContext", () => {
 
     expect(context.auth).toEqual(expectedAuth);
     expect(capturedRequest).not.toBeNull();
-    expect(toHeaders(capturedRequest!.headers).get("cookie")).toBe(
+    expect(toHeaders(capturedRequest?.headers).get("cookie")).toBe(
       "better-auth.session_token=session-token"
     );
   });
@@ -68,7 +68,7 @@ describe("createTrpcContext", () => {
       type: "apiKey",
       userId: "user-1",
     };
-    const deps = createDeps(async (request) => {
+    const deps = createDeps((request) => {
       capturedRequest = request;
       return expectedAuth;
     });
@@ -85,14 +85,14 @@ describe("createTrpcContext", () => {
 
     expect(context.auth).toEqual(expectedAuth);
     expect(capturedRequest).not.toBeNull();
-    expect(toHeaders(capturedRequest!.headers).get("x-api-key")).toBe(
+    expect(toHeaders(capturedRequest?.headers).get("x-api-key")).toBe(
       "eg_test_key"
     );
   });
 
   test("does not override explicit auth headers from handshake", async () => {
     let capturedRequest: RequestLike | null = null;
-    const deps = createDeps(async (request) => {
+    const deps = createDeps((request) => {
       capturedRequest = request;
       return {
         type: "apiKey",
@@ -113,14 +113,14 @@ describe("createTrpcContext", () => {
     });
 
     expect(capturedRequest).not.toBeNull();
-    expect(toHeaders(capturedRequest!.headers).get("x-api-key")).toBe(
+    expect(toHeaders(capturedRequest?.headers).get("x-api-key")).toBe(
       "eg_header_key"
     );
   });
 
   test("does not override explicit cookie header from handshake", async () => {
     let capturedRequest: RequestLike | null = null;
-    const deps = createDeps(async (request) => {
+    const deps = createDeps((request) => {
       capturedRequest = request;
       return {
         type: "session",
@@ -143,7 +143,7 @@ describe("createTrpcContext", () => {
     });
 
     expect(capturedRequest).not.toBeNull();
-    expect(toHeaders(capturedRequest!.headers).get("cookie")).toBe(
+    expect(toHeaders(capturedRequest?.headers).get("cookie")).toBe(
       "better-auth.session_token=from-header"
     );
   });

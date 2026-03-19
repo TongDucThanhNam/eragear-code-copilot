@@ -58,6 +58,7 @@ function normalizePortablePath(pathValue: string): string {
   return pathValue.split(sep).join("/");
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: File scanning requires complex directory traversal logic
 async function scanProjectFiles(scanRoot: string): Promise<{
   files: string[];
   projectRules: { path: string; location: string }[];
@@ -72,7 +73,7 @@ async function scanProjectFiles(scanRoot: string): Promise<{
       continue;
     }
 
-    let entries;
+    let entries: Awaited<ReturnType<typeof readdir>>;
     try {
       entries = await readdir(dir, {
         withFileTypes: true,
@@ -82,7 +83,8 @@ async function scanProjectFiles(scanRoot: string): Promise<{
       logger.warn("Failed to scan project directory for file tree snapshot", {
         scanRoot,
         dir,
-        error: scanError instanceof Error ? scanError.message : String(scanError),
+        error:
+          scanError instanceof Error ? scanError.message : String(scanError),
       });
       continue;
     }

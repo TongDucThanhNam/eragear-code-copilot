@@ -45,6 +45,7 @@ describe("createUiMessageState", () => {
       });
     }
 
+    // biome-ignore lint/correctness/noUndeclaredVariables: Bun.gc is a Bun-specific global for triggering GC in tests
     Bun.gc?.(true);
     const after = process.memoryUsage().heapUsed;
 
@@ -160,6 +161,7 @@ describe("createUiMessageState", () => {
       ...initialMessage,
       parts: [
         { type: "text", text: "lead", state: "done" },
+        // biome-ignore lint/style/noNonNullAssertion: Test expects this part to exist
         initialMessage.parts[0]!,
       ],
     };

@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { Context, Hono } from "hono";
+// biome-ignore lint/style/noRestrictedImports: Blob storage access required for HTTP blob routes
 import { readStoredBlobForUser } from "@/platform/storage/blob-store";
 import type { HttpRouteDependencies } from "./deps";
 
@@ -104,7 +105,7 @@ export function registerBlobRoutes(
         "Content-Type": mimeType,
         "Content-Length": String(blob.payload.length),
         "Cache-Control": "private, max-age=3600",
-        "Content-Disposition": `${dispositionType}; filename=\"${filename}\"`,
+        "Content-Disposition": `${dispositionType}; filename="${filename}"`,
       },
     });
   });

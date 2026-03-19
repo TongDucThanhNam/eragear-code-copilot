@@ -35,6 +35,7 @@ import {
 } from "./send-message/send-message.types";
 
 const OP = AI_OP.PROMPT_SEND;
+const LEADING_SLASH_COMMAND_REGEX = /^\/([a-z0-9_-]+)/i;
 
 export type { SendMessagePolicy } from "./send-message/send-message.types";
 
@@ -375,6 +376,6 @@ export class SendMessageService {
 
 function extractLeadingSlashCommand(value: string): string | null {
   const normalized = value.trimStart();
-  const match = normalized.match(/^\/([a-z0-9_-]+)/i);
+  const match = normalized.match(LEADING_SLASH_COMMAND_REGEX);
   return match?.[1] ?? null;
 }

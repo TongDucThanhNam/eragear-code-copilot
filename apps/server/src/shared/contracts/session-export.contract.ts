@@ -1,5 +1,8 @@
 import { z } from "zod";
-import type { StoredMessage, StoredSession } from "@/shared/types/session.types";
+import type {
+  StoredMessage,
+  StoredSession,
+} from "@/shared/types/session.types";
 import {
   createRedactedValue,
   type RedactedValue,
@@ -143,17 +146,21 @@ export function buildRedactedSessionExport(
   };
 
   for (const path of OMITTED_RUNTIME_PATHS) {
-    const reason =
-      path === "session.projectRoot" || path === "session.cwd"
-        ? "filesystem_path"
-        : path === "session.commands"
-          ? "structured_payload"
-          : path === "session.userId" ||
-              path === "session.sessionId" ||
-              path === "session.agentCapabilities" ||
-              path === "session.authMethods"
-            ? "runtime_metadata"
-            : "credential";
+    let reason: string;
+    if (path === "session.projectRoot" || path === "session.cwd") {
+      reason = "filesystem_path";
+    } else if (path === "session.commands") {
+      reason = "structured_payload";
+    } else if (
+      path === "session.userId" ||
+      path === "session.sessionId" ||
+      path === "session.agentCapabilities" ||
+      path === "session.authMethods"
+    ) {
+      reason = "runtime_metadata";
+    } else {
+      reason = "credential";
+    }
     recordRedaction(redactions, path, {
       kind: "redacted",
       reason,

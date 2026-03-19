@@ -46,7 +46,10 @@ export class SessionAgentResolverService {
 
     const activeAgentId = await this.agentRepo.getActiveId(input.userId);
     if (activeAgentId) {
-      const activeAgent = await this.agentRepo.findById(activeAgentId, input.userId);
+      const activeAgent = await this.agentRepo.findById(
+        activeAgentId,
+        input.userId
+      );
       if (
         activeAgent &&
         this.isProjectCompatible(activeAgent, input.projectId)

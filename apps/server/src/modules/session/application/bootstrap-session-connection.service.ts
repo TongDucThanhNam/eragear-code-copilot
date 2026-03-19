@@ -1,7 +1,7 @@
 import type { ChatSession } from "@/shared/types/session.types";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
-import type { CreateSessionParams } from "./create-session.types";
 import { SessionRuntimeEntity } from "../domain/session-runtime.entity";
+import type { CreateSessionParams } from "./create-session.types";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 import type { SessionAcpBootstrapService } from "./session-acp-bootstrap.service";

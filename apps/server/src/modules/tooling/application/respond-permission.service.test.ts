@@ -39,7 +39,7 @@ function createRuntime(
     getAll: () => [session],
     runExclusive: async (_chatId, work) => await work(),
     isLockHeld: () => true,
-    broadcast: async (_chatId, event) => {
+    broadcast: (_chatId, event) => {
       events.push(event);
     },
   } as SessionRuntimePort;
@@ -157,7 +157,9 @@ describe("RespondPermissionService", () => {
       toolCallId: "tool-1",
       toolName: "bash",
     });
-    const service = new RespondPermissionService(createRuntime(session, events));
+    const service = new RespondPermissionService(
+      createRuntime(session, events)
+    );
 
     await expect(
       service.execute({
@@ -205,7 +207,9 @@ describe("RespondPermissionService", () => {
       toolCallId: "tool-1",
       toolName: "bash",
     });
-    const service = new RespondPermissionService(createRuntime(session, events));
+    const service = new RespondPermissionService(
+      createRuntime(session, events)
+    );
 
     await expect(
       service.execute({
@@ -319,7 +323,9 @@ describe("RespondPermissionService", () => {
       resolve: () => undefined,
       options: [],
     });
-    const service = new RespondPermissionService(createRuntime(session, events));
+    const service = new RespondPermissionService(
+      createRuntime(session, events)
+    );
 
     await service.execute({
       userId: "user-1",
@@ -348,7 +354,9 @@ describe("RespondPermissionService", () => {
       resolve: () => undefined,
       options: [],
     });
-    const service = new RespondPermissionService(createRuntime(session, events));
+    const service = new RespondPermissionService(
+      createRuntime(session, events)
+    );
 
     await service.execute({
       userId: "user-1",
@@ -403,7 +411,9 @@ describe("RespondPermissionService", () => {
       title: "Bash",
       turnId: "turn-1",
     });
-    const service = new RespondPermissionService(createRuntime(session, events));
+    const service = new RespondPermissionService(
+      createRuntime(session, events)
+    );
 
     await service.execute({
       userId: "user-1",
@@ -419,7 +429,10 @@ describe("RespondPermissionService", () => {
     );
     expect(optionsPartEvent).toBeDefined();
     expect(optionsPartEvent?.turnId).toBe("turn-1");
-    if (!optionsPartEvent || optionsPartEvent.part.type !== "data-permission-options") {
+    if (
+      !optionsPartEvent ||
+      optionsPartEvent.part.type !== "data-permission-options"
+    ) {
       throw new Error("Expected permission options part update event");
     }
     expect(optionsPartEvent.part.data).toMatchObject({

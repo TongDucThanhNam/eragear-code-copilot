@@ -36,13 +36,13 @@ describe("GitAdapter", () => {
     await mkdir(join(projectRoot, ".config"), { recursive: true });
     await mkdir(join(projectRoot, "node_modules", "pkg"), { recursive: true });
     await mkdir(join(projectRoot, ".git"), { recursive: true });
-    await writeFile(join(projectRoot, "src", "index.ts"), "export {};\n", "utf8");
-    await writeFile(join(projectRoot, ".env"), "A=1\n", "utf8");
     await writeFile(
-      join(projectRoot, ".config", "rules.mdc"),
-      "rule",
+      join(projectRoot, "src", "index.ts"),
+      "export {};\n",
       "utf8"
     );
+    await writeFile(join(projectRoot, ".env"), "A=1\n", "utf8");
+    await writeFile(join(projectRoot, ".config", "rules.mdc"), "rule", "utf8");
     await writeFile(
       join(projectRoot, "node_modules", "pkg", "index.js"),
       "module.exports = {};\n",

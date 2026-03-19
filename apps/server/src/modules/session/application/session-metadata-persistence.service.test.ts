@@ -32,10 +32,10 @@ describe("SessionMetadataPersistenceService", () => {
     const updateCalls: unknown[] = [];
     const sessionRepo = {
       findById: async () => undefined,
-      create: async (value: unknown) => {
+      create: (value: unknown) => {
         createCalls.push(value);
       },
-      updateMetadata: async (...args: unknown[]) => {
+      updateMetadata: (...args: unknown[]) => {
         updateCalls.push(args);
       },
     };
@@ -74,10 +74,10 @@ describe("SessionMetadataPersistenceService", () => {
     const updateCalls: unknown[] = [];
     const sessionRepo = {
       findById: async () => ({ id: "chat-existing" }),
-      create: async (value: unknown) => {
+      create: (value: unknown) => {
         createCalls.push(value);
       },
-      updateMetadata: async (...args: unknown[]) => {
+      updateMetadata: (...args: unknown[]) => {
         updateCalls.push(args);
       },
     };

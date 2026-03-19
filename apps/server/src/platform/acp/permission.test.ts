@@ -4,8 +4,8 @@ import { ENV } from "@/config/environment";
 import type { SessionRuntimePort } from "@/modules/session";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
-import { createPermissionHandler } from "./permission";
 import { scheduleThrottledBroadcast } from "./broadcast-throttle";
+import { createPermissionHandler } from "./permission";
 import {
   getTurnIdMigrationSnapshot,
   resetTurnIdMigrationSnapshotForTests,
@@ -170,7 +170,9 @@ describe("createPermissionHandler", () => {
           title: "Run command",
           rawInput: { command: "ls" },
         },
-        options: [{ optionId: "allow_once", kind: "allow_once", name: "Allow" }],
+        options: [
+          { optionId: "allow_once", kind: "allow_once", name: "Allow" },
+        ],
       },
     });
 

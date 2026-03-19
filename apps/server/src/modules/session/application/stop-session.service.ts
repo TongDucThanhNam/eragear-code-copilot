@@ -1,11 +1,11 @@
 import { NotFoundError } from "@/shared/errors";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
-import { SessionRuntimeEntity } from "../domain/session-runtime.entity";
 import { terminateProcessGracefully } from "../../../shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
-import { assertSessionMutationLock } from "./session-runtime-lock.assert";
+import { SessionRuntimeEntity } from "../domain/session-runtime.entity";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const OP = "session.lifecycle.stop";
 
@@ -51,7 +51,7 @@ export class StopSessionService {
       await terminateProcessGracefully(sessionToDelete.proc, {
         forceWindowsTreeTermination: true,
       });
-      await this.sessionRuntime.runExclusive(chatId, async () => {
+      await this.sessionRuntime.runExclusive(chatId, () => {
         assertSessionMutationLock({
           sessionRuntime: this.sessionRuntime,
           chatId,

@@ -44,9 +44,11 @@ function toFiniteNumber(value: unknown): number | undefined {
 }
 
 const LOG_LEVEL_SET = new Set(LOG_LEVELS);
-const PROMPT_META_POLICY_SET = new Set<
-  AppConfig["acpPromptMetaPolicy"]
->(["allowlist", "always", "never"]);
+const PROMPT_META_POLICY_SET = new Set<AppConfig["acpPromptMetaPolicy"]>([
+  "allowlist",
+  "always",
+  "never",
+]);
 const DEFAULT_ACP_PROMPT_META_POLICY: AppConfig["acpPromptMetaPolicy"] =
   "allowlist";
 const DEFAULT_ACP_PROMPT_META_ALLOWLIST: string[] = [];
@@ -77,7 +79,9 @@ function toPromptMetaPolicy(
     return undefined;
   }
   const normalized = value.trim().toLowerCase();
-  if (!PROMPT_META_POLICY_SET.has(normalized as AppConfig["acpPromptMetaPolicy"])) {
+  if (
+    !PROMPT_META_POLICY_SET.has(normalized as AppConfig["acpPromptMetaPolicy"])
+  ) {
     return undefined;
   }
   return normalized as AppConfig["acpPromptMetaPolicy"];

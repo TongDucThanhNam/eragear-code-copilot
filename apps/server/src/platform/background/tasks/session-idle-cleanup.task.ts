@@ -70,7 +70,9 @@ export function createSessionIdleCleanupTask(params: {
               currentSession.userId,
               "stopped"
             );
-            if (sessionRuntime.deleteIfMatch(currentSession.id, currentSession)) {
+            if (
+              sessionRuntime.deleteIfMatch(currentSession.id, currentSession)
+            ) {
               cleaned += 1;
             }
           } catch (error) {

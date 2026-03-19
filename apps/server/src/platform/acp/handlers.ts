@@ -260,4 +260,5 @@ export function createSessionHandlers(params: {
     },
   };
 }
+// biome-ignore lint/performance/noBarrelFile: Re-export required for platform API surface
 export { serializeRawPayloadForLog } from "./raw-payload-log.util";
