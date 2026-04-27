@@ -18,6 +18,11 @@ import type {
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
+import {
+  diagnosticsLog,
+  estimateJsonBytes,
+  isDiagnosticsEnabled,
+} from "@/shared/utils/diagnostics.util";
 import { withObservabilityContext } from "@/shared/utils/observability-context.util";
 import { createPermissionHandler } from "./permission";
 import { serializeRawPayloadForLog } from "./raw-payload-log.util";
@@ -29,6 +34,48 @@ const logger = createLogger("Debug");
 
 /** Maximum characters to sample from raw ACP payloads for debug logging. */
 const RAW_PAYLOAD_LOG_LIMIT = 4000;
+
+/** [DIAG] Helper: capture ACP update arrival timing and payload metadata. */
+interface DiagUpdateContext {
+  chatId: string;
+  updateType: string;
+  start: number;
+  payloadBytes: number | null;
+}
+
+function diagnosticsBeginUpdate(
+  chatId: string,
+  update: { sessionUpdate: string }
+): DiagUpdateContext | null {
+  if (!isDiagnosticsEnabled()) {
+    return null;
+  }
+  const payloadBytes = estimateJsonBytes(update);
+  diagnosticsLog("acp-update-received", {
+    chatId,
+    updateType: update.sessionUpdate,
+    payloadBytes,
+  });
+  return {
+    chatId,
+    updateType: update.sessionUpdate,
+    start: performance.now(),
+    payloadBytes,
+  };
+}
+
+function diagnosticsEndUpdate(ctx: DiagUpdateContext | null): void {
+  if (!ctx) {
+    return;
+  }
+  const duration = performance.now() - ctx.start;
+  diagnosticsLog("acp-update-handler-done", {
+    chatId: ctx.chatId,
+    updateType: ctx.updateType,
+    payloadBytes: ctx.payloadBytes,
+    durationMs: duration.toFixed(2),
+  });
+}
 
 function createCapabilityDisabledError(method: string): never {
   throw new Error(
@@ -126,6 +173,10 @@ export function createSessionHandlers(params: {
           });
           return;
         }
+
+        // [DIAG] Measure incoming ACP update payload size, type, and handler duration
+        const diagCtx = diagnosticsBeginUpdate(chatId, validatedUpdate);
+
         logger.debug("ACP handler sessionUpdate", {
           chatId,
           hasUpdate: true,
@@ -138,6 +189,9 @@ export function createSessionHandlers(params: {
             isReplayingHistory: getIsReplaying(),
             update: validatedUpdate,
           });
+
+          // [DIAG] Log handler duration
+          diagnosticsEndUpdate(diagCtx);
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : String(error);

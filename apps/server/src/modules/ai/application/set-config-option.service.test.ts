@@ -242,4 +242,171 @@ describe("SetConfigOptionService", () => {
         ?.currentValue
     ).toBe("high");
   });
+
+  test("set-config-option works with large uncapped internal state when target value is beyond client-visible cap", async () => {
+    // Create a session with 150 reasoning levels internally (uncapped)
+    // This simulates the scenario where client-visible list is capped at 100
+    // but internal validation must work with the full list
+    const largeValues = Array.from({ length: 150 }, (_, i) => `level-${i}`);
+    const session: ChatSession = {
+      id: "chat-1",
+      userId: "user-1",
+      configOptions: [
+        createSelectOption({
+          id: "reasoning",
+          name: "Reasoning Level",
+          category: "thought_level",
+          currentValue: "level-50",
+          values: largeValues,
+        }),
+      ],
+      modes: {
+        currentModeId: "code",
+        availableModes: [{ id: "code", name: "Code" }],
+      },
+      models: {
+        currentModelId: "model-1",
+        availableModels: [{ modelId: "model-1", name: "Model 1" }],
+      },
+    } as unknown as ChatSession;
+
+    const sessionRuntime = createSessionRuntimeStub();
+    const configCalls: Array<{ configId: string; value: string }> = [];
+
+    // Target level-120 is beyond the 100-item client-visible cap but present internally
+    const service = new SetConfigOptionService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionConfigOption: async (_session, configId, value) => {
+          configCalls.push({ configId, value });
+          // Return updated config with new selection
+          return [
+            createSelectOption({
+              id: "reasoning",
+              name: "Reasoning Level",
+              category: "thought_level",
+              currentValue: value,
+              values: largeValues,
+            }),
+          ];
+        },
+      })
+    );
+
+    const result = await service.execute("user-1", "chat-1", "reasoning", "level-120");
+
+    expect(result.ok).toBe(true);
+    expect(configCalls).toEqual([
+      {
+        configId: "reasoning",
+        value: "level-120",
+      },
+    ]);
+    expect(
+      result.configOptions.find((option) => option.id === "reasoning")?.currentValue
+    ).toBe("level-120");
+  });
+
+  test("set-config-option validates against full internal config option values, not client-visible capped list", async () => {
+    // This test verifies that validation happens against the uncapped internal state
+    const largeValues = Array.from({ length: 150 }, (_, i) => `level-${i}`);
+    const session: ChatSession = {
+      id: "chat-1",
+      userId: "user-1",
+      configOptions: [
+        createSelectOption({
+          id: "reasoning",
+          name: "Reasoning Level",
+          category: "thought_level",
+          currentValue: "level-0",
+          values: largeValues,
+        }),
+      ],
+      modes: {
+        currentModeId: "code",
+        availableModes: [{ id: "code", name: "Code" }],
+      },
+      models: {
+        currentModelId: "model-1",
+        availableModels: [{ modelId: "model-1", name: "Model 1" }],
+      },
+    } as unknown as ChatSession;
+
+    const sessionRuntime = createSessionRuntimeStub();
+    let errorThrown: Error | null = null;
+
+    const service = new SetConfigOptionService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionConfigOption: async () => [],
+      })
+    );
+
+    // level-120 exists in the internal 150-level list but would be beyond
+    // a 100-item client-visible cap. Validation should PASS because it
+    // uses internal uncapped state.
+    try {
+      await service.execute("user-1", "chat-1", "reasoning", "level-120");
+    } catch (err) {
+      errorThrown = err as Error;
+    }
+
+    // Should NOT throw - level-120 exists in the uncapped internal list
+    expect(errorThrown).toBeNull();
+    expect(
+      session.configOptions?.find((option) => option.id === "reasoning")
+        ?.currentValue
+    ).toBe("level-120");
+  });
+
+  test("set-config-option rejects values not in internal uncapped list", async () => {
+    // This test verifies that validation still correctly rejects invalid values
+    // even when operating with uncapped internal state
+    const largeValues = Array.from({ length: 150 }, (_, i) => `level-${i}`);
+    const session: ChatSession = {
+      id: "chat-1",
+      userId: "user-1",
+      configOptions: [
+        createSelectOption({
+          id: "reasoning",
+          name: "Reasoning Level",
+          category: "thought_level",
+          currentValue: "level-0",
+          values: largeValues,
+        }),
+      ],
+      modes: {
+        currentModeId: "code",
+        availableModes: [{ id: "code", name: "Code" }],
+      },
+      models: {
+        currentModelId: "model-1",
+        availableModels: [{ modelId: "model-1", name: "Model 1" }],
+      },
+    } as unknown as ChatSession;
+
+    const sessionRuntime = createSessionRuntimeStub();
+    let errorThrown: Error | null = null;
+
+    const service = new SetConfigOptionService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionConfigOption: async () => [],
+      })
+    );
+
+    // level-999 does NOT exist in the internal 150-level list
+    try {
+      await service.execute("user-1", "chat-1", "reasoning", "level-999");
+    } catch (err) {
+      errorThrown = err as Error;
+    }
+
+    // Should throw - level-999 does not exist
+    expect(errorThrown).not.toBeNull();
+    expect(errorThrown!.message).toContain("Config option value is not valid");
+  });
 });

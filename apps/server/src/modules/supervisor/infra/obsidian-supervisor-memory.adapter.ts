@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { appendFile, readdir, readFile, stat } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
@@ -13,7 +16,12 @@ const execFileAsync = promisify(execFile);
 const OBSIDIAN_MAX_BUFFER_BYTES = 1024 * 1024;
 const LOG_TEXT_PART_MAX_CHARS = 800;
 const SEARCH_SNIPPET_MAX_CHARS = 800;
+const LOCAL_SEARCH_MAX_FILES = 2000;
+const LOCAL_SEARCH_MAX_FILE_BYTES = 256 * 1024;
+const LOCAL_SEARCH_MAX_QUERY_TERMS = 24;
 const MARKDOWN_EXTENSION_RE = /\.md$/i;
+const MARKDOWN_PATH_RE = /[\p{L}\p{N}_./-]+\.md/giu;
+const WORD_RE = /[\p{L}\p{N}_-]+/gu;
 
 export interface ObsidianSupervisorMemoryOptions {
   command?: string;
@@ -23,6 +31,10 @@ export interface ObsidianSupervisorMemoryOptions {
   searchPath: string;
   searchLimit: number;
   timeoutMs: number;
+  /** Optional override used by tests or non-standard Obsidian config paths. */
+  configPath?: string;
+  /** Optional explicit vault root for headless local fallback. */
+  vaultPath?: string;
 }
 
 export type ObsidianCommandRunner = (
@@ -87,6 +99,7 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
         chatId: input.chatId,
         error: error instanceof Error ? error.message : String(error),
       });
+      await this.appendLocalLog(logPath, content, input.chatId);
     }
   }
 
@@ -113,7 +126,7 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
         blueprintPath,
         error: error instanceof Error ? error.message : String(error),
       });
-      return undefined;
+      return await this.readLocalNote(blueprintPath, "blueprint");
     }
   }
 
@@ -182,8 +195,131 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
         searchPath: this.options.searchPath,
         error: error instanceof Error ? error.message : String(error),
       });
+      return await this.searchLocalFiles(query);
+    }
+  }
+
+  private async readLocalNote(
+    notePath: string,
+    kind: "blueprint"
+  ): Promise<string | undefined> {
+    const localPath = await this.resolveLocalVaultPath(notePath);
+    if (!localPath) {
+      return undefined;
+    }
+
+    try {
+      const content = (await readFile(localPath, "utf8")).trim();
+      this.logger.info("Supervisor Obsidian local read completed", {
+        kind,
+        path: notePath,
+        bytes: Buffer.byteLength(content, "utf8"),
+      });
+      return content.length > 0 ? content : undefined;
+    } catch (error) {
+      this.logger.warn("Supervisor Obsidian local read failed", {
+        kind,
+        path: notePath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+  }
+
+  private async appendLocalLog(
+    notePath: string,
+    content: string,
+    chatId: string
+  ): Promise<void> {
+    const localPath = await this.resolveLocalVaultPath(notePath);
+    if (!localPath) {
+      return;
+    }
+
+    try {
+      await appendFile(localPath, content, "utf8");
+      this.logger.info("Supervisor Obsidian local log append completed", {
+        path: notePath,
+        chatId,
+        bytes: Buffer.byteLength(content, "utf8"),
+      });
+    } catch (error) {
+      this.logger.warn("Supervisor Obsidian local log append failed", {
+        path: notePath,
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async searchLocalFiles(
+    query: string
+  ): Promise<SupervisorMemoryResult[]> {
+    const vaultRoot = await this.resolveLocalVaultRoot();
+    if (!vaultRoot || this.options.searchLimit <= 0) {
       return [];
     }
+    const searchRoot = resolveInsideRoot(vaultRoot, this.options.searchPath);
+    if (!searchRoot) {
+      return [];
+    }
+
+    try {
+      const files = await listMarkdownFiles(searchRoot, LOCAL_SEARCH_MAX_FILES);
+      const results = await scoreLocalMarkdownFiles({
+        vaultRoot,
+        files,
+        query,
+        limit: this.options.searchLimit,
+      });
+      this.logger.info("Supervisor Obsidian local search completed", {
+        queryLength: query.length,
+        searchPath: this.options.searchPath,
+        scannedFileCount: files.length,
+        resultCount: results.length,
+      });
+      return results;
+    } catch (error) {
+      this.logger.warn("Supervisor Obsidian local search failed", {
+        queryLength: query.length,
+        searchPath: this.options.searchPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  }
+
+  private async resolveLocalVaultPath(
+    notePath: string
+  ): Promise<string | undefined> {
+    const vaultRoot = await this.resolveLocalVaultRoot();
+    if (!vaultRoot) {
+      return undefined;
+    }
+    return resolveInsideRoot(vaultRoot, notePath);
+  }
+
+  private async resolveLocalVaultRoot(): Promise<string | undefined> {
+    if (this.options.vaultPath) {
+      return path.resolve(this.options.vaultPath);
+    }
+    const config = await readObsidianConfig(this.options.configPath);
+    if (!config) {
+      return undefined;
+    }
+    const requestedVault = this.options.vault?.trim();
+    const vaults = Object.entries(config.vaults);
+    const selected = requestedVault
+      ? vaults.find(([id, vault]) => {
+          const basename = path.basename(vault.path);
+          return (
+            normalizeVaultName(id) === normalizeVaultName(requestedVault) ||
+            normalizeVaultName(basename) === normalizeVaultName(requestedVault)
+          );
+        })?.[1]
+      : (vaults.find(([, vault]) => vault.open)?.[1] ??
+        (vaults.length === 1 ? vaults[0]?.[1] : undefined));
+    return selected?.path ? path.resolve(selected.path) : undefined;
   }
 
   private buildArgs(
@@ -231,6 +367,190 @@ function buildObsidianArgs(
       .filter(([, value]) => value.trim().length > 0)
       .map(([key, value]) => `${key}=${value}`),
   ];
+}
+
+interface ObsidianConfig {
+  vaults: Record<string, { path: string; open?: boolean }>;
+}
+
+async function readObsidianConfig(
+  configPath = path.join(os.homedir(), ".config", "obsidian", "obsidian.json")
+): Promise<ObsidianConfig | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(configPath, "utf8"));
+    if (!(isRecord(parsed) && isRecord(parsed.vaults))) {
+      return undefined;
+    }
+    const vaults: ObsidianConfig["vaults"] = {};
+    for (const [id, value] of Object.entries(parsed.vaults)) {
+      if (!isRecord(value) || typeof value.path !== "string") {
+        continue;
+      }
+      vaults[id] = {
+        path: value.path,
+        ...(typeof value.open === "boolean" ? { open: value.open } : {}),
+      };
+    }
+    return Object.keys(vaults).length > 0 ? { vaults } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeVaultName(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function resolveInsideRoot(root: string, notePath: string): string | undefined {
+  const trimmed = notePath.trim();
+  if (!trimmed || path.isAbsolute(trimmed)) {
+    return undefined;
+  }
+  const resolvedRoot = path.resolve(root);
+  const resolved = path.resolve(resolvedRoot, trimmed);
+  const relative = path.relative(resolvedRoot, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return undefined;
+  }
+  return resolved;
+}
+
+async function listMarkdownFiles(
+  root: string,
+  maxFiles: number
+): Promise<string[]> {
+  const files: string[] = [];
+  const queue = [root];
+  while (queue.length > 0 && files.length < maxFiles) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+    const entries = await readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === ".obsidian") {
+          continue;
+        }
+        queue.push(fullPath);
+        continue;
+      }
+      if (entry.isFile() && MARKDOWN_EXTENSION_RE.test(entry.name)) {
+        files.push(fullPath);
+        if (files.length >= maxFiles) {
+          break;
+        }
+      }
+    }
+  }
+  return files;
+}
+
+async function scoreLocalMarkdownFiles(params: {
+  vaultRoot: string;
+  files: string[];
+  query: string;
+  limit: number;
+}): Promise<SupervisorMemoryResult[]> {
+  const query = params.query.toLowerCase();
+  const markdownPathHints = extractMarkdownPathHints(query);
+  const terms = extractSearchTerms(query);
+  const scored: Array<
+    Omit<SupervisorMemoryResult, "path"> & { path: string; score: number }
+  > = [];
+
+  for (const file of params.files) {
+    const relativePath = normalizeVaultRelativePath(
+      path.relative(params.vaultRoot, file)
+    );
+    const lowerRelativePath = relativePath.toLowerCase();
+    const basename = path.basename(relativePath).toLowerCase();
+    let score = 0;
+    const exactPathMatch = markdownPathHints.some(
+      (hint) => lowerRelativePath.endsWith(hint) || basename === hint
+    );
+    if (exactPathMatch) {
+      score += 1000;
+    }
+    for (const term of terms) {
+      if (lowerRelativePath.includes(term)) {
+        score += 20;
+      }
+    }
+
+    const content = await readFileForSearch(file);
+    const lowerContent = content.toLowerCase();
+    for (const term of terms) {
+      if (lowerContent.includes(term)) {
+        score += 5;
+      }
+    }
+    if (score <= 0) {
+      continue;
+    }
+    scored.push({
+      title: titleFromPath(relativePath),
+      path: relativePath,
+      snippets: createLocalSnippets(content, terms, exactPathMatch),
+      score,
+    });
+  }
+
+  return scored
+    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+    .slice(0, params.limit)
+    .map(({ score: _score, ...result }) => result);
+}
+
+async function readFileForSearch(file: string): Promise<string> {
+  const stats = await stat(file);
+  if (stats.size > LOCAL_SEARCH_MAX_FILE_BYTES) {
+    const content = await readFile(file, "utf8");
+    return content.slice(0, LOCAL_SEARCH_MAX_FILE_BYTES);
+  }
+  return await readFile(file, "utf8");
+}
+
+function extractMarkdownPathHints(query: string): string[] {
+  return [...query.matchAll(MARKDOWN_PATH_RE)]
+    .map((match) => normalizeVaultRelativePath(match[0].trim()).toLowerCase())
+    .filter(Boolean);
+}
+
+function extractSearchTerms(query: string): string[] {
+  const terms = [...query.matchAll(WORD_RE)]
+    .map((match) => match[0].toLowerCase())
+    .filter((term) => term.length >= 3);
+  return [...new Set(terms)].slice(0, LOCAL_SEARCH_MAX_QUERY_TERMS);
+}
+
+function createLocalSnippets(
+  content: string,
+  terms: string[],
+  preferStart: boolean
+): string[] {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return [];
+  }
+  if (preferStart) {
+    return [truncateText(normalized, SEARCH_SNIPPET_MAX_CHARS)];
+  }
+  const lower = normalized.toLowerCase();
+  const matchedTerm = terms.find((term) => lower.includes(term));
+  if (!matchedTerm) {
+    return [truncateText(normalized, SEARCH_SNIPPET_MAX_CHARS)];
+  }
+  const index = lower.indexOf(matchedTerm);
+  const start = Math.max(0, index - Math.floor(SEARCH_SNIPPET_MAX_CHARS / 3));
+  return [
+    truncateText(normalized.slice(start), SEARCH_SNIPPET_MAX_CHARS).trim(),
+  ];
+}
+
+function normalizeVaultRelativePath(value: string): string {
+  return value.split(path.sep).join("/");
 }
 
 function buildLogEntry(input: SupervisorMemoryLogInput): string {

@@ -10,6 +10,10 @@
 import { DEFAULT_MAX_VISIBLE_MODEL_COUNT } from "@/config/constants";
 import { NotFoundError } from "@/shared/errors";
 import type { SupervisorSessionState } from "@/shared/types/supervisor.types";
+import {
+  diagnosticsLog,
+  isDiagnosticsEnabled,
+} from "@/shared/utils/diagnostics.util";
 import { capModelList } from "@/shared/utils/session-config-options.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -70,6 +74,21 @@ export class GetSessionStateService {
         currentModelId: session.models?.currentModelId,
         maxVisible: DEFAULT_MAX_VISIBLE_MODEL_COUNT,
       });
+
+      // [DIAG] Log pre/post cap model and config option counts
+      if (isDiagnosticsEnabled()) {
+        const preCapModelCount = session.models?.availableModels?.length ?? 0;
+        const preCapConfigCount = session.configOptions?.length ?? 0;
+        const postCapModelCount = capped.models.length;
+        const postCapConfigCount = capped.configOptions.length;
+        diagnosticsLog("get-session-state-cap", {
+          chatId,
+          preCapModelCount,
+          postCapModelCount,
+          preCapConfigCount,
+          postCapConfigCount,
+        });
+      }
 
       return {
         status: "running" as const,

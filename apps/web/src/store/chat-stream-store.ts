@@ -7,6 +7,10 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import {
+  diagLog,
+  isClientDiagnosticsEnabled,
+} from "@/hooks/use-chat-diagnostics";
+import {
   createEmptyMessageState,
   type MessageState,
 } from "@/hooks/use-chat-message-state";
@@ -261,6 +265,20 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
     return get().byChatId[chatId]?.messageState ?? EMPTY_MESSAGE_STATE;
   },
   updateMessageState(chatId, updater) {
+    // [DIAG] Measure updateMessageState duration and message/part count
+    let diagStart = 0;
+    let diagPrevCount = 0;
+    let diagPrevParts = 0;
+    if (isClientDiagnosticsEnabled()) {
+      diagStart = performance.now();
+      const prevSnapshot = get().byChatId[chatId];
+      if (prevSnapshot) {
+        diagPrevCount = prevSnapshot.messageState.order.length;
+        for (const msg of prevSnapshot.messageState.orderedMessages) {
+          diagPrevParts += msg.parts.length;
+        }
+      }
+    }
     let resolved = get().byChatId[chatId]?.messageState ?? EMPTY_MESSAGE_STATE;
     set((state) => {
       const current = state.byChatId[chatId] ?? createSnapshot();
@@ -282,6 +300,23 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
         ),
       };
     });
+    // [DIAG] Log updateMessageState duration
+    if (isClientDiagnosticsEnabled() && diagStart > 0) {
+      const diagDuration = performance.now() - diagStart;
+      let diagNewParts = 0;
+      for (const msg of resolved.orderedMessages) {
+        diagNewParts += msg.parts.length;
+      }
+      diagLog("store-updateMessageState", {
+        chatId,
+        durationMs: diagDuration.toFixed(2),
+        messageCount: resolved.order.length,
+        partCount: diagNewParts,
+        prevMessageCount: diagPrevCount,
+        prevPartCount: diagPrevParts,
+        slow: diagDuration > 16,
+      });
+    }
     return resolved;
   },
   appendTerminalOutput(chatId, terminalId, data) {

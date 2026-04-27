@@ -19,6 +19,10 @@ import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
+  diagnosticsLog,
+  isDiagnosticsEnabled,
+} from "@/shared/utils/diagnostics.util";
+import {
   capModelList,
   findSessionConfigOption,
   syncSessionSelectionFromConfigOptions,
@@ -50,6 +54,28 @@ export const SessionBuffering = SessionBufferingImpl;
 
 const logger = createLogger("Debug");
 const COMPLETED_TURN_LATE_CHUNK_GRACE_MS = 2500;
+
+/** [DIAG] Log original vs capped model/config option counts around capModelList. */
+function diagnosticsLogConfigOptionsCap(
+  chatId: string,
+  configOptions: NonNullable<ChatSession["configOptions"]>
+): void {
+  if (!isDiagnosticsEnabled()) {
+    return;
+  }
+  const modelOption = findSessionConfigOption(configOptions, "model");
+  if (!modelOption) {
+    return;
+  }
+  const originalCount = Array.isArray(modelOption.options)
+    ? modelOption.options.length
+    : 0;
+  diagnosticsLog("config-options-cap", {
+    chatId,
+    configOptionsCount: configOptions.length,
+    modelOptionOriginalCount: originalCount,
+  });
+}
 
 async function finalizeStreamingForCurrentAssistant(
   chatId: string,
@@ -575,6 +601,10 @@ async function handleConfigOptionsUpdate(
     // Internal session state (session.configOptions, session.models)
     // remains uncapped so validation (set-model, set-config-option)
     // continues to work against the full list.
+
+    // [DIAG] Log original vs capped model option counts
+    diagnosticsLogConfigOptionsCap(chatId, configOptions);
+
     const capped = capModelList({
       models: session.models?.availableModels,
       configOptions,
@@ -689,6 +719,11 @@ export function createSessionUpdateHandler(
       }
 
       await sessionRuntime.runExclusive(chatId, async () => {
+        // [DIAG] Measure processSessionUpdateUnderLock duration
+        let diagLockStart = 0;
+        if (isDiagnosticsEnabled()) {
+          diagLockStart = performance.now();
+        }
         await processSessionUpdateUnderLock({
           chatId,
           buffer,
@@ -701,6 +736,16 @@ export function createSessionUpdateHandler(
           summary,
           isDebugEnabled,
         });
+        // [DIAG] Log processSessionUpdateUnderLock duration
+        if (isDiagnosticsEnabled()) {
+          const diagDuration = performance.now() - diagLockStart;
+          diagnosticsLog("update-under-lock", {
+            chatId,
+            updateType: update.sessionUpdate,
+            isReplayingHistory,
+            durationMs: diagDuration.toFixed(2),
+          });
+        }
       });
     });
 

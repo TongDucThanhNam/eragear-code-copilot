@@ -36,9 +36,18 @@ interface UseChatCoreStateParams {
 
 // Keep use-chat.ts focused on workflow wiring by extracting local state+refs.
 export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
-  const [status, setStatus] = useState<ChatStatus>(
+  const [status, setStatusState] = useState<ChatStatus>(
     chatId && !readOnly ? "connecting" : "inactive"
   );
+
+  const setStatus = useCallback((next: React.SetStateAction<ChatStatus>) => {
+    const nextStatus =
+      typeof next === "function"
+        ? (next as (prev: ChatStatus) => ChatStatus)(statusRef.current)
+        : next;
+    statusRef.current = nextStatus;
+    setStatusState(nextStatus);
+  }, []);
   const [connStatus, setConnStatus] = useState<ConnectionStatus>(
     chatId && !readOnly ? "connecting" : "idle"
   );

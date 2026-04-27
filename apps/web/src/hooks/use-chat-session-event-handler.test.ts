@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChatStatus, UIMessage } from "@repo/shared";
+import type { BroadcastEvent, ChatStatus, UIMessage } from "@repo/shared";
 import {
   applyPartUpdate,
   finalizeStreamingMessagesInState,
@@ -370,5 +370,242 @@ describe("shouldFinalizeAfterReadyStatus", () => {
         completedTurnIds: new Set(["turn-1"]),
       })
     ).toBe(true);
+  });
+});
+
+describe("live supervisor turn adoption via turn guard", () => {
+  test("after chat_finish turn-1, processes chat_status submitted turn-2 then ui_message user turn-2 — supervisor message upserted immediately", () => {
+    // Simulate turn-1 completing
+    let activeTurnId: string | null = "turn-1";
+    const blockedTurnIds = new Set<string>();
+    const completedTurnIds = new Set<string>(["turn-1"]);
+    const isResuming = false;
+
+    // chat_finish for turn-1
+    const chatFinishEvent: BroadcastEvent = {
+      type: "chat_finish",
+      stopReason: "end_turn",
+      finishReason: "stop",
+      isAbort: false,
+      turnId: "turn-1",
+    };
+
+    // reconcileActiveTurnIdAfterEvent keeps turn-1 active after chat_finish
+    activeTurnId = reconcileActiveTurnIdAfterEvent({
+      activeTurnId,
+      event: chatFinishEvent,
+    });
+    // turn-1 is still the active turn after chat_finish
+    expect(activeTurnId).toBe("turn-1");
+
+    // status becomes ready after turn-1
+    let status: ChatStatus = "ready";
+
+    // chat_status submitted for turn-2 — should be accepted and adopt turn-2
+    const chatStatusEvent: BroadcastEvent = {
+      type: "chat_status",
+      status: "submitted",
+      turnId: "turn-2",
+    };
+
+    const guardAfterChatStatus = resolveSessionEventTurnGuard({
+      activeTurnId,
+      blockedTurnIds,
+      event: chatStatusEvent,
+      isResuming,
+      status,
+    });
+    expect(guardAfterChatStatus).toEqual({
+      ignore: false,
+      nextActiveTurnId: "turn-2",
+    });
+    activeTurnId = guardAfterChatStatus.nextActiveTurnId;
+    status = "submitted";
+
+    // ui_message user for turn-2 — should also be accepted
+    const uiMessageEvent: BroadcastEvent = {
+      type: "ui_message",
+      turnId: "turn-2",
+      message: {
+        id: "msg-supervisor-1",
+        role: "user",
+        parts: [
+          { type: "text", text: "follow-up from supervisor", state: "done" },
+        ],
+      },
+    };
+
+    const guardAfterUiMessage = resolveSessionEventTurnGuard({
+      activeTurnId,
+      blockedTurnIds,
+      event: uiMessageEvent,
+      isResuming,
+      status,
+    });
+    expect(guardAfterUiMessage).toEqual({
+      ignore: false,
+      nextActiveTurnId: "turn-2",
+    });
+    activeTurnId = guardAfterUiMessage.nextActiveTurnId;
+
+    // Verify the guard adopted turn-2 for supervisor prompt
+    expect(activeTurnId).toBe("turn-2");
+    expect(guardAfterChatStatus.ignore).toBe(false);
+    expect(guardAfterUiMessage.ignore).toBe(false);
+  });
+
+  test("ready + activeTurnId=turn-1 receiving chat_status streaming turn-2 adopts turn-2", () => {
+    const event: BroadcastEvent = {
+      type: "chat_status",
+      status: "streaming",
+      turnId: "turn-2",
+    };
+
+    const result = resolveSessionEventTurnGuard({
+      activeTurnId: "turn-1",
+      blockedTurnIds: new Set(),
+      event,
+      isResuming: false,
+      status: "ready",
+    });
+
+    expect(result).toEqual({
+      ignore: false,
+      nextActiveTurnId: "turn-2",
+    });
+  });
+
+  test("ready + activeTurnId=turn-1 receiving ui_message user turn-2 adopts turn-2", () => {
+    const event: BroadcastEvent = {
+      type: "ui_message",
+      turnId: "turn-2",
+      message: {
+        id: "msg-supervisor-1",
+        role: "user",
+        parts: [
+          { type: "text", text: "follow-up", state: "done" },
+        ],
+      },
+    };
+
+    const result = resolveSessionEventTurnGuard({
+      activeTurnId: "turn-1",
+      blockedTurnIds: new Set(),
+      event,
+      isResuming: false,
+      status: "ready",
+    });
+
+    expect(result).toEqual({
+      ignore: false,
+      nextActiveTurnId: "turn-2",
+    });
+  });
+
+  test("ready + activeTurnId=turn-1 receiving mismatched assistant ui_message turn-2 ignores it", () => {
+    const event: BroadcastEvent = {
+      type: "ui_message",
+      turnId: "turn-2",
+      message: {
+        id: "msg-2",
+        role: "assistant",
+        parts: [{ type: "text", text: "late assistant", state: "streaming" }],
+      },
+    };
+
+    const result = resolveSessionEventTurnGuard({
+      activeTurnId: "turn-1",
+      blockedTurnIds: new Set(),
+      event,
+      isResuming: false,
+      status: "ready",
+    });
+
+    expect(result).toEqual({
+      ignore: true,
+      nextActiveTurnId: "turn-1",
+    });
+  });
+});
+
+describe("synced status setter prevents race on supervisor follow-up", () => {
+  test("streaming->ready turn-1 then immediate submitted turn-2 then user ui_message turn-2: guard accepts turn-2", () => {
+    // Simulate the race condition: statusRef is "streaming" while turn-1 is still
+    // active. After processing chat_status ready turn-1 via a synced setter,
+    // statusRef.current becomes "ready" synchronously. Then chat_status submitted
+    // turn-2 arrives immediately — guard must accept it because statusRef is now
+    // "ready", not "streaming". Finally, ui_message user turn-2 is also accepted.
+    let activeTurnId: string | null = "turn-1";
+    const blockedTurnIds = new Set<string>();
+    const isResuming = false;
+
+    // Initial state: streaming with turn-1 active
+    let statusRef: ChatStatus = "streaming";
+
+    // chat_status ready turn-1 — this is the first event that transitions to ready.
+    // In the real synced setter, statusRef.current is set to "ready" BEFORE React
+    // render, so the subsequent submitted turn-2 event sees statusRef="ready".
+    const readyEvent: BroadcastEvent = {
+      type: "chat_status",
+      status: "ready",
+      turnId: "turn-1",
+    };
+
+    // Simulate synced setter behavior: resolve next status from statusRef
+    const nextStatusAfterReady =
+      readyEvent.status; // "ready"
+    statusRef = nextStatusAfterReady; // sync statusRef to "ready"
+
+    const guardForReady = resolveSessionEventTurnGuard({
+      activeTurnId,
+      blockedTurnIds,
+      event: readyEvent,
+      isResuming,
+      status: statusRef,
+    });
+    expect(guardForReady.ignore).toBe(false);
+    activeTurnId = guardForReady.nextActiveTurnId ?? activeTurnId;
+
+    // chat_status submitted turn-2 arrives immediately — with synced statusRef="ready",
+    // guard should accept the new turn even though activeTurnId is still "turn-1".
+    const submittedEvent: BroadcastEvent = {
+      type: "chat_status",
+      status: "submitted",
+      turnId: "turn-2",
+    };
+
+    const guardForSubmitted = resolveSessionEventTurnGuard({
+      activeTurnId,
+      blockedTurnIds,
+      event: submittedEvent,
+      isResuming,
+      status: statusRef,
+    });
+    expect(guardForSubmitted.ignore).toBe(false);
+    expect(guardForSubmitted.nextActiveTurnId).toBe("turn-2");
+    activeTurnId = guardForSubmitted.nextActiveTurnId ?? activeTurnId;
+
+    // ui_message user turn-2 should also be accepted immediately
+    const uiMessageEvent: BroadcastEvent = {
+      type: "ui_message",
+      turnId: "turn-2",
+      message: {
+        id: "msg-supervisor-1",
+        role: "user",
+        parts: [
+          { type: "text", text: "follow-up from supervisor", state: "done" },
+        ],
+      },
+    };
+
+    const guardForUiMessage = resolveSessionEventTurnGuard({
+      activeTurnId,
+      blockedTurnIds,
+      event: uiMessageEvent,
+      isResuming,
+      status: statusRef,
+    });
+    expect(guardForUiMessage.ignore).toBe(false);
+    expect(guardForUiMessage.nextActiveTurnId).toBe("turn-2");
   });
 });

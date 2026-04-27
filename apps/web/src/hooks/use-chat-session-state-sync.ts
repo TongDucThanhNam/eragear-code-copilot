@@ -24,6 +24,11 @@ import {
   getChatMessageStateSnapshot,
   useChatStreamStore,
 } from "@/store/chat-stream-store";
+import {
+  diagLog,
+  estimateJsonBytes,
+  isClientDiagnosticsEnabled,
+} from "@/hooks/use-chat-diagnostics";
 import { nextLifecycleOnChatIdChange } from "./use-chat-connection.machine";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
 import { chatDebug } from "./use-chat-debug";
@@ -180,6 +185,23 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
 
   const restoreSessionState = useCallback(
     (data: SessionStateData) => {
+      // [DIAG] Log session state hydration metrics
+      if (isClientDiagnosticsEnabled()) {
+        const diagBytes = estimateJsonBytes(data);
+        const modelCount = data.models?.availableModels?.length ?? 0;
+        const configOptionCount = data.configOptions?.length ?? 0;
+        const modeCount = data.modes?.availableModes?.length ?? 0;
+        diagLog("session-state-hydrate", {
+          chatId: chatId ?? null,
+          chatStatus: data.chatStatus ?? null,
+          status: data.status ?? null,
+          estimatedBytes: diagBytes,
+          modelCount,
+          configOptionCount,
+          modeCount,
+          currentModelId: data.models?.currentModelId ?? null,
+        });
+      }
       logSessionStateDebug("applySessionState start", {
         chatId: chatId ?? null,
         chatStatus: data.chatStatus ?? null,

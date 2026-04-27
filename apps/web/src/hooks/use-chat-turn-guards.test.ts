@@ -191,7 +191,169 @@ describe("resolveSessionEventTurnGuard", () => {
     });
   });
 
-  test("accepts explicit same-turn part updates after ready while completed turn is still tracked", () => {
+  test("accepts busy chat_status with new turnId when client is not busy (ready)", () => {
+    const event: BroadcastEvent = {
+      type: "chat_status",
+      status: "submitted",
+      turnId: "turn-2",
+    };
+
+    expect(
+      resolveSessionEventTurnGuard({
+        activeTurnId: "turn-1",
+        blockedTurnIds: new Set(),
+        event,
+        isResuming: false,
+        status: "ready",
+      })
+    ).toEqual({
+      ignore: false,
+      nextActiveTurnId: "turn-2",
+    });
+  });
+
+  test("accepts busy chat_status with new turnId when client is inactive", () => {
+    const event: BroadcastEvent = {
+      type: "chat_status",
+      status: "streaming",
+      turnId: "turn-2",
+    };
+
+    expect(
+      resolveSessionEventTurnGuard({
+        activeTurnId: "turn-1",
+        blockedTurnIds: new Set(),
+        event,
+        isResuming: false,
+        status: "inactive",
+      })
+    ).toEqual({
+      ignore: false,
+      nextActiveTurnId: "turn-2",
+    });
+  });
+
+  test("accepts ui_message user with new turnId when client is not busy", () => {
+    const event: BroadcastEvent = {
+      type: "ui_message",
+      turnId: "turn-2",
+      message: {
+        id: "msg-supervisor",
+        role: "user",
+        parts: [{ type: "text", text: "follow-up from supervisor", state: "done" }],
+      },
+    };
+
+    expect(
+      resolveSessionEventTurnGuard({
+        activeTurnId: "turn-1",
+        blockedTurnIds: new Set(),
+        event,
+        isResuming: false,
+        status: "ready",
+      })
+    ).toEqual({
+      ignore: false,
+      nextActiveTurnId: "turn-2",
+    });
+  });
+
+  test("ignores mismatched assistant ui_message with new turnId when client is ready", () => {
+    const event: BroadcastEvent = {
+      type: "ui_message",
+      turnId: "turn-2",
+      message: {
+        id: "msg-2",
+        role: "assistant",
+        parts: [{ type: "text", text: "late assistant", state: "streaming" }],
+      },
+    };
+
+    expect(
+      resolveSessionEventTurnGuard({
+        activeTurnId: "turn-1",
+        blockedTurnIds: new Set(),
+        event,
+        isResuming: false,
+        status: "ready",
+      })
+    ).toEqual({
+      ignore: true,
+      nextActiveTurnId: "turn-1",
+    });
+  });
+
+  test("ignores mismatched part update with new turnId when client is ready", () => {
+    const event: BroadcastEvent = {
+      type: "ui_message_part",
+      messageId: "m-part",
+      messageRole: "assistant",
+      partIndex: 0,
+      part: { type: "text", text: "tail", state: "streaming" },
+      isNew: false,
+      turnId: "turn-2",
+    };
+
+    expect(
+      resolveSessionEventTurnGuard({
+        activeTurnId: "turn-1",
+        blockedTurnIds: new Set(),
+        event,
+        isResuming: false,
+        status: "ready",
+      })
+    ).toEqual({
+      ignore: true,
+      nextActiveTurnId: "turn-1",
+    });
+  });
+
+  test("ignores mismatched terminal_output with new turnId when client is ready", () => {
+    const event: BroadcastEvent = {
+      type: "terminal_output",
+      terminalId: "term-1",
+      data: "late stdout",
+      turnId: "turn-2",
+    };
+
+    expect(
+      resolveSessionEventTurnGuard({
+        activeTurnId: "turn-1",
+        blockedTurnIds: new Set(),
+        event,
+        isResuming: false,
+        status: "ready",
+      })
+    ).toEqual({
+      ignore: true,
+      nextActiveTurnId: "turn-1",
+    });
+  });
+
+  test("ignores mismatched chat_finish with new turnId when client is ready", () => {
+    const event: BroadcastEvent = {
+      type: "chat_finish",
+      stopReason: "end_turn",
+      finishReason: "stop",
+      isAbort: false,
+      turnId: "turn-2",
+    };
+
+    expect(
+      resolveSessionEventTurnGuard({
+        activeTurnId: "turn-1",
+        blockedTurnIds: new Set(),
+        event,
+        isResuming: false,
+        status: "ready",
+      })
+    ).toEqual({
+      ignore: true,
+      nextActiveTurnId: "turn-1",
+    });
+  });
+
+  test("accepts same-turn part updates after ready while completed turn is still tracked", () => {
     const event: BroadcastEvent = {
       type: "ui_message_part",
       messageId: "m1",

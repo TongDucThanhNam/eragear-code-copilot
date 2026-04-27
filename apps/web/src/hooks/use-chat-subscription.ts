@@ -11,6 +11,12 @@ import type {
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import {
+  diagLog,
+  diagMeasure,
+  estimateJsonBytes,
+  isClientDiagnosticsEnabled,
+} from "@/hooks/use-chat-diagnostics";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
 import {
   nextLifecycleOnSubscriptionError,
@@ -107,6 +113,21 @@ export function useChatSubscription(params: UseChatSubscriptionParams) {
           return;
         }
 
+        // [DIAG] Measure incoming event bytes and parse duration
+        let diagStart = 0;
+        let diagBytes: number | null = null;
+        if (isClientDiagnosticsEnabled()) {
+          diagStart = performance.now();
+          diagBytes = estimateJsonBytes(rawEvent);
+          diagLog("subscription-raw-event", {
+            chatId: subscribedChatId,
+            eventType: typeof rawEvent === "object" && rawEvent !== null && "type" in rawEvent
+              ? (rawEvent as { type?: string }).type
+              : "unknown",
+            estimatedBytes: diagBytes,
+          });
+        }
+
         // DEBUG: Log raw event before parsing
         if (
           typeof rawEvent === "object" &&
@@ -149,7 +170,25 @@ export function useChatSubscription(params: UseChatSubscriptionParams) {
           return;
         }
         try {
+          // [DIAG] Measure parse + handleSessionEvent duration
+          if (isClientDiagnosticsEnabled()) {
+            const parseDuration = performance.now() - diagStart;
+            diagLog("subscription-parse", {
+              chatId: subscribedChatId,
+              parseDurationMs: parseDuration.toFixed(2),
+            });
+          }
           handleSessionEvent(parsedEvent.event);
+          // [DIAG] Log total onData handler duration
+          if (isClientDiagnosticsEnabled()) {
+            const totalDuration = performance.now() - diagStart;
+            diagLog("subscription-onData-done", {
+              chatId: subscribedChatId,
+              eventType: parsedEvent.event.type,
+              estimatedBytes: diagBytes,
+              totalDurationMs: totalDuration.toFixed(2),
+            });
+          }
         } catch (error) {
           const message =
             error instanceof Error

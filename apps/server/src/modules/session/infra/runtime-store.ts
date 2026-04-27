@@ -11,6 +11,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import { cloneBroadcastEvent } from "@/shared/utils/broadcast-event.util";
+import {
+  diagnosticsLog,
+  estimateJsonBytes,
+  isDiagnosticsEnabled,
+} from "@/shared/utils/diagnostics.util";
 import type { SessionEventOutboxPort } from "../application/ports/session-event-outbox.port";
 import type {
   SessionBroadcastOptions,
@@ -391,6 +396,14 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     event: BroadcastEvent,
     options?: SessionBroadcastOptions
   ): Promise<void> {
+    // [DIAG] Measure broadcast duration, event type, estimated bytes, and buffer state
+    let diagStart = 0;
+    let diagEventBytes: number | null = null;
+    if (isDiagnosticsEnabled()) {
+      diagStart = performance.now();
+      diagEventBytes = estimateJsonBytes(event);
+    }
+
     const session = this.sessions.get(chatId);
     if (!session) {
       return;
@@ -424,6 +437,22 @@ export class SessionRuntimeStore implements SessionRuntimePort {
     }
 
     await this.emitLiveEvent(session, event);
+
+    // [DIAG] Log broadcast completion metrics
+    if (isDiagnosticsEnabled()) {
+      const diagDuration = performance.now() - diagStart;
+      diagnosticsLog("broadcast", {
+        chatId,
+        eventType: event.type,
+        eventBytes: diagEventBytes,
+        durable:
+          options?.durable ??
+          (event.type !== "ui_message_part" &&
+            event.type !== "ui_message_part_removed"),
+        bufferSizeAfter: session.messageBuffer.length,
+        durationMs: diagDuration.toFixed(2),
+      });
+    }
   }
 
   private async emitLiveEvent(

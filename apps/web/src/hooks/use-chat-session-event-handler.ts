@@ -21,6 +21,10 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { useCallback } from "react";
 import { useChatStreamStore } from "@/store/chat-stream-store";
 import { useFileStore } from "@/store/file-store";
+import {
+  diagLog,
+  isClientDiagnosticsEnabled,
+} from "@/hooks/use-chat-diagnostics";
 import type { UseChatOptions } from "./use-chat.types";
 import type { StreamLifecycle } from "./use-chat-connection.machine";
 import { nextLifecycleOnSubscriptionEvent } from "./use-chat-connection.machine";
@@ -512,6 +516,8 @@ export function useChatSessionEventHandler(
       setStreamLifecycle((prev) =>
         nextLifecycleOnSubscriptionEvent({ current: prev, event })
       );
+      // [DIAG] Measure processSessionEvent duration by event type
+      const _diagProcessStart = isClientDiagnosticsEnabled() ? performance.now() : 0;
       processSessionEvent(
         event,
         {
@@ -663,6 +669,16 @@ export function useChatSessionEventHandler(
           onFinish,
         }
       );
+      // [DIAG] Log processSessionEvent duration
+      if (isClientDiagnosticsEnabled() && _diagProcessStart > 0) {
+        const diagDuration = performance.now() - _diagProcessStart;
+        diagLog("processSessionEvent", {
+          chatId: activeChatIdRef.current,
+          eventType: event.type,
+          durationMs: diagDuration.toFixed(2),
+          slow: diagDuration > 16,
+        });
+      }
       if (
         event.type === "chat_status" &&
         shouldFinalizeAfterReadyStatus({

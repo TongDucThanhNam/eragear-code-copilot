@@ -127,6 +127,23 @@ export function resolveSessionEventTurnGuard(params: {
       return { ignore: true, nextActiveTurnId: activeTurnId };
     }
     if (activeTurnId) {
+      // Another turn is active, but client is not busy (ready/inactive/error).
+      // Accept a new server-initiated turn if it arrives as a busy chat_status
+      // (supervisor follow-up) or as the first user ui_message of the new turn.
+      if (activeTurnId !== eventTurnId && !isChatBusyStatus(status)) {
+        if (
+          event.type === "chat_status" &&
+          isChatBusyStatus(event.status)
+        ) {
+          return { ignore: false, nextActiveTurnId: eventTurnId };
+        }
+        if (
+          event.type === "ui_message" &&
+          event.message.role === "user"
+        ) {
+          return { ignore: false, nextActiveTurnId: eventTurnId };
+        }
+      }
       return {
         ignore: activeTurnId !== eventTurnId,
         nextActiveTurnId: activeTurnId,

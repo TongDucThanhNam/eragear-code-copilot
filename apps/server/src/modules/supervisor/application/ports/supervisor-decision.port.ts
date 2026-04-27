@@ -1,7 +1,7 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type { Plan } from "@/modules/session/domain/stored-session.types";
 import type {
-  SupervisorDecisionSummary,
+  SupervisorSemanticDecision,
   SupervisorSessionState,
 } from "@/shared/types/supervisor.types";
 import type { SupervisorPermissionDecision } from "../supervisor.schemas";
@@ -22,8 +22,15 @@ export interface SupervisorTurnSnapshot {
   chatId: string;
   projectRoot: string;
   stopReason: string;
+  /** Current task goal — derived from the latest user instruction for routing decisions */
   taskGoal: string;
   latestAssistantTextPart: string;
+  /** First user message in the conversation — preserved for backward compatibility */
+  originalTaskGoal: string;
+  /** Last user instruction — the latest explicit user scope */
+  latestUserInstruction: string;
+  /** All user messages in chronological order, truncated and capped for bounded payload */
+  userInstructionTimeline: string[];
   autoResumeSignal?: SupervisorAutoResumeSignal;
   recentToolCallSummary?: SupervisorRecentToolCallSummary;
   lastErrorSummary?: string;
@@ -49,7 +56,7 @@ export interface SupervisorPermissionSnapshot {
 }
 
 export interface SupervisorDecisionPort {
-  decideTurn(input: SupervisorTurnSnapshot): Promise<SupervisorDecisionSummary>;
+  decideTurn(input: SupervisorTurnSnapshot): Promise<SupervisorSemanticDecision>;
   decidePermission(
     input: SupervisorPermissionSnapshot
   ): Promise<SupervisorPermissionDecision>;

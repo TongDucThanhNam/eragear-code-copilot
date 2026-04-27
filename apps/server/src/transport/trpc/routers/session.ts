@@ -26,6 +26,11 @@ import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 // biome-ignore lint/style/noRestrictedImports: Platform logging required for router operations
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { BroadcastEvent } from "../../../shared/types/session.types";
+import {
+  diagnosticsLog,
+  estimateJsonBytes,
+  isDiagnosticsEnabled,
+} from "../../../shared/utils/diagnostics.util";
 import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
 
@@ -272,6 +277,23 @@ export const sessionRouter = router({
 
           for (const event of subscription.bufferedEvents) {
             emit.next(event);
+          }
+
+          // [DIAG] Log subscription replay stats
+          if (isDiagnosticsEnabled()) {
+            let replayBytes = 0;
+            for (const evt of subscription.bufferedEvents) {
+              const b = estimateJsonBytes(evt);
+              if (b !== null) {
+                replayBytes += b;
+              }
+            }
+            diagnosticsLog("subscription-replay", {
+              chatId: input.chatId,
+              bufferedEventCount: subscription.bufferedEvents.length,
+              estimatedBufferedBytes: replayBytes,
+              subscriptionSource: subscription.source,
+            });
           }
 
           unsubscribe = subscription.subscribe((event) => {

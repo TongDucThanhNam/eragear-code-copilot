@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import {
   __obsidianSupervisorMemoryInternals,
@@ -169,6 +172,82 @@ describe("ObsidianSupervisorMemoryAdapter", () => {
     expect(logger.warnings[0]?.message).toBe(
       "Supervisor Obsidian search:context failed"
     );
+  });
+
+  test("falls back to local vault files when Obsidian CLI is unavailable", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "obsidian-memory-"));
+    const vaultRoot = path.join(tempDir, "StudyWithTerasumi");
+    const configPath = path.join(tempDir, "obsidian.json");
+    const blueprintPath = path.join(vaultRoot, "Project/App/Blueprint.md");
+    const desktopNotePath = path.join(
+      vaultRoot,
+      "Project/VLXD/business-analyst/22-apps-desktop-offline-single-store.md"
+    );
+
+    try {
+      await mkdir(path.dirname(blueprintPath), { recursive: true });
+      await mkdir(path.dirname(desktopNotePath), { recursive: true });
+      await writeFile(
+        configPath,
+        JSON.stringify({
+          vaults: {
+            abc123: {
+              path: vaultRoot,
+              open: true,
+            },
+          },
+        })
+      );
+      await writeFile(
+        blueprintPath,
+        "Use local-first architecture and preserve existing routes.\n"
+      );
+      await writeFile(
+        desktopNotePath,
+        "Desktop is offline-only. Local SQLite is authoritative. Avoid cloud or multi-store wording.\n"
+      );
+
+      const runner: ObsidianCommandRunner = () => {
+        return Promise.reject(
+          new Error(
+            "The CLI is unable to find Obsidian. Please make sure Obsidian is running and try again."
+          )
+        );
+      };
+      const adapter = new ObsidianSupervisorMemoryAdapter(
+        {
+          command: "obsidian",
+          vault: "StudyWithTerasumi",
+          blueprintPath: "Project/App/Blueprint.md",
+          searchPath: "Project",
+          searchLimit: 2,
+          timeoutMs: 1234,
+          configPath,
+        },
+        new CapturingLogger(),
+        runner
+      );
+
+      const context = await adapter.lookup({
+        query:
+          "must load Obsidian note 22-apps-desktop-offline-single-store.md before desktop work",
+        chatId: "chat-1",
+        projectRoot: "/repo",
+      });
+
+      expect(context.projectBlueprint).toBe(
+        "Use local-first architecture and preserve existing routes."
+      );
+      expect(context.results[0]).toMatchObject({
+        title: "22-apps-desktop-offline-single-store",
+        path: "Project/VLXD/business-analyst/22-apps-desktop-offline-single-store.md",
+      });
+      expect(context.results[0]?.snippets.join(" ")).toContain(
+        "Local SQLite is authoritative"
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   test("builds Obsidian CLI args as command followed by key-value options", () => {

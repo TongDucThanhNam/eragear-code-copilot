@@ -198,10 +198,10 @@ describe("SetModelService", () => {
       sessionRuntime,
       createGateway({
         session,
-        setSessionModel: (_session, modelId) => {
+        setSessionModel: async (_session, modelId) => {
           legacyCalls.push(modelId);
         },
-        setSessionConfigOption: (_session, configId, value) => {
+        setSessionConfigOption: async (_session, configId, value) => {
           configCalls.push({ configId, value });
           return [
             {
@@ -252,5 +252,124 @@ describe("SetModelService", () => {
         },
       },
     ]);
+  });
+
+  test("set-model works with large uncapped internal state when target model is beyond client-visible cap", async () => {
+    // Create a session with 150 models internally (uncapped),
+    // simulating the scenario where client-visible list is capped at 100
+    // but internal validation must work with full list
+    const session = createSession();
+    session.models = undefined;
+    // Internal configOptions has 150 models - the full uncapped list
+    session.configOptions = [
+      {
+        id: "primaryModel",
+        name: "Primary Model",
+        category: "model",
+        type: "select",
+        currentValue: "model-50",
+        options: Array.from({ length: 150 }, (_, i) => ({
+          value: `model-${i}`,
+          name: `Model ${i}`,
+        })),
+      },
+    ] as ChatSession["configOptions"];
+
+    const sessionRuntime = createSessionRuntimeStub();
+    const configCalls: Array<{ configId: string; value: string }> = [];
+
+    // Target model-120 is beyond the 100-item client-visible cap but present internally
+    const service = new SetModelService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionModel: async () => {
+          throw new Error("Should use config option path");
+        },
+        setSessionConfigOption: async (_session, _configId, value) => {
+          configCalls.push({ configId: "primaryModel", value });
+          // Return the updated config with the new selection
+          return [
+            {
+              id: "primaryModel",
+              name: "Primary Model",
+              category: "model",
+              type: "select",
+              currentValue: value,
+              options: Array.from({ length: 150 }, (_, i) => ({
+                value: `model-${i}`,
+                name: `Model ${i}`,
+              })),
+            },
+          ] as NonNullable<ChatSession["configOptions"]>;
+        },
+      })
+    );
+
+    const result = await service.execute("user-1", "chat-1", "model-120");
+
+    expect(result.ok).toBe(true);
+    expect(configCalls).toEqual([
+      {
+        configId: "primaryModel",
+        value: "model-120",
+      },
+    ]);
+    expect(session.configOptions?.[0]?.currentValue).toBe("model-120");
+
+    // Verify broadcast was sent with the uncapped internal configOptions
+    const configUpdateBroadcast = sessionRuntime.broadcasts.find(
+      (b) => b.event.type === "config_options_update"
+    );
+    expect(configUpdateBroadcast).toBeDefined();
+    // The broadcast should contain the session's configOptions (uncapped)
+    expect(
+      (configUpdateBroadcast!.event as { configOptions: unknown }).configOptions
+    ).toBe(session.configOptions);
+  });
+
+  test("set-model validates against full internal configOptions, not client-visible capped list", async () => {
+    // This test verifies that validation happens against the uncapped internal state
+    const session = createSession();
+    session.models = undefined;
+    // Internal configOptions has 150 models - uncapped
+    session.configOptions = [
+      {
+        id: "primaryModel",
+        name: "Primary Model",
+        category: "model",
+        type: "select",
+        currentValue: "model-0",
+        options: Array.from({ length: 150 }, (_, i) => ({
+          value: `model-${i}`,
+          name: `Model ${i}`,
+        })),
+      },
+    ] as ChatSession["configOptions"];
+
+    const sessionRuntime = createSessionRuntimeStub();
+    let errorThrown: Error | null = null;
+
+    const service = new SetModelService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionModel: () => Promise.resolve(),
+        setSessionConfigOption: async () => [],
+      })
+    );
+
+    // model-120 exists in the internal 150-model list but would be beyond
+    // a 100-item client-visible cap. Validation should PASS because it
+    // uses internal uncapped state.
+    try {
+      await service.execute("user-1", "chat-1", "model-120");
+    } catch (err) {
+      errorThrown = err as Error;
+    }
+
+    // Should NOT throw - model-120 exists in the uncapped internal list
+    expect(errorThrown).toBeNull();
+    expect(session.configOptions?.[0]?.currentValue).toBe("model-120");
   });
 });
