@@ -106,6 +106,25 @@ export function useChatSubscription(params: UseChatSubscriptionParams) {
         if (subscribedChatId !== activeChatIdRef.current) {
           return;
         }
+
+        // DEBUG: Log raw event before parsing
+        if (
+          typeof rawEvent === "object" &&
+          rawEvent !== null &&
+          "type" in rawEvent &&
+          (rawEvent as { type?: string }).type === "ui_message_part"
+        ) {
+          const partId = (rawEvent as { partId?: unknown }).partId;
+          console.debug("[Client] Raw ui_message_part event:", {
+            partId,
+            partIdType: typeof partId,
+            partIdRepr:
+              typeof partId === "string"
+                ? JSON.stringify(partId)
+                : String(partId),
+          });
+        }
+
         const parsedEvent = parseBroadcastEvent(rawEvent);
         if (parsedEvent.status === "ignored_unknown_event") {
           console.warn("[Client] Ignored unknown session event", {
@@ -116,6 +135,8 @@ export function useChatSubscription(params: UseChatSubscriptionParams) {
         if (parsedEvent.status === "invalid_payload") {
           console.warn("[Client] Dropped invalid session event", {
             error: parsedEvent.error,
+            rawEventType: (rawEvent as { type?: string }).type,
+            rawPartId: (rawEvent as { partId?: unknown }).partId,
           });
           const now = Date.now();
           if (

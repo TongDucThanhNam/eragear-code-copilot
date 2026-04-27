@@ -65,7 +65,9 @@ export function HeaderMenu({
       <Menu isOpen={isMenuOpen} onOpenChange={setIsMenuOpen}>
         <Menu.Trigger asChild>
           <Pressable
-            className="ml-2 h-10 w-10 items-center justify-center rounded-full active:bg-default-100"
+            className="ml-2 h-10 w-10 items-center justify-center rounded-full active:bg-default/20"
+            accessibilityLabel="Open menu"
+            accessibilityRole="button"
             onPress={() => setIsMenuOpen(true)}
           >
             <Ionicons

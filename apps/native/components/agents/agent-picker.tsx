@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ListGroup, RadioGroup, useThemeColor } from "heroui-native";
 import type { Agent } from "@/store/settings-store";
 import { AgentIcon } from "./agent-icons";
 
@@ -18,40 +18,59 @@ export function AgentPicker({
   isLoading = false,
   emptyLabel = "No agents configured.",
 }: AgentPickerProps) {
+  const themeColorForeground = useThemeColor("foreground");
+  const themeColorMuted = useThemeColor("muted");
+  const themeColorSuccess = useThemeColor("success");
+
   if (agents.length === 0) {
-    return <Text className="text-sm text-zinc-400">{emptyLabel}</Text>;
+    return (
+      <ListGroup>
+        <ListGroup.Item>
+          <ListGroup.ItemContent>
+            <ListGroup.ItemDescription className="text-muted-foreground">
+              {emptyLabel}
+            </ListGroup.ItemDescription>
+          </ListGroup.ItemContent>
+        </ListGroup.Item>
+      </ListGroup>
+    );
   }
 
   return (
-    <ScrollView>
+    <RadioGroup
+      value={activeAgentId ?? ""}
+      onValueChange={onSelect}
+      isDisabled={isLoading}
+    >
       {agents.map((agent: Agent) => (
-        <Pressable
-          className="mb-3 rounded-xl border border-zinc-700 p-4"
-          disabled={isLoading}
-          key={agent.id}
-          onPress={() => onSelect(agent.id)}
-        >
-          <View className="flex-row items-center justify-between">
-            <View className="flex-1 flex-row items-center gap-3">
+        <RadioGroup.Item key={agent.id} value={agent.id}>
+          <ListGroup.Item>
+            <ListGroup.ItemPrefix>
               <AgentIcon
-                color="#f8fafc"
-                secondaryColor="#94a3b8"
+                color={themeColorForeground}
+                secondaryColor={themeColorMuted}
                 size={20}
                 type={agent.type}
               />
-              <View className="flex-1">
-                <Text className="font-semibold text-white">{agent.name}</Text>
-                <Text className="mt-1 text-xs text-zinc-400">
-                  {agent.type} • {agent.command}
-                </Text>
-              </View>
-            </View>
-            {activeAgentId === agent.id ? (
-              <Ionicons color="#22c55e" name="checkmark-circle" size={18} />
-            ) : null}
-          </View>
-        </Pressable>
+            </ListGroup.ItemPrefix>
+            <ListGroup.ItemContent>
+              <ListGroup.ItemTitle>{agent.name}</ListGroup.ItemTitle>
+              <ListGroup.ItemDescription>
+                {agent.type} • {agent.command}
+              </ListGroup.ItemDescription>
+            </ListGroup.ItemContent>
+            <ListGroup.ItemSuffix>
+              {activeAgentId === agent.id && (
+                <Ionicons
+                  color={themeColorSuccess}
+                  name="checkmark-circle"
+                  size={20}
+                />
+              )}
+            </ListGroup.ItemSuffix>
+          </ListGroup.Item>
+        </RadioGroup.Item>
       ))}
-    </ScrollView>
+    </RadioGroup>
   );
 }

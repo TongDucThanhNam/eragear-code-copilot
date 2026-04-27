@@ -122,7 +122,8 @@ export function createSessionServices(
   );
   const getSessionStateService = new GetSessionStateService(
     deps.sessionRepo,
-    deps.sessionRuntime
+    deps.sessionRuntime,
+    deps.supervisorPolicy.enabled
   );
   const listSessionsService = new ListSessionsService(
     deps.sessionRepo,

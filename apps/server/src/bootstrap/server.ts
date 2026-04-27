@@ -38,6 +38,7 @@ import {
   type AppComposition,
   createAppCompositionFromSettings,
 } from "./composition";
+import { resolveAppRuntimeConfig } from "./init/runtime-config.init";
 import {
   type CloudflareAccessHandshakePolicy,
   hasCloudflareAccessHandshakeAuth as hasCloudflareAccessHandshakeAuthInternal,
@@ -429,6 +430,20 @@ export async function startServer() {
   installConsoleLogger();
   const composition = await createAppCompositionFromSettings();
   const runtimePolicy = composition.runtimePolicy;
+
+  // Log supervisor policy for visibility (no secrets)
+  const appConfig = resolveAppRuntimeConfig();
+  logger.info("Supervisor policy", {
+    supervisorEnabled: appConfig.supervisorPolicy.enabled,
+    supervisorModel: appConfig.supervisorPolicy.model,
+    supervisorDecisionTimeoutMs: appConfig.supervisorPolicy.decisionTimeoutMs,
+    supervisorDecisionMaxAttempts:
+      appConfig.supervisorPolicy.decisionMaxAttempts,
+    supervisorMaxRuntimeMs: appConfig.supervisorPolicy.maxRuntimeMs,
+    supervisorMaxRepeatedPrompts: appConfig.supervisorPolicy.maxRepeatedPrompts,
+    supervisorWebSearchProvider: appConfig.supervisorPolicy.webSearchProvider,
+    supervisorMemoryProvider: appConfig.supervisorPolicy.memoryProvider,
+  });
   const deps = composition.deps;
   const resolveAuthContext = createBootstrappedAuthResolver(deps);
   await deps.lifecycle.prepareStartup();

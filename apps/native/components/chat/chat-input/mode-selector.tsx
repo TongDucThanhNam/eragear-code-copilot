@@ -32,7 +32,9 @@ export function ModeSelector({
     <Popover isOpen={isOpen} onOpenChange={onOpenChange}>
       <Popover.Trigger asChild>
         <Pressable
-          className="flex-row items-center justify-between rounded-md border border-divider px-3 py-1.5"
+          className="flex-row items-center justify-between rounded-md border border-divider bg-default/10 px-3 py-1.5"
+          accessibilityLabel="Select mode"
+          accessibilityRole="button"
           onPress={() => {
             if (disabled) {
               return;

@@ -53,6 +53,7 @@ function createSessionListRow(): SessionListRow {
     authMethodsJson: JSON.stringify([
       { name: "api key", id: "api-key", description: "api key auth" },
     ]),
+    supervisorJson: null,
   };
 }
 

@@ -1,4 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
+import path from "node:path";
+import { config } from "dotenv";
 
 interface ChildSpec {
   name: string;
@@ -8,6 +10,9 @@ interface ChildSpec {
 
 const children: ChildProcess[] = [];
 let shuttingDown = false;
+
+// Load .env explicitly so child process inherits all env vars
+config({ path: path.join(process.cwd(), ".env") });
 
 const startChild = ({ name, args, env }: ChildSpec) => {
   const child = spawn("bun", args, {

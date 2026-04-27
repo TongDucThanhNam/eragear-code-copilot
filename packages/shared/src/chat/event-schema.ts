@@ -128,6 +128,38 @@ const SESSION_INFO_SCHEMA = z
   })
   .passthrough();
 
+const SUPERVISOR_DECISION_SCHEMA = z
+  .object({
+    action: z.enum(["done", "continue", "needs_user", "abort"]),
+    reason: z.string(),
+    followUpPrompt: z.string().optional(),
+  })
+  .passthrough();
+
+const SUPERVISOR_STATE_SCHEMA = z
+  .object({
+    mode: z.enum(["off", "full_autopilot"]),
+    status: z.enum([
+      "idle",
+      "queued",
+      "reviewing",
+      "continuing",
+      "done",
+      "needs_user",
+      "aborted",
+      "error",
+      "disabled",
+    ]),
+    reason: z.string().optional(),
+    runId: z.string().optional(),
+    runStartedAt: z.number().finite().optional(),
+    updatedAt: z.number().finite().optional(),
+    continuationCount: z.number().int().nonnegative().optional(),
+    lastTurnId: z.string().optional(),
+    lastDecision: SUPERVISOR_DECISION_SCHEMA.optional(),
+  })
+  .passthrough();
+
 const SESSION_CONFIG_SELECT_OPTION_SCHEMA = z
   .object({
     value: z.string(),
@@ -171,7 +203,8 @@ const CHAT_STATUS_SCHEMA = z.enum([
 ]);
 
 const PART_ID_MAX_LENGTH = 256;
-const PART_ID_PATTERN = /^[^\\s\\x00-\\x1F\\x7F]+$/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: part ids must reject ASCII control characters.
+const PART_ID_PATTERN = /^[^\s\u0000-\u001F\u007F]+$/;
 const PART_ID_SCHEMA = z
   .string()
   .min(1)
@@ -270,6 +303,20 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .passthrough(),
   z
     .object({
+      type: z.literal("supervisor_status"),
+      supervisor: SUPERVISOR_STATE_SCHEMA,
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.literal("supervisor_decision"),
+      decision: SUPERVISOR_DECISION_SCHEMA,
+      supervisor: SUPERVISOR_STATE_SCHEMA,
+      turnId: z.string().optional(),
+    })
+    .passthrough(),
+  z
+    .object({
       type: z.literal("current_mode_update"),
       modeId: z.string(),
       reason: z.string().optional(),
@@ -323,6 +370,8 @@ const BROADCAST_EVENT_TYPES = [
   "available_commands_update",
   "config_options_update",
   "session_info_update",
+  "supervisor_status",
+  "supervisor_decision",
   "current_mode_update",
   "current_model_update",
   "terminal_output",

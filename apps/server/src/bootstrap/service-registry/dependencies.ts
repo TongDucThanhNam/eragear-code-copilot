@@ -11,6 +11,7 @@ import type {
   AppConfigService,
   SettingsRepositoryPort,
 } from "@/modules/settings";
+import type { SupervisorPolicy } from "@/modules/supervisor";
 import type { CacheStats } from "@/platform/caching/types";
 import type { GitAdapter } from "@/platform/git";
 import type { ClockPort } from "@/shared/ports/clock.port";
@@ -34,6 +35,7 @@ export interface ServiceRegistryDependencies {
   agentRuntimeAdapter: AgentRuntimePort;
   sessionAcpAdapter: SessionAcpPort;
   sendMessagePolicy: SendMessagePolicy;
+  supervisorPolicy: SupervisorPolicy;
   sessionUiMessageLimit: number;
   getCacheStats: () => CacheStats;
   getBackgroundRunnerState: () => BackgroundRunnerState | null;

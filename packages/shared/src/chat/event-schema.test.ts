@@ -297,4 +297,28 @@ describe("parseBroadcastEventClientSafe", () => {
     }
     expect(parsed.value.modelId).toBe("model-2");
   });
+
+  test("parses supervisor_decision payload", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "supervisor_decision",
+      turnId: "turn-1",
+      decision: {
+        action: "continue",
+        reason: "Need a follow-up",
+        followUpPrompt: "Continue and verify.",
+      },
+      supervisor: {
+        mode: "full_autopilot",
+        status: "continuing",
+        continuationCount: 1,
+      },
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "supervisor_decision") {
+      return;
+    }
+    expect(parsed.value.decision.action).toBe("continue");
+    expect(parsed.value.supervisor.status).toBe("continuing");
+  });
 });

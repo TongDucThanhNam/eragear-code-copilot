@@ -10,6 +10,7 @@ import type {
   SessionModelState,
   SessionModeState,
   SessionStateData,
+  SupervisorSessionState,
 } from "@repo/shared";
 import { applySessionState, resolveSessionSelectionState } from "@repo/shared";
 import type {
@@ -61,6 +62,8 @@ interface UseChatSessionStateSyncParams {
   setPromptCapabilities: Dispatch<SetStateAction<PromptCapabilities | null>>;
   setAgentInfo: Dispatch<SetStateAction<AgentInfo | null>>;
   setLoadSessionSupported: Dispatch<SetStateAction<boolean | undefined>>;
+  setSupervisor: Dispatch<SetStateAction<SupervisorSessionState | null>>;
+  setSupervisorCapable: Dispatch<SetStateAction<boolean>>;
   setStatus: Dispatch<SetStateAction<ChatStatus>>;
   setConnStatus: Dispatch<SetStateAction<ConnectionStatus>>;
   setStreamLifecycle: Dispatch<SetStateAction<StreamLifecycle>>;
@@ -168,6 +171,8 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     setPromptCapabilities,
     setAgentInfo,
     setLoadSessionSupported,
+    setSupervisor,
+    setSupervisorCapable,
     setStatus,
     setConnStatus,
     setStreamLifecycle,
@@ -218,6 +223,21 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
         onLoadSessionSupportedChange: setLoadSessionSupported,
         onAgentInfoChange: setAgentInfo,
         onConnStatusChange: setConnStatus,
+        onSupervisorChange: (nextSupervisor) => {
+          logSessionStateDebug("onSupervisorChange from session state", {
+            chatId: chatId ?? null,
+            supervisor: nextSupervisor,
+          });
+          setSupervisor(nextSupervisor);
+        },
+        onSupervisorCapableChange: (capable) => {
+          logSessionStateDebug("onSupervisorCapableChange from session state", {
+            chatId: chatId ?? null,
+            capable,
+            isResuming: isResumingRef.current,
+          });
+          setSupervisorCapable(capable);
+        },
       });
     },
     [
@@ -236,6 +256,8 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
       setPromptCapabilities,
       setSessionInfo,
       setStatus,
+      setSupervisor,
+      setSupervisorCapable,
       setSupportsModelSwitching,
     ]
   );
@@ -293,6 +315,8 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     setPromptCapabilities(null);
     setAgentInfo(null);
     setLoadSessionSupported(undefined);
+    setSupervisor(null);
+    setSupervisorCapable(false);
     isResumingRef.current = false;
     activeTurnIdRef.current = null;
     blockedTurnIdsRef.current.clear();
@@ -336,6 +360,8 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
     setSessionInfo,
     setStatus,
     setStreamLifecycle,
+    setSupervisor,
+    setSupervisorCapable,
     setSupportsModelSwitching,
   ]);
 
@@ -390,6 +416,16 @@ export function useChatSessionStateSync(params: UseChatSessionStateSyncParams) {
       logSessionStateDebug("skip stopped-state hydrate while resuming", {
         chatId: activeChatId,
       });
+      // Apply supervisorCapable even when skipping other stopped-session hydration
+      // so the UI gate (connStatus === "connected" && supervisorCapable) can be
+      // satisfied after server env is enabled and session resumes.
+      if (normalizedSessionState.supervisorCapable !== undefined) {
+        console.debug("[SupervisorDebug] resume-guard applying supervisorCapable from stopped state", {
+          chatId: activeChatId,
+          supervisorCapable: normalizedSessionState.supervisorCapable,
+        });
+        setSupervisorCapable(normalizedSessionState.supervisorCapable);
+      }
       return;
     }
     if (stateToRestore.status === "stopped") {

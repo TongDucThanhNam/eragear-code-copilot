@@ -57,6 +57,13 @@
       "when": 1772352000000,
       "tag": "0007_agents_resume_command_template",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777161600000,
+      "tag": "0008_sessions_supervisor_state",
+      "breakpoints": true
     }
   ]
 }

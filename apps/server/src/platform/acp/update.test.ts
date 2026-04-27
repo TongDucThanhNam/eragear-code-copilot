@@ -314,7 +314,7 @@ describe("createSessionUpdateHandler", () => {
           category: "mode",
           type: "select",
           currentValue: "mode-new",
-          options: [{ value: "mode-new", name: "New mode" }],
+          options: [{ value: "mode-new", name: "New mode", description: null }],
         },
         {
           id: "model",
@@ -322,7 +322,9 @@ describe("createSessionUpdateHandler", () => {
           category: "model",
           type: "select",
           currentValue: "model-new",
-          options: [{ value: "model-new", name: "New model" }],
+          options: [
+            { value: "model-new", name: "New model", description: null },
+          ],
         },
       ],
     });
@@ -1172,5 +1174,84 @@ describe("createSessionUpdateHandler", () => {
       type: "current_model_update",
       modelId: "claude-sonnet",
     });
+  });
+
+  test("caps config_options_update broadcast while keeping internal state uncapped", async () => {
+    const session = createSession("chat-config-cap");
+    session.models = {
+      currentModelId: "model-current",
+      availableModels: Array.from({ length: 200 }, (_, i) => ({
+        modelId: `model-${i}`,
+        name: `Model ${i}`,
+      })),
+    };
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo);
+
+    // Build config options with 200 model options — exceeds the 100 cap
+    const modelOptions = Array.from({ length: 200 }, (_, i) => ({
+      value: `model-${i}`,
+      name: `Model ${i}`,
+    }));
+    // Ensure current model is at index 150 (beyond the 100 cap)
+    const currentModelId = "model-150";
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: currentModelId,
+            options: modelOptions,
+          },
+        ],
+      },
+    });
+
+    // Internal session.configOptions should be UNCAPPED (full 200 options)
+    const modelConfigOption = session.configOptions?.find(
+      (opt) => opt.category === "model"
+    );
+    expect(modelConfigOption?.options).toHaveLength(200);
+
+    // The broadcast should contain config options processed through capModelList
+    // (normalized with currentValue preserved at the front)
+    const configUpdateEvent = events.find((event) => {
+      if (typeof event === "object" && event !== null && "type" in event) {
+        return (event as { type?: string }).type === "config_options_update";
+      }
+      return false;
+    }) as
+      | {
+          type: "config_options_update";
+          configOptions: Array<{
+            id: string;
+            category: string;
+            currentValue?: string;
+            options: Array<{ value: string }>;
+          }>;
+        }
+      | undefined;
+    expect(configUpdateEvent).toBeDefined();
+    const broadcastModelOption = configUpdateEvent?.configOptions.find(
+      (opt) => opt.category === "model"
+    );
+
+    // capModelList normalizes model config options: currentValue entry is
+    // reordered to the front of the options array, then truncated to 100.
+    const broadcastModelValues = broadcastModelOption?.options ?? [];
+    const broadcastModelIds = broadcastModelValues.map((opt) => opt.value);
+    // The current model must be the first entry in the normalized list
+    expect(broadcastModelIds[0]).toBe(currentModelId);
+    // The broadcast model options must be truncated to 100 (from 200)
+    expect(broadcastModelValues.length).toBe(100);
   });
 });

@@ -75,6 +75,7 @@ export class SendMessageService {
   async execute(input: SendMessageExecuteInput): Promise<SendMessageResult> {
     this.logger.debug("SendMessageService.execute start", {
       chatId: input.chatId,
+      source: input.source ?? "client",
       textLength: input.text.length,
       images: input.images?.length ?? 0,
       audio: input.audio?.length ?? 0,
@@ -190,7 +191,11 @@ export class SendMessageService {
         // transient WebSocket reconnection windows where the tRPC subscription
         // handler has already incremented subscriberCount but hasn't yet
         // attached the emitter listener (or vice-versa).
-        if (liveSubscriberCount <= 0 && session.subscriberCount <= 0) {
+        if (
+          (input.source ?? "client") !== "supervisor" &&
+          liveSubscriberCount <= 0 &&
+          session.subscriberCount <= 0
+        ) {
           this.logger.warn(
             "SendMessageService rejected prompt without subscribers",
             {
@@ -270,7 +275,8 @@ export class SendMessageService {
           });
           aggregate.raw.uiState.messages.set(uiMessage.id, uiMessage);
           aggregate.raw.uiState.currentUserId = uiMessage.id;
-          aggregate.raw.uiState.currentUserSource = "client";
+          aggregate.raw.uiState.currentUserSource =
+            input.source === "supervisor" ? "supervisor" : "client";
           await this.sessionRuntime.broadcast(input.chatId, {
             type: "ui_message",
             message: uiMessage,
@@ -285,6 +291,7 @@ export class SendMessageService {
               prompt,
               broadcast,
               turnId,
+              source: input.source === "supervisor" ? "supervisor" : "client",
               abortSignal: promptAbortController.signal,
             })
             .catch((error) => {

@@ -7,7 +7,10 @@
  * @module modules/session/application/get-session-state.service
  */
 
+import { DEFAULT_MAX_VISIBLE_MODEL_COUNT } from "@/config/constants";
 import { NotFoundError } from "@/shared/errors";
+import type { SupervisorSessionState } from "@/shared/types/supervisor.types";
+import { capModelList } from "@/shared/utils/session-config-options.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
@@ -24,16 +27,20 @@ export class GetSessionStateService {
   private readonly sessionRepo: SessionRepositoryPort;
   /** Runtime store for active sessions */
   private readonly sessionRuntime: SessionRuntimePort;
+  /** Whether supervisor is enabled at the server level */
+  private readonly supervisorEnabled: boolean;
 
   /**
    * Creates a GetSessionStateService with required dependencies
    */
   constructor(
     sessionRepo: SessionRepositoryPort,
-    sessionRuntime: SessionRuntimePort
+    sessionRuntime: SessionRuntimePort,
+    supervisorEnabled?: boolean
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
+    this.supervisorEnabled = supervisorEnabled ?? false;
   }
 
   /**
@@ -53,19 +60,34 @@ export class GetSessionStateService {
   async execute(userId: string, chatId: string) {
     const session = this.sessionRuntime.get(chatId);
     if (session?.userId === userId) {
+      // Cap model/config-option lists at the response boundary to prevent
+      // excessive payload sizes. Internal session state remains uncapped
+      // so that set-model / set-config-option validation continues to work
+      // against the full list.
+      const capped = capModelList({
+        models: session.models?.availableModels,
+        configOptions: session.configOptions,
+        currentModelId: session.models?.currentModelId,
+        maxVisible: DEFAULT_MAX_VISIBLE_MODEL_COUNT,
+      });
+
       return {
         status: "running" as const,
         chatStatus: session.chatStatus,
         modes: session.modes,
-        models: session.models,
+        models: session.models
+          ? { ...session.models, availableModels: capped.models }
+          : session.models,
         commands: session.commands,
-        configOptions: session.configOptions ?? null,
+        configOptions: capped.configOptions,
         sessionInfo: session.sessionInfo ?? null,
         promptCapabilities: session.promptCapabilities,
         loadSessionSupported: session.loadSessionSupported,
         supportsModelSwitching: session.supportsModelSwitching ?? false,
         agentInfo: session.agentInfo ?? null,
         plan: session.plan ?? null,
+        supervisor: normalizeSupervisorForState(session.supervisor),
+        supervisorCapable: this.supervisorEnabled,
       };
     }
 
@@ -84,6 +106,8 @@ export class GetSessionStateService {
         supportsModelSwitching: stored.supportsModelSwitching ?? false,
         agentInfo: stored.agentInfo ?? null,
         plan: stored.plan ?? null,
+        supervisor: normalizeSupervisorForState(stored.supervisor),
+        supervisorCapable: this.supervisorEnabled,
       };
     }
 
@@ -93,4 +117,13 @@ export class GetSessionStateService {
       details: { chatId },
     });
   }
+}
+
+function normalizeSupervisorForState(
+  supervisor: SupervisorSessionState | undefined
+): SupervisorSessionState {
+  if (!supervisor || supervisor.mode === "off") {
+    return { mode: "off", status: "idle" };
+  }
+  return supervisor;
 }

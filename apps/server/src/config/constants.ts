@@ -158,6 +158,30 @@ export const HARD_MAX_APP_MAX_TOKENS = 200_000;
 export const DEFAULT_APP_DEFAULT_MODEL = "";
 /** Maximum allowed length for runtime default model identifier */
 export const MAX_APP_DEFAULT_MODEL_LENGTH = 200;
+/** Global supervisor kill switch default */
+export const DEFAULT_SUPERVISOR_ENABLED = false;
+/** Default model identifier for supervisor decisions (empty means unconfigured) */
+export const DEFAULT_SUPERVISOR_MODEL = "";
+/** Default timeout for one supervisor model decision */
+export const DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS = 30_000;
+/** Default max attempts for one supervisor model decision */
+export const DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS = 2;
+/** Default wall-clock budget for one supervisor autopilot run */
+export const DEFAULT_SUPERVISOR_MAX_RUNTIME_MS = 30 * 60 * 1000;
+/** Default repeated prompt limit for one supervisor autopilot run */
+export const DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS = 20;
+/** Default web-search provider for supervisor research */
+export const DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER = "none";
+/** Default local-memory provider for supervisor context */
+export const DEFAULT_SUPERVISOR_MEMORY_PROVIDER = "none";
+/** Default Obsidian CLI command for supervisor local memory */
+export const DEFAULT_SUPERVISOR_OBSIDIAN_COMMAND = "obsidian";
+/** Default Obsidian search folder for supervisor local memory */
+export const DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH = "Project";
+/** Default Obsidian search result limit for supervisor local memory */
+export const DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_LIMIT = 3;
+/** Default timeout for one Obsidian CLI command */
+export const DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS = 5000;
 /** Default TTL for auth bootstrap ensure-defaults cache */
 export const DEFAULT_AUTH_BOOTSTRAP_ENSURE_DEFAULTS_TTL_MS = 30 * 60 * 1000;
 /** Default max users retained in auth bootstrap success cache */
@@ -170,3 +194,8 @@ export const DEFAULT_AUTH_REQUIRE_CLOUDFLARE_ACCESS = false;
 export const DEFAULT_WS_AUTH_TIMEOUT_MS = 30_000;
 /** Default interval for periodic WebSocket session re-validation in milliseconds */
 export const DEFAULT_WS_SESSION_REVALIDATE_INTERVAL_MS = 60_000;
+/**
+ * Server-side cap for model/config-option lists sent to clients.
+ * Used to prevent excessive payload sizes when agents return large model lists.
+ */
+export const DEFAULT_MAX_VISIBLE_MODEL_COUNT = 100;

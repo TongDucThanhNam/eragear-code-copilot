@@ -14,6 +14,25 @@ export interface AppRuntimeConfig {
   sessionLockAcquireTimeoutMs: number;
   sessionEventBusPublishMaxQueuePerChat: number;
   sendMessagePolicy: SendMessagePolicy;
+  supervisorPolicy: {
+    enabled: boolean;
+    model: string;
+    deepSeekApiKey?: string;
+    decisionTimeoutMs: number;
+    decisionMaxAttempts: number;
+    maxRuntimeMs: number;
+    maxRepeatedPrompts: number;
+    webSearchProvider: typeof ENV.supervisorWebSearchProvider;
+    webSearchApiKey?: string;
+    memoryProvider: typeof ENV.supervisorMemoryProvider;
+    obsidianCommand: string;
+    obsidianVault?: string;
+    obsidianBlueprintPath?: string;
+    obsidianLogPath?: string;
+    obsidianSearchPath: string;
+    obsidianSearchLimit: number;
+    obsidianTimeoutMs: number;
+  };
   authPolicy: AuthRuntimePolicy;
   lifecyclePolicy: ServerLifecyclePolicy;
   serverPolicy: ServerRuntimePolicy;
@@ -35,6 +54,33 @@ export function resolveAppRuntimeConfig(): AppRuntimeConfig {
       messagePartsMaxBytes: ENV.messagePartsMaxBytes,
       acpRetryMaxAttempts: ENV.acpRequestMaxAttempts,
       acpRetryBaseDelayMs: ENV.acpRequestRetryBaseDelayMs,
+    },
+    supervisorPolicy: {
+      enabled: ENV.supervisorEnabled,
+      model: ENV.supervisorModel,
+      ...(ENV.supervisorDeepSeekApiKey.length > 0
+        ? { deepSeekApiKey: ENV.supervisorDeepSeekApiKey }
+        : {}),
+      decisionTimeoutMs: ENV.supervisorDecisionTimeoutMs,
+      decisionMaxAttempts: ENV.supervisorDecisionMaxAttempts,
+      maxRuntimeMs: ENV.supervisorMaxRuntimeMs,
+      maxRepeatedPrompts: ENV.supervisorMaxRepeatedPrompts,
+      webSearchProvider: ENV.supervisorWebSearchProvider,
+      webSearchApiKey: ENV.supervisorWebSearchApiKey,
+      memoryProvider: ENV.supervisorMemoryProvider,
+      obsidianCommand: ENV.supervisorObsidianCommand,
+      ...(ENV.supervisorObsidianVault.length > 0
+        ? { obsidianVault: ENV.supervisorObsidianVault }
+        : {}),
+      ...(ENV.supervisorObsidianBlueprintPath.length > 0
+        ? { obsidianBlueprintPath: ENV.supervisorObsidianBlueprintPath }
+        : {}),
+      ...(ENV.supervisorObsidianLogPath.length > 0
+        ? { obsidianLogPath: ENV.supervisorObsidianLogPath }
+        : {}),
+      obsidianSearchPath: ENV.supervisorObsidianSearchPath,
+      obsidianSearchLimit: ENV.supervisorObsidianSearchLimit,
+      obsidianTimeoutMs: ENV.supervisorObsidianTimeoutMs,
     },
     authPolicy: {
       authBaseUrl: ENV.authBaseUrl,

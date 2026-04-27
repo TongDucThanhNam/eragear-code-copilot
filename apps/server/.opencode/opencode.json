@@ -1,0 +1,38 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "orchestrator": {
+      "mode": "primary",
+      "model": "opencode/gpt-5.4",
+      "temperature": 0.3,
+      "description": "Bạn là Orchestrator thông minh. Với bất kỳ task cải thiện UX/UI nào, bạn PHẢI: 1) Gọi Explore để scan codebase và liệt kê tất cả screens/components. 2) Phân tích và chia nhỏ task. 3) Gọi multiple Task song song cho các subagent coder để improve từng screen. Chỉ delegate, không tự edit code.",
+      "task": {
+        "*": "allow",
+        "explore": "allow",
+        "ui-coder": "allow"
+      },
+      "edit": "ask",
+      "write": "ask",
+      "bash": "ask"
+    },
+    "ui-coder": {
+      "description": "Chuyên cải thiện UX/UI cho một screen/component cụ thể. Nhận task chi tiết và edit code trực tiếp.",
+      "mode": "subagent",
+      "model": "opencode/glm-5",
+      "temperature": 0.4,
+      "edit": "allow",
+      "write": "allow",
+      "bash": "ask",
+      "prompt": "Bạn là UI/UX engineer senior. Chỉ cải thiện UX/UI cho screen được giao. Code sạch, responsive, theo best practices."
+    },
+    "minimax-coder": {
+      "description": "Coder mạnh cho logic + UI phức tạp",
+      "mode": "subagent",
+      "model": "minimax-coding-plan/MiniMax-M2.7",
+      "temperature": 0.35,
+      "edit": "allow",
+      "write": "allow",
+      "bash": "ask"
+    }
+  }
+}

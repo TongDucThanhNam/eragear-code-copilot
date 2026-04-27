@@ -13,6 +13,7 @@ import {
   SetConfigOptionInputSchema,
   SetModeInputSchema,
   SetModelInputSchema,
+  SetSupervisorModeInputSchema,
 } from "@/modules/ai";
 // biome-ignore lint/style/noRestrictedImports: Platform logging required for router operations
 import { createLogger } from "@/platform/logging/structured-logger";
@@ -100,5 +101,17 @@ export const aiRouter = router({
     .mutation(async ({ input, ctx }) => {
       const service = ctx.aiServices.cancelPrompt();
       return await service.execute(getRequiredUserId(ctx), input.chatId);
+    }),
+
+  /** Enable or disable server-side supervisor autopilot for a session */
+  setSupervisorMode: protectedProcedure
+    .input(SetSupervisorModeInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const service = ctx.aiServices.setSupervisorMode();
+      return await service.execute({
+        userId: getRequiredUserId(ctx),
+        chatId: input.chatId,
+        mode: input.mode,
+      });
     }),
 });

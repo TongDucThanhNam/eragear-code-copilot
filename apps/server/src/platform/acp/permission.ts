@@ -52,7 +52,15 @@ const CANCELLED_PERMISSION_RESPONSE: acp.RequestPermissionResponse = {
  * });
  * ```
  */
-export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
+export function createPermissionHandler(
+  sessionRuntime: SessionRuntimePort,
+  handlerOptions?: {
+    autoResolver?: (input: {
+      chatId: string;
+      requestId: string;
+    }) => Promise<void>;
+  }
+) {
   return async function handlePermissionRequest(params: {
     chatId: string;
     isReplayingHistory: boolean;
@@ -185,6 +193,19 @@ export function createPermissionHandler(sessionRuntime: SessionRuntimePort) {
           options,
           turnId: eventTurnId,
         });
+        if (handlerOptions?.autoResolver) {
+          queueMicrotask(() => {
+            handlerOptions
+              .autoResolver?.({ chatId, requestId })
+              .catch((error: unknown) => {
+                logger.warn("ACP permission auto resolver failed", {
+                  chatId,
+                  requestId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              });
+          });
+        }
       } catch (error) {
         removePendingPermission(session, requestId);
         logger.error("Failed to publish permission request", error as Error, {

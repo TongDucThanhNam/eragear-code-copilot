@@ -345,6 +345,98 @@
           "default": "",
           "description": "Default AI model identifier"
         },
+        "SUPERVISOR_ENABLED": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable server-side ACP supervisor autopilot"
+        },
+        "SUPERVISOR_MODEL": {
+          "type": "string",
+          "default": "deepseek/deepseek-reasoner",
+          "description": "AI SDK model identifier for supervisor decisions"
+        },
+        "DEEPSEEK_API_KEY": {
+          "type": "string",
+          "description": "DeepSeek API key for supervisor decision models"
+        },
+        "SUPERVISOR_DECISION_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 30000,
+          "description": "Timeout for one supervisor model decision"
+        },
+        "SUPERVISOR_DECISION_MAX_ATTEMPTS": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2,
+          "description": "Maximum attempts for one supervisor model decision"
+        },
+        "SUPERVISOR_MAX_RUNTIME_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 1800000,
+          "description": "Wall-clock limit for one supervisor autopilot run"
+        },
+        "SUPERVISOR_MAX_REPEATED_PROMPTS": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20,
+          "description": "Maximum repeated supervisor prompts in one run"
+        },
+        "SUPERVISOR_WEB_SEARCH_PROVIDER": {
+          "type": "string",
+          "enum": ["none", "exa"],
+          "default": "none",
+          "description": "Optional supervisor web-search provider"
+        },
+        "SUPERVISOR_WEB_SEARCH_API_KEY": {
+          "type": "string",
+          "description": "Exa API key for supervisor web search"
+        },
+        "EXA_API_KEY": {
+          "type": "string",
+          "description": "Alias for SUPERVISOR_WEB_SEARCH_API_KEY"
+        },
+        "SUPERVISOR_MEMORY_PROVIDER": {
+          "type": "string",
+          "enum": ["none", "obsidian"],
+          "default": "none",
+          "description": "Optional supervisor local-memory provider"
+        },
+        "SUPERVISOR_OBSIDIAN_COMMAND": {
+          "type": "string",
+          "default": "obsidian",
+          "description": "Obsidian CLI command for supervisor local memory"
+        },
+        "SUPERVISOR_OBSIDIAN_VAULT": {
+          "type": "string",
+          "description": "Obsidian vault name for supervisor local memory"
+        },
+        "SUPERVISOR_OBSIDIAN_BLUEPRINT_PATH": {
+          "type": "string",
+          "description": "Obsidian note path containing the compact project blueprint"
+        },
+        "SUPERVISOR_OBSIDIAN_LOG_PATH": {
+          "type": "string",
+          "description": "Obsidian note path for supervisor audit logs"
+        },
+        "SUPERVISOR_OBSIDIAN_SEARCH_PATH": {
+          "type": "string",
+          "default": "Project",
+          "description": "Obsidian folder searched for supervisor local memory"
+        },
+        "SUPERVISOR_OBSIDIAN_SEARCH_LIMIT": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Maximum Obsidian search results included in one supervisor decision"
+        },
+        "SUPERVISOR_OBSIDIAN_TIMEOUT_MS": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 5000,
+          "description": "Timeout for one Obsidian CLI command"
+        },
         "MESSAGE_CONTENT_MAX_BYTES": {
           "type": "integer",
           "minimum": 1024,

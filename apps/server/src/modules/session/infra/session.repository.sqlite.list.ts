@@ -75,6 +75,7 @@ function createSessionListSelect(db: SqliteOrm) {
       planJson: sqliteSchema.sessions.planJson,
       agentCapabilitiesJson: sqliteSchema.sessions.agentCapabilitiesJson,
       authMethodsJson: sqliteSchema.sessions.authMethodsJson,
+      supervisorJson: sqliteSchema.sessions.supervisorJson,
     })
     .from(sqliteSchema.sessions)
     .leftJoin(

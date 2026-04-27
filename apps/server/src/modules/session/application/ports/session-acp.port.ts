@@ -39,11 +39,20 @@ export interface SessionBufferingPort {
 
 export interface SessionAcpPort {
   createBuffer(): SessionBufferingPort;
+  setPermissionAutoResolver(
+    resolver:
+      | ((input: { chatId: string; requestId: string }) => Promise<void>)
+      | undefined
+  ): void;
   createHandlers(params: {
     chatId: string;
     buffer: SessionBufferingPort;
     getIsReplaying: () => boolean;
     sessionRuntime: SessionRuntimePort;
     sessionRepo: SessionRepositoryPort;
+    permissionAutoResolver?: (input: {
+      chatId: string;
+      requestId: string;
+    }) => Promise<void>;
   }): acp.Client;
 }

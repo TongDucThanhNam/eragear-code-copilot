@@ -8,7 +8,12 @@
     },
     "name": "eragear-code-copilot",
     "slug": "eragear-code-copilot",
-    "plugins": ["expo-font", "expo-speech-recognition"],
+    "plugins": [
+      "expo-font",
+      "expo-speech-recognition",
+      "expo-router",
+      "expo-secure-store"
+    ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

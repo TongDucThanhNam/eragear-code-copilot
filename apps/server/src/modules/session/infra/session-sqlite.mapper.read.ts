@@ -18,6 +18,7 @@ import {
   OptionalPartsSchema,
   OptionalPlanSchema,
   OptionalReasoningBlocksSchema,
+  OptionalSupervisorSessionStateSchema,
   OptionalToolCallsSchema,
   type SessionListRow,
   type SessionRow,
@@ -122,6 +123,10 @@ export class SessionSqliteReadMapper {
         row.authMethodsJson,
         OptionalAuthMethodsSchema
       ),
+      supervisor: this.parseListJsonWithSchema(
+        row.supervisorJson,
+        OptionalSupervisorSessionStateSchema
+      ),
     };
   }
 
@@ -213,6 +218,15 @@ export class SessionSqliteReadMapper {
         {
           table: "sessions",
           column: "auth_methods_json",
+        }
+      ),
+      supervisor: fromSqliteJsonWithSchema(
+        row.supervisorJson,
+        undefined,
+        OptionalSupervisorSessionStateSchema,
+        {
+          table: "sessions",
+          column: "supervisor_json",
         }
       ),
     };

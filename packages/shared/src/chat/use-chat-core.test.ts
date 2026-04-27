@@ -1049,3 +1049,36 @@ describe("processSessionEvent file_modified", () => {
     expect(received).toEqual(["src/new-file.ts"]);
   });
 });
+
+describe("processSessionEvent supervisor events", () => {
+  test("forwards supervisor state and decisions", () => {
+    const states: string[] = [];
+    const decisions: string[] = [];
+
+    processSessionEvent(
+      {
+        type: "supervisor_decision",
+        decision: {
+          action: "needs_user",
+          reason: "The task needs human input",
+        },
+        supervisor: {
+          mode: "full_autopilot",
+          status: "needs_user",
+        },
+      },
+      { currentModes: null, currentModels: null },
+      {
+        onSupervisorChange: (supervisor) => {
+          states.push(supervisor?.status ?? "none");
+        },
+        onSupervisorDecision: (decision) => {
+          decisions.push(decision.action);
+        },
+      }
+    );
+
+    expect(states).toEqual(["needs_user"]);
+    expect(decisions).toEqual(["needs_user"]);
+  });
+});

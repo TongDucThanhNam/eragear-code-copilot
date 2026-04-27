@@ -52,6 +52,7 @@ import type {
   ManageBootAllowlistsService,
   UpdateSettingsService,
 } from "@/modules/settings";
+import type { SetSupervisorModeService } from "@/modules/supervisor";
 import type {
   CodeContextService,
   RespondPermissionService,
@@ -88,6 +89,7 @@ export interface AiServiceFactory {
   setMode(): ServicePort<SetModeService>;
   setConfigOption(): ServicePort<SetConfigOptionService>;
   cancelPrompt(): ServicePort<CancelPromptService>;
+  setSupervisorMode(): ServicePort<SetSupervisorModeService>;
 }
 
 export interface ProjectServiceFactory {

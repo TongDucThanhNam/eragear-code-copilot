@@ -106,8 +106,16 @@ export const CancelPromptInputSchema = z.object({
   chatId: z.string(),
 });
 
+export const SetSupervisorModeInputSchema = z.object({
+  chatId: z.string(),
+  mode: z.enum(["off", "full_autopilot"]),
+});
+
 export type SendMessageInput = z.infer<typeof SendMessageInputSchema>;
 export type SetModelInput = z.infer<typeof SetModelInputSchema>;
 export type SetModeInput = z.infer<typeof SetModeInputSchema>;
 export type SetConfigOptionInput = z.infer<typeof SetConfigOptionInputSchema>;
 export type CancelPromptInput = z.infer<typeof CancelPromptInputSchema>;
+export type SetSupervisorModeInput = z.infer<
+  typeof SetSupervisorModeInputSchema
+>;

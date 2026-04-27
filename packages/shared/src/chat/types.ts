@@ -102,6 +102,43 @@ export interface SessionInfo {
   updatedAt?: string | null;
 }
 
+export type SupervisorMode = "off" | "full_autopilot";
+
+export type SupervisorStatus =
+  | "idle"
+  | "queued"
+  | "reviewing"
+  | "continuing"
+  | "done"
+  | "needs_user"
+  | "aborted"
+  | "error"
+  | "disabled";
+
+export type SupervisorDecisionAction =
+  | "done"
+  | "continue"
+  | "needs_user"
+  | "abort";
+
+export interface SupervisorDecisionSummary {
+  action: SupervisorDecisionAction;
+  reason: string;
+  followUpPrompt?: string;
+}
+
+export interface SupervisorSessionState {
+  mode: SupervisorMode;
+  status: SupervisorStatus;
+  reason?: string;
+  runId?: string;
+  runStartedAt?: number;
+  updatedAt?: number;
+  continuationCount?: number;
+  lastTurnId?: string;
+  lastDecision?: SupervisorDecisionSummary;
+}
+
 // ============================================================================
 // Permission Types
 // ============================================================================
@@ -184,6 +221,13 @@ export type BroadcastEvent =
       type: "session_info_update";
       sessionInfo: SessionInfo;
     }
+  | { type: "supervisor_status"; supervisor: SupervisorSessionState }
+  | {
+      type: "supervisor_decision";
+      decision: SupervisorDecisionSummary;
+      supervisor: SupervisorSessionState;
+      turnId?: string;
+    }
   | {
       type: "current_mode_update";
       modeId: string;
@@ -230,6 +274,8 @@ export interface UseChatState {
   commands: AvailableCommand[];
   configOptions: SessionConfigOption[];
   sessionInfo: SessionInfo | null;
+  supervisor: SupervisorSessionState | null;
+  supervisorCapable: boolean;
   promptCapabilities: PromptCapabilities | null;
   agentInfo: AgentInfo | null;
   loadSessionSupported: boolean | undefined;

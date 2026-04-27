@@ -195,6 +195,7 @@ export function PermissionModal({ request, onRespond }: PermissionModalProps) {
                     <Button
                       className="justify-start rounded-2xl px-4 py-4"
                       key={option.id}
+                      accessibilityLabel={`${option.label}: ${option.description || ""}`}
                       onPress={() => onRespond(requestId, option.id)}
                       variant={tone.buttonVariant}
                     >

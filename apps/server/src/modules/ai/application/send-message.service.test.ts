@@ -24,7 +24,10 @@ import type {
 } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { AiSessionRuntimeAdapter } from "../infra/ai-session-runtime.adapter";
-import { PromptTaskRunner } from "./send-message/prompt-task-runner";
+import {
+  PromptTaskRunner,
+  type PromptTurnCompleteEvent,
+} from "./send-message/prompt-task-runner";
 import {
   type SendMessagePolicy,
   SendMessageService,
@@ -283,7 +286,8 @@ function createPolicy(
 function createService(
   repo: SessionRepositoryPort,
   runtime: SessionRuntimePort,
-  policyOverrides?: Partial<SendMessagePolicy>
+  policyOverrides?: Partial<SendMessagePolicy>,
+  afterTurnComplete?: (event: PromptTurnCompleteEvent) => void | Promise<void>
 ): SendMessageService {
   const clock: ClockPort = {
     nowMs: () => Date.now(),
@@ -304,6 +308,7 @@ function createService(
     runtimePolicyProvider: () => ({
       maxTokens: 8192,
     }),
+    afterTurnComplete,
   });
   return new SendMessageService({
     sessionRepo: repo,
@@ -422,6 +427,38 @@ describe("SendMessageService", () => {
     expect(session.activeTurnId).toBeUndefined();
   });
 
+  test("notifies after turn completion even after chat_finish state is cleared", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const completedTurns: PromptTurnCompleteEvent[] = [];
+    const session = createChatSession({
+      prompt: async () => ({ stopReason: "end_turn" }),
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime, undefined, (event) => {
+      completedTurns.push(event);
+    });
+
+    const result = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "hello",
+    });
+
+    await flushAsync();
+
+    expect(session.chatFinish).toBeUndefined();
+    expect(completedTurns).toEqual([
+      {
+        chatId: "chat-1",
+        userId: "user-1",
+        turnId: result.turnId,
+        stopReason: "end_turn",
+        source: "client",
+      },
+    ]);
+  });
+
   test("materializes buffered assistant output when streaming ui state is missing", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
@@ -434,7 +471,7 @@ describe("SendMessageService", () => {
           type: "text",
           text: "buffer only answer",
         });
-        return { stopReason: "end_turn" };
+        return Promise.resolve({ stopReason: "end_turn" });
       },
     });
     const runtime = createSessionRuntime("chat-1", session, events);
@@ -556,9 +593,7 @@ describe("SendMessageService", () => {
     const first = createDeferred<{ stopReason: string }>();
     let cancelCallCount = 0;
     const session = createChatSession({
-      prompt: () => {
-        return first.promise;
-      },
+      prompt: () => first.promise,
       cancel: () => {
         cancelCallCount += 1;
         return Promise.resolve();
@@ -713,7 +748,7 @@ describe("SendMessageService", () => {
         assistantIdAtPrompt = session.uiState.currentAssistantId;
         lastChunkTypeAtPrompt = session.lastAssistantChunkType;
         bufferedMessageIdAtPrompt = session.buffer?.getMessageId();
-        return { stopReason: "end_turn" };
+        return Promise.resolve({ stopReason: "end_turn" });
       },
     });
     session.uiState.messages.set(staleAssistantId, {
@@ -939,6 +974,7 @@ describe("SendMessageService", () => {
         },
         cancel: () => {
           cancelCallCount += 1;
+          return Promise.resolve();
         },
       });
       session.emitter.removeAllListeners("data");

@@ -27,6 +27,8 @@ import type {
   SessionInfo,
   SessionModelState,
   SessionModeState,
+  SupervisorDecisionSummary,
+  SupervisorSessionState,
 } from "./types";
 import { isDataPart, isToolPart } from "./types";
 
@@ -505,6 +507,11 @@ export interface EventProcessingCallbacks {
   onCommandsChange?: (commands: AvailableCommand[]) => void;
   onConfigOptionsChange?: (configOptions: SessionConfigOption[]) => void;
   onSessionInfoChange?: (sessionInfo: SessionInfo | null) => void;
+  onSupervisorChange?: (supervisor: SupervisorSessionState | null) => void;
+  onSupervisorDecision?: (
+    decision: SupervisorDecisionSummary,
+    supervisor: SupervisorSessionState
+  ) => void;
   onPromptCapabilitiesChange?: (caps: PromptCapabilities | null) => void;
   onAgentInfoChange?: (info: AgentInfo | null) => void;
   onTerminalOutput?: (terminalId: string, data: string) => void;
@@ -614,6 +621,15 @@ export function processSessionEvent(
 
     case "session_info_update":
       callbacks.onSessionInfoChange?.(event.sessionInfo ?? null);
+      return;
+
+    case "supervisor_status":
+      callbacks.onSupervisorChange?.(event.supervisor);
+      return;
+
+    case "supervisor_decision":
+      callbacks.onSupervisorDecision?.(event.decision, event.supervisor);
+      callbacks.onSupervisorChange?.(event.supervisor);
       return;
 
     case "current_mode_update":
@@ -946,6 +962,8 @@ export interface SessionStateData {
   }>;
   configOptions?: SessionConfigOption[];
   sessionInfo?: SessionInfo | null;
+  supervisor?: SupervisorSessionState | null;
+  supervisorCapable?: boolean;
   promptCapabilities?: PromptCapabilities | null;
   loadSessionSupported?: boolean;
   agentInfo?: AgentInfo | null;
@@ -965,6 +983,8 @@ export function applySessionState(
     onCommandsChange?: (commands: AvailableCommand[]) => void;
     onConfigOptionsChange?: (configOptions: SessionConfigOption[]) => void;
     onSessionInfoChange?: (sessionInfo: SessionInfo | null) => void;
+    onSupervisorChange?: (supervisor: SupervisorSessionState | null) => void;
+    onSupervisorCapableChange?: (capable: boolean) => void;
     onPromptCapabilitiesChange?: (caps: PromptCapabilities | null) => void;
     onLoadSessionSupportedChange?: (supported: boolean | undefined) => void;
     onAgentInfoChange?: (info: AgentInfo | null) => void;
@@ -975,6 +995,12 @@ export function applySessionState(
     callbacks.onPromptCapabilitiesChange?.(null);
     callbacks.onConnStatusChange?.("idle");
     callbacks.onStatusChange?.(data.chatStatus ?? "inactive");
+    // Apply supervisorCapable even for stopped sessions so the UI gate
+    // (connStatus === "connected" && supervisorCapable) can be satisfied
+    // after server env is enabled and session is resumed.
+    if (data.supervisorCapable !== undefined) {
+      callbacks.onSupervisorCapableChange?.(data.supervisorCapable);
+    }
     return false;
   }
 
@@ -1015,6 +1041,12 @@ export function applySessionState(
   }
   if (data.sessionInfo !== undefined) {
     callbacks.onSessionInfoChange?.(data.sessionInfo);
+  }
+  if (data.supervisor !== undefined) {
+    callbacks.onSupervisorChange?.(data.supervisor);
+  }
+  if (data.supervisorCapable !== undefined) {
+    callbacks.onSupervisorCapableChange?.(data.supervisorCapable);
   }
   if (data.promptCapabilities !== undefined) {
     callbacks.onPromptCapabilitiesChange?.(data.promptCapabilities);

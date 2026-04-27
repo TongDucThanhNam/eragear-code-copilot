@@ -64,10 +64,22 @@ export function createSessionHandlers(params: {
   getIsReplaying: () => boolean;
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
+  permissionAutoResolver?: (input: {
+    chatId: string;
+    requestId: string;
+  }) => Promise<void>;
 }): acp.Client {
-  const { chatId, buffer, getIsReplaying, sessionRuntime, sessionRepo } =
-    params;
-  const handlePermissionRequest = createPermissionHandler(sessionRuntime);
+  const {
+    chatId,
+    buffer,
+    getIsReplaying,
+    sessionRuntime,
+    sessionRepo,
+    permissionAutoResolver,
+  } = params;
+  const handlePermissionRequest = createPermissionHandler(sessionRuntime, {
+    autoResolver: permissionAutoResolver,
+  });
   const handleSessionUpdate = createSessionUpdateHandler(
     sessionRuntime,
     sessionRepo

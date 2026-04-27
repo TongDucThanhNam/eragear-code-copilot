@@ -51,6 +51,7 @@ interface PromptTaskRunnerDeps {
   clock: ClockPort;
   policy: PromptTaskRunnerPolicy;
   runtimePolicyProvider: () => PromptRuntimePolicy;
+  afterTurnComplete?: (event: PromptTurnCompleteEvent) => void | Promise<void>;
 }
 
 interface PromptTaskParams {
@@ -59,7 +60,16 @@ interface PromptTaskParams {
   prompt: ContentBlock[];
   broadcast: SessionRuntimePort["broadcast"];
   turnId: string;
+  source: "client" | "supervisor";
   abortSignal?: AbortSignal;
+}
+
+export interface PromptTurnCompleteEvent {
+  chatId: string;
+  userId: string;
+  turnId: string;
+  stopReason: string;
+  source: "client" | "supervisor";
 }
 
 export class PromptTaskRunner {
@@ -70,6 +80,9 @@ export class PromptTaskRunner {
   private readonly clock: ClockPort;
   private readonly policy: PromptTaskRunnerPolicy;
   private readonly runtimePolicyProvider: () => PromptRuntimePolicy;
+  private afterTurnComplete?: (
+    event: PromptTurnCompleteEvent
+  ) => void | Promise<void>;
 
   constructor(deps: PromptTaskRunnerDeps) {
     this.sessionRepo = deps.sessionRepo;
@@ -88,6 +101,13 @@ export class PromptTaskRunner {
       ),
     };
     this.runtimePolicyProvider = deps.runtimePolicyProvider;
+    this.afterTurnComplete = deps.afterTurnComplete;
+  }
+
+  setAfterTurnCompleteHook(
+    hook: (event: PromptTurnCompleteEvent) => void | Promise<void>
+  ): void {
+    this.afterTurnComplete = hook;
   }
 
   async cancelActivePrompt(params: {
@@ -149,8 +169,9 @@ export class PromptTaskRunner {
   async runPromptTask(params: PromptTaskParams): Promise<void> {
     const { chatId, aggregate, turnId, broadcast } = params;
     const session = aggregate.raw;
+    let completedStopReason: string | undefined;
     try {
-      await this.handlePrompt(params);
+      completedStopReason = await this.handlePrompt(params);
     } catch (error) {
       if (
         error instanceof AiSessionRuntimeError &&
@@ -218,7 +239,42 @@ export class PromptTaskRunner {
       });
     } finally {
       aggregate.clearActivePromptTaskIf(turnId);
+      await this.notifyAfterTurnComplete({
+        chatId,
+        session,
+        turnId,
+        source: params.source,
+        stopReason: completedStopReason,
+      });
     }
+  }
+
+  private async notifyAfterTurnComplete(params: {
+    chatId: string;
+    session: ChatSession;
+    turnId: string;
+    source: "client" | "supervisor";
+    stopReason?: string;
+  }): Promise<void> {
+    const { chatId, session, turnId, source } = params;
+    if (!this.afterTurnComplete) {
+      return;
+    }
+    const stopReason =
+      params.stopReason ??
+      (session.chatFinish?.turnId === turnId
+        ? session.chatFinish.stopReason
+        : undefined);
+    if (!stopReason) {
+      return;
+    }
+    await this.afterTurnComplete({
+      chatId,
+      userId: session.userId,
+      turnId,
+      stopReason,
+      source,
+    });
   }
 
   private async persistAssistantFallbackMessage(params: {
@@ -281,7 +337,9 @@ export class PromptTaskRunner {
     }
   }
 
-  private async handlePrompt(params: PromptTaskParams): Promise<void> {
+  private async handlePrompt(
+    params: PromptTaskParams
+  ): Promise<string | undefined> {
     const { chatId, aggregate, prompt, broadcast, turnId, abortSignal } =
       params;
     const session = aggregate.raw;
@@ -293,7 +351,7 @@ export class PromptTaskRunner {
         reason: "Session is missing ACP session id",
         killProcess: false,
       });
-      return;
+      return undefined;
     }
 
     const response = await this.requestPromptWithRetries({
@@ -306,7 +364,7 @@ export class PromptTaskRunner {
       abortSignal,
     });
     if (!response) {
-      return;
+      return undefined;
     }
 
     if (!aggregate.isCurrentTurn(turnId)) {
@@ -316,7 +374,7 @@ export class PromptTaskRunner {
         activeTurnId: session.activeTurnId,
         stopReason: response.stopReason,
       });
-      return;
+      return undefined;
     }
 
     await this.waitForAssistantDrain({
@@ -334,6 +392,7 @@ export class PromptTaskRunner {
       turnId,
       stopReason: response.stopReason,
     });
+    return response.stopReason;
   }
 
   private async requestPromptWithRetries(params: {

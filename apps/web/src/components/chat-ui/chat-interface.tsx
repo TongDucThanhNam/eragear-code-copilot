@@ -226,6 +226,11 @@ export function ChatInterface({
     respondToPermission,
     stopSession,
     resumeSession,
+    setSupervisorMode,
+    supervisor,
+    supervisorCapable,
+    lastSupervisorDecision,
+    isSettingSupervisorMode,
     refreshHistory,
     loadOlderHistory,
     setConnStatus,
@@ -811,6 +816,16 @@ export function ChatInterface({
     [chatId, effectiveConnStatus, handleSetConfigOptionAction]
   );
 
+  const handleSetSupervisorMode = useCallback(
+    async (mode: "off" | "full_autopilot") => {
+      if (!chatId) {
+        return;
+      }
+      await setSupervisorMode(mode);
+    },
+    [chatId, setSupervisorMode]
+  );
+
   // Handle submit
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
@@ -1156,13 +1171,18 @@ export function ChatInterface({
           connStatus={effectiveConnStatus}
           currentModeId={currentModeId}
           currentModelId={currentModelId}
+          isSettingSupervisorMode={isSettingSupervisorMode}
+          lastSupervisorDecision={lastSupervisorDecision}
           onCancel={handleCancel}
           onConfigOptionChange={handleSetConfigOption}
           onModeChange={handleSetMode}
           onModelChange={handleSetModel}
+          onSetSupervisorMode={handleSetSupervisorMode}
           onSubmit={handleSubmit}
           projectRules={projectContext?.projectRules}
           status={status}
+          supervisor={supervisor}
+          supervisorCapable={supervisorCapable}
           textareaRef={textareaRef}
         />
       </div>

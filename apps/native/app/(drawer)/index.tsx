@@ -3,6 +3,8 @@ import { useRouter } from "expo-router";
 import {
   BottomSheet,
   Button,
+  Chip,
+  Dialog,
   Input,
   Label,
   Spinner,
@@ -15,7 +17,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
-  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -108,6 +109,7 @@ export default function SessionsScreen() {
   const router = useRouter();
   const themeColorForeground = useThemeColor("foreground");
   const themeColorMuted = useThemeColor("muted");
+  const themeColorWarning = useThemeColor("warning");
   const { deleteSession, isDeleting: isDeletingSession } = useDeleteSession();
 
   const { setActiveChatId, setSessions } = useChatStore();
@@ -692,6 +694,8 @@ export default function SessionsScreen() {
           const sessionAgentType = getSessionAgentType(item);
           return (
             <Pressable
+              accessibilityLabel={`Open session ${sessionTitle}, ${item.isActive ? "active" : "inactive"}`}
+              accessibilityRole="button"
               onPress={() => handleOpenSession(item.id, item.isActive)}
             >
               <Surface className="mb-3 flex-row items-start justify-between rounded-lg p-3">
@@ -700,7 +704,7 @@ export default function SessionsScreen() {
                   <View className="flex-row items-center">
                     <View
                       className={`mr-2 h-2 w-2 rounded-full ${
-                        item.isActive ? "bg-green-500" : "bg-zinc-500"
+                        item.isActive ? "bg-success" : "bg-muted"
                       }`}
                     />
                     <AgentIcon
@@ -717,7 +721,7 @@ export default function SessionsScreen() {
                     </Text>
                     {item.pinned && (
                       <Ionicons
-                        color="#f59e0b"
+                        color={themeColorWarning}
                         name="pin"
                         size={14}
                         style={{ marginLeft: 6 }}
@@ -742,37 +746,25 @@ export default function SessionsScreen() {
                   {/* Status badges - compact */}
                   <View className="mt-2 flex-row flex-wrap gap-1.5">
                     {!item.isActive && (
-                      <View
-                        className={`rounded px-2 py-0.5 ${
-                          item.loadSessionSupported
-                            ? "bg-green-500/20"
-                            : "bg-zinc-700"
-                        }`}
+                      <Chip
+                        size="sm"
+                        variant="soft"
+                        color={item.loadSessionSupported ? "success" : "default"}
                       >
-                        <Text
-                          className={`font-medium text-xs ${
-                            item.loadSessionSupported
-                              ? "text-green-400"
-                              : "text-zinc-300"
-                          }`}
-                        >
+                        <Chip.Label>
                           {item.loadSessionSupported ? "Resume" : "Read-only"}
-                        </Text>
-                      </View>
+                        </Chip.Label>
+                      </Chip>
                     )}
                     {item.modeId && (
-                      <View className="rounded bg-primary/20 px-2 py-0.5">
-                        <Text className="font-medium text-primary text-xs">
-                          {item.modeId}
-                        </Text>
-                      </View>
+                      <Chip size="sm" variant="primary">
+                        <Chip.Label>{item.modeId}</Chip.Label>
+                      </Chip>
                     )}
                     {item.archived && (
-                      <View className="rounded bg-zinc-700 px-2 py-0.5">
-                        <Text className="font-medium text-xs text-zinc-300">
-                          Archived
-                        </Text>
-                      </View>
+                      <Chip size="sm" variant="soft" color="default">
+                        <Chip.Label>Archived</Chip.Label>
+                      </Chip>
                     )}
                   </View>
                 </View>
@@ -780,13 +772,15 @@ export default function SessionsScreen() {
                 {/* Menu button only */}
                 <Pressable
                   className="p-1"
+                  accessibilityLabel={`Session options for ${sessionTitle}`}
+                  accessibilityRole="button"
                   onPress={(event) => {
                     event.stopPropagation();
                     handleOpenSessionActions(item);
                   }}
                 >
                   <Ionicons
-                    color="#94a3b8"
+                    color={themeColorMuted}
                     name="ellipsis-vertical"
                     size={20}
                   />
@@ -848,78 +842,82 @@ export default function SessionsScreen() {
         {renderContent}
       </View>
 
-      {/* Create Project Modal */}
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setIsProjectCreateOpen(false)}
-        transparent
-        visible={isProjectCreateOpen}
+      {/* Create Project Dialog */}
+      <Dialog
+        isOpen={isProjectCreateOpen}
+        onOpenChange={(open) => !open && setIsProjectCreateOpen(false)}
       >
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="max-h-[80%] rounded-t-3xl bg-zinc-900 p-6">
-            <View className="mb-4 flex-row items-center justify-between">
-              <Text className="font-semibold text-lg text-white">
-                Create Project
-              </Text>
-              <Pressable onPress={() => setIsProjectCreateOpen(false)}>
-                <Ionicons color="#94a3b8" name="close" size={20} />
-              </Pressable>
-            </View>
+        <Dialog.Portal>
+          <Dialog.Overlay />
+          <Dialog.Content>
+            <Dialog.Close variant="ghost" />
+            <Dialog.Title>Create Project</Dialog.Title>
+            <Dialog.Description>
+              Add a new project to organize your coding sessions.
+            </Dialog.Description>
 
-            <ScrollView>
-              <TextField>
-                <Label>Name</Label>
-                <Input
-                  autoCapitalize="none"
-                  onChangeText={(value) =>
-                    setProjectForm((prev) => ({ ...prev, name: value }))
-                  }
-                  placeholder="My Project"
-                  value={projectForm.name}
-                />
-              </TextField>
+            <ScrollView className="max-h-[300px] mt-4">
+              <View className="gap-3">
+                <TextField>
+                  <Label>Name</Label>
+                  <Input
+                    autoCapitalize="none"
+                    onChangeText={(value) =>
+                      setProjectForm((prev) => ({ ...prev, name: value }))
+                    }
+                    placeholder="My Project"
+                    value={projectForm.name}
+                  />
+                </TextField>
 
-              <TextField>
-                <Label>Path</Label>
-                <Input
-                  autoCapitalize="none"
-                  onChangeText={(value) =>
-                    setProjectForm((prev) => ({ ...prev, path: value }))
-                  }
-                  placeholder="/absolute/path/to/project"
-                  value={projectForm.path}
-                />
-              </TextField>
+                <TextField>
+                  <Label>Path</Label>
+                  <Input
+                    autoCapitalize="none"
+                    onChangeText={(value) =>
+                      setProjectForm((prev) => ({ ...prev, path: value }))
+                    }
+                    placeholder="/absolute/path/to/project"
+                    value={projectForm.path}
+                  />
+                </TextField>
 
-              <TextField>
-                <Label>Description</Label>
-                <Input
-                  autoCapitalize="none"
-                  onChangeText={(value) =>
-                    setProjectForm((prev) => ({
-                      ...prev,
-                      description: value,
-                    }))
-                  }
-                  placeholder="Optional description"
-                  value={projectForm.description}
-                />
-              </TextField>
+                <TextField>
+                  <Label>Description</Label>
+                  <Input
+                    autoCapitalize="none"
+                    onChangeText={(value) =>
+                      setProjectForm((prev) => ({
+                        ...prev,
+                        description: value,
+                      }))
+                    }
+                    placeholder="Optional description"
+                    value={projectForm.description}
+                  />
+                </TextField>
 
-              <TextField>
-                <Label>Tags</Label>
-                <Input
-                  autoCapitalize="none"
-                  onChangeText={(value) =>
-                    setProjectForm((prev) => ({ ...prev, tags: value }))
-                  }
-                  placeholder="frontend, api, ui"
-                  value={projectForm.tags}
-                />
-              </TextField>
+                <TextField>
+                  <Label>Tags</Label>
+                  <Input
+                    autoCapitalize="none"
+                    onChangeText={(value) =>
+                      setProjectForm((prev) => ({ ...prev, tags: value }))
+                    }
+                    placeholder="frontend, api, ui"
+                    value={projectForm.tags}
+                  />
+                </TextField>
+              </View>
             </ScrollView>
 
-            <View className="pt-2">
+            <View className="mt-4 flex-row justify-end gap-3">
+              <Button
+                variant="ghost"
+                onPress={() => setIsProjectCreateOpen(false)}
+              >
+                <Button.Label>Cancel</Button.Label>
+              </Button>
               <Button
                 isDisabled={createProjectMutation.isPending}
                 onPress={handleCreateProject}
@@ -931,82 +929,86 @@ export default function SessionsScreen() {
                 </Button.Label>
               </Button>
             </View>
-          </View>
-        </View>
-      </Modal>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog>
 
-      {/* Edit Project Modal */}
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setEditingProject(null)}
-        transparent
-        visible={Boolean(editingProject)}
+      {/* Edit Project Dialog */}
+      <Dialog
+        isOpen={Boolean(editingProject)}
+        onOpenChange={(open) => !open && setEditingProject(null)}
       >
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="max-h-[80%] rounded-t-3xl bg-zinc-900 p-6">
-            <View className="mb-4 flex-row items-center justify-between">
-              <Text className="font-semibold text-lg text-white">
-                Edit Project
-              </Text>
-              <Pressable onPress={() => setEditingProject(null)}>
-                <Ionicons color="#94a3b8" name="close" size={20} />
-              </Pressable>
-            </View>
+        <Dialog.Portal>
+          <Dialog.Overlay />
+          <Dialog.Content>
+            <Dialog.Close variant="ghost" />
+            <Dialog.Title>Edit Project</Dialog.Title>
+            <Dialog.Description>
+              Update your project details or delete it.
+            </Dialog.Description>
 
-            <ScrollView>
-              <TextField>
-                <Label>Name</Label>
-                <Input
-                  autoCapitalize="none"
-                  onChangeText={(value) =>
-                    setEditProjectForm((prev) => ({ ...prev, name: value }))
-                  }
-                  placeholder="My Project"
-                  value={editProjectForm.name}
-                />
-              </TextField>
+            <ScrollView className="max-h-[300px] mt-4">
+              <View className="gap-3">
+                <TextField>
+                  <Label>Name</Label>
+                  <Input
+                    autoCapitalize="none"
+                    onChangeText={(value) =>
+                      setEditProjectForm((prev) => ({ ...prev, name: value }))
+                    }
+                    placeholder="My Project"
+                    value={editProjectForm.name}
+                  />
+                </TextField>
 
-              <TextField>
-                <Label>Path</Label>
-                <Input
-                  autoCapitalize="none"
-                  onChangeText={(value) =>
-                    setEditProjectForm((prev) => ({ ...prev, path: value }))
-                  }
-                  placeholder="/absolute/path/to/project"
-                  value={editProjectForm.path}
-                />
-              </TextField>
+                <TextField>
+                  <Label>Path</Label>
+                  <Input
+                    autoCapitalize="none"
+                    onChangeText={(value) =>
+                      setEditProjectForm((prev) => ({ ...prev, path: value }))
+                    }
+                    placeholder="/absolute/path/to/project"
+                    value={editProjectForm.path}
+                  />
+                </TextField>
 
-              <TextField>
-                <Label>Description</Label>
-                <Input
-                  autoCapitalize="none"
-                  onChangeText={(value) =>
-                    setEditProjectForm((prev) => ({
-                      ...prev,
-                      description: value,
-                    }))
-                  }
-                  placeholder="Optional description"
-                  value={editProjectForm.description}
-                />
-              </TextField>
+                <TextField>
+                  <Label>Description</Label>
+                  <Input
+                    autoCapitalize="none"
+                    onChangeText={(value) =>
+                      setEditProjectForm((prev) => ({
+                        ...prev,
+                        description: value,
+                      }))
+                    }
+                    placeholder="Optional description"
+                    value={editProjectForm.description}
+                  />
+                </TextField>
 
-              <TextField>
-                <Label>Tags</Label>
-                <Input
-                  autoCapitalize="none"
-                  onChangeText={(value) =>
-                    setEditProjectForm((prev) => ({ ...prev, tags: value }))
-                  }
-                  placeholder="frontend, api, ui"
-                  value={editProjectForm.tags}
-                />
-              </TextField>
+                <TextField>
+                  <Label>Tags</Label>
+                  <Input
+                    autoCapitalize="none"
+                    onChangeText={(value) =>
+                      setEditProjectForm((prev) => ({ ...prev, tags: value }))
+                    }
+                    placeholder="frontend, api, ui"
+                    value={editProjectForm.tags}
+                  />
+                </TextField>
+              </View>
             </ScrollView>
 
-            <View className="pt-2">
+            <View className="mt-4 flex-row justify-end gap-3">
+              <Button
+                variant="ghost"
+                onPress={() => setEditingProject(null)}
+              >
+                <Button.Label>Cancel</Button.Label>
+              </Button>
               <Button
                 isDisabled={updateProjectMutation.isPending}
                 onPress={handleUpdateProject}
@@ -1017,63 +1019,50 @@ export default function SessionsScreen() {
                     : "Save Changes"}
                 </Button.Label>
               </Button>
-              {editingProject ? (
-                <Pressable
-                  className="mt-3 items-center rounded-lg border border-red-500/40 px-4 py-2.5"
+            </View>
+
+            {editingProject ? (
+              <View className="mt-4 border-t border-zinc-800 pt-4">
+                <Button
+                  variant="ghost"
                   onPress={() =>
                     handleDeleteProject(editingProject.id, editingProject.name)
                   }
                 >
-                  <Text className="font-semibold text-red-400">
+                  <Button.Label className="text-red-400">
                     Delete Project
-                  </Text>
-                </Pressable>
-              ) : null}
-              <Button onPress={() => setEditingProject(null)} variant="ghost">
-                <Button.Label>Cancel</Button.Label>
-              </Button>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Discover Agent Sessions Modal */}
-      <Modal
-        animationType="slide"
-        onRequestClose={() => {
-          setIsDiscoverModalOpen(false);
-          setDiscoverAgentId(null);
-          resetDiscoverState();
-        }}
-        transparent
-        visible={isDiscoverModalOpen}
-      >
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="max-h-[85%] rounded-t-3xl bg-zinc-900 p-6">
-            <View className="mb-4 flex-row items-center justify-between">
-              <View>
-                <Text className="font-semibold text-lg text-white">
-                  Load Existing Session
-                </Text>
-                <Text className="mt-1 text-xs text-zinc-400">
-                  {activeProject
-                    ? `Project: ${activeProject.name}`
-                    : "Select a project to continue"}
-                </Text>
+                  </Button.Label>
+                </Button>
               </View>
-              <Pressable
-                onPress={() => {
-                  setIsDiscoverModalOpen(false);
-                  setDiscoverAgentId(null);
-                  resetDiscoverState();
-                }}
-              >
-                <Ionicons color="#94a3b8" name="close" size={20} />
-              </Pressable>
-            </View>
+            ) : null}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog>
 
-            <View className="mb-4">
-              <Text className="mb-2 font-semibold text-sm text-zinc-300">
+      {/* Discover Agent Sessions Dialog */}
+      <Dialog
+        isOpen={isDiscoverModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsDiscoverModalOpen(false);
+            setDiscoverAgentId(null);
+            resetDiscoverState();
+          }
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay />
+          <Dialog.Content className="max-h-[85%]">
+            <Dialog.Close variant="ghost" />
+            <Dialog.Title>Load Existing Session</Dialog.Title>
+            <Dialog.Description>
+              {activeProject
+                ? `Project: ${activeProject.name}`
+                : "Select a project to continue"}
+            </Dialog.Description>
+
+            <View className="mb-4 mt-4">
+              <Text className="mb-2 font-semibold text-sm text-foreground">
                 Agent
               </Text>
               <AgentPicker
@@ -1088,21 +1077,21 @@ export default function SessionsScreen() {
             {discoverIsLoading ? (
               <View className="mb-3 flex-row items-center">
                 <Spinner size="sm" />
-                <Text className="ml-2 text-xs text-zinc-300">
+                <Text className="ml-2 text-xs text-muted-foreground">
                   Discovering sessions...
                 </Text>
               </View>
             ) : null}
 
             {discoverError ? (
-              <View className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2">
-                <Text className="text-red-300 text-xs">{discoverError}</Text>
+              <View className="mb-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2">
+                <Text className="text-danger text-xs">{discoverError}</Text>
               </View>
             ) : null}
 
             {!(discoverIsLoading || discoverError) && discoverRequiresAuth ? (
-              <View className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-                <Text className="text-amber-300 text-xs">
+              <View className="mb-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2">
+                <Text className="text-warning text-xs">
                   Agent requires authentication before session discovery.
                 </Text>
               </View>
@@ -1112,8 +1101,8 @@ export default function SessionsScreen() {
             discoverError ||
             discoverRequiresAuth ||
             discoverSupported ? null : (
-              <View className="mb-3 rounded-md border border-zinc-600 bg-zinc-800/60 px-3 py-2">
-                <Text className="text-xs text-zinc-300">
+              <View className="mb-3 rounded-md border border-muted/30 bg-muted/10 px-3 py-2">
+                <Text className="text-muted-foreground text-xs">
                   This agent does not advertise `session/list`.
                 </Text>
               </View>
@@ -1123,8 +1112,8 @@ export default function SessionsScreen() {
             discoverSupported &&
             !discoverRequiresAuth &&
             discoverSessions.length === 0 ? (
-              <View className="mb-3 rounded-md border border-zinc-600 bg-zinc-800/60 px-3 py-2">
-                <Text className="text-xs text-zinc-300">
+              <View className="mb-3 rounded-md border border-muted/30 bg-muted/10 px-3 py-2">
+                <Text className="text-muted-foreground text-xs">
                   No sessions found for this project root.
                 </Text>
               </View>
@@ -1139,35 +1128,36 @@ export default function SessionsScreen() {
                   const isLoadingTarget =
                     pendingDiscoverLoadSessionId === session.sessionId;
                   return (
-                    <View
-                      className="mb-2 rounded-lg border border-zinc-700 p-3"
+                    <Surface
+                      className="mb-2 overflow-hidden border border-muted/20 p-3"
                       key={session.sessionId}
                     >
                       <Text
-                        className="font-semibold text-sm text-white"
+                        className="font-semibold text-sm text-foreground"
                         numberOfLines={1}
                       >
                         {session.title?.trim() || session.sessionId}
                       </Text>
                       <Text
-                        className="mt-1 font-mono text-[11px] text-zinc-400"
+                        className="mt-1 font-mono text-[11px] text-muted-foreground"
                         numberOfLines={1}
                       >
                         {session.sessionId}
                       </Text>
                       <Text
-                        className="mt-1 text-[11px] text-zinc-500"
+                        className="mt-1 text-[11px] text-muted-foreground"
                         numberOfLines={1}
                       >
                         cwd: {session.cwd}
                       </Text>
                       {session.updatedAt ? (
-                        <Text className="mt-1 text-[11px] text-zinc-500">
+                        <Text className="mt-1 text-[11px] text-muted-foreground">
                           updated: {formatTimestamp(session.updatedAt)}
                         </Text>
                       ) : null}
                       <View className="mt-3">
                         <Button
+                          size="sm"
                           isDisabled={
                             isCreating || !discoverLoadSessionSupported
                           }
@@ -1180,7 +1170,7 @@ export default function SessionsScreen() {
                           </Button.Label>
                         </Button>
                       </View>
-                    </View>
+                    </Surface>
                   );
                 })}
               </ScrollView>
@@ -1189,15 +1179,16 @@ export default function SessionsScreen() {
             {!discoverLoadSessionSupported &&
             discoverSupported &&
             !discoverRequiresAuth ? (
-              <View className="mt-2 rounded-md border border-zinc-600 bg-zinc-800/60 px-3 py-2">
-                <Text className="text-xs text-zinc-300">
+              <View className="mt-2 rounded-md border border-muted/30 bg-muted/10 px-3 py-2">
+                <Text className="text-muted-foreground text-xs">
                   Agent lists sessions but does not support `session/load`.
                 </Text>
               </View>
             ) : null}
 
-            <View className="mt-4 gap-2">
+            <View className="mt-4 flex-row justify-end gap-3">
               <Button
+                variant="ghost"
                 isDisabled={!discoverAgentId || discoverIsLoading}
                 onPress={() => {
                   if (!discoverAgentId) {
@@ -1208,7 +1199,6 @@ export default function SessionsScreen() {
                     append: false,
                   });
                 }}
-                variant="ghost"
               >
                 <Button.Label>
                   {discoverIsLoading ? "Refreshing..." : "Refresh"}
@@ -1216,9 +1206,9 @@ export default function SessionsScreen() {
               </Button>
               {discoverNextCursor ? (
                 <Button
+                  variant="ghost"
                   isDisabled={discoverIsLoadingMore}
                   onPress={handleLoadMoreDiscoveredSessions}
-                  variant="ghost"
                 >
                   <Button.Label>
                     {discoverIsLoadingMore ? "Loading..." : "Load More"}
@@ -1226,39 +1216,35 @@ export default function SessionsScreen() {
                 </Button>
               ) : null}
             </View>
-          </View>
-        </View>
-      </Modal>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog>
 
-      {/* Session Actions Modal */}
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setSessionActionTarget(null)}
-        transparent
-        visible={Boolean(sessionActionTarget)}
+      {/* Session Actions Dialog */}
+      <Dialog
+        isOpen={Boolean(sessionActionTarget)}
+        onOpenChange={(open) => !open && setSessionActionTarget(null)}
       >
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="max-h-[70%] rounded-t-3xl bg-zinc-900 p-6">
-            <View className="mb-4 flex-row items-center justify-between">
-              <Text className="font-semibold text-lg text-white">
-                Session Options
-              </Text>
-              <Pressable onPress={() => setSessionActionTarget(null)}>
-                <Ionicons color="#94a3b8" name="close" size={20} />
-              </Pressable>
-            </View>
+        <Dialog.Portal>
+          <Dialog.Overlay />
+          <Dialog.Content>
+            <Dialog.Close variant="ghost" />
+            <Dialog.Title>Session Options</Dialog.Title>
+            <Dialog.Description>
+              Rename, pin, archive, or delete your session.
+            </Dialog.Description>
 
-            <TextField>
-              <Label>Rename Session</Label>
-              <Input
-                autoCapitalize="none"
-                onChangeText={setSessionNameDraft}
-                placeholder="Session name"
-                value={sessionNameDraft}
-              />
-            </TextField>
+            <View className="mt-4 gap-3">
+              <TextField>
+                <Label>Rename Session</Label>
+                <Input
+                  autoCapitalize="none"
+                  onChangeText={setSessionNameDraft}
+                  placeholder="Session name"
+                  value={sessionNameDraft}
+                />
+              </TextField>
 
-            <View className="mt-3">
               <Button
                 isDisabled={updateSessionMetaMutation.isPending}
                 onPress={handleRenameSession}
@@ -1296,7 +1282,7 @@ export default function SessionsScreen() {
               </Button>
             </View>
 
-            <View className="mt-4 border-zinc-800 border-t pt-4">
+            <View className="mt-4 border-t border-zinc-800 pt-4">
               <Button
                 isDisabled={
                   updateSessionMetaMutation.isPending || isDeletingSession
@@ -1327,19 +1313,9 @@ export default function SessionsScreen() {
                 </Button.Label>
               </Button>
             </View>
-
-            <View className="pt-2">
-              <Button
-                isDisabled={updateSessionMetaMutation.isPending}
-                onPress={() => setSessionActionTarget(null)}
-                variant="ghost"
-              >
-                <Button.Label>Close</Button.Label>
-              </Button>
-            </View>
-          </View>
-        </View>
-      </Modal>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog>
 
       {/* Select Agent BottomSheet */}
       <BottomSheet

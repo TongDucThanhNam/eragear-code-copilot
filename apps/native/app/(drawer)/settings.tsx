@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import {
   Button,
   Card,
+  Chip,
   Input,
   Label,
   Surface,
@@ -307,17 +308,15 @@ export default function SettingsScreen() {
                     </Text>
 
                     <View className="flex-row flex-wrap gap-2">
-                      <View className="rounded-full border border-muted-foreground/40 px-2 py-1">
-                        <Text className="text-[10px] text-muted-foreground">
-                          {agent.type}
-                        </Text>
-                      </View>
+                      <Chip size="sm" variant="tertiary">
+                        <Chip.Label>{agent.type}</Chip.Label>
+                      </Chip>
                       {agent.env && Object.keys(agent.env).length > 0 ? (
-                        <View className="rounded-full border border-muted-foreground/40 px-2 py-1">
-                          <Text className="text-[10px] text-muted-foreground">
+                        <Chip size="sm" variant="tertiary">
+                          <Chip.Label>
                             {Object.keys(agent.env).length} ENV
-                          </Text>
-                        </View>
+                          </Chip.Label>
+                        </Chip>
                       ) : null}
                     </View>
 
@@ -364,27 +363,15 @@ export default function SettingsScreen() {
                     {AGENT_TYPES.map((type) => {
                       const isActive = formData.type === type;
                       return (
-                        <Pressable
-                          className={`rounded-full border px-3 py-1 ${
-                            isActive
-                              ? "border-primary bg-primary/10"
-                              : "border-muted-foreground/40"
-                          }`}
+                        <Chip
                           key={type}
+                          variant={isActive ? "primary" : "tertiary"}
                           onPress={() =>
                             setFormData((prev) => ({ ...prev, type }))
                           }
                         >
-                          <Text
-                            className={`text-xs ${
-                              isActive
-                                ? "text-primary"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            {type}
-                          </Text>
-                        </Pressable>
+                          <Chip.Label>{type}</Chip.Label>
+                        </Chip>
                       );
                     })}
                   </View>

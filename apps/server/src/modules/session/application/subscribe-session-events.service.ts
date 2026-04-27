@@ -181,7 +181,7 @@ export class SubscribeSessionEventsService {
           return () => undefined;
         },
         release() {
-          return;
+          return Promise.resolve();
         },
       };
     }

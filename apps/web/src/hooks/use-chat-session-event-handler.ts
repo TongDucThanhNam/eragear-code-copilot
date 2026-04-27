@@ -8,6 +8,8 @@ import type {
   SessionInfo,
   SessionModelState,
   SessionModeState,
+  SupervisorDecisionSummary,
+  SupervisorSessionState,
   UIMessage,
 } from "@repo/shared";
 import {
@@ -67,6 +69,8 @@ interface UseChatSessionEventHandlerParams {
   setConfigOptions: Dispatch<SetStateAction<SessionConfigOption[]>>;
   setSessionInfo: Dispatch<SetStateAction<SessionInfo | null>>;
   setError: Dispatch<SetStateAction<string | null>>;
+  setSupervisor: Dispatch<SetStateAction<SupervisorSessionState | null>>;
+  lastSupervisorDecisionRef: MutableRefObject<SupervisorDecisionSummary | null>;
 }
 
 export function reconcileMessageUpsertAfterStatus(
@@ -328,6 +332,8 @@ export function useChatSessionEventHandler(
     setConfigOptions,
     setSessionInfo,
     setError,
+    setSupervisor,
+    lastSupervisorDecisionRef,
   } = params;
 
   return useCallback(
@@ -632,6 +638,12 @@ export function useChatSessionEventHandler(
             setConfigOptions(nextConfigOptions);
           },
           onSessionInfoChange: setSessionInfo,
+          onSupervisorChange: (nextSupervisor) => {
+            setSupervisor(nextSupervisor);
+          },
+          onSupervisorDecision: (decision) => {
+            lastSupervisorDecisionRef.current = decision;
+          },
           onTerminalOutput: (terminalId, data) => {
             const activeChatId = activeChatIdRef.current;
             if (!activeChatId) {
@@ -764,6 +776,8 @@ export function useChatSessionEventHandler(
       setModes,
       setPendingPermission,
       setSessionInfo,
+      setSupervisor,
+      lastSupervisorDecisionRef,
       setStatus,
       setStreamLifecycle,
       statusRef,

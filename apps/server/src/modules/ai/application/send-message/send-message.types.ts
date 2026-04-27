@@ -32,6 +32,7 @@ export interface SendMessageExecuteInput {
   userId: string;
   chatId: string;
   text: string;
+  source?: "client" | "supervisor";
   textAnnotations?: Annotations;
   images?: {
     base64: string;

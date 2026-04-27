@@ -102,6 +102,7 @@ export const sessions = sqliteTable(
     commandsJson: text("commands_json"),
     agentCapabilitiesJson: text("agent_capabilities_json"),
     authMethodsJson: text("auth_methods_json"),
+    supervisorJson: text("supervisor_json"),
     messageCount: integer("message_count").notNull().default(0),
   },
   (table) => ({

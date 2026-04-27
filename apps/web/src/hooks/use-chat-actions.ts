@@ -5,6 +5,7 @@ import type {
   SessionConfigOption,
   SessionModelState,
   SessionModeState,
+  SupervisorSessionState,
   UIMessage,
 } from "@repo/shared";
 import {
@@ -121,6 +122,8 @@ interface UseChatActionsParams {
   setPendingPermission: Dispatch<SetStateAction<PermissionRequest | null>>;
   setMessages: (messages: UIMessage[]) => void;
   setStreamLifecycle: Dispatch<SetStateAction<StreamLifecycle>>;
+  setSupervisor: Dispatch<SetStateAction<SupervisorSessionState | null>>;
+  supervisorRef: MutableRefObject<SupervisorSessionState | null>;
   onLocalModeMutated?: () => void;
   onLocalModelMutated?: () => void;
   onLocalConfigOptionMutated?: () => void;
@@ -154,6 +157,8 @@ export function useChatActions({
   setPendingPermission,
   setMessages,
   setStreamLifecycle,
+  setSupervisor,
+  supervisorRef,
   onLocalModeMutated,
   onLocalModelMutated,
   onLocalConfigOptionMutated,
@@ -174,6 +179,8 @@ export function useChatActions({
   const resumeSessionMutation = trpc.resumeSession.useMutation();
   const permissionResponseMutation =
     trpc.respondToPermissionRequest.useMutation();
+  const setSupervisorModeMutation =
+    trpc.setSupervisorMode.useMutation();
 
   const sendMessage = useCallback(
     async (
@@ -790,6 +797,51 @@ export function useChatActions({
     setSupportsModelSwitching,
   ]);
 
+  const setSupervisorMode = useCallback(
+    async (mode: "off" | "full_autopilot") => {
+      if (!chatId) {
+        return;
+      }
+      const activeChatId = chatId;
+      try {
+        const result = await setSupervisorModeMutation.mutateAsync({
+          chatId: activeChatId,
+          mode,
+        });
+        if (!isActiveChat(activeChatId)) {
+          return;
+        }
+        if (result?.supervisor) {
+          setSupervisor(result.supervisor);
+          supervisorRef.current = result.supervisor;
+        }
+      } catch (supervisorError) {
+        if (!isActiveChat(activeChatId)) {
+          return;
+        }
+        const message =
+          supervisorError instanceof Error
+            ? supervisorError.message
+            : String(supervisorError);
+        console.error("[Chat] setSupervisorMode failed", {
+          chatId: activeChatId,
+          mode,
+          error: message,
+        });
+        setError(message);
+        toast.error(message);
+      }
+    },
+    [
+      chatId,
+      isActiveChat,
+      setError,
+      setSupervisor,
+      setSupervisorModeMutation,
+      supervisorRef,
+    ]
+  );
+
   return {
     sendMessage,
     cancelPrompt,
@@ -799,8 +851,10 @@ export function useChatActions({
     respondToPermission,
     stopSession,
     resumeSession,
+    setSupervisorMode,
     isSending: sendMessageMutation.isPending,
     isCancelling: cancelPromptMutation.isPending,
     isResuming: resumeSessionMutation.isPending,
+    isSettingSupervisorMode: setSupervisorModeMutation.isPending,
   };
 }

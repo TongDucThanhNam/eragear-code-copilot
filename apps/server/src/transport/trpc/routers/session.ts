@@ -292,7 +292,7 @@ export const sessionRouter = router({
           unsubscribe?.();
           if (subscription) {
             // biome-ignore lint/complexity/noVoid: Intentional fire-and-forget for subscription release
-            void subscription.release().catch((error) => {
+            void subscription.release?.().catch((error) => {
               if (shouldEmitRuntimeLog("debug")) {
                 logger.debug("tRPC onSessionEvents release failed", {
                   chatId: input.chatId,

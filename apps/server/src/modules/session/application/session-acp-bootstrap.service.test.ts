@@ -114,6 +114,7 @@ function createRuntimeStub(session: ChatSession): {
 function createSessionAcpStub(): SessionAcpPort {
   return {
     createBuffer,
+    setPermissionAutoResolver: () => undefined,
     createHandlers: () => ({}) as never,
   };
 }

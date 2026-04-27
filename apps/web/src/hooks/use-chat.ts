@@ -54,6 +54,10 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setAgentInfo,
     loadSessionSupported,
     setLoadSessionSupported,
+    supervisor,
+    setSupervisor,
+    supervisorCapable,
+    setSupervisorCapable,
     messageStateRef,
     modesRef,
     modelsRef,
@@ -71,6 +75,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     hasLocalModeOverrideRef,
     hasLocalModelOverrideRef,
     hasLocalConfigOverrideRef,
+    supervisorRef,
+    lastSupervisorDecisionRef,
     updateMessageState,
     upsertMessage,
     setMessages,
@@ -146,6 +152,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setPromptCapabilities,
     setAgentInfo,
     setLoadSessionSupported,
+    setSupervisor,
+    setSupervisorCapable,
     setStatus,
     setConnStatus,
     setStreamLifecycle,
@@ -202,6 +210,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setConfigOptions,
     setSessionInfo,
     setError,
+    setSupervisor,
+    lastSupervisorDecisionRef,
   });
 
   useChatSubscription({
@@ -224,9 +234,11 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     respondToPermission,
     stopSession,
     resumeSession,
+    setSupervisorMode,
     isSending,
     isCancelling,
     isResuming,
+    isSettingSupervisorMode,
   } = useChatActions({
     chatId,
     readOnly,
@@ -248,6 +260,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setPendingPermission,
     setMessages,
     setStreamLifecycle,
+    setSupervisor,
+    supervisorRef,
     onLocalConfigOptionMutated: () => {
       hasLocalConfigOverrideRef.current = true;
     },
@@ -322,6 +336,9 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     commands,
     configOptions,
     sessionInfo,
+    supervisor,
+    supervisorCapable,
+    lastSupervisorDecision: lastSupervisorDecisionRef.current,
     promptCapabilities,
     agentInfo,
     loadSessionSupported,
@@ -330,6 +347,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     isSending,
     isCancelling,
     isResuming,
+    isSettingSupervisorMode,
     hasMoreHistory,
     isLoadingOlderHistory,
     // Actions
@@ -341,6 +359,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     respondToPermission,
     stopSession,
     resumeSession,
+    setSupervisorMode,
     refreshHistory,
     loadOlderHistory,
     // Message mutation

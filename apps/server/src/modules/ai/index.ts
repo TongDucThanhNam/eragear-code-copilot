@@ -5,6 +5,7 @@ export type {
   SetConfigOptionInput,
   SetModeInput,
   SetModelInput,
+  SetSupervisorModeInput,
 } from "./application/contracts/ai.contract";
 export {
   CancelPromptInputSchema,
@@ -12,6 +13,7 @@ export {
   SetConfigOptionInputSchema,
   SetModeInputSchema,
   SetModelInputSchema,
+  SetSupervisorModeInputSchema,
 } from "./application/contracts/ai.contract";
 export type {
   AiSessionRuntimePort,

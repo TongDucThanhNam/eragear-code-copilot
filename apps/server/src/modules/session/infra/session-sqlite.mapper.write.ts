@@ -34,7 +34,8 @@ type SessionMetadataUpdateKey =
   | "plan"
   | "commands"
   | "agentCapabilities"
-  | "authMethods";
+  | "authMethods"
+  | "supervisor";
 
 type MetadataWriter = {
   [K in SessionMetadataUpdateKey]: (
@@ -75,6 +76,7 @@ const SESSION_METADATA_WRITERS: MetadataWriter = {
     agentCapabilitiesJson: toSqliteJson(value),
   }),
   authMethods: (value) => ({ authMethodsJson: toSqliteJson(value) }),
+  supervisor: (value) => ({ supervisorJson: toSqliteJson(value) }),
 };
 
 const SESSION_METADATA_UPDATE_KEYS = Object.keys(
@@ -135,6 +137,7 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
       commandsJson: toSqliteJson(session.commands),
       agentCapabilitiesJson: toSqliteJson(session.agentCapabilities),
       authMethodsJson: toSqliteJson(session.authMethods),
+      supervisorJson: toSqliteJson(session.supervisor),
       messageCount: 0,
     };
   }

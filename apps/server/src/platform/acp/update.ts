@@ -7,6 +7,7 @@
  * @module infra/acp/update
  */
 
+import { DEFAULT_MAX_VISIBLE_MODEL_COUNT } from "@/config/constants";
 import { ENV } from "@/config/environment";
 import type {
   SessionBufferingPort,
@@ -18,6 +19,7 @@ import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
+  capModelList,
   findSessionConfigOption,
   syncSessionSelectionFromConfigOptions,
   updateSessionConfigOptionCurrentValue,
@@ -569,9 +571,20 @@ async function handleConfigOptionsUpdate(
   });
 
   if (!suppressReplayBroadcast) {
+    // Cap model/config-option lists before broadcasting to clients.
+    // Internal session state (session.configOptions, session.models)
+    // remains uncapped so validation (set-model, set-config-option)
+    // continues to work against the full list.
+    const capped = capModelList({
+      models: session.models?.availableModels,
+      configOptions,
+      currentModelId: session.models?.currentModelId,
+      maxVisible: DEFAULT_MAX_VISIBLE_MODEL_COUNT,
+    });
+
     await sessionRuntime.broadcast(chatId, {
       type: "config_options_update",
-      configOptions,
+      configOptions: capped.configOptions,
     });
     if (modeOption && selection.modeChanged && selection.modeId) {
       await sessionRuntime.broadcast(chatId, {

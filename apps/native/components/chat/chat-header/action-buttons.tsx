@@ -1,4 +1,5 @@
-import { Text, TouchableOpacity } from "react-native";
+import { Button } from "heroui-native";
+import { Text } from "react-native";
 
 interface ActionButtonsProps {
   isSessionStopped?: boolean;
@@ -18,34 +19,30 @@ export function ActionButtons({
   if (isSessionStopped) {
     if (canResume) {
       return (
-        <TouchableOpacity
-          className={`ml-2 rounded-full border px-3.5 py-1.5 ${
-            isResumePending
-              ? "border-default/30 bg-default/10"
-              : "border-success/40 bg-success/15"
-          }`}
-          disabled={isResumePending}
+        <Button
+          className="ml-2"
+          isDisabled={isResumePending}
+          size="sm"
+          variant={isResumePending ? "tertiary" : "primary"}
           onPress={onResume}
         >
-          <Text
-            className={`text-xs ${
-              isResumePending ? "text-muted-foreground" : "text-success"
-            }`}
-          >
+          <Button.Label>
             {isResumePending ? "Resuming..." : "Resume"}
-          </Text>
-        </TouchableOpacity>
+          </Button.Label>
+        </Button>
       );
     }
     return null;
   }
 
   return (
-    <TouchableOpacity
-      className="ml-2 rounded-full border border-danger/40 bg-danger/15 px-3.5 py-1.5"
+    <Button
+      className="ml-2"
+      size="sm"
+      variant="danger"
       onPress={onStop}
     >
-      <Text className="text-danger text-xs">Stop</Text>
-    </TouchableOpacity>
+      <Button.Label>Stop</Button.Label>
+    </Button>
   );
 }

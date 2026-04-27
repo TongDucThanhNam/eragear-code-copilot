@@ -10,6 +10,8 @@ import type {
   SessionModelState,
   SessionModeState,
   SessionStateData,
+  SupervisorDecisionSummary,
+  SupervisorSessionState,
   UseChatOptions as SharedUseChatOptions,
   UIMessage,
 } from "@repo/shared";
@@ -51,6 +53,9 @@ export interface UseChatResult {
   commands: AvailableCommand[];
   configOptions: SessionConfigOption[];
   sessionInfo: SessionInfo | null;
+  supervisor: SupervisorSessionState | null;
+  supervisorCapable: boolean;
+  lastSupervisorDecision: SupervisorDecisionSummary | null;
   promptCapabilities: PromptCapabilities | null;
   agentInfo: AgentInfo | null;
   loadSessionSupported: boolean | undefined;
@@ -58,6 +63,7 @@ export interface UseChatResult {
   isSending: boolean;
   isCancelling: boolean;
   isResuming: boolean;
+  isSettingSupervisorMode: boolean;
   hasMoreHistory: boolean;
   isLoadingOlderHistory: boolean;
   sendMessage: (
@@ -71,6 +77,7 @@ export interface UseChatResult {
   respondToPermission: (requestId: string, decision: string) => Promise<void>;
   stopSession: () => Promise<void>;
   resumeSession: () => Promise<void>;
+  setSupervisorMode: (mode: "off" | "full_autopilot") => Promise<void>;
   refreshHistory: () => Promise<void>;
   loadOlderHistory: () => Promise<void>;
   upsertMessage: (message: UIMessage) => void;

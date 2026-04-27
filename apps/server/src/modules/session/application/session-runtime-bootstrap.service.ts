@@ -23,6 +23,7 @@ export interface CreateRuntimeSessionInput {
   sessionIdToLoad?: string;
   importExternalHistoryOnLoad?: boolean;
   plan?: ChatSession["plan"];
+  supervisor?: ChatSession["supervisor"];
 }
 
 export interface PreparedRuntimeSession {
@@ -68,6 +69,7 @@ export class SessionRuntimeBootstrapService {
       projectRoot: input.projectRoot,
       sessionId: input.sessionIdToLoad,
       plan: input.plan,
+      supervisor: input.supervisor,
       emitter: new EventEmitter(),
       cwd: input.projectRoot,
       subscriberCount: 0,

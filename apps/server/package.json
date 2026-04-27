@@ -28,11 +28,13 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.16.1",
+    "@ai-sdk/deepseek": "^2.0.29",
     "@better-auth/expo": "catalog:",
     "@eragear-code-copilot/env": "workspace:*",
     "@hono/react-renderer": "^1.0.1",
     "@repo/shared": "workspace:*",
     "@trpc/server": "^11.8.1",
+    "ai": "^6.0.168",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "drizzle-orm": "^0.45.1",

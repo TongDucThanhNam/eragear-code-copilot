@@ -1,6 +1,7 @@
 import {
   Alert,
   Button,
+  FieldError,
   Input,
   Label,
   Spinner,
@@ -69,8 +70,55 @@ export function SignUp() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  function handleNameChange(text: string) {
+    setName(text);
+    if (nameError) setNameError(null);
+  }
+
+  function handleEmailChange(text: string) {
+    setEmail(text);
+    if (emailError) setEmailError(null);
+  }
+
+  function handlePasswordChange(text: string) {
+    setPassword(text);
+    if (passwordError) setPasswordError(null);
+  }
+
+  function validateForm(): boolean {
+    let isValid = true;
+
+    if (!name.trim()) {
+      setNameError("Name is required");
+      isValid = false;
+    }
+
+    if (!email.trim()) {
+      setEmailError("Email is required");
+      isValid = false;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailError("Please enter a valid email");
+      isValid = false;
+    }
+
+    if (!password.trim()) {
+      setPasswordError("Password is required");
+      isValid = false;
+    } else if (password.length < 8) {
+      setPasswordError("Password must be at least 8 characters");
+      isValid = false;
+    }
+
+    return isValid;
+  }
 
   function handlePress() {
+    if (!validateForm()) return;
+
     signUpHandler({
       authClient,
       name,
@@ -98,35 +146,46 @@ export function SignUp() {
       ) : null}
 
       <View className="gap-3">
-        <TextField>
+        <TextField isRequired isInvalid={!!nameError}>
           <Label>Name</Label>
-          <Input onChangeText={setName} placeholder="John Doe" value={name} />
+          <Input
+            onChangeText={handleNameChange}
+            placeholder="John Doe"
+            value={name}
+          />
+          <FieldError>{nameError}</FieldError>
         </TextField>
 
-        <TextField>
+        <TextField isRequired isInvalid={!!emailError}>
           <Label>Email</Label>
           <Input
             autoCapitalize="none"
             keyboardType="email-address"
-            onChangeText={setEmail}
+            onChangeText={handleEmailChange}
             placeholder="email@example.com"
             value={email}
           />
+          <FieldError>{emailError}</FieldError>
         </TextField>
 
-        <TextField>
+        <TextField isRequired isInvalid={!!passwordError}>
           <Label>Password</Label>
           <Input
-            onChangeText={setPassword}
+            onChangeText={handlePasswordChange}
             placeholder="••••••••"
             secureTextEntry
             value={password}
           />
+          <FieldError>{passwordError}</FieldError>
         </TextField>
 
-        <Button className="mt-1" isDisabled={isLoading} onPress={handlePress}>
+        <Button
+          className="mt-1"
+          isDisabled={isLoading}
+          onPress={handlePress}
+        >
           {isLoading ? (
-            <Spinner color="default" size="sm" />
+            <Spinner size="sm" />
           ) : (
             <Button.Label>Create Account</Button.Label>
           )}

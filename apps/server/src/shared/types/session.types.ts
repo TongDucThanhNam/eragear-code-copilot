@@ -22,6 +22,10 @@ import type {
 } from "@agentclientprotocol/sdk";
 import type { UIMessage, UIMessagePart, UIMessageRole } from "@repo/shared";
 import type { AgentInfo as DomainAgentInfo } from "./agent.types";
+import type {
+  SupervisorDecisionSummary,
+  SupervisorSessionState,
+} from "./supervisor.types";
 
 // ============================================================================
 // Stored Types (Persisted)
@@ -227,7 +231,7 @@ export interface UiMessageState {
   /** Current user message ID for replayed chunks */
   currentUserId?: string;
   /** Source of the current contiguous user chunk stream */
-  currentUserSource?: "client" | "acp";
+  currentUserSource?: "client" | "supervisor" | "acp";
   /** Tool part lookup by tool call ID */
   toolPartIndex: Map<
     string,
@@ -352,6 +356,13 @@ export type BroadcastEvent =
     }
   | { type: "config_options_update"; configOptions: SessionConfigOption[] }
   | { type: "session_info_update"; sessionInfo: SessionInfo }
+  | { type: "supervisor_status"; supervisor: SupervisorSessionState }
+  | {
+      type: "supervisor_decision";
+      decision: SupervisorDecisionSummary;
+      supervisor: SupervisorSessionState;
+      turnId?: string;
+    }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string }
   | {
@@ -423,6 +434,8 @@ export interface StoredSession {
   agentCapabilities?: Record<string, unknown>;
   /** Authentication methods supported by the agent */
   authMethods?: Array<{ name: string; id: string; description: string }>;
+  /** Supervisor mode/status persisted for this session. */
+  supervisor?: SupervisorSessionState;
 }
 
 // ============================================================================
@@ -525,6 +538,8 @@ export interface ChatSession {
   agentCapabilities?: Record<string, unknown>;
   /** Authentication methods supported by the agent */
   authMethods?: Array<{ name: string; id: string; description: string }>;
+  /** Supervisor mode/status for this active runtime. */
+  supervisor?: SupervisorSessionState;
 }
 
 /**

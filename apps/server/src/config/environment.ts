@@ -7,6 +7,10 @@
  * @module config/environment
  */
 
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadDotEnv } from "dotenv";
 import type { LogLevel, LogOutputFormat } from "@/shared/types/log.types";
 import {
   assertCompiledBootRequirements,
@@ -64,6 +68,18 @@ import {
   DEFAULT_STORAGE_WAL_CHECKPOINT_INTERVAL_MS,
   DEFAULT_STORAGE_WORKER_ENABLED,
   DEFAULT_STORAGE_WORKER_REQUEST_TIMEOUT_MS,
+  DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS,
+  DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS,
+  DEFAULT_SUPERVISOR_ENABLED,
+  DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS,
+  DEFAULT_SUPERVISOR_MAX_RUNTIME_MS,
+  DEFAULT_SUPERVISOR_MEMORY_PROVIDER,
+  DEFAULT_SUPERVISOR_MODEL,
+  DEFAULT_SUPERVISOR_OBSIDIAN_COMMAND,
+  DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_LIMIT,
+  DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH,
+  DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS,
+  DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER,
   DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES,
   DEFAULT_WS_AUTH_TIMEOUT_MS,
   DEFAULT_WS_HEARTBEAT_INTERVAL_MS,
@@ -94,7 +110,23 @@ import {
 } from "./environment.parsers";
 import { type EnvKey, envSchema } from "./environment.schema";
 
+loadServerDotEnv();
+
 export type AcpTurnIdPolicy = "compat" | "require-native";
+export type SupervisorWebSearchProvider = "none" | "exa";
+export type SupervisorMemoryProvider = "none" | "obsidian";
+
+function loadServerDotEnv(): void {
+  const appEnvPath = fileURLToPath(new URL("../../.env", import.meta.url));
+  const cwdEnvPath = resolve(process.cwd(), ".env");
+  const envPaths = [...new Set([appEnvPath, cwdEnvPath])].filter((path) =>
+    existsSync(path)
+  );
+
+  for (const path of envPaths) {
+    loadDotEnv({ path, override: false, quiet: true });
+  }
+}
 
 function assertBunRuntime(): void {
   const bunVersion = process.versions?.bun;
@@ -140,6 +172,37 @@ function resolveAcpTurnIdPolicy(value: string | undefined): AcpTurnIdPolicy {
   }
   throw new Error(
     "[Config] ACP_TURN_ID_POLICY must be one of: compat, require-native."
+  );
+}
+
+function resolveSupervisorWebSearchProvider(
+  value: string | undefined
+): SupervisorWebSearchProvider {
+  const normalized = toTrimmedString(
+    value,
+    DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER
+  )
+    .toLowerCase()
+    .trim();
+  if (normalized === "none" || normalized === "exa") {
+    return normalized;
+  }
+  throw new Error(
+    "[Config] SUPERVISOR_WEB_SEARCH_PROVIDER must be one of: none, exa."
+  );
+}
+
+function resolveSupervisorMemoryProvider(
+  value: string | undefined
+): SupervisorMemoryProvider {
+  const normalized = toTrimmedString(value, DEFAULT_SUPERVISOR_MEMORY_PROVIDER)
+    .toLowerCase()
+    .trim();
+  if (normalized === "none" || normalized === "obsidian") {
+    return normalized;
+  }
+  throw new Error(
+    "[Config] SUPERVISOR_MEMORY_PROVIDER must be one of: none, obsidian."
   );
 }
 
@@ -193,6 +256,24 @@ if (isProd && !sqliteWorkerEnabled) {
 const defaultApiKeyRateLimitWindowMs = 60_000;
 const defaultApiKeyRateLimitMaxRequests = 3000;
 const acpTurnIdPolicy = resolveAcpTurnIdPolicy(env.ACP_TURN_ID_POLICY);
+const supervisorWebSearchProvider = resolveSupervisorWebSearchProvider(
+  env.SUPERVISOR_WEB_SEARCH_PROVIDER
+);
+const supervisorMemoryProvider = resolveSupervisorMemoryProvider(
+  env.SUPERVISOR_MEMORY_PROVIDER
+);
+const supervisorWebSearchApiKey = toTrimmedString(
+  firstNonEmpty([env.SUPERVISOR_WEB_SEARCH_API_KEY, env.EXA_API_KEY]),
+  ""
+);
+if (
+  supervisorWebSearchProvider === "exa" &&
+  supervisorWebSearchApiKey.length === 0
+) {
+  throw new Error(
+    "[Config] SUPERVISOR_WEB_SEARCH_API_KEY or EXA_API_KEY is required when SUPERVISOR_WEB_SEARCH_PROVIDER=exa."
+  );
+}
 const authBaseUrl =
   env.AUTH_BASE_URL ?? `http://${normalizedAuthHost}:${wsPort}`;
 const allowlistConfig = resolveAllowlistConfig({
@@ -526,6 +607,79 @@ export const ENV = {
   ),
   /** Preferred default model for new sessions when available */
   defaultModel: toTrimmedString(env.DEFAULT_MODEL, DEFAULT_APP_DEFAULT_MODEL),
+  /** Global kill switch for server-side ACP supervisor autopilot. */
+  supervisorEnabled: toBoolean(
+    env.SUPERVISOR_ENABLED,
+    DEFAULT_SUPERVISOR_ENABLED
+  ),
+  /** AI SDK model id used for supervisor decisions. */
+  supervisorModel: toTrimmedString(
+    env.SUPERVISOR_MODEL,
+    DEFAULT_SUPERVISOR_MODEL
+  ),
+  /** Optional DeepSeek key for supervisor decision models. */
+  supervisorDeepSeekApiKey: toTrimmedString(env.DEEPSEEK_API_KEY, ""),
+  /** Timeout for one supervisor model decision in milliseconds. */
+  supervisorDecisionTimeoutMs: toPositiveInt(
+    env.SUPERVISOR_DECISION_TIMEOUT_MS,
+    DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS
+  ),
+  /** Maximum attempts for one supervisor model decision before failing closed. */
+  supervisorDecisionMaxAttempts: toPositiveInt(
+    env.SUPERVISOR_DECISION_MAX_ATTEMPTS,
+    DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS
+  ),
+  /** Wall-clock limit for one supervisor run in milliseconds. */
+  supervisorMaxRuntimeMs: toPositiveInt(
+    env.SUPERVISOR_MAX_RUNTIME_MS,
+    DEFAULT_SUPERVISOR_MAX_RUNTIME_MS
+  ),
+  /** Maximum repeated supervisor prompts in one run. */
+  supervisorMaxRepeatedPrompts: toPositiveInt(
+    env.SUPERVISOR_MAX_REPEATED_PROMPTS,
+    DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS
+  ),
+  /** Optional supervisor web-search provider. */
+  supervisorWebSearchProvider,
+  /** Optional Exa key for supervisor web search. */
+  supervisorWebSearchApiKey:
+    supervisorWebSearchApiKey.length > 0
+      ? supervisorWebSearchApiKey
+      : undefined,
+  /** Optional supervisor local-memory provider. */
+  supervisorMemoryProvider,
+  /** Obsidian CLI command used by supervisor local memory. */
+  supervisorObsidianCommand: toTrimmedString(
+    env.SUPERVISOR_OBSIDIAN_COMMAND,
+    DEFAULT_SUPERVISOR_OBSIDIAN_COMMAND
+  ),
+  /** Optional Obsidian vault name for supervisor local memory. */
+  supervisorObsidianVault: toTrimmedString(env.SUPERVISOR_OBSIDIAN_VAULT, ""),
+  /** Optional Obsidian note path containing the compact project blueprint. */
+  supervisorObsidianBlueprintPath: toTrimmedString(
+    env.SUPERVISOR_OBSIDIAN_BLUEPRINT_PATH,
+    ""
+  ),
+  /** Optional Obsidian note path for supervisor audit logs. */
+  supervisorObsidianLogPath: toTrimmedString(
+    env.SUPERVISOR_OBSIDIAN_LOG_PATH,
+    ""
+  ),
+  /** Obsidian folder searched for supervisor local memory. */
+  supervisorObsidianSearchPath: toTrimmedString(
+    env.SUPERVISOR_OBSIDIAN_SEARCH_PATH,
+    DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH
+  ),
+  /** Maximum Obsidian search results included in one supervisor decision. */
+  supervisorObsidianSearchLimit: toPositiveInt(
+    env.SUPERVISOR_OBSIDIAN_SEARCH_LIMIT,
+    DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_LIMIT
+  ),
+  /** Timeout for one Obsidian CLI command in milliseconds. */
+  supervisorObsidianTimeoutMs: toPositiveInt(
+    env.SUPERVISOR_OBSIDIAN_TIMEOUT_MS,
+    DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS
+  ),
   /** Enable background runner */
   backgroundEnabled: toBoolean(env.BACKGROUND_ENABLED, true),
   /** Background runner tick interval in milliseconds */

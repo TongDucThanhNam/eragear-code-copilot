@@ -1,6 +1,10 @@
 "use client";
 
-import type { SessionConfigOption } from "@repo/shared";
+import type {
+  SessionConfigOption,
+  SupervisorDecisionSummary,
+  SupervisorSessionState,
+} from "@repo/shared";
 import {
   CheckIcon,
   ChevronDown,
@@ -69,6 +73,7 @@ import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { MovingBorder } from "@/components/ui/moving-border";
 import { ATTACHMENT_HARD_LIMIT_BYTES } from "@/config/attachments";
 import { useFileStore } from "@/store/file-store";
+import { SupervisorControl } from "./supervisor-control";
 import { MentionMenu } from "./chat-input/mention-menu";
 import {
   MAX_QUICK_SLASH_COMMANDS,
@@ -125,6 +130,12 @@ export interface ChatInputProps {
   availableConfigOptions: SessionConfigOption[];
   onConfigOptionChange: (configId: string, value: string) => void;
   onSubmit: (message: PromptInputMessage) => void | Promise<void>;
+  // Supervisor props
+  supervisor: SupervisorSessionState | null;
+  supervisorCapable: boolean;
+  isSettingSupervisorMode: boolean;
+  lastSupervisorDecision: SupervisorDecisionSummary | null;
+  onSetSupervisorMode: (mode: "off" | "full_autopilot") => Promise<void>;
   // Context Props
   activeTabs?: { path: string }[];
   projectRules?: { path: string; location: string }[];
@@ -145,6 +156,11 @@ export const ChatInput = memo(function ChatInput({
   availableConfigOptions,
   onConfigOptionChange,
   onSubmit,
+  supervisor,
+  supervisorCapable,
+  isSettingSupervisorMode,
+  lastSupervisorDecision,
+  onSetSupervisorMode,
   activeTabs = [],
   projectRules = [],
   availableCommands = [],
@@ -180,6 +196,20 @@ export const ChatInput = memo(function ChatInput({
       }),
     [availableModels]
   );
+
+  // Limit rendered model items to prevent UI freeze with large lists
+  const MODEL_SELECTOR_SEARCH_LIMIT = 50;
+  /** Server-side cap for model list sent to clients. Must match DEFAULT_MAX_VISIBLE_MODEL_COUNT in apps/server/src/config/constants.ts */
+  const MODEL_LIST_SERVER_CAP = 100;
+  const [modelSelectorSearch, setModelSelectorSearch] = useState("");
+  const deferredModelSelectorSearch = useDeferredValue(modelSelectorSearch);
+
+  // Show capped indicator when model list is at or above the server cap
+  const showCappedIndicator = useMemo(
+    () => availableModels.length >= MODEL_LIST_SERVER_CAP,
+    [availableModels.length]
+  );
+
   const modelGroups = useMemo(() => {
     const out = new Map<string, typeof modelsWithDetails>();
     for (const model of modelsWithDetails) {
@@ -192,6 +222,107 @@ export const ChatInput = memo(function ChatInput({
     }
     return [...out.entries()];
   }, [modelsWithDetails]);
+
+  // Step 1: filter on FULL dataset before any capping
+  const fullFilteredGroups = useMemo(() => {
+    const search = deferredModelSelectorSearch.toLowerCase();
+    const result: Array<
+      [string, typeof modelsWithDetails, number]
+    > = []; // [groupLabel, filteredModels, totalInGroup]
+
+    for (const [groupLabel, models] of modelGroups) {
+      const filteredModels = search
+        ? models.filter(
+            (m) =>
+              m.id.toLowerCase().includes(search) ||
+              m.name.toLowerCase().includes(search) ||
+              (m.provider ?? "").toLowerCase().includes(search)
+          )
+        : [...models];
+
+      if (filteredModels.length > 0) {
+        result.push([groupLabel, filteredModels, models.length]);
+      }
+    }
+
+    return result;
+  }, [modelGroups, deferredModelSelectorSearch]);
+
+  // Step 2: cap the filtered result for rendering, keeping current model visible
+  const renderedModelGroups = useMemo(() => {
+    const result: Array<[string, typeof modelsWithDetails, number]> = [];
+    let itemCount = 0;
+
+    for (const [groupLabel, filteredModels, totalInGroup] of fullFilteredGroups) {
+      if (itemCount >= MODEL_SELECTOR_SEARCH_LIMIT) break;
+
+      // Check if current model is in filteredModels
+      const currentModelIndex = filteredModels.findIndex(
+        (m) => m.id === currentModelId
+      );
+
+      if (currentModelIndex !== -1) {
+        // current model is in filtered set — include it and fill remaining slots
+        const modelsBeforeCurrent = filteredModels.slice(
+          0,
+          currentModelIndex
+        );
+        const modelsAfterCurrent = filteredModels.slice(
+          currentModelIndex + 1
+        );
+
+        // Take up to (limit - 1) from before current
+        const beforeTaken = modelsBeforeCurrent.slice(
+          0,
+          MODEL_SELECTOR_SEARCH_LIMIT - itemCount - 1
+        );
+        // Then fill from after
+        const remainingSlots =
+          MODEL_SELECTOR_SEARCH_LIMIT - itemCount - 1 - beforeTaken.length;
+        const afterTaken = modelsAfterCurrent.slice(0, remainingSlots);
+
+        result.push([
+          groupLabel,
+          [...beforeTaken, filteredModels[currentModelIndex], ...afterTaken],
+          totalInGroup,
+        ]);
+        itemCount +=
+          beforeTaken.length + 1 + afterTaken.length;
+      } else if (itemCount + filteredModels.length <= MODEL_SELECTOR_SEARCH_LIMIT) {
+        // current model not in filtered set; take all filtered
+        result.push([groupLabel, filteredModels, totalInGroup]);
+        itemCount += filteredModels.length;
+      } else {
+        // current model not in filtered set AND we're at the boundary
+        // Still add the current model for discoverability even if not in search results
+        const taken = [
+          ...filteredModels.slice(
+            0,
+            MODEL_SELECTOR_SEARCH_LIMIT - itemCount - 1
+          ),
+        ];
+        // Note: we intentionally do NOT force-add the non-matching current model
+        // because that would produce a confusing UX (selected model doesn't match search).
+        // The user can clear search to see all models.
+        if (taken.length > 0) {
+          result.push([groupLabel, taken, totalInGroup]);
+          itemCount += taken.length;
+        }
+      }
+    }
+
+    return result;
+  }, [fullFilteredGroups, currentModelId, MODEL_SELECTOR_SEARCH_LIMIT]);
+
+  // For hint: total filtered count across all groups (before cap)
+  const totalFilteredCount = useMemo(
+    () =>
+      fullFilteredGroups.reduce(
+        (acc, [, filtered]) => acc + filtered.length,
+        0
+      ),
+    [fullFilteredGroups]
+  );
   const selectedModelData =
     modelsWithDetails.find((m) => m.id === currentModelId) ??
     (currentModelId
@@ -462,6 +593,14 @@ export const ChatInput = memo(function ChatInput({
     []
   );
 
+  // Supervisor visibility gate debug — logs inputs that control SupervisorControl render
+  useEffect(() => {
+    const willRender = connStatus === "connected" && supervisorCapable;
+console.debug(
+        `[SupervisorDebug] visibility inputs — connStatus=${connStatus} supervisorCapable=${supervisorCapable} supervisorMode=${supervisor?.mode ?? "null"} supervisorStatus=${supervisor?.status ?? "null"} supervisorReason=${supervisor?.reason ?? "null"} willRender=${willRender}`
+      );
+  }, [connStatus, supervisorCapable, supervisor]);
+
   const isStreaming = status === "streaming";
   const submitStatus = resolvePromptInputSubmitStatus({
     connStatus,
@@ -547,6 +686,17 @@ export const ChatInput = memo(function ChatInput({
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
 
+          {connStatus === "connected" && supervisorCapable && (
+            <SupervisorControl
+              isPending={isSettingSupervisorMode}
+              lastDecision={lastSupervisorDecision}
+              mode={supervisor?.mode ?? "off"}
+              onSetMode={onSetSupervisorMode}
+              reason={supervisor?.reason ?? null}
+              status={supervisor?.status ?? "idle"}
+            />
+          )}
+
           {connStatus === "connected" &&
             configSelectors.map((option) => (
               <PromptInputSelect
@@ -619,10 +769,33 @@ export const ChatInput = memo(function ChatInput({
                   </Button>
                 </ModelSelectorTrigger>
                 <ModelSelectorContent>
-                  <ModelSelectorInput placeholder="Search models..." />
+                  <ModelSelectorInput
+                    onValueChange={setModelSelectorSearch}
+                    placeholder="Search models..."
+                    value={modelSelectorSearch}
+                  />
+                  {showCappedIndicator && (
+                    <div
+                      aria-live="polite"
+                      className="px-3 py-1.5 text-muted-foreground text-xs"
+                    >
+                      Showing top {MODEL_LIST_SERVER_CAP} models. Search to find
+                      more.
+                    </div>
+                  )}
+                  {totalFilteredCount < modelsWithDetails.length && (
+                    <div className="px-3 py-1.5 text-muted-foreground text-xs">
+                      Showing {renderedModelGroups.reduce(
+                        (acc, [, m]) => acc + m.length,
+                        0
+                      )}{" "}
+                      of {modelsWithDetails.length} models — type to
+                      search…
+                    </div>
+                  )}
                   <ModelSelectorList>
                     <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                    {modelGroups.map(([groupLabel, models]) => (
+                    {renderedModelGroups.map(([groupLabel, models]) => (
                       <ModelSelectorGroup heading={groupLabel} key={groupLabel}>
                         {models.map((model) => (
                           <ModelSelectorItem

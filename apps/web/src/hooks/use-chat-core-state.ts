@@ -9,6 +9,8 @@ import type {
   SessionInfo,
   SessionModelState,
   SessionModeState,
+  SupervisorDecisionSummary,
+  SupervisorSessionState,
   UIMessage,
 } from "@repo/shared";
 import { findPendingPermission } from "@repo/shared";
@@ -62,6 +64,9 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   const [loadSessionSupported, setLoadSessionSupported] = useState<
     boolean | undefined
   >(undefined);
+  const [supervisor, setSupervisor] =
+    useState<SupervisorSessionState | null>(null);
+  const [supervisorCapable, setSupervisorCapable] = useState(false);
 
   const messageStateRef = useRef<MessageState>(
     getChatMessageStateSnapshot(chatId ?? null)
@@ -82,6 +87,10 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   const hasLocalModeOverrideRef = useRef(false);
   const hasLocalModelOverrideRef = useRef(false);
   const hasLocalConfigOverrideRef = useRef(false);
+  const supervisorRef = useRef<SupervisorSessionState | null>(null);
+  const lastSupervisorDecisionRef = useRef<SupervisorDecisionSummary | null>(
+    null
+  );
 
   statusRef.current = status;
   connStatusRef.current = connStatus;
@@ -90,6 +99,7 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   modelsRef.current = models;
   configOptionsRef.current = configOptions;
   commandsRef.current = commands;
+  supervisorRef.current = supervisor;
 
   const messages = getChatMessageStateSnapshot(chatId ?? null).orderedMessages;
 
@@ -187,6 +197,10 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
     setAgentInfo,
     loadSessionSupported,
     setLoadSessionSupported,
+    supervisor,
+    setSupervisor,
+    supervisorCapable,
+    setSupervisorCapable,
     messageStateRef,
     modesRef,
     modelsRef,
@@ -204,6 +218,8 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
     hasLocalModeOverrideRef,
     hasLocalModelOverrideRef,
     hasLocalConfigOverrideRef,
+    supervisorRef,
+    lastSupervisorDecisionRef,
     updateMessageState,
     upsertMessage,
     setMessages,

@@ -277,6 +277,72 @@ describe("environment worker invariants", () => {
     expect(result.stdout.trim()).toBe("500:128:16777216");
   });
 
+  test("parses supervisor configuration", () => {
+    const result = runEnvironmentSubprocess({
+      code: "import { ENV } from './src/config/environment.ts'; console.log([ENV.supervisorEnabled, ENV.supervisorModel, ENV.supervisorDeepSeekApiKey, ENV.supervisorDecisionTimeoutMs, ENV.supervisorDecisionMaxAttempts, ENV.supervisorMaxRuntimeMs, ENV.supervisorMaxRepeatedPrompts, ENV.supervisorWebSearchProvider, ENV.supervisorMemoryProvider, ENV.supervisorObsidianCommand, ENV.supervisorObsidianVault, ENV.supervisorObsidianBlueprintPath, ENV.supervisorObsidianLogPath, ENV.supervisorObsidianSearchPath, ENV.supervisorObsidianSearchLimit, ENV.supervisorObsidianTimeoutMs].join(':'));",
+      overrides: {
+        SUPERVISOR_ENABLED: "true",
+        SUPERVISOR_MODEL: "openai/gpt-5.1",
+        DEEPSEEK_API_KEY: "deepseek-test-key",
+        SUPERVISOR_DECISION_TIMEOUT_MS: "1234",
+        SUPERVISOR_DECISION_MAX_ATTEMPTS: "2",
+        SUPERVISOR_MAX_RUNTIME_MS: "5678",
+        SUPERVISOR_MAX_REPEATED_PROMPTS: "9",
+        SUPERVISOR_WEB_SEARCH_PROVIDER: "none",
+        SUPERVISOR_MEMORY_PROVIDER: "obsidian",
+        SUPERVISOR_OBSIDIAN_COMMAND: "obsidian",
+        SUPERVISOR_OBSIDIAN_VAULT: "Second Brain",
+        SUPERVISOR_OBSIDIAN_BLUEPRINT_PATH: "Project/App/Blueprint.md",
+        SUPERVISOR_OBSIDIAN_LOG_PATH: "Project/App/Supervisor Log.md",
+        SUPERVISOR_OBSIDIAN_SEARCH_PATH: "Project/App",
+        SUPERVISOR_OBSIDIAN_SEARCH_LIMIT: "4",
+        SUPERVISOR_OBSIDIAN_TIMEOUT_MS: "6789",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe(
+      "true:openai/gpt-5.1:deepseek-test-key:1234:2:5678:9:none:obsidian:obsidian:Second Brain:Project/App/Blueprint.md:Project/App/Supervisor Log.md:Project/App:4:6789"
+    );
+  });
+
+  test("requires Exa key when supervisor web search provider is exa", () => {
+    const result = importEnvironmentInSubprocess({
+      SUPERVISOR_WEB_SEARCH_PROVIDER: "exa",
+      SUPERVISOR_WEB_SEARCH_API_KEY: "",
+      EXA_API_KEY: "",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "SUPERVISOR_WEB_SEARCH_API_KEY or EXA_API_KEY is required"
+    );
+  });
+
+  test("accepts EXA_API_KEY alias for supervisor web search", () => {
+    const result = runEnvironmentSubprocess({
+      code: "import { ENV } from './src/config/environment.ts'; console.log([ENV.supervisorWebSearchProvider, ENV.supervisorWebSearchApiKey].join(':'));",
+      overrides: {
+        SUPERVISOR_WEB_SEARCH_PROVIDER: "exa",
+        EXA_API_KEY: "exa-test-key",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("exa:exa-test-key");
+  });
+
+  test("rejects invalid supervisor memory provider", () => {
+    const result = importEnvironmentInSubprocess({
+      SUPERVISOR_MEMORY_PROVIDER: "sqlite",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(
+      "SUPERVISOR_MEMORY_PROVIDER must be one of: none, obsidian"
+    );
+  });
+
   test("falls back allowlists in development when insecure defaults are explicitly enabled", () => {
     const result = runEnvironmentSubprocess({
       code: "import { ENV } from './src/config/environment.ts'; console.log([ENV.allowedAgentCommands.length, ENV.allowedTerminalCommands.length, ENV.allowedEnvKeys.length].join(':'));",

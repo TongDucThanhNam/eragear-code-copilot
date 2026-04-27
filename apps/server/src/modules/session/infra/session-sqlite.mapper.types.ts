@@ -31,6 +31,7 @@ export type SessionListRow = Pick<
   | "planJson"
   | "agentCapabilitiesJson"
   | "authMethodsJson"
+  | "supervisorJson"
 > & {
   agentName: string | null;
 };
@@ -85,6 +86,32 @@ const AuthMethodSchema = z.object({
 });
 
 const AgentCapabilitiesSchema = z.record(z.string(), z.unknown());
+const SupervisorDecisionSummarySchema = z.object({
+  action: z.enum(["done", "continue", "needs_user", "abort"]),
+  reason: z.string(),
+  followUpPrompt: z.string().optional(),
+});
+const SupervisorSessionStateSchema = z.object({
+  mode: z.enum(["off", "full_autopilot"]),
+  status: z.enum([
+    "idle",
+    "queued",
+    "reviewing",
+    "continuing",
+    "done",
+    "needs_user",
+    "aborted",
+    "error",
+    "disabled",
+  ]),
+  reason: z.string().optional(),
+  runId: z.string().optional(),
+  runStartedAt: z.number().optional(),
+  updatedAt: z.number().optional(),
+  continuationCount: z.number().optional(),
+  lastTurnId: z.string().optional(),
+  lastDecision: SupervisorDecisionSummarySchema.optional(),
+});
 
 export const OptionalAgentInfoSchema = AgentInfoSchema.optional();
 export const OptionalPlanSchema = PlanSchema.optional();
@@ -95,6 +122,8 @@ export const OptionalAgentCapabilitiesSchema =
   AgentCapabilitiesSchema.optional();
 export const OptionalAuthMethodsSchema = z.array(AuthMethodSchema).optional();
 export const OptionalToolCallsSchema = z.array(ToolCallSchema).optional();
+export const OptionalSupervisorSessionStateSchema =
+  SupervisorSessionStateSchema.optional();
 
 export const OptionalContentBlocksSchema = z.custom<
   StoredMessage["contentBlocks"]
