@@ -10,6 +10,7 @@ import { AiSessionRuntimeAdapter } from "@/modules/ai/di";
 import type { AiServiceFactory } from "@/modules/service-factories";
 import {
   SetSupervisorModeService,
+  type SupervisorAuditPort,
   SupervisorLoopService,
   type SupervisorMemoryPort,
   SupervisorPermissionService,
@@ -18,6 +19,7 @@ import {
 import {
   AiSdkSupervisorDecisionAdapter,
   ExaSupervisorResearchAdapter,
+  NoopSupervisorAuditAdapter,
   NoopSupervisorMemoryAdapter,
   NoopSupervisorResearchAdapter,
   ObsidianSupervisorMemoryAdapter,
@@ -124,6 +126,8 @@ export function createAiServices(
           deps.appLogger
         )
       : new NoopSupervisorMemoryAdapter();
+  const supervisorAuditAdapter: SupervisorAuditPort =
+    new NoopSupervisorAuditAdapter();
   const supervisorLoopService = new SupervisorLoopService({
     sessionRepo: deps.sessionRepo,
     sessionRuntime: deps.sessionRuntime,
@@ -131,6 +135,7 @@ export function createAiServices(
     decisionPort: supervisorDecisionAdapter,
     researchPort: supervisorResearchAdapter,
     memoryPort: supervisorMemoryAdapter,
+    auditPort: supervisorAuditAdapter,
     policy: deps.supervisorPolicy,
     logger: deps.appLogger,
     clock: deps.clock,

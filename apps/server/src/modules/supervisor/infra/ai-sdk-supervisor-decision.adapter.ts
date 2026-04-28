@@ -2,7 +2,10 @@ import { createDeepSeek } from "@ai-sdk/deepseek";
 import { generateText, NoObjectGeneratedError, Output } from "ai";
 import type { z } from "zod";
 import type { LoggerPort } from "@/shared/ports/logger.port";
-import type { SupervisorDecisionSummary } from "@/shared/types/supervisor.types";
+import type {
+  SupervisorSemanticDecision,
+} from "@/shared/types/supervisor.types";
+import { mapSemanticToRuntime } from "@/shared/types/supervisor.types";
 import type {
   SupervisorDecisionPort,
   SupervisorPermissionSnapshot,
@@ -11,7 +14,7 @@ import type {
 import {
   type SupervisorPermissionDecision,
   SupervisorPermissionDecisionSchema,
-  SupervisorTurnDecisionSchema,
+  SupervisorSemanticDecisionSchema,
 } from "../application/supervisor.schemas";
 import type { SupervisorPolicy } from "../application/supervisor-policy";
 import {
@@ -39,17 +42,25 @@ export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
 
   async decideTurn(
     input: SupervisorTurnSnapshot
-  ): Promise<SupervisorDecisionSummary> {
+  ): Promise<SupervisorSemanticDecision> {
     this.assertConfigured();
     try {
-      return await this.generateObjectDecision({
+      // R1 — Parse LLM output using semantic schema and compute runtimeAction
+      const raw = await this.generateObjectDecision({
         kind: "turn",
         chatId: input.chatId,
         system: SUPERVISOR_TURN_SYSTEM_PROMPT,
         prompt: buildSupervisorTurnPrompt(input),
-        schema: SupervisorTurnDecisionSchema,
+        schema: SupervisorSemanticDecisionSchema,
         name: "supervisor_turn_decision",
       });
+      const runtimeAction = mapSemanticToRuntime(raw.semanticAction);
+      return {
+        semanticAction: raw.semanticAction,
+        runtimeAction,
+        reason: raw.reason,
+        ...(raw.followUpPrompt ? { followUpPrompt: raw.followUpPrompt } : {}),
+      };
     } catch (error) {
       this.logDecisionFailure("turn", input.chatId, error);
       throw error;

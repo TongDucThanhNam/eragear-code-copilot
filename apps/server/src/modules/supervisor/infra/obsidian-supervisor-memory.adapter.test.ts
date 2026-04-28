@@ -258,4 +258,36 @@ describe("ObsidianSupervisorMemoryAdapter", () => {
       })
     ).toEqual(["read", "vault=Second Brain", "path=Project/App/Blueprint.md"]);
   });
+
+  // TR8: appendLog accepts { action: "save_memory" } per SAVE_MEMORY semantics
+  test("appends save_memory action without breaking", async () => {
+    const calls: string[][] = [];
+    const runner: ObsidianCommandRunner = (command, args) => {
+      calls.push([command, ...args]);
+      return Promise.resolve({ stdout: "", stderr: "" });
+    };
+    const adapter = new ObsidianSupervisorMemoryAdapter(
+      {
+        logPath: "Project/App/Supervisor Log.md",
+        searchPath: "Project/App",
+        searchLimit: 2,
+        timeoutMs: 1234,
+      },
+      new CapturingLogger(),
+      runner
+    );
+
+    // TR8: appendLog must accept save_memory action
+    await adapter.appendLog({
+      chatId: "chat-1",
+      projectRoot: "/repo",
+      action: "save_memory",
+      reason: "Notable architectural decision",
+      latestAssistantTextPart: "Decision: Use D1/SQLite",
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[0]).toBe("obsidian");
+    expect(calls[0]?.[1]).toBe("append");
+  });
 });

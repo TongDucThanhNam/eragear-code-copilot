@@ -73,4 +73,9 @@ export interface SupervisorSessionState {
   continuationCount?: number;
   lastTurnId?: string;
   lastDecision?: SupervisorDecisionSummary;
+  // T06 — Loop detection state
+  lastDecisionFingerprint?: string;
+  decisionHistory?: string[];
+  lastPlanSnapshot?: string;
+  consecutiveIdenticalDecisions?: number;
 }

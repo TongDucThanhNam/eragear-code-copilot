@@ -14,6 +14,7 @@ import type {
   SupervisorMemoryContext,
   SupervisorMemoryPort,
 } from "./ports/supervisor-memory.port";
+import { evaluateHardDeny } from "./supervisor-hard-deny";
 import type { SupervisorPolicy } from "./supervisor-policy";
 import { normalizeSupervisorState } from "./supervisor-state.util";
 
@@ -73,21 +74,32 @@ export class SupervisorPermissionService {
       return;
     }
 
+    // Hard-deny: deterministic pre-LLM filter for clearly disallowed operations
+    const hardDenyDecision = evaluateHardDeny(snapshot, this.policy);
     let decision: Awaited<
       ReturnType<SupervisorDecisionPort["decidePermission"]>
     >;
-    try {
-      decision = await this.decisionPort.decidePermission(snapshot);
-    } catch (error) {
-      this.logger.warn("Supervisor permission decision failed closed", {
+    if (hardDenyDecision) {
+      this.logger.info("Supervisor permission hard-deny triggered", {
         chatId: input.chatId,
         requestId: input.requestId,
-        error: error instanceof Error ? error.message : String(error),
+        reason: hardDenyDecision.reason,
       });
-      decision = {
-        action: "reject",
-        reason: "Supervisor permission decision failed",
-      };
+      decision = hardDenyDecision;
+    } else {
+      try {
+        decision = await this.decisionPort.decidePermission(snapshot);
+      } catch (error) {
+        this.logger.warn("Supervisor permission decision failed closed", {
+          chatId: input.chatId,
+          requestId: input.requestId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        decision = {
+          action: "reject",
+          reason: "Supervisor permission decision failed",
+        };
+      }
     }
 
     await this.applyPermissionDecision({
@@ -149,6 +161,31 @@ export class SupervisorPermissionService {
 
   private async getTaskGoal(chatId: string, userId: string): Promise<string> {
     try {
+      // 1. Try latest user message (backward page 1)
+      const latestPage = await this.sessionRepo.getMessagesPage(
+        chatId,
+        userId,
+        {
+          direction: "backward",
+          limit: 1,
+          includeCompacted: true,
+        }
+      );
+      const latestUserMessage = latestPage.messages.find(
+        (message) => message.role === "user"
+      );
+      if (latestUserMessage?.content) {
+        return latestUserMessage.content;
+      }
+
+      // 2. Fall back to session plan title (first entry content)
+      const session = this.sessionRuntime.get(chatId);
+      const planTitle = session?.plan?.entries?.[0]?.content;
+      if (planTitle) {
+        return planTitle;
+      }
+
+      // 3. Fall back to first user message (forward page 1) — original task
       const firstPage = await this.sessionRepo.getMessagesPage(chatId, userId, {
         direction: "forward",
         limit: 1,

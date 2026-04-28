@@ -4,6 +4,8 @@ export type {
   SupervisorTurnSnapshot,
 } from "./application/ports/supervisor-decision.port";
 export type {
+  SupervisorAuditEntry,
+  SupervisorAuditPort,
   SupervisorMemoryContext,
   SupervisorMemoryLogInput,
   SupervisorMemoryLookupInput,

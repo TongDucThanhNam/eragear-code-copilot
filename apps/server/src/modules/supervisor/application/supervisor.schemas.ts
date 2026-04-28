@@ -59,7 +59,6 @@ export const SupervisorSemanticDecisionSchema = z
       "SAVE_MEMORY",
       "WAIT",
     ]),
-    runtimeAction: z.enum(["continue", "done", "needs_user", "abort"]),
     reason: z.string().min(1).max(2000),
     followUpPrompt: z.string().min(1).max(12_000).optional(),
   })
@@ -78,5 +77,3 @@ export const SupervisorSemanticDecisionSchema = z
       });
     }
   });
-
-

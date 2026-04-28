@@ -135,8 +135,9 @@ describe("buildSupervisorTurnPrompt", () => {
       researchResults: [],
     });
 
+    // TR6: The precedence rule is now in the system prompt section, not the turn prompt
     expect(prompt).toContain(
-      "Precedence: latest human instruction > user instruction timeline > latest assistant proposal/gate > plan/artifacts > memory/blueprint > original task."
+      "latest human instruction > user instruction timeline > latest assistant proposal/gate > plan/artifacts > memory/blueprint > original task"
     );
   });
 
@@ -179,9 +180,39 @@ describe("buildSupervisorTurnPrompt", () => {
 });
 
 describe("SUPERVISOR_TURN_SYSTEM_PROMPT", () => {
+  // TR6: contains all 9 semantic action keywords
+  test("contains all 9 semantic action keywords", () => {
+    const keywords = [
+      "CONTINUE",
+      "APPROVE_GATE",
+      "CORRECT",
+      "REPLAN",
+      "DONE",
+      "ESCALATE",
+      "ABORT",
+      "SAVE_MEMORY",
+      "WAIT",
+    ];
+    for (const keyword of keywords) {
+      expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain(keyword);
+    }
+  });
+
+  // TR6: contains few-shot examples
+  test("contains few-shot examples", () => {
+    expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain("Example 1");
+    expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain("Example 2");
+    expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain("Example 3");
+  });
+
+  // TR6: does not contain "original user task"
+  test("does not contain the phrase 'original user task'", () => {
+    expect(SUPERVISOR_TURN_SYSTEM_PROMPT).not.toContain("original user task");
+  });
+
   test("includes precedence rule for user instruction timeline", () => {
     expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain(
-      "Precedence: latest human instruction > user instruction timeline > latest assistant proposal/gate > plan/artifacts > memory/blueprint > original task."
+      "latest human instruction > user instruction timeline > latest assistant proposal/gate > plan/artifacts > memory/blueprint > original task"
     );
   });
 

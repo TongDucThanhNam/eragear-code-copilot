@@ -11,6 +11,8 @@ export interface SupervisorPolicy {
   decisionMaxAttempts: number;
   maxRuntimeMs: number;
   maxRepeatedPrompts: number;
+  /** Enable deterministic hard-deny filter for clearly disallowed permission requests. Default: true */
+  hardDenyEnabled?: boolean;
   webSearchProvider: SupervisorWebSearchProvider;
   webSearchApiKey?: string;
   memoryProvider: SupervisorMemoryProvider;

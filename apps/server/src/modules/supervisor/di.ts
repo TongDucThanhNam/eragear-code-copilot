@@ -7,6 +7,7 @@ export {
   NoopSupervisorResearchAdapter,
 } from "./infra/exa-supervisor-research.adapter";
 export {
+  NoopSupervisorAuditAdapter,
   NoopSupervisorMemoryAdapter,
   ObsidianSupervisorMemoryAdapter,
 } from "./infra/obsidian-supervisor-memory.adapter";

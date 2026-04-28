@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
+  SupervisorAuditPort,
   SupervisorMemoryContext,
   SupervisorMemoryLogInput,
   SupervisorMemoryLookupInput,
@@ -340,6 +341,12 @@ export class NoopSupervisorMemoryAdapter implements SupervisorMemoryPort {
   }
 
   appendLog(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+export class NoopSupervisorAuditAdapter implements SupervisorAuditPort {
+  appendEntry(): Promise<void> {
     return Promise.resolve();
   }
 }

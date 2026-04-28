@@ -8,8 +8,8 @@ import type { StoredMessage } from "@/modules/session/domain/stored-session.type
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
-  SupervisorSemanticDecision,
   SupervisorDecisionSummary,
+  SupervisorSemanticDecision,
   SupervisorSessionState,
 } from "@/shared/types/supervisor.types";
 import { mapSemanticToRuntime } from "@/shared/types/supervisor.types";
@@ -21,6 +21,7 @@ import type {
   SupervisorTurnSnapshot,
 } from "./ports/supervisor-decision.port";
 import type {
+  SupervisorAuditPort,
   SupervisorMemoryContext,
   SupervisorMemoryPort,
 } from "./ports/supervisor-memory.port";
@@ -47,9 +48,11 @@ const SHOULD_PROCEED_RE =
 const USER_WANTS_PROCEED_RE =
   /\b(would you like|do you want)\b.{0,120}\b(proceed|continue|move on|next)\b/;
 const OPTION_QUESTION_RE =
-  /\b(would you like me to|do you want me to|would you like to|do you want to)\s*:|(?:bạn|ban)\s+(?:chọn|chon)|(?:chọn|chon)\s+(?:hướng|huong|option)|\bpreference\b/i;
+  /\b(would you like me to|do you want me to|would you like to|do you want to|which would you like|pick one|choose one)\s*:|(?:bạn|ban)\s+(?:chọn|chon|muốn|muon)|(?:chọn|chon)\s+(?:hướng|huong|option)|(?:lựa|lua)\s+(?:chọn|chon)\b|(?:phương|phuong)\s+(?:án|an)\s*:|\bpreference\b/i;
+const OPTION_LETTER_RE = /\b([A-Z])[).]\s*(.+?)(?=\s+[A-Z][).]|$)/gi;
 const LINE_SPLIT_RE = /\r?\n/;
 const OPTION_BULLET_RE = /^\s*(?:[-*]|\d+[.)])\s+(.+?)\s*$/;
+const TABLE_CELL_SEPARATOR_RE = /^[\s\-:|]+$/;
 const PHASE_COMPLETE_RE =
   /\b(finished|completed|done with|wrapped up)\b.{0,80}\b(phase|step|stage|part|milestone)\b/;
 const PHASE_NUMBER_COMPLETE_RE =
@@ -66,6 +69,10 @@ const LOCAL_CONTEXT_BLOCKED_RE =
   /\b(blocked|unable to find|cannot access|can't access|not available|missing|bị chặn|bi chan|không tìm thấy|khong tim thay|không truy cập|khong truy cap|không khả dụng|khong kha dung)\b/i;
 const TOOL_ERROR_STATES = new Set(["output-error"]);
 const TOOL_TYPE_PREFIX_RE = /^tool-/u;
+const LOOP_DETECTION_MAX_IDENTICAL = 2; // Same decision 3 times in a row (counter >= 2)
+const LOOP_DETECTION_PLAN_DELTA_IDENTICAL = 1; // Same decision + same plan 2 times (counter >= 1)
+const DECISION_HISTORY_MAX_LENGTH = 5;
+const FINGERPRINT_MAX_LENGTH = 256;
 
 export interface SupervisorTurnCompleteEvent {
   chatId: string;
@@ -87,6 +94,7 @@ export class SupervisorLoopService {
   private readonly decisionPort: SupervisorDecisionPort;
   private readonly researchPort: SupervisorResearchPort;
   private readonly memoryPort: SupervisorMemoryPort;
+  private readonly auditPort: SupervisorAuditPort;
   private readonly policy: SupervisorPolicy;
   private readonly logger: LoggerPort;
   private readonly clock: ClockPort;
@@ -100,6 +108,7 @@ export class SupervisorLoopService {
     decisionPort: SupervisorDecisionPort;
     researchPort: SupervisorResearchPort;
     memoryPort: SupervisorMemoryPort;
+    auditPort: SupervisorAuditPort;
     policy: SupervisorPolicy;
     logger: LoggerPort;
     clock: ClockPort;
@@ -110,6 +119,7 @@ export class SupervisorLoopService {
     this.decisionPort = deps.decisionPort;
     this.researchPort = deps.researchPort;
     this.memoryPort = deps.memoryPort;
+    this.auditPort = deps.auditPort;
     this.policy = deps.policy;
     this.logger = deps.logger;
     this.clock = deps.clock;
@@ -195,13 +205,11 @@ export class SupervisorLoopService {
       const snapshot = await this.buildSnapshot(event);
       // R6 — Classifier pipeline (strict priority order: option/gate → memory → correct → done → LLM)
       let decision: SupervisorSemanticDecision | null = null;
-      let classifierName: string | null = null;
 
       // R2 — Option/Gate classifier
       const optionDecision = createOptionQuestionDecision(snapshot);
       if (optionDecision) {
         decision = optionDecision;
-        classifierName = "option";
         this.logger.info("Supervisor deterministic option decision selected", {
           chatId: event.chatId,
           turnId: event.turnId ?? null,
@@ -212,13 +220,9 @@ export class SupervisorLoopService {
 
       // R3 — Memory recovery classifier
       if (!decision) {
-        const memoryRecoveryDecision = createMemoryRecoveryDecision(
-          snapshot,
-          this.memoryPort
-        );
+        const memoryRecoveryDecision = createMemoryRecoveryDecision(snapshot);
         if (memoryRecoveryDecision) {
           decision = memoryRecoveryDecision;
-          classifierName = "memory";
           this.logger.info("Supervisor memory recovery decision selected", {
             chatId: event.chatId,
             turnId: event.turnId ?? null,
@@ -236,7 +240,6 @@ export class SupervisorLoopService {
         const correctDecision = createCorrectDecision(snapshot);
         if (correctDecision) {
           decision = correctDecision;
-          classifierName = "correct";
           this.logger.info("Supervisor correct decision selected", {
             chatId: event.chatId,
             turnId: event.turnId ?? null,
@@ -247,12 +250,10 @@ export class SupervisorLoopService {
 
       // R5 — Done verification classifier
       if (!decision) {
-        const doneVerificationDecision = createDoneVerificationDecision(
-          snapshot
-        );
+        const doneVerificationDecision =
+          createDoneVerificationDecision(snapshot);
         if (doneVerificationDecision) {
           decision = doneVerificationDecision;
-          classifierName = "done_verification";
           this.logger.info("Supervisor done verification decision selected", {
             chatId: event.chatId,
             turnId: event.turnId ?? null,
@@ -264,13 +265,20 @@ export class SupervisorLoopService {
       // LLM fallback
       if (!decision) {
         decision = await this.decisionPort.decideTurn(snapshot);
-        classifierName = "llm";
         this.logger.info("Supervisor LLM fallback decision selected", {
           chatId: event.chatId,
           turnId: event.turnId ?? null,
           semanticAction: decision.semanticAction,
         });
       }
+
+      // T06 — Loop detection: check if same decision is repeated without artifact delta
+      decision = this.detectLoop(
+        snapshot.supervisor,
+        decision,
+        snapshot,
+        event
+      );
 
       await this.applyDecision(event, decision, snapshot);
     } catch (error) {
@@ -560,6 +568,89 @@ export class SupervisorLoopService {
     return await this.researchPort.search(query);
   }
 
+  /**
+   * T06 — Loop detection: detect repeated identical decisions without artifact delta.
+   * If the same fingerprint appears consecutively too many times, override to ESCALATE.
+   * If fingerprint repeats AND plan snapshot is unchanged, escalate sooner.
+   */
+  private detectLoop(
+    supervisor: SupervisorSessionState,
+    decision: SupervisorSemanticDecision,
+    snapshot: SupervisorTurnSnapshot,
+    event: SupervisorTurnCompleteEvent
+  ): SupervisorSemanticDecision {
+    const fingerprint = computeDecisionFingerprint(decision);
+    const planSnapshot = computePlanSnapshot(snapshot.plan);
+    const lastFingerprint = supervisor.lastDecisionFingerprint;
+    const lastPlan = supervisor.lastPlanSnapshot;
+    const consecutiveCount = supervisor.consecutiveIdenticalDecisions ?? 0;
+
+    const isSameDecision = fingerprint === lastFingerprint;
+
+    if (!isSameDecision) {
+      // Different decision — reset counter (state update happens in applyDecision)
+      return decision;
+    }
+
+    // Same decision as last turn
+    const newCount = consecutiveCount + 1;
+
+    // Check plan delta: if plan snapshot is unchanged AND decision is identical
+    const planUnchanged =
+      planSnapshot !== undefined &&
+      lastPlan !== undefined &&
+      planSnapshot === lastPlan;
+
+    if (planUnchanged && newCount >= LOOP_DETECTION_PLAN_DELTA_IDENTICAL) {
+      this.logger.warn(
+        "Supervisor loop detected: same decision repeated with no plan delta",
+        {
+          chatId: event.chatId,
+          turnId: event.turnId ?? null,
+          fingerprint,
+          consecutiveIdenticalDecisions: newCount,
+          planUnchanged: true,
+          originalSemanticAction: decision.semanticAction,
+        }
+      );
+      return {
+        semanticAction: "ESCALATE",
+        runtimeAction: mapSemanticToRuntime("ESCALATE"),
+        reason: `Loop detected: same decision (${decision.semanticAction}) repeated without artifact delta (plan unchanged). Original reason: ${decision.reason}`,
+      };
+    }
+
+    if (newCount >= LOOP_DETECTION_MAX_IDENTICAL) {
+      this.logger.warn(
+        "Supervisor loop detected: same decision repeated consecutively",
+        {
+          chatId: event.chatId,
+          turnId: event.turnId ?? null,
+          fingerprint,
+          consecutiveIdenticalDecisions: newCount,
+          planUnchanged,
+          originalSemanticAction: decision.semanticAction,
+        }
+      );
+      return {
+        semanticAction: "ESCALATE",
+        runtimeAction: mapSemanticToRuntime("ESCALATE"),
+        reason: `Loop detected: same decision (${decision.semanticAction}) repeated ${newCount + 1} times without progress. Original reason: ${decision.reason}`,
+      };
+    }
+
+    // Same decision but not yet at threshold — allow through
+    this.logger.info("Supervisor loop detection: same decision repeating", {
+      chatId: event.chatId,
+      turnId: event.turnId ?? null,
+      fingerprint,
+      consecutiveIdenticalDecisions: newCount,
+      planUnchanged,
+      semanticAction: decision.semanticAction,
+    });
+    return decision;
+  }
+
   private async runOptionalMemory(input: {
     chatId: string;
     projectRoot: string;
@@ -628,12 +719,33 @@ export class SupervisorLoopService {
         : {}),
     };
 
+    // T06 — Track loop detection state: fingerprint, history, plan snapshot, counter
+    const fingerprint = computeDecisionFingerprint(decision);
+    const planSnapshot = computePlanSnapshot(snapshot.plan);
+    const currentSupervisor = normalizeSupervisorState(
+      this.sessionRuntime.get(event.chatId)?.supervisor
+    );
+    const lastFingerprint = currentSupervisor.lastDecisionFingerprint;
+    const isSameDecision = fingerprint === lastFingerprint;
+    const newConsecutiveCount = isSameDecision
+      ? (currentSupervisor.consecutiveIdenticalDecisions ?? 0) + 1
+      : 0;
+    const history = currentSupervisor.decisionHistory ?? [];
+    const updatedHistory = [fingerprint, ...history].slice(
+      0,
+      DECISION_HISTORY_MAX_LENGTH
+    );
+
     await this.updateSupervisorState({
       chatId: event.chatId,
       userId: event.userId,
       patch: {
         lastDecision: runtimeDecision,
         reason: decision.reason,
+        lastDecisionFingerprint: fingerprint,
+        decisionHistory: updatedHistory,
+        lastPlanSnapshot: planSnapshot ?? currentSupervisor.lastPlanSnapshot,
+        consecutiveIdenticalDecisions: newConsecutiveCount,
       },
       broadcastDecision: runtimeDecision,
       turnId: event.turnId,
@@ -755,12 +867,12 @@ export class SupervisorLoopService {
       const state = normalizeSupervisorState(
         this.sessionRuntime.get(event.chatId)?.supervisor
       );
-      // R9 — record semantic action for auditability
-      await this.memoryPort.appendLog({
+      // R9 — record semantic action for auditability via dedicated audit port
+      await this.auditPort.appendEntry({
         chatId: event.chatId,
         projectRoot: snapshot.projectRoot,
         ...(event.turnId ? { turnId: event.turnId } : {}),
-        action: decision.semanticAction,
+        semanticAction: decision.semanticAction,
         reason: decision.reason,
         ...(snapshot.autoResumeSignal
           ? { autoResumeSignal: snapshot.autoResumeSignal }
@@ -771,7 +883,7 @@ export class SupervisorLoopService {
         latestAssistantTextPart: snapshot.latestAssistantTextPart,
       });
     } catch (error) {
-      this.logger.warn("Supervisor memory log failed", {
+      this.logger.warn("Supervisor audit log failed", {
         chatId: event.chatId,
         turnId: event.turnId,
         error: error instanceof Error ? error.message : String(error),
@@ -1056,29 +1168,49 @@ export function detectAutoResumeSignal(
   return undefined;
 }
 
+/**
+ * R2 — Option/Gate deterministic classifier.
+ * Detects agent asking user to choose from options and auto-selects a safe option.
+ */
 export function createOptionQuestionDecision(
-  text: string
-): SupervisorDecisionSummary | null {
-  const options = extractAssistantChoiceOptions(text);
+  snapshot: SupervisorTurnSnapshot
+): SupervisorSemanticDecision | null {
+  const options = extractAssistantChoiceOptions(
+    snapshot.latestAssistantTextPart
+  );
   const selected = selectAutopilotOption(options);
-  if (!selected) {
-    return null;
+  if (selected) {
+    return {
+      semanticAction: "APPROVE_GATE",
+      runtimeAction: mapSemanticToRuntime("APPROVE_GATE"),
+      reason:
+        "Agent asked the user to choose from listed options; autopilot selected a safe continuation option.",
+      followUpPrompt: [
+        `Select this option and continue: ${selected}`,
+        "Keep the work scoped to the original request and existing repository conventions.",
+        "Do not commit, push, deploy, or perform destructive actions unless the human explicitly requested them.",
+      ].join("\n"),
+    };
   }
-  return {
-    action: "continue",
-    reason:
-      "Agent asked the user to choose from listed options; autopilot selected a safe continuation option.",
-    followUpPrompt: [
-      `Select this option and continue: ${selected}`,
-      "Keep the work scoped to the original request and existing repository conventions.",
-      "Do not commit, push, deploy, or perform destructive actions unless the human explicitly requested them.",
-    ].join("\n"),
-  };
+  if (options.length > 0) {
+    // All options exist but are all unsafe → ESCALATE
+    return {
+      semanticAction: "ESCALATE",
+      runtimeAction: mapSemanticToRuntime("ESCALATE"),
+      reason:
+        "Agent offered options but all are unsafe; requiring human to choose.",
+    };
+  }
+  return null;
 }
 
+/**
+ * R3 — Memory recovery deterministic classifier.
+ * Detects Obsidian/vault access blocker but with usable local memory context.
+ */
 export function createMemoryRecoveryDecision(
   snapshot: SupervisorTurnSnapshot
-): SupervisorDecisionSummary | null {
+): SupervisorSemanticDecision | null {
   if (!snapshot.projectBlueprint && snapshot.memoryResults.length === 0) {
     return null;
   }
@@ -1093,7 +1225,8 @@ export function createMemoryRecoveryDecision(
   }
 
   return {
-    action: "continue",
+    semanticAction: "CONTINUE",
+    runtimeAction: mapSemanticToRuntime("CONTINUE"),
     reason:
       "Agent reported an Obsidian/vault access blocker, but supervisor local memory provided usable context.",
     followUpPrompt: [
@@ -1102,6 +1235,89 @@ export function createMemoryRecoveryDecision(
       "If the previous step selected a scope or option, keep that scope and proceed to the next safe route step.",
       "Do not retry Obsidian CLI unless it is strictly necessary; rely on the provided context and repository files.",
     ].join("\n"),
+  };
+}
+
+/**
+ * R4 — Correct deterministic classifier.
+ * Detects when agent self-reports "done" but without verification artifacts.
+ * Enhanced: followUpPrompt requests explicit objective evidence.
+ */
+export function createCorrectDecision(
+  snapshot: SupervisorTurnSnapshot
+): SupervisorSemanticDecision | null {
+  const text = snapshot.latestAssistantTextPart;
+  // Pattern: agent claims done but no verification artifacts (no run/verify/test/lint/check keywords)
+  const doneMarker =
+    /\b(done|finished|completed|all set|wrapper|wrapped up)\b/i.test(text);
+  const hasVerification =
+    /\b(run|verify|test|lint|check|preview|visual|pilot|demo)\b/i.test(text);
+  if (!doneMarker || hasVerification) {
+    return null;
+  }
+  return {
+    semanticAction: "CORRECT",
+    runtimeAction: mapSemanticToRuntime("CORRECT"),
+    reason:
+      "Agent self-reported done without verification artifacts; supervisor issued corrective continuation requesting objective evidence.",
+    followUpPrompt: [
+      "You indicated completion, but the supervisor could not verify output artifacts.",
+      "Please provide objective evidence to confirm the task is genuinely complete:",
+      "1. Which files were modified or created? List them.",
+      "2. What tests were run and what were the results?",
+      "3. Was there any build or compilation output? If so, summarize it.",
+      "If any deliverables are missing, continue to the next logical step and ensure all agreed deliverables are ready.",
+    ].join("\n"),
+  };
+}
+
+/**
+ * R5 — Done verification deterministic classifier.
+ * Detects when agent self-reports "done" WITH verification artifacts.
+ * Enhanced: requires plan state completion, no unresolved tool errors, and no last error.
+ */
+export function createDoneVerificationDecision(
+  snapshot: SupervisorTurnSnapshot
+): SupervisorSemanticDecision | null {
+  const text = snapshot.latestAssistantTextPart;
+  const doneMarker =
+    /\b(done|finished|completed|all set|wrapper|wrapped up)\b/i.test(text);
+  const hasVerification =
+    /\b(run|verify|test|lint|check|preview|visual|pilot|demo)\b/i.test(text);
+  if (!(doneMarker && hasVerification)) {
+    return null;
+  }
+
+  // Plan state check: no entries with status "in_progress" or "pending"
+  const pendingPlanEntries = snapshot.plan?.entries.filter((entry) => {
+    const status = entry.status.toLowerCase();
+    return status === "in_progress" || status === "pending";
+  });
+  if (pendingPlanEntries && pendingPlanEntries.length > 0) {
+    return null;
+  }
+
+  // Tool error check: consecutive failures must be 0 or undefined (no tool data)
+  if (
+    snapshot.recentToolCallSummary &&
+    snapshot.recentToolCallSummary.consecutiveFailures > 0
+  ) {
+    return null;
+  }
+
+  // Last error check: must be undefined or empty
+  if (
+    snapshot.lastErrorSummary &&
+    snapshot.lastErrorSummary.trim().length > 0
+  ) {
+    return null;
+  }
+
+  return {
+    semanticAction: "DONE",
+    runtimeAction: mapSemanticToRuntime("DONE"),
+    reason:
+      "Agent self-reported completion with verification artifacts present, no pending plan entries, and no unresolved errors; supervisor confirmed done.",
   };
 }
 
@@ -1114,16 +1330,80 @@ export function extractAssistantChoiceOptions(text: string): string[] {
   const lines = text.slice(anchor).split(LINE_SPLIT_RE);
   const options: string[] = [];
   let collecting = false;
+  let formatDetected: "letter" | "bullet" | "table" | null = null;
 
   for (const line of lines) {
-    const match = OPTION_BULLET_RE.exec(line);
-    if (match?.[1]) {
-      collecting = true;
-      options.push(normalizeOptionText(match[1]));
-      continue;
+    // Check for A/B/C letter-option format (e.g., "A) Add login", "B. Add dashboard")
+    if (formatDetected === null || formatDetected === "letter") {
+      const letterMatches = [
+        ...line.matchAll(new RegExp(OPTION_LETTER_RE.source, "gi")),
+      ];
+      if (letterMatches.length > 0) {
+        formatDetected = "letter";
+        collecting = true;
+        for (const m of letterMatches) {
+          if (m[2]) {
+            options.push(normalizeOptionText(m[2]));
+          }
+        }
+        continue;
+      }
     }
-    if (collecting && line.trim().length > 0) {
+
+    // Check for markdown table rows (e.g., "| 1 | Description |")
+    if (
+      (formatDetected === null || formatDetected === "table") &&
+      line.includes("|")
+    ) {
+      const cells = line.split("|").filter((c) => c.trim().length > 0);
+      // Skip separator rows (cells contain only -, :, |, space)
+      const isSeparator = cells.every((c) =>
+        TABLE_CELL_SEPARATOR_RE.test(c.trim())
+      );
+      if (isSeparator) {
+        // Separator row — don't stop collecting but don't add to options
+        continue;
+      }
+      // Data row: find the longest non-header cell as the "option text"
+      // Typically column 2 in tables like "| 1 | Description |" or "| Action |"
+      let bestCell = "";
+      for (let i = 1; i < cells.length; i++) {
+        const cell = cells[i]?.trim() ?? "";
+        if (cell.length > bestCell.length) {
+          bestCell = cell;
+        }
+      }
+      if (bestCell.length > 0) {
+        formatDetected = "table";
+        collecting = true;
+        options.push(normalizeOptionText(bestCell));
+        continue;
+      }
+    }
+
+    // Check for bullet/numbered format
+    if (formatDetected === null || formatDetected === "bullet") {
+      const match = OPTION_BULLET_RE.exec(line);
+      if (match?.[1]) {
+        formatDetected = "bullet";
+        collecting = true;
+        options.push(normalizeOptionText(match[1]));
+        continue;
+      }
+    }
+
+    // Stop collecting when we hit a non-empty non-table line after having started collecting
+    if (collecting && line.trim().length > 0 && formatDetected !== "table") {
       break;
+    }
+    // For table format, separator rows don't stop collecting
+    if (collecting && line.trim().length > 0 && formatDetected === "table") {
+      const cells = line.split("|").filter((c) => c.trim().length > 0);
+      const firstCell = cells[1]?.trim() ?? "";
+      const isSeparator = TABLE_CELL_SEPARATOR_RE.test(firstCell);
+      if (!isSeparator) {
+        break;
+      }
     }
   }
 
@@ -1153,10 +1433,60 @@ export function selectAutopilotOption(options: string[]): string | undefined {
   if (safeOptions.length === 0) {
     return undefined;
   }
+  // Scoring order (first match wins):
+  // 1. RECOMMENDED — explicitly marked as recommended
+  // 2. PRODUCTIVE — improves/refines/fixes/continues work
+  // 3. VERIFY — runs/tests/checks/validates
+  // 4. First safe option — fallback when no scoring match
   return (
     safeOptions.find((option) => RECOMMENDED_OPTION_RE.test(option)) ??
     safeOptions.find((option) => PRODUCTIVE_OPTION_RE.test(option)) ??
     safeOptions.find((option) => VERIFY_OPTION_RE.test(option)) ??
     safeOptions[0]
   );
+}
+
+// --- T06: Loop detection helpers ---
+
+/**
+ * Computes a deterministic fingerprint for a semantic decision.
+ * Uses a simple string-based hash of the action, prompt, and reason.
+ * No crypto dependency — just a stable concatenation with length cap.
+ */
+export function computeDecisionFingerprint(
+  decision: Pick<
+    SupervisorSemanticDecision,
+    "semanticAction" | "followUpPrompt" | "reason"
+  >
+): string {
+  const raw = `${decision.semanticAction}|${decision.followUpPrompt ?? ""}|${decision.reason ?? ""}`;
+  // Simple deterministic hash: DJB2-style with string-based accumulator
+  let hash = 5381;
+  for (let i = 0; i < raw.length; i++) {
+    hash = (hash * 33 + raw.charCodeAt(i)) % 2_147_483_647;
+  }
+  // Include length of key segments for collision resistance
+  return `${hash.toString(16)}:${raw.length}`;
+}
+
+/**
+ * Computes a JSON snapshot of the plan for delta detection.
+ * Returns undefined when no plan is present.
+ */
+export function computePlanSnapshot(
+  plan: SupervisorTurnSnapshot["plan"]
+): string | undefined {
+  if (!plan?.entries?.length) {
+    return undefined;
+  }
+  try {
+    // Deterministic serialization: sort entries by content for stable comparison
+    const serialized = plan.entries
+      .map((entry) => `${entry.content}|${entry.status}|${entry.priority}`)
+      .sort()
+      .join(";");
+    return serialized.slice(0, FINGERPRINT_MAX_LENGTH);
+  } catch {
+    return undefined;
+  }
 }
