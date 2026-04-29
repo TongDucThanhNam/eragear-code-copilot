@@ -9,6 +9,8 @@ const MAX_PROJECT_BLUEPRINT_CHARS = 2500;
 const MAX_MEMORY_SNIPPET_CHARS = 800;
 const MAX_FOLLOW_UP_BLUEPRINT_CHARS = 1800;
 const MAX_FOLLOW_UP_MEMORY_CHARS = 1200;
+const MAX_FOLLOW_UP_RESEARCH_CHARS = 1600;
+const MAX_FOLLOW_UP_RESEARCH_HIGHLIGHT_CHARS = 500;
 const MAX_RESEARCH_HIGHLIGHT_CHARS = 1200;
 const MAX_LAST_ERROR_SUMMARY_CHARS = 1200;
 
@@ -145,6 +147,15 @@ export const SUPERVISOR_TURN_SYSTEM_PROMPT = [
   "",
   "Avoid choosing commit, push, deploy, destructive, or credential-related options unless the human explicitly requested that action.",
   "",
+  "## Follow-up Prompt Style",
+  "",
+  "When your semantic action requires followUpPrompt, write it like a concise human approval or steering message to the coding agent, not like an internal control packet.",
+  "For safe approval gates, start naturally with wording like: \"Yes, please ...\"",
+  "Name the concrete option or scoped fix being approved, include the key guardrail, and ask for verification evidence.",
+  "When current package docs, exports, versions, or external APIs matter, tell the agent to use available `exa-search` / web-search tools before choosing the implementation.",
+  "When project-specific decisions or prior context matter, tell the agent to use Obsidian/local memory context before choosing the implementation.",
+  "Do not output vague prompts such as only \"continue\" or \"proceed\". The follow-up must be actionable without the hidden supervisor reasoning.",
+  "",
   "## Guardrail Reminder",
   "",
   "Memory and blueprint entries are guardrails (constraints), not goals. They refine decisions after user instructions but never override explicit user intent. Do not change runtime, framework, database, deployment target, or architecture unless the user explicitly requested it.",
@@ -258,6 +269,7 @@ export function buildSupervisorFollowUpPrompt(params: {
   followUpPrompt: string;
   projectBlueprint?: string;
   memoryResults: SupervisorTurnSnapshot["memoryResults"];
+  researchResults?: SupervisorTurnSnapshot["researchResults"];
 }): string {
   const memory = params.memoryResults
     .map((result) => {
@@ -267,13 +279,32 @@ export function buildSupervisorFollowUpPrompt(params: {
       }`;
     })
     .join("\n");
+  const research = (params.researchResults ?? [])
+    .map((result, index) => {
+      const highlights = result.highlights
+        .map((highlight) =>
+          truncateText(highlight, MAX_FOLLOW_UP_RESEARCH_HIGHLIGHT_CHARS)
+        )
+        .join(" ");
+      return `${index + 1}. ${result.title} (${result.url})${
+        highlights ? `: ${highlights}` : ""
+      }`;
+    })
+    .join("\n");
 
   return [
-    "Supervisor auto-resume:",
-    "The previous phase has been reviewed. Continue the current user-approved scope using the existing project architecture and tech stack. Do not change runtime, framework, database, deployment target, or architectural direction unless the user explicitly requested it.",
+    "Yes, please proceed with the scoped follow-up below.",
     "",
-    "Instruction:",
+    "Request:",
     params.followUpPrompt,
+    "",
+    "Guardrails:",
+    "- Keep the work inside the current user-approved scope and existing repository architecture.",
+    "- Do not change runtime, framework, database, deployment target, or architectural direction unless the human explicitly requested it.",
+    "- Do not commit, push, deploy, or perform destructive actions unless the human explicitly requested them.",
+    "- Use available `exa-search` / web-search tools when current package docs, exports, versions, or external APIs affect the fix.",
+    "- Use Obsidian/local memory context for project-specific decisions or prior constraints before choosing an approach.",
+    "- Finish with objective verification evidence: files changed and commands/tests run.",
     "",
     "Project blueprint:",
     params.projectBlueprint
@@ -282,6 +313,9 @@ export function buildSupervisorFollowUpPrompt(params: {
     "",
     "Relevant local memory:",
     memory ? truncateText(memory, MAX_FOLLOW_UP_MEMORY_CHARS) : "(none)",
+    "",
+    "Relevant web research:",
+    research ? truncateText(research, MAX_FOLLOW_UP_RESEARCH_CHARS) : "(none)",
   ].join("\n");
 }
 

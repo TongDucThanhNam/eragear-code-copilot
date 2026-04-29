@@ -591,7 +591,7 @@ function buildLogEntry(input: SupervisorMemoryLogInput): string {
 
 function parseSearchOutput(output: string): SupervisorMemoryResult[] {
   const trimmed = output.trim();
-  if (!trimmed) {
+  if (!trimmed || isSearchDiagnosticOutput(trimmed)) {
     return [];
   }
 
@@ -600,6 +600,16 @@ function parseSearchOutput(output: string): SupervisorMemoryResult[] {
   } catch {
     return parseTextSearchOutput(trimmed);
   }
+}
+
+function isSearchDiagnosticOutput(output: string): boolean {
+  const normalized = output.replace(/\s+/g, " ").trim();
+  return (
+    /^no matches found\.?$/i.test(normalized) ||
+    /^error:/i.test(normalized) ||
+    /^exception:/i.test(normalized) ||
+    /operator\s+"[^"]+"\s+not recognized/i.test(normalized)
+  );
 }
 
 function normalizeSearchJson(value: unknown): SupervisorMemoryResult[] {

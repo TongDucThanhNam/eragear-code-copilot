@@ -221,21 +221,32 @@ describe("SUPERVISOR_TURN_SYSTEM_PROMPT", () => {
       "Avoid choosing commit, push, deploy, destructive, or credential-related options unless the human explicitly requested that action."
     );
   });
+
+  test("requires human-style actionable follow-up prompts", () => {
+    expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain(
+      "write it like a concise human approval"
+    );
+    expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain("Yes, please");
+    expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain("`exa-search`");
+    expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain("Obsidian/local memory");
+  });
 });
 
 describe("buildSupervisorFollowUpPrompt", () => {
-  test("says 'Continue the current user-approved scope' instead of 'Continue the original user task'", () => {
+  test("uses human-style approval while preserving current user-approved scope guardrails", () => {
     const prompt = buildSupervisorFollowUpPrompt({
       followUpPrompt: "Continue working",
       projectBlueprint: "Test blueprint",
       memoryResults: [],
     });
 
-    expect(prompt).toContain("Continue the current user-approved scope");
+    expect(prompt).toContain("Yes, please proceed");
+    expect(prompt).toContain("current user-approved scope");
     expect(prompt).not.toContain("Continue the original user task");
+    expect(prompt).not.toContain("Supervisor auto-resume:");
   });
 
-  test("includes project blueprint and memory as guardrails", () => {
+  test("includes project blueprint, memory, and web research as guardrails", () => {
     const prompt = buildSupervisorFollowUpPrompt({
       followUpPrompt: "Continue working",
       projectBlueprint: "Test blueprint",
@@ -246,10 +257,21 @@ describe("buildSupervisorFollowUpPrompt", () => {
           snippets: ["Some memory content"],
         },
       ],
+      researchResults: [
+        {
+          title: "HeroUI docs",
+          url: "https://www.heroui.com/docs",
+          highlights: ["Use documented exports for the installed package."],
+        },
+      ],
     });
 
     expect(prompt).toContain("Project blueprint:");
     expect(prompt).toContain("Relevant local memory:");
+    expect(prompt).toContain("Relevant web research:");
+    expect(prompt).toContain("HeroUI docs");
+    expect(prompt).toContain("`exa-search`");
+    expect(prompt).toContain("Obsidian/local memory");
   });
 });
 

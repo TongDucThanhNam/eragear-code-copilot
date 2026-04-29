@@ -174,6 +174,39 @@ describe("ObsidianSupervisorMemoryAdapter", () => {
     );
   });
 
+  test("does not turn Obsidian diagnostics into memory results", async () => {
+    const outputs = [
+      'Error: Operator "đâu" not recognized',
+      "No matches found.",
+    ];
+
+    for (const stdout of outputs) {
+      const runner: ObsidianCommandRunner = (_command, args) => {
+        if (args[0] === "search:context") {
+          return Promise.resolve({ stdout, stderr: "" });
+        }
+        return Promise.resolve({ stdout: "No matches found.", stderr: "" });
+      };
+      const adapter = new ObsidianSupervisorMemoryAdapter(
+        {
+          searchPath: "Project/App",
+          searchLimit: 2,
+          timeoutMs: 1234,
+        },
+        new CapturingLogger(),
+        runner
+      );
+
+      const context = await adapter.lookup({
+        query: "đâu",
+        chatId: "chat-1",
+        projectRoot: "/repo",
+      });
+
+      expect(context.results).toEqual([]);
+    }
+  });
+
   test("falls back to local vault files when Obsidian CLI is unavailable", async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), "obsidian-memory-"));
     const vaultRoot = path.join(tempDir, "StudyWithTerasumi");

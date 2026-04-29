@@ -836,6 +836,7 @@ export class SupervisorLoopService {
         ? { projectBlueprint: snapshot.projectBlueprint }
         : {}),
       memoryResults: snapshot.memoryResults,
+      researchResults: snapshot.researchResults,
     });
 
     await this.sendMessage.execute({
@@ -1186,8 +1187,11 @@ export function createOptionQuestionDecision(
       reason:
         "Agent asked the user to choose from listed options; autopilot selected a safe continuation option.",
       followUpPrompt: [
-        `Select this option and continue: ${selected}`,
-        "Keep the work scoped to the original request and existing repository conventions.",
+        `Yes, please choose this safe option and continue: ${selected}`,
+        "Keep the work scoped to the current user-approved request and existing repository conventions.",
+        "Use available `exa-search` / web-search tools for current package docs, exports, or version details when they affect the implementation.",
+        "Use Obsidian/local memory context for project-specific decisions or prior constraints when needed.",
+        "After editing, provide objective verification evidence: files changed and commands/tests run.",
         "Do not commit, push, deploy, or perform destructive actions unless the human explicitly requested them.",
       ].join("\n"),
     };
@@ -1230,7 +1234,7 @@ export function createMemoryRecoveryDecision(
     reason:
       "Agent reported an Obsidian/vault access blocker, but supervisor local memory provided usable context.",
     followUpPrompt: [
-      "Continue without waiting for the human.",
+      "Yes, please continue without waiting for the human.",
       "Use the Project blueprint and Relevant local memory included below as the required vault context for this phase.",
       "If the previous step selected a scope or option, keep that scope and proceed to the next safe route step.",
       "Do not retry Obsidian CLI unless it is strictly necessary; rely on the provided context and repository files.",
