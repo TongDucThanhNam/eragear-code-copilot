@@ -14,6 +14,10 @@ const MAX_FOLLOW_UP_RESEARCH_HIGHLIGHT_CHARS = 500;
 const MAX_RESEARCH_HIGHLIGHT_CHARS = 1200;
 const MAX_LAST_ERROR_SUMMARY_CHARS = 1200;
 
+function formatCommandList(commands: string[]): string {
+  return commands.map((command) => `- \`${command}\``).join("\n");
+}
+
 export const SUPERVISOR_TURN_SYSTEM_PROMPT = [
   "## Identity / Goal",
   "",
@@ -150,11 +154,11 @@ export const SUPERVISOR_TURN_SYSTEM_PROMPT = [
   "## Follow-up Prompt Style",
   "",
   "When your semantic action requires followUpPrompt, write it like a concise human approval or steering message to the coding agent, not like an internal control packet.",
-  "For safe approval gates, start naturally with wording like: \"Yes, please ...\"",
+  'For safe approval gates, start naturally with wording like: "Yes, please ..."',
   "Name the concrete option or scoped fix being approved, include the key guardrail, and ask for verification evidence.",
   "When current package docs, exports, versions, or external APIs matter, tell the agent to use available `exa-search` / web-search tools before choosing the implementation.",
   "When project-specific decisions or prior context matter, tell the agent to use Obsidian/local memory context before choosing the implementation.",
-  "Do not output vague prompts such as only \"continue\" or \"proceed\". The follow-up must be actionable without the hidden supervisor reasoning.",
+  'Do not output vague prompts such as only "continue" or "proceed". The follow-up must be actionable without the hidden supervisor reasoning.',
   "",
   "## Guardrail Reminder",
   "",
@@ -196,6 +200,18 @@ export function buildSupervisorTurnPrompt(
       }${snippets ? `\nSnippets:\n${snippets}` : ""}`;
     })
     .join("\n\n");
+  const projectMemory = snapshot.projectMemory
+    ? [
+        snapshot.projectMemory.obsidianProjectPath
+          ? `Obsidian project path: ${snapshot.projectMemory.obsidianProjectPath}`
+          : "",
+        snapshot.projectMemory.techStackTags.length > 0
+          ? `Tech stack tags: ${snapshot.projectMemory.techStackTags.join(", ")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "";
 
   const userInstructionTimelineStr =
     snapshot.userInstructionTimeline.length > 0
@@ -252,6 +268,14 @@ export function buildSupervisorTurnPrompt(
       ? truncateText(snapshot.projectBlueprint, MAX_PROJECT_BLUEPRINT_CHARS)
       : "(not configured)",
     "",
+    "Project memory config:",
+    projectMemory || "(not configured)",
+    "",
+    "Supervisor memory commands already run:",
+    snapshot.memoryLookupCommands?.length
+      ? formatCommandList(snapshot.memoryLookupCommands)
+      : "(none)",
+    "",
     "Local memory context (guardrail after user instructions):",
     memory || "(not used)",
     "",
@@ -268,7 +292,9 @@ export function buildSupervisorTurnPrompt(
 export function buildSupervisorFollowUpPrompt(params: {
   followUpPrompt: string;
   projectBlueprint?: string;
+  projectMemory?: SupervisorTurnSnapshot["projectMemory"];
   memoryResults: SupervisorTurnSnapshot["memoryResults"];
+  memoryLookupCommands?: SupervisorTurnSnapshot["memoryLookupCommands"];
   researchResults?: SupervisorTurnSnapshot["researchResults"];
 }): string {
   const memory = params.memoryResults
@@ -291,6 +317,28 @@ export function buildSupervisorFollowUpPrompt(params: {
       }`;
     })
     .join("\n");
+  const projectMemory = params.projectMemory
+    ? [
+        params.projectMemory.obsidianProjectPath
+          ? `Obsidian project path: ${params.projectMemory.obsidianProjectPath}`
+          : "",
+        params.projectMemory.techStackTags.length > 0
+          ? `Tech stack tags: ${params.projectMemory.techStackTags.join(", ")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "";
+  const readHints = params.memoryResults
+    .flatMap((result) => (result.path ? [result.path] : []))
+    .slice(0, 5)
+    .map((notePath) => `obsidian read path=${notePath}`);
+  let usefulObsidianReads = "(none)";
+  if (readHints.length > 0) {
+    usefulObsidianReads = formatCommandList(readHints);
+  } else if (params.projectMemory?.obsidianProjectPath) {
+    usefulObsidianReads = `- \`obsidian files folder=${params.projectMemory.obsidianProjectPath}\``;
+  }
 
   return [
     "Yes, please proceed with the scoped follow-up below.",
@@ -305,6 +353,17 @@ export function buildSupervisorFollowUpPrompt(params: {
     "- Use available `exa-search` / web-search tools when current package docs, exports, versions, or external APIs affect the fix.",
     "- Use Obsidian/local memory context for project-specific decisions or prior constraints before choosing an approach.",
     "- Finish with objective verification evidence: files changed and commands/tests run.",
+    "",
+    "Project memory config:",
+    projectMemory || "(not configured)",
+    "",
+    "Supervisor context already gathered:",
+    params.memoryLookupCommands?.length
+      ? formatCommandList(params.memoryLookupCommands)
+      : "(no Obsidian lookup commands recorded)",
+    "",
+    "Useful Obsidian follow-up reads if you need deeper context:",
+    usefulObsidianReads,
     "",
     "Project blueprint:",
     params.projectBlueprint

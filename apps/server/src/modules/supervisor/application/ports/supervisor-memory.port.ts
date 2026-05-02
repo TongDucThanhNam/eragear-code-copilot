@@ -4,15 +4,22 @@ export interface SupervisorMemoryResult {
   snippets: string[];
 }
 
+export interface SupervisorProjectMemoryConfig {
+  obsidianProjectPath?: string;
+  techStackTags: string[];
+}
+
 export interface SupervisorMemoryContext {
   projectBlueprint?: string;
   results: SupervisorMemoryResult[];
+  lookupCommands?: string[];
 }
 
 export interface SupervisorMemoryLookupInput {
   query: string;
   chatId: string;
   projectRoot: string;
+  projectMemory?: SupervisorProjectMemoryConfig;
 }
 
 export interface SupervisorMemoryLogInput {

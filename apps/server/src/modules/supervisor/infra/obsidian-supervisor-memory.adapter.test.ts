@@ -174,6 +174,73 @@ describe("ObsidianSupervisorMemoryAdapter", () => {
     );
   });
 
+  test("uses project Obsidian path and tech stack tags for scoped lookup", async () => {
+    const calls: string[][] = [];
+    const runner: ObsidianCommandRunner = (command, args) => {
+      calls.push([command, ...args]);
+      if (args[0] === "files") {
+        return Promise.resolve({
+          stdout: "Project/VLXD/Architecture.md\nProject/VLXD/HeroUI.md\n",
+          stderr: "",
+        });
+      }
+      return Promise.resolve({
+        stdout: JSON.stringify([
+          {
+            path: "Project/VLXD/HeroUI.md",
+            matches: [{ text: "Use installed HeroUI exports." }],
+          },
+        ]),
+        stderr: "",
+      });
+    };
+    const adapter = new ObsidianSupervisorMemoryAdapter(
+      {
+        command: "obsidian",
+        searchPath: "Project",
+        searchLimit: 3,
+        timeoutMs: 1234,
+      },
+      new CapturingLogger(),
+      runner
+    );
+
+    const context = await adapter.lookup({
+      query: "Header export mismatch",
+      chatId: "chat-1",
+      projectRoot: "/repo",
+      projectMemory: {
+        obsidianProjectPath: "Project/VLXD",
+        techStackTags: ["heroui", "react"],
+      },
+    });
+
+    expect(calls).toContainEqual([
+      "obsidian",
+      "files",
+      "folder=Project/VLXD",
+    ]);
+    expect(calls).toContainEqual([
+      "obsidian",
+      "search:context",
+      "query=Header export mismatch heroui react",
+      "path=Project/VLXD",
+      "limit=3",
+      "format=json",
+    ]);
+    expect(context.lookupCommands).toContain(
+      "obsidian files folder=Project/VLXD"
+    );
+    expect(context.results[0]).toMatchObject({
+      title: "Obsidian project note index",
+      path: "Project/VLXD",
+    });
+    expect(context.results[1]).toMatchObject({
+      title: "HeroUI",
+      path: "Project/VLXD/HeroUI.md",
+    });
+  });
+
   test("does not turn Obsidian diagnostics into memory results", async () => {
     const outputs = [
       'Error: Operator "đâu" not recognized',

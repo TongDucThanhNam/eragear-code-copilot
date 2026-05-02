@@ -60,6 +60,8 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     path: "",
     description: "",
     tags: "",
+    obsidianProjectPath: "",
+    techStackTags: "",
   });
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [editProjectId, setEditProjectId] = useState<string | null>(null);
@@ -68,6 +70,8 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
     path: "",
     description: "",
     tags: "",
+    obsidianProjectPath: "",
+    techStackTags: "",
   });
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
@@ -175,7 +179,14 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       setActiveProjectId(project.id);
       setActiveMutation.mutate({ id: project.id });
       setIsDialogOpen(false);
-      setForm({ name: "", path: "", description: "", tags: "" });
+      setForm({
+        name: "",
+        path: "",
+        description: "",
+        tags: "",
+        obsidianProjectPath: "",
+        techStackTags: "",
+      });
       toast.success("Project created");
     },
     onError: (err) => {
@@ -258,11 +269,17 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
+    const techStackTags = form.techStackTags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
     createProjectMutation.mutate({
       name: form.name.trim(),
       path: form.path.trim(),
       description: form.description.trim() || undefined,
       tags,
+      obsidianProjectPath: form.obsidianProjectPath.trim() || undefined,
+      techStackTags,
     });
   };
 
@@ -278,6 +295,8 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       path: target.path,
       description: target.description ?? "",
       tags: target.tags.join(", "),
+      obsidianProjectPath: target.obsidianProjectPath ?? "",
+      techStackTags: target.techStackTags?.join(", ") ?? "",
     });
     setIsEditProjectOpen(true);
   };
@@ -291,12 +310,19 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
+    const techStackTags = editProjectForm.techStackTags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
     updateProjectMutation.mutate({
       id: editProjectId,
       name: editProjectForm.name.trim(),
       path: editProjectForm.path.trim(),
       description: editProjectForm.description.trim() || undefined,
       tags,
+      obsidianProjectPath:
+        editProjectForm.obsidianProjectPath.trim() || null,
+      techStackTags,
     });
     setIsEditProjectOpen(false);
   };

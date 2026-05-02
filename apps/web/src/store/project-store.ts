@@ -7,6 +7,8 @@ export type Project = {
   path: string;
   description?: string | null;
   tags: string[];
+  obsidianProjectPath?: string | null;
+  techStackTags: string[];
   favorite: boolean;
   createdAt: number;
   updatedAt: number;

@@ -38,6 +38,16 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
         table: "projects",
         column: "tags_json",
       }),
+      obsidianProjectPath: row.obsidianProjectPath?.trim() || null,
+      techStackTags: fromSqliteJsonWithSchema(
+        row.techStackTagsJson,
+        [],
+        ProjectTagsSchema,
+        {
+          table: "projects",
+          column: "tech_stack_tags_json",
+        }
+      ),
       favorite: Number(row.favorite) === 1,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -136,6 +146,10 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
         path: input.path,
         description: input.description ?? null,
         tags: this.normalizeTags(input.tags),
+        obsidianProjectPath: this.normalizeNullablePath(
+          input.obsidianProjectPath
+        ),
+        techStackTags: this.normalizeTags(input.techStackTags),
         favorite: Boolean(input.favorite),
         createdAt: now,
         updatedAt: now,
@@ -150,6 +164,8 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
           path: created.path,
           description: created.description,
           tagsJson: toSqliteJson(created.tags) ?? "[]",
+          obsidianProjectPath: created.obsidianProjectPath,
+          techStackTagsJson: toSqliteJson(created.techStackTags) ?? "[]",
           favorite: created.favorite ? 1 : 0,
           createdAt: created.createdAt,
           updatedAt: created.updatedAt,
@@ -188,6 +204,13 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
             ? current.description
             : input.description,
         tags: input.tags ? this.normalizeTags(input.tags) : current.tags,
+        obsidianProjectPath:
+          input.obsidianProjectPath === undefined
+            ? current.obsidianProjectPath
+            : this.normalizeNullablePath(input.obsidianProjectPath),
+        techStackTags: input.techStackTags
+          ? this.normalizeTags(input.techStackTags)
+          : current.techStackTags,
         favorite:
           input.favorite === undefined ? current.favorite : input.favorite,
         updatedAt: Date.now(),
@@ -199,6 +222,8 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
           path: updated.path,
           description: updated.description,
           tagsJson: toSqliteJson(updated.tags) ?? "[]",
+          obsidianProjectPath: updated.obsidianProjectPath,
+          techStackTagsJson: toSqliteJson(updated.techStackTags) ?? "[]",
           favorite: updated.favorite ? 1 : 0,
           updatedAt: updated.updatedAt,
         })
@@ -286,5 +311,10 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
     }
     const trimmed = tags.map((tag) => tag.trim()).filter(Boolean);
     return Array.from(new Set(trimmed));
+  }
+
+  private normalizeNullablePath(value?: string | null): string | null {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
   }
 }

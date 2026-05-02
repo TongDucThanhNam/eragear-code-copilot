@@ -19,6 +19,8 @@ describe("SessionProjectContextResolverService", () => {
           updatedAt: 0,
           favorite: false,
           tags: [],
+          obsidianProjectPath: null,
+          techStackTags: [],
           description: null,
           lastOpenedAt: null,
         }),

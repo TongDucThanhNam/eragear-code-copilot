@@ -26,6 +26,12 @@ import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 const OP = "session.events.subscribe";
 const logger = createLogger("Debug");
 
+/**
+ * Maximum number of snapshot messages to send during initial subscription.
+ * This prevents overwhelming the client with too much history at once.
+ */
+const INITIAL_SNAPSHOT_MESSAGE_LIMIT = 50;
+
 export interface SessionEventSubscription {
   source: "runtime" | "stored";
   chatStatus: ChatStatus;
@@ -461,19 +467,46 @@ function buildBufferedEvents(session: ChatSession): {
             }
             return left.id.localeCompare(right.id);
           });
-  const snapshotEvents = effectiveSnapshots.map((message) => {
-    const replaySnapshot = replaySnapshotEventMap.get(message.id);
-    const turnId =
-      replaySnapshot?.turnId ??
-      (session.activeTurnId && message.id === activeAssistantId
-        ? session.activeTurnId
-        : undefined);
-    return cloneBroadcastEvent({
-      type: "ui_message",
-      message,
-      ...(turnId ? { turnId } : {}),
+  const snapshotEvents = (() => {
+    // Limit snapshots to prevent overwhelming the client during initial load
+    let limitedSnapshots = effectiveSnapshots;
+    const hasActiveAssistant = activeAssistantId != null;
+
+    if (effectiveSnapshots.length > INITIAL_SNAPSHOT_MESSAGE_LIMIT) {
+      if (hasActiveAssistant) {
+        // Ensure active assistant message is always included
+        const activeIndex = effectiveSnapshots.findIndex(
+          (m) => m.id === activeAssistantId
+        );
+        if (activeIndex >= INITIAL_SNAPSHOT_MESSAGE_LIMIT) {
+          // Active message is beyond limit, take last N-1 plus active
+          const tail = effectiveSnapshots.slice(
+            effectiveSnapshots.length - (INITIAL_SNAPSHOT_MESSAGE_LIMIT - 1)
+          );
+          const activeMsg = effectiveSnapshots[activeIndex];
+          limitedSnapshots = [...tail, activeMsg];
+        } else {
+          limitedSnapshots = effectiveSnapshots.slice(0, INITIAL_SNAPSHOT_MESSAGE_LIMIT);
+        }
+      } else {
+        limitedSnapshots = effectiveSnapshots.slice(0, INITIAL_SNAPSHOT_MESSAGE_LIMIT);
+      }
+    }
+
+    return limitedSnapshots.map((message) => {
+      const replaySnapshot = replaySnapshotEventMap.get(message.id);
+      const turnId =
+        replaySnapshot?.turnId ??
+        (session.activeTurnId && message.id === activeAssistantId
+          ? session.activeTurnId
+          : undefined);
+      return cloneBroadcastEvent({
+        type: "ui_message",
+        message,
+        ...(turnId ? { turnId } : {}),
+      });
     });
-  });
+  })();
 
   const passThroughEvents = cloneBroadcastEvents(
     replayEvents.filter((event) => {

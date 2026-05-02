@@ -5,7 +5,10 @@ import type {
   SupervisorSessionState,
 } from "@/shared/types/supervisor.types";
 import type { SupervisorPermissionDecision } from "../supervisor.schemas";
-import type { SupervisorMemoryResult } from "./supervisor-memory.port";
+import type {
+  SupervisorMemoryResult,
+  SupervisorProjectMemoryConfig,
+} from "./supervisor-memory.port";
 import type { SupervisorResearchResult } from "./supervisor-research.port";
 
 export type SupervisorAutoResumeSignal =
@@ -35,7 +38,9 @@ export interface SupervisorTurnSnapshot {
   recentToolCallSummary?: SupervisorRecentToolCallSummary;
   lastErrorSummary?: string;
   projectBlueprint?: string;
+  projectMemory?: SupervisorProjectMemoryConfig;
   memoryResults: SupervisorMemoryResult[];
+  memoryLookupCommands?: string[];
   plan?: Plan;
   supervisor: SupervisorSessionState;
   researchResults: SupervisorResearchResult[];

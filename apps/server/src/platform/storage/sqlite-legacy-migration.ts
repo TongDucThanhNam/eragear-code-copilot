@@ -279,6 +279,8 @@ function importLegacyProjects(db: Database, projects: Project[]): void {
     project.path,
     project.description ?? null,
     stringifyJson(project.tags ?? []),
+    project.obsidianProjectPath ?? null,
+    stringifyJson(project.techStackTags ?? []),
     project.favorite ? 1 : 0,
     project.createdAt,
     project.updatedAt,
@@ -288,10 +290,10 @@ function importLegacyProjects(db: Database, projects: Project[]): void {
   runBulkInsert({
     db,
     prefixSql: `INSERT OR IGNORE INTO projects (
-      id, name, path, description, tags_json, favorite, created_at, updated_at, last_opened_at
+      id, name, path, description, tags_json, obsidian_project_path, tech_stack_tags_json, favorite, created_at, updated_at, last_opened_at
     ) VALUES`,
     rows,
-    columnCount: 9,
+    columnCount: 11,
     preferredChunkSize: PROJECT_IMPORT_CHUNK_SIZE,
   });
 }

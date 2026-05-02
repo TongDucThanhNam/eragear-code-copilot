@@ -131,6 +131,7 @@ export function createAiServices(
   const supervisorLoopService = new SupervisorLoopService({
     sessionRepo: deps.sessionRepo,
     sessionRuntime: deps.sessionRuntime,
+    projectRepo: deps.projectRepo,
     sendMessage: sendMessageService,
     decisionPort: supervisorDecisionAdapter,
     researchPort: supervisorResearchAdapter,

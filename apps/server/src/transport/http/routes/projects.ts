@@ -44,15 +44,31 @@ export function registerProjectRoutes(
       if (!auth) {
         return c.json({ error: "Unauthorized" }, 401);
       }
-      const { name, path, description, tags } = await parseJsonBodyWithLimit<{
+      const {
+        name,
+        path,
+        description,
+        tags,
+        obsidianProjectPath,
+        techStackTags,
+      } = await parseJsonBodyWithLimit<{
         name: string;
         path: string;
         description?: string;
         tags?: string[];
+        obsidianProjectPath?: string | null;
+        techStackTags?: string[];
       }>(c.req.raw, runtime.httpMaxBodyBytes);
       const parsedTags = Array.isArray(tags) ? tags : [];
+      const parsedTechStackTags = Array.isArray(techStackTags)
+        ? techStackTags
+        : [];
       const parsedDescription =
         typeof description === "string" ? description : undefined;
+      const parsedObsidianProjectPath =
+        typeof obsidianProjectPath === "string"
+          ? obsidianProjectPath
+          : null;
       const parsedName = typeof name === "string" ? name : "";
       const parsedPath = typeof path === "string" ? path : "";
 
@@ -66,6 +82,8 @@ export function registerProjectRoutes(
         path: parsedPath,
         description: parsedDescription || null,
         tags: parsedTags,
+        obsidianProjectPath: parsedObsidianProjectPath,
+        techStackTags: parsedTechStackTags,
         favorite: false,
       });
 

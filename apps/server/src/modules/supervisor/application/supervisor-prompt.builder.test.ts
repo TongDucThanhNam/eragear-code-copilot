@@ -250,12 +250,20 @@ describe("buildSupervisorFollowUpPrompt", () => {
     const prompt = buildSupervisorFollowUpPrompt({
       followUpPrompt: "Continue working",
       projectBlueprint: "Test blueprint",
+      projectMemory: {
+        obsidianProjectPath: "Project/VLXD",
+        techStackTags: ["react", "heroui"],
+      },
       memoryResults: [
         {
           title: "Memory title",
           path: "path/to/file.md",
           snippets: ["Some memory content"],
         },
+      ],
+      memoryLookupCommands: [
+        "obsidian files folder=Project/VLXD",
+        "obsidian search:context query=heroui path=Project/VLXD limit=4 format=json",
       ],
       researchResults: [
         {
@@ -270,6 +278,10 @@ describe("buildSupervisorFollowUpPrompt", () => {
     expect(prompt).toContain("Relevant local memory:");
     expect(prompt).toContain("Relevant web research:");
     expect(prompt).toContain("HeroUI docs");
+    expect(prompt).toContain("Project/VLXD");
+    expect(prompt).toContain("react, heroui");
+    expect(prompt).toContain("obsidian files folder=Project/VLXD");
+    expect(prompt).toContain("obsidian read path=path/to/file.md");
     expect(prompt).toContain("`exa-search`");
     expect(prompt).toContain("Obsidian/local memory");
   });

@@ -26,6 +26,10 @@ export class Project {
   description: string | null;
   /** Tags associated with the project for categorization */
   tags: string[];
+  /** Obsidian folder containing project-specific notes */
+  obsidianProjectPath: string | null;
+  /** Tech stack tags used for supervisor memory/research queries */
+  techStackTags: string[];
   /** Whether the project is marked as favorite */
   favorite: boolean;
   /** Timestamp when the project was created */
@@ -46,6 +50,8 @@ export class Project {
     this.path = config.path;
     this.description = config.description;
     this.tags = config.tags;
+    this.obsidianProjectPath = config.obsidianProjectPath;
+    this.techStackTags = config.techStackTags;
     this.favorite = config.favorite;
     this.createdAt = config.createdAt;
     this.updatedAt = config.updatedAt;
@@ -75,6 +81,10 @@ export class Project {
       path: input.path,
       description: input.description ?? null,
       tags: Project.normalizeTags(input.tags),
+      obsidianProjectPath: Project.normalizeNullablePath(
+        input.obsidianProjectPath
+      ),
+      techStackTags: Project.normalizeTags(input.techStackTags),
       favorite: Boolean(input.favorite),
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -96,6 +106,11 @@ export class Project {
     return Array.from(new Set(trimmed));
   }
 
+  private static normalizeNullablePath(value?: string | null): string | null {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  }
+
   /**
    * Converts the project to a DTO representation for storage/transmission
    *
@@ -109,6 +124,8 @@ export class Project {
       path: this.path,
       description: this.description,
       tags: this.tags,
+      obsidianProjectPath: this.obsidianProjectPath,
+      techStackTags: this.techStackTags,
       favorite: this.favorite,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,

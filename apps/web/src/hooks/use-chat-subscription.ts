@@ -26,6 +26,17 @@ import { parseBroadcastEvent } from "./use-chat-normalize";
 
 const INVALID_EVENT_TOAST_COOLDOWN_MS = 5000;
 
+/**
+ * Batch window in ms for coalescing rapid events (e.g. streaming text parts).
+ * Events arriving within this window are coalesced and processed together.
+ */
+const BATCH_WINDOW_MS = 16; // ~1 frame at 60fps
+
+/**
+ * Maximum number of events to batch before forcing a flush.
+ */
+const MAX_BATCH_SIZE = 50;
+
 function isChatNotFoundError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
@@ -95,6 +106,20 @@ export function useChatSubscription(params: UseChatSubscriptionParams) {
 
   const invalidEventToastAtRef = useRef(0);
   const subscriptionEnabled = !!chatId && !readOnly;
+
+  // Event batching state
+  const batchRef = useRef<BroadcastEvent[]>([]);
+  const batchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup on unmount or chat change
+  useEffect(() => {
+    return () => {
+      if (batchTimeoutRef.current != null) {
+        clearTimeout(batchTimeoutRef.current);
+      }
+      batchRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     if (!subscriptionEnabled) {
@@ -169,41 +194,58 @@ export function useChatSubscription(params: UseChatSubscriptionParams) {
           }
           return;
         }
-        try {
-          // [DIAG] Measure parse + handleSessionEvent duration
-          if (isClientDiagnosticsEnabled()) {
-            const parseDuration = performance.now() - diagStart;
-            diagLog("subscription-parse", {
-              chatId: subscribedChatId,
-              parseDurationMs: parseDuration.toFixed(2),
-            });
+
+        // Event batching: accumulate rapid events and flush together
+        const event = parsedEvent.event;
+        batchRef.current.push(event);
+
+        // If we've hit max batch size, flush immediately
+        if (batchRef.current.length >= MAX_BATCH_SIZE) {
+          if (batchTimeoutRef.current != null) {
+            clearTimeout(batchTimeoutRef.current);
+            batchTimeoutRef.current = null;
           }
-          handleSessionEvent(parsedEvent.event);
-          // [DIAG] Log total onData handler duration
-          if (isClientDiagnosticsEnabled()) {
-            const totalDuration = performance.now() - diagStart;
-            diagLog("subscription-onData-done", {
-              chatId: subscribedChatId,
-              eventType: parsedEvent.event.type,
-              estimatedBytes: diagBytes,
-              totalDurationMs: totalDuration.toFixed(2),
-            });
+          const events = batchRef.current;
+          batchRef.current = [];
+          for (const e of events) {
+            handleSessionEvent(e);
           }
-        } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Failed to process chat session event";
-          console.warn("[Client] Failed to process session event", {
-            error: message,
+          return;
+        }
+
+        // Otherwise schedule a flush
+        if (batchTimeoutRef.current == null) {
+          batchTimeoutRef.current = setTimeout(() => {
+            batchTimeoutRef.current = null;
+            const events = batchRef.current;
+            batchRef.current = [];
+            for (const e of events) {
+              handleSessionEvent(e);
+            }
+          }, BATCH_WINDOW_MS);
+        }
+
+        // [DIAG] Measure parse duration (only for non-batched)
+        if (isClientDiagnosticsEnabled() && batchRef.current.length <= 1) {
+          const parseDuration = performance.now() - diagStart;
+          diagLog("subscription-parse", {
+            chatId: subscribedChatId,
+            parseDurationMs: parseDuration.toFixed(2),
           });
-          setError(message);
         }
       },
       onError(subscriptionError) {
         const subscribedChatId = chatId ?? null;
         if (subscribedChatId !== activeChatIdRef.current) {
           return;
+        }
+        // Flush any pending batched events before handling error
+        if (batchRef.current.length > 0) {
+          const events = batchRef.current;
+          batchRef.current = [];
+          for (const event of events) {
+            handleSessionEvent(event);
+          }
         }
         if (isChatNotFoundError(subscriptionError)) {
           setStreamLifecycle("idle");

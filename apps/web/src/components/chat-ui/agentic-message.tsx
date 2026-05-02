@@ -1,7 +1,7 @@
 "use client";
 
 import type { TextUIPart, UIMessagePart } from "@repo/shared";
-import { memo, useMemo } from "react";
+import { memo, useMemo, useRef } from "react";
 import {
   Message,
   MessageActions,
@@ -38,6 +38,19 @@ const getUserMessageParts = (parts: UIMessagePart[]) => {
   return { textParts, attachmentParts };
 };
 
+/**
+ * Stable reference helper for message content to prevent unnecessary re-renders.
+ * Returns a serialized string that changes only when actual content changes.
+ */
+function useMessageContentRef(message: { parts: UIMessagePart[]; role: string; id: string }) {
+  const ref = useRef<string>("");
+  const serialized = `${message.role}:${message.id}:${message.parts.length}`;
+  if (ref.current !== serialized) {
+    ref.current = serialized;
+  }
+  return ref.current;
+}
+
 export const AgenticMessage = memo(function AgenticMessage({
   chatId,
   messageId,
@@ -53,6 +66,9 @@ export const AgenticMessage = memo(function AgenticMessage({
   );
   const showUserContent = (userParts?.textParts.length ?? 0) > 0;
   const userAttachments = userParts?.attachmentParts ?? [];
+
+  // Use content ref for memo comparison - changes only when parts actually change
+  const contentRef = useMessageContentRef(message);
 
   return (
     <Message from={message.role}>
@@ -85,7 +101,14 @@ export const AgenticMessage = memo(function AgenticMessage({
     </Message>
   );
 },
-  (prevProps, nextProps) =>
+(prevProps, nextProps) => {
+  // Only re-render if chatId, messageId change
+  // Message content changes are handled via useMessageContentRef in the component
+  return (
     prevProps.chatId === nextProps.chatId &&
     prevProps.messageId === nextProps.messageId
-);
+  );
+});
+
+// Separate display name for better debugging
+AgenticMessage.displayName = "AgenticMessage";

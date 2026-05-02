@@ -1,5 +1,6 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type { SendMessageService } from "@/modules/ai";
+import type { ProjectRepositoryPort } from "@/modules/project";
 import type {
   SessionRepositoryPort,
   SessionRuntimePort,
@@ -7,6 +8,7 @@ import type {
 import type { StoredMessage } from "@/modules/session/domain/stored-session.types";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
+import type { Project } from "@/shared/types/project.types";
 import type {
   SupervisorDecisionSummary,
   SupervisorSemanticDecision,
@@ -24,6 +26,7 @@ import type {
   SupervisorAuditPort,
   SupervisorMemoryContext,
   SupervisorMemoryPort,
+  SupervisorProjectMemoryConfig,
 } from "./ports/supervisor-memory.port";
 import type { SupervisorResearchPort } from "./ports/supervisor-research.port";
 import type { SupervisorPolicy } from "./supervisor-policy";
@@ -63,6 +66,10 @@ const RECOMMENDED_OPTION_RE = /\b(recommended|khuyến nghị|khuyen nghi)\b/i;
 const PRODUCTIVE_OPTION_RE =
   /\b(improve|refine|polish|fix|continue|next|reports?|data-heavy|tables?|kpi|empty states?|other components?|more components?|component)\b/i;
 const VERIFY_OPTION_RE = /\b(run|verify|test|lint|check|visual|preview|app)\b/i;
+const DONE_MARKER_RE =
+  /\b(done|finished|completed|all set|wrapper|wrapped up)\b/i;
+const VERIFICATION_MARKER_RE =
+  /\b(run|verify|test|lint|check|preview|visual|pilot|demo)\b/i;
 const OBSIDIAN_CONTEXT_RE =
   /\b(obsidian|vault|note|ba doc|business[- ]analyst)\b/i;
 const LOCAL_CONTEXT_BLOCKED_RE =
@@ -90,6 +97,7 @@ interface SupervisorJob {
 export class SupervisorLoopService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;
+  private readonly projectRepo: ProjectRepositoryPort;
   private readonly sendMessage: SendMessageService;
   private readonly decisionPort: SupervisorDecisionPort;
   private readonly researchPort: SupervisorResearchPort;
@@ -104,6 +112,7 @@ export class SupervisorLoopService {
   constructor(deps: {
     sessionRepo: SessionRepositoryPort;
     sessionRuntime: SessionRuntimePort;
+    projectRepo: ProjectRepositoryPort;
     sendMessage: SendMessageService;
     decisionPort: SupervisorDecisionPort;
     researchPort: SupervisorResearchPort;
@@ -115,6 +124,7 @@ export class SupervisorLoopService {
   }) {
     this.sessionRepo = deps.sessionRepo;
     this.sessionRuntime = deps.sessionRuntime;
+    this.projectRepo = deps.projectRepo;
     this.sendMessage = deps.sendMessage;
     this.decisionPort = deps.decisionPort;
     this.researchPort = deps.researchPort;
@@ -203,76 +213,7 @@ export class SupervisorLoopService {
 
     try {
       const snapshot = await this.buildSnapshot(event);
-      // R6 — Classifier pipeline (strict priority order: option/gate → memory → correct → done → LLM)
-      let decision: SupervisorSemanticDecision | null = null;
-
-      // R2 — Option/Gate classifier
-      const optionDecision = createOptionQuestionDecision(snapshot);
-      if (optionDecision) {
-        decision = optionDecision;
-        this.logger.info("Supervisor deterministic option decision selected", {
-          chatId: event.chatId,
-          turnId: event.turnId ?? null,
-          semanticAction: optionDecision.semanticAction,
-          followUpPromptLength: optionDecision.followUpPrompt?.length ?? 0,
-        });
-      }
-
-      // R3 — Memory recovery classifier
-      if (!decision) {
-        const memoryRecoveryDecision = createMemoryRecoveryDecision(snapshot);
-        if (memoryRecoveryDecision) {
-          decision = memoryRecoveryDecision;
-          this.logger.info("Supervisor memory recovery decision selected", {
-            chatId: event.chatId,
-            turnId: event.turnId ?? null,
-            semanticAction: memoryRecoveryDecision.semanticAction,
-            followUpPromptLength:
-              memoryRecoveryDecision.followUpPrompt?.length ?? 0,
-            memoryResultCount: snapshot.memoryResults.length,
-            hasProjectBlueprint: Boolean(snapshot.projectBlueprint),
-          });
-        }
-      }
-
-      // R4 — Correct classifier
-      if (!decision) {
-        const correctDecision = createCorrectDecision(snapshot);
-        if (correctDecision) {
-          decision = correctDecision;
-          this.logger.info("Supervisor correct decision selected", {
-            chatId: event.chatId,
-            turnId: event.turnId ?? null,
-            semanticAction: correctDecision.semanticAction,
-          });
-        }
-      }
-
-      // R5 — Done verification classifier
-      if (!decision) {
-        const doneVerificationDecision =
-          createDoneVerificationDecision(snapshot);
-        if (doneVerificationDecision) {
-          decision = doneVerificationDecision;
-          this.logger.info("Supervisor done verification decision selected", {
-            chatId: event.chatId,
-            turnId: event.turnId ?? null,
-            semanticAction: doneVerificationDecision.semanticAction,
-          });
-        }
-      }
-
-      // LLM fallback
-      if (!decision) {
-        decision = await this.decisionPort.decideTurn(snapshot);
-        this.logger.info("Supervisor LLM fallback decision selected", {
-          chatId: event.chatId,
-          turnId: event.turnId ?? null,
-          semanticAction: decision.semanticAction,
-        });
-      }
-
-      // T06 — Loop detection: check if same decision is repeated without artifact delta
+      let decision = await this.selectDecision(snapshot, event);
       decision = this.detectLoop(
         snapshot.supervisor,
         decision,
@@ -297,6 +238,96 @@ export class SupervisorLoopService {
         },
       });
     }
+  }
+
+  private async selectDecision(
+    snapshot: SupervisorTurnSnapshot,
+    event: SupervisorTurnCompleteEvent
+  ): Promise<SupervisorSemanticDecision> {
+    return (
+      this.selectOptionDecision(snapshot, event) ??
+      this.selectMemoryRecoveryDecision(snapshot, event) ??
+      this.selectCorrectDecision(snapshot, event) ??
+      this.selectDoneVerificationDecision(snapshot, event) ??
+      (await this.selectLlmDecision(snapshot, event))
+    );
+  }
+
+  private selectOptionDecision(
+    snapshot: SupervisorTurnSnapshot,
+    event: SupervisorTurnCompleteEvent
+  ): SupervisorSemanticDecision | null {
+    const decision = createOptionQuestionDecision(snapshot);
+    if (decision) {
+      this.logger.info("Supervisor deterministic option decision selected", {
+        chatId: event.chatId,
+        turnId: event.turnId ?? null,
+        semanticAction: decision.semanticAction,
+        followUpPromptLength: decision.followUpPrompt?.length ?? 0,
+      });
+    }
+    return decision;
+  }
+
+  private selectMemoryRecoveryDecision(
+    snapshot: SupervisorTurnSnapshot,
+    event: SupervisorTurnCompleteEvent
+  ): SupervisorSemanticDecision | null {
+    const decision = createMemoryRecoveryDecision(snapshot);
+    if (decision) {
+      this.logger.info("Supervisor memory recovery decision selected", {
+        chatId: event.chatId,
+        turnId: event.turnId ?? null,
+        semanticAction: decision.semanticAction,
+        followUpPromptLength: decision.followUpPrompt?.length ?? 0,
+        memoryResultCount: snapshot.memoryResults.length,
+        hasProjectBlueprint: Boolean(snapshot.projectBlueprint),
+      });
+    }
+    return decision;
+  }
+
+  private selectCorrectDecision(
+    snapshot: SupervisorTurnSnapshot,
+    event: SupervisorTurnCompleteEvent
+  ): SupervisorSemanticDecision | null {
+    const decision = createCorrectDecision(snapshot);
+    if (decision) {
+      this.logger.info("Supervisor correct decision selected", {
+        chatId: event.chatId,
+        turnId: event.turnId ?? null,
+        semanticAction: decision.semanticAction,
+      });
+    }
+    return decision;
+  }
+
+  private selectDoneVerificationDecision(
+    snapshot: SupervisorTurnSnapshot,
+    event: SupervisorTurnCompleteEvent
+  ): SupervisorSemanticDecision | null {
+    const decision = createDoneVerificationDecision(snapshot);
+    if (decision) {
+      this.logger.info("Supervisor done verification decision selected", {
+        chatId: event.chatId,
+        turnId: event.turnId ?? null,
+        semanticAction: decision.semanticAction,
+      });
+    }
+    return decision;
+  }
+
+  private async selectLlmDecision(
+    snapshot: SupervisorTurnSnapshot,
+    event: SupervisorTurnCompleteEvent
+  ): Promise<SupervisorSemanticDecision> {
+    const decision = await this.decisionPort.decideTurn(snapshot);
+    this.logger.info("Supervisor LLM fallback decision selected", {
+      chatId: event.chatId,
+      turnId: event.turnId ?? null,
+      semanticAction: decision.semanticAction,
+    });
+    return decision;
   }
 
   private async prepareReview(
@@ -491,6 +522,12 @@ export class SupervisorLoopService {
 
     const session = this.sessionRuntime.get(event.chatId);
     const projectRoot = session?.projectRoot ?? "";
+    const projectMemory = await this.resolveProjectMemoryConfig({
+      chatId: event.chatId,
+      userId: event.userId,
+      projectId: session?.projectId,
+      projectRoot,
+    });
     const toolContext = buildRecentToolContext(
       latestMessages,
       session?.toolCalls
@@ -500,12 +537,14 @@ export class SupervisorLoopService {
       this.runOptionalResearch({
         latestUserInstruction,
         latestAssistantTextPart,
+        projectMemory,
       }),
       this.runOptionalMemory({
         chatId: event.chatId,
         projectRoot,
         latestUserInstruction,
         latestAssistantTextPart,
+        projectMemory,
       }),
     ]);
     this.logger.info("Supervisor snapshot built", {
@@ -517,6 +556,8 @@ export class SupervisorLoopService {
       hasLastErrorSummary: Boolean(toolContext.lastErrorSummary),
       memoryResultCount: memoryContext.results.length,
       hasProjectBlueprint: Boolean(memoryContext.projectBlueprint),
+      hasProjectObsidianPath: Boolean(projectMemory?.obsidianProjectPath),
+      projectTechStackTagCount: projectMemory?.techStackTags.length ?? 0,
       researchResultCount: researchResults.length,
       userInstructionCount: userInstructionTimeline.length,
     });
@@ -539,7 +580,11 @@ export class SupervisorLoopService {
       ...(memoryContext.projectBlueprint
         ? { projectBlueprint: memoryContext.projectBlueprint }
         : {}),
+      ...(projectMemory ? { projectMemory } : {}),
       memoryResults: memoryContext.results,
+      ...(memoryContext.lookupCommands?.length
+        ? { memoryLookupCommands: memoryContext.lookupCommands }
+        : {}),
       ...(session?.plan ? { plan: session.plan } : {}),
       supervisor,
       researchResults,
@@ -549,12 +594,19 @@ export class SupervisorLoopService {
   private async runOptionalResearch(input: {
     latestUserInstruction: string;
     latestAssistantTextPart: string;
+    projectMemory?: SupervisorProjectMemoryConfig;
   }) {
     if (this.policy.webSearchProvider === "none") {
       this.logger.info("Supervisor Exa search skipped: provider disabled");
       return [];
     }
-    const haystack = `${input.latestUserInstruction}\n${input.latestAssistantTextPart}`;
+    const haystack = [
+      input.latestUserInstruction,
+      input.latestAssistantTextPart,
+      input.projectMemory?.techStackTags.join(" "),
+    ]
+      .filter(Boolean)
+      .join("\n");
     if (!shouldResearch(haystack)) {
       this.logger.info("Supervisor Exa search skipped: no search signal", {
         haystackLength: haystack.length,
@@ -656,6 +708,7 @@ export class SupervisorLoopService {
     projectRoot: string;
     latestUserInstruction: string;
     latestAssistantTextPart: string;
+    projectMemory?: SupervisorProjectMemoryConfig;
   }): Promise<SupervisorMemoryContext> {
     if (this.policy.memoryProvider === "none") {
       this.logger.info("Supervisor memory lookup skipped: provider disabled", {
@@ -663,7 +716,13 @@ export class SupervisorLoopService {
       });
       return { results: [] };
     }
-    const haystack = `${input.latestUserInstruction}\n${input.latestAssistantTextPart}`;
+    const haystack = [
+      input.latestUserInstruction,
+      input.latestAssistantTextPart,
+      input.projectMemory?.techStackTags.join(" "),
+    ]
+      .filter(Boolean)
+      .join("\n");
     const query = haystack
       .replace(/\s+/g, " ")
       .trim()
@@ -672,7 +731,50 @@ export class SupervisorLoopService {
       query,
       chatId: input.chatId,
       projectRoot: input.projectRoot,
+      ...(input.projectMemory ? { projectMemory: input.projectMemory } : {}),
     });
+  }
+
+  private async resolveProjectMemoryConfig(input: {
+    chatId: string;
+    userId: string;
+    projectId?: string;
+    projectRoot?: string;
+  }): Promise<SupervisorProjectMemoryConfig | undefined> {
+    if (!(input.projectId || input.projectRoot)) {
+      return undefined;
+    }
+    try {
+      let project: Project | undefined;
+      if (input.projectId) {
+        project = await this.projectRepo.findById(
+          input.projectId,
+          input.userId
+        );
+      } else if (input.projectRoot) {
+        project = await this.projectRepo.findByPath(input.projectRoot);
+      }
+      if (!project) {
+        return undefined;
+      }
+      const obsidianProjectPath = project.obsidianProjectPath?.trim();
+      const techStackTags = normalizeSupervisorTags(project.techStackTags);
+      if (!obsidianProjectPath && techStackTags.length === 0) {
+        return undefined;
+      }
+      return {
+        ...(obsidianProjectPath ? { obsidianProjectPath } : {}),
+        techStackTags,
+      };
+    } catch (error) {
+      this.logger.warn("Supervisor project memory config lookup failed", {
+        chatId: input.chatId,
+        projectId: input.projectId ?? null,
+        projectRoot: input.projectRoot ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 
   private async applyDecision(
@@ -830,14 +932,9 @@ export class SupervisorLoopService {
       },
     });
 
-    const guardedFollowUpPrompt = buildSupervisorFollowUpPrompt({
-      followUpPrompt,
-      ...(snapshot.projectBlueprint
-        ? { projectBlueprint: snapshot.projectBlueprint }
-        : {}),
-      memoryResults: snapshot.memoryResults,
-      researchResults: snapshot.researchResults,
-    });
+    const guardedFollowUpPrompt = buildSupervisorFollowUpPrompt(
+      createSupervisorFollowUpPromptParams(followUpPrompt, snapshot)
+    );
 
     await this.sendMessage.execute({
       userId: event.userId,
@@ -957,6 +1054,30 @@ function shouldResearch(text: string): boolean {
     "release",
     "version",
   ].some((needle) => normalized.includes(needle));
+}
+
+function normalizeSupervisorTags(tags: string[]): string[] {
+  return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+}
+
+function createSupervisorFollowUpPromptParams(
+  followUpPrompt: string,
+  snapshot: SupervisorTurnSnapshot
+): Parameters<typeof buildSupervisorFollowUpPrompt>[0] {
+  return {
+    followUpPrompt,
+    ...(snapshot.projectBlueprint
+      ? { projectBlueprint: snapshot.projectBlueprint }
+      : {}),
+    ...(snapshot.projectMemory
+      ? { projectMemory: snapshot.projectMemory }
+      : {}),
+    memoryResults: snapshot.memoryResults,
+    ...(snapshot.memoryLookupCommands
+      ? { memoryLookupCommands: snapshot.memoryLookupCommands }
+      : {}),
+    researchResults: snapshot.researchResults,
+  };
 }
 
 interface ToolObservation {
@@ -1252,10 +1373,8 @@ export function createCorrectDecision(
 ): SupervisorSemanticDecision | null {
   const text = snapshot.latestAssistantTextPart;
   // Pattern: agent claims done but no verification artifacts (no run/verify/test/lint/check keywords)
-  const doneMarker =
-    /\b(done|finished|completed|all set|wrapper|wrapped up)\b/i.test(text);
-  const hasVerification =
-    /\b(run|verify|test|lint|check|preview|visual|pilot|demo)\b/i.test(text);
+  const doneMarker = DONE_MARKER_RE.test(text);
+  const hasVerification = VERIFICATION_MARKER_RE.test(text);
   if (!doneMarker || hasVerification) {
     return null;
   }
@@ -1284,10 +1403,8 @@ export function createDoneVerificationDecision(
   snapshot: SupervisorTurnSnapshot
 ): SupervisorSemanticDecision | null {
   const text = snapshot.latestAssistantTextPart;
-  const doneMarker =
-    /\b(done|finished|completed|all set|wrapper|wrapped up)\b/i.test(text);
-  const hasVerification =
-    /\b(run|verify|test|lint|check|preview|visual|pilot|demo)\b/i.test(text);
+  const doneMarker = DONE_MARKER_RE.test(text);
+  const hasVerification = VERIFICATION_MARKER_RE.test(text);
   if (!(doneMarker && hasVerification)) {
     return null;
   }
@@ -1325,6 +1442,7 @@ export function createDoneVerificationDecision(
   };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Supports several ACP option formats in one parser with regression coverage.
 export function extractAssistantChoiceOptions(text: string): string[] {
   const anchor = findLastOptionQuestionAnchor(text);
   if (anchor < 0) {

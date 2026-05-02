@@ -5,6 +5,8 @@ const ProjectInputSchema = z.object({
   path: z.string().min(1),
   description: z.string().optional().nullable(),
   tags: z.array(z.string()).optional(),
+  obsidianProjectPath: z.string().optional().nullable(),
+  techStackTags: z.array(z.string()).optional(),
   favorite: z.boolean().optional(),
 });
 

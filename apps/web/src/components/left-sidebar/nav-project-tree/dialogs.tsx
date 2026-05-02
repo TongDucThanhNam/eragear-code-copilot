@@ -39,6 +39,8 @@ interface ProjectFormState {
   path: string;
   description: string;
   tags: string;
+  obsidianProjectPath: string;
+  techStackTags: string;
 }
 
 interface NavProjectTreeDialogsProps {
@@ -197,6 +199,36 @@ export function NavProjectTreeDialogs({
                 value={form.tags}
               />
             </div>
+            <div className="space-y-1">
+              <Label htmlFor="project-obsidian-path">
+                Obsidian Project Path
+              </Label>
+              <Input
+                id="project-obsidian-path"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    obsidianProjectPath: event.target.value,
+                  }))
+                }
+                placeholder="Project/VLXD"
+                value={form.obsidianProjectPath}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="project-tech-stack-tags">Tech Stack Tags</Label>
+              <Input
+                id="project-tech-stack-tags"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    techStackTags: event.target.value,
+                  }))
+                }
+                placeholder="react, tauri, bun, heroui"
+                value={form.techStackTags}
+              />
+            </div>
             <DialogFooter>
               <Button disabled={isCreateProjectPending} type="submit">
                 {isCreateProjectPending ? "Creating..." : "Create"}
@@ -268,6 +300,38 @@ export function NavProjectTreeDialogs({
                 }
                 placeholder="frontend, api, ui"
                 value={editProjectForm.tags}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="project-edit-obsidian-path">
+                Obsidian Project Path
+              </Label>
+              <Input
+                id="project-edit-obsidian-path"
+                onChange={(event) =>
+                  setEditProjectForm((prev) => ({
+                    ...prev,
+                    obsidianProjectPath: event.target.value,
+                  }))
+                }
+                placeholder="Project/VLXD"
+                value={editProjectForm.obsidianProjectPath}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="project-edit-tech-stack-tags">
+                Tech Stack Tags
+              </Label>
+              <Input
+                id="project-edit-tech-stack-tags"
+                onChange={(event) =>
+                  setEditProjectForm((prev) => ({
+                    ...prev,
+                    techStackTags: event.target.value,
+                  }))
+                }
+                placeholder="react, tauri, bun, heroui"
+                value={editProjectForm.techStackTags}
               />
             </div>
             <DialogFooter>

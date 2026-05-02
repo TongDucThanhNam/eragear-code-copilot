@@ -22,6 +22,10 @@ export interface Project {
   description: string | null;
   /** Tags associated with the project */
   tags: string[];
+  /** Obsidian folder containing project-specific notes, e.g. Project/VLXD */
+  obsidianProjectPath: string | null;
+  /** Tech stack tags used to improve supervisor memory and web research queries */
+  techStackTags: string[];
   /** Whether the project is marked as favorite */
   favorite: boolean;
   /** Timestamp when the project was created */
@@ -46,6 +50,10 @@ export interface ProjectInput {
   description?: string | null;
   /** Tags to associate with the project */
   tags?: string[];
+  /** Obsidian folder containing project-specific notes */
+  obsidianProjectPath?: string | null;
+  /** Tech stack tags used for supervisor memory and web research */
+  techStackTags?: string[];
   /** Whether to mark the project as favorite */
   favorite?: boolean;
 }

@@ -17,12 +17,20 @@ const execFileAsync = promisify(execFile);
 const OBSIDIAN_MAX_BUFFER_BYTES = 1024 * 1024;
 const LOG_TEXT_PART_MAX_CHARS = 800;
 const SEARCH_SNIPPET_MAX_CHARS = 800;
+const PROJECT_FILE_INDEX_MAX_CHARS = 1200;
+const PROJECT_FILE_INDEX_MAX_FILES = 40;
 const LOCAL_SEARCH_MAX_FILES = 2000;
 const LOCAL_SEARCH_MAX_FILE_BYTES = 256 * 1024;
 const LOCAL_SEARCH_MAX_QUERY_TERMS = 24;
 const MARKDOWN_EXTENSION_RE = /\.md$/i;
 const MARKDOWN_PATH_RE = /[\p{L}\p{N}_./-]+\.md/giu;
 const WORD_RE = /[\p{L}\p{N}_-]+/gu;
+const SAFE_SHELL_ARG_RE = /^[A-Za-z0-9_./:=@+-]+$/;
+const NO_MATCHES_RE = /^no matches found\.?$/i;
+const ERROR_PREFIX_RE = /^error:/i;
+const EXCEPTION_PREFIX_RE = /^exception:/i;
+const UNKNOWN_SEARCH_OPERATOR_RE = /operator\s+"[^"]+"\s+not recognized/i;
+const TEXT_FILE_BULLET_RE = /^\s*[-*]\s+/;
 
 export interface ObsidianSupervisorMemoryOptions {
   command?: string;
@@ -64,14 +72,37 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
   async lookup(
     input: SupervisorMemoryLookupInput
   ): Promise<SupervisorMemoryContext> {
-    const [projectBlueprint, results] = await Promise.all([
-      this.readBlueprint(),
-      this.search(input.query),
-    ]);
+    const projectSearchPath =
+      input.projectMemory?.obsidianProjectPath?.trim() ||
+      this.options.searchPath;
+    const query = appendQueryTags(
+      input.query,
+      input.projectMemory?.techStackTags ?? []
+    );
+    const lookupCommands = buildLookupCommands({
+      command: this.command,
+      vault: this.options.vault,
+      blueprintPath: this.options.blueprintPath,
+      searchPath: projectSearchPath,
+      searchLimit: this.options.searchLimit,
+      query,
+      listFiles: Boolean(input.projectMemory?.obsidianProjectPath),
+    });
+
+    const [projectBlueprint, projectFileIndex, searchResults] =
+      await Promise.all([
+        this.readBlueprint(),
+        this.listProjectFiles(
+          projectSearchPath,
+          Boolean(input.projectMemory?.obsidianProjectPath)
+        ),
+        this.search(query, projectSearchPath),
+      ]);
 
     return {
       ...(projectBlueprint ? { projectBlueprint } : {}),
-      results,
+      results: [...projectFileIndex, ...searchResults],
+      lookupCommands,
     };
   }
 
@@ -131,7 +162,10 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
     }
   }
 
-  private async search(query: string): Promise<SupervisorMemoryResult[]> {
+  private async search(
+    query: string,
+    searchPath: string
+  ): Promise<SupervisorMemoryResult[]> {
     const trimmedQuery = query.replace(/\s+/g, " ").trim();
     if (trimmedQuery.length === 0 || this.options.searchLimit <= 0) {
       return [];
@@ -142,7 +176,7 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
         this.command,
         this.buildArgs("search:context", {
           query: trimmedQuery,
-          path: this.options.searchPath,
+          path: searchPath,
           limit: String(this.options.searchLimit),
           format: "json",
         }),
@@ -154,27 +188,30 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
       );
       this.logger.info("Supervisor Obsidian search completed", {
         queryLength: trimmedQuery.length,
-        searchPath: this.options.searchPath,
+        searchPath,
         resultCount: results.length,
       });
       return results;
     } catch (error) {
       this.logger.warn("Supervisor Obsidian search:context failed", {
         queryLength: trimmedQuery.length,
-        searchPath: this.options.searchPath,
+        searchPath,
         error: error instanceof Error ? error.message : String(error),
       });
-      return await this.searchFiles(trimmedQuery);
+      return await this.searchFiles(trimmedQuery, searchPath);
     }
   }
 
-  private async searchFiles(query: string): Promise<SupervisorMemoryResult[]> {
+  private async searchFiles(
+    query: string,
+    searchPath: string
+  ): Promise<SupervisorMemoryResult[]> {
     try {
       const { stdout } = await this.runner(
         this.command,
         this.buildArgs("search", {
           query,
-          path: this.options.searchPath,
+          path: searchPath,
           limit: String(this.options.searchLimit),
           format: "json",
         }),
@@ -186,17 +223,61 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
       );
       this.logger.info("Supervisor Obsidian search fallback completed", {
         queryLength: query.length,
-        searchPath: this.options.searchPath,
+        searchPath,
         resultCount: results.length,
       });
       return results;
     } catch (error) {
       this.logger.warn("Supervisor Obsidian search fallback failed", {
         queryLength: query.length,
-        searchPath: this.options.searchPath,
+        searchPath,
         error: error instanceof Error ? error.message : String(error),
       });
-      return await this.searchLocalFiles(query);
+      return await this.searchLocalFiles(query, searchPath);
+    }
+  }
+
+  private async listProjectFiles(
+    searchPath: string,
+    enabled: boolean
+  ): Promise<SupervisorMemoryResult[]> {
+    if (!enabled) {
+      return [];
+    }
+    try {
+      const { stdout } = await this.runner(
+        this.command,
+        this.buildArgs("files", {
+          folder: searchPath,
+        }),
+        this.options.timeoutMs
+      );
+      const files = parseProjectFilesOutput(stdout);
+      this.logger.info("Supervisor Obsidian project files listed", {
+        searchPath,
+        fileCount: files.length,
+      });
+      if (files.length === 0) {
+        return [];
+      }
+      return [
+        {
+          title: "Obsidian project note index",
+          path: searchPath,
+          snippets: [
+            truncateText(
+              files.slice(0, PROJECT_FILE_INDEX_MAX_FILES).join("\n"),
+              PROJECT_FILE_INDEX_MAX_CHARS
+            ),
+          ],
+        },
+      ];
+    } catch (error) {
+      this.logger.warn("Supervisor Obsidian project files listing failed", {
+        searchPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
     }
   }
 
@@ -254,13 +335,14 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
   }
 
   private async searchLocalFiles(
-    query: string
+    query: string,
+    searchPath: string
   ): Promise<SupervisorMemoryResult[]> {
     const vaultRoot = await this.resolveLocalVaultRoot();
     if (!vaultRoot || this.options.searchLimit <= 0) {
       return [];
     }
-    const searchRoot = resolveInsideRoot(vaultRoot, this.options.searchPath);
+    const searchRoot = resolveInsideRoot(vaultRoot, searchPath);
     if (!searchRoot) {
       return [];
     }
@@ -275,7 +357,7 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
       });
       this.logger.info("Supervisor Obsidian local search completed", {
         queryLength: query.length,
-        searchPath: this.options.searchPath,
+        searchPath,
         scannedFileCount: files.length,
         resultCount: results.length,
       });
@@ -283,7 +365,7 @@ export class ObsidianSupervisorMemoryAdapter implements SupervisorMemoryPort {
     } catch (error) {
       this.logger.warn("Supervisor Obsidian local search failed", {
         queryLength: query.length,
-        searchPath: this.options.searchPath,
+        searchPath,
         error: error instanceof Error ? error.message : String(error),
       });
       return [];
@@ -374,6 +456,88 @@ function buildObsidianArgs(
       .filter(([, value]) => value.trim().length > 0)
       .map(([key, value]) => `${key}=${value}`),
   ];
+}
+
+function buildLookupCommands(params: {
+  command: string;
+  vault?: string;
+  blueprintPath?: string;
+  searchPath: string;
+  searchLimit: number;
+  query: string;
+  listFiles: boolean;
+}): string[] {
+  const commands: string[] = [];
+  const blueprintPath = params.blueprintPath?.trim();
+  if (blueprintPath) {
+    commands.push(
+      formatCommand(params.command, [
+        ...buildObsidianArgs(
+          "read",
+          withOptionalVault({ path: blueprintPath }, params.vault)
+        ),
+      ])
+    );
+  }
+  if (params.listFiles) {
+    commands.push(
+      formatCommand(params.command, [
+        ...buildObsidianArgs(
+          "files",
+          withOptionalVault({ folder: params.searchPath }, params.vault)
+        ),
+      ])
+    );
+  }
+  if (params.query.trim()) {
+    commands.push(
+      formatCommand(params.command, [
+        ...buildObsidianArgs(
+          "search:context",
+          withOptionalVault(
+            {
+              query: params.query,
+              path: params.searchPath,
+              limit: String(params.searchLimit),
+              format: "json",
+            },
+            params.vault
+          )
+        ),
+      ])
+    );
+  }
+  return commands;
+}
+
+function withOptionalVault(
+  options: Record<string, string>,
+  vault?: string
+): Record<string, string> {
+  const trimmedVault = vault?.trim();
+  if (!trimmedVault) {
+    return options;
+  }
+  return { vault: trimmedVault, ...options };
+}
+
+function formatCommand(command: string, args: string[]): string {
+  return [command, ...args].map(formatShellArg).join(" ");
+}
+
+function formatShellArg(value: string): string {
+  if (SAFE_SHELL_ARG_RE.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function appendQueryTags(query: string, tags: string[]): string {
+  const normalizedTags = tags
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .join(" ");
+  return [query, normalizedTags].filter(Boolean).join(" ");
 }
 
 interface ObsidianConfig {
@@ -605,11 +769,43 @@ function parseSearchOutput(output: string): SupervisorMemoryResult[] {
 function isSearchDiagnosticOutput(output: string): boolean {
   const normalized = output.replace(/\s+/g, " ").trim();
   return (
-    /^no matches found\.?$/i.test(normalized) ||
-    /^error:/i.test(normalized) ||
-    /^exception:/i.test(normalized) ||
-    /operator\s+"[^"]+"\s+not recognized/i.test(normalized)
+    NO_MATCHES_RE.test(normalized) ||
+    ERROR_PREFIX_RE.test(normalized) ||
+    EXCEPTION_PREFIX_RE.test(normalized) ||
+    UNKNOWN_SEARCH_OPERATOR_RE.test(normalized)
   );
+}
+
+function parseProjectFilesOutput(output: string): string[] {
+  const trimmed = output.trim();
+  if (!trimmed || isSearchDiagnosticOutput(trimmed)) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .flatMap((item) => {
+          if (typeof item === "string") {
+            return [item.trim()];
+          }
+          if (isRecord(item)) {
+            const itemPath = firstString(item.path, item.file, item.name);
+            return itemPath ? [itemPath.trim()] : [];
+          }
+          return [];
+        })
+        .filter(Boolean)
+        .slice(0, PROJECT_FILE_INDEX_MAX_FILES);
+    }
+  } catch {
+    // Text output is the normal Obsidian CLI shape for `files`.
+  }
+  return trimmed
+    .split("\n")
+    .map((line) => line.replace(TEXT_FILE_BULLET_RE, "").trim())
+    .filter((line) => line.length > 0 && MARKDOWN_EXTENSION_RE.test(line))
+    .slice(0, PROJECT_FILE_INDEX_MAX_FILES);
 }
 
 function normalizeSearchJson(value: unknown): SupervisorMemoryResult[] {

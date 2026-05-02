@@ -36,6 +36,8 @@ export const projects = sqliteTable("projects", {
   path: text("path").notNull().unique(),
   description: text("description"),
   tagsJson: text("tags_json").notNull(),
+  obsidianProjectPath: text("obsidian_project_path"),
+  techStackTagsJson: text("tech_stack_tags_json").notNull().default("[]"),
   favorite: integer("favorite").notNull().default(0),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
