@@ -23,8 +23,9 @@ import {
   isDiagnosticsEnabled,
 } from "@/shared/utils/diagnostics.util";
 import {
-  capModelList,
+  capSessionSelectionState,
   findSessionConfigOption,
+  shouldStripAvailableModelsForAgent,
   syncSessionSelectionFromConfigOptions,
   updateSessionConfigOptionCurrentValue,
 } from "@/shared/utils/session-config-options.util";
@@ -605,11 +606,13 @@ async function handleConfigOptionsUpdate(
     // [DIAG] Log original vs capped model option counts
     diagnosticsLogConfigOptionsCap(chatId, configOptions);
 
-    const capped = capModelList({
-      models: session.models?.availableModels,
+    const capped = capSessionSelectionState({
+      models: session.models,
       configOptions,
-      currentModelId: session.models?.currentModelId,
       maxVisible: DEFAULT_MAX_VISIBLE_MODEL_COUNT,
+      stripAvailableModels: shouldStripAvailableModelsForAgent(
+        session.agentInfo
+      ),
     });
 
     await sessionRuntime.broadcast(chatId, {

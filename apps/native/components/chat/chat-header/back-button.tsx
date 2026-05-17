@@ -9,13 +9,13 @@ export function BackButton() {
 
   return (
     <Pressable
-      className="mr-2 h-10 w-10 items-center justify-center rounded-full active:bg-default/20"
+      className="mr-2 h-12 w-12 items-center justify-center rounded-full bg-default active:opacity-80"
       accessibilityLabel="Go back"
       accessibilityRole="button"
       hitSlop={10}
       onPress={() => router.back()}
     >
-      <Ionicons color={foregroundColor} name="arrow-back" size={24} />
+      <Ionicons color={foregroundColor} name="chevron-back" size={28} />
     </Pressable>
   );
 }

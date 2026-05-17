@@ -190,11 +190,11 @@ export const ChainOfThought = ({
 
   return (
     <Collapsible
-      className="w-full border bg-muted/30"
+      className="relative w-full border bg-muted/30"
       onOpenChange={setIsOpen}
       open={isOpen}
     >
-      <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm">
+      <CollapsibleTrigger className="sticky top-0 z-10 flex w-full items-center justify-between gap-3 bg-background/95 px-3 py-2 text-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex items-center gap-2">
           {isStreaming ? (
             <Loader className="text-muted-foreground" size={14} />

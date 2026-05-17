@@ -1,5 +1,5 @@
 import type { UIMessagePart } from "@repo/shared";
-import { cn } from "heroui-native";
+import { cn, useThemeColor } from "heroui-native";
 import { useMemo } from "react";
 import { View } from "react-native";
 import { AttachmentList } from "./attachment-list";
@@ -18,13 +18,15 @@ export function UserMessageBody({
   bubbleMaxWidth,
 }: UserMessageBodyProps) {
   const renderData = useMemo(() => splitUserMessageParts(parts), [parts]);
+  const foregroundColor = useThemeColor("foreground");
+  const mutedColor = useThemeColor("muted");
 
   return (
     <View className="flex-col items-end gap-1.5">
       <View
         className={cn(
-          "flex-col gap-1.5 rounded-2xl px-4 py-3",
-          "self-end bg-accent text-white"
+          "flex-col gap-1.5 rounded-[24px] px-5 py-4",
+          "self-end bg-default"
         )}
         style={{ maxWidth: bubbleMaxWidth }}
       >
@@ -33,11 +35,11 @@ export function UserMessageBody({
             collapsedLines={10}
             text={renderData.text}
             textStyle={{
-              color: "#ffffff",
+              color: foregroundColor,
               fontSize: 16,
               lineHeight: 22,
             }}
-            toggleColor="rgba(255,255,255,0.85)"
+            toggleColor={mutedColor}
           />
         ) : null}
         {renderData.fallbackParts.map((part, index) => (

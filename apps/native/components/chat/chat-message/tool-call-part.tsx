@@ -3,6 +3,11 @@ import type { ToolUIPart } from "@repo/shared";
 import type { ReactNode } from "react";
 import { memo, useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
+import {
+  getToolChangedFilePaths,
+  isFileEditTool,
+  stripDiffOutputItems,
+} from "./tool-file-paths";
 import { ToolResultDisplay } from "./tool-result-display";
 
 interface ToolCallPartProps {
@@ -13,6 +18,7 @@ interface ToolCallPartProps {
   output?: unknown;
   toolCallId: string;
   title: string;
+  type: ToolUIPart["type"];
   input: ToolUIPart["input"];
   state: ToolUIPart["state"];
 }
@@ -64,11 +70,48 @@ const getInputPreview = (input: ToolUIPart["input"]) => {
   return String(input);
 };
 
+const getChangedFilesPreview = (paths: string[]) => {
+  if (paths.length === 0) {
+    return "File change";
+  }
+  return truncateLabel(paths.join(", "), 72);
+};
+
+const ChangedFilesSummary = ({ paths }: { paths: string[] }) => (
+  <View className="gap-1">
+    <Text className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
+      Changed Files
+    </Text>
+    {paths.length > 0 ? (
+      <View className="gap-1">
+        {paths.map((path) => (
+          <View
+            className="rounded bg-surface-foreground/5 px-2 py-1"
+            key={path}
+          >
+            <Text
+              className="font-mono text-foreground text-xs"
+              numberOfLines={1}
+            >
+              {path}
+            </Text>
+          </View>
+        ))}
+      </View>
+    ) : (
+      <Text className="font-mono text-muted text-xs">
+        File path unavailable.
+      </Text>
+    )}
+  </View>
+);
+
 function ToolCallPartComponent({
   details,
   errorText,
   toolCallId,
   title,
+  type,
   input,
   isExpanded,
   onToggle,
@@ -77,7 +120,20 @@ function ToolCallPartComponent({
 }: ToolCallPartProps) {
   const status = statusMeta[state];
   const expanded = isExpanded;
+  const changedFilePaths = useMemo(
+    () => getToolChangedFilePaths({ input, output, title, type }),
+    [input, output, title, type]
+  );
+  const shouldShowChangedFiles =
+    changedFilePaths.length > 0 || isFileEditTool({ title, type });
+  const visibleOutput = useMemo(
+    () => (shouldShowChangedFiles ? stripDiffOutputItems(output) : output),
+    [output, shouldShowChangedFiles]
+  );
   const previewText = useMemo(() => {
+    if (shouldShowChangedFiles) {
+      return getChangedFilesPreview(changedFilePaths);
+    }
     if (state === "output-error") {
       return truncateLabel(errorText ?? "Execution failed.", 72);
     }
@@ -88,25 +144,33 @@ function ToolCallPartComponent({
       return "Execution cancelled";
     }
     if (state === "output-available") {
-      return getInputPreview(output);
+      return getInputPreview(visibleOutput);
     }
     return getInputPreview(input);
-  }, [errorText, input, output, state]);
+  }, [
+    changedFilePaths,
+    errorText,
+    input,
+    shouldShowChangedFiles,
+    state,
+    visibleOutput,
+  ]);
   const inputText = useMemo(() => {
-    if (!expanded) {
+    if (!(expanded && !shouldShowChangedFiles)) {
       return null;
     }
     return input === undefined
       ? "(waiting for input)"
       : JSON.stringify(input, null, 2);
-  }, [expanded, input]);
+  }, [expanded, input, shouldShowChangedFiles]);
   const hasResult =
-    state === "output-available" ||
+    (state === "output-available" &&
+      !(shouldShowChangedFiles && visibleOutput === undefined)) ||
     state === "output-error" ||
     state === "output-denied" ||
     state === "output-cancelled";
   const hasDetails = hasResult || details !== undefined;
-  const canExpand = input !== undefined || hasDetails;
+  const canExpand = shouldShowChangedFiles || input !== undefined || hasDetails;
 
   return (
     <View className="mt-2 mb-2 rounded-xl border border-divider bg-background">
@@ -150,7 +214,9 @@ function ToolCallPartComponent({
       </Pressable>
       {expanded ? (
         <View className="gap-2 border-divider border-t px-3 pt-2 pb-3">
-          {inputText ? (
+          {shouldShowChangedFiles ? (
+            <ChangedFilesSummary paths={changedFilePaths} />
+          ) : inputText ? (
             <View className="gap-1">
               <Text className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
                 Input
@@ -168,7 +234,7 @@ function ToolCallPartComponent({
               {details ?? (
                 <ToolResultDisplay
                   errorText={errorText}
-                  output={output}
+                  output={visibleOutput}
                   state={state}
                 />
               )}

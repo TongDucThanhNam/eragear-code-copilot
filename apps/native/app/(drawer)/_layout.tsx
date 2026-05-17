@@ -148,7 +148,7 @@ function DrawerLayout() {
               activeProject?.name || "Sessions",
               activeProject?.description || "Session Overview"
             ),
-          headerShown: true,
+          headerShown: false,
           drawerLabel: ({ focused }) => (
             <Text
               className={focused ? "text-primary" : "text-muted-foreground"}
@@ -169,7 +169,7 @@ function DrawerLayout() {
         name="settings"
         options={{
           headerTitle: () => renderHeaderTitle("Settings", "App Preferences"),
-          headerShown: true,
+          headerShown: false,
           drawerLabel: ({ focused }) => (
             <Text
               className={focused ? "text-primary" : "text-muted-foreground"}

@@ -3,8 +3,8 @@ import type { ToolUIPart } from "@repo/shared";
 import { useThemeColor } from "heroui-native";
 import { useMemo } from "react";
 import { Linking, Pressable, Text, View } from "react-native";
-import { DiffPart } from "./diff-part";
 import { TerminalPart } from "./terminal-part";
+import { getDiffOutputFilePaths } from "./tool-file-paths";
 import { isTerminalOutput } from "./utils";
 
 interface ToolResultDisplayProps {
@@ -97,6 +97,20 @@ export function ToolResultDisplay({
     </Pressable>
   );
 
+  const renderChangedFileBadge = (path: string, key: string) => (
+    <View
+      className="rounded border border-divider bg-surface-foreground/5 px-2 py-1"
+      key={key}
+    >
+      <Text
+        className="font-mono text-[11px] text-foreground"
+        numberOfLines={1}
+      >
+        {path}
+      </Text>
+    </View>
+  );
+
   const renderContentBlock = (block: ContentBlock, key: string) => {
     switch (block.type) {
       case "text":
@@ -139,19 +153,8 @@ export function ToolResultDisplay({
     ) {
       return renderContentBlock(item.content, `content-${index}`);
     }
-    if (
-      item.type === "diff" &&
-      typeof item.path === "string" &&
-      typeof item.newText === "string"
-    ) {
-      return (
-        <DiffPart
-          key={`diff-${index}`}
-          newText={item.newText}
-          oldText={typeof item.oldText === "string" ? item.oldText : undefined}
-          path={item.path}
-        />
-      );
+    if (item.type === "diff" && typeof item.path === "string") {
+      return renderChangedFileBadge(item.path, `diff-${index}`);
     }
     if (item.type === "terminal" && typeof item.terminalId === "string") {
       return (
@@ -176,6 +179,26 @@ export function ToolResultDisplay({
         )}
       </View>
     );
+  }
+
+  const changedFilePaths = getDiffOutputFilePaths(output);
+  if (changedFilePaths.length > 0) {
+    const nonDiffItems = Array.isArray(output)
+      ? output.filter(
+          (item) => !(isToolOutputItem(item) && item.type === "diff")
+        )
+      : isToolOutputItem(output) && output.type === "diff"
+        ? []
+        : [output];
+    if (nonDiffItems.length === 0) {
+      return (
+        <View className="gap-2">
+          {changedFilePaths.map((path) =>
+            renderChangedFileBadge(path, `changed-${path}`)
+          )}
+        </View>
+      );
+    }
   }
 
   return (

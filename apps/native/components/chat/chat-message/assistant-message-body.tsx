@@ -68,8 +68,8 @@ export function AssistantMessageBody({
       <View className="flex-col items-start gap-1.5">
         <View
           className={cn(
-            "flex-col gap-1.5 rounded-2xl px-4 py-3",
-            "max-w-[88%] self-start bg-surface-foreground/5"
+            "flex-col gap-1.5 px-1 py-1",
+            "max-w-[92%] self-start"
           )}
         >
           {data.finalText ? (

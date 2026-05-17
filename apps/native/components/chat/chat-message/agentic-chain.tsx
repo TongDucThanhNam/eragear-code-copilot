@@ -58,6 +58,8 @@ export function ChainOfThought({
           size={16}
         />
       </Pressable>
+
+      {/* Chain of thought Body */}
       {isOpen ? (
         <View className="border-divider border-t px-3 pt-2 pb-3">
           <View className="flex-col gap-3">

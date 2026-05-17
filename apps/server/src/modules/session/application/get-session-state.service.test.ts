@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_MAX_VISIBLE_MODEL_COUNT } from "@/config/constants";
-import type { SessionRuntimePort } from "./ports/session-runtime.port";
-import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { ChatSession } from "@/shared/types/session.types";
 import { GetSessionStateService } from "./get-session-state.service";
+import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 function createSessionRuntimeStub(
   session: ChatSession | null
@@ -345,6 +345,33 @@ describe("GetSessionStateService", () => {
         session.models!.currentModelId
       );
       expect(resultModelOption.currentValue).toBe(sessionModelOption.currentValue);
+    });
+
+    test("OpenCode sessions do not expose available models to web clients", async () => {
+      const userId = "user-1";
+      const chatId = "chat-opencode";
+      const session = createLargeSession(userId, chatId);
+      session.agentInfo = { name: "OpenCode", version: "1.14.31" };
+      const sessionRuntime = createSessionRuntimeStub(session);
+      const sessionRepo = createSessionRepositoryStub();
+
+      const service = new GetSessionStateService(
+        sessionRepo,
+        sessionRuntime,
+        false
+      );
+
+      const result = await service.execute(userId, chatId);
+
+      expect(result.models?.currentModelId).toBe("model-50");
+      expect(result.models?.availableModels).toEqual([]);
+      expect(
+        result.configOptions?.some(
+          (option) => option.category === "model" || option.id === "model"
+        )
+      ).toBe(false);
+      expect(session.models?.availableModels).toHaveLength(150);
+      expect(session.configOptions?.[0]?.options).toHaveLength(150);
     });
   });
 

@@ -21,7 +21,7 @@ export function ChatInputArea({
     <TextInput
       autoCapitalize="sentences"
       autoCorrect={false}
-      className="max-h-36 min-h-6 flex-1 py-2 text-[16px] leading-6"
+      className="max-h-32 min-h-8 py-1 text-[17px] leading-6"
       editable={!disabled}
       multiline
       onChangeText={onChangeText}

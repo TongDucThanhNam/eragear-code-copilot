@@ -14,7 +14,10 @@ import {
   diagnosticsLog,
   isDiagnosticsEnabled,
 } from "@/shared/utils/diagnostics.util";
-import { capModelList } from "@/shared/utils/session-config-options.util";
+import {
+  capSessionSelectionState,
+  shouldStripAvailableModelsForAgent,
+} from "@/shared/utils/session-config-options.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
@@ -68,18 +71,20 @@ export class GetSessionStateService {
       // excessive payload sizes. Internal session state remains uncapped
       // so that set-model / set-config-option validation continues to work
       // against the full list.
-      const capped = capModelList({
-        models: session.models?.availableModels,
+      const capped = capSessionSelectionState({
+        models: session.models,
         configOptions: session.configOptions,
-        currentModelId: session.models?.currentModelId,
         maxVisible: DEFAULT_MAX_VISIBLE_MODEL_COUNT,
+        stripAvailableModels: shouldStripAvailableModelsForAgent(
+          session.agentInfo
+        ),
       });
 
       // [DIAG] Log pre/post cap model and config option counts
       if (isDiagnosticsEnabled()) {
         const preCapModelCount = session.models?.availableModels?.length ?? 0;
         const preCapConfigCount = session.configOptions?.length ?? 0;
-        const postCapModelCount = capped.models.length;
+        const postCapModelCount = capped.models?.availableModels.length ?? 0;
         const postCapConfigCount = capped.configOptions.length;
         diagnosticsLog("get-session-state-cap", {
           chatId,
@@ -94,9 +99,7 @@ export class GetSessionStateService {
         status: "running" as const,
         chatStatus: session.chatStatus,
         modes: session.modes,
-        models: session.models
-          ? { ...session.models, availableModels: capped.models }
-          : session.models,
+        models: capped.models,
         commands: session.commands,
         configOptions: capped.configOptions,
         sessionInfo: session.sessionInfo ?? null,

@@ -11,7 +11,7 @@ import {
 } from "./agentic-message-utils";
 
 describe("parseToolOutput", () => {
-  test("extracts multiple terminal ids and strips handled terminal/diff payload", () => {
+  test("extracts multiple terminal ids and strips handled terminal/diff payload to file paths", () => {
     const parsed = parseToolOutput([
       { type: "terminal", terminalId: "term-1" },
       { type: "terminal", terminalId: "term-2" },
@@ -19,7 +19,7 @@ describe("parseToolOutput", () => {
     ]);
 
     expect(parsed.terminalIds).toEqual(["term-1", "term-2"]);
-    expect(parsed.diffs).toEqual([{ path: "a.txt", newText: "next" }]);
+    expect(parsed.changedFilePaths).toEqual(["a.txt"]);
     expect(parsed.result).toBeUndefined();
   });
 
@@ -37,7 +37,20 @@ describe("parseToolOutput", () => {
     ]);
 
     expect(parsed.terminalIds).toEqual(["term-1"]);
+    expect(parsed.changedFilePaths).toEqual([]);
     expect(parsed.result).toBe("line-1\nline-2");
+  });
+
+  test("handles single diff output as a file path without preserving diff text", () => {
+    const parsed = parseToolOutput({
+      type: "diff",
+      path: "src/app.tsx",
+      oldText: "old",
+      newText: "new",
+    });
+
+    expect(parsed.changedFilePaths).toEqual(["src/app.tsx"]);
+    expect(parsed.result).toBeUndefined();
   });
 });
 

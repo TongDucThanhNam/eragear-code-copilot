@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Button, useThemeColor } from "heroui-native";
 import { useState } from "react";
-import { type LayoutChangeEvent, View } from "react-native";
+import { type LayoutChangeEvent, Text, View } from "react-native";
 import { ActionBar } from "./action-bar";
 import { AttachmentList } from "./attachment-list";
 import { ChatInputArea } from "./chat-input-area";
@@ -28,10 +28,8 @@ export function ChatInput({
   | "onModelChange"
 >) {
   const [text, setText] = useState("");
-  const [accentForegroundColor, defaultForegroundColor] = useThemeColor([
-    "accent-foreground",
-    "default-foreground",
-  ]);
+  const [accentForegroundColor, defaultForegroundColor, mutedColor] =
+    useThemeColor(["accent-foreground", "default-foreground", "muted"]);
 
   const hasContent = text.trim().length > 0 || attachments.length > 0;
   const canSend = !disabled && hasContent;
@@ -39,8 +37,8 @@ export function ChatInput({
   const canRunPrimaryAction = canStop ? Boolean(onStop) : canSend;
   const placeholder =
     availableCommands.length > 0
-      ? "Type / for commands"
-      : "Message the assistant";
+      ? "Type a message or / for commands..."
+      : "Type a message or hold to talk...";
 
   const handleSend = () => {
     if (!canSend) {
@@ -69,54 +67,76 @@ export function ChatInput({
 
   return (
     <View
-      className="bg-background px-4 pt-2 pb-4 dark:bg-black"
+      className="bg-background px-5 pt-2 pb-5 dark:bg-black"
       onLayout={handleLayout}
     >
-      <View className="flex-row items-end gap-2">
-        <ActionBar
-          availableCommands={availableCommands}
-          disabled={disabled}
-          onOpenAttachment={onOpenAttachment}
-          onSlashCommand={handleSlashCommand}
+      <View className="rounded-[30px] bg-default px-4 pt-4 pb-3">
+        <AttachmentList
+          attachments={attachments}
+          onRemove={onRemoveAttachment}
         />
 
-        <View className="min-h-12 flex-1 rounded-[26px] bg-default px-2 pt-2 pb-2">
-          <AttachmentList
-            attachments={attachments}
-            onRemove={onRemoveAttachment}
+        <ChatInputArea
+          disabled={disabled}
+          onChangeText={setText}
+          placeholder={placeholder}
+          value={text}
+        />
+
+        <View className="mt-2 flex-row items-center justify-between">
+          <ActionBar
+            availableCommands={availableCommands}
+            disabled={disabled}
+            onOpenAttachment={onOpenAttachment}
+            onSlashCommand={handleSlashCommand}
           />
 
-          <View className="flex-row items-end gap-2 px-2">
-            <ChatInputArea
-              disabled={disabled}
-              onChangeText={setText}
-              placeholder={placeholder}
-              value={text}
-            />
+          <View className="flex-row items-center gap-2">
+            <Button
+              className="h-12 w-12 rounded-full bg-background"
+              feedbackVariant="scale"
+              isDisabled={disabled}
+              isIconOnly
+              size="sm"
+              variant="secondary"
+            >
+              <Button.Label>
+                <Ionicons color={defaultForegroundColor} name="mic" size={22} />
+              </Button.Label>
+            </Button>
 
-            {(hasContent || canStop) && (
-              <Button
-                className="mb-0.5 h-9 w-9 self-end rounded-full"
-                feedbackVariant="scale"
-                isDisabled={!canRunPrimaryAction}
-                isIconOnly
-                onPress={handlePrimaryAction}
-                size="sm"
-                variant={canStop ? "secondary" : "primary"}
-              >
-                <Button.Label>
-                  <Ionicons
-                    color={
-                      canStop ? defaultForegroundColor : accentForegroundColor
-                    }
-                    name={canStop ? "stop" : "arrow-up"}
-                    size={18}
-                  />
-                </Button.Label>
-              </Button>
-            )}
+            <Button
+              className="h-12 w-12 rounded-full"
+              feedbackVariant="scale"
+              isDisabled={!canRunPrimaryAction}
+              isIconOnly
+              onPress={handlePrimaryAction}
+              size="sm"
+              variant={canStop ? "secondary" : "primary"}
+            >
+              <Button.Label>
+                <Ionicons
+                  color={
+                    canStop ? defaultForegroundColor : accentForegroundColor
+                  }
+                  name={
+                    canStop
+                      ? "stop"
+                      : hasContent
+                        ? "arrow-up"
+                        : "chatbubble-ellipses"
+                  }
+                  size={canStop || hasContent ? 20 : 21}
+                />
+              </Button.Label>
+            </Button>
           </View>
         </View>
+      </View>
+      <View className="mt-2 flex-row items-center gap-2 pl-6">
+        <Ionicons color={mutedColor} name="cloud-outline" size={15} />
+        <View className="h-1.5 w-1.5 rounded-full bg-success" />
+        <Text className="text-muted-foreground text-sm">Cloud</Text>
       </View>
     </View>
   );

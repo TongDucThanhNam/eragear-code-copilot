@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import {
   Button,
   Description,
@@ -32,6 +33,14 @@ import { useAuthStore } from "@/store/auth-store";
 import { useConnectionStore } from "@/store/connection-store";
 
 const StyledIcon = withUniwind(Ionicons);
+const SESSION_VERIFY_ATTEMPTS = 5;
+const SESSION_VERIFY_DELAY_MS = 150;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 function normalizeErrorMessage(
   error: unknown,
@@ -56,6 +65,7 @@ function normalizeErrorMessage(
 }
 
 export default function LoginScreen() {
+  const router = useRouter();
   const themeColorAccentForeground = useThemeColor("accent-foreground");
   const { toast } = useToast();
   const hostHint =
@@ -160,11 +170,31 @@ export default function LoginScreen() {
         throw new Error(signInError);
       }
 
+      let sessionVerified = false;
+      for (let attempt = 0; attempt < SESSION_VERIFY_ATTEMPTS; attempt += 1) {
+        const sessionResult = await authClient.getSession();
+        if (sessionResult.data?.user) {
+          sessionVerified = true;
+          break;
+        }
+
+        if (attempt < SESSION_VERIFY_ATTEMPTS - 1) {
+          await delay(SESSION_VERIFY_DELAY_MS);
+        }
+      }
+
+      if (!sessionVerified) {
+        throw new Error(
+          "Signed in, but the mobile session was not saved. Please try again."
+        );
+      }
+
       setServerUrl(normalizedServerUrl);
       bumpAuthVersion();
       clearConnectionError();
       setPasswordInput("");
       toast.show("Signed in successfully!");
+      router.replace("/");
     } catch (loginError) {
       await clearStoredBetterAuthSession(normalizedServerUrl);
       bumpAuthVersion();

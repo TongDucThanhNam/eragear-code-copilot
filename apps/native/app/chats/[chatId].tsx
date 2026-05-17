@@ -10,7 +10,7 @@ import { useShallow } from "zustand/react/shallow";
 import {
   canResumeInactiveSession,
   resolveChatReadOnly,
-} from "@/app/chats/session-access";
+} from "@/lib/session-access";
 import { ChatHeader } from "@/components/chat/chat-header/chat-header";
 import { AttachmentModal } from "@/components/chat/chat-input/attachment-modal";
 import { ChatInput } from "@/components/chat/chat-input/chat-input";

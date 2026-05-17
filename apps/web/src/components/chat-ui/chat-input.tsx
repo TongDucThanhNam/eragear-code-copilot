@@ -323,6 +323,18 @@ export const ChatInput = memo(function ChatInput({
       ),
     [fullFilteredGroups]
   );
+  const customModelId = deferredModelSelectorSearch.trim();
+  const canUseCustomModel = useMemo(() => {
+    if (!customModelId) {
+      return false;
+    }
+    const normalized = customModelId.toLowerCase();
+    return !modelsWithDetails.some(
+      (model) =>
+        model.id.toLowerCase() === normalized ||
+        model.name.toLowerCase() === normalized
+    );
+  }, [customModelId, modelsWithDetails]);
   const selectedModelData =
     modelsWithDetails.find((m) => m.id === currentModelId) ??
     (currentModelId
@@ -795,6 +807,22 @@ console.debug(
                   )}
                   <ModelSelectorList>
                     <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+                    {canUseCustomModel && (
+                      <ModelSelectorGroup heading="Custom">
+                        <ModelSelectorItem
+                          key={`custom:${customModelId}`}
+                          onSelect={() => {
+                            onModelChange(customModelId);
+                            setModelSelectorOpen(false);
+                          }}
+                          value={customModelId}
+                        >
+                          <ModelSelectorName>
+                            Use {customModelId}
+                          </ModelSelectorName>
+                        </ModelSelectorItem>
+                      </ModelSelectorGroup>
+                    )}
                     {renderedModelGroups.map(([groupLabel, models]) => (
                       <ModelSelectorGroup heading={groupLabel} key={groupLabel}>
                         {models.map((model) => (

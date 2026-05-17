@@ -3,7 +3,7 @@ import {
   buildChatRoute,
   canResumeInactiveSession,
   resolveChatReadOnly,
-} from "./session-access";
+} from "../../lib/session-access";
 
 describe("session-access", () => {
   test("builds live route for active sessions", () => {

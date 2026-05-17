@@ -129,6 +129,14 @@ function createGateway(params: {
   };
 }
 
+function getSelectOptionValues(
+  option: NonNullable<ChatSession["configOptions"]>[number] | undefined
+): string[] {
+  return (option?.options ?? []).flatMap((item) =>
+    "value" in item && typeof item.value === "string" ? [item.value] : []
+  );
+}
+
 describe("SetModeService", () => {
   test("serializes concurrent mode switches in chat order", async () => {
     const session = createSession();
@@ -248,18 +256,21 @@ describe("SetModeService", () => {
 
     await service.execute("user-1", "chat-1", "architect");
 
-    expect(sessionRuntime.broadcasts).toEqual([
-      {
-        chatId: "chat-1",
-        event: { type: "current_mode_update", modeId: "architect" },
-      },
-      {
-        chatId: "chat-1",
-        event: {
-          type: "config_options_update",
-          configOptions: session.configOptions ?? null,
-        },
-      },
+    expect(sessionRuntime.broadcasts[0]).toEqual({
+      chatId: "chat-1",
+      event: { type: "current_mode_update", modeId: "architect" },
+    });
+    const configUpdateBroadcast = sessionRuntime.broadcasts[1];
+    expect(configUpdateBroadcast?.chatId).toBe("chat-1");
+    expect(configUpdateBroadcast?.event.type).toBe("config_options_update");
+    const broadcastOptions =
+      configUpdateBroadcast?.event.type === "config_options_update"
+        ? configUpdateBroadcast.event.configOptions
+        : [];
+    expect(broadcastOptions[0]?.currentValue).toBe("architect");
+    expect(getSelectOptionValues(broadcastOptions[0])).toEqual([
+      "architect",
+      "code",
     ]);
   });
 
@@ -289,10 +300,11 @@ describe("SetModeService", () => {
         session,
         setSessionMode: (_session, modeId) => {
           legacyCalls.push(modeId);
+          return Promise.resolve();
         },
         setSessionConfigOption: (_session, configId, value) => {
           configCalls.push({ configId, value });
-          return [
+          return Promise.resolve([
             {
               id: "approvalMode",
               name: "Approval Mode",
@@ -304,7 +316,7 @@ describe("SetModeService", () => {
                 { value: "architect", name: "Architect" },
               ],
             },
-          ] as NonNullable<ChatSession["configOptions"]>;
+          ] as NonNullable<ChatSession["configOptions"]>);
         },
       })
     );
@@ -319,7 +331,7 @@ describe("SetModeService", () => {
       },
     ]);
     expect(session.configOptions?.[0]?.currentValue).toBe("architect");
-    expect(session.modes).toEqual({
+    expect((session as { modes: ChatSession["modes"] }).modes).toEqual({
       currentModeId: "architect",
       availableModes: [
         { id: "code", name: "Code", description: undefined },

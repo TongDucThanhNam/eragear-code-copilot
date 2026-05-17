@@ -65,15 +65,15 @@ export function HeaderMenu({
       <Menu isOpen={isMenuOpen} onOpenChange={setIsMenuOpen}>
         <Menu.Trigger asChild>
           <Pressable
-            className="ml-2 h-10 w-10 items-center justify-center rounded-full active:bg-default/20"
+            className="ml-2 h-12 w-12 items-center justify-center rounded-full bg-default active:opacity-80"
             accessibilityLabel="Open menu"
             accessibilityRole="button"
             onPress={() => setIsMenuOpen(true)}
           >
             <Ionicons
               color={foregroundColor}
-              name="ellipsis-vertical"
-              size={20}
+              name="ellipsis-horizontal"
+              size={22}
             />
           </Pressable>
         </Menu.Trigger>

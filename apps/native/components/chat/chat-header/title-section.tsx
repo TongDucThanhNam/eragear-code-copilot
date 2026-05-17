@@ -12,7 +12,7 @@ export function TitleSection({ title, status, subtitle }: TitleSectionProps) {
   return (
     <View className="min-w-0 flex-1 px-2">
       <Text
-        className="font-semibold text-[17px] text-foreground"
+        className="font-bold text-[20px] text-foreground"
         numberOfLines={1}
       >
         {title}
@@ -20,7 +20,7 @@ export function TitleSection({ title, status, subtitle }: TitleSectionProps) {
       <View className="mt-0.5 flex-row items-center gap-2">
         {subtitle ? (
           <Text
-            className="min-w-0 flex-1 text-muted-foreground text-xs"
+            className="min-w-0 flex-1 text-muted-foreground text-sm"
             numberOfLines={1}
           >
             {subtitle}

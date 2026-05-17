@@ -10,7 +10,6 @@ import { AddProjectModal } from "./components/add-project-modal";
 import { AgentsTab } from "./components/agents-tab";
 import { AuthTab } from "./components/auth-tab";
 import { DashboardAlerts } from "./components/dashboard-alerts";
-import { DashboardFooter } from "./components/dashboard-footer";
 import { DashboardHeader } from "./components/dashboard-header";
 import { DashboardLoading } from "./components/dashboard-loading";
 import { EditAgentModals } from "./components/edit-agent-modals";
@@ -73,7 +72,7 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
         ref={scrollContainerRef}
       >
         <div
-          className={`relative mx-auto flex min-h-screen w-full max-w-[1360px] flex-col bg-paper px-3 pb-8 shadow-[0_0_50px_rgba(0,0,0,0.1)] transition-all duration-300 sm:px-5 lg:px-6 ${
+          className={`relative mx-auto flex min-h-screen w-full flex-col bg-paper px-3 pb-8 shadow-[0_0_50px_rgba(0,0,0,0.1)] transition-all duration-300 sm:px-5 lg:px-6 ${
             isLoading ? "opacity-90" : "opacity-100"
           }`}
           id="main-content"
@@ -116,16 +115,14 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
               </section>
 
               {activeTab !== "logs" && (
-                <aside className="dashboard-side flex flex-col border-ink border-b-2 bg-[#f3f3ef] p-3 transition-all duration-300 sm:p-4 lg:col-span-4 lg:border-b-0 lg:p-5">
-                  <div className="lg:sticky lg:top-[132px] lg:self-start">
+                <aside className="dashboard-side flex flex-col border-ink bg-[#f3f3ef] p-3 transition-all duration-300 sm:p-4 lg:col-span-4 lg:border-b-0 lg:p-5">
+                  <div className="w-full lg:sticky lg:top-[132px]">
                     <OverviewStats />
                   </div>
                 </aside>
               )}
             </div>
           </main>
-
-          <DashboardFooter />
         </div>
       </div>
 

@@ -10,11 +10,9 @@
 
 import type { IncomingMessage } from "node:http";
 import { createServer } from "node:http";
-import { reactRenderer } from "@hono/react-renderer";
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
-import { createElement, Fragment } from "react";
 import { WebSocketServer } from "ws";
 import { hasAuthCredentialsInHeaders } from "../platform/auth/guards";
 import { installConsoleLogger } from "../platform/logging/logger";
@@ -148,10 +146,6 @@ export function createApp(
   );
 
   const app = new Hono();
-  app.use(
-    "*",
-    reactRenderer(({ children }) => createElement(Fragment, null, children))
-  );
   app.use(requestIdMiddleware());
   app.use(createRequestLogger());
 

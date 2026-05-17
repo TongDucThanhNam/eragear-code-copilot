@@ -1,7 +1,7 @@
 "use client";
 
-import { memo, useCallback } from "react";
-import { FixedSizeList as List, ListChildComponentProps } from "react-window";
+import { memo } from "react";
+import { List, type RowComponentProps } from "react-window";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import {
   Message,
@@ -53,19 +53,19 @@ interface MessageItemData {
   messageIds: readonly string[];
 }
 
-const MessageItem = memo(function MessageItem({
+function MessageItem({
   index,
   style,
-  data,
-}: ListChildComponentProps<MessageItemData>) {
-  const { chatId, messageIds } = data;
+  chatId,
+  messageIds,
+}: RowComponentProps<MessageItemData>) {
   const messageId = messageIds[index];
   return (
     <div style={style} className="py-2">
       <AgenticMessage chatId={chatId} messageId={messageId} />
     </div>
   );
-});
+}
 
 MessageItem.displayName = "MessageItem";
 
@@ -118,11 +118,6 @@ export const VirtualizedChatMessages = memo(function VirtualizedChatMessages({
     messageIds,
   };
 
-  const itemKey = useCallback(
-    (index: number, data: MessageItemData) => data.messageIds[index],
-    []
-  );
-
   return (
     <Conversation className="h-full min-h-0">
       <ConversationContent className="mx-auto w-full max-w-4xl gap-6 px-3 pt-4 pb-4 sm:px-5">
@@ -142,16 +137,13 @@ export const VirtualizedChatMessages = memo(function VirtualizedChatMessages({
           </div>
         ) : null}
         <List
-          height={600}
-          itemCount={messageIds.length}
-          itemData={itemData}
-          itemSize={MESSAGE_ESTIMATED_HEIGHT}
-          itemKey={itemKey}
-          width="100%"
           overscanCount={5}
-        >
-          {MessageItem}
-        </List>
+          rowComponent={MessageItem}
+          rowCount={messageIds.length}
+          rowHeight={MESSAGE_ESTIMATED_HEIGHT}
+          rowProps={itemData}
+          style={{ height: 600, width: "100%" }}
+        />
         {showThinkingPlaceholder ? <ThinkingMessagePlaceholder /> : null}
       </ConversationContent>
       <ConversationScrollButton className="bottom-5 z-10 shadow-sm" />

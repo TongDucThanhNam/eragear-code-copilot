@@ -1,15 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { DrawerActions } from "@react-navigation/native";
+import { useNavigation, useRouter } from "expo-router";
 import {
+  Avatar,
   BottomSheet,
   Button,
-  Chip,
   Dialog,
   Input,
   Label,
   Spinner,
   Surface,
-  Tabs,
   TextField,
   useThemeColor,
 } from "heroui-native";
@@ -23,13 +23,13 @@ import {
   Text,
   View,
 } from "react-native";
-import { buildChatRoute } from "@/app/chats/session-access";
 import { AgentIcon } from "@/components/agents/agent-icons";
 import { AgentPicker } from "@/components/agents/agent-picker";
 import { Container } from "@/components/common/container";
 import { useAuthConfigured } from "@/hooks/use-auth-config";
 import { useCreateSession } from "@/hooks/use-create-session";
 import { useDeleteSession } from "@/hooks/use-delete-session";
+import { buildChatRoute } from "@/lib/session-access";
 import { trpc } from "@/lib/trpc";
 import type { StoredSessionInfo } from "@/store/chat-store";
 import { useChatStore } from "@/store/chat-store";
@@ -96,6 +96,19 @@ function formatTimestamp(dateValue: string | number): string {
   return date.toLocaleDateString();
 }
 
+function formatTaskTimestamp(dateValue: string | number | null | undefined) {
+  if (!dateValue) {
+    return "";
+  }
+
+  return new Date(dateValue).toLocaleString(undefined, {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function getSessionAgentType(session: StoredSessionInfo): string | null {
   return (
     session.agentInfo?.title ||
@@ -107,9 +120,11 @@ function getSessionAgentType(session: StoredSessionInfo): string | null {
 
 export default function SessionsScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const themeColorForeground = useThemeColor("foreground");
   const themeColorMuted = useThemeColor("muted");
   const themeColorWarning = useThemeColor("warning");
+  const themeColorAccentForeground = useThemeColor("accent-foreground");
   const { deleteSession, isDeleting: isDeletingSession } = useDeleteSession();
 
   const { setActiveChatId, setSessions } = useChatStore();
@@ -142,7 +157,7 @@ export default function SessionsScreen() {
   });
   const agents = (agentsData?.agents ?? []) as Agent[];
   const activeAgentId = agentsData?.activeAgentId;
-  const [activeTab, setActiveTab] = useState<FilterTab>("active");
+  const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [projectForm, setProjectForm] = useState({
     name: "",
     path: "",
@@ -641,6 +656,7 @@ export default function SessionsScreen() {
 
   const activeCount = visibleSessions.filter((s) => s.isActive).length;
   const inactiveCount = visibleSessions.filter((s) => !s.isActive).length;
+  const allCount = visibleSessions.length;
 
   const emptyStateMessage = (() => {
     if (!activeProjectId) {
@@ -670,8 +686,13 @@ export default function SessionsScreen() {
     if (filteredSessions.length === 0) {
       return (
         <View className="flex-1 items-center justify-center">
-          <Ionicons color="#888" name="chatbubbles-outline" size={64} />
-          <Text className="mt-4 text-center text-muted-foreground">
+          <View className="h-16 w-16 items-center justify-center rounded-full bg-default">
+            <Ionicons color={themeColorMuted} name="albums-outline" size={28} />
+          </View>
+          <Text className="mt-4 text-center font-medium text-base text-foreground">
+            Nothing here yet
+          </Text>
+          <Text className="mt-1 text-center text-muted-foreground">
             {emptyStateMessage}
           </Text>
         </View>
@@ -680,7 +701,7 @@ export default function SessionsScreen() {
 
     return (
       <FlatList
-        contentContainerStyle={{ paddingBottom: 80 }}
+        contentContainerStyle={{ paddingBottom: 132 }}
         data={filteredSessions}
         keyExtractor={(item) => item.id}
         refreshControl={
@@ -698,94 +719,84 @@ export default function SessionsScreen() {
               accessibilityRole="button"
               onPress={() => handleOpenSession(item.id, item.isActive)}
             >
-              <Surface className="mb-3 flex-row items-start justify-between rounded-lg p-3">
-                <View className="flex-1 pr-3">
-                  {/* Title row with status indicator */}
-                  <View className="flex-row items-center">
-                    <View
-                      className={`mr-2 h-2 w-2 rounded-full ${
-                        item.isActive ? "bg-success" : "bg-muted"
-                      }`}
-                    />
+              <View className="flex-row items-center border-default/10 border-b px-6 py-4">
+                <View className="mr-4 h-16 w-16 items-center justify-center rounded-full bg-default">
+                  <View className="h-9 w-9 items-center justify-center rounded-full bg-background">
                     <AgentIcon
                       color={themeColorForeground}
                       secondaryColor={themeColorMuted}
-                      size={16}
+                      size={20}
                       type={sessionAgentType}
                     />
+                  </View>
+                </View>
+
+                <View className="min-w-0 flex-1 pr-3">
+                  <View className="flex-row items-center">
                     <Text
-                      className="ml-2 flex-1 font-medium text-base text-foreground"
+                      className="min-w-0 flex-1 font-semibold text-[17px] text-foreground"
                       numberOfLines={1}
                     >
                       {sessionTitle}
                     </Text>
-                    {item.pinned && (
+                    {item.pinned ? (
                       <Ionicons
                         color={themeColorWarning}
                         name="pin"
                         size={14}
                         style={{ marginLeft: 6 }}
                       />
-                    )}
+                    ) : null}
                   </View>
 
-                  {/* ID and timestamp - subtle */}
                   <Text
-                    className="mt-0.5 text-muted-foreground text-xs"
+                    className="mt-1 text-muted-foreground text-sm"
                     numberOfLines={1}
                   >
-                    {truncateSessionId(item.sessionId)}
-                    {item.lastActiveAt && (
-                      <Text className="text-zinc-500">
-                        {" • "}
-                        {formatTimestamp(item.lastActiveAt)}
-                      </Text>
-                    )}
+                    {item.agentInfo?.title ||
+                      item.agentInfo?.name ||
+                      item.agentName ||
+                      "SOLO"}{" "}
+                    · {activeProject?.name ?? "Project"}
                   </Text>
 
-                  {/* Status badges - compact */}
-                  <View className="mt-2 flex-row flex-wrap gap-1.5">
-                    {!item.isActive && (
-                      <Chip
-                        size="sm"
-                        variant="soft"
-                        color={item.loadSessionSupported ? "success" : "default"}
-                      >
-                        <Chip.Label>
-                          {item.loadSessionSupported ? "Resume" : "Read-only"}
-                        </Chip.Label>
-                      </Chip>
-                    )}
-                    {item.modeId && (
-                      <Chip size="sm" variant="primary">
-                        <Chip.Label>{item.modeId}</Chip.Label>
-                      </Chip>
-                    )}
-                    {item.archived && (
-                      <Chip size="sm" variant="soft" color="default">
-                        <Chip.Label>Archived</Chip.Label>
-                      </Chip>
-                    )}
+                  <View className="mt-2 flex-row items-center gap-2">
+                    <View
+                      className={`h-2 w-2 rounded-full ${
+                        item.isActive ? "bg-success" : "bg-muted"
+                      }`}
+                    />
+                    <Text className="text-muted-foreground text-xs">
+                      {item.isActive
+                        ? "Active"
+                        : item.loadSessionSupported
+                          ? "Resume available"
+                          : "History only"}
+                    </Text>
                   </View>
                 </View>
 
-                {/* Menu button only */}
-                <Pressable
-                  className="p-1"
-                  accessibilityLabel={`Session options for ${sessionTitle}`}
-                  accessibilityRole="button"
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    handleOpenSessionActions(item);
-                  }}
-                >
-                  <Ionicons
-                    color={themeColorMuted}
-                    name="ellipsis-vertical"
-                    size={20}
-                  />
-                </Pressable>
-              </Surface>
+                <View className="items-end gap-4">
+                  <Text className="text-muted-foreground text-sm">
+                    {formatTaskTimestamp(item.lastActiveAt)}
+                  </Text>
+                  <Pressable
+                    className="h-8 w-8 items-center justify-center rounded-full active:bg-default"
+                    accessibilityLabel={`Session options for ${sessionTitle}`}
+                    accessibilityRole="button"
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      handleOpenSessionActions(item);
+                    }}
+                  >
+                    <Ionicons
+                      color={themeColorMuted}
+                      name="ellipsis-horizontal"
+                      size={20}
+                    />
+                  </Pressable>
+                </View>
+              </View>
             </Pressable>
           );
         }}
@@ -795,51 +806,111 @@ export default function SessionsScreen() {
 
   return (
     <Container className="flex-1" scroll={false}>
-      <View className="flex-1 p-4">
+      <View className="flex-1 bg-background">
+        <View className="flex-row items-center justify-between px-6 pt-5 pb-5">
+          <Pressable
+            accessibilityLabel="Open project list"
+            accessibilityRole="button"
+            className="min-w-0 flex-1 flex-row items-center"
+            onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+          >
+            <Text
+              className="font-bold text-4xl text-foreground"
+              numberOfLines={1}
+            >
+              All tasks
+            </Text>
+            <Ionicons
+              color={themeColorForeground}
+              name="chevron-down"
+              size={18}
+              style={{ marginLeft: 8, marginTop: 4 }}
+            />
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel="Open settings"
+            accessibilityRole="button"
+            className="ml-4"
+            onPress={() => router.push("/settings")}
+          >
+            <Avatar alt="Profile" size="md">
+              <Avatar.Fallback>
+                <Ionicons name="person" size={20} />
+              </Avatar.Fallback>
+            </Avatar>
+          </Pressable>
+        </View>
+
         {error ? (
-          <View className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2">
-            <Text className="text-destructive text-sm">{error}</Text>
+          <View className="mx-6 mb-3 rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3">
+            <Text className="text-danger text-sm">{error}</Text>
           </View>
         ) : null}
 
-        {/* Filter Tabs */}
-        <Tabs
-          onValueChange={(key: string) => setActiveTab(key as FilterTab)}
-          value={activeTab}
-          variant="primary"
-        >
-          <Tabs.List className="w-full flex-row">
-            <Tabs.Indicator />
-            <Tabs.Trigger className="flex-1 items-center" value="active">
-              <Tabs.Label className="text-center">
-                Active ({activeCount})
-              </Tabs.Label>
-            </Tabs.Trigger>
-            <Tabs.Trigger className="flex-1 items-center" value="inactive">
-              <Tabs.Label className="text-center">
-                Inactive ({inactiveCount})
-              </Tabs.Label>
-            </Tabs.Trigger>
-            <Tabs.Trigger className="flex-1 items-center" value="all">
-              <Tabs.Label className="text-center">
-                All ({visibleSessions.length})
-              </Tabs.Label>
-            </Tabs.Trigger>
-          </Tabs.List>
-        </Tabs>
-
-        <View className="mt-2 mb-3 flex-row justify-end">
-          <Button
-            isDisabled={isCreating || !activeProject || agents.length === 0}
-            onPress={handleOpenDiscoverModal}
-            variant="ghost"
-          >
-            <Button.Label>Load Existing Session</Button.Label>
-          </Button>
+        <View className="mb-3 flex-row gap-2 px-6">
+          {[
+            ["all", `All ${allCount}`],
+            ["active", `Active ${activeCount}`],
+            ["inactive", `Inactive ${inactiveCount}`],
+          ].map(([value, label]) => {
+            const isSelected = activeTab === value;
+            return (
+              <Pressable
+                accessibilityRole="button"
+                className={`rounded-full px-4 py-2 ${
+                  isSelected ? "bg-foreground" : "bg-default"
+                }`}
+                key={value}
+                onPress={() => setActiveTab(value as FilterTab)}
+              >
+                <Text
+                  className={`font-medium text-sm ${
+                    isSelected ? "text-background" : "text-muted-foreground"
+                  }`}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
 
-        {/* Sessions List */}
         {renderContent}
+
+        <View className="absolute right-6 bottom-8 gap-3">
+          <Button
+            className="h-16 w-16 rounded-full shadow-lg"
+            feedbackVariant="scale"
+            isDisabled={isCreating || !activeProject || agents.length === 0}
+            isIconOnly
+            onPress={() => setIsAgentPickerOpen(true)}
+          >
+            <Button.Label>
+              <Ionicons
+                color={themeColorAccentForeground}
+                name="chatbox-ellipses"
+                size={26}
+              />
+            </Button.Label>
+          </Button>
+          <Button
+            className="h-11 w-11 self-end rounded-full bg-default"
+            feedbackVariant="scale"
+            isDisabled={isCreating || !activeProject || agents.length === 0}
+            isIconOnly
+            onPress={handleOpenDiscoverModal}
+            variant="secondary"
+          >
+            <Button.Label>
+              <Ionicons
+                color={themeColorForeground}
+                name="cloud-download-outline"
+                size={20}
+              />
+            </Button.Label>
+          </Button>
+        </View>
       </View>
 
       {/* Create Project Dialog */}

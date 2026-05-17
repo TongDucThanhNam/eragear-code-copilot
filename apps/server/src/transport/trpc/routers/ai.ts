@@ -87,12 +87,18 @@ export const aiRouter = router({
         input.configId,
         input.value
       );
+      const sessionState = await ctx.sessionServices
+        .getSessionState()
+        .execute(userId, input.chatId);
       logger.info("tRPC ai.setConfigOption succeeded", {
         chatId: input.chatId,
         configId: input.configId,
         value: input.value,
       });
-      return result;
+      return {
+        ...result,
+        configOptions: sessionState.configOptions ?? [],
+      };
     }),
 
   /** Cancel an ongoing prompt in a session */

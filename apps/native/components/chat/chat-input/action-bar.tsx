@@ -24,7 +24,7 @@ export function ActionBar({
   return (
     <View>
       <Button
-        className="mb-0.5 h-11 w-11 shrink-0 rounded-full"
+        className="h-12 w-12 shrink-0 rounded-full bg-background"
         feedbackVariant="scale"
         isDisabled={disabled}
         isIconOnly

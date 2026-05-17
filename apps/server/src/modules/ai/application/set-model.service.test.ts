@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_MAX_VISIBLE_MODEL_COUNT } from "@/config/constants";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
@@ -129,6 +130,14 @@ function createGateway(params: {
   };
 }
 
+function getSelectOptionValues(
+  option: NonNullable<ChatSession["configOptions"]>[number] | undefined
+): string[] {
+  return (option?.options ?? []).flatMap((item) =>
+    "value" in item && typeof item.value === "string" ? [item.value] : []
+  );
+}
+
 describe("SetModelService", () => {
   test("serializes concurrent model switches in chat order", async () => {
     const session = createSession();
@@ -198,12 +207,13 @@ describe("SetModelService", () => {
       sessionRuntime,
       createGateway({
         session,
-        setSessionModel: async (_session, modelId) => {
+        setSessionModel: (_session, modelId) => {
           legacyCalls.push(modelId);
+          return Promise.resolve();
         },
-        setSessionConfigOption: async (_session, configId, value) => {
+        setSessionConfigOption: (_session, configId, value) => {
           configCalls.push({ configId, value });
-          return [
+          return Promise.resolve([
             {
               id: "primaryModel",
               name: "Primary Model",
@@ -216,7 +226,7 @@ describe("SetModelService", () => {
                 { value: "model-3", name: "Model 3" },
               ],
             },
-          ] as NonNullable<ChatSession["configOptions"]>;
+          ] as NonNullable<ChatSession["configOptions"]>);
         },
       })
     );
@@ -231,7 +241,7 @@ describe("SetModelService", () => {
       },
     ]);
     expect(session.configOptions?.[0]?.currentValue).toBe("model-2");
-    expect(session.models).toEqual({
+    expect((session as { models: ChatSession["models"] }).models).toEqual({
       currentModelId: "model-2",
       availableModels: [
         { modelId: "model-1", name: "Model 1", description: undefined },
@@ -239,18 +249,22 @@ describe("SetModelService", () => {
         { modelId: "model-3", name: "Model 3", description: undefined },
       ],
     });
-    expect(sessionRuntime.broadcasts).toEqual([
-      {
-        chatId: "chat-1",
-        event: { type: "current_model_update", modelId: "model-2" },
-      },
-      {
-        chatId: "chat-1",
-        event: {
-          type: "config_options_update",
-          configOptions: session.configOptions ?? null,
-        },
-      },
+    expect(sessionRuntime.broadcasts[0]).toEqual({
+      chatId: "chat-1",
+      event: { type: "current_model_update", modelId: "model-2" },
+    });
+    const configUpdateBroadcast = sessionRuntime.broadcasts[1];
+    expect(configUpdateBroadcast?.chatId).toBe("chat-1");
+    expect(configUpdateBroadcast?.event.type).toBe("config_options_update");
+    const broadcastOptions =
+      configUpdateBroadcast?.event.type === "config_options_update"
+        ? configUpdateBroadcast.event.configOptions
+        : [];
+    expect(broadcastOptions[0]?.currentValue).toBe("model-2");
+    expect(getSelectOptionValues(broadcastOptions[0])).toEqual([
+      "model-2",
+      "model-1",
+      "model-3",
     ]);
   });
 
@@ -283,13 +297,13 @@ describe("SetModelService", () => {
       sessionRuntime,
       createGateway({
         session,
-        setSessionModel: async () => {
+        setSessionModel: () => {
           throw new Error("Should use config option path");
         },
-        setSessionConfigOption: async (_session, _configId, value) => {
+        setSessionConfigOption: (_session, _configId, value) => {
           configCalls.push({ configId: "primaryModel", value });
           // Return the updated config with the new selection
-          return [
+          return Promise.resolve([
             {
               id: "primaryModel",
               name: "Primary Model",
@@ -301,7 +315,7 @@ describe("SetModelService", () => {
                 name: `Model ${i}`,
               })),
             },
-          ] as NonNullable<ChatSession["configOptions"]>;
+          ] as NonNullable<ChatSession["configOptions"]>);
         },
       })
     );
@@ -317,15 +331,23 @@ describe("SetModelService", () => {
     ]);
     expect(session.configOptions?.[0]?.currentValue).toBe("model-120");
 
-    // Verify broadcast was sent with the uncapped internal configOptions
+    // Verify broadcast was sent with capped configOptions while internal state
+    // remains uncapped for validation and future mutations.
     const configUpdateBroadcast = sessionRuntime.broadcasts.find(
       (b) => b.event.type === "config_options_update"
     );
     expect(configUpdateBroadcast).toBeDefined();
-    // The broadcast should contain the session's configOptions (uncapped)
-    expect(
-      (configUpdateBroadcast!.event as { configOptions: unknown }).configOptions
-    ).toBe(session.configOptions);
+    const broadcastConfigOptions =
+      configUpdateBroadcast?.event.type === "config_options_update"
+        ? configUpdateBroadcast.event.configOptions
+        : [];
+    expect(broadcastConfigOptions[0]?.options).toHaveLength(
+      DEFAULT_MAX_VISIBLE_MODEL_COUNT
+    );
+    expect(getSelectOptionValues(broadcastConfigOptions[0])[0]).toBe(
+      "model-120"
+    );
+    expect(session.configOptions?.[0]?.options).toHaveLength(150);
   });
 
   test("set-model validates against full internal configOptions, not client-visible capped list", async () => {

@@ -25,16 +25,47 @@ import {
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 // biome-ignore lint/style/noRestrictedImports: Platform logging required for router operations
 import { createLogger } from "@/platform/logging/structured-logger";
-import type { BroadcastEvent } from "../../../shared/types/session.types";
+import type { AgentInfo } from "../../../shared/types/agent.types";
+import type {
+  BroadcastEvent,
+  SessionConfigOption,
+  SessionModelState,
+} from "../../../shared/types/session.types";
 import {
   diagnosticsLog,
   estimateJsonBytes,
   isDiagnosticsEnabled,
 } from "../../../shared/utils/diagnostics.util";
+import {
+  capSessionSelectionState,
+  shouldStripAvailableModelsForAgent,
+} from "../../../shared/utils/session-config-options.util";
 import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
 
 const logger = createLogger("tRPC");
+
+function capSelectionForClient(input: {
+  models?: SessionModelState | null;
+  configOptions?: SessionConfigOption[] | null;
+  agentInfo?: AgentInfo | null;
+}): {
+  models?: SessionModelState | null;
+  configOptions: SessionConfigOption[] | null;
+} {
+  const capped = capSessionSelectionState({
+    models: input.models,
+    configOptions: input.configOptions,
+    stripAvailableModels: shouldStripAvailableModelsForAgent(input.agentInfo),
+  });
+  return {
+    models: capped.models,
+    configOptions:
+      input.configOptions === null || input.configOptions === undefined
+        ? null
+        : capped.configOptions,
+  };
+}
 
 export const sessionRouter = router({
   /** Create a new session for a project */
@@ -47,14 +78,19 @@ export const sessionRouter = router({
         projectId: input.projectId,
         agentId: input.agentId,
       });
+      const selection = capSelectionForClient({
+        models: res.models,
+        configOptions: res.configOptions,
+        agentInfo: res.agentInfo,
+      });
       return {
         chatId: res.id,
         sessionId: res.sessionId,
         sessionLoadMethod: res.sessionLoadMethod ?? null,
         chatStatus: res.chatStatus,
         modes: res.modes,
-        models: res.models,
-        configOptions: res.configOptions ?? null,
+        models: selection.models,
+        configOptions: selection.configOptions,
         sessionInfo: res.sessionInfo ?? null,
         promptCapabilities: res.promptCapabilities,
         loadSessionSupported: res.loadSessionSupported ?? false,
@@ -86,14 +122,19 @@ export const sessionRouter = router({
         sessionId: input.sessionId,
         agentId: input.agentId,
       });
+      const selection = capSelectionForClient({
+        models: res.models,
+        configOptions: res.configOptions,
+        agentInfo: res.agentInfo,
+      });
       return {
         chatId: res.id,
         sessionId: res.sessionId,
         sessionLoadMethod: res.sessionLoadMethod ?? null,
         chatStatus: res.chatStatus,
         modes: res.modes,
-        models: res.models,
-        configOptions: res.configOptions ?? null,
+        models: selection.models,
+        configOptions: selection.configOptions,
         sessionInfo: res.sessionInfo ?? null,
         promptCapabilities: res.promptCapabilities,
         loadSessionSupported: res.loadSessionSupported ?? false,
@@ -114,7 +155,16 @@ export const sessionRouter = router({
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
       const service = ctx.sessionServices.resumeSession();
-      return await service.execute(getRequiredUserId(ctx), input.chatId);
+      const userId = getRequiredUserId(ctx);
+      const res = await service.execute(userId, input.chatId);
+      const sessionState = await ctx.sessionServices
+        .getSessionState()
+        .execute(userId, input.chatId);
+      return {
+        ...res,
+        models: sessionState.models,
+        configOptions: sessionState.configOptions,
+      };
     }),
 
   /** Delete a session */

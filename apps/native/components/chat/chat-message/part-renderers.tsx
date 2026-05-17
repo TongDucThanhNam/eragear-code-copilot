@@ -94,6 +94,7 @@ export function PartRenderers({
               state={part.state}
               title={title}
               toolCallId={part.toolCallId}
+              type={part.type}
             />
           );
         }
@@ -109,6 +110,7 @@ export function PartRenderers({
             state={part.state}
             title={title}
             toolCallId={part.toolCallId}
+            type={part.type}
           />
         );
       }

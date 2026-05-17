@@ -1,6 +1,6 @@
 import { FileIcon, GitBranchIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DiffViewer } from "./diff-viewer";
+import { ChangedFilesViewer } from "./changed-files-viewer";
 import { FileTree } from "./file-tree";
 
 export function ContextPanel() {
@@ -36,7 +36,7 @@ export function ContextPanel() {
             className="relative m-0 h-full min-h-0 overflow-hidden"
             value="changes"
           >
-            <DiffViewer />
+            <ChangedFilesViewer />
           </TabsContent>
         </div>
       </Tabs>

@@ -1,16 +1,16 @@
 import type { Context } from "hono";
 import type { ReactElement } from "react";
 import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { Document, type DocumentProps } from "./document";
 
-export async function renderDocument(
+export function renderDocument(
   c: Context,
   element: ReactElement,
   options: Omit<DocumentProps, "children">
-): Promise<Response> {
+): Response {
   const props: DocumentProps = { ...options, children: element };
-  const response = await c.render(createElement(Document, props));
-  const html = await response.text();
+  const html = renderToString(createElement(Document, props));
   const fullHtml = `<!DOCTYPE html>${html}`;
   return c.html(fullHtml);
 }

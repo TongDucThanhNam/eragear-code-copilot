@@ -46,28 +46,6 @@
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.main-title::before {
-  content: "";
-  position: absolute;
-  inset: -8px;
-  border: 3px solid var(--ink);
-  opacity: 0;
-  transform: scale(0.95) rotate(-1deg);
-  transition: all 0.4s ease;
-  pointer-events: none;
-  z-index: -1;
-}
-
-.main-title:hover::before {
-  opacity: 0.15;
-  transform: scale(1.02) rotate(1deg);
-}
-
-.main-title:hover {
-  text-shadow:
-    2px 2px 0 rgba(17, 17, 17, 0.05),
-    4px 4px 0 rgba(17, 17, 17, 0.03);
-}
 
 .newsprint-dots {
   animation: dotsFloat 20s linear infinite;

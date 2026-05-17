@@ -1,8 +1,7 @@
 import { useMemo } from "react";
-import { FileDiffView } from "@/components/chat-ui/file-diff-view";
 import { useDiffStore } from "@/store/diff-store";
 
-export function DiffViewer() {
+export function ChangedFilesViewer() {
   const diffs = useDiffStore((state) => state.diffs);
 
   const sortedDiffs = useMemo(() => {
@@ -19,19 +18,17 @@ export function DiffViewer() {
 
   return (
     <div className="absolute inset-0 overflow-y-auto">
-      <div className="flex min-h-full flex-col">
+      <ul className="flex min-h-full flex-col">
         {sortedDiffs.map((diff) => (
-          <div className="border-b last:border-b-0" key={diff.path}>
-            <div className="overflow-x-auto text-[13px]">
-              <FileDiffView
-                filename={diff.path}
-                modified={diff.newText}
-                original={diff.oldText}
-              />
-            </div>
-          </div>
+          <li
+            className="border-b px-3 py-2 font-mono text-xs last:border-b-0"
+            key={diff.path}
+            title={diff.path}
+          >
+            <span className="block truncate">{diff.path}</span>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

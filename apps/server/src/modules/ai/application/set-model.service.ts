@@ -12,9 +12,11 @@ import { assertSessionMutationLock } from "@/modules/session/application/session
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
+  capSessionSelectionState,
   findSessionConfigOption,
   getSessionConfigOptionCurrentValue,
   hasSessionConfigOptionValue,
+  shouldStripAvailableModelsForAgent,
   syncSessionSelectionFromConfigOptions,
   updateSessionConfigOptionCurrentValue,
 } from "@/shared/utils/session-config-options.util";
@@ -119,9 +121,16 @@ export class SetModelService {
         modelId,
       });
       if (configOptionUpdated && session.configOptions) {
+        const capped = capSessionSelectionState({
+          models: session.models,
+          configOptions: session.configOptions,
+          stripAvailableModels: shouldStripAvailableModelsForAgent(
+            session.agentInfo
+          ),
+        });
         await this.sessionRuntime.broadcast(chatId, {
           type: "config_options_update",
-          configOptions: session.configOptions,
+          configOptions: capped.configOptions,
         });
       }
       return { ok: true };

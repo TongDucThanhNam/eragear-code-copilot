@@ -156,21 +156,34 @@ export const buildMessageCopyText = (message: UIMessage) => {
 export type ParsedToolOutput = {
   result: ToolUIPart["output"];
   terminalIds: string[];
-  diffs: Array<{ path: string; oldText?: string; newText: string }>;
+  changedFilePaths: string[];
 };
 
 export const parseToolOutput = (
   output: ToolUIPart["output"]
 ): ParsedToolOutput => {
   if (!Array.isArray(output)) {
+    if (
+      output &&
+      typeof output === "object" &&
+      "type" in output &&
+      (output as { type?: unknown }).type === "diff" &&
+      typeof (output as { path?: unknown }).path === "string"
+    ) {
+      return {
+        result: undefined,
+        terminalIds: [],
+        changedFilePaths: [(output as { path: string }).path],
+      };
+    }
     return {
       result: output,
       terminalIds: [],
-      diffs: [],
+      changedFilePaths: [],
     };
   }
   const terminalIds = new Set<string>();
-  const diffs: Array<{ path: string; oldText?: string; newText: string }> = [];
+  const changedFilePaths = new Set<string>();
   const textParts: string[] = [];
   const residualItems: unknown[] = [];
   for (const item of output) {
@@ -180,20 +193,14 @@ export const parseToolOutput = (
         type: string;
         terminalId?: string;
         path?: string;
-        oldText?: string;
-        newText?: string;
         content?: { type?: string; text?: string };
       };
       if (typed.type === "terminal" && typed.terminalId) {
         terminalIds.add(typed.terminalId);
         handled = true;
       }
-      if (typed.type === "diff" && typed.path && typed.newText) {
-        diffs.push({
-          path: typed.path,
-          oldText: typed.oldText,
-          newText: typed.newText,
-        });
+      if (typed.type === "diff" && typed.path) {
+        changedFilePaths.add(typed.path);
         handled = true;
       }
       if (
@@ -219,7 +226,80 @@ export const parseToolOutput = (
   } else {
     result = residualItems as ToolUIPart["output"];
   }
-  return { result, terminalIds: Array.from(terminalIds), diffs };
+  return {
+    result,
+    terminalIds: Array.from(terminalIds),
+    changedFilePaths: Array.from(changedFilePaths),
+  };
+};
+
+const FILE_PATH_KEYS = new Set([
+  "file",
+  "filePath",
+  "file_path",
+  "filename",
+  "path",
+  "targetFile",
+  "target_file",
+]);
+
+const FILE_EDIT_TOOL_PATTERN = new RegExp(
+  [
+    "(^|[-_/])(edit|write|patch|replace|modify|update)([-_/]|$)",
+    "write_file",
+    "writefile",
+    "edit_file",
+    "editfile",
+  ].join("|"),
+  "u"
+);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const collectInputFilePaths = (
+  value: unknown,
+  paths: Set<string>,
+  depth = 0
+) => {
+  if (depth > 4 || value === null || value === undefined) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectInputFilePaths(item, paths, depth + 1);
+    }
+    return;
+  }
+  if (!isRecord(value)) {
+    return;
+  }
+  for (const [key, nestedValue] of Object.entries(value)) {
+    if (
+      FILE_PATH_KEYS.has(key) &&
+      typeof nestedValue === "string" &&
+      nestedValue.trim().length > 0
+    ) {
+      paths.add(nestedValue.trim());
+    }
+    collectInputFilePaths(nestedValue, paths, depth + 1);
+  }
+};
+
+export const isFileEditTool = (tool: ToolUIPart) => {
+  const label = `${tool.type} ${tool.title ?? ""}`.toLowerCase();
+  return FILE_EDIT_TOOL_PATTERN.test(label);
+};
+
+export const getToolChangedFilePaths = (
+  tool: ToolUIPart,
+  parsedOutput: ParsedToolOutput
+) => {
+  const paths = new Set(parsedOutput.changedFilePaths);
+  if (isFileEditTool(tool)) {
+    collectInputFilePaths(tool.input, paths);
+  }
+  return Array.from(paths);
 };
 
 const messageTerminalIdCache = new WeakMap<UIMessage, string[]>();

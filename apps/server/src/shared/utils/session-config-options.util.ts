@@ -1,4 +1,5 @@
 import { DEFAULT_MAX_VISIBLE_MODEL_COUNT } from "@/config/constants";
+import type { AgentInfo } from "@/shared/types/agent.types";
 import type {
   SessionConfigOption,
   SessionModelState,
@@ -40,6 +41,27 @@ export interface CapModelListResult {
   truncated: boolean;
   /** Number of models dropped from the model list. */
   truncatedCount: number;
+}
+
+export interface CapSessionSelectionStateParams {
+  models?: SessionModelState | null;
+  configOptions?: SessionConfigOption[] | null;
+  maxVisible?: number;
+  stripAvailableModels?: boolean;
+}
+
+export interface CapSessionSelectionStateResult {
+  models?: SessionModelState | null;
+  configOptions: SessionConfigOption[];
+  truncated: boolean;
+  truncatedCount: number;
+}
+
+export function shouldStripAvailableModelsForAgent(
+  agentInfo?: AgentInfo | null
+): boolean {
+  const candidates = [agentInfo?.name, agentInfo?.title];
+  return candidates.some((value) => normalizeAgentLabel(value) === "opencode");
 }
 
 interface SessionSelectionTarget {
@@ -91,6 +113,10 @@ function hasNonEmptyString(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function normalizeAgentLabel(value: string | null | undefined): string {
+  return value?.replace(/\s+/g, "").toLowerCase() ?? "";
+}
+
 /**
  * Caps a config option's values to maxVisible items, preserving currentValue.
  * Flattens nested grouped options into a flat options array.
@@ -112,7 +138,9 @@ function capConfigOption(
     );
     if (currentIdx > 0) {
       const [removed] = flatOptions.splice(currentIdx, 1);
-      flatOptions.unshift(removed!);
+      if (removed) {
+        flatOptions.unshift(removed);
+      }
     }
   }
 
@@ -279,6 +307,35 @@ export function capModelList(params: CapModelListParams): CapModelListResult {
     configOptions: resultConfigOptions,
     truncated,
     truncatedCount,
+  };
+}
+
+export function capSessionSelectionState(
+  params: CapSessionSelectionStateParams
+): CapSessionSelectionStateResult {
+  const capped = capModelList({
+    models: params.models?.availableModels,
+    configOptions: params.configOptions,
+    currentModelId: params.models?.currentModelId,
+    maxVisible: params.maxVisible,
+  });
+  const configOptions = params.stripAvailableModels
+    ? capped.configOptions.filter(
+        (option) =>
+          !(option.category === "model" || option.id.toLowerCase() === "model")
+      )
+    : capped.configOptions;
+
+  return {
+    models: params.models
+      ? {
+          ...params.models,
+          availableModels: params.stripAvailableModels ? [] : capped.models,
+        }
+      : params.models,
+    configOptions,
+    truncated: capped.truncated,
+    truncatedCount: capped.truncatedCount,
   };
 }
 

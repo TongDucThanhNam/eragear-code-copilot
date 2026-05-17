@@ -37,7 +37,7 @@ export function DashboardHeader() {
           </div>
 
           <div className="text-center">
-            <p className="masthead-title font-black font-display text-[10px] text-ink uppercase tracking-[0.4em] sm:text-xs">
+            <p className="masthead-title font-black font-display text-[10px] text-ink uppercase sm:text-xs">
               {`The ${APP_BRAND_NAME} Gazette`}
             </p>
           </div>
@@ -63,11 +63,8 @@ export function DashboardHeader() {
       </div>
 
       <div className="relative overflow-hidden py-5 text-center sm:py-8 lg:py-10">
-        <div className="absolute top-0 right-0 left-0 h-px bg-gradient-to-r from-transparent via-ink to-transparent opacity-20" />
-        <div className="absolute right-0 bottom-0 left-0 h-px bg-gradient-to-r from-transparent via-ink to-transparent opacity-20" />
-
         <div className="relative px-3 sm:px-5">
-          <h1 className="main-title font-black font-display text-4xl text-ink uppercase leading-[0.85] tracking-tighter transition-all duration-500 sm:text-6xl lg:text-7xl">
+          <h1 className="main-title font-black font-display text-4xl text-ink uppercase leading-[0.85] sm:text-6xl lg:text-7xl">
             {APP_SERVER_TITLE}
           </h1>
 

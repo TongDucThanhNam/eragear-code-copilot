@@ -12,8 +12,10 @@ import { assertSessionMutationLock } from "@/modules/session/application/session
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
+  capSessionSelectionState,
   findSessionConfigOption,
   hasSessionConfigOptionValue,
+  shouldStripAvailableModelsForAgent,
   syncSessionSelectionFromConfigOptions,
   updateSessionConfigOptionCurrentValue,
 } from "@/shared/utils/session-config-options.util";
@@ -79,7 +81,7 @@ export class SetModeService {
           op: OP,
           details: { modeId },
         });
-        return currentSession;
+        return Promise.resolve(currentSession);
       });
 
       const nextConfigOptions = await this.sendModeSwitchWithRetry(
@@ -135,9 +137,16 @@ export class SetModeService {
           modeId,
         });
         if (configOptionUpdated && session.configOptions) {
+          const capped = capSessionSelectionState({
+            models: session.models,
+            configOptions: session.configOptions,
+            stripAvailableModels: shouldStripAvailableModelsForAgent(
+              session.agentInfo
+            ),
+          });
           await this.sessionRuntime.broadcast(chatId, {
             type: "config_options_update",
-            configOptions: session.configOptions,
+            configOptions: capped.configOptions,
           });
         }
         return { ok: true };

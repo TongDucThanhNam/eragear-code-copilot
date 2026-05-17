@@ -93,7 +93,7 @@ export function registerDashboardUiRoutes(
       title: `${APP_SERVER_TITLE} Login`,
       head: createElement(LoginHead, { username }),
       bodyClassName:
-        "flex min-h-screen flex-col bg-[#F9F9F7] font-body text-[#111111] antialiased",
+        "flex min-h-screen w-full flex-col bg-[#F9F9F7] font-body text-[#111111] antialiased",
     });
   });
 

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { DEFAULT_MAX_VISIBLE_MODEL_COUNT } from "@/config/constants";
 import type { SessionConfigOption } from "@/shared/types/session.types";
-import { capModelList } from "./session-config-options.util";
+import {
+  capModelList,
+  capSessionSelectionState,
+  shouldStripAvailableModelsForAgent,
+} from "./session-config-options.util";
 
 const makeModel = (modelId: string, name?: string) => ({
   modelId,
@@ -518,6 +522,52 @@ describe("capModelList", () => {
       expect(result.models.length).toBe(100);
       expect(result.truncated).toBe(true);
       expect(result.truncatedCount).toBe(100);
+    });
+  });
+
+  describe("OpenCode client projection", () => {
+    it("detects OpenCode agent labels", () => {
+      expect(shouldStripAvailableModelsForAgent({ name: "OpenCode" })).toBe(
+        true
+      );
+      expect(shouldStripAvailableModelsForAgent({ title: "Open Code" })).toBe(
+        true
+      );
+      expect(shouldStripAvailableModelsForAgent({ name: "Codex" })).toBe(
+        false
+      );
+    });
+
+    it("strips model availability while preserving current model id", () => {
+      const result = capSessionSelectionState({
+        models: {
+          currentModelId: "openai/gpt-5.5",
+          availableModels: [
+            makeModel("openai/gpt-5.5"),
+            makeModel("openai/gpt-5.4"),
+          ],
+        },
+        configOptions: [
+          makeModelOption("model", "openai/gpt-5.5", [
+            { value: "openai/gpt-5.5" },
+            { value: "openai/gpt-5.4" },
+          ]),
+          {
+            id: "mode",
+            name: "Mode",
+            type: "select",
+            currentValue: "build",
+            options: [{ value: "build", name: "Build" }],
+            category: "mode",
+            description: null,
+          },
+        ],
+        stripAvailableModels: true,
+      });
+
+      expect(result.models?.currentModelId).toBe("openai/gpt-5.5");
+      expect(result.models?.availableModels).toEqual([]);
+      expect(result.configOptions.map((option) => option.id)).toEqual(["mode"]);
     });
   });
 });
