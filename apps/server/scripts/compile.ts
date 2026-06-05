@@ -25,17 +25,22 @@ async function runCommand(command: string, args: string[]): Promise<void> {
 
 const cwd = process.cwd();
 const distDir = resolve(cwd, "dist");
+const debug = process.argv.includes("--debug");
 
 await runCommand("bun", ["run", "build"]);
-await runCommand("bun", [
+const compileArgs = [
   "build",
   "--compile",
   "--minify",
-  "--sourcemap",
   "./src/index.ts",
+  "./src/bootstrap/sqlite-worker.entry.ts",
   "--outfile",
   "dist/server",
-]);
+];
+if (debug) {
+  compileArgs.splice(3, 0, "--sourcemap");
+}
+await runCommand("bun", compileArgs);
 await mkdir(distDir, { recursive: true });
 await copyFile(
   resolve(cwd, "settings.example.json"),

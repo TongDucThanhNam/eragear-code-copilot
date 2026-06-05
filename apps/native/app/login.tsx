@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import {
   Button,
   Description,
@@ -65,7 +64,6 @@ function normalizeErrorMessage(
 }
 
 export default function LoginScreen() {
-  const router = useRouter();
   const themeColorAccentForeground = useThemeColor("accent-foreground");
   const { toast } = useToast();
   const hostHint =
@@ -194,7 +192,6 @@ export default function LoginScreen() {
       clearConnectionError();
       setPasswordInput("");
       toast.show("Signed in successfully!");
-      router.replace("/");
     } catch (loginError) {
       await clearStoredBetterAuthSession(normalizedServerUrl);
       bumpAuthVersion();

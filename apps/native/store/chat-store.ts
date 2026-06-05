@@ -110,7 +110,8 @@ interface ChatState {
   addSession: (session: StoredSessionInfo) => void;
   updateSessionStatus: (
     id: string,
-    status: StoredSessionInfo["status"]
+    status: StoredSessionInfo["status"],
+    options?: { isActive?: boolean }
   ) => void;
   removeSession: (id: string) => void;
 
@@ -300,10 +301,18 @@ export const useChatStore = create<ChatState>()(
           ],
         })),
 
-      updateSessionStatus: (id, status) =>
+      updateSessionStatus: (id, status, options) =>
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === id ? { ...s, status } : s
+            s.id === id
+              ? {
+                  ...s,
+                  status,
+                  ...(options?.isActive !== undefined
+                    ? { isActive: options.isActive }
+                    : {}),
+                }
+              : s
           ),
         })),
 

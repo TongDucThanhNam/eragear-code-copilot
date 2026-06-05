@@ -10,6 +10,7 @@ import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { toError } from "@/shared/utils/error.util";
 import { stringifyJson } from "@/shared/utils/json.util";
+import { materializeEmbeddedSqliteMigrations } from "./sqlite-embedded-migrations";
 import { migrateLegacyJsonIfNeeded } from "./sqlite-legacy-migration";
 import {
   acquireSqliteProcessInitLock,
@@ -367,7 +368,7 @@ export function setSqliteSetting(db: Database, key: string, value: unknown) {
   ).run(key, stringifyJson(value));
 }
 
-async function resolveMigrationsFolder(): Promise<string> {
+async function resolveMigrationsFolder(storageDir: string): Promise<string> {
   const configuredMigrationsDir = ENV.sqliteMigrationsDir;
   const trustedRoots = [
     path.resolve(process.cwd()),
@@ -412,6 +413,16 @@ async function resolveMigrationsFolder(): Promise<string> {
     }
   }
 
+  const embeddedMigrationsFolder =
+    await materializeEmbeddedSqliteMigrations(storageDir);
+  if (
+    await pathExists(
+      path.join(embeddedMigrationsFolder, "meta", "_journal.json")
+    )
+  ) {
+    return embeddedMigrationsFolder;
+  }
+
   throw new Error(
     `[Storage] Drizzle migrations folder not found. Expected \`meta/_journal.json\` under one of: ${dedupedCandidates.join(
       ", "
@@ -419,8 +430,11 @@ async function resolveMigrationsFolder(): Promise<string> {
   );
 }
 
-async function ensureSqliteSchema(db: Database): Promise<void> {
-  const migrationsFolder = await resolveMigrationsFolder();
+async function ensureSqliteSchema(
+  db: Database,
+  storageDir: string
+): Promise<void> {
+  const migrationsFolder = await resolveMigrationsFolder(storageDir);
   const orm = drizzle({ client: db });
   migrate(orm, { migrationsFolder });
 
@@ -462,7 +476,7 @@ async function initializeSqliteDb(): Promise<Database> {
   try {
     db = new Database(dbPath);
     configureSqliteConnection(db);
-    await ensureSqliteSchema(db);
+    await ensureSqliteSchema(db, storageDir);
     persistStorageResolutionMeta(db);
     await migrateLegacyJsonIfNeeded({
       db,

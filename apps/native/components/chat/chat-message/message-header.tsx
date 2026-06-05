@@ -20,12 +20,6 @@ export function MessageHeader({ message, isLiveMessage }: MessageHeaderProps) {
 
   return (
     <View className="mb-2 flex-row items-center gap-3">
-      <View className="h-8 w-8 items-center justify-center rounded-lg bg-accent">
-        <Ionicons color={accentForeground} name="terminal-outline" size={18} />
-      </View>
-      <Text className="font-semibold text-base text-foreground">
-        SOLO MTC
-      </Text>
       <Text className="text-muted-foreground/50 text-xs">·</Text>
       <Text className="text-muted-foreground text-xs">
         {formatMessageTime(getMessageTimestamp(message))}

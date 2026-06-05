@@ -1,6 +1,5 @@
 "use client";
 
-import type { ToolUIPart } from "@repo/shared";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Queue,
@@ -78,37 +77,48 @@ const renderPlanHeaderContent = ({
   </div>
 );
 
+const PlanEntryItem = memo(function PlanEntryItem({
+  content,
+  status,
+}: PlanEntry) {
+  const isCompleted = status === "completed";
+  const isInProgress = status === "in_progress";
+  const isFailed = status === "failed";
+
+  return (
+    <QueueItem>
+      <div className="flex items-start gap-2">
+        <QueueItemIndicator
+          className={cn(
+            isInProgress && "animate-pulse border-blue-500/70 bg-blue-500/20",
+            isFailed && "border-red-500/70 bg-red-500/20"
+          )}
+          completed={isCompleted}
+        />
+        <QueueItemContent
+          className={cn(
+            "line-clamp-none",
+            isInProgress && "text-foreground",
+            isFailed && "text-red-500"
+          )}
+          completed={isCompleted}
+        >
+          {content}
+        </QueueItemContent>
+      </div>
+    </QueueItem>
+  );
+});
+
 const renderPlanEntries = (entries: PlanEntry[]) => (
   <QueueList>
-    {entries.map((entry, index) => {
-      const isCompleted = entry.status === "completed";
-      const isInProgress = entry.status === "in_progress";
-      const isFailed = entry.status === "failed";
-
-      return (
-        <QueueItem key={`${entry.content}-${index}`}>
-          <div className="flex items-start gap-2">
-            <QueueItemIndicator
-              className={cn(
-                isInProgress && "animate-pulse border-blue-500/70 bg-blue-500/20",
-                isFailed && "border-red-500/70 bg-red-500/20"
-              )}
-              completed={isCompleted}
-            />
-            <QueueItemContent
-              className={cn(
-                "line-clamp-none",
-                isInProgress && "text-foreground",
-                isFailed && "text-red-500"
-              )}
-              completed={isCompleted}
-            >
-              {entry.content}
-            </QueueItemContent>
-          </div>
-        </QueueItem>
-      );
-    })}
+    {entries.map((entry, index) => (
+      <PlanEntryItem
+        content={entry.content}
+        key={`${entry.content}-${index}`}
+        status={entry.status}
+      />
+    ))}
   </QueueList>
 );
 

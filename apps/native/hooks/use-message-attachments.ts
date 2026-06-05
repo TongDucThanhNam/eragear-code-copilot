@@ -65,7 +65,7 @@ export function useMessageAttachments(options: {
 
   const readFileAsBase64 = useCallback(async (uri: string) => {
     return await FileSystem.readAsStringAsync(uri, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding: "base64",
     });
   }, []);
 

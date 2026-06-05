@@ -18,24 +18,26 @@ export function ChainStep({
   children,
 }: ChainStepProps) {
   return (
-    <View className="flex-row gap-3">
-      <View className="w-6 items-center">
+    <View className="flex-row gap-2.5">
+      <View className="w-5 items-center">
         <View
           className={cn(
-            "h-6 w-6 items-center justify-center rounded-full border border-divider bg-background",
-            isActive && "border-accent/60 bg-accent/10"
+            "h-5 w-5 items-center justify-center rounded-full bg-default",
+            isActive && "bg-accent/10"
           )}
         >
           {getChainIcon(part, isActive)}
         </View>
         {!isLast && (
           <View
-            className="mt-1 w-px flex-1 bg-divider"
-            style={{ minHeight: 12 }}
+            className="mt-1 w-px flex-1 bg-divider/70"
+            style={{ minHeight: 8 }}
           />
         )}
       </View>
-      <View className={cn("flex-1", !isLast && "pb-3")}>{children}</View>
+      <View className={cn("min-w-0 flex-1", !isLast && "pb-2")}>
+        {children}
+      </View>
     </View>
   );
 }

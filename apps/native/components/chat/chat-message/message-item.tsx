@@ -72,6 +72,15 @@ function propsAreEqual(
   if (prev.message.id !== next.message.id) {
     return false;
   }
+  if (prev.message.role !== next.message.role) {
+    return false;
+  }
+  if (prev.message.createdAt !== next.message.createdAt) {
+    return false;
+  }
+  if (prev.message.metadata !== next.message.metadata) {
+    return false;
+  }
   if (prev.message.parts !== next.message.parts) {
     return false;
   }

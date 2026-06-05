@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { Worker } from "node:worker_threads";
+import { Worker as NodeWorker } from "node:worker_threads";
 import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
 import type { AppConfig } from "@/shared/types/settings.types";
@@ -24,9 +24,23 @@ interface PendingRequest {
 }
 
 type SqliteWorkerFactory = (
-  entryPath: string,
+  entryPath: string | URL,
   initData: SqliteWorkerInitData
-) => Worker;
+) => SqliteWorkerHandle;
+
+type SqliteWorkerEvent = "message" | "error" | "exit";
+type SqliteWorkerListener = (...args: unknown[]) => void;
+
+interface SqliteWorkerHandle {
+  postMessage(message: unknown): void;
+  terminate(): Promise<unknown>;
+  on(event: "message", listener: (message: unknown) => void): this;
+  on(event: "error", listener: (error: Error) => void): this;
+  on(event: "exit", listener: (code: number) => void): this;
+  off(event: "message", listener: (message: unknown) => void): this;
+  off(event: "error", listener: (error: Error) => void): this;
+  off(event: "exit", listener: (code: number) => void): this;
+}
 
 export interface SqliteWorkerHealthStats {
   recycleCount: number;
@@ -35,16 +49,80 @@ export interface SqliteWorkerHealthStats {
   lastRecycleAt: number | null;
 }
 
-const defaultSqliteWorkerFactory: SqliteWorkerFactory = (entryPath, initData) =>
-  new Worker(entryPath, { workerData: initData });
+const EMBEDDED_SQLITE_WORKER_ENTRYPOINT =
+  "src/bootstrap/sqlite-worker.entry.ts";
 
-let sqliteWorker: Worker | null = null;
+class StandaloneSqliteWorker implements SqliteWorkerHandle {
+  private readonly worker: Worker;
+  private readonly listeners = new Map<
+    SqliteWorkerEvent,
+    Set<SqliteWorkerListener>
+  >();
+  private exited = false;
+
+  constructor(worker: Worker) {
+    this.worker = worker;
+    this.worker.onmessage = (event) => {
+      this.emit("message", event.data);
+    };
+    this.worker.onerror = (event) => {
+      this.emit("error", new Error(event.message));
+    };
+  }
+
+  postMessage(message: unknown): void {
+    this.worker.postMessage(message);
+  }
+
+  async terminate(): Promise<void> {
+    if (this.exited) {
+      return;
+    }
+    this.exited = true;
+    await this.worker.terminate();
+    this.emit("exit", 0);
+  }
+
+  on(event: SqliteWorkerEvent, listener: SqliteWorkerListener): this {
+    const listeners = this.listeners.get(event) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+    return this;
+  }
+
+  off(event: SqliteWorkerEvent, listener: SqliteWorkerListener): this {
+    this.listeners.get(event)?.delete(listener);
+    return this;
+  }
+
+  private emit(event: SqliteWorkerEvent, ...args: unknown[]): void {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener(...args);
+    }
+  }
+}
+
+const defaultSqliteWorkerFactory: SqliteWorkerFactory = (
+  entryPath,
+  initData
+) => {
+  if (isStandaloneExecutable()) {
+    return new StandaloneSqliteWorker(
+      new Worker("src/bootstrap/sqlite-worker.entry.ts", {
+        workerData: initData,
+      } as WorkerOptions)
+    );
+  }
+  return new NodeWorker(entryPath, { workerData: initData });
+};
+
+let sqliteWorker: SqliteWorkerHandle | null = null;
 let sqliteWorkerStartError: Error | null = null;
 let sqliteWorkerRequestId = 0;
 let sqliteWorkerAllowedRoots: string[] = [];
 const pendingRequests = new Map<number, PendingRequest>();
 let sqliteWorkerRecyclePromise: Promise<void> | null = null;
-let sqliteWorkerStartupPromise: Promise<Worker> | null = null;
+let sqliteWorkerStartupPromise: Promise<SqliteWorkerHandle> | null = null;
 let sqliteWorkerFactory: SqliteWorkerFactory = defaultSqliteWorkerFactory;
 const sqliteWorkerStats: SqliteWorkerHealthStats = {
   recycleCount: 0,
@@ -74,7 +152,15 @@ function normalizeRoots(roots: string[]): string[] {
   return [...new Set(normalized)];
 }
 
-function resolveWorkerEntrypointPath(): string {
+function isStandaloneExecutable(): boolean {
+  return process.argv.some((arg) => arg.includes("$bunfs"));
+}
+
+function resolveWorkerEntrypointPath(): string | URL {
+  if (isStandaloneExecutable()) {
+    return EMBEDDED_SQLITE_WORKER_ENTRYPOINT;
+  }
+
   const runtimeDir = path.dirname(process.execPath);
   const fromDistRuntime = runtimeDir.includes(`${path.sep}dist`);
   const srcFromCwd = [
@@ -115,7 +201,7 @@ function rejectAllPending(error: Error): void {
 function recycleSqliteWorker(
   reason: string,
   cause: Error,
-  workerOverride?: Worker
+  workerOverride?: SqliteWorkerHandle
 ): Promise<void> {
   if (sqliteWorkerRecyclePromise) {
     return sqliteWorkerRecyclePromise;
@@ -192,7 +278,7 @@ function handleWorkerResponseMessage(raw: unknown): void {
   pending.reject(resolveWorkerResponseError(message));
 }
 
-function attachRuntimeWorkerListeners(worker: Worker): void {
+function attachRuntimeWorkerListeners(worker: SqliteWorkerHandle): void {
   worker.on("message", handleWorkerResponseMessage);
   worker.on("error", (error) => {
     logger.error("SQLite worker runtime error", toError(error));
@@ -213,7 +299,7 @@ function attachRuntimeWorkerListeners(worker: Worker): void {
   });
 }
 
-async function startSqliteWorker(): Promise<Worker> {
+async function startSqliteWorker(): Promise<SqliteWorkerHandle> {
   if (sqliteWorkerAllowedRoots.length === 0) {
     throw new Error(
       "[Storage] SQLite worker cannot start before allowed roots are configured."
@@ -228,55 +314,57 @@ async function startSqliteWorker(): Promise<Worker> {
   const worker = sqliteWorkerFactory(entryPath, initData);
 
   try {
-    const readyWorker = await new Promise<Worker>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(
-          new Error(
-            `[Storage] SQLite worker startup timed out after ${SQLITE_WORKER_READY_TIMEOUT_MS}ms`
-          )
-        );
-      }, SQLITE_WORKER_READY_TIMEOUT_MS);
-      timer.unref?.();
+    const readyWorker = await new Promise<SqliteWorkerHandle>(
+      (resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(
+            new Error(
+              `[Storage] SQLite worker startup timed out after ${SQLITE_WORKER_READY_TIMEOUT_MS}ms`
+            )
+          );
+        }, SQLITE_WORKER_READY_TIMEOUT_MS);
+        timer.unref?.();
 
-      const handleStartupError = (error: unknown) => {
-        cleanup();
-        reject(toError(error, "SQLite worker failed before ready"));
-      };
+        const handleStartupError = (error: unknown) => {
+          cleanup();
+          reject(toError(error, "SQLite worker failed before ready"));
+        };
 
-      const handleStartupExit = (code: number) => {
-        cleanup();
-        reject(
-          new Error(
-            `[Storage] SQLite worker exited before ready with code ${code}`
-          )
-        );
-      };
+        const handleStartupExit = (code: number) => {
+          cleanup();
+          reject(
+            new Error(
+              `[Storage] SQLite worker exited before ready with code ${code}`
+            )
+          );
+        };
 
-      const handleReady = (raw: unknown) => {
-        const message = raw as SqliteWorkerMessage;
-        if (message?.type !== "ready") {
-          return;
-        }
-        cleanup();
-        attachRuntimeWorkerListeners(worker);
-        sqliteWorker = worker;
-        sqliteWorkerStartError = null;
-        logger.info("SQLite worker started", { entryPath });
-        resolve(worker);
-      };
+        const handleReady = (raw: unknown) => {
+          const message = raw as SqliteWorkerMessage;
+          if (message?.type !== "ready") {
+            return;
+          }
+          cleanup();
+          attachRuntimeWorkerListeners(worker);
+          sqliteWorker = worker;
+          sqliteWorkerStartError = null;
+          logger.info("SQLite worker started", { entryPath });
+          resolve(worker);
+        };
 
-      const cleanup = () => {
-        clearTimeout(timer);
-        worker.off("message", handleReady);
-        worker.off("error", handleStartupError);
-        worker.off("exit", handleStartupExit);
-      };
+        const cleanup = () => {
+          clearTimeout(timer);
+          worker.off("message", handleReady);
+          worker.off("error", handleStartupError);
+          worker.off("exit", handleStartupExit);
+        };
 
-      worker.on("message", handleReady);
-      worker.on("error", handleStartupError);
-      worker.on("exit", handleStartupExit);
-    });
+        worker.on("message", handleReady);
+        worker.on("error", handleStartupError);
+        worker.on("exit", handleStartupExit);
+      }
+    );
     return readyWorker;
   } catch (error) {
     const startError = toError(error, "Failed to start SQLite worker");
@@ -290,7 +378,7 @@ async function startSqliteWorker(): Promise<Worker> {
   }
 }
 
-function ensureSqliteWorker(): Promise<Worker> {
+function ensureSqliteWorker(): Promise<SqliteWorkerHandle> {
   if (!ENV.sqliteWorkerEnabled) {
     throw new Error("[Storage] STORAGE_WORKER_ENABLED is false");
   }
@@ -334,7 +422,7 @@ export function configureSqliteWorkerAllowedRoots(
 }
 
 function callSqliteWorkerOn<T>(
-  worker: Worker,
+  worker: SqliteWorkerHandle,
   service: SqliteWorkerService,
   method: string,
   args: unknown[]

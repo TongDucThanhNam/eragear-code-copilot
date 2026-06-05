@@ -6,17 +6,6 @@
  * @module transport/http/constants
  */
 
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
-
-/** Path to the public dashboard assets directory */
-export const PUBLIC_DASHBOARD_ASSETS_PATH = join(
-  __dirname,
-  "../../../public/dashboard"
-);
-
 /** Dashboard UI entry path */
 export const DASHBOARD_UI_PATH = "/_/dashboard";
 
@@ -25,9 +14,6 @@ export const DASHBOARD_ASSET_PATH = "/_/dashboard/assets";
 
 /** Regex to match dashboard asset path prefix */
 export const DASHBOARD_ASSET_PATH_PREFIX = /^\/_\/dashboard\/assets\//;
-
-/** Regex to remove leading slashes from paths */
-export const LEADING_SLASHES = /^\/+/;
 
 /** HTTP status codes */
 export const HTTP_STATUS = {

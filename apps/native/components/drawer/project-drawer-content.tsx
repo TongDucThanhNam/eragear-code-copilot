@@ -30,6 +30,12 @@ export function ProjectDrawerContent({
 
   const setActiveProjectMutation = trpc.setActiveProject.useMutation();
 
+  const handleSelectAllTasks = useCallback(() => {
+    setActiveProjectId(null);
+    setActiveProjectMutation.mutate({ id: null });
+    onProjectSelect?.();
+  }, [setActiveProjectId, setActiveProjectMutation, onProjectSelect]);
+
   const handleSelectProject = useCallback(
     (projectId: string) => {
       setActiveProjectId(projectId);
@@ -156,6 +162,37 @@ export function ProjectDrawerContent({
           Projects
         </Text>
       </View>
+
+      <Pressable
+        accessibilityLabel="Show all tasks"
+        accessibilityRole="button"
+        onPress={handleSelectAllTasks}
+      >
+        <Surface
+          className={`mx-3 mb-2 flex-row items-center gap-3 rounded-xl border p-3 ${
+            activeProjectId === null ? "border-primary" : ""
+          }`}
+        >
+          <View className="h-10 w-10 items-center justify-center rounded-full bg-default">
+            <Ionicons color={themeColorMuted} name="albums-outline" size={20} />
+          </View>
+          <View className="flex-1">
+            <Text
+              className={`font-medium ${
+                activeProjectId === null ? "text-primary" : "text-foreground"
+              }`}
+            >
+              All Tasks
+            </Text>
+            <Text className="text-muted-foreground text-xs" numberOfLines={1}>
+              Show sessions from every project
+            </Text>
+          </View>
+          {activeProjectId === null ? (
+            <Ionicons color={themeColorSuccess} name="checkmark-circle" size={20} />
+          ) : null}
+        </Surface>
+      </Pressable>
 
       {projects.length === 0 ? (
         <View className="flex-1 items-center justify-center px-4 py-8">

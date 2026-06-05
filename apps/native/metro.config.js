@@ -10,6 +10,8 @@ const rootNodeModules = path.resolve(workspaceRoot, "node_modules");
 const projectNodeModules = path.resolve(projectRoot, "node_modules");
 const config = getDefaultConfig(projectRoot);
 const rootResolvedPackages = new Set([
+  "@react-navigation",
+  "expo-router",
   "react",
   "react-dom",
   "react-native",

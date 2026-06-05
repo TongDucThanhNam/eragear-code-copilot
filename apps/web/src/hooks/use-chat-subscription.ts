@@ -153,24 +153,6 @@ export function useChatSubscription(params: UseChatSubscriptionParams) {
           });
         }
 
-        // DEBUG: Log raw event before parsing
-        if (
-          typeof rawEvent === "object" &&
-          rawEvent !== null &&
-          "type" in rawEvent &&
-          (rawEvent as { type?: string }).type === "ui_message_part"
-        ) {
-          const partId = (rawEvent as { partId?: unknown }).partId;
-          console.debug("[Client] Raw ui_message_part event:", {
-            partId,
-            partIdType: typeof partId,
-            partIdRepr:
-              typeof partId === "string"
-                ? JSON.stringify(partId)
-                : String(partId),
-          });
-        }
-
         const parsedEvent = parseBroadcastEvent(rawEvent);
         if (parsedEvent.status === "ignored_unknown_event") {
           console.warn("[Client] Ignored unknown session event", {

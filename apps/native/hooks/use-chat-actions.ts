@@ -6,10 +6,7 @@ import {
   type SetStateAction,
   useCallback,
 } from "react";
-import {
-  deriveResumeSessionSyncPlan,
-  isRuntimeAuthoritativeHistory,
-} from "@/hooks/use-chat-session-sync";
+import { deriveResumeSessionSyncPlan } from "@/hooks/use-chat-session-sync";
 import {
   nextLifecycleOnSubscriptionError,
   type StreamLifecycle,
@@ -64,7 +61,7 @@ interface UseChatActionRefs {
 interface UseChatActionsParams {
   activeChatId: string | null;
   ensureLiveSubscription: () => Promise<boolean>;
-  loadHistory: (force?: boolean) => Promise<boolean>;
+  loadHistory: (force?: boolean, chatId?: string) => Promise<boolean>;
   deleteSessionById: (chatId: string) => Promise<boolean>;
   refs: UseChatActionRefs;
   setStreamLifecycle: Dispatch<SetStateAction<StreamLifecycle>>;
@@ -437,12 +434,9 @@ export function useChatActions({
         await utils.getSessionState.cancel({ chatId });
         const result = await resumeSessionMutation.mutateAsync({ chatId });
         const syncPlan = deriveResumeSessionSyncPlan(result);
-        const runtimeAuthoritativeHistory = isRuntimeAuthoritativeHistory({
-          alreadyRunning: syncPlan.alreadyRunning,
-          sessionLoadMethod: syncPlan.sessionLoadMethod,
-        });
         setSubscriptionEpoch((current) => current + 1);
         await utils.getSessionState.invalidate({ chatId });
+        await utils.getSessions.invalidate();
         if (!isCurrentLiveChat(chatId)) {
           refs.isResumingRef.current = false;
           return result;
@@ -453,22 +447,30 @@ export function useChatActions({
         if (syncPlan.models !== undefined) {
           store.setModels(syncPlan.models ?? null);
         }
+        if (syncPlan.configOptions !== undefined) {
+          store.setConfigOptions(syncPlan.configOptions ?? []);
+        }
         if (syncPlan.supportsModelSwitching !== undefined) {
           store.setSupportsModelSwitching(syncPlan.supportsModelSwitching);
         }
         if (result?.promptCapabilities !== undefined) {
           store.setPromptCapabilities(result.promptCapabilities);
         }
-        store.setMessages([]);
+        // Keep seeded DB history visible; ACP replay and forced reload reconcile by message id.
         store.setPendingPermission(null);
         store.setConnStatus("connected");
         store.setStatus("ready");
-        refs.isResumingRef.current = false;
-        if (runtimeAuthoritativeHistory) {
-          await loadHistory(true);
-          return result;
+        try {
+          await loadHistory(true, chatId);
+        } catch (historyError) {
+          const message =
+            historyError instanceof Error
+              ? historyError.message
+              : "Failed to reload session history";
+          store.setError(message);
+          refs.onErrorRef.current?.(message);
         }
-        await loadHistory(true);
+        refs.isResumingRef.current = false;
         return result;
       })();
 
@@ -510,6 +512,7 @@ export function useChatActions({
       resumeSessionMutation,
       setStreamLifecycle,
       setSubscriptionEpoch,
+      utils.getSessions,
       utils.getSessionState,
     ]
   );

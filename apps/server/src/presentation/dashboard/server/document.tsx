@@ -32,21 +32,6 @@ export function Document({
         />
         <title>{title}</title>
 
-        {/* Tailwind CSS v4 */}
-        <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" />
-
-        {/* Fonts */}
-        <link href="https://fonts.googleapis.com" rel="preconnect" />
-        <link
-          crossOrigin="anonymous"
-          href="https://fonts.gstatic.com"
-          rel="preconnect"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,600;1,400&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&display=swap"
-          rel="stylesheet"
-        />
-
         <link href={assets.stylesHref} rel="stylesheet" />
         <link href={assets.stylesEnhancedHref} rel="stylesheet" />
 

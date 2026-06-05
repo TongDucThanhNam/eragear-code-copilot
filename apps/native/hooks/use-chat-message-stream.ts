@@ -1,13 +1,12 @@
 import type { BroadcastEvent, UIMessage } from "@repo/shared";
 import { findPendingPermission } from "@repo/shared";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useChatStore } from "@/store/chat-store";
-
-const STREAM_FLUSH_MS = 80;
 
 interface MessagePartUpdatePayload {
   messageId: string;
   messageRole: UIMessage["role"];
+  partId?: string;
   partIndex: number;
   part: UIMessage["parts"][number];
   isNew: boolean;
@@ -31,11 +30,27 @@ function readPartId(part: UIMessage["parts"][number]): string | undefined {
   return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
+function attachOptionalPartId(
+  part: UIMessage["parts"][number],
+  partId?: string
+): UIMessage["parts"][number] {
+  if (!(typeof partId === "string" && partId.length > 0)) {
+    return part;
+  }
+  if (readPartId(part) === partId) {
+    return part;
+  }
+  return {
+    ...(part as Record<string, unknown>),
+    id: partId,
+  } as UIMessage["parts"][number];
+}
+
 function findMessagePartIndexByIdentity(params: {
   message: UIMessage;
   partIndex: number;
   partId?: string;
-  part: Extract<BroadcastEvent, { type: "ui_message_part_removed" }>["part"];
+  part: UIMessage["parts"][number];
 }): number {
   const { message, partIndex, partId, part } = params;
   if (
@@ -85,21 +100,103 @@ export function removeMessagePartFromMessage(params: {
   };
 }
 
+function getPartState(part: UIMessage["parts"][number]): string | undefined {
+  return "state" in part ? (part as { state?: string }).state : undefined;
+}
+
+function isDeferredStreamingPart(part: UIMessage["parts"][number]): boolean {
+  const state = getPartState(part);
+  return state === "streaming" || state === "input-streaming";
+}
+
+function isTextualPart(
+  part: UIMessage["parts"][number]
+): part is Extract<UIMessage["parts"][number], { type: "text" | "reasoning" }> {
+  return part.type === "text" || part.type === "reasoning";
+}
+
+export function shouldDeferStreamingPartUpdate(params: {
+  current: UIMessage | undefined;
+  partId?: string;
+  partIndex: number;
+  part: UIMessage["parts"][number];
+}): boolean {
+  if (!isDeferredStreamingPart(params.part)) {
+    return false;
+  }
+
+  const currentPartIndex = params.current
+    ? findMessagePartIndexByIdentity({
+        message: params.current,
+        partIndex: params.partIndex,
+        partId: params.partId,
+        part: params.part,
+      })
+    : -1;
+  const currentPart =
+    currentPartIndex >= 0 ? params.current?.parts[currentPartIndex] : undefined;
+  if (
+    currentPart &&
+    isTextualPart(currentPart) &&
+    isTextualPart(params.part) &&
+    currentPart.state === "done" &&
+    params.part.text.length > currentPart.text.length
+  ) {
+    // Late completed-turn tails can arrive as streaming snapshots after the
+    // client has already finalized locally. Apply those immediately to avoid
+    // truncating the end of the assistant response.
+    return false;
+  }
+
+  return true;
+}
+
+export function applyPartUpdateToMessage(
+  current: UIMessage,
+  payload: MessagePartUpdatePayload
+): UIMessage | null {
+  const nextParts = [...current.parts];
+  const incomingPart = attachOptionalPartId(payload.part, payload.partId);
+  if (payload.isNew) {
+    if (payload.partIndex < 0) {
+      return null;
+    }
+    if (payload.partIndex <= nextParts.length) {
+      if (payload.partIndex === nextParts.length) {
+        nextParts.push(incomingPart);
+      } else {
+        nextParts.splice(payload.partIndex, 0, incomingPart);
+      }
+    } else {
+      nextParts.push(incomingPart);
+    }
+    return { ...current, parts: nextParts };
+  }
+
+  if (payload.partIndex < 0) {
+    return null;
+  }
+  const resolvedIndex = findMessagePartIndexByIdentity({
+    message: current,
+    partIndex: payload.partIndex,
+    partId: payload.partId,
+    part: payload.part,
+  });
+  if (resolvedIndex >= 0) {
+    nextParts[resolvedIndex] = incomingPart;
+  } else {
+    nextParts.push(incomingPart);
+  }
+  return { ...current, parts: nextParts };
+}
+
 export function useChatMessageStream({
   getMessageById,
 }: UseChatMessageStreamParams) {
   const pendingMessagesRef = useRef<Map<string, UIMessage>>(new Map());
-  const messageFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
+  const deferredStreamingMessagesRef = useRef<Map<string, UIMessage>>(
+    new Map()
   );
-
-  useEffect(() => {
-    return () => {
-      if (messageFlushTimerRef.current) {
-        clearTimeout(messageFlushTimerRef.current);
-      }
-    };
-  }, []);
 
   const syncPendingPermission = useCallback(() => {
     const store = useChatStore.getState();
@@ -118,28 +215,21 @@ export function useChatMessageStream({
     syncPendingPermission();
   }, [syncPendingPermission]);
 
+  const flushDeferredStreamingMessages = useCallback(() => {
+    const deferred = deferredStreamingMessagesRef.current;
+    if (deferred.size === 0) {
+      return;
+    }
+    useChatStore.getState().upsertMessages(Array.from(deferred.values()));
+    deferred.clear();
+    syncPendingPermission();
+  }, [syncPendingPermission]);
+
   const applyMessagesImmediate = useCallback(
     (message: UIMessage) => {
-      if (messageFlushTimerRef.current) {
-        clearTimeout(messageFlushTimerRef.current);
-        messageFlushTimerRef.current = null;
-      }
+      deferredStreamingMessagesRef.current.delete(message.id);
       pendingMessagesRef.current.set(message.id, message);
       flushMessages();
-    },
-    [flushMessages]
-  );
-
-  const scheduleMessagesUpdate = useCallback(
-    (message: UIMessage) => {
-      pendingMessagesRef.current.set(message.id, message);
-      if (messageFlushTimerRef.current) {
-        return;
-      }
-      messageFlushTimerRef.current = setTimeout(() => {
-        messageFlushTimerRef.current = null;
-        flushMessages();
-      }, STREAM_FLUSH_MS);
     },
     [flushMessages]
   );
@@ -148,63 +238,49 @@ export function useChatMessageStream({
     (payload: MessagePartUpdatePayload) => {
       const current =
         pendingMessagesRef.current.get(payload.messageId) ??
+        deferredStreamingMessagesRef.current.get(payload.messageId) ??
         getMessageById(payload.messageId);
       if (!current) {
         if (!payload.isNew && payload.partIndex > 0) {
           return;
         }
-        applyMessagesImmediate({
+        const nextMessage: UIMessage = {
           id: payload.messageId,
           role: payload.messageRole,
-          parts: [payload.part],
+          parts: [attachOptionalPartId(payload.part, payload.partId)],
           ...(typeof payload.createdAt === "number"
             ? { createdAt: payload.createdAt }
             : {}),
-        });
+        };
+        if (shouldDeferStreamingPartUpdate({ ...payload, current })) {
+          deferredStreamingMessagesRef.current.set(
+            payload.messageId,
+            nextMessage
+          );
+          return;
+        }
+        applyMessagesImmediate(nextMessage);
         return;
       }
 
-      const nextParts = [...current.parts];
-      if (payload.isNew) {
-        if (payload.partIndex < 0) {
-          return;
-        }
-        if (payload.partIndex <= nextParts.length) {
-          if (payload.partIndex === nextParts.length) {
-            nextParts.push(payload.part);
-          } else {
-            nextParts.splice(payload.partIndex, 0, payload.part);
-          }
-        } else {
-          nextParts.push(payload.part);
-        }
-      } else {
-        if (payload.partIndex < 0) {
-          return;
-        }
-        if (payload.partIndex < nextParts.length) {
-          nextParts[payload.partIndex] = payload.part;
-        } else {
-          nextParts.push(payload.part);
-        }
+      const updated = applyPartUpdateToMessage(current, payload);
+      if (!updated) {
+        return;
       }
-
-      const updated: UIMessage = { ...current, parts: nextParts };
-      const partState =
-        "state" in payload.part
-          ? (payload.part as { state?: string }).state
-          : undefined;
-      if (partState === "streaming" || partState === "input-streaming") {
-        scheduleMessagesUpdate(updated);
+      if (shouldDeferStreamingPartUpdate({ ...payload, current })) {
+        deferredStreamingMessagesRef.current.set(payload.messageId, updated);
         return;
       }
       applyMessagesImmediate(updated);
     },
-    [applyMessagesImmediate, getMessageById, scheduleMessagesUpdate]
+    [applyMessagesImmediate, getMessageById]
   );
 
   const getMessageByIdWithPending = useCallback(
-    (id: string) => pendingMessagesRef.current.get(id) ?? getMessageById(id),
+    (id: string) =>
+      pendingMessagesRef.current.get(id) ??
+      deferredStreamingMessagesRef.current.get(id) ??
+      getMessageById(id),
     [getMessageById]
   );
 
@@ -212,10 +288,12 @@ export function useChatMessageStream({
     (payload: MessagePartRemovalPayload) => {
       const current =
         pendingMessagesRef.current.get(payload.messageId) ??
+        deferredStreamingMessagesRef.current.get(payload.messageId) ??
         getMessageById(payload.messageId);
       if (!current) {
         return;
       }
+      deferredStreamingMessagesRef.current.delete(payload.messageId);
       const updated = removeMessagePartFromMessage({
         message: current,
         partIndex: payload.partIndex,
@@ -232,16 +310,14 @@ export function useChatMessageStream({
 
   const resetPendingMessages = useCallback(() => {
     pendingMessagesRef.current.clear();
-    if (messageFlushTimerRef.current) {
-      clearTimeout(messageFlushTimerRef.current);
-      messageFlushTimerRef.current = null;
-    }
+    deferredStreamingMessagesRef.current.clear();
   }, []);
 
   return {
     applyMessagesImmediate,
     applyMessagePartUpdate,
     applyMessagePartRemoval,
+    flushDeferredStreamingMessages,
     getMessageByIdWithPending,
     resetPendingMessages,
   };

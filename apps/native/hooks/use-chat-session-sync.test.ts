@@ -102,8 +102,34 @@ describe("use-chat-session-sync", () => {
       supportsModelSwitching: true,
       modes: undefined,
       models: undefined,
+      configOptions: undefined,
     });
     expect(isRuntimeAuthoritativeHistory(plan)).toBe(true);
+  });
+
+  test("derives nullable resume config options only when present", () => {
+    expect(
+      deriveResumeSessionSyncPlan({
+        configOptions: null,
+      }).configOptions
+    ).toBeNull();
+    const option = {
+      id: "model",
+      name: "Model",
+      type: "select" as const,
+      currentValue: "default",
+      options: [],
+    };
+    expect(
+      deriveResumeSessionSyncPlan({
+        configOptions: [option],
+      }).configOptions
+    ).toEqual([option]);
+    expect(
+      deriveResumeSessionSyncPlan({
+        configOptions: "invalid",
+      }).configOptions
+    ).toBeUndefined();
   });
 
   test("backfills connected session state when richer snapshot arrives", () => {

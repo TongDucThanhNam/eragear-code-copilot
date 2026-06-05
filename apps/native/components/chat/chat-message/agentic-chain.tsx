@@ -1,12 +1,28 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Spinner } from "heroui-native";
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { PressableFeedback, Spinner, Text } from "heroui-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { View } from "react-native";
 import type { ChainOfThoughtProps } from "./agentic-chain.types";
 import { summarizeChainItems } from "./agentic-chain.utils";
 import { ChainContent } from "./chain-content";
 import { ChainStep } from "./chain-step";
 import { deduplicateKeys } from "./utils";
+
+const ACTIVITY_TIMER_MS = 1000;
+
+function formatDuration(durationMs: number): string {
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes === 0) {
+    return `${seconds}s`;
+  }
+  if (seconds === 0) {
+    return `${minutes}m`;
+  }
+  return `${minutes}m ${seconds}s`;
+}
 
 export function ChainOfThought({
   items,
@@ -14,6 +30,8 @@ export function ChainOfThought({
   messageId,
 }: ChainOfThoughtProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const startedAtRef = useRef<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
 
   const chainSummary = useMemo(() => summarizeChainItems(items), [items]);
   const itemKeys = useMemo(() => deduplicateKeys(items), [items]);
@@ -25,44 +43,72 @@ export function ChainOfThought({
     setExpandedKey(activeKey ?? null);
   }, [activeKey]);
 
+  useEffect(() => {
+    startedAtRef.current = null;
+    setElapsedMs(null);
+  }, [messageId]);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      if (startedAtRef.current !== null) {
+        setElapsedMs(Date.now() - startedAtRef.current);
+      }
+      return;
+    }
+
+    if (startedAtRef.current === null) {
+      startedAtRef.current = Date.now();
+    }
+
+    const updateElapsed = () => {
+      if (startedAtRef.current !== null) {
+        setElapsedMs(Date.now() - startedAtRef.current);
+      }
+    };
+
+    updateElapsed();
+    const timer = setInterval(updateElapsed, ACTIVITY_TIMER_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [isStreaming]);
+
   if (items.length === 0) {
     return null;
   }
 
+  const activityLabel =
+    isStreaming && elapsedMs === null
+      ? "Working..."
+      : elapsedMs !== null
+      ? `${isStreaming ? "Working" : "Worked"} for ${formatDuration(elapsedMs)}`
+      : `Worked through ${items.length} step${items.length === 1 ? "" : "s"}`;
+
   return (
-    <View className="w-full rounded-xl border border-divider bg-surface-foreground/5">
-      <Pressable
-        className="min-h-10 flex-row items-center justify-between px-3 py-2"
+    <View className="w-full">
+      <PressableFeedback
+        animation={{ scale: { value: 0.97 } }}
+        className="self-center rounded-full px-2 py-1"
         onPress={() => setIsOpen((current) => !current)}
       >
-        <View className="flex-row items-center gap-2">
+        <View className="flex-row items-center gap-1.5">
           {isStreaming ? (
             <Spinner color="accent" size="sm" />
-          ) : (
-            <Ionicons
-              className="text-muted-foreground"
-              name="sparkles-outline"
-              size={14}
-            />
-          )}
-          <Text className="font-medium text-foreground text-sm">
-            Chain of Thought
+          ) : null}
+          <Text color="muted" type="body-sm">
+            {activityLabel}
           </Text>
-          <Text className="text-muted-foreground text-xs">
-            {chainSummary.summary}
-          </Text>
+          <Ionicons
+            className="text-muted-foreground"
+            name={isOpen ? "chevron-up-outline" : "chevron-down-outline"}
+            size={13}
+          />
         </View>
-        <Ionicons
-          className="text-muted-foreground"
-          name={isOpen ? "chevron-up-outline" : "chevron-down-outline"}
-          size={16}
-        />
-      </Pressable>
+      </PressableFeedback>
 
-      {/* Chain of thought Body */}
       {isOpen ? (
-        <View className="border-divider border-t px-3 pt-2 pb-3">
-          <View className="flex-col gap-3">
+        <View className="mt-3 gap-1">
+          <View className="flex-col gap-2">
             {itemKeys.map((key, index) => {
               const item = items[index];
               if (!item) {

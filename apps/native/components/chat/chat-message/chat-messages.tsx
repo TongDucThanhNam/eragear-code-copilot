@@ -1,7 +1,8 @@
 import type { UIMessage } from "@repo/shared";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  FlatList,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Text,
@@ -19,65 +20,141 @@ const MessageSeparator = memo(function MessageSeparator() {
 });
 
 interface ChatMessagesProps {
-  messageIds: string[];
   isStreaming: boolean;
   contentPaddingBottom?: number;
 }
 
-interface DerivedMessage {
-  message: UIMessage;
+interface MessageListRowProps {
+  bubbleMaxWidth: number;
   isLiveMessage: boolean;
+  messageId: string;
+  onLiveLayout: () => void;
+}
+
+const MessageListRow = memo(
+  function MessageListRow({
+    bubbleMaxWidth,
+    isLiveMessage,
+    messageId,
+    onLiveLayout,
+  }: MessageListRowProps) {
+    const selectMessage = useCallback(
+      (state: ReturnType<typeof useChatStore.getState>) =>
+        state.messagesById.get(messageId),
+      [messageId]
+    );
+    const message = useChatStore(selectMessage);
+
+    const handleLayout = useCallback(
+      (_event: LayoutChangeEvent) => {
+        if (isLiveMessage) {
+          onLiveLayout();
+        }
+      },
+      [isLiveMessage, onLiveLayout]
+    );
+
+    if (!message) {
+      return null;
+    }
+
+    return (
+      <View onLayout={handleLayout}>
+        <MemoizedMessageItem
+          bubbleMaxWidth={bubbleMaxWidth}
+          isLiveMessage={isLiveMessage}
+          message={message}
+        />
+      </View>
+    );
+  },
+  (prev, next) =>
+    prev.bubbleMaxWidth === next.bubbleMaxWidth &&
+    prev.isLiveMessage === next.isLiveMessage &&
+    prev.messageId === next.messageId &&
+    prev.onLiveLayout === next.onLiveLayout
+);
+
+function findLastAssistantMessageId(messageIds: string[]): string | null {
+  const { messagesById } = useChatStore.getState();
+
+  for (let index = messageIds.length - 1; index >= 0; index -= 1) {
+    const message = messagesById.get(messageIds[index] ?? "");
+    if (message?.role === "assistant") {
+      return message.id;
+    }
+  }
+
+  return null;
+}
+
+function getMessageItemType(messageId: string): UIMessage["role"] | "message" {
+  return useChatStore.getState().messagesById.get(messageId)?.role ?? "message";
+}
+
+interface LiveMessageExtraData {
+  liveMessageId: string | null;
+}
+
+interface RenderMessageInfo {
+  item: string;
+  extraData?: LiveMessageExtraData;
+}
+
+function readLiveMessageId(extraData: unknown): string | null {
+  if (
+    extraData &&
+    typeof extraData === "object" &&
+    "liveMessageId" in extraData
+  ) {
+    const value = (extraData as LiveMessageExtraData).liveMessageId;
+    return typeof value === "string" ? value : null;
+  }
+  return null;
 }
 
 function ChatMessagesComponent({
-  messageIds,
   isStreaming,
   contentPaddingBottom = 100,
 }: ChatMessagesProps) {
-  const { width } = useWindowDimensions();
+  const messageIds = useChatStore((state) => state.messageIds);
+  const { height, width } = useWindowDimensions();
   const bubbleMaxWidth = useMemo(
     () => Math.max(180, Math.floor(width * USER_BUBBLE_WIDTH_RATIO)),
     [width]
   );
+  const drawDistance = useMemo(() => Math.max(600, height * 1.5), [height]);
 
-  const listRef = useRef<FlatList<DerivedMessage>>(null);
+  const listRef = useRef<FlashListRef<string>>(null);
   const isNearBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
   const prevLastMessageIdRef = useRef<string | null>(null);
+  const pendingScrollFrameRef = useRef<number | null>(null);
 
-  // Derive UIMessage[] in one pass - no per-row subscriptions
-  const { messagesById } = useChatStore.getState();
-  const derivedMessages = useMemo(() => {
-    const result: DerivedMessage[] = [];
-    let lastAssistantId: string | null = null;
-
-    // Find last assistant message ID
-    for (let i = messageIds.length - 1; i >= 0; i -= 1) {
-      const msg = messagesById.get(messageIds[i] ?? "");
-      if (msg?.role === "assistant") {
-        lastAssistantId = msg.id;
-        break;
-      }
-    }
-
-    for (const id of messageIds) {
-      const message = messagesById.get(id);
-      if (message) {
-        result.push({
-          message,
-          isLiveMessage: isStreaming && id === lastAssistantId,
-        });
-      }
-    }
-    return result;
-  }, [messageIds, messagesById, isStreaming]);
-
-  const hasMessages = derivedMessages.length > 0;
+  const lastAssistantMessageId = useMemo(
+    () => findLastAssistantMessageId(messageIds),
+    [messageIds]
+  );
+  const liveMessageId = isStreaming ? lastAssistantMessageId : null;
+  const liveMessageExtraData = useMemo(
+    () => ({ liveMessageId }),
+    [liveMessageId]
+  );
+  const hasMessages = messageIds.length > 0;
   const listPaddingBottom = Math.max(96, contentPaddingBottom);
+  const currentMessageCount = messageIds.length;
+  const currentLastMessageId = messageIds.at(-1) ?? null;
 
-  // Auto-scroll to bottom when messages change AND user is near bottom
-  const currentMessageCount = derivedMessages.length;
-  const currentLastMessageId = derivedMessages.at(-1)?.message.id ?? null;
+  const scrollToEndIfNearBottom = useCallback(() => {
+    if (!isNearBottomRef.current || pendingScrollFrameRef.current !== null) {
+      return;
+    }
+
+    pendingScrollFrameRef.current = requestAnimationFrame(() => {
+      pendingScrollFrameRef.current = null;
+      listRef.current?.scrollToEnd({ animated: false });
+    });
+  }, []);
 
   useEffect(() => {
     const messageCountChanged =
@@ -88,19 +165,24 @@ function ChatMessagesComponent({
     prevMessageCountRef.current = currentMessageCount;
     prevLastMessageIdRef.current = currentLastMessageId;
 
-    // Only auto-scroll if:
-    // 1. User is near bottom
-    // 2. New message added OR streaming content changed
-    if (
-      isNearBottomRef.current &&
-      (messageCountChanged || (isStreaming && lastMessageChanged))
-    ) {
-      // Use requestAnimationFrame for better timing on Android
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToEnd({ animated: false });
-      });
+    if (messageCountChanged || (isStreaming && lastMessageChanged)) {
+      scrollToEndIfNearBottom();
     }
-  }, [currentMessageCount, currentLastMessageId, isStreaming]);
+  }, [
+    currentMessageCount,
+    currentLastMessageId,
+    isStreaming,
+    scrollToEndIfNearBottom,
+  ]);
+
+  useEffect(
+    () => () => {
+      if (pendingScrollFrameRef.current !== null) {
+        cancelAnimationFrame(pendingScrollFrameRef.current);
+      }
+    },
+    []
+  );
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -113,19 +195,25 @@ function ChatMessagesComponent({
     []
   );
 
-  const keyExtractor = useCallback(
-    (item: DerivedMessage) => item.message.id,
+  const keyExtractor = useCallback((messageId: string) => messageId, []);
+  const maintainVisibleContentPosition = useMemo(
+    () => ({
+      animateAutoScrollToBottom: false,
+      autoscrollToBottomThreshold: NEAR_BOTTOM_THRESHOLD,
+      startRenderingFromBottom: true,
+    }),
     []
   );
   const renderItem = useCallback(
-    ({ item }: { item: DerivedMessage }) => (
-      <MemoizedMessageItem
+    ({ item, extraData }: RenderMessageInfo) => (
+      <MessageListRow
         bubbleMaxWidth={bubbleMaxWidth}
-        isLiveMessage={item.isLiveMessage}
-        message={item.message}
+        isLiveMessage={item === readLiveMessageId(extraData)}
+        messageId={item}
+        onLiveLayout={scrollToEndIfNearBottom}
       />
     ),
-    [bubbleMaxWidth]
+    [bubbleMaxWidth, scrollToEndIfNearBottom]
   );
 
   const emptyState = useMemo(
@@ -152,17 +240,20 @@ function ChatMessagesComponent({
   );
 
   return (
-    <FlatList
+    <FlashList
       contentContainerStyle={contentContainerStyle}
-      data={derivedMessages}
+      data={messageIds}
+      drawDistance={drawDistance}
+      extraData={liveMessageExtraData}
+      getItemType={getMessageItemType}
       ItemSeparatorComponent={MessageSeparator}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       keyExtractor={keyExtractor}
       ListEmptyComponent={hasMessages ? null : emptyState}
+      maintainVisibleContentPosition={maintainVisibleContentPosition}
       onScroll={handleScroll}
       ref={listRef}
-      removeClippedSubviews={false}
       renderItem={renderItem}
       scrollEventThrottle={16}
       showsVerticalScrollIndicator={false}

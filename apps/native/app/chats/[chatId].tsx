@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { isChatBusyStatus, type UIMessage } from "@repo/shared";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Button, Surface, useThemeColor } from "heroui-native";
+import { Button, Spinner, Surface, Text, useThemeColor } from "heroui-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShallow } from "zustand/react/shallow";
@@ -117,7 +117,7 @@ export default function ChatScreen() {
   }, [chatId, router]);
 
   const {
-    messageIds,
+    messageCount,
     connStatus,
     pendingPermission,
     setActiveChatId,
@@ -136,7 +136,7 @@ export default function ChatScreen() {
     supportsModelSwitching,
   } = useChatStore(
     useShallow((state) => ({
-      messageIds: state.messageIds,
+      messageCount: state.messageIds.length,
       connStatus: state.connStatus,
       pendingPermission: state.pendingPermission,
       setActiveChatId: state.setActiveChatId,
@@ -172,7 +172,10 @@ export default function ChatScreen() {
   const [forceActive, setForceActive] = useState(false);
   const [isResumePending, setIsResumePending] = useState(false);
   const appliedHistoryRef = useRef<string | null>(null);
-  const currentSession = sessions.find((session) => session.id === chatId);
+  const currentSession = useMemo(
+    () => sessions.find((session) => session.id === chatId),
+    [chatId, sessions]
+  );
   const hasLiveSession = currentSession?.isActive === true;
   const {
     attachments,
@@ -307,12 +310,12 @@ export default function ChatScreen() {
     connStatus === "error" ||
     currentSession?.status === "stopped";
 
-  const handleStop = async () => {
+  const handleStop = useCallback(async () => {
     await stopSession();
     router.replace("/");
-  };
+  }, [router, stopSession]);
 
-  const handleResume = async () => {
+  const handleResume = useCallback(async () => {
     const validation = validateResumeSession(
       chatId,
       connStatus,
@@ -336,7 +339,7 @@ export default function ChatScreen() {
       setError(null);
       setActiveChatId(validChatId, false);
       await resumeSession(validChatId);
-      updateSessionStatus(validChatId, "running");
+      updateSessionStatus(validChatId, "running", { isActive: true });
       router.replace(`/chats/${validChatId}`);
     } catch (err) {
       const message =
@@ -348,7 +351,18 @@ export default function ChatScreen() {
     } finally {
       setIsResumePending(false);
     }
-  };
+  }, [
+    chatId,
+    clearChatFailed,
+    connStatus,
+    currentSession,
+    isResumePending,
+    resumeSession,
+    router,
+    setActiveChatId,
+    setError,
+    updateSessionStatus,
+  ]);
 
   if (!chatId) {
     return (
@@ -381,8 +395,9 @@ export default function ChatScreen() {
   }
 
   const showLoading = isReadOnly
-    ? messagesQuery.isLoading || messagesQuery.isFetching
-    : connStatus === "connecting" && messageIds.length === 0;
+    ? (messagesQuery.isLoading || messagesQuery.isFetching) &&
+      messageCount === 0
+    : connStatus === "connecting" && messageCount === 0;
   const chatTitle = computeChatTitle(currentSession, isReadOnly, canResumeChat);
   const chatSubtitle = computeChatSubtitle(
     currentSession,
@@ -424,40 +439,10 @@ export default function ChatScreen() {
         title={chatTitle}
       />
 
-      {isReadOnly && (
-        <Surface
-          className="mx-4 mt-3 rounded-2xl border border-divider/60 px-4 py-3"
-          variant="secondary"
-        >
-          <View className="flex-row items-center gap-3">
-            <View className="flex-1">
-              <Text className="font-medium text-foreground text-sm">
-                {canResumeChat ? "Session paused" : "History only"}
-              </Text>
-              <Text className="mt-1 text-muted-foreground text-sm">
-                {canResumeChat
-                  ? "Resume to continue this conversation."
-                  : "Transcript is available, but new messages are disabled."}
-              </Text>
-            </View>
-            {canResumeChat ? (
-              <Button
-                className="rounded-2xl"
-                isDisabled={isResumePending}
-                onPress={handleResume}
-                size="sm"
-              >
-                {isResumePending ? "Resuming..." : "Resume"}
-              </Button>
-            ) : null}
-          </View>
-        </Surface>
-      )}
-
       <View className="flex-1">
         {showLoading ? (
           <View className="flex-1 items-center justify-center px-6">
-            <ActivityIndicator color={accentColor} size="large" />
+            <Spinner color={accentColor} size="lg" />
             <Text className="mt-4 font-medium text-base text-foreground">
               {isReadOnly ? "Loading history" : "Restoring session"}
             </Text>
@@ -471,7 +456,6 @@ export default function ChatScreen() {
           <ChatMessages
             contentPaddingBottom={listContentPadding}
             isStreaming={isStreaming}
-            messageIds={messageIds}
           />
         )}
       </View>
@@ -482,7 +466,11 @@ export default function ChatScreen() {
           <ChatInput
             attachments={attachments}
             availableCommands={commands}
-            disabled={connStatus !== "connected" || status !== "ready"}
+            disabled={
+              isResumePending ||
+              connStatus !== "connected" ||
+              status !== "ready"
+            }
             onHeightChange={handleInputHeightChange}
             onOpenAttachment={openAttachmentModal}
             onRemoveAttachment={removeAttachment}

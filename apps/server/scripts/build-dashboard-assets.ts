@@ -8,6 +8,7 @@ const jsEntry = resolve(
   "src/presentation/dashboard/client/index.tsx"
 );
 const jsOut = resolve(outDir, "client.js");
+const jsAssetOut = resolve(outDir, "client.asset");
 
 const staticAssets = [
   {
@@ -27,7 +28,7 @@ const staticAssets = [
   },
   {
     source: resolve(process.cwd(), "src/presentation/dashboard/login.js"),
-    out: resolve(outDir, "login.js"),
+    out: resolve(outDir, "login.asset"),
   },
 ] as const;
 
@@ -63,6 +64,7 @@ async function runBunBuild(): Promise<void> {
 
 await mkdir(outDir, { recursive: true });
 await runBunBuild();
+await copyFile(jsOut, jsAssetOut);
 await Promise.all(
   staticAssets.map(async (asset) => {
     await copyFile(asset.source, asset.out);

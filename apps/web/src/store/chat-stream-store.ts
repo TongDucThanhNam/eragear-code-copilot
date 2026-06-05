@@ -403,19 +403,19 @@ export function useChatMessageCount(chatId: string | null | undefined): number {
 export function useChatPendingPermission(
   chatId: string | null | undefined
 ): PermissionRequest | null {
-  const messageState = useChatStreamStore((state) => {
-    if (!chatId) {
-      return EMPTY_MESSAGE_STATE;
-    }
-    return state.byChatId[chatId]?.messageState ?? EMPTY_MESSAGE_STATE;
-  });
-
-  return useMemo(() => {
-    if (messageState === EMPTY_MESSAGE_STATE) {
-      return EMPTY_PENDING_PERMISSION;
-    }
-    return findPendingPermission(messageState.byId.values());
-  }, [messageState]);
+  return useChatStreamStore(
+    useShallow((state) => {
+      if (!chatId) {
+        return EMPTY_PENDING_PERMISSION;
+      }
+      const messageState =
+        state.byChatId[chatId]?.messageState ?? EMPTY_MESSAGE_STATE;
+      if (messageState === EMPTY_MESSAGE_STATE) {
+        return EMPTY_PENDING_PERMISSION;
+      }
+      return findPendingPermission(messageState.byId.values());
+    })
+  );
 }
 
 export function readTerminalOutputBuffer(

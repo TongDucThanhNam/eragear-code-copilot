@@ -70,9 +70,7 @@ export const useProjectStore = create<ProjectState>()(
             : false;
           return {
             projects,
-            activeProjectId: activeExists
-              ? state.activeProjectId
-              : (projects[0]?.id ?? null),
+            activeProjectId: activeExists ? state.activeProjectId : null,
           };
         }),
 
@@ -81,7 +79,6 @@ export const useProjectStore = create<ProjectState>()(
       addProject: (project) =>
         set((state) => ({
           projects: [...state.projects, project],
-          activeProjectId: state.activeProjectId ?? project.id,
         })),
 
       updateProject: (input) => {

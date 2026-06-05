@@ -1,5 +1,6 @@
 import type {
   BroadcastEvent,
+  SessionConfigOption,
   SessionModelState,
   SessionModeState,
   SessionStateData,
@@ -91,27 +92,65 @@ export interface ResumeSessionSyncPlan {
   sessionLoadMethod?: string | null;
   modes?: SessionModeState | null;
   models?: SessionModelState | null;
+  configOptions?: SessionConfigOption[] | null;
   supportsModelSwitching?: boolean;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readOwnField<T>(
+  value: Record<string, unknown>,
+  key: string
+): T | undefined {
+  if (!Object.prototype.hasOwnProperty.call(value, key)) {
+    return undefined;
+  }
+  return value[key] as T;
 }
 
 export function deriveResumeSessionSyncPlan(
   resumeResult: unknown
 ): ResumeSessionSyncPlan {
-  if (!resumeResult || typeof resumeResult !== "object") {
+  const record = asRecord(resumeResult);
+  if (!record) {
     return { alreadyRunning: false };
   }
-  const record = resumeResult as Record<string, unknown>;
+
+  const rawConfigOptions = readOwnField<unknown>(record, "configOptions");
+  const configOptions = Array.isArray(rawConfigOptions)
+    ? (rawConfigOptions as SessionConfigOption[])
+    : rawConfigOptions === null
+      ? null
+      : undefined;
+  const rawSessionLoadMethod = readOwnField<unknown>(
+    record,
+    "sessionLoadMethod"
+  );
+  const sessionLoadMethod =
+    typeof rawSessionLoadMethod === "string"
+      ? rawSessionLoadMethod
+      : rawSessionLoadMethod === null
+        ? null
+        : undefined;
+  const rawSupportsModelSwitching = readOwnField<unknown>(
+    record,
+    "supportsModelSwitching"
+  );
+
   return {
-    alreadyRunning: record.alreadyRunning === true,
-    ...(typeof record.sessionLoadMethod === "string" ||
-    record.sessionLoadMethod === null
-      ? { sessionLoadMethod: record.sessionLoadMethod as string | null }
-      : {}),
-    modes: record.modes as SessionModeState | null | undefined,
-    models: record.models as SessionModelState | null | undefined,
+    alreadyRunning: readOwnField<boolean>(record, "alreadyRunning") === true,
+    ...(sessionLoadMethod !== undefined ? { sessionLoadMethod } : {}),
+    modes: readOwnField<SessionModeState | null>(record, "modes"),
+    models: readOwnField<SessionModelState | null>(record, "models"),
+    configOptions,
     supportsModelSwitching:
-      typeof record.supportsModelSwitching === "boolean"
-        ? record.supportsModelSwitching
+      typeof rawSupportsModelSwitching === "boolean"
+        ? rawSupportsModelSwitching
         : undefined,
   };
 }

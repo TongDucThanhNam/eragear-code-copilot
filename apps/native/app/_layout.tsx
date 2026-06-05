@@ -1,7 +1,7 @@
 import "@/global.css";
 import { Stack } from "expo-router";
 import { HeroUINativeProvider, Spinner, useThemeColor } from "heroui-native";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -22,6 +22,7 @@ const HEROUI_CONFIG = {
     stylingPrinciples: false,
   },
 } as const;
+const ROOT_VIEW_STYLE = { flex: 1 } as const;
 
 function StackLayout() {
   const serverUrl = useAuthStore((state) => state.serverUrl);
@@ -62,8 +63,14 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
 
   if (session.isPending) {
     return (
-      <View className="flex-1 items-center justify-center">
-        <Spinner color={spinnerColor} isLoading={true} size="lg" />
+      <View style={ROOT_VIEW_STYLE}>
+        <ProtectedStack isAuthenticated={false} />
+        <View
+          className="items-center justify-center bg-background"
+          style={StyleSheet.absoluteFill}
+        >
+          <Spinner color={spinnerColor} isLoading={true} size="lg" />
+        </View>
       </View>
     );
   }

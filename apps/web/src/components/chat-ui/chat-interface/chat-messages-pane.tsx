@@ -3,7 +3,7 @@ import { ChatMessages } from "@/components/chat-ui/chat-messages";
 import { shouldShowThinkingPlaceholder } from "@/components/chat-ui/chat-thinking-placeholder";
 import {
   useChatMessageIds,
-  useChatMessages,
+  useChatStreamStore,
 } from "@/store/chat-stream-store";
 
 interface ChatMessagesPaneProps {
@@ -22,10 +22,14 @@ export function ChatMessagesPane({
   onLoadOlder,
 }: ChatMessagesPaneProps) {
   const messageIds = useChatMessageIds(chatId);
-  const messages = useChatMessages(chatId);
-  const showThinkingPlaceholder = shouldShowThinkingPlaceholder({
-    messages,
-    status,
+  const showThinkingPlaceholder = useChatStreamStore((state) => {
+    if (!chatId) {
+      return false;
+    }
+    return shouldShowThinkingPlaceholder({
+      messages: state.byChatId[chatId]?.messageState.orderedMessages ?? [],
+      status,
+    });
   });
   return (
     <ChatMessages

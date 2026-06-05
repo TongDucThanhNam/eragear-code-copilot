@@ -13,11 +13,15 @@
  * @module transport/http/routes/dashboard
  */
 
+import { file as bunFile } from "bun";
 import type { Context, Hono } from "hono";
-import { serveStatic } from "hono/bun";
 import { createElement } from "react";
 import { APP_SERVER_TITLE } from "@/config/app-identity";
 import { LoginHead, LoginPage } from "@/presentation/dashboard/login";
+import {
+  getDashboardAsset,
+  getDashboardAssetVersion,
+} from "@/presentation/dashboard/server/dashboard-assets";
 import { DashboardPage } from "@/presentation/dashboard/server/dashboard-page";
 import { renderDocument } from "@/presentation/dashboard/server/render-document";
 import { normalizeTab } from "@/presentation/dashboard/utils";
@@ -25,8 +29,6 @@ import {
   DASHBOARD_ASSET_PATH,
   DASHBOARD_ASSET_PATH_PREFIX,
   DASHBOARD_UI_PATH,
-  LEADING_SLASHES,
-  PUBLIC_DASHBOARD_ASSETS_PATH,
 } from "../constants";
 import type { HttpRouteDependencies } from "./deps";
 import { normalizeApiKeyItem, normalizeDeviceSessionItem } from "./helpers";
@@ -53,21 +55,23 @@ export function registerDashboardUiRoutes(
     ? "no-cache"
     : "public, max-age=31536000, immutable";
 
-  app.use(`${DASHBOARD_ASSET_PATH}/*`, (c, next) => {
-    c.res.headers.set("Cache-Control", assetCacheControl);
-    return next();
+  app.get(`${DASHBOARD_ASSET_PATH}/*`, (c) => {
+    const assetName = parseDashboardAssetName(c.req.path);
+    if (!assetName) {
+      return c.json({ error: "Not found" }, 404);
+    }
+    const asset = getDashboardAsset(assetName);
+    if (!asset) {
+      return c.json({ error: "Not found" }, 404);
+    }
+    return new Response(bunFile(asset.path), {
+      headers: {
+        "Cache-Control": assetCacheControl,
+        "Content-Type": asset.contentType,
+        ETag: `"dashboard-${assetName}-${getDashboardAssetVersion()}"`,
+      },
+    });
   });
-
-  app.use(
-    `${DASHBOARD_ASSET_PATH}/*`,
-    serveStatic({
-      root: PUBLIC_DASHBOARD_ASSETS_PATH,
-      rewriteRequestPath: (path) =>
-        path
-          .replace(DASHBOARD_ASSET_PATH_PREFIX, "")
-          .replace(LEADING_SLASHES, ""),
-    })
-  );
 
   // Legacy redirects
   const redirectWithQuery = (c: Context) => {
@@ -173,4 +177,20 @@ export function registerDashboardUiRoutes(
       }
     );
   });
+}
+
+function parseDashboardAssetName(path: string): string | null {
+  const rawName = path.replace(DASHBOARD_ASSET_PATH_PREFIX, "");
+  if (!rawName || rawName.includes("/") || rawName.includes("\\")) {
+    return null;
+  }
+  try {
+    const decoded = decodeURIComponent(rawName);
+    if (!decoded || decoded.includes("/") || decoded.includes("\\")) {
+      return null;
+    }
+    return decoded;
+  } catch {
+    return null;
+  }
 }

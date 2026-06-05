@@ -138,6 +138,7 @@ export function useChat(options: UseChatOptions = {}) {
   const {
     applyMessagesImmediate,
     applyMessagePartUpdate,
+    flushDeferredStreamingMessages,
     getMessageByIdWithPending,
     resetPendingMessages,
   } = useChatMessageStream({ getMessageById });
@@ -304,6 +305,7 @@ export function useChat(options: UseChatOptions = {}) {
           completedTurnIds: completedTurnIdsRef.current,
         })
       ) {
+        flushDeferredStreamingMessages();
         finalizeMessagesInStore();
       }
       if (event.type === "chat_finish") {
@@ -311,6 +313,7 @@ export function useChat(options: UseChatOptions = {}) {
           completedTurnIdsRef.current,
           event.turnId ?? null
         );
+        flushDeferredStreamingMessages();
         const finalizedMessages = finalizeMessagesInStore();
         if (
           getChatFinishHistoryReloadDecision({
@@ -339,6 +342,7 @@ export function useChat(options: UseChatOptions = {}) {
       applyMessagePartUpdate,
       applyMessagesImmediate,
       finalizeMessagesInStore,
+      flushDeferredStreamingMessages,
       getMessageByIdWithPending,
       loadHistory,
       triggerStreamEndHaptic,
@@ -666,11 +670,15 @@ export function useChat(options: UseChatOptions = {}) {
       const syncPlan = deriveResumeSessionSyncPlan(res);
       setSubscriptionEpoch((current) => current + 1);
       await utils.getSessionState.invalidate({ chatId });
+      await utils.getSessions.invalidate();
       if (syncPlan.modes !== undefined) {
         store.setModes(syncPlan.modes ?? null);
       }
       if (syncPlan.models !== undefined) {
         store.setModels(syncPlan.models ?? null);
+      }
+      if (syncPlan.configOptions !== undefined) {
+        store.setConfigOptions(syncPlan.configOptions ?? []);
       }
       if (syncPlan.supportsModelSwitching !== undefined) {
         store.setSupportsModelSwitching(syncPlan.supportsModelSwitching);
@@ -678,12 +686,21 @@ export function useChat(options: UseChatOptions = {}) {
       if (res?.promptCapabilities !== undefined) {
         store.setPromptCapabilities(res.promptCapabilities);
       }
-      store.setMessages([]);
+      // Keep seeded DB history visible; ACP replay and forced reload reconcile by message id.
       store.setPendingPermission(null);
       store.setConnStatus("connected");
       store.setStatus("ready");
+      try {
+        await loadHistory(true, chatId);
+      } catch (historyError) {
+        const message =
+          historyError instanceof Error
+            ? historyError.message
+            : "Failed to reload session history";
+        store.setError(message);
+        onErrorRef.current?.(message);
+      }
       isResumingRef.current = false;
-      await loadHistory(true);
       return res;
     })();
 

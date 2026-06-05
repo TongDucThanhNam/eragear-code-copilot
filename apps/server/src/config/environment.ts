@@ -225,6 +225,9 @@ const normalizedAuthHost = wsHost === "0.0.0.0" ? "localhost" : wsHost;
 const runtimeEnv = env.NODE_ENV ?? env.BUN_ENV ?? "production";
 const isProd = runtimeEnv === "production";
 const isDev = !isProd;
+const isStandaloneExecutable = process.argv.some((arg) =>
+  arg.includes("$bunfs")
+);
 const runtimeNodeRoleRaw = toTrimmedString(env.RUNTIME_NODE_ROLE, "writer")
   .toLowerCase()
   .trim();
@@ -244,11 +247,10 @@ if (runtimeNodeRole === "reader" && runtimeInternalToken.length === 0) {
     "[Config] RUNTIME_INTERNAL_TOKEN is required when RUNTIME_NODE_ROLE=reader."
   );
 }
-const sqliteWorkerEnabled = toBoolean(
-  env.STORAGE_WORKER_ENABLED,
-  DEFAULT_STORAGE_WORKER_ENABLED
-);
-if (isProd && !sqliteWorkerEnabled) {
+const sqliteWorkerEnabled = isStandaloneExecutable
+  ? false
+  : toBoolean(env.STORAGE_WORKER_ENABLED, DEFAULT_STORAGE_WORKER_ENABLED);
+if (isProd && !sqliteWorkerEnabled && !isStandaloneExecutable) {
   throw new Error(
     "[Config] STORAGE_WORKER_ENABLED must be true in production runtime."
   );

@@ -46,12 +46,20 @@ export function useChatHistorySync({
   const utils = trpc.useUtils();
 
   const loadHistory = useCallback(
-    async (force = false) => {
-      if (!activeChatId || activeChatIsReadOnly) {
+    async (force = false, chatId = activeChatId) => {
+      if (!chatId) {
+        return false;
+      }
+
+      const initialStore = useChatStore.getState();
+      if (
+        initialStore.activeChatId !== chatId ||
+        initialStore.activeChatIsReadOnly
+      ) {
         return false;
       }
       const input = {
-        chatId: activeChatId,
+        chatId,
         direction: "backward" as const,
         limit: HISTORY_PAGE_LIMIT,
         includeCompacted: true,
@@ -78,7 +86,7 @@ export function useChatHistorySync({
       store.setPendingPermission(findPendingPermission(parsedHistory.value));
       return true;
     },
-    [activeChatId, activeChatIsReadOnly, onErrorRef, utils]
+    [activeChatId, onErrorRef, utils]
   );
 
   const finalizeMessagesInStore = useCallback(() => {
