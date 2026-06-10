@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "providers": {
+    "provider.agent.eaa43b87-9b31-4ac1-8d68-1eedc4c7d064": {
+      "status": "available",
+      "checkedAt": "2026-06-10T21:08:14.568Z",
+      "latencyMs": 609,
+      "version": "1.16.2",
+      "diagnostics": [
+        "Resolved opencode to C:\\Users\\terasumi\\.bun\\bin\\opencode.exe.",
+        "Executed opencode --version without shell expansion."
+      ]
+    }
+  }
+}

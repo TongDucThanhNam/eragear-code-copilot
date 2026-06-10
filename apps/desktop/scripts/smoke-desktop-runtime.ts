@@ -63,6 +63,7 @@ interface LocalAdeSnapshot {
   projectMemory: {
     sources: Array<{ relativePath: string }>;
   };
+  subagents: Array<{ name: string; enabled: boolean; sourcePath: string }>;
   blockers: Array<{ workflow: string }>;
 }
 
@@ -241,10 +242,14 @@ async function main(): Promise<void> {
         commands: ade.capabilities.capabilities
           .filter((item) => item.kind === "command")
           .map((item) => item.name),
+        subagents: ade.subagents.map((item) => [item.name, item.enabled]),
         memory: ade.projectMemory.sources.map((source) => source.relativePath),
         blockers: ade.blockers.map((blocker) => blocker.workflow),
       })
     );
+    if (!ade.subagents.some((item) => item.name === "code-reviewer" && item.enabled)) {
+      throw new Error("Expected enabled code-reviewer subagent in Local ADE snapshot.");
+    }
 
     const agent = await chooseAgent();
     const providerSnapshot = await request<LocalAdeSnapshot>(

@@ -143,6 +143,61 @@ test("discovers project commands and persists disabled state", async () => {
   expect(state.capabilities[command?.id ?? ""]?.enabled).toBe(false);
 });
 
+test("toggles project memory state separately from generic capabilities", async () => {
+  await writeFile(path.join(tempRoot, "AGENTS.md"), "# Agent context\n", "utf8");
+
+  const service = createService();
+  const snapshot = await service.snapshot(userId);
+  const source = snapshot.projectMemory.sources.find(
+    (item) => item.relativePath === "AGENTS.md"
+  );
+
+  expect(source).toBeDefined();
+  expect(source?.enabled).toBe(true);
+
+  const updated = await service.updateCapabilityState(userId, {
+    capabilityId: source?.id ?? "",
+    enabled: false,
+  });
+  const disabled = updated.projectMemory.sources.find(
+    (item) => item.id === source?.id
+  );
+  const state = JSON.parse(
+    await readFile(
+      path.join(tempRoot, ".eragear", "capabilities-state.json"),
+      "utf8"
+    )
+  );
+
+  expect(disabled?.enabled).toBe(false);
+  expect(state.memory[source?.id ?? ""]?.enabled).toBe(false);
+});
+
+test("discovers project subagents as invokable capabilities", async () => {
+  await mkdir(path.join(tempRoot, ".eragear", "subagents"), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(tempRoot, ".eragear", "subagents", "reviewer.md"),
+    "---\nname: reviewer\ndescription: Review the active diff\ntools: read, git\n---\n# Reviewer\nCheck regressions.\n",
+    "utf8"
+  );
+
+  const service = createService();
+  const snapshot = await service.snapshot(userId);
+  const subagent = snapshot.subagents.find((item) => item.name === "reviewer");
+  const capability = snapshot.capabilities.capabilities.find(
+    (item) => item.id === subagent?.id
+  );
+
+  expect(subagent).toBeDefined();
+  expect(subagent?.enabled).toBe(true);
+  expect(subagent?.prompt).toContain("Check regressions.");
+  expect(subagent?.tools).toEqual(["read", "git"]);
+  expect(capability?.kind).toBe("subagent");
+  expect(capability?.enabled).toBe(true);
+});
+
 test("probes stdio MCP entries with an executable command", async () => {
   const service = createService();
 
@@ -226,9 +281,35 @@ test("captures checkpoint patch metadata from a git worktree", async () => {
   });
   const checkpoint = updated.checkpoints.items[0];
   const patch = await readFile(checkpoint?.patchPath ?? "", "utf8");
+  const preview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
 
   expect(checkpoint?.name).toBe("Unit checkpoint");
   expect(checkpoint?.changedFiles).toContain("README.md");
   expect(checkpoint?.patchBytes).toBeGreaterThan(0);
   expect(patch).toContain("+changed");
+  expect(preview.preview).toContain("+changed");
+  expect(preview.canRestore).toBe(true);
+  expect(preview.restoreBlockers).toEqual([]);
+
+  await expect(
+    service.restoreCheckpoint(userId, {
+      checkpointId: checkpoint?.id ?? "",
+      confirmation: "RESTORE wrong",
+    })
+  ).rejects.toThrow("Type 'RESTORE");
+
+  const restoredSnapshot = await service.restoreCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+    confirmation: preview.restoreToken,
+  });
+  const restoredCheckpoint = restoredSnapshot.checkpoints.items.find(
+    (item) => item.id === checkpoint?.id
+  );
+  const restoredReadme = await readFile(path.join(tempRoot, "README.md"), "utf8");
+
+  expect(restoredReadme.replace(/\r\n/g, "\n")).toBe("initial\n");
+  expect(restoredCheckpoint?.restoredAt).toBeDefined();
+  expect(restoredCheckpoint?.canRestore).toBe(false);
 });

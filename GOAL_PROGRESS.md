@@ -1,187 +1,201 @@
 # GOAL Progress - Electron ADE Overnight Sprint
 
-Updated: 2026-06-10 20:08 UTC / 2026-06-11 03:08 Asia/Saigon
+Updated: 2026-06-10 21:09 UTC / 2026-06-11 04:09 Asia/Saigon
 
-## Completed
+## Current Result
 
-- Read `AGENTS.md` and `GOAL.md` before implementation.
-- Preserved default local desktop transport: renderer `electron-ipc` -> Electron main -> private stdio `desktop-service`; no local apps/server HTTP bridge was reintroduced as the desktop default.
-- Stabilized the visible OpenCode allowlist path by keeping detected absolute CLI policies injected into `desktop-service` and passing `ERAGEAR_REPO_ROOT` into the runtime service.
-- Added Local ADE Control Center as the first screen and inside Settings:
-  - runtime health and transport chain
-  - active sessions and runtime PID
-  - Codex/Claude/Gemini/OpenCode CLI detection
-  - provider/agent safe metadata with redacted ENV key names only
-  - capability registry grouped by kind with persisted toggles
-  - project memory preview with secret-looking-line redaction/warnings
-  - MCP add/list/toggle v1 stored in project-local JSON
-  - read-only Git change trust fallback
-  - runtime log timeline
-  - dashboard parity and explicit blockers
-- Added transitional project-local capability persistence:
-  - `.eragear/capabilities-state.json`
-  - `.eragear/mcp-servers.json`
-  - documented in capability diagnostics as a SQLite migration bridge.
-- Added filesystem discovery for:
-  - `.eragear/skills/**/SKILL.md`
-  - `.claude/skills/**/SKILL.md`
-  - `.eragear/commands/**/*.md`
-  - `.eragear/output-styles/**/*.md`
-  - user equivalents under `%USERPROFILE%\.eragear\...`
-- Added project memory detection for:
-  - `AGENTS.md`
-  - `CLAUDE.md`
-  - `.eragear/memory.md`
-  - `.eragear/context.md`
-- Added sample project command:
-  - `.eragear/commands/desktop-smoke.md`
-  - verified through `settings.getLocalAdeSnapshot` over desktop-service.
-- Merged enabled local command descriptors into the existing chat slash-command picker. Disabled command capabilities are not included.
-- Added focused test coverage for command discovery and persisted disabled state:
-  - `apps/server/src/modules/settings/application/local-ade.service.test.ts`
-- Added reproducible private-service smoke script:
-  - `apps/desktop/scripts/smoke-desktop-runtime.ts`
-- Created a real OpenCode session through Electron private `DesktopRuntimeHost`, subscribed to session events, sent one message, observed assistant activity, then stopped the session.
+The resumed sprint now includes a real black-box ZCode Electron launch sample
+and a verified Eragear Electron ADE path. Eragear is not being claimed as final
+ZCode parity; the remaining blockers are listed below with exact scope.
 
-## Partial / Below ZCode
+## Implemented Product Workflows
 
-- MCP health is explicit `not-probed`; add runtime probes before claiming full MCP parity.
-- Provider test-connection is not implemented; provider state is safe metadata only.
-- Change trust is read-only Git status/diff fallback; no checkpoint restore or rollback engine.
-- Subagents, hooks, and plugins are visible descriptor classes/placeholders, not executable runtime features.
-- Output styles are scanned and listed; no output-style application pipeline is wired yet.
-- Project memory enablement is represented through capability toggles, but session-specific inclusion/exclusion is still coarse.
-- Dashboard auth/admin/device-session management remains blocked for local ADE and documented as remote administration.
-- The app is improved toward a serious local ADE, but it is not yet ZCode-class by the hard checklist because MCP probing, checkpoint restore, provider probing, and subagent execution are not complete.
+- Local ADE Control Center remains the Electron first screen and Settings panel:
+  runtime health, `electron-ipc -> desktop-service`, active sessions, CLI
+  detection, providers, capabilities, memory, MCP, checkpoints, logs, and
+  dashboard parity blockers.
+- Provider test action:
+  `settings.testProvider` executes the configured agent command with
+  `--version` via `execFile`, persists redacted health in
+  `.eragear/provider-health.json`, and the UI shows the Test action/status.
+- MCP add/toggle/probe:
+  project-local MCP entries can be added, enabled/disabled, and probed. Stdio
+  entries resolve executables without shell expansion; SSE/HTTP entries probe
+  endpoint availability with diagnostics.
+- Checkpoint create/preview/guarded restore:
+  `settings.createCheckpoint` stores Git status, changed files, session ids,
+  and patch files. `settings.previewCheckpoint` returns patch preview plus
+  restore readiness. `settings.restoreCheckpoint` requires an exact
+  `RESTORE <id>` token, matching Git HEAD/status, and `git apply --check -R`
+  before applying a reverse patch.
+- Project memory enable/disable:
+  `AGENTS.md`, `CLAUDE.md`, `.eragear/memory.md`, and `.eragear/context.md`
+  are detected, previewed with secret-looking-line redaction, and toggleable.
+- Capability enable/disable:
+  discovered skills, commands, output styles, memory, MCP, providers, and
+  subagents have persisted state. Hooks/plugins are visibly marked unavailable
+  instead of being presented as active workflows.
+- Subagent manual invocation v1:
+  `.eragear/subagents/code-reviewer.md` is discovered as an enabled subagent
+  capability, appears in the Local ADE snapshot, and can be invoked from chat
+  with `/agent-code-reviewer`, which expands into a delegated instruction
+  prompt before sending.
+- Logs/runtime refresh:
+  the Electron control center exposes runtime refresh and local log timeline
+  refresh without opening the server dashboard.
+- ZCode e2e black-box benchmark:
+  launched `C:\Program Files\ZCode\ZCode.exe` as an end-user app, captured the
+  visible Electron window, observed the process tree and ACP child command, and
+  closed the launched ZCode processes.
 
-## Explicit Blockers
+## Evidence
 
-- Auth admin and device sessions:
-  - Dashboard source: `apps/server/src/presentation/dashboard/components/auth-tab.tsx`
+- Eragear first screen:
+  `docs/research/screenshots/eragear-electron-first-screen.png`
+- Eragear latest dev-launch logs:
+  `docs/research/screenshots/eragear-dev-desktop-after-zcode-e2e.stdout.log`
+  and
+  `docs/research/screenshots/eragear-dev-desktop-after-zcode-e2e.stderr.log`
+- ZCode black-box screenshot:
+  `docs/research/screenshots/zcode-electron-first-screen.png`
+- ZCode sanitized metadata:
+  `docs/research/screenshots/zcode-electron-blackbox-metadata.json`
+- ZCode workflow scorecard:
+  `docs/research/zcode-blackbox-scorecard.md`
+
+## Hard Definition Of Done Status
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| `bun run dev:desktop` launches usable Electron app | Pass | Exact command rerun with `ERAGEAR_DESKTOP_SMOKE_EXIT_MS=5000`, exited `0`; fresh logs show renderer loaded and runtime ready. |
+| Local desktop default is Electron IPC to private service | Pass | Dev logs show `Runtime channel: electron-ipc renderer bridge -> desktop-service runtime core`; smoke endpoint is `desktop-service`. |
+| Start session, send message, stream/observe assistant, stop session | Pass | Desktop smoke created chat `397aac4f-11ec-4288-a252-f75abe8385e4`, sent a message, observed assistant activity, stopped subscription/session/host. |
+| Provider test action | Pass | `settings.testProvider` returned provider `available`, OpenCode version `1.16.2`, persisted redacted health. |
+| MCP add/toggle/probe action | Pass | UI/service support add, toggle, and probe; tests cover stdio executable probe. |
+| Checkpoint create action | Pass | Service/UI create checkpoints; tests cover Git patch checkpoint capture. |
+| Checkpoint preview/guarded restore | Pass for safe Git reverse-patch case | Tests cover preview, wrong token rejection, correct token restore, and post-restore state. |
+| Project memory enable/disable | Pass | UI/service toggles memory sources; tests cover persistence. |
+| Capability enable/disable | Pass | Project-local capability state is persisted and reflected in snapshot/chat command availability. |
+| Logs/runtime refresh | Pass | Electron UI has refresh actions backed by local snapshot/log queries. |
+| Dashboard parity | Pass with explicit blockers | Local ADE workflows are present; remote auth admin/device sessions remain blocked with source files and reason. |
+| Provider/MCP/checkpoint/subagent/hook/plugin labels are honest | Pass | Provider/MCP/checkpoint/subagent are implemented; hooks/plugins are marked unavailable. |
+| UX screenshots and ZCode comparison | Pass | Screenshot and scorecard paths listed above. |
+
+## Remaining Parity Blockers
+
+- MCP protocol depth:
+  - Source: `apps/server/src/modules/settings/application/local-ade.service.ts`
+  - Reason: current probe checks executable/endpoint availability, not MCP
+    initialize/tool discovery.
+- Provider upstream auth/model probing:
+  - Source: `apps/server/src/modules/settings/application/local-ade.service.ts`
+  - Reason: current safe provider test verifies local CLI/version; it does not
+    prove provider account auth or enumerate upstream models.
+- Hook/plugin execution:
+  - Source: `apps/server/src/modules/settings/application/local-ade.service.ts`
+  - UI: `apps/web/src/components/local-ade/local-ade-control-center.tsx`
+  - Reason: no signed plugin policy, loader, or hook execution sandbox exists.
+    These classes are visibly unavailable.
+- Checkpoint restore hardening:
+  - Source: `apps/server/src/modules/settings/application/local-ade.service.ts`
+  - UI: `apps/web/src/components/local-ade/local-ade-control-center.tsx`
+  - Reason: guarded reverse-patch restore works only when HEAD/status and
+    reverse-patch checks pass. It still needs conflict-aware UX, undo
+    checkpoint creation, and session-turn attribution.
+- Remote auth admin/device sessions:
+  - Dashboard source:
+    `apps/server/src/presentation/dashboard/components/auth-tab.tsx`
   - Server route: `apps/server/src/transport/http/routes/admin.ts`
-  - Reason: remote administration surface, not local ADE work. Needs a separate local auth-admin policy before exposing in Electron.
-- Full `apps/server check-types` is blocked by existing unrelated failures outside this slice. Examples:
-  - `apps/server/src/modules/ai/application/set-config-option.service.ts`
-  - `apps/server/src/modules/session/application/discover-agent-sessions.service.ts`
-  - `apps/server/src/platform/acp/tool-calls.ts`
-  - `apps/server/src/shared/utils/session-config-options.util.ts`
-- Full `apps/web check-types` is blocked by existing unrelated React/Vite/type baseline failures. Examples:
-  - `apps/web/src/components/ui/badge.tsx`
-  - `apps/web/src/components/ui/button.tsx`
-  - `apps/web/src/components/ai-elements/inline-citation.tsx`
-  - `apps/web/vite.config.ts`
+  - Reason: remote administration surface, not local ADE work. Needs a local
+    auth-admin policy before exposing in Electron.
 
 ## Verification Commands And Results
 
 ```powershell
-Get-Content -Raw AGENTS.md
-Get-Content -Raw GOAL.md
+bun test apps/server/src/modules/settings/application/local-ade.service.test.ts
 ```
-Result: read successfully before implementation.
+
+Result: passed, 6 tests, 33 expectations.
 
 ```powershell
 bun run --cwd apps/desktop check-types
 ```
-Result: passed before and after adding the smoke script.
+
+Result: passed.
 
 ```powershell
 bun run --cwd apps/desktop build:main
 ```
-Result: passed.
 
-```powershell
-bun test apps/server/src/modules/settings/application/local-ade.service.test.ts
-```
-Result: passed, 1 test, 4 expectations.
+Result: passed.
 
 ```powershell
 bun run --cwd apps/web build
 ```
-Result: passed. Vite emitted chunk-size and Browserslist age warnings only.
 
-```powershell
-bun run --cwd apps/server check-types
-```
-Result: failed from existing unrelated baseline errors. No changed-file matches were found by:
-
-```powershell
-bun run --cwd apps/server check-types 2>&1 | Select-String -Pattern 'local-ade|settings.ts|settings-services|use-cases|runtime-host'
-```
-
-```powershell
-bun run --cwd apps/web check-types
-```
-Result: failed from existing unrelated baseline errors. No changed-file matches were found by:
-
-```powershell
-bun run --cwd apps/web check-types 2>&1 | Select-String -Pattern 'local-ade|chat-interface|settings-dialog|trpc.ts'
-```
-
-```powershell
-Get-Command opencode,codex,claude,gemini -ErrorAction SilentlyContinue | Select-Object Name,Source,CommandType
-opencode --version
-codex --version
-claude --version
-gemini --version
-```
-Result:
-- `opencode.exe` found at `C:\Users\terasumi\.bun\bin\opencode.exe`, version `1.16.2`
-- `codex.exe` found at `C:\Users\terasumi\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe`, version `codex-cli 0.137.0`
-- `claude` not found
-- `gemini` not found
+Result: passed. Vite emitted only chunk-size and Browserslist age warnings.
 
 ```powershell
 $env:ERAGEAR_DESKTOP_SMOKE_PROMPT_WAIT_MS='12000'; bun run --cwd apps/desktop ./scripts/smoke-desktop-runtime.ts
 ```
-Result:
-- Runtime ready over `desktop-service`.
-- CLI diagnostics: Codex and OpenCode available; Claude and Gemini missing.
-- `settings.getLocalAdeSnapshot` returned project root `C:\Users\terasumi\Documents\source_code\eragear-code-copilot`, command `/desktop-smoke`, memory `AGENTS.md` and `CLAUDE.md`, blocker `Auth admin and device sessions`.
-- Created real OpenCode session `ba89f23f-0f93-4f5a-8eba-98c0c3ee0009`.
-- Subscription connected before send.
-- `sendMessage` returned `status: submitted`.
-- Assistant activity observed.
-- Session stopped and host stopped.
+
+Result: passed.
+
+- Runtime endpoint: `desktop-service`, ready `true`.
+- CLI diagnostics: Codex `codex-cli 0.137.0`, OpenCode `1.16.2`; Claude and
+  Gemini missing on PATH.
+- ADE snapshot included provider health, `/desktop-smoke`, subagent
+  `code-reviewer`, memory `AGENTS.md`/`CLAUDE.md`, and blocker
+  `Auth admin and device sessions`.
+- Created OpenCode session `397aac4f-11ec-4288-a252-f75abe8385e4`.
+- Sent one message, observed assistant activity, stopped subscription, stopped
+  session, stopped host.
 
 ```powershell
 $env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop
 ```
-Result: exited `0`; Electron dev app opened, loaded renderer, then auto-quit via smoke exit.
+
+Result: passed, exited `0`.
 
 ```powershell
-Get-Process | Where-Object { $_.ProcessName -match 'electron|bun|opencode|codex' } | Select-Object ProcessName,Id,Path
+Start-Process -FilePath 'C:\Program Files\ZCode\ZCode.exe' -PassThru
 ```
-Result: no owned Electron/Bun/OpenCode processes remained after shutdown. Existing Codex desktop processes were present.
 
-## Files Changed In This Slice
+Result: ZCode opened as a visible Electron app. Black-box observation captured
+window screenshot, Electron process tree, child `zcode-acp.exe` command, and no
+owned listeners in this sample. The launched ZCode processes were closed.
 
-- `.eragear/commands/desktop-smoke.md`
-- `apps/desktop/src/runtime-host.ts`
-- `apps/server/src/bootstrap/service-registry/settings-services.ts`
+```powershell
+Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('bun.exe','electron.exe','opencode.exe','zcode-acp.exe','ZCode.exe') }
+```
+
+Result: no owned Eragear/ZCode runtime processes remained after shutdown.
+
+## Files Changed
+
+- `.eragear/provider-health.json`
+- `.eragear/subagents/code-reviewer.md`
+- `docs/research/screenshots/eragear-dev-desktop-after-zcode-e2e.stderr.log`
+- `docs/research/screenshots/eragear-dev-desktop-after-zcode-e2e.stdout.log`
+- `docs/research/screenshots/eragear-dev-desktop-screenshot.stderr.log`
+- `docs/research/screenshots/eragear-dev-desktop-screenshot.stdout.log`
+- `docs/research/screenshots/eragear-electron-first-screen.png`
+- `docs/research/screenshots/zcode-electron-blackbox-metadata.json`
+- `docs/research/screenshots/zcode-electron-first-screen.png`
+- `docs/research/zcode-blackbox-scorecard.md`
+- `apps/desktop/scripts/smoke-desktop-runtime.ts`
 - `apps/server/src/modules/settings/application/local-ade.service.ts`
 - `apps/server/src/modules/settings/application/local-ade.service.test.ts`
-- `apps/desktop/scripts/smoke-desktop-runtime.ts`
 - `apps/server/src/modules/settings/index.ts`
-- `apps/server/src/modules/use-cases.ts`
 - `apps/server/src/transport/trpc/routers/settings.ts`
 - `apps/web/src/components/chat-ui/chat-interface.tsx`
-- `apps/web/src/components/left-sidebar/settings-dialog.tsx`
 - `apps/web/src/components/local-ade/local-ade-control-center.tsx`
 
-## Next Commands For The Next Agent
+## Next Engineering Slice
 
-```powershell
-bun run --cwd apps/desktop check-types
-bun run --cwd apps/desktop build:main
-bun test apps/server/src/modules/settings/application/local-ade.service.test.ts
-bun run --cwd apps/web build
-$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='0'; bun run dev:desktop
-```
-
-## Next Slice
-
-1. Replace transitional capability/MCP JSON with SQLite-backed repository/ports.
-2. Add MCP health probes and runtime wiring.
-3. Add provider test-connection actions with strict secret redaction.
-4. Add checkpoint rows tied to session turns and a safe restore confirmation flow.
-5. Promote subagent descriptors from placeholders to create/list and manual `@agent` invocation.
+1. Implement MCP initialize/tool discovery probes.
+2. Add safe provider auth/model-list probes for providers that support them.
+3. Add checkpoint undo snapshots and conflict-aware restore UX.
+4. Add signed hook/plugin policy and sandbox design before enabling execution.
+5. Improve active-workflow polish on the first screen without replacing the
+   dense ADE control surface.

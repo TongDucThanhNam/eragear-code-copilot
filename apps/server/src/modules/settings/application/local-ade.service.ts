@@ -30,6 +30,7 @@ const MAX_MEMORY_PREVIEW_BYTES = 16_000;
 const GIT_TIMEOUT_MS = 4000;
 const PROBE_TIMEOUT_MS = 2500;
 const MAX_CHECKPOINTS = 80;
+const MAX_CHECKPOINT_PREVIEW_BYTES = 32_000;
 const SECRET_HINT_PATTERN =
   /(api[_-]?key|secret|token|password|private[_-]?key|authorization)/i;
 
@@ -95,6 +96,20 @@ export interface LocalAdeMcpServer {
   updatedAt: string;
 }
 
+export interface LocalAdeSubagentDescriptor {
+  id: string;
+  name: string;
+  description?: string;
+  scope: CapabilityScope;
+  enabled: boolean;
+  sourcePath: string;
+  prompt: string;
+  model?: string;
+  tools: string[];
+  tags: string[];
+  diagnostics: string[];
+}
+
 interface StoredMcpServer extends Omit<LocalAdeMcpServer, "envKeys" | "headerKeys" | "health" | "diagnostics"> {
   env?: Record<string, string>;
   headers?: Record<string, string>;
@@ -152,6 +167,17 @@ export interface CreateCheckpointInput {
   name?: string;
 }
 
+export interface PreviewCheckpointInput {
+  projectId?: string;
+  checkpointId: string;
+}
+
+export interface RestoreCheckpointInput {
+  projectId?: string;
+  checkpointId: string;
+  confirmation: string;
+}
+
 export interface UpdateCapabilityStateInput {
   projectId?: string;
   capabilityId: string;
@@ -187,7 +213,26 @@ export interface LocalAdeCheckpoint {
   patchPath: string;
   patchBytes: number;
   canRestore: boolean;
+  restoredAt?: string;
   diagnostics: string[];
+}
+
+export interface LocalAdeCheckpointPreview {
+  checkpointId: string;
+  name: string;
+  patchPath: string;
+  patchBytes: number;
+  preview: string;
+  truncated: boolean;
+  restoreToken: string;
+  canRestore: boolean;
+  changedFiles: string[];
+  statusLines: string[];
+  diagnostics: string[];
+  restoreBlockers: Array<{
+    file: string;
+    reason: string;
+  }>;
 }
 
 export interface LocalAdeSnapshot {
@@ -235,6 +280,7 @@ export interface LocalAdeSnapshot {
     configPath: string;
     servers: LocalAdeMcpServer[];
   };
+  subagents: LocalAdeSubagentDescriptor[];
   changeTrust: LocalAdeChangeTrustSnapshot;
   checkpoints: {
     storagePath: string;
@@ -276,36 +322,28 @@ interface FrontmatterResult {
   body: string;
 }
 
-const CAPABILITY_PLACEHOLDERS: CapabilityDescriptor[] = [
+const UNAVAILABLE_CAPABILITIES: CapabilityDescriptor[] = [
   {
-    id: "local.subagents.placeholder",
-    kind: "subagent",
-    name: "Subagents",
-    description: "Descriptor shape is reserved; invocation is still pending.",
-    scope: "local",
-    enabled: false,
-    storage: "filesystem-discovery",
-    diagnostics: ["Subagent creation/listing is below the current cut line."],
-  },
-  {
-    id: "local.hooks.placeholder",
+    id: "local.hooks.unavailable",
     kind: "hook",
     name: "Hooks",
-    description: "Hook descriptors are visible as a registry class.",
+    description: "Unavailable: hook execution is not implemented yet.",
     scope: "local",
     enabled: false,
     storage: "filesystem-discovery",
-    diagnostics: ["Hook runtime execution is not implemented in this sprint."],
+    diagnostics: ["Unavailable in this build: hook runtime execution is not implemented."],
   },
   {
-    id: "local.plugins.placeholder",
+    id: "local.plugins.unavailable",
     kind: "plugin",
     name: "Plugins",
-    description: "Plugin descriptors are visible as a registry class.",
+    description: "Unavailable: plugin loading is intentionally blocked.",
     scope: "plugin",
     enabled: false,
     storage: "filesystem-discovery",
-    diagnostics: ["Plugin installation/loading is intentionally blocked."],
+    diagnostics: [
+      "Unavailable in this build: plugin installation/loading is intentionally blocked until a signed plugin policy exists.",
+    ],
   },
 ];
 
@@ -507,6 +545,22 @@ function attributeTags(attributes: Record<string, string | string[] | boolean>):
       .filter(Boolean);
   }
   return [];
+}
+
+function attributeStringList(
+  attributes: Record<string, string | string[] | boolean>,
+  keys: string[]
+): string[] {
+  const values: string[] = [];
+  for (const key of keys) {
+    const value = attributes[key];
+    if (Array.isArray(value)) {
+      values.push(...value);
+    } else if (typeof value === "string") {
+      values.push(...value.split(","));
+    }
+  }
+  return values.map((item) => item.trim()).filter(Boolean);
 }
 
 function titleFromMarkdown(body: string): string | undefined {
@@ -712,6 +766,124 @@ async function discoverCapabilityFiles(params: {
     }
   }
   return capabilities;
+}
+
+async function readSubagentDescriptor(params: {
+  filePath: string;
+  scope: CapabilityScope;
+  rootPath: string;
+  state: CapabilityStateDocument;
+  defaultName: string;
+  diagnostics?: string[];
+}): Promise<LocalAdeSubagentDescriptor | null> {
+  let raw = "";
+  try {
+    raw = await readFile(params.filePath, "utf8");
+  } catch {
+    return null;
+  }
+  const parsed = parseFrontmatter(raw);
+  const relative = normalizeSlash(path.relative(params.rootPath, params.filePath));
+  const id = `subagent.${params.scope}.${toHashId(params.rootPath, relative)}`;
+  const name =
+    firstString(parsed.attributes, ["name", "agent", "title"]) ??
+    titleFromMarkdown(parsed.body) ??
+    params.defaultName;
+  const stateEntry = params.state.capabilities[id];
+  const tags = [
+    ...attributeTags(parsed.attributes),
+    params.scope,
+    relative.startsWith(".claude/") ? "claude-compatible" : "eragear",
+  ];
+  return {
+    id,
+    name,
+    ...(firstString(parsed.attributes, ["description", "summary"]) ??
+    descriptionFromMarkdown(parsed.body)
+      ? {
+          description:
+            firstString(parsed.attributes, ["description", "summary"]) ??
+            descriptionFromMarkdown(parsed.body),
+        }
+      : {}),
+    scope: params.scope,
+    enabled: stateEntry?.enabled ?? true,
+    sourcePath: params.filePath,
+    prompt: parsed.body.trim(),
+    ...(firstString(parsed.attributes, ["model"])
+      ? { model: firstString(parsed.attributes, ["model"]) }
+      : {}),
+    tools: attributeStringList(parsed.attributes, ["tools", "toolPolicy"]),
+    tags,
+    diagnostics: params.diagnostics ?? [],
+  };
+}
+
+async function discoverSubagentFiles(params: {
+  rootPath: string;
+  state: CapabilityStateDocument;
+  homePath: string;
+}): Promise<LocalAdeSubagentDescriptor[]> {
+  const specs: Array<{
+    scope: CapabilityScope;
+    rootPath: string;
+    diagnostics?: string[];
+  }> = [
+    {
+      scope: "project",
+      rootPath: path.join(params.rootPath, ".eragear", "subagents"),
+    },
+    {
+      scope: "project",
+      rootPath: path.join(params.rootPath, ".claude", "agents"),
+      diagnostics: ["Loaded as a compatibility subagent descriptor."],
+    },
+    {
+      scope: "user",
+      rootPath: path.join(params.homePath, ".eragear", "subagents"),
+    },
+  ];
+  const subagents: LocalAdeSubagentDescriptor[] = [];
+  for (const spec of specs) {
+    const files = await walkFiles({
+      rootPath: spec.rootPath,
+      match: (filePath) => filePath.toLowerCase().endsWith(".md"),
+    });
+    for (const filePath of files) {
+      const descriptor = await readSubagentDescriptor({
+        filePath,
+        scope: spec.scope,
+        rootPath: params.rootPath,
+        state: params.state,
+        defaultName: path.basename(filePath, ".md"),
+        diagnostics: spec.diagnostics,
+      });
+      if (descriptor) {
+        subagents.push(descriptor);
+      }
+    }
+  }
+  return subagents;
+}
+
+function subagentCapabilities(
+  subagents: LocalAdeSubagentDescriptor[]
+): CapabilityDescriptor[] {
+  return subagents.map((subagent) => ({
+    id: subagent.id,
+    kind: "subagent",
+    name: subagent.name,
+    description: subagent.description ?? "Manual delegated subagent prompt.",
+    scope: subagent.scope,
+    enabled: subagent.enabled,
+    sourcePath: subagent.sourcePath,
+    storage: "filesystem-discovery",
+    tags: subagent.tags,
+    diagnostics:
+      subagent.diagnostics.length > 0
+        ? subagent.diagnostics
+        : ["Manual invocation is available through /agent-* chat commands."],
+  }));
 }
 
 function redactPotentialSecrets(text: string): string {
@@ -1250,6 +1422,7 @@ async function readCheckpointDocument(rootPath: string): Promise<CheckpointDocum
       typeof item.patchPath === "string" &&
       typeof item.patchBytes === "number" &&
       typeof item.canRestore === "boolean" &&
+      (item.restoredAt === undefined || typeof item.restoredAt === "string") &&
       Array.isArray(item.diagnostics)
     );
   });
@@ -1353,6 +1526,196 @@ async function createGitCheckpoint(params: {
   };
 }
 
+function isPathInside(parentPath: string, childPath: string): boolean {
+  const parent = path.resolve(parentPath);
+  const child = path.resolve(childPath);
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function checkpointRestoreToken(checkpoint: LocalAdeCheckpoint): string {
+  return `RESTORE ${checkpoint.id.slice(0, 8)}`;
+}
+
+function normalizedLines(lines: string[]): string[] {
+  return lines
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .filter((line) => {
+      const normalized = normalizeSlash(line.slice(3).trim());
+      return !(
+        normalized === ".eragear/" ||
+        normalized === ".eragear/checkpoints.json" ||
+        normalized.startsWith(".eragear/checkpoints/")
+      );
+    })
+    .sort();
+}
+
+function equalLineSets(left: string[], right: string[]): boolean {
+  const normalizedLeft = normalizedLines(left);
+  const normalizedRight = normalizedLines(right);
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+  return normalizedLeft.every((line, index) => line === normalizedRight[index]);
+}
+
+async function collectCheckpointRestoreBlockers(params: {
+  rootPath: string;
+  checkpoint: LocalAdeCheckpoint;
+  patchPath: string;
+}): Promise<Array<{ file: string; reason: string }>> {
+  const blockers: Array<{ file: string; reason: string }> = [];
+  const serviceFile = "apps/server/src/modules/settings/application/local-ade.service.ts";
+
+  if (!params.checkpoint.canRestore || params.checkpoint.patchBytes <= 0) {
+    blockers.push({
+      file: serviceFile,
+      reason: "Checkpoint has no tracked-file patch to restore.",
+    });
+  }
+  if (params.checkpoint.restoredAt) {
+    blockers.push({
+      file: serviceFile,
+      reason: `Checkpoint was already restored at ${params.checkpoint.restoredAt}.`,
+    });
+  }
+
+  try {
+    const currentHead = (await runGit(params.rootPath, ["rev-parse", "HEAD"])).stdout.trim();
+    if (params.checkpoint.gitHead && currentHead !== params.checkpoint.gitHead) {
+      blockers.push({
+        file: serviceFile,
+        reason:
+          "Current Git HEAD differs from the checkpoint HEAD; restore is blocked to avoid applying a stale reverse patch.",
+      });
+    }
+  } catch (error) {
+    blockers.push({
+      file: serviceFile,
+      reason: `Could not verify Git HEAD: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    });
+  }
+
+  try {
+    const statusLines = (await runGit(params.rootPath, ["status", "--short"])).stdout
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter(Boolean);
+    if (!equalLineSets(statusLines, params.checkpoint.statusLines)) {
+      blockers.push({
+        file: serviceFile,
+        reason:
+          "Current workspace status differs from the checkpoint capture; restore is blocked until changes are reviewed or a new checkpoint is created.",
+      });
+    }
+  } catch (error) {
+    blockers.push({
+      file: serviceFile,
+      reason: `Could not verify workspace status: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    });
+  }
+
+  try {
+    await runGit(params.rootPath, ["apply", "--check", "-R", params.patchPath]);
+  } catch (error) {
+    blockers.push({
+      file: serviceFile,
+      reason: `Reverse patch check failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    });
+  }
+
+  return blockers;
+}
+
+async function readCheckpointPreview(params: {
+  rootPath: string;
+  checkpoint: LocalAdeCheckpoint;
+}): Promise<LocalAdeCheckpointPreview> {
+  const patchDir = path.join(ensureProjectDataDir(params.rootPath), CHECKPOINT_PATCH_DIR);
+  const resolvedPatchPath = path.resolve(params.checkpoint.patchPath);
+  if (!isPathInside(patchDir, resolvedPatchPath)) {
+    throw new Error(
+      `Checkpoint patch is outside the project checkpoint directory: ${params.checkpoint.patchPath}`
+    );
+  }
+
+  let rawPatch = "";
+  try {
+    rawPatch = await readFile(resolvedPatchPath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Checkpoint patch could not be read: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+  const restoreBlockers = await collectCheckpointRestoreBlockers({
+    rootPath: params.rootPath,
+    checkpoint: params.checkpoint,
+    patchPath: resolvedPatchPath,
+  });
+
+  return {
+    checkpointId: params.checkpoint.id,
+    name: params.checkpoint.name,
+    patchPath: resolvedPatchPath,
+    patchBytes: params.checkpoint.patchBytes,
+    preview: rawPatch.slice(0, MAX_CHECKPOINT_PREVIEW_BYTES),
+    truncated: rawPatch.length > MAX_CHECKPOINT_PREVIEW_BYTES,
+    restoreToken: checkpointRestoreToken(params.checkpoint),
+    canRestore: restoreBlockers.length === 0,
+    changedFiles: params.checkpoint.changedFiles,
+    statusLines: params.checkpoint.statusLines,
+    diagnostics: params.checkpoint.diagnostics,
+    restoreBlockers,
+  };
+}
+
+async function restoreGitCheckpoint(params: {
+  rootPath: string;
+  checkpoint: LocalAdeCheckpoint;
+  confirmation: string;
+}): Promise<LocalAdeCheckpoint> {
+  const patchDir = path.join(ensureProjectDataDir(params.rootPath), CHECKPOINT_PATCH_DIR);
+  const resolvedPatchPath = path.resolve(params.checkpoint.patchPath);
+  if (!isPathInside(patchDir, resolvedPatchPath)) {
+    throw new Error(
+      `Checkpoint patch is outside the project checkpoint directory: ${params.checkpoint.patchPath}`
+    );
+  }
+  const expectedConfirmation = checkpointRestoreToken(params.checkpoint);
+  if (params.confirmation.trim() !== expectedConfirmation) {
+    throw new Error(`Type '${expectedConfirmation}' to restore this checkpoint.`);
+  }
+  const blockers = await collectCheckpointRestoreBlockers({
+    rootPath: params.rootPath,
+    checkpoint: params.checkpoint,
+    patchPath: resolvedPatchPath,
+  });
+  if (blockers.length > 0) {
+    throw new Error(blockers.map((blocker) => blocker.reason).join(" "));
+  }
+
+  await runGit(params.rootPath, ["apply", "-R", "--whitespace=nowarn", resolvedPatchPath]);
+  return {
+    ...params.checkpoint,
+    restoredAt: new Date().toISOString(),
+    canRestore: false,
+    diagnostics: [
+      `Checkpoint restored by guarded reverse patch at ${new Date().toISOString()}.`,
+      ...params.checkpoint.diagnostics,
+    ],
+  };
+}
+
 function sessionPid(proc: unknown): number | undefined {
   if (isRecord(proc) && typeof proc.pid === "number") {
     return proc.pid;
@@ -1388,6 +1751,7 @@ export class LocalAdeService {
       agents,
       activeAgentId,
       markdownCapabilities,
+      subagents,
       projectMemory,
       mcpDocument,
       providerHealth,
@@ -1400,6 +1764,11 @@ export class LocalAdeService {
         this.agentRepo.findAll(userId),
         this.agentRepo.getActiveId(userId),
         discoverCapabilityFiles({
+          rootPath: projectContext.rootPath,
+          state,
+          homePath: os.homedir(),
+        }),
+        discoverSubagentFiles({
           rootPath: projectContext.rootPath,
           state,
           homePath: os.homedir(),
@@ -1422,6 +1791,7 @@ export class LocalAdeService {
     const capabilities = createCapabilityRegistrySnapshot(
       [
         ...markdownCapabilities,
+        ...subagentCapabilities(subagents),
         ...providerCapabilities(providers),
         ...createMcpCapabilities(projectContext.rootPath, mcpServers),
         ...projectMemory.sources.map((source): CapabilityDescriptor => ({
@@ -1436,7 +1806,7 @@ export class LocalAdeService {
           tags: ["project-memory"],
           diagnostics: source.warnings,
         })),
-        ...CAPABILITY_PLACEHOLDERS,
+        ...UNAVAILABLE_CAPABILITIES,
       ],
       [
         "Filesystem discovery is active for skills, commands, output styles, memory, and MCP descriptors.",
@@ -1495,6 +1865,7 @@ export class LocalAdeService {
         configPath: path.join(ensureProjectDataDir(projectContext.rootPath), MCP_FILE),
         servers: mcpServers,
       },
+      subagents,
       changeTrust,
       checkpoints: {
         storagePath: path.join(
@@ -1699,6 +2070,46 @@ export class LocalAdeService {
       0,
       MAX_CHECKPOINTS
     );
+    await writeCheckpointDocument(context.rootPath, document);
+    return await this.snapshot(userId);
+  }
+
+  async previewCheckpoint(
+    userId: string,
+    input: PreviewCheckpointInput
+  ): Promise<LocalAdeCheckpointPreview> {
+    const context = await this.resolveProjectContext(userId, input.projectId);
+    const document = await readCheckpointDocument(context.rootPath);
+    const checkpoint = document.checkpoints.find(
+      (item) => item.id === input.checkpointId
+    );
+    if (!checkpoint) {
+      throw new Error(`Checkpoint not found: ${input.checkpointId}`);
+    }
+    return await readCheckpointPreview({
+      rootPath: context.rootPath,
+      checkpoint,
+    });
+  }
+
+  async restoreCheckpoint(
+    userId: string,
+    input: RestoreCheckpointInput
+  ): Promise<LocalAdeSnapshot> {
+    const context = await this.resolveProjectContext(userId, input.projectId);
+    const document = await readCheckpointDocument(context.rootPath);
+    const checkpointIndex = document.checkpoints.findIndex(
+      (item) => item.id === input.checkpointId
+    );
+    if (checkpointIndex < 0) {
+      throw new Error(`Checkpoint not found: ${input.checkpointId}`);
+    }
+    const restored = await restoreGitCheckpoint({
+      rootPath: context.rootPath,
+      checkpoint: document.checkpoints[checkpointIndex],
+      confirmation: input.confirmation,
+    });
+    document.checkpoints[checkpointIndex] = restored;
     await writeCheckpointDocument(context.rootPath, document);
     return await this.snapshot(userId);
   }

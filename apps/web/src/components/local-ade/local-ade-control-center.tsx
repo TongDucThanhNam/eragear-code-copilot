@@ -7,6 +7,7 @@ import {
   Bot,
   CheckCircle2,
   Database,
+  Eye,
   FileText,
   GitBranch,
   KeyRound,
@@ -18,6 +19,7 @@ import {
   SlidersHorizontal,
   Terminal,
   TestTube2,
+  Undo2,
   XCircle,
 } from "lucide-react";
 import React from "react";
@@ -41,6 +43,7 @@ import { useServerConfigStore } from "@/store/server-config-store";
 type RouterOutput = inferRouterOutputs<AppRouter>;
 type LocalAdeSnapshot = RouterOutput["settings"]["getLocalAdeSnapshot"];
 type Capability = LocalAdeSnapshot["capabilities"]["capabilities"][number];
+type CheckpointPreview = RouterOutput["settings"]["previewCheckpoint"];
 type McpTransport = "stdio" | "sse" | "streamable-http";
 
 interface LocalAdeControlCenterProps {
@@ -120,6 +123,16 @@ function shortPath(value: string | undefined): string {
     return normalized;
   }
   return `.../${parts.slice(-3).join("/")}`;
+}
+
+function isUnavailableCapability(item: Capability): boolean {
+  const diagnostics = (item.diagnostics ?? []).join(" ").toLowerCase();
+  return (
+    item.id.includes(".unavailable") ||
+    diagnostics.includes("unavailable") ||
+    diagnostics.includes("not implemented") ||
+    diagnostics.includes("intentionally blocked")
+  );
 }
 
 function Section({
@@ -291,37 +304,48 @@ function CapabilityRows({
                   No {kind} descriptors discovered.
                 </div>
               ) : (
-                items.map((item) => (
-                  <div
-                    className="flex items-start justify-between gap-3 rounded px-2 py-2 hover:bg-muted/40"
-                    key={item.id}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium text-sm">
-                          {item.name}
-                        </span>
-                        <Badge variant={item.enabled ? "default" : "outline"}>
-                          {item.enabled ? "enabled" : "off"}
-                        </Badge>
-                      </div>
-                      <div className="mt-1 line-clamp-2 text-muted-foreground text-xs">
-                        {item.description ?? item.diagnostics?.[0] ?? "No description"}
-                      </div>
-                      {item.sourcePath ? (
-                        <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={item.sourcePath}>
-                          {shortPath(item.sourcePath)}
+                items.map((item) => {
+                  const unavailable = isUnavailableCapability(item);
+                  return (
+                    <div
+                      className="flex items-start justify-between gap-3 rounded px-2 py-2 hover:bg-muted/40"
+                      key={item.id}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium text-sm">
+                            {item.name}
+                          </span>
+                          <Badge
+                            variant={
+                              unavailable
+                                ? "secondary"
+                                : item.enabled
+                                  ? "default"
+                                  : "outline"
+                            }
+                          >
+                            {unavailable ? "unavailable" : item.enabled ? "enabled" : "off"}
+                          </Badge>
                         </div>
-                      ) : null}
+                        <div className="mt-1 line-clamp-2 text-muted-foreground text-xs">
+                          {item.description ?? item.diagnostics?.[0] ?? "No description"}
+                        </div>
+                        {item.sourcePath ? (
+                          <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={item.sourcePath}>
+                            {shortPath(item.sourcePath)}
+                          </div>
+                        ) : null}
+                      </div>
+                      <Switch
+                        checked={item.enabled}
+                        disabled={disabled || unavailable}
+                        onCheckedChange={(checked) => onToggle(item, checked)}
+                        size="sm"
+                      />
                     </div>
-                    <Switch
-                      checked={item.enabled}
-                      disabled={disabled}
-                      onCheckedChange={(checked) => onToggle(item, checked)}
-                      size="sm"
-                    />
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -398,7 +422,13 @@ function ProviderTable({ snapshot }: { snapshot: LocalAdeSnapshot | undefined })
   );
 }
 
-function McpManager({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }) {
+function McpManager({
+  snapshot,
+  onProbe,
+}: {
+  snapshot: LocalAdeSnapshot | undefined;
+  onProbe: () => void;
+}) {
   const utils = trpc.useUtils();
   const [name, setName] = React.useState("");
   const [transport, setTransport] = React.useState<McpTransport>("stdio");
@@ -434,7 +464,7 @@ function McpManager({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }) {
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-2 md:grid-cols-[1fr_150px_1.4fr_auto]">
+      <div className="grid gap-2 md:grid-cols-[1fr_150px_1.4fr_auto_auto]">
         <div className="grid gap-1">
           <Label className="text-xs">Name</Label>
           <Input value={name} onChange={(event) => setName(event.target.value)} />
@@ -467,6 +497,12 @@ function McpManager({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }) {
         <div className="flex items-end">
           <Button disabled={upsert.isPending} onClick={save} size="sm">
             Save
+          </Button>
+        </div>
+        <div className="flex items-end">
+          <Button onClick={onProbe} size="sm" type="button" variant="outline">
+            <TestTube2 className="mr-1.5 h-3.5 w-3.5" />
+            Probe
           </Button>
         </div>
       </div>
@@ -519,10 +555,35 @@ function McpManager({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }) {
 
 function MemoryAndTrust({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }) {
   const utils = trpc.useUtils();
+  const [checkpointPreview, setCheckpointPreview] =
+    React.useState<CheckpointPreview | null>(null);
+  const [restoreConfirmation, setRestoreConfirmation] = React.useState("");
+  const updateMemory = trpc.settings.updateCapabilityState.useMutation({
+    onSuccess: (data) => {
+      utils.settings.getLocalAdeSnapshot.setData(undefined, data);
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const createCheckpoint = trpc.settings.createCheckpoint.useMutation({
     onSuccess: (data) => {
       utils.settings.getLocalAdeSnapshot.setData(undefined, data);
       toast.success("Checkpoint captured");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const previewCheckpoint = trpc.settings.previewCheckpoint.useMutation({
+    onSuccess: (data) => {
+      setCheckpointPreview(data);
+      setRestoreConfirmation("");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const restoreCheckpoint = trpc.settings.restoreCheckpoint.useMutation({
+    onSuccess: (data) => {
+      utils.settings.getLocalAdeSnapshot.setData(undefined, data);
+      setCheckpointPreview(null);
+      setRestoreConfirmation("");
+      toast.success("Checkpoint restored");
     },
     onError: (error) => toast.error(error.message),
   });
@@ -539,9 +600,22 @@ function MemoryAndTrust({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }
                   {source.relativePath} - {formatBytes(source.byteLength)}
                 </div>
               </div>
-              <Badge variant={source.enabled ? "default" : "outline"}>
-                {source.enabled ? "included" : "off"}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={source.enabled ? "default" : "outline"}>
+                  {source.enabled ? "included" : "off"}
+                </Badge>
+                <Switch
+                  checked={source.enabled}
+                  disabled={updateMemory.isPending}
+                  onCheckedChange={(enabled) =>
+                    updateMemory.mutate({
+                      capabilityId: source.id,
+                      enabled,
+                    })
+                  }
+                  size="sm"
+                />
+              </div>
             </div>
             <pre className="mt-2 max-h-28 overflow-hidden whitespace-pre-wrap rounded bg-muted/40 p-2 text-[11px] text-muted-foreground">
               {source.preview || "No preview"}
@@ -610,9 +684,25 @@ function MemoryAndTrust({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }
                   <span className="truncate font-medium text-xs">
                     {checkpoint.name}
                   </span>
-                  <Badge variant={checkpoint.canRestore ? "default" : "outline"}>
-                    {formatBytes(checkpoint.patchBytes)}
-                  </Badge>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Badge variant={checkpoint.canRestore ? "default" : "outline"}>
+                      {formatBytes(checkpoint.patchBytes)}
+                    </Badge>
+                    <Button
+                      disabled={previewCheckpoint.isPending}
+                      onClick={() =>
+                        previewCheckpoint.mutate({
+                          checkpointId: checkpoint.id,
+                        })
+                      }
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Eye className="mr-1.5 h-3.5 w-3.5" />
+                      Preview
+                    </Button>
+                  </div>
                 </div>
                 <div className="mt-1 truncate text-muted-foreground text-[11px]">
                   {formatTime(checkpoint.createdAt)} -{" "}
@@ -630,6 +720,64 @@ function MemoryAndTrust({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }
               </div>
             ) : null}
           </div>
+          {checkpointPreview ? (
+            <div className="mt-2 rounded-md border bg-muted/20 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-xs">
+                    {checkpointPreview.name}
+                  </div>
+                  <div className="truncate text-muted-foreground text-[11px]">
+                    {checkpointPreview.changedFiles.length} files -{" "}
+                    {formatBytes(checkpointPreview.patchBytes)}
+                    {checkpointPreview.truncated ? " - truncated" : ""}
+                  </div>
+                </div>
+                <Badge variant={checkpointPreview.canRestore ? "default" : "secondary"}>
+                  {checkpointPreview.canRestore ? "restore ready" : "restore blocked"}
+                </Badge>
+              </div>
+              <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded bg-background p-2 font-mono text-[11px]">
+                {checkpointPreview.preview || "Patch is empty."}
+              </pre>
+              {checkpointPreview.restoreBlockers.length > 0 ? (
+                <div className="mt-2 space-y-1 text-muted-foreground text-[11px]">
+                  {checkpointPreview.restoreBlockers.map((blocker) => (
+                    <div key={`${blocker.file}:${blocker.reason}`}>
+                      {blocker.file}: {blocker.reason}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-2 grid gap-2 md:grid-cols-[1fr_auto]">
+                  <Input
+                    aria-label="Checkpoint restore confirmation"
+                    onChange={(event) => setRestoreConfirmation(event.target.value)}
+                    placeholder={`Type ${checkpointPreview.restoreToken}`}
+                    value={restoreConfirmation}
+                  />
+                  <Button
+                    disabled={
+                      restoreCheckpoint.isPending ||
+                      restoreConfirmation.trim() !== checkpointPreview.restoreToken
+                    }
+                    onClick={() =>
+                      restoreCheckpoint.mutate({
+                        checkpointId: checkpointPreview.checkpointId,
+                        confirmation: restoreConfirmation,
+                      })
+                    }
+                    size="sm"
+                    type="button"
+                    variant="destructive"
+                  >
+                    <Undo2 className="mr-1.5 h-3.5 w-3.5" />
+                    Restore
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
         {(snapshot?.projectMemory.warnings ?? []).slice(0, 3).map((warning) => (
           <div
@@ -813,8 +961,14 @@ export function LocalAdeControlCenter({
           <MemoryAndTrust snapshot={snapshot} />
         </Section>
 
-        <Section title="MCP Manager v1" icon={PlugZap}>
-          <McpManager snapshot={snapshot} />
+        <Section title="MCP Servers" icon={PlugZap}>
+          <McpManager
+            onProbe={() => {
+              void refreshDiagnostics();
+              toast.success("MCP probes refreshed");
+            }}
+            snapshot={snapshot}
+          />
         </Section>
       </div>
 

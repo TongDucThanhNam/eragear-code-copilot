@@ -1,0 +1,75 @@
+﻿{
+    "capturedAt":  "2026-06-10T20:53:10.4031003Z",
+    "executable":  "C:\\Program Files\\ZCode\\ZCode.exe",
+    "rootProcessId":  76364,
+    "screenshot":  "C:\\Users\\terasumi\\Documents\\source_code\\eragear-code-copilot\\docs\\research\\screenshots\\zcode-electron-first-screen.png",
+    "screenshotWidth":  1200,
+    "screenshotHeight":  800,
+    "windowTitle":  "ZCode",
+    "processCount":  10,
+    "processes":  [
+                      {
+                          "processId":  76364,
+                          "parentProcessId":  32372,
+                          "name":  "ZCode.exe",
+                          "commandLine":  "\"C:\\Program Files\\ZCode\\ZCode.exe\" "
+                      },
+                      {
+                          "processId":  47944,
+                          "parentProcessId":  76364,
+                          "name":  "ZCode.exe",
+                          "commandLine":  "\"C:\\Program Files\\ZCode\\ZCode.exe\" --type=crashpad-handler --user-data-dir=C:\\Users\\\u003cuser\u003e\\AppData\\Roaming\\ZCode /prefetch:4 --no-rate-limit --monitor-self-annotation=ptype=crashpad-handler --database=C:\\Users\\\u003cuser\u003e\\.zcode\\v2\\crash\\live --url=https://f.a.k/e --annotation=_productName=ZCode --annotation=_version=2.13.0 --annotation=plat=Win64 --annotation=prod=Electron --annotation=ver=41.0.3 --initial-client-data=0x55c,0x580,0x58c,0x584,0x590,0x7ff69728a7bc,0x7ff69728a7c8,0x7ff69728a7d8"
+                      },
+                      {
+                          "processId":  79644,
+                          "parentProcessId":  76364,
+                          "name":  "ZCode.exe",
+                          "commandLine":  "\"C:\\Program Files\\ZCode\\ZCode.exe\" --type=gpu-process --user-data-dir=\"C:\\Users\\\u003cuser\u003e\\AppData\\Roaming\\ZCode\" --gpu-preferences=SAAAAAAAAADgAAAEAAAAAAAAAAAAAGAAAQAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAQAAAAAAAAABAAAAAAAAAACAAAAAAAAAAIAAAAAAAAAA== --field-trial-handle=1884,i,8791707736327527163,16235377859312729036,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EnableTransparentHwndEnlargement,PdfUseShowSaveFilePicker --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1892,i,4001451518799130065,41835473079247969,4 --trace-process-track-uuid=3190708988185955192 --mojo-platform-channel-handle=1876 /prefetch:2"
+                      },
+                      {
+                          "processId":  106976,
+                          "parentProcessId":  76364,
+                          "name":  "ZCode.exe",
+                          "commandLine":  "\"C:\\Program Files\\ZCode\\ZCode.exe\" --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --user-data-dir=\"C:\\Users\\\u003cuser\u003e\\AppData\\Roaming\\ZCode\" --secure-schemes=sentry-ipc --bypasscsp-schemes=sentry-ipc --cors-schemes=sentry-ipc --fetch-schemes=sentry-ipc --field-trial-handle=1884,i,8791707736327527163,16235377859312729036,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EnableTransparentHwndEnlargement,PdfUseShowSaveFilePicker --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1892,i,4001451518799130065,41835473079247969,4 --trace-process-track-uuid=3190708989122997041 --mojo-platform-channel-handle=2108 /prefetch:11"
+                      },
+                      {
+                          "processId":  68200,
+                          "parentProcessId":  76364,
+                          "name":  "ZCode.exe",
+                          "commandLine":  "\"C:\\Program Files\\ZCode\\ZCode.exe\" --type=renderer --user-data-dir=\"C:\\Users\\\u003cuser\u003e\\AppData\\Roaming\\ZCode\" --secure-schemes=sentry-ipc --bypasscsp-schemes=sentry-ipc --cors-schemes=sentry-ipc --fetch-schemes=sentry-ipc --app-path=\"C:\\Program Files\\ZCode\\resources\\\u003credacted\u003e --enable-sandbox --video-capture-use-gpu-memory-buffer --lang=en-US --device-scale-factor=1.25 --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=4 --time-ticks-at-unix-epoch=-1780993311669537 --launch-time-ticks=131465962103 --field-trial-handle=1884,i,8791707736327527163,16235377859312729036,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EnableTransparentHwndEnlargement,PdfUseShowSaveFilePicker --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1892,i,4001451518799130065,41835473079247969,4 --trace-process-track-uuid=3190708990060038890 --mojo-platform-channel-handle=3328 --device-id=\u003credacted\u003e /prefetch:1"
+                      },
+                      {
+                          "processId":  75180,
+                          "parentProcessId":  76364,
+                          "name":  "ZCode.exe",
+                          "commandLine":  "\"C:\\Program Files\\ZCode\\ZCode.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --video-capture-use-gpu-memory-buffer --user-data-dir=\"C:\\Users\\\u003cuser\u003e\\AppData\\Roaming\\ZCode\" --secure-schemes=sentry-ipc --bypasscsp-schemes=sentry-ipc --cors-schemes=sentry-ipc --fetch-schemes=sentry-ipc --field-trial-handle=1884,i,8791707736327527163,16235377859312729036,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EnableTransparentHwndEnlargement,PdfUseShowSaveFilePicker --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1892,i,4001451518799130065,41835473079247969,4 --trace-process-track-uuid=3190708990997080739 --mojo-platform-channel-handle=3868 /prefetch:14"
+                      },
+                      {
+                          "processId":  96820,
+                          "parentProcessId":  75180,
+                          "name":  "zcode-acp.exe",
+                          "commandLine":  "zcode-acp-glm-eragear-code-copilot acp"
+                      },
+                      {
+                          "processId":  103976,
+                          "parentProcessId":  96820,
+                          "name":  "conhost.exe",
+                          "commandLine":  "\\??\\C:\\WINDOWS\\system32\\conhost.exe 0x4"
+                      },
+                      {
+                          "processId":  27912,
+                          "parentProcessId":  76364,
+                          "name":  "ZCode.exe",
+                          "commandLine":  "\"C:\\Program Files\\ZCode\\ZCode.exe\" --type=renderer --user-data-dir=\"C:\\Users\\\u003cuser\u003e\\AppData\\Roaming\\ZCode\" --secure-schemes=sentry-ipc --bypasscsp-schemes=sentry-ipc --cors-schemes=sentry-ipc --fetch-schemes=sentry-ipc --app-path=\"C:\\Program Files\\ZCode\\resources\\\u003credacted\u003e --enable-sandbox --video-capture-use-gpu-memory-buffer --lang=en-US --device-scale-factor=1.25 --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=8 --time-ticks-at-unix-epoch=-1780993311669537 --launch-time-ticks=131468150350 --field-trial-handle=1884,i,8791707736327527163,16235377859312729036,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EnableTransparentHwndEnlargement,PdfUseShowSaveFilePicker --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1892,i,4001451518799130065,41835473079247969,4 --trace-process-track-uuid=3190708993808206286 --mojo-platform-channel-handle=4260 --device-id=\u003credacted\u003e /prefetch:1"
+                      },
+                      {
+                          "processId":  22724,
+                          "parentProcessId":  76364,
+                          "name":  "ZCode.exe",
+                          "commandLine":  "\"C:\\Program Files\\ZCode\\ZCode.exe\" --type=renderer --user-data-dir=\"C:\\Users\\\u003cuser\u003e\\AppData\\Roaming\\ZCode\" --secure-schemes=sentry-ipc --bypasscsp-schemes=sentry-ipc --cors-schemes=sentry-ipc --fetch-schemes=sentry-ipc --app-path=\"C:\\Program Files\\ZCode\\resources\\\u003credacted\u003e --enable-sandbox --video-capture-use-gpu-memory-buffer --lang=en-US --device-scale-factor=1.25 --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=9 --time-ticks-at-unix-epoch=-1780993311669537 --launch-time-ticks=131468225647 --field-trial-handle=1884,i,8791707736327527163,16235377859312729036,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EnableTransparentHwndEnlargement,PdfUseShowSaveFilePicker --disable-features=DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1892,i,4001451518799130065,41835473079247969,4 --trace-process-track-uuid=3190708994745248135 --mojo-platform-channel-handle=4288 --device-id=\u003credacted\u003e /prefetch:1"
+                      }
+                  ],
+    "listeners":  [
+
+                  ]
+}

@@ -9,6 +9,8 @@ export {
   LocalAdeService,
   type CreateCheckpointInput,
   type McpTransport,
+  type PreviewCheckpointInput,
+  type RestoreCheckpointInput,
   type TestProviderInput,
   type ToggleMcpServerInput,
   type UpdateCapabilityStateInput,

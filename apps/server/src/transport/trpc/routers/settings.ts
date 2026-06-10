@@ -94,6 +94,21 @@ const CreateCheckpointInputSchema = z
   .strict()
   .optional();
 
+const PreviewCheckpointInputSchema = z
+  .object({
+    projectId: z.string().optional(),
+    checkpointId: z.string().trim().min(1),
+  })
+  .strict();
+
+const RestoreCheckpointInputSchema = z
+  .object({
+    projectId: z.string().optional(),
+    checkpointId: z.string().trim().min(1),
+    confirmation: z.string().trim().min(1),
+  })
+  .strict();
+
 export const settingsRouter = router({
   /** Get persisted UI/app settings */
   get: protectedProcedure.query(async ({ ctx }) => {
@@ -159,5 +174,21 @@ export const settingsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const service = ctx.useCases.settings.localAde;
       return await service.createCheckpoint(getRequiredUserId(ctx), input ?? {});
+    }),
+
+  /** Read a checkpoint patch preview without applying it. */
+  previewCheckpoint: protectedProcedure
+    .input(PreviewCheckpointInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const service = ctx.useCases.settings.localAde;
+      return await service.previewCheckpoint(getRequiredUserId(ctx), input);
+    }),
+
+  /** Restore a checkpoint through guarded reverse-patch checks. */
+  restoreCheckpoint: protectedProcedure
+    .input(RestoreCheckpointInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const service = ctx.useCases.settings.localAde;
+      return await service.restoreCheckpoint(getRequiredUserId(ctx), input);
     }),
 });
