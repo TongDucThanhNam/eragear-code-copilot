@@ -5,7 +5,10 @@ import type {
 } from "@/shared/types/project.types";
 
 /**
- * Port for project data persistence operations.
+ * Project persistence port scoped by user.
+ *
+ * Invariant: project IDs and active-project state are tenant-owned; adapters
+ * must not return or mutate projects for a different `userId`.
  */
 export interface ProjectRepositoryPort {
   /** Find a project by ID */

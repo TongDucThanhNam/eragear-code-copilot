@@ -22,8 +22,11 @@ const OP_SYNC_EDITOR_BUFFER = "tooling.code-context.sync-editor-buffer";
 /**
  * CodeContextService
  *
- * Service for retrieving code context information within a session.
- * Provides project scanning, git operations, and file content access.
+ * Session-scoped code context read service.
+ *
+ * Security invariant: every operation verifies chat ownership before touching
+ * project paths; file reads are resolved within the project root or current
+ * runtime working directory.
  *
  * @example
  * ```typescript

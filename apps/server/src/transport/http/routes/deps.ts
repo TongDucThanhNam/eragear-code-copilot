@@ -1,11 +1,5 @@
-import type {
-  AgentServiceFactory,
-  OpsServiceFactory,
-  ProjectServiceFactory,
-  SessionServiceFactory,
-  SettingsServiceFactory,
-} from "@/modules/service-factories";
 import type { AppConfigService } from "@/modules/settings";
+import type { AppUseCases } from "@/modules/use-cases";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
@@ -53,12 +47,8 @@ export interface AuthServicePort {
 }
 
 export interface HttpRouteDependencies {
-  sessionServices: SessionServiceFactory;
-  projectServices: ProjectServiceFactory;
-  agentServices: AgentServiceFactory;
-  settingsServices: SettingsServiceFactory;
+  useCases: AppUseCases;
   appConfig: AppConfigService;
-  opsServices: OpsServiceFactory;
   eventBus: EventBusPort;
   logStore: LogStorePort;
   logger: LoggerPort;

@@ -5,12 +5,12 @@ import {
   SetActiveProjectService,
   UpdateProjectService,
 } from "@/modules/project";
-import type { ProjectServiceFactory } from "@/modules/service-factories";
+import type { ProjectUseCases } from "@/modules/use-cases";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
-export function createProjectServices(
+export function createProjectUseCases(
   deps: ServiceRegistryDependencies
-): ProjectServiceFactory {
+): ProjectUseCases {
   const listProjectsService = new ListProjectsService(deps.projectRepo);
   const createProjectService = new CreateProjectService(
     deps.projectRepo,
@@ -32,10 +32,10 @@ export function createProjectServices(
   );
 
   return {
-    listProjects: () => listProjectsService,
-    createProject: () => createProjectService,
-    updateProject: () => updateProjectService,
-    deleteProject: () => deleteProjectService,
-    setActiveProject: () => setActiveProjectService,
+    list: listProjectsService,
+    create: createProjectService,
+    update: updateProjectService,
+    delete: deleteProjectService,
+    setActive: setActiveProjectService,
   };
 }

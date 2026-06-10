@@ -9,6 +9,13 @@ import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const OP = "session.lifecycle.stop";
 
+/**
+ * Stops a running session without deleting persisted history.
+ *
+ * Ordering contract: terminal cleanup and inactive broadcast happen under the
+ * runtime lock before process termination; persisted status is updated after the
+ * runtime session is removed.
+ */
 export class StopSessionService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;

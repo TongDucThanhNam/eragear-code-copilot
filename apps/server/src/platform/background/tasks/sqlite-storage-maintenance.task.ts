@@ -8,7 +8,8 @@
 
 import { ENV } from "@/config/environment";
 import type {
-  CompactSessionMessagesService,
+  SessionMessagesCompactionInput,
+  SessionMessagesCompactionResult,
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
@@ -19,10 +20,16 @@ import type { BackgroundTaskSpec } from "@/shared/types/background.types";
 const logger = createLogger("Storage");
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+interface SessionMessagesCompactor {
+  execute(
+    input: SessionMessagesCompactionInput
+  ): Promise<SessionMessagesCompactionResult>;
+}
+
 export function createSqliteStorageMaintenanceTask(params: {
   sessionRepo: SessionRepositoryPort;
   sessionRuntime: SessionRuntimePort;
-  compactSessionMessages: Pick<CompactSessionMessagesService, "execute">;
+  compactSessionMessages: SessionMessagesCompactor;
 }): BackgroundTaskSpec {
   const { sessionRepo, sessionRuntime, compactSessionMessages } = params;
 

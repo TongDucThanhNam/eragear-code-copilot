@@ -88,6 +88,12 @@ function supportsSetSessionModel(
   return typeof candidate.unstable_setSessionModel === "function";
 }
 
+/**
+ * Input required to attach ACP handlers and create/load an agent session.
+ *
+ * Caller contract: `chatSession` must already be registered or about to be
+ * registered with the same `chatId`; `buffer` is consumed by ACP update handlers.
+ */
 export interface BootstrapSessionInput {
   chatId: string;
   chatSession: ChatSession;
@@ -96,6 +102,13 @@ export interface BootstrapSessionInput {
   sessionIdToLoad?: string;
 }
 
+/**
+ * Performs ACP initialize/session setup for a spawned agent process.
+ *
+ * Ordering contract: handlers and replay flags are installed before ACP session
+ * creation/load; failed setup terminates the process and marks the local
+ * session stopped so callers do not retain a half-initialized runtime.
+ */
 export class SessionAcpBootstrapService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionRepo: SessionRepositoryPort;

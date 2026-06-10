@@ -67,7 +67,7 @@ export function DashboardNav({ activeTab, onTabChange }: DashboardNavProps) {
   return (
     <nav
       aria-label="Dashboard sections"
-      className="sticky top-0 z-30 border-ink border-b-4 bg-paper/95 backdrop-blur-sm transition-all duration-300 supports-[backdrop-filter]:bg-paper/90"
+      className="dashboard-nav relative z-30 border-ink border-b-4 bg-paper/95 backdrop-blur-sm transition-all duration-300 supports-[backdrop-filter]:bg-paper/90"
     >
       <div className="flex items-center justify-between border-ink border-b bg-[#f5f5f5]/60 px-3 py-2 sm:px-5">
         <div className="flex items-center gap-2">

@@ -55,11 +55,10 @@ export function registerDashboardApiRoutes(
   api: Hono,
   deps: Pick<
     HttpRouteDependencies,
-    "eventBus" | "logStore" | "opsServices" | "appConfig" | "resolveAuthContext"
+    "eventBus" | "logStore" | "useCases" | "appConfig" | "resolveAuthContext"
   >
 ): void {
-  const { eventBus, logStore, opsServices, appConfig, resolveAuthContext } =
-    deps;
+  const { eventBus, logStore, useCases, appConfig, resolveAuthContext } = deps;
 
   const resolveUserId = async (c: Context): Promise<string | null> => {
     const auth = await resolveAuthContext({
@@ -76,7 +75,7 @@ export function registerDashboardApiRoutes(
     }
     return userId;
   };
-  const eventVisibilityService = opsServices.dashboardEventVisibility();
+  const eventVisibilityService = useCases.ops.dashboardEventVisibility;
 
   // =========================================================================
   // Dashboard Data Endpoints
@@ -90,7 +89,7 @@ export function registerDashboardApiRoutes(
     if (userId instanceof Response) {
       return userId;
     }
-    const service = opsServices.dashboardProjects();
+    const service = useCases.ops.dashboardProjects;
     return c.json(await service.execute(userId));
   });
 
@@ -111,7 +110,7 @@ export function registerDashboardApiRoutes(
     }
     const { limit, offset } = parsedPagination.pagination;
 
-    const service = opsServices.dashboardSessions();
+    const service = useCases.ops.dashboardSessions;
     return c.json(await service.execute({ userId, limit, offset }));
   });
 
@@ -123,7 +122,7 @@ export function registerDashboardApiRoutes(
     if (userId instanceof Response) {
       return userId;
     }
-    const service = opsServices.dashboardStats();
+    const service = useCases.ops.dashboardStats;
     return c.json(await service.execute(userId));
   });
 
@@ -135,7 +134,7 @@ export function registerDashboardApiRoutes(
     if (userId instanceof Response) {
       return userId;
     }
-    const service = opsServices.observabilitySnapshot();
+    const service = useCases.ops.observabilitySnapshot;
     return c.json({ observability: await service.execute(userId) });
   });
 

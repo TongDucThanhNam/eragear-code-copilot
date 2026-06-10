@@ -15,6 +15,12 @@ interface AgentMcpCapabilities {
   mcp?: { http?: boolean; sse?: boolean };
 }
 
+/**
+ * Resolves configured MCP servers against the initialized agent capabilities.
+ *
+ * Error mode: throws `ValidationError` when settings include HTTP/SSE servers
+ * that the agent did not advertise, preventing an invalid ACP initialize call.
+ */
 export class SessionMcpConfigService {
   private readonly settingsRepo: SettingsRepositoryPort;
 

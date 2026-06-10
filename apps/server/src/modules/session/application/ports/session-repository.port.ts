@@ -3,22 +3,46 @@ import type {
   StoredSession,
 } from "@/modules/session/domain/stored-session.types";
 
+/**
+ * Offset pagination query kept for compatibility callers.
+ *
+ * Caller contract: new list paths should prefer cursor pagination because
+ * offset scans become unstable and expensive on large session stores.
+ */
 export interface SessionListQuery {
   limit?: number;
   offset?: number;
 }
 
+/**
+ * Cursor pagination query for primary session list reads.
+ *
+ * Invariant: cursors are adapter-owned opaque values; callers must not parse or
+ * synthesize them.
+ */
 export interface SessionListPageQuery {
   limit?: number;
   cursor?: string;
 }
 
+/**
+ * Cursor-paginated session list result.
+ *
+ * Caller contract: `hasMore` is authoritative; `nextCursor` may be absent when
+ * no further page can be requested.
+ */
 export interface SessionListPageResult {
   sessions: StoredSession[];
   nextCursor?: string;
   hasMore: boolean;
 }
 
+/**
+ * Cursor query for persisted message history.
+ *
+ * Invariant: `includeCompacted` controls redacted/compacted payload visibility
+ * only; it must not resurrect payloads removed by retention policy.
+ */
 export interface SessionMessagesPageQuery {
   cursor?: number;
   direction?: "forward" | "backward";
@@ -26,18 +50,36 @@ export interface SessionMessagesPageQuery {
   includeCompacted?: boolean;
 }
 
+/**
+ * Persisted message page in chronological display order.
+ *
+ * Caller contract: returned messages are storage records and still need mapping
+ * to UI messages before crossing the transport boundary.
+ */
 export interface SessionMessagesPageResult {
   messages: StoredMessage[];
   nextCursor?: number;
   hasMore: boolean;
 }
 
+/**
+ * Message compaction request for cold retention cleanup.
+ *
+ * Side effect: adapters may rewrite message payload columns but must keep
+ * message identity, role, and timestamps stable.
+ */
 export interface SessionMessageCompactionInput {
   beforeTimestamp: number;
   batchSize: number;
   sessionIds: string[];
 }
 
+/**
+ * SQLite/storage health snapshot surfaced to ops views.
+ *
+ * Invariant: queue and worker metrics are best-effort observability data and
+ * should not be used as persistence correctness checks.
+ */
 export interface SessionStorageStats {
   dbSizeBytes: number;
   walSizeBytes: number;
@@ -56,7 +98,11 @@ export interface SessionStorageStats {
 }
 
 /**
- * Port for session data persistence operations.
+ * Session persistence port.
+ *
+ * Invariants: every user-scoped method must enforce `userId`; message writes
+ * must be atomic per session; maintenance methods are cross-user and must be
+ * used only by background/lifecycle code.
  */
 export interface SessionRepositoryPort {
   /** Find a session by ID */

@@ -1,4 +1,3 @@
-import type { SessionServiceFactory } from "@/modules/service-factories";
 import type {
   AgentRuntimePort,
   SessionEventOutboxPort,
@@ -6,6 +5,7 @@ import type {
   SessionRuntimePort,
 } from "@/modules/session";
 import type { AppConfigService } from "@/modules/settings";
+import type { SessionUseCases } from "@/modules/use-cases";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import type { AuthRuntime } from "../platform/auth/auth";
 import {
@@ -44,7 +44,7 @@ export interface ServerLifecycleDependencies {
   sessionRepo: SessionRepositoryPort;
   sessionEventOutbox: SessionEventOutboxPort;
   eventBus: EventBusPort;
-  sessionServices: SessionServiceFactory;
+  sessionUseCases: SessionUseCases;
   appConfig: AppConfigService;
   policy: ServerLifecyclePolicy;
   setBackgroundRunnerStateProvider: (
@@ -71,7 +71,9 @@ class DefaultServerLifecycle implements ServerLifecycle {
       createSqliteStorageMaintenanceTask({
         sessionRepo: deps.sessionRepo,
         sessionRuntime: deps.sessionRuntime,
-        compactSessionMessages: deps.sessionServices.compactSessionMessages(),
+        compactSessionMessages: {
+          execute: (input) => deps.sessionUseCases.queries.compact(input),
+        },
       })
     );
     this.backgroundRunner.register(
@@ -89,7 +91,7 @@ class DefaultServerLifecycle implements ServerLifecycle {
   async prepareStartup(): Promise<void> {
     await prepareServerStartup({
       authRuntime: this.deps.authRuntime,
-      sessionServices: this.deps.sessionServices,
+      sessionUseCases: this.deps.sessionUseCases,
       policy: {
         authBootstrapApiKey: this.deps.policy.authBootstrapApiKey,
         authApiKeyPrefix: this.deps.policy.authApiKeyPrefix,
@@ -125,7 +127,7 @@ class DefaultServerLifecycle implements ServerLifecycle {
       await executeServerShutdown({
         sessionRuntime: this.deps.sessionRuntime,
         sessionRepo: this.deps.sessionRepo,
-        sessionServices: this.deps.sessionServices,
+        sessionUseCases: this.deps.sessionUseCases,
         policy: {
           sqliteRetentionHotDays: this.deps.policy.sqliteRetentionHotDays,
           backgroundTaskTimeoutMs: this.deps.policy.backgroundTaskTimeoutMs,

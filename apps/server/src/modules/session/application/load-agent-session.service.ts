@@ -1,6 +1,11 @@
 import type { ChatSession } from "@/shared/types/session.types";
 import type { CreateSessionService } from "./create-session.service";
 
+/**
+ * Request to load an agent-native session into a local chat runtime.
+ *
+ * Invariant: `sessionId` is the external ACP session id, not the local chat id.
+ */
 export interface LoadAgentSessionInput {
   userId: string;
   projectId: string;
@@ -8,6 +13,12 @@ export interface LoadAgentSessionInput {
   agentId?: string;
 }
 
+/**
+ * Thin use case that routes agent-native resume through canonical session creation.
+ *
+ * Side effect: creates a running local chat session and enables external history
+ * import fallback when the agent replay is sparse.
+ */
 export class LoadAgentSessionService {
   private readonly createSession: CreateSessionService;
 

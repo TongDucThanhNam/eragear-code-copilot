@@ -3,6 +3,12 @@ import { syncSessionSelectionFromConfigOptions } from "@/shared/utils/session-co
 import type { CreateSessionParams } from "./create-session.types";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
+/**
+ * Metadata snapshot written after ACP initialize succeeds.
+ *
+ * Invariant: model/mode/config options on `chatSession` are already normalized
+ * from the agent response before persistence.
+ */
 export interface PersistSessionMetadataInput {
   chatId: string;
   params: CreateSessionParams;
@@ -13,6 +19,12 @@ export interface PersistSessionMetadataInput {
   projectRoot: string;
 }
 
+/**
+ * Creates or updates the persisted session metadata for a running runtime.
+ *
+ * Side effect: preserves existing chat ids on resume/update and only creates a
+ * new storage record when the requested chat id does not already belong to user.
+ */
 export class SessionMetadataPersistenceService {
   private readonly sessionRepo: SessionRepositoryPort;
 

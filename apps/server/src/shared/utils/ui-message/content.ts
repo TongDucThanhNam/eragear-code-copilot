@@ -10,8 +10,8 @@ import type {
   UIMessage,
   UIMessagePart,
 } from "@repo/shared";
+import { MAX_INLINE_BINARY_BASE64_CHARS } from "@/shared/constants/content-block.constants";
 import type { StoredContentBlock } from "@/shared/types/session.types";
-import { MAX_INLINE_BINARY_BASE64_CHARS } from "@/shared/utils/content-block.util";
 import { escapeHtmlText } from "../html.util";
 import {
   getBlockProviderMetadata,

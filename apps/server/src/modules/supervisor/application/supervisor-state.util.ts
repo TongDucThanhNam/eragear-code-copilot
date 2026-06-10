@@ -22,6 +22,12 @@ const SUPERVISOR_STATUSES = new Set<SupervisorStatus>([
   "disabled",
 ]);
 
+/**
+ * Normalizes persisted supervisor state into supported runtime values.
+ *
+ * Invariant: unknown modes fail closed to `off`, and `off` always forces
+ * `idle` status so disabled supervision cannot continue work.
+ */
 export function normalizeSupervisorState(
   state: SupervisorSessionState | undefined
 ): SupervisorSessionState {
@@ -37,6 +43,12 @@ export function normalizeSupervisorState(
   };
 }
 
+/**
+ * Creates a timestamped supervisor state update.
+ *
+ * Caller contract: mode transitions to `off` override requested status to
+ * `idle`; callers must provide `now` from the injected clock for testability.
+ */
 export function createSupervisorStatePatch(params: {
   current: SupervisorSessionState | undefined;
   mode?: SupervisorMode;

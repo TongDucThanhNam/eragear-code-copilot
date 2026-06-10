@@ -43,6 +43,13 @@ interface ModelSwitchRuntimeContext {
   configOptionId?: string;
 }
 
+/**
+ * Switches the active model for one session.
+ *
+ * Caller contract: requested model IDs must already be exposed by the runtime
+ * model/config option state; transient ACP failures are retried, while exited
+ * or closed sessions are stopped and surfaced as typed errors.
+ */
 export class SetModelService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;

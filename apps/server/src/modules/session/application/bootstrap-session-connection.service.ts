@@ -8,6 +8,12 @@ import type { SessionAcpBootstrapService } from "./session-acp-bootstrap.service
 import type { SessionProcessLifecycleService } from "./session-process-lifecycle.service";
 import type { SessionRuntimeBootstrapService } from "./session-runtime-bootstrap.service";
 
+/**
+ * Input for connecting a spawned process to a prepared runtime session.
+ *
+ * Caller contract: `proc` is already spawned; this service owns cleanup if ACP
+ * bootstrap or runtime readiness fails.
+ */
 export interface BootstrapSessionConnectionInput {
   chatId: string;
   projectId?: string;
@@ -16,10 +22,19 @@ export interface BootstrapSessionConnectionInput {
   proc: ChatSession["proc"];
 }
 
+/**
+ * Connected runtime session returned after ACP bootstrap and ready broadcast.
+ */
 export interface BootstrapSessionConnectionOutput {
   chatSession: ChatSession;
 }
 
+/**
+ * Bridges process spawn, runtime preparation, ACP bootstrap, and process hooks.
+ *
+ * Ordering contract: runtime is prepared first, ACP setup completes second,
+ * ready status is broadcast third, and process lifecycle handlers attach last.
+ */
 export class BootstrapSessionConnectionService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;

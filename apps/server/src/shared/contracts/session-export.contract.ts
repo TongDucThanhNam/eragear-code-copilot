@@ -85,6 +85,13 @@ export const SessionExportSchema = z.object({
   }),
 });
 
+/**
+ * Redacted, shareable session export payload.
+ *
+ * Invariant: user IDs, raw project roots, agent invocation details, message
+ * bodies, reasoning, tool args, and UI parts are represented as redaction
+ * records instead of raw values.
+ */
 export type SessionExport = z.infer<typeof SessionExportSchema>;
 
 const OMITTED_RUNTIME_PATHS = [
@@ -100,6 +107,12 @@ const OMITTED_RUNTIME_PATHS = [
   "session.authMethods",
 ] as const;
 
+/**
+ * Builds a schema-validated redacted export for one stored session.
+ *
+ * Side effect: none; all redactions are recorded in the returned payload so
+ * callers can explain omitted fields without leaking sensitive content.
+ */
 export function buildRedactedSessionExport(
   session: StoredSession,
   exportedAt = new Date()

@@ -5,6 +5,12 @@ import type { Project, ProjectUpdateInput } from "@/shared/types/project.types";
 import { resolveProjectPath } from "@/shared/utils/project-roots.util";
 import type { ProjectRepositoryPort } from "./ports/project-repository.port";
 
+/**
+ * Updates a user-owned project with normalized name/path data.
+ *
+ * Invariant: path changes are resolved through settings project roots and must
+ * not collide with another project before repository update is attempted.
+ */
 export class UpdateProjectService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly settingsRepo: SettingsRepositoryPort;

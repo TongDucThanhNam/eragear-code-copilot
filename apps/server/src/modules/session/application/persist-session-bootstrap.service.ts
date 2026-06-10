@@ -29,6 +29,12 @@ type ExternalHistoryResolver = (
   input: ExternalHistoryResolveInput
 ) => Promise<UIMessage[] | null>;
 
+/**
+ * Snapshot needed to persist a freshly initialized runtime session.
+ *
+ * Ordering requirement: the runtime ACP handshake has already populated
+ * `chatSession` metadata before this input is passed to persistence.
+ */
 export interface PersistSessionBootstrapInput {
   chatId: string;
   projectRoot: string;
@@ -39,6 +45,12 @@ export interface PersistSessionBootstrapInput {
   agentEnv: Record<string, string>;
 }
 
+/**
+ * Persists session metadata and optional imported history after bootstrap.
+ *
+ * Side effects: writes the session record first, then replaces persisted
+ * messages only when an agent-native load needs external history fallback.
+ */
 export class PersistSessionBootstrapService {
   private readonly metadataPersistence: SessionMetadataPersistenceService;
   private readonly sessionRepo: SessionRepositoryPort;

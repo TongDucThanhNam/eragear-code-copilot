@@ -81,6 +81,12 @@ const LOOP_DETECTION_PLAN_DELTA_IDENTICAL = 1; // Same decision + same plan 2 ti
 const DECISION_HISTORY_MAX_LENGTH = 5;
 const FINGERPRINT_MAX_LENGTH = 256;
 
+/**
+ * Event emitted after a prompt turn reaches a terminal stop reason.
+ *
+ * Caller contract: supervisor review scheduling is best-effort and keyed by
+ * chat/turn so duplicate completions should not trigger duplicate work.
+ */
 export interface SupervisorTurnCompleteEvent {
   chatId: string;
   userId: string;
@@ -94,6 +100,13 @@ interface SupervisorJob {
   promise: Promise<void>;
 }
 
+/**
+ * Supervises completed prompt turns and may enqueue a safe follow-up prompt.
+ *
+ * Ordering contract: reviews are scheduled out-of-band after turn completion;
+ * the loop must respect session supervisor state, policy limits, and duplicate
+ * turn suppression before calling `SendMessageService`.
+ */
 export class SupervisorLoopService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;
@@ -1087,6 +1100,12 @@ interface ToolObservation {
   errorSummary?: string;
 }
 
+/**
+ * Builds bounded recent-tool context for supervisor decisions.
+ *
+ * Invariant: only tool names, consecutive failure count, and a capped latest
+ * error summary are returned; raw tool inputs/outputs are not exposed.
+ */
 export function buildRecentToolContext(
   messages: StoredMessage[],
   runtimeToolCalls?: Map<string, acp.ToolCall>
@@ -1238,6 +1257,12 @@ function truncateStart(value: string, maxChars: number): string {
   return `${value.slice(0, maxChars)}\n[truncated]`;
 }
 
+/**
+ * Returns the latest assistant text signal used by deterministic classifiers.
+ *
+ * Caller contract: UI text parts are preferred; legacy `content` is only a
+ * bounded fallback for older stored messages.
+ */
 export function getLatestAssistantTextPart(messages: StoredMessage[]): string {
   const latestAssistant = [...messages]
     .reverse()
@@ -1259,6 +1284,12 @@ export function getLatestAssistantTextPart(messages: StoredMessage[]): string {
   );
 }
 
+/**
+ * Detects whether assistant text implies safe continuation or required input.
+ *
+ * Invariant: this is a heuristic signal for the decision adapter and never
+ * bypasses explicit permission or confirmation requirements by itself.
+ */
 export function detectAutoResumeSignal(
   text: string
 ): SupervisorAutoResumeSignal | undefined {
@@ -1442,6 +1473,12 @@ export function createDoneVerificationDecision(
   };
 }
 
+/**
+ * Extracts assistant-presented options from the latest choice question.
+ *
+ * Invariant: parsing is intentionally conservative and returns at most eight
+ * normalized option labels from the last detected option prompt.
+ */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Supports several ACP option formats in one parser with regression coverage.
 export function extractAssistantChoiceOptions(text: string): string[] {
   const anchor = findLastOptionQuestionAnchor(text);
@@ -1548,6 +1585,13 @@ function tailText(value: string, maxChars: number): string {
   return value.slice(value.length - maxChars);
 }
 
+/**
+ * Selects a safe option from assistant-presented choices.
+ *
+ * Security contract: destructive/deployment/secret-related options are never
+ * selected automatically; recommended/productive/verification choices are
+ * preferred among the remaining safe options.
+ */
 export function selectAutopilotOption(options: string[]): string | undefined {
   const safeOptions = options.filter(
     (option) => !UNSAFE_OPTION_RE.test(option)

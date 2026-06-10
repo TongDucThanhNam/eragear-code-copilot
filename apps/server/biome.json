@@ -40,6 +40,36 @@
       }
     },
     {
+      "includes": ["src/**/*.ts", "src/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "@/modules/service-factories",
+                      "**/modules/service-factories"
+                    ],
+                    "message": "Use the built-once AppUseCases interface from modules/use-cases instead of reintroducing service factories."
+                  },
+                  {
+                    "group": [
+                      "@/bootstrap/container",
+                      "**/bootstrap/container"
+                    ],
+                    "message": "Use bootstrap/composition.ts with init modules and service-registry wiring instead of reintroducing a container module."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["src/platform/logging/**/*.ts"],
       "linter": {
         "rules": {
@@ -169,6 +199,43 @@
       }
     },
     {
+      "includes": ["src/shared/utils/ui-message/content.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/modules/**",
+                      "@/modules/**",
+                      "**/platform/**",
+                      "@/platform/**",
+                      "**/transport/**",
+                      "@/transport/**",
+                      "**/presentation/**",
+                      "@/presentation/**"
+                    ],
+                    "message": "Shared must not depend on modules, platform, transport, or presentation."
+                  },
+                  {
+                    "group": [
+                      "@/shared/utils/content-block.util",
+                      "../content-block.util",
+                      "**/shared/utils/content-block.util"
+                    ],
+                    "message": "UI message content rendering must use pure shared constants instead of content-block.util, which owns blob-storage normalization."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["src/transport/**/*.ts"],
       "linter": {
         "rules": {
@@ -242,7 +309,7 @@
                       "@/modules/*/domain/**",
                       "@/modules/*/infra/**"
                     ],
-                    "message": "Bootstrap should import module public APIs only."
+                    "message": "Bootstrap should import module public APIs or module di adapter entrypoints only."
                   }
                 ]
               }

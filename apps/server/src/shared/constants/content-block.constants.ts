@@ -1,0 +1,1 @@
+export const MAX_INLINE_BINARY_BASE64_CHARS = 64 * 1024;

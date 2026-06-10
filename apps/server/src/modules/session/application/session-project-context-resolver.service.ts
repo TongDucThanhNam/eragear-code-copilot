@@ -5,17 +5,34 @@ import { resolveProjectPath } from "@/shared/utils/project-roots.util";
 
 const OP = "session.lifecycle.create";
 
+/**
+ * Project context request for session startup.
+ *
+ * Caller contract: pass either a persisted `projectId` or an ad hoc
+ * `projectRoot`; both are resolved against configured project roots.
+ */
 export interface SessionProjectContextInput {
   userId: string;
   projectId?: string;
   projectRoot?: string;
 }
 
+/**
+ * Canonical project context used to spawn the agent process.
+ *
+ * Invariant: `projectRoot` has passed configured-root validation.
+ */
 export interface SessionProjectContext {
   projectId?: string;
   projectRoot: string;
 }
 
+/**
+ * Resolves a session's project id/path into a canonical spawn directory.
+ *
+ * Error mode: throws `NotFoundError` for missing persisted projects and
+ * `ValidationError` when the path is outside configured project roots.
+ */
 export class SessionProjectContextResolverService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly settingsRepo: SettingsRepositoryPort;

@@ -80,7 +80,7 @@ describe("CreateSessionService", () => {
         agentResolverCalls.push(input);
         return Promise.resolve({
           agentId: "agent-1",
-          command: "opencode",
+          command: " opencode ",
         });
       },
     } as unknown as SessionAgentResolverService;

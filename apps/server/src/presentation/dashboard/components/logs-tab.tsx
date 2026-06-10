@@ -450,8 +450,8 @@ export function LogsTab() {
 
   return (
     <TabPanel activeTab={activeTab} className="flex-1" tab="logs">
-      <section className="border-2 border-ink bg-paper shadow-news">
-        <div className="border-ink border-b-4 p-6">
+      <section className="dashboard-panel-fill border-2 border-ink bg-paper shadow-news">
+        <div className="dashboard-panel-header border-ink border-b-4 p-4">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div>
               <div className="mb-2 font-mono text-[10px] text-ink-muted uppercase tracking-[0.3em]">
@@ -483,7 +483,7 @@ export function LogsTab() {
           </div>
         </div>
 
-        <div className="p-4">
+        <div className="dashboard-log-content min-h-0 p-4">
           <div className="log-shell newsprint-texture">
             <div className="log-toolbar">
               <div className="log-toolbar-group log-toolbar-primary">

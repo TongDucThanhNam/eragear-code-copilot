@@ -10,6 +10,12 @@ import { createSupervisorStatePatch } from "./supervisor-state.util";
 
 const OP = "supervisor.mode.set";
 
+/**
+ * Enables or disables supervisor mode for one session.
+ *
+ * Error mode: enabling full autopilot validates global supervisor policy/model
+ * before mutating runtime or persisted session metadata.
+ */
 export class SetSupervisorModeService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;

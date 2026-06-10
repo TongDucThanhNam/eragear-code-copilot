@@ -10,6 +10,15 @@ Mục tiêu của file này là ngắn gọn. Chỉ giữ quy tắc cốt lõi v
 - Tài liệu chính:
   - `src/ARCHITECTURE.md`
   - `docs/INDEX.md`
+- Current implementation anchors:
+  - Composition root: `src/bootstrap/composition.ts`
+  - Module initializers: `src/bootstrap/init/*.init.ts`
+  - Use-case registries: `src/bootstrap/service-registry/*.ts`
+  - Runtime use-case surface: `src/modules/use-cases.ts`
+  - Primary persistence: SQLite via `src/platform/storage/*` and
+    `src/modules/*/infra/*.repository.sqlite.ts`
+  - Legacy JSON files are migration inputs only; do not add new JSON-store
+    primary paths.
 
 ## 2. Non-negotiables
 
@@ -45,6 +54,9 @@ Mục tiêu của file này là ngắn gọn. Chỉ giữ quy tắc cốt lõi v
 - useChat client contract: `docs/ui-message-usechat-client.md`
 - ACP protocol refs: `docs/acp/*`
 - Runtime bootstrap: `src/index.ts`, `src/bootstrap/server.ts`, `src/bootstrap/composition.ts`
+- Service wiring: `src/bootstrap/init/service-module.init.ts`,
+  `src/bootstrap/service-registry/*.ts`
+- Persistence wiring: `src/bootstrap/init/persistence-module.init.ts`
 - Config source: `src/config/environment.ts`
 
 ## 6. Build/Check

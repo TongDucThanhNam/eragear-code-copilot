@@ -66,6 +66,33 @@ describe("AgentRuntimeAdapter", () => {
     expect(typeof proc.pid).toBe("number");
   });
 
+  test("trims command aliases before allowlist resolution", () => {
+    const adapter = createAdapter();
+    const alias =
+      process.execPath.split(PATH_SPLIT_REGEX).pop() ?? process.execPath;
+    const proc = adapter.spawn(` ${alias} `, ["--version"], {
+      cwd: process.cwd(),
+      env: {},
+    });
+    expect(typeof proc.pid).toBe("number");
+  });
+
+  test("resolves Windows executable aliases without extension", () => {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const adapter = createAdapter();
+    const alias =
+      process.execPath.split(PATH_SPLIT_REGEX).pop() ?? process.execPath;
+    const extensionlessAlias = alias.replace(/\.(bat|cmd|com|exe)$/i, "");
+    const proc = adapter.spawn(extensionlessAlias, ["--version"], {
+      cwd: process.cwd(),
+      env: {},
+    });
+    expect(typeof proc.pid).toBe("number");
+  });
+
   test("rejects ambiguous basename aliases", () => {
     const adapter = new AgentRuntimeAdapter({
       allowedAgentCommandPolicies: [

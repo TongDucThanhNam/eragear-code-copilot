@@ -30,6 +30,12 @@ const REJECT_KINDS = new Set([
   "cancel",
 ]);
 
+/**
+ * Handles ACP permission requests when supervisor autopilot is enabled.
+ *
+ * Ordering contract: deterministic hard-deny runs before model decisions; any
+ * selected permission option is settled under the session runtime lock.
+ */
 export class SupervisorPermissionService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionRepo: SessionRepositoryPort;
@@ -317,6 +323,12 @@ export class SupervisorPermissionService {
   }
 }
 
+/**
+ * Maps a supervisor permission action to one ACP permission option.
+ *
+ * Security invariant: approvals prefer one-time/non-persistent allow options;
+ * persistent allow kinds are intentionally skipped for automatic approval.
+ */
 export function selectPermissionOption(
   action: "approve" | "reject" | "defer",
   options: acp.PermissionOption[]

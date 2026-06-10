@@ -13,6 +13,7 @@ import { ChatPlanDockPane } from "@/components/chat-ui/chat-interface/chat-plan-
 import { ChatInput } from "@/components/chat-ui/chat-input";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
+import { LocalAdeControlCenter } from "@/components/local-ade/local-ade-control-center";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -240,6 +241,10 @@ export function ChatInterface({
     readOnly: false,
     onError: handleChatError,
   });
+  const { data: localAdeSnapshot } = trpc.settings.getLocalAdeSnapshot.useQuery(
+    undefined,
+    { staleTime: 10_000 }
+  );
   const activePendingPermission =
     pendingPermission?.requestId &&
     pendingPermission.requestId === handledPermissionIdRef.current
@@ -416,7 +421,26 @@ export function ChatInterface({
       },
     ];
   }, [currentModelId, selectionState.models?.availableModels]);
-  const availableCommands = commands;
+  const localSlashCommands = useMemo(
+    () =>
+      (localAdeSnapshot?.capabilities.capabilities ?? [])
+        .filter((capability) => capability.kind === "command" && capability.enabled)
+        .map((capability) => ({
+          name: capability.name.replace(/^\//, ""),
+          description:
+            capability.description ??
+            capability.diagnostics?.[0] ??
+            "Project-local command",
+          input: capability.sourcePath
+            ? { hint: capability.sourcePath }
+            : undefined,
+        })),
+    [localAdeSnapshot?.capabilities.capabilities]
+  );
+  const availableCommands = useMemo(
+    () => [...commands, ...localSlashCommands],
+    [commands, localSlashCommands]
+  );
   // Quick switch sessions
   const quickSwitchSessions = useMemo(() => {
     return (sessionsData || [])
@@ -1057,34 +1081,11 @@ export function ChatInterface({
   if (!chatId) {
     return (
       <>
-        <div className="flex size-full flex-col items-center justify-center space-y-4 p-8 text-center">
-          <div className="flex size-16 items-center justify-center rounded-2xl bg-muted">
-            <svg
-              className="size-8 text-muted-foreground"
-              fill="none"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <title>Empty</title>
-              <rect height="18" rx="2" ry="2" width="18" x="3" y="3" />
-              <path d="M9 3v18" />
-              <path d="m14 9 3 3-3 3" />
-            </svg>
-          </div>
-          <div className="max-w-[420px] space-y-2">
-            <h2 className="font-semibold text-2xl tracking-tight">
-              Welcome to EraGear Code Copilot
-            </h2>
-            <p className="text-muted-foreground text-sm">
-              To get started, please select a project from the sidebar or click
-              the "+" button next to a project to create a new session.
-            </p>
-          </div>
-        </div>
+        <LocalAdeControlCenter
+          onStartSession={() => {
+            void initChat();
+          }}
+        />
         <QuickSwitchDialog
           onOpenChange={setIsQuickSwitchOpen}
           onSelect={selectSession}

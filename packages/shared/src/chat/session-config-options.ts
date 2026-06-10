@@ -2,7 +2,7 @@ import type {
   SessionConfigOption,
   SessionModelState,
   SessionModeState,
-} from "./types";
+} from "./types.js";
 
 interface SessionConfigSelectOptionValue {
   value?: string;

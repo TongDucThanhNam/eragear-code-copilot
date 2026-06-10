@@ -18,6 +18,7 @@ describe("server-config-store", () => {
     expect(nextState.serverUrl).toBe("ws://127.0.0.1:4010");
     expect(nextState.isConfigured).toBe(true);
     expect("apiKey" in nextState).toBe(false);
+    expect(nextState.desktopBootstrap).toBe(null);
   });
 
   test("clearConfig resets the connection bootstrap state", () => {

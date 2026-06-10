@@ -4,12 +4,23 @@ import type { AgentConfig } from "@/shared/types/agent.types";
 
 const OP = "session.lifecycle.resolve_agent";
 
+/**
+ * Agent selection request for session startup or discovery.
+ *
+ * Caller contract: explicit `agentId` wins; otherwise the active user agent is
+ * used only when compatible with the requested project.
+ */
 export interface SessionAgentResolverInput {
   userId: string;
   projectId?: string;
   agentId?: string;
 }
 
+/**
+ * Runtime-safe subset of an agent config needed to spawn an ACP process.
+ *
+ * Invariant: repository ownership checks have already been applied for `agentId`.
+ */
 export interface SessionAgentRuntimeConfig {
   agentId: string;
   command: string;
@@ -17,6 +28,12 @@ export interface SessionAgentRuntimeConfig {
   env?: Record<string, string>;
 }
 
+/**
+ * Resolves the concrete agent command for a session lifecycle operation.
+ *
+ * Error mode: throws `NotFoundError` when the requested agent is missing or no
+ * project-compatible fallback agent exists for the user.
+ */
 export class SessionAgentResolverService {
   private readonly agentRepo: AgentRepositoryPort;
 

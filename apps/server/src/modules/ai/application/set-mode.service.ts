@@ -42,6 +42,12 @@ interface ModeSwitchRuntimeContext {
   configOptionId?: string;
 }
 
+/**
+ * Switches the active mode for one session.
+ *
+ * Ordering contract: mode switches are serialized per chat across the ACP call
+ * and revalidated under the runtime lock before broadcasting state updates.
+ */
 export class SetModeService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;

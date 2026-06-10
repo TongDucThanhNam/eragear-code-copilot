@@ -36,7 +36,7 @@ let lastAuthResolutionPruneAtMs = 0;
 let hasWarnedAboutOverflow = false;
 
 export interface AuthContext {
-  type: "session" | "apiKey";
+  type: "session" | "apiKey" | "local";
   userId: string;
   user?: unknown;
   session?: unknown;

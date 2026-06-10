@@ -1,13 +1,20 @@
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import { SessionQueries } from "./queries/session-queries";
 
+/**
+ * Compatibility wrapper for storage stats reads.
+ *
+ * Caller contract: new primary-path callers should use
+ * `SessionQueries.storageStats`; this wrapper preserves older service imports.
+ */
 export class GetSessionStorageStatsService {
-  private readonly sessionRepo: SessionRepositoryPort;
+  private readonly queries: SessionQueries;
 
   constructor(sessionRepo: SessionRepositoryPort) {
-    this.sessionRepo = sessionRepo;
+    this.queries = new SessionQueries(sessionRepo);
   }
 
   execute() {
-    return this.sessionRepo.getStorageStats();
+    return this.queries.storageStats();
   }
 }

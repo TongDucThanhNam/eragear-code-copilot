@@ -8,6 +8,13 @@ import type { SessionMessageMapper } from "./session-message.mapper";
 
 const STORED_REPLAY_PAGE_LIMIT = 200;
 
+/**
+ * Handles the final replay checkpoint after ACP history replay completes.
+ *
+ * Side effects: may replay persisted messages when the agent emitted no replay
+ * events, finalizes the current assistant message, and broadcasts the final UI
+ * message before clearing `currentAssistantId`.
+ */
 export class SessionHistoryReplayService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;

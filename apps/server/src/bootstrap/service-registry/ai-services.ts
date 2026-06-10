@@ -7,7 +7,6 @@ import {
   SetModeService,
 } from "@/modules/ai";
 import { AiSessionRuntimeAdapter } from "@/modules/ai/di";
-import type { AiServiceFactory } from "@/modules/service-factories";
 import {
   SetSupervisorModeService,
   type SupervisorAuditPort,
@@ -24,11 +23,12 @@ import {
   NoopSupervisorResearchAdapter,
   ObsidianSupervisorMemoryAdapter,
 } from "@/modules/supervisor/di";
+import type { AiUseCases } from "@/modules/use-cases";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
-export function createAiServices(
+export function createAiUseCases(
   deps: ServiceRegistryDependencies
-): AiServiceFactory {
+): AiUseCases {
   const sessionGateway = new AiSessionRuntimeAdapter(
     deps.sessionRuntime,
     deps.sessionRepo,
@@ -164,11 +164,11 @@ export function createAiServices(
   );
 
   return {
-    sendMessage: () => sendMessageService,
-    setModel: () => setModelService,
-    setMode: () => setModeService,
-    setConfigOption: () => setConfigOptionService,
-    cancelPrompt: () => cancelPromptService,
-    setSupervisorMode: () => setSupervisorModeService,
+    sendMessage: sendMessageService,
+    setModel: setModelService,
+    setMode: setModeService,
+    setConfigOption: setConfigOptionService,
+    cancelPrompt: cancelPromptService,
+    setSupervisorMode: setSupervisorModeService,
   };
 }

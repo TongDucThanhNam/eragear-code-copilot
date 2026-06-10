@@ -12,6 +12,12 @@ import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 const RECONCILE_PAGE_SIZE = 200;
 
+/**
+ * Repairs persisted status for sessions that outlived their runtime process.
+ *
+ * Side effect: scans maintenance pages and marks only user-owned persisted
+ * `running` sessions as `stopped` when no runtime entry exists.
+ */
 export class ReconcileSessionStatusService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;

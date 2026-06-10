@@ -40,16 +40,10 @@ export function registerDashboardUiRoutes(
   app: Hono,
   deps: Pick<
     HttpRouteDependencies,
-    | "settingsServices"
-    | "opsServices"
-    | "logger"
-    | "auth"
-    | "authState"
-    | "runtime"
+    "useCases" | "logger" | "auth" | "authState" | "runtime"
   >
 ): void {
-  const { settingsServices, opsServices, logger, auth, authState, runtime } =
-    deps;
+  const { useCases, logger, auth, authState, runtime } = deps;
   // Static assets (long-term cache)
   const assetCacheControl = runtime.isDev
     ? "no-cache"
@@ -97,7 +91,7 @@ export function registerDashboardUiRoutes(
       title: `${APP_SERVER_TITLE} Login`,
       head: createElement(LoginHead, { username }),
       bodyClassName:
-        "flex min-h-screen w-full flex-col bg-[#F9F9F7] font-body text-[#111111] antialiased",
+        "flex h-dvh min-h-screen w-full flex-col overflow-hidden bg-[#F9F9F7] font-body text-[#111111] antialiased",
     });
   });
 
@@ -107,8 +101,8 @@ export function registerDashboardUiRoutes(
     if (!session?.user?.id) {
       return c.redirect("/login");
     }
-    const getSettings = settingsServices.getSettings();
-    const dashboardPageData = opsServices.dashboardPageData();
+    const getSettings = useCases.settings.get;
+    const dashboardPageData = useCases.ops.dashboardPageData;
     const [settings, baseDashboardData] = await Promise.all([
       getSettings.execute(),
       dashboardPageData.execute({ userId: session.user.id }),

@@ -1,5 +1,11 @@
 import type { AuthUserReadPort } from "./ports/auth-user-read.port";
 
+/**
+ * Reads the authenticated user's client profile.
+ *
+ * Invariant: display name fallback is resolved here so transport clients always
+ * receive a non-empty `name` when the user exists.
+ */
 export class GetMeService {
   private readonly authUserRead: AuthUserReadPort;
 

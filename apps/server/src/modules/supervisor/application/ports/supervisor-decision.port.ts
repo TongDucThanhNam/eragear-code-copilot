@@ -11,16 +11,34 @@ import type {
 } from "./supervisor-memory.port";
 import type { SupervisorResearchResult } from "./supervisor-research.port";
 
+/**
+ * Heuristic signal that decides whether supervisor can continue without user input.
+ *
+ * Caller contract: values are advisory context for the decision adapter; they
+ * do not override explicit permission or confirmation requirements.
+ */
 export type SupervisorAutoResumeSignal =
   | "phase_complete"
   | "confirmation_needed"
   | "option_selection_needed";
 
+/**
+ * Bounded summary of recent tool activity.
+ *
+ * Invariant: this contains names/counts only, not raw tool arguments or
+ * sensitive command output.
+ */
 export interface SupervisorRecentToolCallSummary {
   lastNToolNames: string[];
   consecutiveFailures: number;
 }
 
+/**
+ * Complete decision input for one assistant turn.
+ *
+ * Security contract: callers must cap/truncate user and assistant text before
+ * building this snapshot because decision adapters may call external models.
+ */
 export interface SupervisorTurnSnapshot {
   chatId: string;
   projectRoot: string;
@@ -46,6 +64,12 @@ export interface SupervisorTurnSnapshot {
   researchResults: SupervisorResearchResult[];
 }
 
+/**
+ * Decision input for one ACP permission request.
+ *
+ * Caller contract: raw `input`/`meta` may contain tool details, so adapters must
+ * apply their own redaction policy before external logging or model calls.
+ */
 export interface SupervisorPermissionSnapshot {
   chatId: string;
   taskGoal: string;
@@ -60,8 +84,16 @@ export interface SupervisorPermissionSnapshot {
   supervisor: SupervisorSessionState;
 }
 
+/**
+ * Supervisor decision adapter port.
+ *
+ * Error mode: adapters may reject when no model/provider is configured; the
+ * supervisor loop must treat that as unavailable supervision, not as user denial.
+ */
 export interface SupervisorDecisionPort {
-  decideTurn(input: SupervisorTurnSnapshot): Promise<SupervisorSemanticDecision>;
+  decideTurn(
+    input: SupervisorTurnSnapshot
+  ): Promise<SupervisorSemanticDecision>;
   decidePermission(
     input: SupervisorPermissionSnapshot
   ): Promise<SupervisorPermissionDecision>;

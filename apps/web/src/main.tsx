@@ -16,6 +16,13 @@ import { ConnectionSetupDialog } from "./components/connection-setup-dialog";
 import { ThemeProvider } from "./components/theme-provider";
 import Loader from "./components/ui/loader";
 import { Toaster } from "./components/ui/sonner";
+import {
+  type EragearDesktopBootstrap,
+  getDesktopBootstrap,
+  hasDesktopTransportCredential,
+  isDesktopLocalBootstrap,
+} from "./lib/desktop-bootstrap";
+import { electronTrpcLink } from "./lib/electron-trpc-link";
 import { buildTrpcWsUrl, DEFAULT_SERVER_URL } from "./lib/server-url";
 import { trpc } from "./lib/trpc";
 import { routeTree } from "./routeTree.gen";
@@ -42,7 +49,30 @@ if (!rootElement) {
 
 if (!rootElement.innerHTML) {
   const root = ReactDOM.createRoot(rootElement);
-  root.render(<App />);
+  void bootstrapRenderer().then(() => {
+    root.render(<App />);
+  });
+}
+
+async function bootstrapRenderer() {
+  const desktopBootstrap = await getDesktopBootstrap();
+  if (!desktopBootstrap) {
+    return;
+  }
+
+  const store = useServerConfigStore.getState();
+  store.setDesktopBootstrap(desktopBootstrap);
+  store.setServerUrl(desktopBootstrap.serverUrl ?? DEFAULT_SERVER_URL);
+  if (hasDesktopTransportCredential(desktopBootstrap)) {
+    store.setConfigured(true);
+  }
+  console.info("[desktop] Bootstrap applied", {
+    mode: desktopBootstrap.mode,
+    transport: desktopBootstrap.transport.kind,
+    serverUrl: desktopBootstrap.serverUrl ?? null,
+    runtimeReady: desktopBootstrap.runtimeReady,
+    diagnostics: desktopBootstrap.diagnostics ?? [],
+  });
 }
 
 function isUnauthorizedError(error: unknown) {
@@ -78,8 +108,10 @@ function App() {
 }
 
 function AppBootstrap() {
-  const { serverUrl, isConfigured } = useServerConfigStore();
+  const { serverUrl, isConfigured, desktopBootstrap } =
+    useServerConfigStore();
   const hasConnectionConfig = isConfigured && Boolean(serverUrl.trim());
+  const hasDesktopAuth = hasDesktopTransportCredential(desktopBootstrap);
 
   if (!hasConnectionConfig) {
     return <ConnectionSetupDialog />;
@@ -87,7 +119,14 @@ function AppBootstrap() {
 
   return (
     <BetterAuthClientProvider serverUrl={serverUrl}>
-      <AuthenticatedApp serverUrl={serverUrl} />
+      {hasDesktopAuth ? (
+        <ConfiguredApp
+          desktopBootstrap={desktopBootstrap}
+          serverUrl={serverUrl}
+        />
+      ) : (
+        <AuthenticatedApp serverUrl={serverUrl} />
+      )}
     </BetterAuthClientProvider>
   );
 }
@@ -111,10 +150,36 @@ function AuthenticatedApp({ serverUrl }: { serverUrl: string }) {
   return <ConfiguredApp serverUrl={serverUrl} />;
 }
 
-function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
+function buildDesktopConnectionParams(
+  desktopBootstrap: EragearDesktopBootstrap | null | undefined
+) {
+  if (desktopBootstrap?.mode === "main-thread") {
+    const token = desktopBootstrap.localAuthToken;
+    return token ? () => ({ eragearLocalToken: token }) : undefined;
+  }
+  if (desktopBootstrap?.mode === "client-only") {
+    const apiKey = desktopBootstrap.apiKey;
+    return apiKey ? () => ({ apiKey }) : undefined;
+  }
+  return undefined;
+}
+
+function ConfiguredApp({
+  serverUrl,
+  desktopBootstrap,
+}: {
+  serverUrl: string;
+  desktopBootstrap?: EragearDesktopBootstrap | null;
+}) {
   const setConfigured = useServerConfigStore((state) => state.setConfigured);
+  const isDesktopLocalMode = isDesktopLocalBootstrap(desktopBootstrap);
+  const usesElectronIpc =
+    isDesktopLocalMode && desktopBootstrap?.transport.kind === "electron-ipc";
   const queryClient = useMemo(() => {
     const handleAuthFailure = (error: unknown) => {
+      if (isDesktopLocalMode) {
+        return;
+      }
       if (!isUnauthorizedError(error)) {
         return;
       }
@@ -129,25 +194,45 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
         onError: handleAuthFailure,
       }),
     });
-  }, [setConfigured]);
+  }, [isDesktopLocalMode, setConfigured]);
   const wsUrl = useMemo(
-    () => buildTrpcWsUrl(serverUrl || DEFAULT_SERVER_URL),
-    [serverUrl]
+    () =>
+      usesElectronIpc ? null : buildTrpcWsUrl(serverUrl || DEFAULT_SERVER_URL),
+    [serverUrl, usesElectronIpc]
+  );
+  const connectionParams = useMemo(
+    () =>
+      usesElectronIpc
+        ? undefined
+        : buildDesktopConnectionParams(desktopBootstrap),
+    [desktopBootstrap, usesElectronIpc]
   );
 
   const wsClient = useMemo(() => {
+    if (!wsUrl) {
+      return null;
+    }
     return createWSClient({
       url: wsUrl,
+      connectionParams,
     });
-  }, [wsUrl]);
+  }, [connectionParams, wsUrl]);
 
   useEffect(() => {
     return () => {
-      wsClient.close();
+      wsClient?.close();
     };
   }, [wsClient]);
 
   const trpcClient = useMemo(() => {
+    if (usesElectronIpc && desktopBootstrap) {
+      return trpc.createClient({
+        links: [electronTrpcLink(desktopBootstrap)],
+      });
+    }
+    if (!wsClient) {
+      throw new Error("No runtime transport is configured.");
+    }
     return trpc.createClient({
       links: [
         wsLink({
@@ -155,12 +240,16 @@ function ConfiguredApp({ serverUrl }: { serverUrl: string }) {
         }),
       ],
     });
-  }, [wsClient]);
+  }, [desktopBootstrap, usesElectronIpc, wsClient]);
 
   return (
     <trpc.Provider
       client={trpcClient}
-      key={wsUrl}
+      key={
+        usesElectronIpc
+          ? (desktopBootstrap?.transport.channelName ?? "electron-ipc")
+          : (wsUrl ?? "runtime")
+      }
       queryClient={queryClient}
     >
       <QueryClientProvider client={queryClient}>

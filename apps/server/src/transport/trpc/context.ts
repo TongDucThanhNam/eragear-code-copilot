@@ -7,16 +7,8 @@
  * @module transport/trpc/context
  */
 
-import type {
-  AgentServiceFactory,
-  AiServiceFactory,
-  AuthServiceFactory,
-  ProjectServiceFactory,
-  SessionServiceFactory,
-  SettingsServiceFactory,
-  ToolingServiceFactory,
-} from "@/modules/service-factories";
 import type { AppConfigService } from "@/modules/settings";
+import type { AppUseCases } from "@/modules/use-cases";
 
 export interface RequestLike {
   headers: Headers | Record<string, string | string[] | undefined>;
@@ -28,6 +20,12 @@ type ConnectionParams = Record<string, unknown> | null;
 
 const CONNECTION_PARAM_API_KEY_KEYS = ["apiKey", "api_key", "apikey"] as const;
 const CONNECTION_PARAM_COOKIE_KEYS = ["cookie", "cookieHeader"] as const;
+const CONNECTION_PARAM_LOCAL_AUTH_TOKEN_KEYS = [
+  "eragearLocalToken",
+  "localAuthToken",
+  "local_auth_token",
+] as const;
+const LOCAL_AUTH_TOKEN_HEADER = "x-eragear-local-token";
 
 function getHeader(
   headers: Headers | Record<string, string | string[] | undefined>,
@@ -66,6 +64,15 @@ function extractCookieFromConnectionParams(
   return extractTextConnectionParam(
     connectionParams,
     CONNECTION_PARAM_COOKIE_KEYS
+  );
+}
+
+function extractLocalAuthTokenFromConnectionParams(
+  connectionParams?: ConnectionParams
+): string | null {
+  return extractTextConnectionParam(
+    connectionParams,
+    CONNECTION_PARAM_LOCAL_AUTH_TOKEN_KEYS
   );
 }
 
@@ -133,21 +140,38 @@ function withApiKeyHeader(req: RequestLike, apiKey: string): RequestLike {
   };
 }
 
+function withLocalAuthTokenHeader(
+  req: RequestLike,
+  localAuthToken: string
+): RequestLike {
+  if (getHeader(req.headers, LOCAL_AUTH_TOKEN_HEADER) !== null) {
+    return req;
+  }
+
+  if (req.headers instanceof Headers) {
+    const nextHeaders = new Headers(req.headers);
+    nextHeaders.set(LOCAL_AUTH_TOKEN_HEADER, localAuthToken);
+    return { ...req, headers: nextHeaders };
+  }
+
+  return {
+    ...req,
+    headers: {
+      ...req.headers,
+      [LOCAL_AUTH_TOKEN_HEADER]: localAuthToken,
+    },
+  };
+}
+
 export interface AuthContext {
-  type: "session" | "apiKey";
+  type: "session" | "apiKey" | "local";
   userId: string;
   user?: unknown;
   session?: unknown;
 }
 
 export interface TrpcContextDependencies {
-  sessionServices: SessionServiceFactory;
-  aiServices: AiServiceFactory;
-  projectServices: ProjectServiceFactory;
-  agentServices: AgentServiceFactory;
-  toolingServices: ToolingServiceFactory;
-  settingsServices: SettingsServiceFactory;
-  authServices: AuthServiceFactory;
+  useCases: AppUseCases;
   appConfig: AppConfigService;
   resolveAuthContext: (req: RequestLike) => Promise<AuthContext | null>;
 }
@@ -162,7 +186,7 @@ export interface TrpcContextDependencies {
  * @example
  * ```typescript
  * const context = createTrpcContext(deps);
- * const projects = context.projectServices.listProjects().execute();
+ * const projects = context.useCases.project.list.execute();
  * ```
  */
 export async function createTrpcContext(
@@ -175,27 +199,30 @@ export async function createTrpcContext(
   const apiKeyFromConnectionParams = extractApiKeyFromConnectionParams(
     opts?.connectionParams
   );
+  const localAuthTokenFromConnectionParams =
+    extractLocalAuthTokenFromConnectionParams(opts?.connectionParams);
   const requestWithCookie =
     opts?.req && cookieFromConnectionParams
       ? withCookieHeader(opts.req, cookieFromConnectionParams)
       : opts?.req;
-  const requestWithAuth =
-    requestWithCookie && apiKeyFromConnectionParams
-      ? withApiKeyHeader(requestWithCookie, apiKeyFromConnectionParams)
+  const requestWithLocalAuth =
+    requestWithCookie && localAuthTokenFromConnectionParams
+      ? withLocalAuthTokenHeader(
+          requestWithCookie,
+          localAuthTokenFromConnectionParams
+        )
       : requestWithCookie;
+  const requestWithAuth =
+    requestWithLocalAuth && apiKeyFromConnectionParams
+      ? withApiKeyHeader(requestWithLocalAuth, apiKeyFromConnectionParams)
+      : requestWithLocalAuth;
 
   const authContext = requestWithAuth
     ? await deps.resolveAuthContext(requestWithAuth)
     : null;
 
   return {
-    sessionServices: deps.sessionServices,
-    aiServices: deps.aiServices,
-    projectServices: deps.projectServices,
-    agentServices: deps.agentServices,
-    toolingServices: deps.toolingServices,
-    settingsServices: deps.settingsServices,
-    authServices: deps.authServices,
+    useCases: deps.useCases,
     appConfig: deps.appConfig,
     auth: authContext,
   };

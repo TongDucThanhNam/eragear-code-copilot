@@ -4,6 +4,12 @@ import type { AgentRepositoryPort } from "./ports/agent-repository.port";
 
 const OP = "agent.config.delete";
 
+/**
+ * Deletes one user-owned agent configuration.
+ *
+ * Invariant: deleting the active agent reassigns active state to the first
+ * remaining agent or `null`, preventing dangling active-agent references.
+ */
 export class DeleteAgentService {
   private readonly agentRepo: AgentRepositoryPort;
   private readonly eventBus: EventBusPort;

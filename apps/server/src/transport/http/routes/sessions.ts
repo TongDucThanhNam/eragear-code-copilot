@@ -18,9 +18,9 @@ import type { HttpRouteDependencies } from "./deps";
  */
 export function registerSessionRoutes(
   api: Hono,
-  deps: Pick<HttpRouteDependencies, "sessionServices" | "resolveAuthContext">
+  deps: Pick<HttpRouteDependencies, "useCases" | "resolveAuthContext">
 ): void {
-  const { sessionServices, resolveAuthContext } = deps;
+  const { useCases, resolveAuthContext } = deps;
 
   // =========================================================================
   // API Routes
@@ -45,7 +45,7 @@ export function registerSessionRoutes(
       return c.json({ error: "chatId is required" }, 400);
     }
 
-    const service = sessionServices.stopSession();
+    const service = useCases.session.stop;
     await service.execute(auth.userId, chatId);
 
     return c.json({ ok: true });
@@ -70,7 +70,7 @@ export function registerSessionRoutes(
       return c.json({ error: "chatId is required" }, 400);
     }
 
-    const service = sessionServices.deleteSession();
+    const service = useCases.session.delete;
     await service.execute(auth.userId, chatId);
     return c.json({ ok: true });
   });

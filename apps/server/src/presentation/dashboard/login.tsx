@@ -42,15 +42,15 @@ export function LoginPage({ username }: LoginPageProps) {
       <div className="newsprint-dots pointer-events-none fixed inset-0 z-0" />
 
       {/* Newspaper Front Page Layout */}
-      <main className="relative z-10 mx-auto flex w-full max-w-[1400px] flex-1 flex-col px-3 py-6 sm:px-4 sm:py-8 md:px-6 md:py-10 lg:px-8">
+      <main className="login-shell relative z-10 mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-hidden px-3 py-3 sm:px-4 sm:py-4 md:px-6 md:py-5 lg:px-8">
         {/* Top Masthead - Newspaper Header */}
-        <header className="relative mb-6 border-[#111111] border-b-4 pb-4">
+        <header className="login-masthead relative mb-3 flex-shrink-0 border-[#111111] border-b-4 pb-3">
           {/* Corner Ornaments */}
           {/* <div className="corner-ornament corner-ornament-tl" /> */}
           {/* <div className="corner-ornament corner-ornament-tr" /> */}
 
           {/* Top Bar: Edition Info */}
-          <div className="mb-3 flex flex-wrap items-center justify-between border-[#111111] border-b pb-2">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-[#111111] border-b pb-2">
             <div className="flex items-center gap-3 font-mono text-[#666666] text-[9px] uppercase tracking-wider">
               <span className="bg-[#111111] px-2 py-0.5 text-[#F9F9F7]">
                 Vol. 1.0
@@ -62,7 +62,7 @@ export function LoginPage({ username }: LoginPageProps) {
               <span className="hidden text-[#999999] sm:inline">|</span>
               <span className="text-[#666666]">{currentDate}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="login-secure-status flex items-center gap-2">
               <div className="h-2 w-2 animate-pulse rounded-full bg-[#CC0000]" />
               <span className="font-mono font-semibold text-[#CC0000] text-[9px] uppercase tracking-wider">
                 Secure Access
@@ -71,7 +71,7 @@ export function LoginPage({ username }: LoginPageProps) {
           </div>
 
           {/* Main Headline */}
-          <div className="py-3 text-center">
+          <div className="py-2 text-center">
             <div className="mb-2 flex items-center justify-center gap-4">
               <span className="ornament-cross" />
               <span className="font-mono text-[#888888] text-[8px] uppercase tracking-[0.5em]">
@@ -79,19 +79,19 @@ export function LoginPage({ username }: LoginPageProps) {
               </span>
               <span className="ornament-cross" />
             </div>
-            <h1 className="font-black font-display text-[2.25rem] leading-[0.88] tracking-tight sm:text-4.5xl md:text-5.5xl lg:text-6.5xl">
+            <h1 className="login-title font-black font-display text-3xl leading-[0.88] tracking-tight sm:text-4.5xl md:text-5.5xl lg:text-6.5xl">
               <span className="text-[#CC0000]">E</span>ragear{" "}
               <span className="text-[#CC0000]">C</span>ode{" "}
               <span className="text-[#CC0000]">C</span>opilot
             </h1>
             {/* Subheadline / Deck */}
-            <p className="deck-text mx-auto mt-4 max-w-2xl">
+            <p className="deck-text mx-auto mt-2 max-w-2xl">
               Agent CLI • Agent Control Protocol
             </p>
           </div>
 
           {/* Decorative Agents */}
-          <div className="mt-4 flex items-center justify-center gap-2">
+          <div className="login-agent-strip mt-3 flex flex-wrap items-center justify-center gap-2 text-sm">
             <div className="h-px w-6 bg-[#111111]" />
             <span className="">Claude code</span>
             <div className="h-px w-6 bg-[#111111]" />
@@ -103,7 +103,7 @@ export function LoginPage({ username }: LoginPageProps) {
         </header>
 
         {/* Main Grid Layout */}
-        <div className="grid grid-cols-1 border-2 border-[#111111] bg-[#F9F9F7] shadow-[6px_6px_0px_0px_#111111] lg:grid-cols-12">
+        <div className="login-grid grid min-h-0 flex-1 grid-cols-1 overflow-hidden border-2 border-[#111111] bg-[#F9F9F7] shadow-[6px_6px_0px_0px_#111111] lg:grid-cols-12">
           {/* Left Column - Meta Info */}
           <aside className="hidden flex-col border-[#111111] border-r lg:col-span-3 lg:flex">
             {/* Section Header */}
@@ -176,7 +176,7 @@ export function LoginPage({ username }: LoginPageProps) {
           </aside>
 
           {/* Center Column - Login Form */}
-          <section className="relative col-span-1 border-[#111111] border-r lg:col-span-6">
+          <section className="login-form-panel relative col-span-1 min-w-0 overflow-y-auto border-[#111111] lg:col-span-6 lg:border-r">
             {/* Corner Ornaments */}
             {/* <div className="corner-ornament corner-ornament-tl lg:hidden" /> */}
             {/* <div className="corner-ornament corner-ornament-tr lg:hidden" /> */}
@@ -192,9 +192,9 @@ export function LoginPage({ username }: LoginPageProps) {
             </div>
 
             {/* Form Content */}
-            <div className="newsprint-lines p-6 sm:p-8 md:p-10">
+            <div className="login-form-content newsprint-lines p-4 sm:p-6">
               {/* Headline for the form section */}
-              <div className="form-heading-animate mb-6 border-[#111111] border-b-2 pb-4">
+              <div className="login-form-heading form-heading-animate mb-4 border-[#111111] border-b-2 pb-3">
                 <p className="mb-2 font-mono font-semibold text-[#CC0000] text-[9px] uppercase tracking-[0.3em]">
                   Front Page Story
                 </p>
@@ -204,13 +204,13 @@ export function LoginPage({ username }: LoginPageProps) {
                 >
                   Authentication Gateway
                 </h3>
-                <p className="byline">
+                <p className="byline login-byline">
                   By Eragear System • Secure Access Protocol
                 </p>
               </div>
 
               {/* Subheader */}
-              <div className="mb-8 border-[#E5E5E0] border-b pb-3">
+              <div className="login-section-subheader mb-5 border-[#E5E5E0] border-b pb-3">
                 <p className="font-mono text-[#888888] text-[9px] uppercase tracking-[0.3em]">
                   ▼ Enter Credentials Below
                 </p>
@@ -219,11 +219,11 @@ export function LoginPage({ username }: LoginPageProps) {
               {/* Form */}
               <form
                 aria-labelledby="form-heading"
-                className="space-y-10"
+                className="login-form flex flex-col gap-6"
                 id="login-form"
                 noValidate
               >
-                <div className="space-y-8">
+                <div className="flex flex-col gap-5">
                   <div className="field-group group">
                     <div className="flex items-baseline gap-3">
                       <span aria-hidden="true" className="field-number">
@@ -306,7 +306,7 @@ export function LoginPage({ username }: LoginPageProps) {
                 </div>
 
                 {/* Submit Button */}
-                <div className="pt-6">
+                <div className="pt-2">
                   <button
                     className="sharp-corners flex w-full items-center justify-center gap-2 border-2 border-[#111111] bg-[#111111] px-8 py-4 font-mono text-[#F9F9F7] text-xs uppercase tracking-[0.3em] shadow-[3px_3px_0px_0px_#CC0000] transition-all duration-200 hover:translate-x-[1.5px] hover:translate-y-[1.5px] hover:bg-[#111111] hover:text-[#F9F9F7] hover:shadow-[1.5px_1.5px_0px_0px_#CC0000] focus:translate-x-[1.5px] focus:translate-y-[1.5px] focus:shadow-[1.5px_1.5px_0px_0px_#CC0000] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#CC0000] focus-visible:outline-offset-2 active:translate-x-[3px] active:translate-y-[3px] active:shadow-none"
                     id="submit-btn"
@@ -331,7 +331,7 @@ export function LoginPage({ username }: LoginPageProps) {
               </div>
 
               {/* Footer note in form area */}
-              <div className="mt-8 flex items-center justify-center gap-3 border-[#E5E5E0] border-t pt-4 font-mono text-[#888888] text-[9px] uppercase tracking-wider">
+              <div className="login-form-extra-note mt-6 flex items-center justify-center gap-3 border-[#E5E5E0] border-t pt-4 font-mono text-[#888888] text-[9px] uppercase tracking-wider">
                 <span className="ornament-diamond" />
                 <span>Secure Authentication Protocol Active</span>
                 <span className="ornament-diamond" />
@@ -340,7 +340,7 @@ export function LoginPage({ username }: LoginPageProps) {
           </section>
 
           {/* Right Column - Stats/Info */}
-          <aside className="col-span-1 lg:col-span-3">
+          <aside className="login-status-panel hidden min-h-0 overflow-y-auto lg:col-span-3 lg:block">
             {/* Section Header */}
             <div className="border-[#111111] border-b bg-[#111111] px-4 py-3">
               <div className="flex items-center gap-2">
@@ -424,7 +424,7 @@ export function LoginPage({ username }: LoginPageProps) {
         </div>
 
         {/* Final decorative rule */}
-        <div className="mt-4 flex items-center justify-center gap-2 opacity-40">
+        <div className="login-decorative-rule mt-4 flex items-center justify-center gap-2 opacity-40">
           <span className="ornament-cross" />
           <div className="h-px w-24 bg-[#111111]" />
           <span className="ornament-star text-[#CC0000]">✦</span>
@@ -434,7 +434,7 @@ export function LoginPage({ username }: LoginPageProps) {
       </main>
 
       {/* Footer - Outside main for sticky bottom */}
-      <footer className="relative mt-auto border-[#111111] border-t-4 bg-[#F9F9F7] pt-4">
+      <footer className="login-footer relative mt-auto flex-shrink-0 border-[#111111] border-t-4 bg-[#F9F9F7] pt-3">
         {/* Corner Ornaments */}
         {/* <div className="corner-ornament corner-ornament-bl" /> */}
         {/* <div className="corner-ornament corner-ornament-br" /> */}

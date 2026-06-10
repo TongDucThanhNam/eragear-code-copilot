@@ -1,13 +1,13 @@
-import type { ToolingServiceFactory } from "@/modules/service-factories";
 import {
   CodeContextService,
   RespondPermissionService,
 } from "@/modules/tooling";
+import type { ToolingUseCases } from "@/modules/use-cases";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
-export function createToolingServices(
+export function createToolingUseCases(
   deps: ServiceRegistryDependencies
-): ToolingServiceFactory {
+): ToolingUseCases {
   const codeContextService = new CodeContextService(
     deps.gitAdapter,
     deps.sessionRuntime
@@ -17,7 +17,7 @@ export function createToolingServices(
   );
 
   return {
-    codeContext: () => codeContextService,
-    respondPermission: () => respondPermissionService,
+    codeContext: codeContextService,
+    respondPermission: respondPermissionService,
   };
 }

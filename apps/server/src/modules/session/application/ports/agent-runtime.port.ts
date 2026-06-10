@@ -3,7 +3,11 @@ import type { Client, ClientSideConnection } from "@agentclientprotocol/sdk";
 import type { CommandPolicy } from "@/shared/utils/allowlist.util";
 
 /**
- * Port for agent runtime operations.
+ * Agent process/ACP runtime port.
+ *
+ * Security invariant: `spawn` implementations must enforce command/env
+ * allowlists; application services should never execute agent commands outside
+ * this port.
  */
 export interface AgentRuntimePort {
   /** Spawn a child process for an agent */

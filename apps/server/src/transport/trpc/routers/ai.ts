@@ -27,7 +27,7 @@ export const aiRouter = router({
   sendMessage: protectedProcedure
     .input(SendMessageInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.aiServices.sendMessage();
+      const service = ctx.useCases.ai.sendMessage;
       return await service.execute({
         ...input,
         userId: getRequiredUserId(ctx),
@@ -38,7 +38,7 @@ export const aiRouter = router({
   setModel: protectedProcedure
     .input(SetModelInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.aiServices.setModel();
+      const service = ctx.useCases.ai.setModel;
       const userId = getRequiredUserId(ctx);
       logger.info("tRPC ai.setModel requested", {
         chatId: input.chatId,
@@ -56,7 +56,7 @@ export const aiRouter = router({
   setMode: protectedProcedure
     .input(SetModeInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.aiServices.setMode();
+      const service = ctx.useCases.ai.setMode;
       const userId = getRequiredUserId(ctx);
       logger.info("tRPC ai.setMode requested", {
         chatId: input.chatId,
@@ -74,7 +74,7 @@ export const aiRouter = router({
   setConfigOption: protectedProcedure
     .input(SetConfigOptionInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.aiServices.setConfigOption();
+      const service = ctx.useCases.ai.setConfigOption;
       const userId = getRequiredUserId(ctx);
       logger.info("tRPC ai.setConfigOption requested", {
         chatId: input.chatId,
@@ -87,9 +87,10 @@ export const aiRouter = router({
         input.configId,
         input.value
       );
-      const sessionState = await ctx.sessionServices
-        .getSessionState()
-        .execute(userId, input.chatId);
+      const sessionState = await ctx.useCases.session.queries.state(
+        userId,
+        input.chatId
+      );
       logger.info("tRPC ai.setConfigOption succeeded", {
         chatId: input.chatId,
         configId: input.configId,
@@ -105,7 +106,7 @@ export const aiRouter = router({
   cancelPrompt: protectedProcedure
     .input(CancelPromptInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.aiServices.cancelPrompt();
+      const service = ctx.useCases.ai.cancelPrompt;
       return await service.execute(getRequiredUserId(ctx), input.chatId);
     }),
 
@@ -113,7 +114,7 @@ export const aiRouter = router({
   setSupervisorMode: protectedProcedure
     .input(SetSupervisorModeInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.aiServices.setSupervisorMode();
+      const service = ctx.useCases.ai.setSupervisorMode;
       return await service.execute({
         userId: getRequiredUserId(ctx),
         chatId: input.chatId,

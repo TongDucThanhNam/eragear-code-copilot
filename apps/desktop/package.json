@@ -1,0 +1,23 @@
+{
+  "name": "desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "dependencies": {
+    "@repo/shared": "workspace:*"
+  },
+  "scripts": {
+    "dev": "bun run ./scripts/dev.ts",
+    "build": "bun run build:main",
+    "build:main": "bun run ./scripts/build-main.ts",
+    "check-types": "tsc --noEmit",
+    "electron:start": "electron ."
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/node": "^22.13.14",
+    "electron": "^42.4.0",
+    "typescript": "catalog:"
+  }
+}

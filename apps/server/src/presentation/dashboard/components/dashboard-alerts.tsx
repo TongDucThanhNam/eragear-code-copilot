@@ -19,7 +19,7 @@ export function DashboardAlerts() {
   return (
     <section
       aria-live="polite"
-      className="mt-4 flex flex-col gap-3 sm:mt-5 lg:mt-6"
+      className="dashboard-alerts mt-2 flex flex-col gap-2 sm:mt-3"
     >
       {success && (
         <div className={`${ALERT_BASE} bg-[#006400]`}>

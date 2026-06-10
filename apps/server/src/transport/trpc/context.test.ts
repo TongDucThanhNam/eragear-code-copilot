@@ -10,13 +10,7 @@ function createDeps(
   resolveAuthContext: TrpcContextDependencies["resolveAuthContext"]
 ): TrpcContextDependencies {
   return {
-    sessionServices: {} as TrpcContextDependencies["sessionServices"],
-    aiServices: {} as TrpcContextDependencies["aiServices"],
-    projectServices: {} as TrpcContextDependencies["projectServices"],
-    agentServices: {} as TrpcContextDependencies["agentServices"],
-    toolingServices: {} as TrpcContextDependencies["toolingServices"],
-    settingsServices: {} as TrpcContextDependencies["settingsServices"],
-    authServices: {} as TrpcContextDependencies["authServices"],
+    useCases: {} as TrpcContextDependencies["useCases"],
     appConfig: {} as TrpcContextDependencies["appConfig"],
     resolveAuthContext,
   };
@@ -40,7 +34,7 @@ describe("createTrpcContext", () => {
     };
     const deps = createDeps((request) => {
       capturedRequest = request;
-      return expectedAuth;
+      return Promise.resolve(expectedAuth);
     });
 
     const baseRequest: RequestLike = {
@@ -56,8 +50,12 @@ describe("createTrpcContext", () => {
     });
 
     expect(context.auth).toEqual(expectedAuth);
-    expect(capturedRequest).not.toBeNull();
-    expect(toHeaders(capturedRequest?.headers).get("cookie")).toBe(
+    const request = capturedRequest as RequestLike | null;
+    expect(request).not.toBeNull();
+    if (!request) {
+      throw new Error("Expected auth resolver request");
+    }
+    expect(toHeaders(request.headers).get("cookie")).toBe(
       "better-auth.session_token=session-token"
     );
   });
@@ -70,7 +68,7 @@ describe("createTrpcContext", () => {
     };
     const deps = createDeps((request) => {
       capturedRequest = request;
-      return expectedAuth;
+      return Promise.resolve(expectedAuth);
     });
 
     const baseRequest: RequestLike = {
@@ -84,20 +82,22 @@ describe("createTrpcContext", () => {
     });
 
     expect(context.auth).toEqual(expectedAuth);
-    expect(capturedRequest).not.toBeNull();
-    expect(toHeaders(capturedRequest?.headers).get("x-api-key")).toBe(
-      "eg_test_key"
-    );
+    const request = capturedRequest as RequestLike | null;
+    expect(request).not.toBeNull();
+    if (!request) {
+      throw new Error("Expected auth resolver request");
+    }
+    expect(toHeaders(request.headers).get("x-api-key")).toBe("eg_test_key");
   });
 
   test("does not override explicit auth headers from handshake", async () => {
     let capturedRequest: RequestLike | null = null;
     const deps = createDeps((request) => {
       capturedRequest = request;
-      return {
+      return Promise.resolve({
         type: "apiKey",
         userId: "user-2",
-      };
+      });
     });
 
     const baseRequest: RequestLike = {
@@ -112,20 +112,22 @@ describe("createTrpcContext", () => {
       connectionParams: { apiKey: "eg_connection_params_key" },
     });
 
-    expect(capturedRequest).not.toBeNull();
-    expect(toHeaders(capturedRequest?.headers).get("x-api-key")).toBe(
-      "eg_header_key"
-    );
+    const request = capturedRequest as RequestLike | null;
+    expect(request).not.toBeNull();
+    if (!request) {
+      throw new Error("Expected auth resolver request");
+    }
+    expect(toHeaders(request.headers).get("x-api-key")).toBe("eg_header_key");
   });
 
   test("does not override explicit cookie header from handshake", async () => {
     let capturedRequest: RequestLike | null = null;
     const deps = createDeps((request) => {
       capturedRequest = request;
-      return {
+      return Promise.resolve({
         type: "session",
         userId: "user-cookie",
-      };
+      });
     });
 
     const baseRequest: RequestLike = {
@@ -142,8 +144,12 @@ describe("createTrpcContext", () => {
       },
     });
 
-    expect(capturedRequest).not.toBeNull();
-    expect(toHeaders(capturedRequest?.headers).get("cookie")).toBe(
+    const request = capturedRequest as RequestLike | null;
+    expect(request).not.toBeNull();
+    if (!request) {
+      throw new Error("Expected auth resolver request");
+    }
+    expect(toHeaders(request.headers).get("cookie")).toBe(
       "better-auth.session_token=from-header"
     );
   });

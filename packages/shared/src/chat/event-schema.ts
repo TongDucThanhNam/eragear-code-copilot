@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { UIMessage } from "../ui-message";
-import type { BroadcastEvent } from "./types";
+import type { UIMessage } from "../ui-message.js";
+import type { BroadcastEvent } from "./types.js";
 
 const PROVIDER_METADATA_SCHEMA = z.record(z.string(), z.unknown());
 

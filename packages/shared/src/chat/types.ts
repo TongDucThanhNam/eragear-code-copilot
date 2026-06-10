@@ -3,7 +3,7 @@ import type {
   ToolUIPart,
   UIMessage,
   UIMessagePart,
-} from "../ui-message";
+} from "../ui-message.js";
 
 // ============================================================================
 // Chat Status Types

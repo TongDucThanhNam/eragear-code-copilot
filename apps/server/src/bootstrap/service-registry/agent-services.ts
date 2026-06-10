@@ -6,12 +6,12 @@ import {
   SetActiveAgentService,
   UpdateAgentService,
 } from "@/modules/agent";
-import type { AgentServiceFactory } from "@/modules/service-factories";
+import type { AgentUseCases } from "@/modules/use-cases";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
-export function createAgentServices(
+export function createAgentUseCases(
   deps: ServiceRegistryDependencies
-): AgentServiceFactory {
+): AgentUseCases {
   const ensureAgentDefaultsService = new EnsureAgentDefaultsService(
     deps.agentRepo
   );
@@ -31,11 +31,11 @@ export function createAgentServices(
   const setActiveAgentService = new SetActiveAgentService(deps.agentRepo);
 
   return {
-    ensureAgentDefaults: () => ensureAgentDefaultsService,
-    listAgents: () => listAgentsService,
-    createAgent: () => createAgentService,
-    updateAgent: () => updateAgentService,
-    deleteAgent: () => deleteAgentService,
-    setActiveAgent: () => setActiveAgentService,
+    ensureDefaults: ensureAgentDefaultsService,
+    list: listAgentsService,
+    create: createAgentService,
+    update: updateAgentService,
+    delete: deleteAgentService,
+    setActive: setActiveAgentService,
   };
 }

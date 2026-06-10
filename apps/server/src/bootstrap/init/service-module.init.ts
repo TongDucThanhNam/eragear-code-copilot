@@ -1,15 +1,6 @@
 import { GetMeService } from "@/modules/auth";
-import type {
-  AgentServiceFactory,
-  AiServiceFactory,
-  AuthServiceFactory,
-  OpsServiceFactory,
-  ProjectServiceFactory,
-  SessionServiceFactory,
-  SettingsServiceFactory,
-  ToolingServiceFactory,
-} from "@/modules/service-factories";
 import type { AppConfigService } from "@/modules/settings";
+import type { AppUseCases, AuthUseCases } from "@/modules/use-cases";
 import { AuthUserReadAdapter } from "@/platform/auth/adapters/auth-user-read.adapter";
 import type { AuthRuntime } from "@/platform/auth/auth";
 import {
@@ -22,14 +13,14 @@ import { GitAdapter } from "@/platform/git";
 import { AgentRuntimeAdapter } from "@/platform/process";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import { createServerLifecycle, type ServerLifecycle } from "../lifecycle";
-import { createAgentServices } from "../service-registry/agent-services";
-import { createAiServices } from "../service-registry/ai-services";
+import { createAgentUseCases } from "../service-registry/agent-services";
+import { createAiUseCases } from "../service-registry/ai-services";
 import type { ServiceRegistryDependencies } from "../service-registry/dependencies";
-import { createOpsServices } from "../service-registry/ops-services";
-import { createProjectServices } from "../service-registry/project-services";
-import { createSessionServices } from "../service-registry/session-services";
-import { createSettingsServices } from "../service-registry/settings-services";
-import { createToolingServices } from "../service-registry/tooling-services";
+import { createOpsUseCases } from "../service-registry/ops-services";
+import { createProjectUseCases } from "../service-registry/project-services";
+import { createSessionUseCases } from "../service-registry/session-services";
+import { createSettingsUseCases } from "../service-registry/settings-services";
+import { createToolingUseCases } from "../service-registry/tooling-services";
 import type { CoreModule } from "./core-module.init";
 import type { PersistenceModule } from "./persistence-module.init";
 import type { AppRuntimeConfig } from "./runtime-config.init";
@@ -41,14 +32,7 @@ export type ResolveAuthContext = (req?: {
 }) => Promise<AuthContext | null>;
 
 export interface ServiceModule {
-  sessionServices: SessionServiceFactory;
-  aiServices: AiServiceFactory;
-  projectServices: ProjectServiceFactory;
-  agentServices: AgentServiceFactory;
-  settingsServices: SettingsServiceFactory;
-  toolingServices: ToolingServiceFactory;
-  authServices: AuthServiceFactory;
-  opsServices: OpsServiceFactory;
+  useCases: AppUseCases;
   lifecycle: ServerLifecycle;
   resolveAuthContext: ResolveAuthContext;
   setBackgroundRunnerStateProvider: (
@@ -106,16 +90,26 @@ export function initializeServiceModule({
     getBackgroundRunnerState,
   };
 
-  const sessionServices = createSessionServices(serviceRegistryDependencies);
-  const aiServices = createAiServices(serviceRegistryDependencies);
-  const projectServices = createProjectServices(serviceRegistryDependencies);
-  const agentServices = createAgentServices(serviceRegistryDependencies);
-  const settingsServices = createSettingsServices(serviceRegistryDependencies);
-  const toolingServices = createToolingServices(serviceRegistryDependencies);
-  const opsServices = createOpsServices(serviceRegistryDependencies);
+  const sessionUseCases = createSessionUseCases(serviceRegistryDependencies);
+  const aiUseCases = createAiUseCases(serviceRegistryDependencies);
+  const projectUseCases = createProjectUseCases(serviceRegistryDependencies);
+  const agentUseCases = createAgentUseCases(serviceRegistryDependencies);
+  const settingsUseCases = createSettingsUseCases(serviceRegistryDependencies);
+  const toolingUseCases = createToolingUseCases(serviceRegistryDependencies);
+  const opsUseCases = createOpsUseCases(serviceRegistryDependencies);
   const authUserRead = new AuthUserReadAdapter(authRuntime.authDb);
-  const authServices: AuthServiceFactory = {
-    getMe: () => new GetMeService(authUserRead),
+  const authUseCases: AuthUseCases = {
+    getMe: new GetMeService(authUserRead),
+  };
+  const useCases: AppUseCases = {
+    session: sessionUseCases,
+    ai: aiUseCases,
+    project: projectUseCases,
+    agent: agentUseCases,
+    settings: settingsUseCases,
+    tooling: toolingUseCases,
+    auth: authUseCases,
+    ops: opsUseCases,
   };
   const lifecycle = createServerLifecycle({
     authRuntime,
@@ -124,7 +118,7 @@ export function initializeServiceModule({
     sessionRepo: persistence.sessionRepo,
     sessionEventOutbox: core.sessionEventOutbox,
     eventBus: core.eventBus,
-    sessionServices,
+    sessionUseCases,
     appConfig: appConfigService,
     policy: runtimeConfig.lifecyclePolicy,
     setBackgroundRunnerStateProvider,
@@ -134,14 +128,7 @@ export function initializeServiceModule({
   );
 
   return {
-    sessionServices,
-    aiServices,
-    projectServices,
-    agentServices,
-    settingsServices,
-    toolingServices,
-    authServices,
-    opsServices,
+    useCases,
     lifecycle,
     resolveAuthContext,
     setBackgroundRunnerStateProvider,

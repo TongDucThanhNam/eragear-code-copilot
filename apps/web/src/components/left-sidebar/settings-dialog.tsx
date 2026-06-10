@@ -5,12 +5,15 @@ import {
   Edit2,
   Globe,
   Plus,
+  RefreshCw,
+  ShieldCheck,
   Terminal,
   Trash2,
 } from "lucide-react";
 import React from "react";
 import { toast } from "sonner";
 import { renderAgentIcon } from "@/components/left-sidebar/agent-icons";
+import { LocalAdeControlCenter } from "@/components/local-ade/local-ade-control-center";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,14 +40,89 @@ import { useServerConfigStore } from "@/store/server-config-store";
 
 type AgentType = "claude" | "codex" | "opencode" | "gemini" | "other";
 
+interface CommandPolicy {
+  command: string;
+  allowAnyArgs?: boolean;
+  allowedArgs?: string[];
+  allowedArgPatterns?: string[];
+}
+
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+const DESKTOP_AGENT_ENV_KEYS = [
+  "PATH",
+  "Path",
+  "HOME",
+  "USERPROFILE",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "TEMP",
+  "TMP",
+  "NODE_ENV",
+  "BUN_ENV",
+  "TERM",
+  "SHELL",
+  "DEBUG",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
+  "OPENROUTER_API_KEY",
+] as const;
+
+function normalizeCommandKey(command: string): string {
+  return command.trim().toLowerCase();
+}
+
+function mergeCommandPolicies(
+  existing: CommandPolicy[],
+  next: CommandPolicy[]
+): CommandPolicy[] {
+  const merged: CommandPolicy[] = [];
+  const seen = new Set<string>();
+
+  for (const policy of [...existing, ...next]) {
+    const command = policy.command.trim();
+    if (!command) {
+      continue;
+    }
+    const key = normalizeCommandKey(command);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merged.push({ ...policy, command });
+  }
+
+  return merged;
+}
+
+function mergeEnvKeys(existing: string[], next: readonly string[]): string[] {
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  for (const key of [...existing, ...next]) {
+    const normalized = key.trim();
+    if (!normalized) {
+      continue;
+    }
+    const dedupeKey = normalized.toLowerCase();
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+    merged.push(normalized);
+  }
+  return merged;
+}
+
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   // Server Connection State
-  const { serverUrl, setServerUrl } = useServerConfigStore();
+  const { desktopBootstrap, serverUrl, setServerUrl } = useServerConfigStore();
 
   // Sub-Dialog State (Add/Edit)
   const [isEditOpen, setIsEditOpen] = React.useState(false);
@@ -67,8 +145,39 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   const utils = trpc.useUtils();
   const { data: agentsData, isLoading } = trpc.agents.list.useQuery();
+  const {
+    data: bootAllowlists,
+    isLoading: isBootAllowlistsLoading,
+  } = trpc.settings.getBootAllowlists.useQuery(undefined, { enabled: open });
   const activeAgentId = agentsData?.activeAgentId ?? null;
   const agents = agentsData?.agents ?? [];
+  const detectedCliPolicies = React.useMemo<CommandPolicy[]>(
+    () =>
+      (
+        desktopBootstrap?.runtimeDiagnostics?.cliAvailability ?? []
+      )
+        .filter(
+          (cli) =>
+            cli.available &&
+            typeof cli.executablePath === "string" &&
+            cli.executablePath.length > 0
+        )
+        .map((cli) => ({
+          command: cli.executablePath as string,
+          allowAnyArgs: true,
+        })),
+    [desktopBootstrap]
+  );
+  const missingDetectedCliPolicies = React.useMemo(() => {
+    const allowed = new Set(
+      (bootAllowlists?.allowedAgentCommandPolicies ?? []).map((policy) =>
+        normalizeCommandKey(policy.command)
+      )
+    );
+    return detectedCliPolicies.filter(
+      (policy) => !allowed.has(normalizeCommandKey(policy.command))
+    );
+  }, [bootAllowlists, detectedCliPolicies]);
 
   const createAgentMutation = trpc.agents.create.useMutation({
     onSuccess: async () => {
@@ -112,6 +221,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     },
   });
 
+  const updateBootAllowlistsMutation =
+    trpc.settings.updateBootAllowlists.useMutation({
+      onSuccess: async () => {
+        await utils.settings.getBootAllowlists.invalidate();
+        toast.success("Runtime allowlist updated");
+      },
+      onError: (err) => {
+        toast.error(err.message || "Failed to update runtime allowlist");
+      },
+    });
+
   const handleDelete = (id: string) => {
     deleteAgentMutation.mutate({ id });
   };
@@ -145,6 +265,22 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       env: "{}",
     });
     setIsEditOpen(true);
+  };
+
+  const handleSyncDetectedCliPolicies = () => {
+    if (!bootAllowlists) {
+      return;
+    }
+    updateBootAllowlistsMutation.mutate({
+      allowedAgentCommandPolicies: mergeCommandPolicies(
+        bootAllowlists.allowedAgentCommandPolicies,
+        detectedCliPolicies
+      ),
+      allowedEnvKeys: mergeEnvKeys(
+        bootAllowlists.allowedEnvKeys,
+        DESKTOP_AGENT_ENV_KEYS
+      ),
+    });
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -191,16 +327,20 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   return (
     <>
       <Dialog onOpenChange={onOpenChange} open={open}>
-        <DialogContent className="max-h-[80vh] max-w-4xl overflow-y-auto">
+        <DialogContent className="max-h-[82vh] max-w-6xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Settings</DialogTitle>
             <DialogDescription>
-              Manage your ACP agent configurations. These are saved on the
-              server.
+              Manage local ADE runtime, agents, capabilities, memory, and safe
+              provider settings.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-6">
+            <div className="max-h-[520px] overflow-hidden rounded-lg border">
+              <LocalAdeControlCenter compact className="p-3" />
+            </div>
+
             {/* Server Connection Section */}
             <div className="rounded-lg border p-4">
               <h3 className="mb-3 flex items-center gap-2 font-medium">
@@ -222,6 +362,73 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   Browser sessions now use `better-auth` cookies. Changing the
                   server URL will require signing in again on the target server.
                 </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="flex items-center gap-2 font-medium">
+                  <ShieldCheck className="h-4 w-4" /> Runtime Allowlist
+                </h3>
+                <Button
+                  disabled={
+                    !bootAllowlists ||
+                    detectedCliPolicies.length === 0 ||
+                    updateBootAllowlistsMutation.isPending
+                  }
+                  onClick={handleSyncDetectedCliPolicies}
+                  size="sm"
+                  variant="outline"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Sync Detected CLIs
+                </Button>
+              </div>
+              <div className="grid gap-3 text-sm">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">
+                    {isBootAllowlistsLoading
+                      ? "Loading agent policies"
+                      : `${bootAllowlists?.allowedAgentCommandPolicies.length ?? 0} agent commands`}
+                  </Badge>
+                  <Badge variant="outline">
+                    {isBootAllowlistsLoading
+                      ? "Loading ENV keys"
+                      : `${bootAllowlists?.allowedEnvKeys.length ?? 0} ENV keys`}
+                  </Badge>
+                  {missingDetectedCliPolicies.length > 0 && (
+                    <Badge variant="destructive">
+                      {missingDetectedCliPolicies.length} detected missing
+                    </Badge>
+                  )}
+                </div>
+
+                {bootAllowlists?.warnings?.length ? (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-destructive text-xs">
+                    {bootAllowlists.warnings.slice(0, 2).join(" ")}
+                  </div>
+                ) : null}
+
+                <div className="grid gap-1">
+                  {(bootAllowlists?.allowedAgentCommandPolicies ?? [])
+                    .slice(0, 4)
+                    .map((policy) => (
+                      <code
+                        className="block overflow-hidden text-ellipsis whitespace-nowrap rounded bg-muted px-2 py-1 text-xs"
+                        key={policy.command}
+                        title={policy.command}
+                      >
+                        {policy.command}
+                      </code>
+                    ))}
+                  {!isBootAllowlistsLoading &&
+                    (bootAllowlists?.allowedAgentCommandPolicies.length ?? 0) ===
+                      0 && (
+                      <div className="rounded-md border border-dashed p-3 text-muted-foreground text-xs">
+                        No agent command policies.
+                      </div>
+                    )}
+                </div>
               </div>
             </div>
 

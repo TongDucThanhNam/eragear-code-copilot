@@ -1,72 +1,42 @@
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import {
+  type SessionMessagesCompactionInput,
+  type SessionMessagesCompactionResult,
+  SessionQueries,
+} from "./queries/session-queries";
 
-const COMPACTION_SESSION_PAGE_SIZE = 500;
+/**
+ * Request contract for cold message compaction.
+ *
+ * Invariant: compaction is only valid for stopped sessions; active timelines
+ * must be changed through the runtime/buffering path.
+ */
+export type CompactSessionMessagesInput = SessionMessagesCompactionInput;
 
-export interface CompactSessionMessagesInput {
-  beforeTimestamp: number;
-  batchSize: number;
-}
+/**
+ * Result returned after cold message compaction.
+ *
+ * Caller need: counts describe persisted storage changes, not runtime UI state.
+ */
+export type CompactSessionMessagesResult = SessionMessagesCompactionResult;
 
-export interface CompactSessionMessagesResult {
-  compacted: number;
-  candidateCount: number;
-  stoppedSessionCount: number;
-}
-
+/**
+ * Compatibility wrapper for cold message compaction.
+ *
+ * Caller contract: background/lifecycle code should use `SessionQueries.compact`
+ * through `AppUseCases.session.queries`; this class delegates to keep older
+ * direct imports on the same stopped-session-only implementation.
+ */
 export class CompactSessionMessagesService {
-  private readonly sessionRepo: SessionRepositoryPort;
+  private readonly queries: SessionQueries;
 
   constructor(sessionRepo: SessionRepositoryPort) {
-    this.sessionRepo = sessionRepo;
+    this.queries = new SessionQueries(sessionRepo);
   }
 
   async execute(
     input: CompactSessionMessagesInput
   ): Promise<CompactSessionMessagesResult> {
-    let candidateCount = 0;
-    const stoppedSessionIds: string[] = [];
-    let cursor: string | undefined;
-
-    while (true) {
-      const page = await this.sessionRepo.findPageForMaintenance({
-        limit: COMPACTION_SESSION_PAGE_SIZE,
-        cursor,
-      });
-      if (page.sessions.length === 0) {
-        break;
-      }
-
-      candidateCount += page.sessions.length;
-      for (const session of page.sessions) {
-        if (session.status === "stopped") {
-          stoppedSessionIds.push(session.id);
-        }
-      }
-
-      if (!(page.hasMore && page.nextCursor)) {
-        break;
-      }
-      cursor = page.nextCursor;
-    }
-
-    if (stoppedSessionIds.length === 0) {
-      return {
-        compacted: 0,
-        candidateCount,
-        stoppedSessionCount: 0,
-      };
-    }
-
-    const result = await this.sessionRepo.compactMessages({
-      beforeTimestamp: input.beforeTimestamp,
-      batchSize: input.batchSize,
-      sessionIds: stoppedSessionIds,
-    });
-
-    return {
-      compacted: result.compacted,
-      candidateCount,
-      stoppedSessionCount: stoppedSessionIds.length,
-    };
+    return await this.queries.compact(input);
   }
 }

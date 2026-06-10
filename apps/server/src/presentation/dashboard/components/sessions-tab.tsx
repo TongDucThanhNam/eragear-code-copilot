@@ -26,8 +26,8 @@ export function SessionsTab() {
 
   return (
     <TabPanel activeTab={activeTab} className="flex-1" tab="sessions">
-      <section className="border-2 border-ink bg-paper shadow-news">
-        <div className="border-ink border-b-2 p-6">
+      <section className="dashboard-panel-fill border-2 border-ink bg-paper shadow-news">
+        <div className="dashboard-panel-header border-ink border-b-2 p-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="font-black font-display text-4xl tracking-tight">
@@ -63,7 +63,7 @@ export function SessionsTab() {
           </div>
         </div>
 
-        <div className="max-h-[calc(100dvh-480px)] min-h-[200px] overflow-y-auto p-4">
+        <div className="dashboard-list-scroll min-h-[200px] overflow-y-auto p-4">
           {sorted.length === 0 ? (
             <div className="empty-state stagger-item">
               No sessions yet. Start a chat from the UI.

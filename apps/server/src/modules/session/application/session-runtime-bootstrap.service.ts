@@ -14,6 +14,12 @@ import type {
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
+/**
+ * Runtime session construction request after the agent process has been spawned.
+ *
+ * Ordering requirement: callers create the process first, then this service
+ * registers runtime state before ACP handlers start streaming updates.
+ */
 export interface CreateRuntimeSessionInput {
   chatId: string;
   userId: string;
@@ -26,11 +32,24 @@ export interface CreateRuntimeSessionInput {
   supervisor?: ChatSession["supervisor"];
 }
 
+/**
+ * Runtime objects needed by the remaining bootstrap steps.
+ *
+ * Invariant: `chatSession` has been inserted into `SessionRuntimePort` and
+ * `buffer` is the ACP buffering instance attached to that same session.
+ */
 export interface PreparedRuntimeSession {
   chatSession: ChatSession;
   buffer: SessionBufferingPort;
 }
 
+/**
+ * Builds the in-memory chat session and registers it in the runtime store.
+ *
+ * Side effects: initializes UI state, suppresses duplicate replay broadcasts
+ * when stored messages already exist, and emits a stored plan message when a
+ * supervisor plan is restored.
+ */
 export class SessionRuntimeBootstrapService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;

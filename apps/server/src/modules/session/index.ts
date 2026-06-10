@@ -1,6 +1,5 @@
 export { BootstrapSessionConnectionService } from "./application/bootstrap-session-connection.service";
 export { CleanupProjectSessionsService } from "./application/cleanup-project-sessions.service";
-export { CompactSessionMessagesService } from "./application/compact-session-messages.service";
 export type {
   CreateSessionInput,
   DiscoverAgentSessionsInput,
@@ -28,11 +27,6 @@ export {
 export { CreateSessionService } from "./application/create-session.service";
 export { DeleteSessionService } from "./application/delete-session.service";
 export { DiscoverAgentSessionsService } from "./application/discover-agent-sessions.service";
-export { GetSessionMessageByIdService } from "./application/get-session-message-by-id.service";
-export { GetSessionMessagesService } from "./application/get-session-messages.service";
-export { GetSessionStateService } from "./application/get-session-state.service";
-export { GetSessionStorageStatsService } from "./application/get-session-storage-stats.service";
-export { ListSessionsService } from "./application/list-sessions.service";
 export { LoadAgentSessionService } from "./application/load-agent-session.service";
 export { PersistSessionBootstrapService } from "./application/persist-session-bootstrap.service";
 export type { AgentRuntimePort } from "./application/ports/agent-runtime.port";
@@ -48,6 +42,16 @@ export type {
 } from "./application/ports/session-event-outbox.port";
 export type { SessionRepositoryPort } from "./application/ports/session-repository.port";
 export type { SessionRuntimePort } from "./application/ports/session-runtime.port";
+export type {
+  SessionMessageLookupInput,
+  SessionMessagesCompactionInput,
+  SessionMessagesCompactionResult,
+  SessionMessagesInput,
+} from "./application/queries/session-queries";
+export {
+  mapStoredMessageToUiMessage,
+  SessionQueries,
+} from "./application/queries/session-queries";
 export { ReconcileSessionStatusService } from "./application/reconcile-session-status.service";
 export { ResumeSessionService } from "./application/resume-session.service";
 export { SessionAcpBootstrapService } from "./application/session-acp-bootstrap.service";

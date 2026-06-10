@@ -10,8 +10,8 @@ export function ProjectsTab() {
 
   return (
     <TabPanel activeTab={activeTab} tab="projects">
-      <section className="border-2 border-ink bg-paper shadow-news">
-        <div className="border-ink border-b-2 p-6">
+      <section className="dashboard-panel-fill border-2 border-ink bg-paper shadow-news">
+        <div className="dashboard-panel-header border-ink border-b-2 p-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="font-black font-display text-4xl tracking-tight">
@@ -41,7 +41,7 @@ export function ProjectsTab() {
           </div>
         </div>
 
-        <div className="grid max-h-[calc(100dvh-480px)] min-h-[200px] gap-0 overflow-y-auto md:grid-cols-2">
+        <div className="dashboard-list-scroll grid min-h-[200px] gap-0 overflow-y-auto md:grid-cols-2">
           {projects.length === 0 ? (
             <div className="empty-state stagger-item col-span-full">
               No projects registered yet.

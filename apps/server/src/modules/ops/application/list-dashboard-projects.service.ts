@@ -3,6 +3,13 @@ import type { SessionRepositoryPort } from "@/modules/session";
 import type { Project } from "@/shared/types/project.types";
 import { forEachSessionPage } from "./iterate-session-pages.util";
 
+/**
+ * Builds the dashboard project list with derived session counts.
+ *
+ * Caller contract: project/session association is derived from stored
+ * `projectId` first and project-root path fallback second; this read does not
+ * backfill missing session metadata.
+ */
 export class ListDashboardProjectsService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly sessionRepo: SessionRepositoryPort;

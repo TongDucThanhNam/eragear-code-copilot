@@ -20,6 +20,7 @@ import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
 import { patchObservabilityContext } from "../shared/utils/observability-context.util";
 import { withTimeout } from "../shared/utils/timeout.util";
+import { createRuntimeCoreFromSettings, type RuntimeCore } from "../runtime";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
 import { requestIdMiddleware } from "../transport/http/request-id";
@@ -32,10 +33,7 @@ import {
 } from "../transport/http/routes/helpers";
 import { createTrpcContext } from "../transport/trpc/context";
 import { appRouter } from "../transport/trpc/router";
-import {
-  type AppComposition,
-  createAppCompositionFromSettings,
-} from "./composition";
+import type { AppComposition } from "./composition";
 import { resolveAppRuntimeConfig } from "./init/runtime-config.init";
 import {
   type CloudflareAccessHandshakePolicy,
@@ -132,7 +130,8 @@ async function runShutdownStep(
  */
 export function createApp(
   composition: AppComposition,
-  resolveAuthContextOverride?: HttpRouteDependencies["resolveAuthContext"]
+  resolveAuthContextOverride?: HttpRouteDependencies["resolveAuthContext"],
+  runtimeCore?: Pick<RuntimeCore, "diagnostics">
 ) {
   const runtimePolicy = composition.runtimePolicy;
   const deps = composition.deps;
@@ -322,6 +321,13 @@ export function createApp(
     return next();
   });
 
+  app.get("/api/runtime/diagnostics", async (c) => {
+    if (!runtimeCore) {
+      return c.json({ error: "Runtime diagnostics unavailable" }, 503);
+    }
+    return c.json(await runtimeCore.diagnostics());
+  });
+
   // Register HTTP routes
   const api = new Hono();
   registerHttpRoutes(api, httpDeps);
@@ -422,7 +428,8 @@ function buildRevalidationRequest(
  */
 export async function startServer() {
   installConsoleLogger();
-  const composition = await createAppCompositionFromSettings();
+  const runtimeCore = await createRuntimeCoreFromSettings();
+  const composition = runtimeCore.composition;
   const runtimePolicy = composition.runtimePolicy;
 
   // Log supervisor policy for visibility (no secrets)
@@ -440,10 +447,9 @@ export async function startServer() {
   });
   const deps = composition.deps;
   const resolveAuthContext = createBootstrappedAuthResolver(deps);
-  await deps.lifecycle.prepareStartup();
   const trpcDeps = createTrpcContextDependencies(deps, resolveAuthContext);
-  const app = createApp(composition, resolveAuthContext);
-  deps.lifecycle.startBackground();
+  const app = createApp(composition, resolveAuthContext, runtimeCore);
+  await runtimeCore.start();
 
   const server = createServer(async (req, res) => {
     await handleNodeHttpRequest({
@@ -699,13 +705,9 @@ export async function startServer() {
       (async () => {
         const shutdownState: ShutdownTaskState = { firstError: null };
         wsHandler.broadcastReconnectNotification();
-        await runShutdownStep(shutdownState, () =>
-          deps.lifecycle.shutdown(signal)
-        );
-        await runShutdownStep(shutdownState, () => composition.dispose());
+        await runShutdownStep(shutdownState, () => runtimeCore.stop(signal));
         await runShutdownStep(shutdownState, () => closeWebSocketServer());
         await runShutdownStep(shutdownState, () => closeHttpServer());
-        await runShutdownStep(shutdownState, () => deps.logStore.flush());
         if (shutdownState.firstError) {
           throw shutdownState.firstError;
         }
@@ -764,5 +766,5 @@ export async function startServer() {
     handleFatalError("unhandledRejection", reason);
   });
 
-  return { server, wsHandler };
+  return { server, wsHandler, runtimeCore };
 }

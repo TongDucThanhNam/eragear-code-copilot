@@ -1,4 +1,4 @@
-import type { SessionServiceFactory } from "@/modules/service-factories";
+import type { SessionUseCases } from "@/modules/use-cases";
 import type { AuthRuntime } from "../platform/auth/auth";
 import {
   type AuthBootstrapPolicy,
@@ -10,7 +10,7 @@ export interface ServerStartupPolicy extends AuthBootstrapPolicy {}
 
 export interface ServerStartupDependencies {
   authRuntime: AuthRuntime;
-  sessionServices: SessionServiceFactory;
+  sessionUseCases: SessionUseCases;
   policy: ServerStartupPolicy;
 }
 
@@ -38,5 +38,5 @@ export async function prepareServerStartup(
     throw new Error("Cannot start server: no auth user available");
   }
   await ensureTenantOwnershipBackfill(primaryUserId);
-  await deps.sessionServices.reconcileSessionStatus().execute();
+  await deps.sessionUseCases.reconcileStatus.execute();
 }

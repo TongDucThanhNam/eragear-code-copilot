@@ -8,6 +8,12 @@ import type { StoredSession } from "@/shared/types/session.types";
 const TRAILING_SLASH_REGEX = /[\\/]+$/;
 const PATH_SEGMENT_SEPARATOR_REGEX = /[/\\]+/;
 
+/**
+ * Builds the dashboard session list for one user.
+ *
+ * Caller contract: persisted sessions are enriched with live runtime state when
+ * present; this is a read model and must not mutate session/project metadata.
+ */
 export class ListDashboardSessionsService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly sessionRepo: SessionRepositoryPort;

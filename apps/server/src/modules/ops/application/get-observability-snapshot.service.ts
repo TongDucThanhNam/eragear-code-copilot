@@ -91,6 +91,13 @@ function summarizeHttp(entries: LogEntry[], now: number) {
   };
 }
 
+/**
+ * Builds a user-scoped runtime observability snapshot.
+ *
+ * Caller contract: logs are queried for the user first, then runtime/cache/
+ * background snapshots are summarized at read time; results are diagnostic and
+ * not a durable audit record.
+ */
 export class GetObservabilitySnapshotService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly logStore: LogStorePort;

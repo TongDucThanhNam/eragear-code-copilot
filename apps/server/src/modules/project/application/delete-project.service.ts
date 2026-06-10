@@ -4,6 +4,13 @@ import type { ProjectRepositoryPort } from "./ports/project-repository.port";
 
 const OP = "project.lifecycle.delete";
 
+/**
+ * Deletes a user-owned project and announces cleanup lifecycle events.
+ *
+ * Ordering contract: `project_deleting` is published before the repository row
+ * is removed so module-owned subscribers can clean related state while project
+ * metadata is still available.
+ */
 export class DeleteProjectService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly eventBus: EventBusPort;

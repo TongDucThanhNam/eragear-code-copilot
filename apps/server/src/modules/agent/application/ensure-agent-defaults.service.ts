@@ -7,6 +7,12 @@ interface EnsureAgentDefaultsPolicy {
   timeoutMs?: number;
 }
 
+/**
+ * Ensures a user's default agent rows exist during auth/bootstrap flows.
+ *
+ * Ordering contract: repository seeding must be atomic and bounded by timeout
+ * so login/request handling cannot hang indefinitely on default creation.
+ */
 export class EnsureAgentDefaultsService {
   private readonly agentRepo: AgentRepositoryPort;
   private readonly timeoutMs: number;

@@ -164,6 +164,12 @@ function isSameConfig(left: AppConfig, right: AppConfig): boolean {
   });
 }
 
+/**
+ * Build the runtime app-config defaults from validated environment config.
+ *
+ * Invariant: values are clamped to hard server limits before becoming fallback
+ * policy for sessions, logs, prompts, and ACP metadata.
+ */
 export function createDefaultAppConfigFromEnv(): AppConfig {
   return AppConfigSchema.parse({
     sessionIdleTimeoutMs: clampInt(
@@ -189,6 +195,12 @@ export function createDefaultAppConfigFromEnv(): AppConfig {
   });
 }
 
+/**
+ * Normalize unknown persisted app config into a complete runtime config.
+ *
+ * Error mode: invalid fields fall back through schema normalization rather than
+ * leaking raw persisted settings into runtime policy.
+ */
 export function normalizeAppConfig(
   value: unknown,
   fallback: AppConfig
@@ -198,6 +210,12 @@ export function normalizeAppConfig(
 
 type AppConfigListener = (config: AppConfig) => void;
 
+/**
+ * In-memory runtime app configuration service.
+ *
+ * Invariant: snapshots returned by `getConfig` and `getDefaults` are immutable
+ * normalized configs; updates notify subscribers only after validation succeeds.
+ */
 export class AppConfigService {
   private readonly defaults: AppConfig;
   private current: AppConfig;

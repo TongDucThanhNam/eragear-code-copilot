@@ -25,6 +25,13 @@ import { AiSessionRuntimeError } from "./ports/ai-session-runtime.port";
 
 const OP = AI_OP.PROMPT_CANCEL;
 
+/**
+ * Cancels the active prompt for one authorized running session.
+ *
+ * Ordering contract: pending permission/tool UI state is marked cancelled under
+ * the session lock before the ACP cancel call; process/session cleanup then
+ * handles runtimes that already exited.
+ */
 export class CancelPromptService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;

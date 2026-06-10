@@ -1,8 +1,8 @@
-import type { SessionServiceFactory } from "@/modules/service-factories";
 import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import type { SessionUseCases } from "@/modules/use-cases";
 import type { ChatSession } from "@/shared/types/session.types";
 import { terminateProcessGracefully } from "@/shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "@/shared/utils/session-cleanup.util";
@@ -26,7 +26,7 @@ export interface ServerShutdownPolicy {
 export interface ServerShutdownDependencies {
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
-  sessionServices: SessionServiceFactory;
+  sessionUseCases: SessionUseCases;
   policy: ServerShutdownPolicy;
 }
 
@@ -160,11 +160,9 @@ async function stopAllRuntimeSessions(
 }
 
 async function compactMessagesWithinBudget(
-  sessionServices: SessionServiceFactory,
+  sessionUseCases: SessionUseCases,
   policy: ShutdownPolicy
 ): Promise<CompactionSummary> {
-  const compactSessionMessagesService =
-    sessionServices.compactSessionMessages();
   const compactBeforeTs =
     Date.now() - policy.sqliteRetentionHotDays * MS_PER_DAY;
   const budgetMs = Math.min(
@@ -182,7 +180,7 @@ async function compactMessagesWithinBudget(
 
     try {
       const result = await withTimeout(
-        compactSessionMessagesService.execute({
+        sessionUseCases.queries.compact({
           beforeTimestamp: compactBeforeTs,
           batchSize: policy.sqliteRetentionCompactionBatchSize,
         }),
@@ -240,7 +238,7 @@ export async function executeServerShutdown(
     deps.sessionRepo
   );
   const compactionSummary = await compactMessagesWithinBudget(
-    deps.sessionServices,
+    deps.sessionUseCases,
     policy
   );
 

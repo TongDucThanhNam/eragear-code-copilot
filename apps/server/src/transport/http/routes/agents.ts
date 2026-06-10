@@ -52,10 +52,10 @@ export function registerAgentRoutes(
   api: Hono,
   deps: Pick<
     HttpRouteDependencies,
-    "agentServices" | "logger" | "resolveAuthContext" | "runtime"
+    "useCases" | "logger" | "resolveAuthContext" | "runtime"
   >
 ): void {
-  const { agentServices, logger, resolveAuthContext, runtime } = deps;
+  const { useCases, logger, resolveAuthContext, runtime } = deps;
 
   // =========================================================================
   // API Routes
@@ -73,7 +73,7 @@ export function registerAgentRoutes(
     if (!auth) {
       return c.json({ error: "Unauthorized" }, 401);
     }
-    const service = agentServices.listAgents();
+    const service = useCases.agent.list;
     const result = await service.execute(auth.userId);
     return c.json({ agents: result.agents });
   });
@@ -127,7 +127,7 @@ export function registerAgentRoutes(
         return c.json({ error: parsedArgs.error }, 400);
       }
 
-      const service = agentServices.createAgent();
+      const service = useCases.agent.create;
       const agent = await service.execute(auth.userId, {
         name,
         type,
@@ -204,7 +204,7 @@ export function registerAgentRoutes(
         return c.json({ error: parsedArgs.error }, 400);
       }
 
-      const service = agentServices.updateAgent();
+      const service = useCases.agent.update;
       const agent = await service.execute(auth.userId, {
         id,
         name,
@@ -251,7 +251,7 @@ export function registerAgentRoutes(
         return c.json({ error: "agentId is required" }, 400);
       }
 
-      const service = agentServices.deleteAgent();
+      const service = useCases.agent.delete;
       await service.execute(auth.userId, agentId);
 
       return c.json({ ok: true });

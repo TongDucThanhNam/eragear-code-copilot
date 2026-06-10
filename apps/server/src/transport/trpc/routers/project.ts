@@ -19,7 +19,7 @@ import { protectedProcedure, router } from "../base";
 export const projectRouter = router({
   /** List all projects */
   listProjects: protectedProcedure.query(async ({ ctx }) => {
-    const service = ctx.projectServices.listProjects();
+    const service = ctx.useCases.project.list;
     return await service.execute(getRequiredUserId(ctx));
   }),
 
@@ -27,7 +27,7 @@ export const projectRouter = router({
   createProject: protectedProcedure
     .input(CreateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.projectServices.createProject();
+      const service = ctx.useCases.project.create;
       return await service.execute(getRequiredUserId(ctx), input);
     }),
 
@@ -35,7 +35,7 @@ export const projectRouter = router({
   updateProject: protectedProcedure
     .input(UpdateProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.projectServices.updateProject();
+      const service = ctx.useCases.project.update;
       return await service.execute(getRequiredUserId(ctx), input);
     }),
 
@@ -43,7 +43,7 @@ export const projectRouter = router({
   deleteProject: protectedProcedure
     .input(DeleteProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.projectServices.deleteProject();
+      const service = ctx.useCases.project.delete;
       return await service.execute(getRequiredUserId(ctx), input.id);
     }),
 
@@ -51,7 +51,7 @@ export const projectRouter = router({
   setActiveProject: protectedProcedure
     .input(SetActiveProjectInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.projectServices.setActiveProject();
+      const service = ctx.useCases.project.setActive;
       return await service.execute(getRequiredUserId(ctx), input.id);
     }),
 });

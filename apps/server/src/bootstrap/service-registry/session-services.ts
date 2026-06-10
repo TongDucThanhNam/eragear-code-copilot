@@ -1,16 +1,9 @@
-import type { SessionServiceFactory } from "@/modules/service-factories";
 import {
   BootstrapSessionConnectionService,
   CleanupProjectSessionsService,
-  CompactSessionMessagesService,
   CreateSessionService,
   DeleteSessionService,
   DiscoverAgentSessionsService,
-  GetSessionMessageByIdService,
-  GetSessionMessagesService,
-  GetSessionStateService,
-  GetSessionStorageStatsService,
-  ListSessionsService,
   LoadAgentSessionService,
   PersistSessionBootstrapService,
   ReconcileSessionStatusService,
@@ -23,17 +16,19 @@ import {
   SessionMetadataPersistenceService,
   SessionProcessLifecycleService,
   SessionProjectContextResolverService,
+  SessionQueries,
   SessionRuntimeBootstrapService,
   SpawnSessionProcessService,
   StopSessionService,
   SubscribeSessionEventsService,
   UpdateSessionMetaService,
 } from "@/modules/session";
+import type { SessionUseCases } from "@/modules/use-cases";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
-export function createSessionServices(
+export function createSessionUseCases(
   deps: ServiceRegistryDependencies
-): SessionServiceFactory {
+): SessionUseCases {
   const projectContextResolver = new SessionProjectContextResolverService(
     deps.projectRepo,
     deps.settingsRepo
@@ -120,26 +115,13 @@ export function createSessionServices(
     deps.sessionRuntime,
     deps.eventBus
   );
-  const getSessionStateService = new GetSessionStateService(
+  const sessionQueries = new SessionQueries(
     deps.sessionRepo,
     deps.sessionRuntime,
+    deps.projectRepo,
     deps.supervisorPolicy.enabled
   );
-  const listSessionsService = new ListSessionsService(
-    deps.sessionRepo,
-    deps.sessionRuntime,
-    deps.projectRepo
-  );
   const updateSessionMetaService = new UpdateSessionMetaService(
-    deps.sessionRepo
-  );
-  const getSessionMessagesService = new GetSessionMessagesService(
-    deps.sessionRepo
-  );
-  const getSessionMessageByIdService = new GetSessionMessageByIdService(
-    deps.sessionRepo
-  );
-  const getSessionStorageStatsService = new GetSessionStorageStatsService(
     deps.sessionRepo
   );
   const subscribeSessionEventsService = new SubscribeSessionEventsService(
@@ -154,26 +136,18 @@ export function createSessionServices(
     deps.sessionRepo,
     deps.sessionRuntime
   );
-  const compactSessionMessagesService = new CompactSessionMessagesService(
-    deps.sessionRepo
-  );
 
   return {
-    createSession: () => createSessionService,
-    discoverAgentSessions: () => discoverAgentSessionsService,
-    loadAgentSession: () => loadAgentSessionService,
-    stopSession: () => stopSessionService,
-    resumeSession: () => resumeSessionService,
-    deleteSession: () => deleteSessionService,
-    getSessionState: () => getSessionStateService,
-    listSessions: () => listSessionsService,
-    updateSessionMeta: () => updateSessionMetaService,
-    getSessionMessagesPage: () => getSessionMessagesService,
-    getSessionMessageById: () => getSessionMessageByIdService,
-    getSessionStorageStats: () => getSessionStorageStatsService,
-    subscribeSessionEvents: () => subscribeSessionEventsService,
-    cleanupProjectSessions: () => cleanupProjectSessionsService,
-    reconcileSessionStatus: () => reconcileSessionStatusService,
-    compactSessionMessages: () => compactSessionMessagesService,
+    create: createSessionService,
+    discoverAgentSessions: discoverAgentSessionsService,
+    loadAgentSession: loadAgentSessionService,
+    stop: stopSessionService,
+    resume: resumeSessionService,
+    delete: deleteSessionService,
+    queries: sessionQueries,
+    updateMeta: updateSessionMetaService,
+    events: subscribeSessionEventsService,
+    cleanupProjectSessions: cleanupProjectSessionsService,
+    reconcileStatus: reconcileSessionStatusService,
   };
 }

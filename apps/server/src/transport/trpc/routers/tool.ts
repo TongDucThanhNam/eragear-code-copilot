@@ -20,7 +20,7 @@ export const toolRouter = router({
   respondToPermissionRequest: protectedProcedure
     .input(RespondPermissionInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.toolingServices.respondPermission();
+      const service = ctx.useCases.tooling.respondPermission;
       const userId = getRequiredUserId(ctx);
       logger.info("tRPC tooling.respondToPermissionRequest requested", {
         chatId: input.chatId,

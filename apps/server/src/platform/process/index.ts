@@ -36,6 +36,12 @@ const WINDOWS_TREE_TERMINATION_GRACE_MS = 10_000;
 const FINAL_TERMINATION_TERM_TIMEOUT_MS = 100;
 const FINAL_TERMINATION_KILL_TIMEOUT_MS = 1500;
 const WINDOWS_SHELL_REQUIRED_EXTENSIONS = new Set([".bat", ".cmd"]);
+const WINDOWS_EXECUTABLE_ALIAS_EXTENSIONS = new Set([
+  ".bat",
+  ".cmd",
+  ".com",
+  ".exe",
+]);
 const logger = createLogger("Server");
 
 export interface AgentRuntimePolicy {
@@ -100,6 +106,20 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     return isWindows() ? normalized.toLowerCase() : normalized;
   }
 
+  private getCommandAliasCandidates(value: string): string[] {
+    const normalized = this.normalizeCommandAlias(value);
+    if (!isWindows() || normalized.length === 0) {
+      return [normalized];
+    }
+
+    const extension = path.extname(normalized).toLowerCase();
+    if (!WINDOWS_EXECUTABLE_ALIAS_EXTENSIONS.has(extension)) {
+      return [normalized];
+    }
+
+    return [normalized, normalized.slice(0, -extension.length)];
+  }
+
   private isBasenameCommand(command: string): boolean {
     return path.basename(command) === command;
   }
@@ -112,17 +132,17 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
       return command;
     }
 
-    const alias = this.normalizeCommandAlias(command);
-    if (!alias) {
+    const aliases = new Set(this.getCommandAliasCandidates(command));
+    if (aliases.size === 0 || aliases.has("")) {
       return command;
     }
 
     let matchedCommand: string | null = null;
     for (const allowedCommand of this.commandPolicies.keys()) {
-      const allowedAlias = this.normalizeCommandAlias(
+      const allowedAliases = this.getCommandAliasCandidates(
         path.basename(allowedCommand)
       );
-      if (allowedAlias !== alias) {
+      if (!allowedAliases.some((allowedAlias) => aliases.has(allowedAlias))) {
         continue;
       }
       if (matchedCommand !== null) {
@@ -233,11 +253,17 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
     if (this.isShuttingDown) {
       throw new Error("Agent runtime is shutting down; spawn is disabled");
     }
-    const resolvedCommand = this.resolveAllowedCommandAlias(command);
+    const normalizedCommand = command.trim();
+    if (normalizedCommand.length === 0) {
+      throw new Error("Agent command invocation not allowed: empty command");
+    }
+    const resolvedCommand = this.resolveAllowedCommandAlias(normalizedCommand);
     if (
       !isCommandInvocationAllowed(resolvedCommand, args, this.commandPolicies)
     ) {
-      throw new Error(`Agent command invocation not allowed: ${command}`);
+      throw new Error(
+        `Agent command invocation not allowed: ${normalizedCommand}`
+      );
     }
 
     const env = filterEnvAllowlist(

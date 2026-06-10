@@ -72,7 +72,7 @@ export const sessionRouter = router({
   createSession: protectedProcedure
     .input(CreateSessionInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.createSession();
+      const service = ctx.useCases.session.create;
       const res = await service.execute({
         userId: getRequiredUserId(ctx),
         projectId: input.projectId,
@@ -102,7 +102,7 @@ export const sessionRouter = router({
   discoverAgentSessions: protectedProcedure
     .input(DiscoverAgentSessionsInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.discoverAgentSessions();
+      const service = ctx.useCases.session.discoverAgentSessions;
       return await service.execute({
         userId: getRequiredUserId(ctx),
         projectId: input.projectId,
@@ -115,7 +115,7 @@ export const sessionRouter = router({
   loadAgentSession: protectedProcedure
     .input(LoadAgentSessionInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.loadAgentSession();
+      const service = ctx.useCases.session.loadAgentSession;
       const res = await service.execute({
         userId: getRequiredUserId(ctx),
         projectId: input.projectId,
@@ -146,7 +146,7 @@ export const sessionRouter = router({
   stopSession: protectedProcedure
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.stopSession();
+      const service = ctx.useCases.session.stop;
       return await service.execute(getRequiredUserId(ctx), input.chatId);
     }),
 
@@ -154,12 +154,13 @@ export const sessionRouter = router({
   resumeSession: protectedProcedure
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.resumeSession();
+      const service = ctx.useCases.session.resume;
       const userId = getRequiredUserId(ctx);
       const res = await service.execute(userId, input.chatId);
-      const sessionState = await ctx.sessionServices
-        .getSessionState()
-        .execute(userId, input.chatId);
+      const sessionState = await ctx.useCases.session.queries.state(
+        userId,
+        input.chatId
+      );
       return {
         ...res,
         models: sessionState.models,
@@ -171,7 +172,7 @@ export const sessionRouter = router({
   deleteSession: protectedProcedure
     .input(SessionChatIdInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.deleteSession();
+      const service = ctx.useCases.session.delete;
       return await service.execute(getRequiredUserId(ctx), input.chatId);
     }),
 
@@ -179,8 +180,8 @@ export const sessionRouter = router({
   getSessionState: protectedProcedure
     .input(SessionChatIdInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.getSessionState();
-      return await service.execute(getRequiredUserId(ctx), input.chatId);
+      const queries = ctx.useCases.session.queries;
+      return await queries.state(getRequiredUserId(ctx), input.chatId);
     }),
 
   /** List sessions (paginated) */
@@ -188,8 +189,8 @@ export const sessionRouter = router({
     .input(ListSessionsInputSchema)
     .query(async ({ ctx, input }) => {
       const runtimeConfig = ctx.appConfig.getConfig();
-      const service = ctx.sessionServices.listSessions();
-      return await service.execute(
+      const queries = ctx.useCases.session.queries;
+      return await queries.list(
         getRequiredUserId(ctx),
         {
           limit: input?.limit,
@@ -204,8 +205,8 @@ export const sessionRouter = router({
     .input(SessionListPageInputSchema)
     .query(async ({ ctx, input }) => {
       const runtimeConfig = ctx.appConfig.getConfig();
-      const service = ctx.sessionServices.listSessions();
-      return await service.executePage(
+      const queries = ctx.useCases.session.queries;
+      return await queries.listPage(
         getRequiredUserId(ctx),
         {
           limit: input?.limit,
@@ -219,7 +220,7 @@ export const sessionRouter = router({
   updateSessionMeta: protectedProcedure
     .input(UpdateSessionMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.updateSessionMeta();
+      const service = ctx.useCases.session.updateMeta;
       return await service.execute({
         ...input,
         userId: getRequiredUserId(ctx),
@@ -231,8 +232,8 @@ export const sessionRouter = router({
     .input(SessionMessagesPageInputSchema)
     .query(async ({ input, ctx }) => {
       const runtimeConfig = ctx.appConfig.getConfig();
-      const service = ctx.sessionServices.getSessionMessagesPage();
-      return await service.execute({
+      const queries = ctx.useCases.session.queries;
+      return await queries.messages({
         userId: getRequiredUserId(ctx),
         chatId: input.chatId,
         cursor: input.cursor,
@@ -247,8 +248,8 @@ export const sessionRouter = router({
   getSessionMessageById: protectedProcedure
     .input(SessionMessageByIdInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.sessionServices.getSessionMessageById();
-      return await service.execute({
+      const queries = ctx.useCases.session.queries;
+      return await queries.messageById({
         userId: getRequiredUserId(ctx),
         chatId: input.chatId,
         messageId: input.messageId,
@@ -257,15 +258,15 @@ export const sessionRouter = router({
 
   /** Get current SQLite storage statistics */
   getStorageStats: protectedProcedure.query(async ({ ctx }) => {
-    const service = ctx.sessionServices.getSessionStorageStats();
-    return await service.execute();
+    const queries = ctx.useCases.session.queries;
+    return await queries.storageStats();
   }),
 
   /** Subscribe to real-time session events */
   onSessionEvents: protectedProcedure
     .input(SessionEventsInputSchema)
     .subscription(({ input, ctx }) => {
-      const service = ctx.sessionServices.subscribeSessionEvents();
+      const service = ctx.useCases.session.events;
       return observable<BroadcastEvent>((emit) => {
         const userId = getRequiredUserId(ctx);
         let subscription:

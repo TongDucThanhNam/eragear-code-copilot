@@ -39,6 +39,13 @@ const LEADING_SLASH_COMMAND_REGEX = /^\/([a-z0-9_-]+)/i;
 
 export type { SendMessagePolicy } from "./send-message/send-message.types";
 
+/**
+ * Dependencies for prompt submission orchestration.
+ *
+ * Invariant: repository/runtime/session gateway dependencies must describe the
+ * same session store; mixing adapters can persist a prompt to one session while
+ * sending ACP traffic to another.
+ */
 export interface SendMessageServiceDeps {
   sessionRepo: SessionRepositoryPort;
   sessionRuntime: SessionRuntimePort;
@@ -49,6 +56,14 @@ export interface SendMessageServiceDeps {
   clock: ClockPort;
 }
 
+/**
+ * Orchestrates one user or supervisor prompt turn.
+ *
+ * Ordering contract: validation happens before the per-chat runtime lock;
+ * inside the lock the service persists the user message, broadcasts it, starts
+ * the prompt task, and records active turn state atomically from the caller's
+ * point of view.
+ */
 export class SendMessageService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;

@@ -5,7 +5,11 @@ import type {
 } from "@/shared/types/agent.types";
 
 /**
- * Port for agent data persistence operations.
+ * Agent configuration persistence port scoped by user.
+ *
+ * Invariant: all reads and writes that accept `userId` must enforce ownership;
+ * `ensureDefaultsSeeded` must be atomic so concurrent bootstraps do not create
+ * duplicate default agents.
  */
 export interface AgentRepositoryPort {
   /** Find an agent by ID */

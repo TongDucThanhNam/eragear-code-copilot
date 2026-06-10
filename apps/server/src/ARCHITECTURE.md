@@ -38,7 +38,7 @@ Quy tắc phụ thuộc:
 
 ```
 src/
-├── bootstrap/              # createApp/startServer + DI container
+├── bootstrap/              # composition root, module init, lifecycle wiring
 ├── transport/              # HTTP routes + tRPC routers/types/context
 ├── platform/               # ACP/process/auth/storage/git/filesystem/logging/caching
 ├── modules/                # Feature vertical slices (session, ai, project, ...)
@@ -62,17 +62,48 @@ modules/<feature>/
 Invariant quan trọng:
 - `modules/<feature>/index.ts` chỉ export public application API (services/ports/types), không export `infra/*`.
 - `modules/<feature>/di.ts` là entrypoint dành cho composition/wiring của concrete adapters.
-- `transport` không `new Service(...)` trực tiếp; luôn dùng service factories
-  đã được inject từ composition (`ctx.sessionServices`, `ctx.aiServices`, ...).
+- `transport` không `new Service(...)` trực tiếp; luôn dùng `AppUseCases`
+  đã được build một lần từ composition (`ctx.useCases.session.create.execute(...)`).
+
+Session read side:
+
+- `SessionQueries` (`src/modules/session/application/queries/session-queries.ts`)
+  is the public read/maintenance interface exposed as
+  `AppUseCases.session.queries`.
+- Legacy per-query service classes in `modules/session/application/*session*.service.ts`
+  are compatibility wrappers and are not exported from `src/modules/session/index.ts`.
+- `src/shared/utils/ui-message/content.ts` must stay free of `platform/*`
+  imports; shared UI rendering uses pure shared constants only.
 
 ## Runtime Components
 
 ### Bootstrap
 
+Phase 2 runtime boundary:
+
+- `src/runtime/core.ts`: runtime core host boundary around `AppComposition` and
+  `ServerLifecycle`; owns start/stop/health/diagnostics without importing
+  Hono/tRPC transport.
+- `src/bootstrap/server.ts`: server host; attaches Hono/tRPC/WS transport around
+  the runtime core and keeps remote auth/API-key policy at the transport edge.
+
 - `src/index.ts`: process entry.
 - `src/bootstrap/server.ts`: dựng HTTP server + WebSocket upgrade + tRPC WS handler.
 - `src/bootstrap/composition.ts`: composition root, wiring dependencies và
-  service factories bằng constructor/function DI trực tiếp.
+  `AppUseCases` bằng constructor/function DI trực tiếp.
+- `src/bootstrap/init/*.init.ts`: owns coherent runtime setup axes
+  (auth/core/persistence/service/runtime config). Add a new initializer only
+  when a new owner/lifecycle axis appears.
+- `src/bootstrap/service-registry/*.ts`: builds feature `AppUseCases` once
+  from ports/adapters. Add ordinary use-case wiring here, not in transport.
+
+Current wiring rule:
+
+- `composition.ts` owns high-level owner creation and disposal.
+- `init/persistence-module.init.ts` selects SQLite vs SQLite-worker adapters.
+- `init/service-module.init.ts` assembles the service registry dependencies.
+- `service-registry/<feature>-services.ts` constructs feature use-cases.
+- There is no `container.ts` implementation path; do not recreate one.
 
 ### Transport
 

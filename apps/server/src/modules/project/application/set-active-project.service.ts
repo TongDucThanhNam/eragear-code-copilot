@@ -2,6 +2,12 @@ import { NotFoundError } from "@/shared/errors";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { ProjectRepositoryPort } from "./ports/project-repository.port";
 
+/**
+ * Sets or clears the active project for a user.
+ *
+ * Error mode: repository "Project not found" errors are mapped to
+ * `NotFoundError`; successful changes publish a dashboard refresh event.
+ */
 export class SetActiveProjectService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly eventBus: EventBusPort;

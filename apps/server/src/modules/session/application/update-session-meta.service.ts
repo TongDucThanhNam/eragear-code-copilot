@@ -3,6 +3,12 @@ import type { SessionRepositoryPort } from "./ports/session-repository.port";
 
 const OP = "session.meta.update";
 
+/**
+ * Updates mutable session metadata for the owning user.
+ *
+ * Error mode: throws `NotFoundError` before writing when the chat id does not
+ * resolve to a session owned by `userId`.
+ */
 export class UpdateSessionMetaService {
   private readonly sessionRepo: SessionRepositoryPort;
 

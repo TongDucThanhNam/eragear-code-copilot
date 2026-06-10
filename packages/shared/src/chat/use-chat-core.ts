@@ -9,11 +9,11 @@ import {
   finalizeToolPartAsCancelled,
   finalizeToolPartAsPreliminaryOutput,
   type UIMessage,
-} from "../ui-message";
+} from "../ui-message.js";
 import {
   resolveSessionSelectionState,
   updateSessionConfigOptionCurrentValue,
-} from "./session-config-options";
+} from "./session-config-options.js";
 import type {
   AgentInfo,
   AvailableCommand,
@@ -29,8 +29,8 @@ import type {
   SessionModeState,
   SupervisorDecisionSummary,
   SupervisorSessionState,
-} from "./types";
-import { isDataPart, isToolPart } from "./types";
+} from "./types.js";
+import { isDataPart, isToolPart } from "./types.js";
 
 // ============================================================================
 // Message Streaming Detection

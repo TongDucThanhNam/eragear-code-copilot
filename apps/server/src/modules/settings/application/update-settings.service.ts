@@ -5,12 +5,24 @@ import { APP_CONFIG_KEYS, type AppConfigService } from "../app-config.service";
 import { SettingsAggregate } from "../domain/settings.entity";
 import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
 
+/**
+ * Result of one persisted settings update.
+ *
+ * Caller contract: `requiresRestart` lists changed settings that cannot be
+ * applied to the current runtime safely.
+ */
 export interface UpdateSettingsResult {
   settings: Settings;
   requiresRestart: string[];
   changedKeys: string[];
 }
 
+/**
+ * Applies a validated settings patch and broadcasts the change.
+ *
+ * Side effects: app config is reloaded live after persistence, then
+ * `settings_updated` and dashboard refresh events are published.
+ */
 export class UpdateSettingsService {
   private readonly settingsRepo: SettingsRepositoryPort;
   private readonly eventBus: EventBusPort;

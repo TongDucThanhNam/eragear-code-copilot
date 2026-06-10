@@ -17,7 +17,19 @@ export const authRouter = router({
       };
     }
 
-    const service = ctx.authServices.getMe();
-    return service.execute(ctx.auth.userId).then((user) => ({ user }));
+    const service = ctx.useCases.auth.getMe;
+    return service.execute(ctx.auth.userId).then((user) => ({
+      user:
+        user ??
+        (ctx.auth?.type === "local"
+          ? {
+              id: ctx.auth.userId,
+              email: null,
+              username: "local",
+              name: "Local Desktop",
+              image: null,
+            }
+          : null),
+    }));
   }),
 });

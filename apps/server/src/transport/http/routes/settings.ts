@@ -26,9 +26,9 @@ import { isJsonBodyParseError, parseJsonBodyWithLimit } from "./helpers";
  */
 export function registerSettingsRoutes(
   api: Hono,
-  deps: Pick<HttpRouteDependencies, "settingsServices" | "logger" | "runtime">
+  deps: Pick<HttpRouteDependencies, "useCases" | "logger" | "runtime">
 ): void {
-  const { settingsServices, logger, runtime } = deps;
+  const { useCases, logger, runtime } = deps;
 
   // =========================================================================
   // API Routes
@@ -38,7 +38,7 @@ export function registerSettingsRoutes(
    * GET /api/ui-settings - Get current UI settings
    */
   api.get("/ui-settings", async (c: Context) => {
-    const service = settingsServices.getSettings();
+    const service = useCases.settings.get;
     const settings = await service.execute();
     return c.json(settings);
   });
@@ -48,7 +48,7 @@ export function registerSettingsRoutes(
    */
   const handleApiUpdate = async (c: Context) => {
     try {
-      const updateSettings = settingsServices.updateSettings();
+      const updateSettings = useCases.settings.update;
       const contentType = c.req.header("content-type") ?? "";
       let result:
         | Awaited<ReturnType<typeof updateSettings.execute>>
@@ -62,7 +62,7 @@ export function registerSettingsRoutes(
         result = await updateSettings.execute(patch);
       } else {
         const body = await c.req.parseBody();
-        const getSettings = settingsServices.getSettings();
+        const getSettings = useCases.settings.get;
         const currentSettings = await getSettings.execute();
         const formData = body as Record<string, string | File | undefined>;
         const { ui, projectRoots, app } = parseUiSettingsForm(
@@ -104,7 +104,7 @@ export function registerSettingsRoutes(
    * GET /api/boot-allowlists - Get boot config allowlists
    */
   api.get("/boot-allowlists", async (c: Context) => {
-    const service = settingsServices.manageBootAllowlists();
+    const service = useCases.settings.manageBootAllowlists;
     const snapshot = await service.get();
     return c.json(snapshot);
   });
@@ -118,7 +118,7 @@ export function registerSettingsRoutes(
         c.req.raw,
         runtime.httpMaxBodyBytes
       );
-      const service = settingsServices.manageBootAllowlists();
+      const service = useCases.settings.manageBootAllowlists;
       const snapshot = await service.update(payload);
       return c.json(snapshot);
     } catch (error) {

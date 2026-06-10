@@ -1,7 +1,10 @@
 import type { Settings } from "@/shared/types/settings.types";
 
 /**
- * Port for settings persistence operations.
+ * Settings persistence port for server-wide configuration.
+ *
+ * Caller contract: `update` receives a partial patch and returns the normalized
+ * full settings snapshot after domain validation/persistence.
  */
 export interface SettingsRepositoryPort {
   /** Get current settings */

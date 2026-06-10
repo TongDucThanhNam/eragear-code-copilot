@@ -6,12 +6,25 @@ import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const OP = "session.lifecycle.cleanup_project_sessions";
 
+/**
+ * Identifies the user-owned project whose stored and live sessions must be removed.
+ *
+ * Invariant: callers pass both the project id and canonical project path because
+ * older sessions may only be linked by `projectRoot`.
+ */
 export interface CleanupProjectSessionsInput {
   userId: string;
   projectId: string;
   projectPath: string;
 }
 
+/**
+ * Deletes every session associated with a project and tears down matching runtimes.
+ *
+ * Side effect ordering: live terminals are stopped under the session mutation
+ * lock, the agent process is terminated, runtime state is removed, then the
+ * persisted session record is deleted for the owning user.
+ */
 export class CleanupProjectSessionsService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;

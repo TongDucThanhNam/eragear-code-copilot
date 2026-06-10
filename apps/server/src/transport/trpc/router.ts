@@ -14,6 +14,7 @@ import { authRouter } from "./routers/auth";
 import { codeRouter } from "./routers/code";
 import { projectRouter } from "./routers/project";
 import { sessionRouter } from "./routers/session";
+import { settingsRouter } from "./routers/settings";
 import { toolRouter } from "./routers/tool";
 
 /**
@@ -25,7 +26,7 @@ export const appRouter = t.mergeRouters(
   projectRouter,
   aiRouter,
   toolRouter,
-  router({ agents: agentsRouter, auth: authRouter })
+  router({ agents: agentsRouter, auth: authRouter, settings: settingsRouter })
 );
 
 /** Type definition for the main app router (used by clients) */

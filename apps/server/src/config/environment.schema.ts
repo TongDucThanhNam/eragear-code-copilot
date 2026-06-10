@@ -48,6 +48,8 @@ export const envSchema = z.object({
   AUTH_API_KEY_RATE_LIMIT_TIME_WINDOW_MS: z.string().optional(),
   AUTH_API_KEY_RATE_LIMIT_MAX_REQUESTS: z.string().optional(),
   AUTH_TRUSTED_PROXY_IPS: z.string().optional(),
+  ERAGEAR_LOCAL_AUTH_ENABLED: z.string().optional(),
+  ERAGEAR_LOCAL_AUTH_TOKEN: z.string().optional(),
   AUTH_REQUIRE_CLOUDFLARE_ACCESS: z.string().optional(),
   AUTH_CLOUDFLARE_ACCESS_CLIENT_ID: z.string().optional(),
   AUTH_CLOUDFLARE_ACCESS_CLIENT_SECRET: z.string().optional(),

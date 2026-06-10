@@ -2,6 +2,12 @@ import type { ProjectRepositoryPort } from "@/modules/project";
 import type { SessionRepositoryPort } from "@/modules/session";
 import { forEachSessionPage } from "./iterate-session-pages.util";
 
+/**
+ * Builds aggregate dashboard counters for one user.
+ *
+ * Invariant: session counts are computed through paged repository iteration so
+ * large stores do not require loading every session at once.
+ */
 export class GetDashboardStatsService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly sessionRepo: SessionRepositoryPort;

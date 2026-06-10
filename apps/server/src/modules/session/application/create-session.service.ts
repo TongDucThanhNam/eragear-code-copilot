@@ -15,6 +15,13 @@ import type { SpawnSessionProcessService } from "./spawn-session-process.service
 
 export type { CreateSessionParams } from "./create-session.types";
 
+/**
+ * Creates and persists a live ACP-backed chat session.
+ *
+ * Ordering contract: project/agent resolution happens before process spawn;
+ * ACP bootstrap must succeed before persistence; on any bootstrap/persist error
+ * the spawned process is terminated before the error is rethrown.
+ */
 export class CreateSessionService {
   private readonly projectContextResolver: SessionProjectContextResolverService;
   private readonly sessionAgentResolver: SessionAgentResolverService;
@@ -79,7 +86,7 @@ export class CreateSessionService {
             projectId,
             agentId: params.agentId,
           });
-    const agentCommand = resolvedAgent.command;
+    const agentCommand = resolvedAgent.command.trim();
     if (agentCommand.trim().length === 0) {
       throw new ValidationError("Agent command is required", {
         module: "session",

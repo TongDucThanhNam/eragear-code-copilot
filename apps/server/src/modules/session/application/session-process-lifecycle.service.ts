@@ -17,6 +17,13 @@ type ProcessOutcome =
   | { kind: "exit"; code: number | null; signal: NodeJS.Signals | null }
   | { kind: "close"; code: number | null; signal: NodeJS.Signals | null };
 
+/**
+ * Attaches one-shot process lifecycle settlement to a running session process.
+ *
+ * Ordering invariant: exactly one of error/exit/close settles the runtime,
+ * broadcasts any terminal error, updates persisted status, terminates session
+ * terminals, then removes the matching runtime entry under the mutation lock.
+ */
 export class SessionProcessLifecycleService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionRepo: SessionRepositoryPort;

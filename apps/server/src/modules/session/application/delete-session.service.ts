@@ -20,9 +20,11 @@ const OP = "session.lifecycle.delete";
 /**
  * DeleteSessionService
  *
- * Provides session deletion functionality.
- * Terminates the agent process if running and removes session data
- * from both runtime storage and persistent storage.
+ * Deletes runtime and persisted state for one session.
+ *
+ * Ordering contract: running terminals are terminated under the lock, the agent
+ * process is stopped before runtime deletion, then persisted state is removed
+ * and dashboard refresh is published.
  */
 export class DeleteSessionService {
   /** Repository for session persistence */

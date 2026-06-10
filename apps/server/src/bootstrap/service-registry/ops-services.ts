@@ -6,13 +6,13 @@ import {
   ListDashboardProjectsService,
   ListDashboardSessionsService,
 } from "@/modules/ops";
-import type { OpsServiceFactory } from "@/modules/service-factories";
+import type { OpsUseCases } from "@/modules/use-cases";
 import { getTurnIdMigrationSnapshot } from "@/platform/acp/turn-id-observability";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
-export function createOpsServices(
+export function createOpsUseCases(
   deps: ServiceRegistryDependencies
-): OpsServiceFactory {
+): OpsUseCases {
   const dashboardProjectsService = new ListDashboardProjectsService(
     deps.projectRepo,
     deps.sessionRepo
@@ -42,11 +42,11 @@ export function createOpsServices(
   });
 
   return {
-    dashboardEventVisibility: () => dashboardEventVisibilityService,
-    observabilitySnapshot: () => observabilitySnapshotService,
-    dashboardProjects: () => dashboardProjectsService,
-    dashboardSessions: () => dashboardSessionsService,
-    dashboardStats: () => dashboardStatsService,
-    dashboardPageData: () => dashboardPageDataService,
+    dashboardEventVisibility: dashboardEventVisibilityService,
+    observabilitySnapshot: observabilitySnapshotService,
+    dashboardProjects: dashboardProjectsService,
+    dashboardSessions: dashboardSessionsService,
+    dashboardStats: dashboardStatsService,
+    dashboardPageData: dashboardPageDataService,
   };
 }

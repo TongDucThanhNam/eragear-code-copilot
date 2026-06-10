@@ -1,5 +1,8 @@
 /**
- * Port for git operations.
+ * Git/code-context read port used by tooling use-cases.
+ *
+ * Security invariant: all file reads must remain inside the provided project
+ * root, and adapters should return sanitized paths suitable for UI display.
  */
 export interface GitPort {
   /** Get project context (rules, tabs, files) */

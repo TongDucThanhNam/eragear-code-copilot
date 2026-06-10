@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "electron": {
+      "source": "full-statck-skills/electron-skills",
+      "sourceType": "github",
+      "skillPath": "skills/electron/SKILL.md",
+      "computedHash": "0a9f600f1456a143fc36db9b3ee1264c1b1660581f7b98ab667d67439de06615"
+    },
+    "electron-egg": {
+      "source": "full-statck-skills/electron-skills",
+      "sourceType": "github",
+      "skillPath": "skills/electron-egg/SKILL.md",
+      "computedHash": "62f6bd605ea5d07fd6361d72a94fad9fb2ca3f9f1378ea8bdfe959a3bec242f2"
+    },
+    "upgradeLink": {
+      "source": "full-statck-skills/electron-skills",
+      "sourceType": "github",
+      "skillPath": "skills/upgradeLink/SKILL.md",
+      "computedHash": "8a28ed3d5e6412f7cda33dc47c317f217a3ab684973d9b2a0416daddfe685310"
+    }
+  }
+}

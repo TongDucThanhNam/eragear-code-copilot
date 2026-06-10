@@ -8,7 +8,7 @@ const jsEntry = resolve(
   process.cwd(),
   "src/presentation/dashboard/client/index.tsx"
 );
-const jsOut = resolve(outDir, "client.js");
+const jsOut = resolve(outDir, "client.asset");
 
 const staticAssets = [
   {
@@ -31,8 +31,8 @@ const staticAssets = [
   },
   {
     source: resolve(process.cwd(), "src/presentation/dashboard/login.js"),
-    out: resolve(outDir, "login.js"),
-    label: "login.js",
+    out: resolve(outDir, "login.asset"),
+    label: "login.asset",
   },
 ] as const;
 

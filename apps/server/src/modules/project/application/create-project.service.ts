@@ -5,6 +5,12 @@ import type { Project, ProjectInput } from "@/shared/types/project.types";
 import { resolveProjectPath } from "@/shared/utils/project-roots.util";
 import type { ProjectRepositoryPort } from "./ports/project-repository.port";
 
+/**
+ * Creates a user-owned project after resolving it against configured roots.
+ *
+ * Error mode: empty names and duplicate resolved paths throw `ValidationError`;
+ * successful creation publishes a dashboard refresh event.
+ */
 export class CreateProjectService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly settingsRepo: SettingsRepositoryPort;

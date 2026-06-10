@@ -18,9 +18,11 @@ const RESUME_FALLBACK_ERROR_CODE = "AGENT_SESSION_LOAD_FAILED";
 /**
  * ResumeSessionService
  *
- * Handles the resumption of a previously saved session.
- * If the session is already active in the runtime, returns immediately.
- * Otherwise, creates a new session using the stored session ID.
+ * Reactivates a stored session by creating a new runtime process.
+ *
+ * Error mode: missing stored rows or missing ACP session IDs are typed errors;
+ * stale agent session IDs fall back to a fresh session while preserving local
+ * chat identity and persisted history.
  */
 export class ResumeSessionService {
   /** Repository for session persistence */

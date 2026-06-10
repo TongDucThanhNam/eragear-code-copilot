@@ -6,7 +6,9 @@ Mục tiêu: giúp dev/AI biết nhanh cần sửa file nào khi thêm chức n�
 
 - Process entry: `src/index.ts`
 - Bootstrap runtime: `src/bootstrap/server.ts`
-- Composition root/DI: `src/bootstrap/composition.ts`
+- Composition root/owner orchestration: `src/bootstrap/composition.ts`
+- Runtime/module initialization: `src/bootstrap/init/*.init.ts`
+- Use-case wiring: `src/bootstrap/service-registry/*.ts`
 - HTTP routes root: `src/transport/http/routes/index.ts`
 - tRPC router root: `src/transport/trpc/router.ts`
 
@@ -25,9 +27,14 @@ Rule bổ sung:
 - `transport` không import `@/modules/<module>/di`
 - `bootstrap`/composition wiring được phép import `@/modules/<module>/di`
 - `src/modules/<module>/index.ts` không import/re-export `infra/*`
-- `transport` dùng service factories từ context (`ctx.sessionServices`,
-  `ctx.aiServices`, ...) thay vì
+- `transport` dùng `AppUseCases` từ context (`ctx.useCases.session`,
+  `ctx.useCases.ai`, ...) thay vì
   `new Service(...)` trực tiếp.
+
+Session read paths use `ctx.useCases.session.queries` as the single public
+interface (`state`, `list`, `listPage`, `messages`, `messageById`,
+`storageStats`). Do not add new transport/bootstrap callers to the legacy
+per-query service classes.
 
 ## 3. Add Feature Checklist
 
@@ -42,8 +49,12 @@ Rule bổ sung:
      `src/modules/<module>/infra/*`
 4. Export use-case/port mới qua `src/modules/<module>/index.ts`
 5. Nếu thêm concrete adapter để wiring, export qua `src/modules/<module>/di.ts`
-6. Wire dependencies ở `src/bootstrap/composition.ts`
-7. Expose interface ở HTTP/tRPC router
+6. Wire ordinary use-cases in `src/bootstrap/service-registry/<module>-services.ts`
+7. Update `src/bootstrap/init/*.init.ts` only when the feature introduces a new
+   owner/lifecycle axis or shared runtime adapter
+8. Update `src/bootstrap/composition.ts` only when the top-level owner graph or
+   dispose chain changes
+9. Expose interface ở HTTP/tRPC router
 
 ### 3.2 New HTTP endpoint
 
@@ -51,7 +62,7 @@ Rule bổ sung:
 2. Import schema từ `src/modules/<module>/application/contracts/*.ts`
    thông qua `src/modules/<module>/index.ts`
 3. Validate input tại route bằng contract schema
-4. Gọi use-case qua service factories trong context (`ctx.*Services`)
+4. Gọi use-case qua `AppUseCases` trong context (`ctx.useCases.*`)
 5. Không đặt business logic ở route
 
 ### 3.3 New tRPC procedure
@@ -59,7 +70,7 @@ Rule bổ sung:
 1. Thêm procedure trong `src/transport/trpc/routers/*.ts`
 2. Import schema từ module contracts (qua `@/modules/<module>`)
 3. Validate bằng contract schema
-4. Gọi use-case qua service factories trong context (`ctx.*Services`)
+4. Gọi use-case qua `AppUseCases` trong context (`ctx.useCases.*`)
 5. Để `base.ts` xử lý error mapping tập trung
 
 ### 3.4 New background task

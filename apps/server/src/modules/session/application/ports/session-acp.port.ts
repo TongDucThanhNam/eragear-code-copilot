@@ -3,6 +3,12 @@ import type { StoredContentBlock } from "@/modules/session/domain/stored-session
 import type { SessionRepositoryPort } from "./session-repository.port";
 import type { SessionRuntimePort } from "./session-runtime.port";
 
+/**
+ * Buffered assistant message snapshot waiting to be flushed to storage/UI.
+ *
+ * Invariant: content and reasoning blocks preserve ACP ordering; callers should
+ * flush/reset through `SessionBufferingPort` rather than mutate this shape.
+ */
 export interface BufferedMessage {
   id: string;
   content: string;
@@ -11,6 +17,13 @@ export interface BufferedMessage {
   reasoningBlocks?: StoredContentBlock[];
 }
 
+/**
+ * Per-message ACP stream buffer.
+ *
+ * Ordering contract: append methods are called in ACP event order, `flush`
+ * consumes the current assistant message, and stats reset is separate from
+ * content reset so raw logging can observe chunk metrics.
+ */
 export interface SessionBufferingPort {
   replayEventCount: number;
   appendContent(block: StoredContentBlock): void;
@@ -37,6 +50,13 @@ export interface SessionBufferingPort {
   resetContentStats(): void;
 }
 
+/**
+ * Session ACP adapter port.
+ *
+ * Contract: platform handlers are created behind this port so application
+ * bootstrap can wire permissions, message buffering, runtime state, and
+ * persistence without importing concrete ACP implementation details.
+ */
 export interface SessionAcpPort {
   createBuffer(): SessionBufferingPort;
   setPermissionAutoResolver(

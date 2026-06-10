@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { DashboardEventVisibilityService } from "@/modules/ops/application/dashboard-event-visibility.service";
-import type { OpsServiceFactory } from "@/modules/service-factories";
+import type { AppUseCases } from "@/modules/use-cases";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LogEntry, LogQuery } from "@/shared/types/log.types";
@@ -9,25 +9,27 @@ import { matchesLogQuery } from "@/shared/utils/log-query.util";
 import { registerDashboardApiRoutes } from "./dashboard-api";
 import type { HttpRouteDependencies } from "./deps";
 
-function createOpsServices(): OpsServiceFactory {
+function createUseCases(): AppUseCases {
   return {
-    dashboardEventVisibility: () => new DashboardEventVisibilityService(),
-    observabilitySnapshot: () => ({
-      execute: async (userId: string) => ({ memory: { used: 1 }, userId }),
-    }),
-    dashboardProjects: () => ({
-      execute: async () => [],
-    }),
-    dashboardSessions: () => ({
-      execute: async () => ({ items: [], total: 0 }),
-    }),
-    dashboardStats: () => ({
-      execute: async () => ({ projects: 0, sessions: 0 }),
-    }),
-    dashboardPageData: () => ({
-      execute: async () => ({ ok: true }),
-    }),
-  } as unknown as OpsServiceFactory;
+    ops: {
+      dashboardEventVisibility: new DashboardEventVisibilityService(),
+      observabilitySnapshot: {
+        execute: async (userId: string) => ({ memory: { used: 1 }, userId }),
+      },
+      dashboardProjects: {
+        execute: async () => [],
+      },
+      dashboardSessions: {
+        execute: async () => ({ items: [], total: 0 }),
+      },
+      dashboardStats: {
+        execute: async () => ({ projects: 0, sessions: 0 }),
+      },
+      dashboardPageData: {
+        execute: async () => ({ ok: true }),
+      },
+    },
+  } as unknown as AppUseCases;
 }
 
 function createLogStore(params?: {
@@ -105,7 +107,7 @@ function createApp(params?: {
   registerDashboardApiRoutes(api, {
     eventBus: params?.eventBus ?? createEventBus(),
     logStore: params?.logStore ?? createLogStore(),
-    opsServices: createOpsServices(),
+    useCases: createUseCases(),
     appConfig: {
       getConfig: () => ({
         sessionListPageMaxLimit: 100,

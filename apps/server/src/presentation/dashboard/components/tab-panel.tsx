@@ -21,8 +21,8 @@ export function TabPanel({
   const wasActiveRef = useRef(false);
 
   const panelClassName = [
-    "tab-content",
-    scrollable ? "max-h-[calc(100dvh-280px)] overflow-y-auto" : "",
+    "tab-content flex-1 min-h-0 overflow-y-auto",
+    scrollable ? "tab-content-scrollable" : "",
     className ?? "",
   ]
     .filter(Boolean)

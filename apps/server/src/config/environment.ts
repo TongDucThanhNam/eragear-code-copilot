@@ -221,6 +221,8 @@ const wsPort = toPortNumber(
   DEFAULT_WS_PORT
 );
 const wsHost = firstNonEmpty([env.WS_HOST, env.HOST]) ?? DEFAULT_WS_HOST;
+const localAuthEnabled = toBoolean(env.ERAGEAR_LOCAL_AUTH_ENABLED, false);
+const localAuthToken = toTrimmedString(env.ERAGEAR_LOCAL_AUTH_TOKEN, "");
 const normalizedAuthHost = wsHost === "0.0.0.0" ? "localhost" : wsHost;
 const runtimeEnv = env.NODE_ENV ?? env.BUN_ENV ?? "production";
 const isProd = runtimeEnv === "production";
@@ -246,6 +248,27 @@ if (runtimeNodeRole === "reader" && runtimeInternalToken.length === 0) {
   throw new Error(
     "[Config] RUNTIME_INTERNAL_TOKEN is required when RUNTIME_NODE_ROLE=reader."
   );
+}
+function isLoopbackBindHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "localhost" ||
+    normalized === "::1" ||
+    normalized === "[::1]"
+  );
+}
+if (localAuthEnabled) {
+  if (!isLoopbackBindHost(wsHost)) {
+    throw new Error(
+      "[Config] ERAGEAR_LOCAL_AUTH_ENABLED requires WS_HOST/HOST to bind loopback."
+    );
+  }
+  if (localAuthToken.length < 32) {
+    throw new Error(
+      "[Config] ERAGEAR_LOCAL_AUTH_TOKEN must be at least 32 characters when local auth is enabled."
+    );
+  }
 }
 const sqliteWorkerEnabled = isStandaloneExecutable
   ? false
@@ -513,6 +536,10 @@ export const ENV = {
   authTrustedOrigins,
   /** Trusted reverse-proxy source IPs allowed to provide forwarded client IP headers */
   authTrustedProxyIps,
+  /** Enable loopback-only desktop local auth token resolution */
+  localAuthEnabled,
+  /** Loopback-only desktop local auth token */
+  localAuthToken: localAuthEnabled ? localAuthToken : undefined,
   /** Require Cloudflare Access auth headers for WS/tRPC handshake */
   authRequireCloudflareAccess,
   /** Expected Cloudflare Access service token client ID for WS handshake auth */

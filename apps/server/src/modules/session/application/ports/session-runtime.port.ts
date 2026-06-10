@@ -1,5 +1,11 @@
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 
+/**
+ * Broadcast policy for one runtime event.
+ *
+ * Caller contract: durable events are enqueued for later fan-out, while retained
+ * events are kept only in the in-memory replay buffer for reconnects.
+ */
 export interface SessionBroadcastOptions {
   /** Persist to durable outbox for eventual cross-component fan-out. */
   durable?: boolean;
@@ -8,7 +14,11 @@ export interface SessionBroadcastOptions {
 }
 
 /**
- * Port for runtime session management.
+ * In-memory runtime session port.
+ *
+ * Ordering invariant: mutating work for a chat must run through
+ * `runExclusive`; callers that already hold the lock can use `isLockHeld` to
+ * avoid accidental nested mutation paths.
  */
 export interface SessionRuntimePort {
   /** Set a session in the runtime store */

@@ -273,3 +273,119 @@ button:not(.password-toggle):hover::after {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* Viewport-fit login shell */
+.login-shell {
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+}
+
+.login-masthead,
+.login-footer {
+  flex-shrink: 0;
+}
+
+.login-grid,
+.login-form-panel,
+.login-status-panel {
+  min-height: 0;
+}
+
+.login-title {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.login-byline {
+  max-width: 100%;
+}
+
+.login-agent-strip {
+  min-width: 0;
+}
+
+.login-form-panel {
+  border-right-width: 0;
+  scrollbar-gutter: stable;
+}
+
+.login-form-content {
+  min-height: 0;
+}
+
+.login-form label,
+.login-form button,
+.section-label,
+.byline {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 1024px) {
+  .login-form-panel {
+    border-right-width: 2px;
+  }
+}
+
+@media (max-width: 767px) {
+  .login-title {
+    font-size: 2rem;
+    line-height: 0.95;
+  }
+
+  .login-secure-status span {
+    display: none;
+  }
+
+  .login-byline {
+    font-size: 0.625rem;
+    letter-spacing: 0.12em;
+    line-height: 1.6;
+  }
+
+  .login-agent-strip,
+  .login-footer,
+  .login-decorative-rule,
+  .login-form-extra-note {
+    display: none;
+  }
+
+  .login-form-content {
+    padding: 1rem;
+  }
+}
+
+@media (max-height: 860px) {
+  .login-masthead {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .login-masthead .deck-text,
+  .login-agent-strip,
+  .login-section-subheader,
+  .login-form-extra-note,
+  .login-decorative-rule,
+  .login-footer {
+    display: none;
+  }
+
+  .login-form-heading {
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .login-form-content {
+    padding: 1rem;
+  }
+
+  .login-form {
+    gap: 1rem;
+  }
+
+  .field-number {
+    font-size: 1.25rem;
+  }
+}

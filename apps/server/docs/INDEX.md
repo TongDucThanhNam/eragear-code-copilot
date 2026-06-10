@@ -25,6 +25,8 @@ Production target hiện tại: **Linux/Windows/macOS**.
 - `src/index.ts`
 - `src/bootstrap/server.ts`
 - `src/bootstrap/composition.ts`
+- `src/bootstrap/init/*.init.ts`
+- `src/bootstrap/service-registry/*.ts`
 - `src/transport/trpc/router.ts`
 - `src/transport/http/routes/index.ts`
 
@@ -36,6 +38,10 @@ Production target hiện tại: **Linux/Windows/macOS**.
   - `docs/observability.md`
 - Background processing:
   - `docs/background-processing.md`
+- Desktop integrated runtime reverse design:
+  - `docs/desktop-integrated-runtime.md`
+- Runtime host/core boundary (Phase 2):
+  - `docs/runtime-host-core-boundary.md`
 - UI message normalization:
   - `docs/ui-message-normalization.md`
 - Client-side useChat contract:
@@ -54,12 +60,18 @@ Các file sau là nguồn chuẩn khi docs và thực tế có khác biệt:
 
 - Config env: `src/config/environment.ts`
 - HTTP/WS bootstrap: `src/bootstrap/server.ts`
+- Runtime core host boundary: `src/runtime/core.ts`
+- Composition root: `src/bootstrap/composition.ts`
+- Runtime/module initializers: `src/bootstrap/init/*.init.ts`
+- Use-case wiring: `src/bootstrap/service-registry/*.ts`
+- Transport-facing use-case surface: `src/modules/use-cases.ts`
 - tRPC auth context: `src/transport/trpc/context.ts`
 - Session events and buffering: `src/platform/acp/update.ts`
 - Permission pipeline: `src/platform/acp/permission.ts`, `src/modules/tooling/application/respond-permission.service.ts`
 - Storage path policy: `src/platform/storage/storage-path.ts`
 - SQLite boot/migration: `src/platform/storage/sqlite-store.ts`
 - Drizzle schema/db: `src/platform/storage/sqlite-schema.ts`, `src/platform/storage/sqlite-db.ts`
+- Legacy JSON import/migration only: `src/platform/storage/sqlite-legacy-migration.ts`
 - Observability snapshot: `src/modules/ops/application/get-observability-snapshot.service.ts`, `src/transport/http/routes/dashboard-api.ts`
 - Background runner: `src/platform/background/runner.ts`, `src/platform/background/tasks/*`
 

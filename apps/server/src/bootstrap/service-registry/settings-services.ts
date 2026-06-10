@@ -1,14 +1,15 @@
-import type { SettingsServiceFactory } from "@/modules/service-factories";
 import {
   GetSettingsService,
+  LocalAdeService,
   ManageBootAllowlistsService,
   UpdateSettingsService,
 } from "@/modules/settings";
+import type { SettingsUseCases } from "@/modules/use-cases";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
-export function createSettingsServices(
+export function createSettingsUseCases(
   deps: ServiceRegistryDependencies
-): SettingsServiceFactory {
+): SettingsUseCases {
   const getSettingsService = new GetSettingsService(deps.settingsRepo);
   const updateSettingsService = new UpdateSettingsService(
     deps.settingsRepo,
@@ -19,10 +20,18 @@ export function createSettingsServices(
     deps.eventBus,
     deps.agentRuntimeAdapter
   );
+  const localAdeService = new LocalAdeService({
+    projectRepo: deps.projectRepo,
+    agentRepo: deps.agentRepo,
+    sessionRepo: deps.sessionRepo,
+    sessionRuntime: deps.sessionRuntime,
+    logStore: deps.logStore,
+  });
 
   return {
-    getSettings: () => getSettingsService,
-    updateSettings: () => updateSettingsService,
-    manageBootAllowlists: () => manageBootAllowlistsService,
+    get: getSettingsService,
+    update: updateSettingsService,
+    manageBootAllowlists: manageBootAllowlistsService,
+    localAde: localAdeService,
   };
 }

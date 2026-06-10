@@ -1,4 +1,4 @@
-import type { UIMessage } from "../ui-message";
+import type { UIMessage } from "../ui-message.js";
 
 const MESSAGE_ROLE_PRIORITY: Record<UIMessage["role"], number> = {
   system: 0,

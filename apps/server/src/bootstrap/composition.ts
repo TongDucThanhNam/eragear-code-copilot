@@ -1,14 +1,5 @@
 import { ENV } from "@/config/environment";
-import type {
-  AgentServiceFactory,
-  AiServiceFactory,
-  AuthServiceFactory,
-  OpsServiceFactory,
-  ProjectServiceFactory,
-  SessionServiceFactory,
-  SettingsServiceFactory,
-  ToolingServiceFactory,
-} from "@/modules/service-factories";
+import { initializeProjectEvents } from "@/modules/project/init/project-events.init";
 import type {
   SessionEventOutboxPort,
   SessionRepositoryPort,
@@ -19,6 +10,7 @@ import {
   type SettingsRepositoryPort,
 } from "@/modules/settings";
 import { SettingsSqliteRepository } from "@/modules/settings/di";
+import type { AppUseCases } from "@/modules/use-cases";
 import type { AuthRuntime } from "@/platform/auth/auth";
 import { setRuntimeLogLevel } from "@/platform/logging/runtime-log-level";
 import { closeSqliteStorage } from "@/platform/storage/sqlite-db";
@@ -47,7 +39,7 @@ import {
 } from "./init/service-module.init";
 import { createSqliteWorkerRuntimeConfigSync } from "./init/sqlite-worker-runtime-config-sync.init";
 import type { ServerLifecycle } from "./lifecycle";
-import type { ServerRuntimePolicy } from "./server";
+import type { ServerRuntimePolicy } from "./server-runtime-policy";
 
 export type ResolveAuthContext = InitResolveAuthContext;
 
@@ -58,14 +50,7 @@ export interface AppDependencies {
   logStore: LogStorePort;
   appLogger: LoggerPort;
   appConfig: AppConfigService;
-  sessionServices: SessionServiceFactory;
-  aiServices: AiServiceFactory;
-  projectServices: ProjectServiceFactory;
-  agentServices: AgentServiceFactory;
-  settingsServices: SettingsServiceFactory;
-  toolingServices: ToolingServiceFactory;
-  authServices: AuthServiceFactory;
-  opsServices: OpsServiceFactory;
+  useCases: AppUseCases;
   sessionRepo: SessionRepositoryPort;
   auth: AuthRuntime["auth"];
   authRuntime: AuthRuntime;
@@ -154,14 +139,7 @@ async function createAppCompositionWithRuntimeConfig(
     logStore: core.logStore,
     appLogger: core.appLogger,
     appConfig: appConfigService,
-    sessionServices: serviceModule.sessionServices,
-    aiServices: serviceModule.aiServices,
-    projectServices: serviceModule.projectServices,
-    agentServices: serviceModule.agentServices,
-    settingsServices: serviceModule.settingsServices,
-    toolingServices: serviceModule.toolingServices,
-    authServices: serviceModule.authServices,
-    opsServices: serviceModule.opsServices,
+    useCases: serviceModule.useCases,
     sessionRepo: persistence.sessionRepo,
     auth: authRuntime.auth,
     authRuntime,
@@ -172,18 +150,12 @@ async function createAppCompositionWithRuntimeConfig(
     getBackgroundRunnerState: serviceModule.getBackgroundRunnerState,
   };
 
-  const unsubscribeProjectDeleting = deps.eventBus.subscribe(async (event) => {
-    if (event.type !== "project_deleting") {
-      return;
-    }
-    const service = deps.sessionServices.cleanupProjectSessions();
-    await service.execute({
-      userId: event.userId,
-      projectId: event.projectId,
-      projectPath: event.projectPath,
-    });
-  });
-  unsubscribeCallbacks.push(unsubscribeProjectDeleting);
+  unsubscribeCallbacks.push(
+    initializeProjectEvents({
+      eventBus: deps.eventBus,
+      sessionUseCases: deps.useCases.session,
+    })
+  );
 
   let disposed = false;
   const dispose = async () => {

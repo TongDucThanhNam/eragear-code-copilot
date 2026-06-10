@@ -6,37 +6,24 @@
  * @module modules/session/application/get-session-message-by-id.service
  */
 
-import { NotFoundError } from "@/shared/errors";
-import { mapStoredMessageToUiMessage } from "./get-session-messages.service";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
+import { SessionQueries } from "./queries/session-queries";
 
-const OP = "session.message.get_by_id";
-
+/**
+ * Compatibility wrapper for single-message reads.
+ *
+ * Caller contract: new transport/bootstrap code should use
+ * `SessionQueries.messageById`; this class remains for direct service tests and
+ * older application imports.
+ */
 export class GetSessionMessageByIdService {
-  private readonly sessionRepo: SessionRepositoryPort;
+  private readonly queries: SessionQueries;
 
   constructor(sessionRepo: SessionRepositoryPort) {
-    this.sessionRepo = sessionRepo;
+    this.queries = new SessionQueries(sessionRepo);
   }
 
   async execute(input: { userId: string; chatId: string; messageId: string }) {
-    const stored = await this.sessionRepo.findById(input.chatId, input.userId);
-    if (!stored) {
-      throw new NotFoundError("Chat not found", {
-        module: "session",
-        op: OP,
-        details: { chatId: input.chatId },
-      });
-    }
-
-    const message = await this.sessionRepo.getMessageById(
-      input.chatId,
-      input.userId,
-      input.messageId
-    );
-
-    return {
-      message: message ? mapStoredMessageToUiMessage(message) : undefined,
-    };
+    return await this.queries.messageById(input);
   }
 }

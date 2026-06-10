@@ -42,8 +42,9 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
 
     // Only scroll if tab actually changed
     if (activeTab !== prevActiveTabRef.current) {
-      // Scroll the container, not the main element if we change the layout
-      scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      scrollContainerRef.current
+        ?.querySelector<HTMLElement>(`[data-tab-panel="${activeTab}"]`)
+        ?.scrollTo({ top: 0, behavior: "smooth" });
       prevActiveTabRef.current = activeTab;
     }
   }, [activeTab]);
@@ -68,11 +69,11 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
       />
 
       <div
-        className="fixed inset-0 z-10 overflow-y-auto scroll-smooth"
+        className="dashboard-scroll-root fixed inset-0 z-10 h-dvh overflow-hidden scroll-smooth"
         ref={scrollContainerRef}
       >
         <div
-          className={`relative mx-auto flex min-h-screen w-full flex-col bg-paper px-3 pb-8 shadow-[0_0_50px_rgba(0,0,0,0.1)] transition-all duration-300 sm:px-5 lg:px-6 ${
+          className={`dashboard-shell relative mx-auto flex h-dvh w-full flex-col bg-paper px-3 shadow-[0_0_50px_rgba(0,0,0,0.1)] transition-all duration-300 sm:px-5 lg:px-6 ${
             isLoading ? "opacity-90" : "opacity-100"
           }`}
           id="main-content"
@@ -80,7 +81,7 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
           <DashboardHeader />
 
           {!isLoading && (
-            <div className="mt-2 sm:mt-3">
+            <div className="dashboard-ticker mt-2 sm:mt-3">
               <MarqueeTicker />
             </div>
           )}
@@ -89,18 +90,18 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
 
           <main
             aria-busy={isLoading}
-            className="relative mt-5 flex-1 sm:mt-6 lg:mt-8"
+            className="dashboard-workspace relative mt-3 flex min-h-0 flex-1 flex-col sm:mt-3 lg:mt-4"
           >
             <DashboardLoading />
 
             <div
-              className={`dashboard-grid grid min-h-0 border-ink border-t-4 bg-paper transition-all duration-300 ${
+              className={`dashboard-grid grid min-h-0 flex-1 overflow-hidden border-ink border-t-4 bg-paper transition-all duration-300 ${
                 activeTab === "logs" ? "lg:grid-cols-1" : "lg:grid-cols-12"
               } ${isLoading ? "pointer-events-none opacity-50" : "opacity-100"}`}
               data-active-tab={activeTab}
             >
               <section
-                className={`dashboard-main flex min-w-0 flex-col border-ink border-b-2 bg-paper p-3 transition-all duration-300 sm:p-4 lg:p-5 ${
+                className={`dashboard-main flex min-h-0 min-w-0 flex-col overflow-hidden border-ink border-b-2 bg-paper p-3 transition-all duration-300 sm:p-4 lg:p-5 ${
                   activeTab === "logs"
                     ? "lg:col-span-1 lg:border-r-0"
                     : "lg:col-span-8 lg:border-r-4 lg:border-b-0"
@@ -115,8 +116,8 @@ export function DashboardView({ state, actions }: DashboardViewProps) {
               </section>
 
               {activeTab !== "logs" && (
-                <aside className="dashboard-side flex flex-col border-ink bg-[#f3f3ef] p-3 transition-all duration-300 sm:p-4 lg:col-span-4 lg:border-b-0 lg:p-5">
-                  <div className="w-full lg:sticky lg:top-[132px]">
+                <aside className="dashboard-side flex min-h-0 flex-col overflow-y-auto border-ink bg-[#f3f3ef] p-3 transition-all duration-300 sm:p-4 lg:col-span-4 lg:border-b-0 lg:p-5">
+                  <div className="w-full">
                     <OverviewStats />
                   </div>
                 </aside>

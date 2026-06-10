@@ -4,6 +4,12 @@ import type { GetDashboardStatsService } from "./get-dashboard-stats.service";
 import type { ListDashboardProjectsService } from "./list-dashboard-projects.service";
 import type { ListDashboardSessionsService } from "./list-dashboard-sessions.service";
 
+/**
+ * Aggregates the initial dashboard page read model.
+ *
+ * Ordering contract: project/session/stats/agent reads are independent and run
+ * concurrently; callers should not rely on cross-section transactional state.
+ */
 export class GetDashboardPageDataService {
   private readonly listDashboardProjects: ListDashboardProjectsService;
   private readonly listDashboardSessions: ListDashboardSessionsService;

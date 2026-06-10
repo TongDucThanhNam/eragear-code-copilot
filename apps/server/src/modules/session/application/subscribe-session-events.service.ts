@@ -32,6 +32,12 @@ const logger = createLogger("Debug");
  */
 const INITIAL_SNAPSHOT_MESSAGE_LIMIT = 50;
 
+/**
+ * Active or stored event subscription snapshot returned to transport.
+ *
+ * Caller contract: `source === "stored"` has no live event listener and must not
+ * be treated as a connected runtime for sending prompts.
+ */
 export interface SessionEventSubscription {
   source: "runtime" | "stored";
   chatStatus: ChatStatus;
@@ -43,6 +49,13 @@ export interface SessionEventSubscription {
   release(): Promise<void>;
 }
 
+/**
+ * Creates a live session event subscription or stopped-session snapshot.
+ *
+ * Ordering contract: subscriber counters/listeners are registered under the
+ * session lock; `release` must be called by transport to avoid stale subscriber
+ * counts and abort-grace leaks.
+ */
 export class SubscribeSessionEventsService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionRepo: SessionRepositoryPort;

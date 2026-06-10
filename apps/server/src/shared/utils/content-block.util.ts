@@ -15,9 +15,11 @@ import {
   type BlobRef,
   storeInlineBlobSync,
 } from "@/platform/storage/blob-store";
+import { MAX_INLINE_BINARY_BASE64_CHARS as MAX_INLINE_BINARY_BASE64_CHARS_VALUE } from "../constants/content-block.constants";
 import type { StoredContentBlock } from "../types/session.types";
 
-export const MAX_INLINE_BINARY_BASE64_CHARS = 64 * 1024;
+export const MAX_INLINE_BINARY_BASE64_CHARS =
+  MAX_INLINE_BINARY_BASE64_CHARS_VALUE;
 const INLINE_BINARY_META_KEY = "eragearInlineBinary";
 
 export interface StoredContentContext {

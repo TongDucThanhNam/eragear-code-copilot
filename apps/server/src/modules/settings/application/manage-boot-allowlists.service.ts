@@ -86,7 +86,12 @@ interface CommonSettingsValidationResult {
   fieldErrors: Record<string, string>;
 }
 
-/** Common boot settings that can be edited from dashboard */
+/**
+ * Boot-time settings editable from the dashboard.
+ *
+ * Caller contract: these values are persisted to boot config; only the subset
+ * mirrored by runtime services can take effect before restart.
+ */
 export interface BootCommonSettings {
   wsAuthTimeoutMs?: number;
   wsSessionRevalidateIntervalMs?: number;
@@ -100,6 +105,12 @@ export interface BootCommonSettings {
   authAllowSignup?: boolean;
 }
 
+/**
+ * Current boot allowlist/config snapshot.
+ *
+ * Invariant: policy arrays are parsed command policies, never raw JSON strings;
+ * warnings describe degraded or fallback boot-config state.
+ */
 export interface BootAllowlistsSnapshot {
   mode: BootRuntimeMode;
   sourcePath?: string;
@@ -111,6 +122,12 @@ export interface BootAllowlistsSnapshot {
   commonSettings: BootCommonSettings;
 }
 
+/**
+ * Patch for boot allowlists and editable boot settings.
+ *
+ * Security contract: callers must provide explicit command/env allowlists; the
+ * service does not accept wildcard policy expansion.
+ */
 export interface UpdateBootAllowlistsInput {
   allowedAgentCommandPolicies?: CommandPolicy[];
   allowedTerminalCommandPolicies?: CommandPolicy[];
@@ -610,6 +627,12 @@ function parseBootEnvKeysWithFallback(params: {
   return cloneEnvKeys(fallback);
 }
 
+/**
+ * Reads and updates boot-time command/env allowlists.
+ *
+ * Side effects: writes `settings.json` boot config and hot-updates agent process
+ * invocation policy when supported; some common settings remain restart-bound.
+ */
 export class ManageBootAllowlistsService {
   private readonly eventBus: EventBusPort;
   private readonly agentRuntime: AgentRuntimePort;

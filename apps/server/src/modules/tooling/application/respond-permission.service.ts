@@ -235,8 +235,11 @@ function resolvePermissionSelection(params: {
 /**
  * RespondPermissionService
  *
- * Service for handling user responses to permission requests.
- * Resolves pending permission requests with the selected option.
+ * Resolves one pending ACP permission request for an authorized session.
+ *
+ * Ordering invariant: option selection, pending-request settlement, UI status
+ * sync, and broadcast side effects happen under the per-chat runtime lock so a
+ * request cannot be resolved twice or race with session deletion.
  *
  * @example
  * ```typescript

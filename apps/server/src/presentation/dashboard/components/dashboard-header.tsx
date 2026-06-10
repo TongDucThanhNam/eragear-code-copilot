@@ -21,7 +21,7 @@ export function DashboardHeader() {
   });
 
   return (
-    <header className="header-container flex-shrink-0 border-ink bg-paper transition-all duration-300">
+    <header className="dashboard-header header-container flex-shrink-0 border-ink bg-paper transition-all duration-300">
       <div className="group relative overflow-hidden border-ink border-b bg-[#f5f5f5] py-2.5 sm:py-3">
         <div className="newsprint-dots pointer-events-none absolute inset-0 opacity-5" />
         <div className="masthead-shine pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
@@ -62,17 +62,17 @@ export function DashboardHeader() {
         </div>
       </div>
 
-      <div className="relative overflow-hidden py-5 text-center sm:py-8 lg:py-10">
+      <div className="dashboard-masthead relative overflow-hidden py-3 text-center sm:py-4 lg:py-5">
         <div className="relative px-3 sm:px-5">
-          <h1 className="main-title font-black font-display text-4xl text-ink uppercase leading-[0.85] sm:text-6xl lg:text-7xl">
+          <h1 className="main-title font-black font-display text-3xl text-ink uppercase leading-[0.85] sm:text-4.5xl lg:text-6.5xl">
             {APP_SERVER_TITLE}
           </h1>
 
-          <p className="mt-3 font-mono text-[9px] text-muted uppercase tracking-[0.28em] sm:text-[10px]">
+          <p className="mt-2 font-mono text-[9px] text-muted uppercase tracking-[0.28em] sm:text-[10px]">
             Operations Desk • Runtime Chronicle
           </p>
 
-          <div className="mt-4 flex items-center justify-center gap-3 sm:gap-5">
+          <div className="mt-2 flex items-center justify-center gap-3 sm:gap-5">
             <span className="h-px w-8 bg-ink/30 sm:w-12" />
             <p className="font-serif text-[10px] text-muted italic tracking-widest sm:text-xs">
               "All the Code That's Fit to Run"

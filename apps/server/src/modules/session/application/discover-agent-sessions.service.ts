@@ -25,6 +25,12 @@ interface InitializeCapabilities {
   };
 }
 
+/**
+ * Request for a short-lived ACP discovery process.
+ *
+ * Caller contract: `cursor` is the opaque value previously returned by the same
+ * agent for the same project context.
+ */
 export interface DiscoverAgentSessionsInput {
   userId: string;
   projectId: string;
@@ -32,6 +38,12 @@ export interface DiscoverAgentSessionsInput {
   cursor?: string;
 }
 
+/**
+ * Normalized session item returned by an agent's listing capability.
+ *
+ * Invariant: `sessionId` and `cwd` are agent-provided identifiers and must not
+ * be treated as local persisted chat ids.
+ */
 export interface DiscoverAgentSessionItem {
   sessionId: string;
   cwd: string;
@@ -39,6 +51,12 @@ export interface DiscoverAgentSessionItem {
   updatedAt?: string | null;
 }
 
+/**
+ * Capability and pagination result for agent-side session discovery.
+ *
+ * Error mode: auth-required and unsupported-method cases are represented as
+ * flags so transport can render actionable UI without throwing protocol errors.
+ */
 export interface DiscoverAgentSessionsResult {
   supported: boolean;
   requiresAuth: boolean;
@@ -103,6 +121,13 @@ function toAuthMethods(
   return methods;
 }
 
+/**
+ * Lists resumable sessions from an agent without registering a runtime session.
+ *
+ * Side effect: spawns a temporary ACP process and always attempts to terminate
+ * it after initialize/list, even when discovery returns unsupported or auth
+ * required.
+ */
 export class DiscoverAgentSessionsService {
   private readonly projectContextResolver: SessionProjectContextResolverService;
   private readonly sessionAgentResolver: SessionAgentResolverService;
@@ -147,7 +172,7 @@ export class DiscoverAgentSessionsService {
       agentId,
     });
 
-    const agentCommand = resolvedAgent.command;
+    const agentCommand = resolvedAgent.command.trim();
     const agentArgs =
       resolvedAgent.args ?? (agentCommand === "opencode" ? ["acp"] : []);
     const agentEnv = resolvedAgent.env ?? {};

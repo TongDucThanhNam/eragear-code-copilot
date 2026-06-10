@@ -6,6 +6,12 @@ import type { AgentRepositoryPort } from "./ports/agent-repository.port";
 
 const OP = "agent.config.update";
 
+/**
+ * Updates one user-owned agent configuration.
+ *
+ * Error mode: missing or cross-user IDs throw `NotFoundError`; accepted input is
+ * normalized before persistence and followed by a dashboard refresh event.
+ */
 export class UpdateAgentService {
   private readonly agentRepo: AgentRepositoryPort;
   private readonly eventBus: EventBusPort;

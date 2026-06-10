@@ -56,6 +56,13 @@ function collectConfigOptionValues(option: SessionConfigOption): Set<string> {
   return out;
 }
 
+/**
+ * Updates a runtime session configuration option exposed by the agent.
+ *
+ * Invariant: the value must exist in the option's advertised select values
+ * before any ACP call is made; returned config options become the new runtime
+ * source of truth when the agent supplies them.
+ */
 export class SetConfigOptionService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;

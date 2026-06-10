@@ -15,6 +15,52 @@ import { isAppError } from "../../../shared/errors";
 import type { HttpRouteDependencies } from "./deps";
 import { isJsonBodyParseError, parseJsonBodyWithLimit } from "./helpers";
 
+interface CreateProjectPayload {
+  name: string;
+  path: string;
+  description?: string;
+  tags?: string[];
+  obsidianProjectPath?: string | null;
+  techStackTags?: string[];
+}
+
+interface CreateProjectRouteInput {
+  name: string;
+  path: string;
+  description: string | null;
+  tags: string[];
+  obsidianProjectPath: string | null;
+  techStackTags: string[];
+  favorite: false;
+}
+
+async function readCreateProjectInput(
+  request: Request,
+  maxBodyBytes: number
+): Promise<CreateProjectRouteInput> {
+  const payload = await parseJsonBodyWithLimit<CreateProjectPayload>(
+    request,
+    maxBodyBytes
+  );
+  return {
+    name: typeof payload.name === "string" ? payload.name : "",
+    path: typeof payload.path === "string" ? payload.path : "",
+    description:
+      typeof payload.description === "string"
+        ? payload.description || null
+        : null,
+    tags: Array.isArray(payload.tags) ? payload.tags : [],
+    obsidianProjectPath:
+      typeof payload.obsidianProjectPath === "string"
+        ? payload.obsidianProjectPath
+        : null,
+    techStackTags: Array.isArray(payload.techStackTags)
+      ? payload.techStackTags
+      : [],
+    favorite: false,
+  };
+}
+
 /**
  * Registers project-related HTTP routes
  */
@@ -22,10 +68,10 @@ export function registerProjectRoutes(
   api: Hono,
   deps: Pick<
     HttpRouteDependencies,
-    "projectServices" | "logger" | "resolveAuthContext" | "runtime"
+    "useCases" | "logger" | "resolveAuthContext" | "runtime"
   >
 ): void {
-  const { projectServices, logger, resolveAuthContext, runtime } = deps;
+  const { useCases, logger, resolveAuthContext, runtime } = deps;
 
   // =========================================================================
   // API Routes
@@ -44,48 +90,17 @@ export function registerProjectRoutes(
       if (!auth) {
         return c.json({ error: "Unauthorized" }, 401);
       }
-      const {
-        name,
-        path,
-        description,
-        tags,
-        obsidianProjectPath,
-        techStackTags,
-      } = await parseJsonBodyWithLimit<{
-        name: string;
-        path: string;
-        description?: string;
-        tags?: string[];
-        obsidianProjectPath?: string | null;
-        techStackTags?: string[];
-      }>(c.req.raw, runtime.httpMaxBodyBytes);
-      const parsedTags = Array.isArray(tags) ? tags : [];
-      const parsedTechStackTags = Array.isArray(techStackTags)
-        ? techStackTags
-        : [];
-      const parsedDescription =
-        typeof description === "string" ? description : undefined;
-      const parsedObsidianProjectPath =
-        typeof obsidianProjectPath === "string"
-          ? obsidianProjectPath
-          : null;
-      const parsedName = typeof name === "string" ? name : "";
-      const parsedPath = typeof path === "string" ? path : "";
+      const input = await readCreateProjectInput(
+        c.req.raw,
+        runtime.httpMaxBodyBytes
+      );
 
-      if (!(parsedName && parsedPath)) {
+      if (!(input.name && input.path)) {
         return c.json({ error: "name and path are required" }, 400);
       }
 
-      const service = projectServices.createProject();
-      const project = await service.execute(auth.userId, {
-        name: parsedName,
-        path: parsedPath,
-        description: parsedDescription || null,
-        tags: parsedTags,
-        obsidianProjectPath: parsedObsidianProjectPath,
-        techStackTags: parsedTechStackTags,
-        favorite: false,
-      });
+      const service = useCases.project.create;
+      const project = await service.execute(auth.userId, input);
 
       return c.json({ ok: true, project });
     } catch (error) {
@@ -122,7 +137,7 @@ export function registerProjectRoutes(
         return c.json({ error: "projectId is required" }, 400);
       }
 
-      const service = projectServices.deleteProject();
+      const service = useCases.project.delete;
       await service.execute(auth.userId, projectId);
 
       return c.json({ ok: true });

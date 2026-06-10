@@ -37,6 +37,9 @@ export function NavUser({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const setConfigured = useServerConfigStore((state) => state.setConfigured);
+  const isDesktopLocalMode = useServerConfigStore(
+    (state) => state.desktopBootstrap?.mode === "main-thread"
+  );
 
   function forceLogoutUiState() {
     setConfigured(false);
@@ -118,17 +121,21 @@ export function NavUser({
                   ACP Agents
                 </DropdownMenuItem>
               </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={isSigningOut}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  void handleSignOut();
-                }}
-              >
-                <LogOut />
-                {isSigningOut ? "Signing out..." : "Log out"}
-              </DropdownMenuItem>
+              {isDesktopLocalMode ? null : (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={isSigningOut}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleSignOut();
+                    }}
+                  >
+                    <LogOut />
+                    {isSigningOut ? "Signing out..." : "Log out"}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </SidebarMenuItem>

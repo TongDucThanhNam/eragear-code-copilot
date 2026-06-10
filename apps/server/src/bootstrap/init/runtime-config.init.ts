@@ -2,7 +2,7 @@ import { ENV } from "@/config/environment";
 import type { SendMessagePolicy } from "@/modules/ai";
 import type { AuthRuntimePolicy } from "@/platform/auth/auth";
 import type { ServerLifecyclePolicy } from "../lifecycle";
-import type { ServerRuntimePolicy } from "../server";
+import type { ServerRuntimePolicy } from "../server-runtime-policy";
 
 export interface AppRuntimeConfig {
   sqliteWorkerEnabled: boolean;

@@ -22,7 +22,7 @@ export const agentsRouter = router({
   list: protectedProcedure
     .input(ListAgentsInputSchema)
     .query(async ({ input, ctx }) => {
-      const service = ctx.agentServices.listAgents();
+      const service = ctx.useCases.agent.list;
       return await service.execute(getRequiredUserId(ctx), input?.projectId);
     }),
 
@@ -30,7 +30,7 @@ export const agentsRouter = router({
   create: protectedProcedure
     .input(CreateAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.agentServices.createAgent();
+      const service = ctx.useCases.agent.create;
       return await service.execute(getRequiredUserId(ctx), input);
     }),
 
@@ -38,7 +38,7 @@ export const agentsRouter = router({
   update: protectedProcedure
     .input(UpdateAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.agentServices.updateAgent();
+      const service = ctx.useCases.agent.update;
       return await service.execute(getRequiredUserId(ctx), input);
     }),
 
@@ -46,7 +46,7 @@ export const agentsRouter = router({
   delete: protectedProcedure
     .input(DeleteAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.agentServices.deleteAgent();
+      const service = ctx.useCases.agent.delete;
       return await service.execute(getRequiredUserId(ctx), input.id);
     }),
 
@@ -54,7 +54,7 @@ export const agentsRouter = router({
   setActive: protectedProcedure
     .input(SetActiveAgentInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const service = ctx.agentServices.setActiveAgent();
+      const service = ctx.useCases.agent.setActive;
       return await service.execute(getRequiredUserId(ctx), input.id);
     }),
 });
