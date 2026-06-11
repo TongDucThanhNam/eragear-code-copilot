@@ -27,6 +27,7 @@ export function createSettingsUseCases(
     sessionRuntime: deps.sessionRuntime,
     logStore: deps.logStore,
   });
+  localAdeService.subscribeLifecycleEvents(deps.eventBus);
 
   return {
     get: getSettingsService,

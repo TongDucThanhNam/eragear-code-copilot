@@ -697,10 +697,10 @@ export class ManageBootAllowlistsService {
 
     // Apply ACP toggles immediately to runtime
     if (next.commonSettings?.acpEnableFsWrite !== undefined) {
-      ENV.acpEnableFsWrite = next.commonSettings.acpEnableFsWrite;
+      ENV.acpFsWriteEnabled = next.commonSettings.acpEnableFsWrite;
     }
     if (next.commonSettings?.acpEnableTerminal !== undefined) {
-      ENV.acpEnableTerminal = next.commonSettings.acpEnableTerminal;
+      ENV.acpTerminalEnabled = next.commonSettings.acpEnableTerminal;
     }
 
     if (next.allowedAgentCommandPolicies || next.allowedEnvKeys) {

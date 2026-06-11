@@ -1,9 +1,14 @@
-import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
-import type { ChatSession } from "@/shared/types/session.types";
-import { syncSessionSelectionFromConfigOptions } from "@/shared/utils/session-config-options.util";
+import type {
+  ChatSession,
+  SessionConfigOption,
+} from "@/shared/types/session.types";
+import {
+  isSessionConfigSelectOption,
+  syncSessionSelectionFromConfigOptions,
+} from "@/shared/utils/session-config-options.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
 import {
   AI_OP,
@@ -40,6 +45,9 @@ function isConfigSelectGroup(
 
 function collectConfigOptionValues(option: SessionConfigOption): Set<string> {
   const out = new Set<string>();
+  if (!isSessionConfigSelectOption(option)) {
+    return out;
+  }
   for (const item of option.options ?? []) {
     if (isConfigSelectGroup(item)) {
       for (const nested of item.options ?? []) {
@@ -141,7 +149,7 @@ export class SetConfigOptionService {
       }
 
       if (targetOption.currentValue === value) {
-        return { ok: true, configOptions: session.configOptions };
+        return { ok: true, configOptions: session.configOptions ?? [] };
       }
 
       this.sessionGateway.assertSessionRunning({
@@ -162,7 +170,7 @@ export class SetConfigOptionService {
         nextOptions.length > 0
           ? nextOptions
           : session.configOptions.map((option) =>
-              option.id === configId
+              option.id === configId && isSessionConfigSelectOption(option)
                 ? { ...option, currentValue: value }
                 : option
             );

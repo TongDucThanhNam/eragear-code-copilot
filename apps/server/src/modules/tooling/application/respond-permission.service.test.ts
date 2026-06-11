@@ -39,7 +39,7 @@ function createRuntime(
     getAll: () => [session],
     runExclusive: async (_chatId, work) => await work(),
     isLockHeld: () => true,
-    broadcast: (_chatId, event) => {
+    broadcast: async (_chatId, event) => {
       events.push(event);
     },
   } as SessionRuntimePort;

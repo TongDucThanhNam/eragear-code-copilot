@@ -86,7 +86,7 @@ export class DeleteSessionService {
       await terminateProcessGracefully(sessionToDelete.proc, {
         forceWindowsTreeTermination: true,
       });
-      await this.sessionRuntime.runExclusive(chatId, () => {
+      await this.sessionRuntime.runExclusive(chatId, async () => {
         assertSessionMutationLock({
           sessionRuntime: this.sessionRuntime,
           chatId,

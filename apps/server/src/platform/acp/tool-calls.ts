@@ -562,8 +562,8 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
    */
   async function killTerminal(
     chatId: string,
-    params: acp.KillTerminalCommandRequest
-  ): Promise<acp.KillTerminalCommandResponse> {
+    params: acp.KillTerminalRequest
+  ): Promise<acp.KillTerminalResponse> {
     const session = getSessionOrThrow(sessionRuntime, chatId);
     const term = getTerminalOrThrow(session, params.terminalId);
 

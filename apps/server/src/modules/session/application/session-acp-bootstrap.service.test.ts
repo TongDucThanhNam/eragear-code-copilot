@@ -260,6 +260,78 @@ describe("SessionAcpBootstrapService", () => {
     });
   });
 
+  test("passes project-local MCP servers into ACP newSession", async () => {
+    const chatSession = createChatSession("chat-mcp-new-session");
+    const { runtime } = createRuntimeStub(chatSession);
+    const projectRoot = "C:/repo/project";
+    let resolveProjectRoot: string | undefined;
+    let newSessionParams: { cwd?: string; mcpServers?: unknown[] } | undefined;
+    const acpMcpServer = {
+      name: "Trusted Project MCP",
+      command: "node",
+      args: ["mcp.js"],
+      env: [{ name: "MCP_TOKEN", value: "secret" }],
+    };
+
+    const connection = {
+      initialize: () =>
+        Promise.resolve({
+          protocolVersion: 1,
+          agentCapabilities: {
+            mcpCapabilities: {},
+          },
+        }),
+      newSession: (params: { cwd?: string; mcpServers?: unknown[] }) => {
+        newSessionParams = params;
+        return Promise.resolve({
+          sessionId: "sess-mcp",
+          configOptions: [],
+        });
+      },
+    };
+
+    const service = new SessionAcpBootstrapService(
+      runtime,
+      {} as SessionRepositoryPort,
+      createSessionAcpStub(),
+      {
+        createAcpConnection: () => connection as never,
+      } as unknown as AgentRuntimePort,
+      {
+        resolveServers: (rootPath: string) => {
+          resolveProjectRoot = rootPath;
+          return Promise.resolve([
+            {
+              name: "Trusted Project MCP",
+              command: "node",
+              args: ["mcp.js"],
+              env: [{ name: "MCP_TOKEN", value: "secret" }],
+            },
+          ]);
+        },
+        toAcpServers: () => [acpMcpServer],
+      } as unknown as SessionMcpConfigService,
+      {
+        broadcastPromptEnd: () => Promise.resolve(undefined),
+      } as unknown as SessionHistoryReplayService,
+      createLoggerStub(),
+      () => ({ defaultModel: "" })
+    );
+
+    await service.bootstrap({
+      chatId: chatSession.id,
+      chatSession,
+      buffer: createBuffer(),
+      projectRoot,
+    });
+
+    expect(resolveProjectRoot).toBe(projectRoot);
+    expect(newSessionParams).toEqual({
+      cwd: projectRoot,
+      mcpServers: [acpMcpServer],
+    });
+  });
+
   test("prefers loadSession when agent exposes both load and resume capabilities", async () => {
     const chatSession = createChatSession("chat-load-primary");
     chatSession.suppressReplayBroadcast = true;

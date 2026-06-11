@@ -25,6 +25,7 @@ import {
 import {
   capSessionSelectionState,
   findSessionConfigOption,
+  isSessionConfigSelectOption,
   shouldStripAvailableModelsForAgent,
   syncSessionSelectionFromConfigOptions,
   updateSessionConfigOptionCurrentValue,
@@ -68,7 +69,7 @@ function diagnosticsLogConfigOptionsCap(
   if (!modelOption) {
     return;
   }
-  const originalCount = Array.isArray(modelOption.options)
+  const originalCount = isSessionConfigSelectOption(modelOption)
     ? modelOption.options.length
     : 0;
   diagnosticsLog("config-options-cap", {

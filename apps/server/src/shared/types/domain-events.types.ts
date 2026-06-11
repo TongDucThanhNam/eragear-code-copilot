@@ -48,9 +48,24 @@ export interface SessionBroadcastEvent {
   event: BroadcastEvent;
 }
 
+export interface LocalAdeLifecycleEvent {
+  type: "local_ade_lifecycle";
+  event:
+    | "after-agent-session-create"
+    | "after-agent-message-send"
+    | "after-agent-session-stop";
+  userId: string;
+  projectRoot: string;
+  projectId?: string;
+  chatId?: string;
+  agentSessionId?: string;
+  turnId?: string;
+}
+
 export type DomainEvent =
   | DashboardRefreshEvent
   | ProjectDeletingEvent
   | ProjectDeletedEvent
   | SettingsUpdatedEvent
-  | SessionBroadcastEvent;
+  | SessionBroadcastEvent
+  | LocalAdeLifecycleEvent;

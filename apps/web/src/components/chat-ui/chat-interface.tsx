@@ -11,7 +11,42 @@ import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatMessagesPane } from "@/components/chat-ui/chat-interface/chat-messages-pane";
 import { ChatPlanDockPane } from "@/components/chat-ui/chat-interface/chat-plan-dock-pane";
 import { ChatInput } from "@/components/chat-ui/chat-input";
+import {
+  resolveLocalCommand,
+  visibleSlashCommandName,
+} from "@/components/chat-ui/local-command";
+import {
+  buildMcpToolResultPrompt,
+  MCP_COMMAND_NAME,
+  parseMcpCommand,
+  type ParsedMcpCommand,
+  resolveMcpCommandServer,
+} from "@/components/chat-ui/mcp-command";
+import {
+  outputStyleSlashCommandName,
+  resolveLocalInstructionCommand,
+  skillSlashCommandName,
+} from "@/components/chat-ui/local-instruction";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
+import {
+  AUTO_PROJECT_INDEX_CONTEXT_LIMIT,
+  shouldAutoAttachProjectIndexContext,
+  shouldUseAutoProjectIndexSearchResult,
+} from "@/components/chat-ui/project-index-auto-context";
+import {
+  parseProjectIndexCommand,
+  PROJECT_INDEX_COMMAND_NAME,
+} from "@/components/chat-ui/project-index-command";
+import {
+  AUTO_PROJECT_MEMORY_CONTEXT_BYTES,
+  composeProjectContextPrompt,
+  shouldAutoAttachProjectMemoryContext,
+  shouldUseProjectMemoryContextResult,
+} from "@/components/chat-ui/project-memory-auto-context";
+import {
+  parseProjectMemoryCommand,
+  PROJECT_MEMORY_COMMAND_NAME,
+} from "@/components/chat-ui/project-memory-command";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
 import {
   resolveSubagentCommand,
@@ -249,6 +284,7 @@ export function ChatInterface({
     undefined,
     { staleTime: 10_000 }
   );
+  const invokeMcpTool = trpc.settings.invokeMcpTool.useMutation();
   const activePendingPermission =
     pendingPermission?.requestId &&
     pendingPermission.requestId === handledPermissionIdRef.current
@@ -427,19 +463,45 @@ export function ChatInterface({
   }, [currentModelId, selectionState.models?.availableModels]);
   const localSlashCommands = useMemo(
     () =>
-      (localAdeSnapshot?.capabilities.capabilities ?? [])
-        .filter((capability) => capability.kind === "command" && capability.enabled)
-        .map((capability) => ({
-          name: capability.name.replace(/^\//, ""),
+      (localAdeSnapshot?.commands ?? [])
+        .filter((command) => command.enabled)
+        .map((command) => ({
+          name: visibleSlashCommandName(command.name),
           description:
-            capability.description ??
-            capability.diagnostics?.[0] ??
+            command.description ??
+            command.diagnostics?.[0] ??
             "Project-local command",
-          input: capability.sourcePath
-            ? { hint: capability.sourcePath }
-            : undefined,
+          input: { hint: command.argumentHint ?? command.sourcePath },
         })),
-    [localAdeSnapshot?.capabilities.capabilities]
+    [localAdeSnapshot?.commands]
+  );
+  const localSkillCommands = useMemo(
+    () =>
+      (localAdeSnapshot?.skills ?? [])
+        .filter((skill) => skill.enabled)
+        .map((skill) => ({
+          name: skillSlashCommandName(skill.name),
+          description:
+            skill.description ??
+            skill.diagnostics?.[0] ??
+            `Use ${skill.name} as a local skill`,
+          input: { hint: skill.sourcePath },
+        })),
+    [localAdeSnapshot?.skills]
+  );
+  const localOutputStyleCommands = useMemo(
+    () =>
+      (localAdeSnapshot?.outputStyles ?? [])
+        .filter((style) => style.enabled)
+        .map((style) => ({
+          name: outputStyleSlashCommandName(style.name),
+          description:
+            style.description ??
+            style.diagnostics?.[0] ??
+            `Respond using ${style.name}`,
+          input: { hint: style.sourcePath },
+        })),
+    [localAdeSnapshot?.outputStyles]
   );
   const localSubagentCommands = useMemo(
     () =>
@@ -454,9 +516,68 @@ export function ChatInterface({
         })),
     [localAdeSnapshot?.subagents]
   );
+  const mcpSlashCommands = useMemo(() => {
+    const hasInvokableTool = (localAdeSnapshot?.mcp.servers ?? []).some(
+      (server) =>
+        server.enabled &&
+        server.trustStatus === "trusted" &&
+        server.protocol.status === "initialized" &&
+        server.tools.length > 0
+    );
+    if (!hasInvokableTool) {
+      return [];
+    }
+    return [
+      {
+        name: MCP_COMMAND_NAME,
+        description: "Invoke a trusted MCP tool and send the result to the agent",
+        input: {
+          hint: '[--server <id>] <tool> {"key":"value"} [-- request]',
+        },
+      },
+    ];
+  }, [localAdeSnapshot?.mcp.servers]);
+  const projectIndexCommands = useMemo(
+    () => [
+      {
+        name: PROJECT_INDEX_COMMAND_NAME,
+        description: "Search Project Index and send matched symbols/tasks to the agent",
+        input: { hint: "<symbol, file, task, or topic>" },
+      },
+    ],
+    []
+  );
+  const projectMemoryCommands = useMemo(
+    () => [
+      {
+        name: PROJECT_MEMORY_COMMAND_NAME,
+        description: "Attach enabled project memory sources to this prompt",
+        input: { hint: "[--source AGENTS.md] <request>" },
+      },
+    ],
+    []
+  );
   const availableCommands = useMemo(
-    () => [...commands, ...localSlashCommands, ...localSubagentCommands],
-    [commands, localSlashCommands, localSubagentCommands]
+    () => [
+      ...commands,
+      ...projectIndexCommands,
+      ...projectMemoryCommands,
+      ...mcpSlashCommands,
+      ...localSlashCommands,
+      ...localSkillCommands,
+      ...localOutputStyleCommands,
+      ...localSubagentCommands,
+    ],
+    [
+      commands,
+      localOutputStyleCommands,
+      localSkillCommands,
+      localSlashCommands,
+      localSubagentCommands,
+      mcpSlashCommands,
+      projectIndexCommands,
+      projectMemoryCommands,
+    ]
   );
   // Quick switch sessions
   const quickSwitchSessions = useMemo(() => {
@@ -971,11 +1092,200 @@ export function ChatInterface({
         }
       }
 
-      const subagentCommand = resolveSubagentCommand({
-        text: message.text,
-        subagents: localAdeSnapshot?.subagents ?? [],
+      let mcpCommandPrompt: string | null = null;
+      let mcpCommand: ParsedMcpCommand | null = null;
+      try {
+        mcpCommand = parseMcpCommand(message.text);
+      } catch (mcpParseError) {
+        const message =
+          mcpParseError instanceof Error
+            ? mcpParseError.message
+            : "Invalid MCP command.";
+        toast.error(message);
+        throw mcpParseError;
+      }
+      if (mcpCommand) {
+        const resolvedMcp = resolveMcpCommandServer({
+          command: mcpCommand,
+          servers: localAdeSnapshot?.mcp.servers ?? [],
+        });
+        if (resolvedMcp.status !== "ready") {
+          toast.error(resolvedMcp.message);
+          throw new Error(`MCP_COMMAND_${resolvedMcp.status.toUpperCase()}`);
+        }
+
+        const invocation = await invokeMcpTool.mutateAsync({
+          ...(activeProjectId ? { projectId: activeProjectId } : {}),
+          serverId: resolvedMcp.server.id,
+          toolName: resolvedMcp.toolName,
+          arguments: mcpCommand.arguments,
+        });
+        if (invocation.status === "failed") {
+          const detail =
+            invocation.diagnostics.at(-1) ??
+            `MCP tool "${resolvedMcp.toolName}" failed.`;
+          toast.error(detail);
+          throw new Error("MCP_COMMAND_INVOCATION_FAILED");
+        }
+
+        mcpCommandPrompt = buildMcpToolResultPrompt({
+          command: { ...mcpCommand, toolName: resolvedMcp.toolName },
+          result: invocation,
+        });
+        toast.success(`MCP tool "${resolvedMcp.toolName}" invoked.`);
+      }
+
+      const projectMemoryCommand = mcpCommandPrompt
+        ? null
+        : parseProjectMemoryCommand(message.text);
+      let projectMemoryPrompt: string | null = null;
+      if (projectMemoryCommand) {
+        if (!projectMemoryCommand.query) {
+          toast.error("Add a request after /memory.");
+          throw new Error("PROJECT_MEMORY_QUERY_REQUIRED");
+        }
+        const memoryContext = await utils.settings.buildProjectMemoryContext.fetch({
+          query: projectMemoryCommand.query,
+          sourcePaths:
+            projectMemoryCommand.sourcePaths.length > 0
+              ? projectMemoryCommand.sourcePaths
+              : undefined,
+        });
+        if (memoryContext.status === "no-enabled-sources") {
+          toast.error("Enable a project memory source in Local ADE first.");
+          throw new Error("PROJECT_MEMORY_NOT_READY");
+        }
+        projectMemoryPrompt = memoryContext.prompt;
+      }
+
+      const projectIndexCommand = projectMemoryPrompt || mcpCommandPrompt
+        ? null
+        : parseProjectIndexCommand(message.text);
+      let projectIndexPrompt: string | null = null;
+      if (projectIndexCommand) {
+        if (!projectIndexCommand.query) {
+          toast.error("Add a search query after /index.");
+          throw new Error("PROJECT_INDEX_QUERY_REQUIRED");
+        }
+        const indexSearch = await utils.settings.searchProjectIndex.fetch({
+          query: projectIndexCommand.query,
+          limit: 12,
+        });
+        if (indexSearch.status === "not-indexed") {
+          toast.error("Refresh Project Index in Local ADE Control Center first.");
+          throw new Error("PROJECT_INDEX_NOT_READY");
+        }
+        if (indexSearch.status === "no-results") {
+          toast.info("No direct Project Index matches; sending the no-match context.");
+        }
+        projectIndexPrompt = indexSearch.prompt;
+      }
+
+      const subagentCommand = projectMemoryPrompt || projectIndexPrompt || mcpCommandPrompt
+        ? null
+        : resolveSubagentCommand({
+            text: message.text,
+            subagents: localAdeSnapshot?.subagents ?? [],
+          });
+      const localCommand = subagentCommand || projectMemoryPrompt || projectIndexPrompt || mcpCommandPrompt
+        ? null
+        : resolveLocalCommand({
+            text: message.text,
+            commands: localAdeSnapshot?.commands ?? [],
+          });
+      const localInstruction = projectMemoryPrompt || projectIndexPrompt || subagentCommand || localCommand || mcpCommandPrompt
+        ? null
+        : resolveLocalInstructionCommand({
+            text: message.text,
+            skills: localAdeSnapshot?.skills ?? [],
+            outputStyles: localAdeSnapshot?.outputStyles ?? [],
+          });
+      let autoProjectIndexPrompt: string | null = null;
+      const commandResolved = Boolean(
+          projectMemoryPrompt ||
+          projectIndexPrompt ||
+          mcpCommandPrompt ||
+          subagentCommand ||
+          localCommand ||
+          localInstruction
+      );
+      if (
+        shouldAutoAttachProjectIndexContext({
+          text: message.text,
+          hasFiles,
+          mentionCount: mentionPaths.length,
+          projectIndexReady: Boolean(localAdeSnapshot?.projectIndex.indexedAt),
+          commandResolved,
+        })
+      ) {
+        try {
+          const indexSearch = await utils.settings.searchProjectIndex.fetch({
+            query: message.text,
+            limit: AUTO_PROJECT_INDEX_CONTEXT_LIMIT,
+          });
+          if (
+            shouldUseAutoProjectIndexSearchResult({
+              status: indexSearch.status,
+              resultCount: indexSearch.results.length,
+            })
+          ) {
+            autoProjectIndexPrompt = indexSearch.prompt;
+            toast.info(
+              `Attached Project Index context (${indexSearch.results.length} matches).`
+            );
+          }
+        } catch (indexError) {
+          console.error("Automatic Project Index context failed", indexError);
+        }
+      }
+      let autoProjectMemoryPrompt: string | null = null;
+      const enabledMemorySources =
+        localAdeSnapshot?.projectMemory.sources.filter((source) => source.enabled)
+          .length ?? 0;
+      if (
+        shouldAutoAttachProjectMemoryContext({
+          text: message.text,
+          hasFiles,
+          mentionCount: mentionPaths.length,
+          enabledMemorySources,
+          commandResolved,
+        })
+      ) {
+        try {
+          const memoryContext = await utils.settings.buildProjectMemoryContext.fetch({
+            query: message.text,
+            maxBytes: AUTO_PROJECT_MEMORY_CONTEXT_BYTES,
+          });
+          if (
+            shouldUseProjectMemoryContextResult({
+              status: memoryContext.status,
+              sourceCount: memoryContext.sources.length,
+            })
+          ) {
+            autoProjectMemoryPrompt = memoryContext.prompt;
+            toast.info(
+              `Attached Project Memory context (${memoryContext.sources.length} source(s)).`
+            );
+          }
+        } catch (memoryError) {
+          console.error("Automatic Project Memory context failed", memoryError);
+        }
+      }
+      const autoContextPrompt = composeProjectContextPrompt({
+        userRequest: message.text,
+        memoryPrompt: autoProjectMemoryPrompt,
+        indexPrompt: autoProjectIndexPrompt,
       });
-      const messageText = subagentCommand?.prompt ?? message.text;
+      const hasAutoContext = Boolean(autoProjectMemoryPrompt || autoProjectIndexPrompt);
+      const messageText =
+        mcpCommandPrompt ??
+        projectMemoryPrompt ??
+        projectIndexPrompt ??
+        subagentCommand?.prompt ??
+        localCommand?.prompt ??
+        localInstruction?.prompt ??
+        (hasAutoContext ? autoContextPrompt : null) ??
+        message.text;
 
       const result = await sendMessage(messageText, {
         images: images.length > 0 ? images : undefined,
@@ -995,13 +1305,23 @@ export function ChatInterface({
     },
     [
       activeProject,
+      activeProjectId,
       chatId,
       effectiveConnStatus,
       error,
+      invokeMcpTool,
+      localAdeSnapshot?.commands,
+      localAdeSnapshot?.mcp.servers,
+      localAdeSnapshot?.outputStyles,
+      localAdeSnapshot?.projectIndex.indexedAt,
+      localAdeSnapshot?.projectMemory.sources,
+      localAdeSnapshot?.skills,
       localAdeSnapshot?.subagents,
       promptCapabilities?.embeddedContext,
       sendMessage,
       utils.getFileContent,
+      utils.settings.buildProjectMemoryContext,
+      utils.settings.searchProjectIndex,
     ]
   );
 
@@ -1204,6 +1524,7 @@ export function ChatInterface({
           onModelChange={handleSetModel}
           onSetSupervisorMode={handleSetSupervisorMode}
           onSubmit={handleSubmit}
+          projectMemorySources={localAdeSnapshot?.projectMemory.sources ?? []}
           projectRules={projectContext?.projectRules}
           status={status}
           supervisor={supervisor}

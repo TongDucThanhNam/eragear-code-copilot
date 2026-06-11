@@ -69,7 +69,7 @@ export class CleanupProjectSessionsService {
         await terminateProcessGracefully(runtimeSession.proc, {
           forceWindowsTreeTermination: true,
         });
-        await this.sessionRuntime.runExclusive(session.id, () => {
+        await this.sessionRuntime.runExclusive(session.id, async () => {
           assertSessionMutationLock({
             sessionRuntime: this.sessionRuntime,
             chatId: session.id,

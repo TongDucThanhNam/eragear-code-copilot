@@ -181,7 +181,10 @@ export class SessionAcpBootstrapService {
         });
       }
 
-      const mcpServers = await this.mcpConfig.resolveServers(capabilities);
+      const mcpServers = await this.mcpConfig.resolveServers(
+        projectRoot,
+        capabilities
+      );
       const acpMcpServers = this.mcpConfig.toAcpServers(mcpServers);
 
       if (sessionIdToLoad) {

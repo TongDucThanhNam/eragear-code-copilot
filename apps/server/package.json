@@ -3,7 +3,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "build": "bun run ui:build && tsdown",
+    "build": "bun run ui:build && tsdown && bun run ./scripts/copy-runtime-assets.ts",
     "check": "bun run check-types && bunx biome check src --error-on-warnings && bun run test",
     "check:ci": "bun run check-types && bunx biome check src --error-on-warnings && bun test src",
     "check:quick": "bun run check-types && bunx biome check src --error-on-warnings",

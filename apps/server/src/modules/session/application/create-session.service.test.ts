@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { LoggerPort } from "@/shared/ports/logger.port";
+import type { DomainEvent } from "@/shared/types/domain-events.types";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import type { BootstrapSessionConnectionService } from "./bootstrap-session-connection.service";
@@ -217,6 +218,63 @@ describe("CreateSessionService", () => {
       agentCommand: "codex",
       agentArgs: [],
       agentEnv: { MODE: "strict" },
+    });
+  });
+
+  test("publishes local ADE lifecycle event after session creation", async () => {
+    const chatSession = createChatSession("chat-lifecycle", "user-1");
+    chatSession.projectId = "project-lifecycle";
+    chatSession.sessionId = "agent-session-lifecycle";
+    const events: DomainEvent[] = [];
+
+    const service = new CreateSessionService(
+      {
+        resolve: async () => ({
+          projectId: "project-lifecycle",
+          projectRoot: "/repo/lifecycle",
+        }),
+      } as unknown as SessionProjectContextResolverService,
+      {
+        resolve: async () => ({
+          agentId: "agent-lifecycle",
+          command: "opencode",
+          args: ["acp"],
+          env: {},
+        }),
+      } as unknown as SessionAgentResolverService,
+      {
+        execute: () => ({}) as ChatSession["proc"],
+      } as unknown as SpawnSessionProcessService,
+      {
+        execute: async () => ({ chatSession }),
+      } as unknown as BootstrapSessionConnectionService,
+      {
+        execute: async () => undefined,
+      } as unknown as PersistSessionBootstrapService,
+      createLoggerStub(),
+      undefined,
+      {
+        subscribe: () => () => undefined,
+        publish: async (event: DomainEvent) => {
+          events.push(event);
+        },
+      }
+    );
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-lifecycle",
+      projectId: "project-lifecycle",
+    });
+
+    expect(events).toContainEqual({
+      type: "local_ade_lifecycle",
+      event: "after-agent-session-create",
+      userId: "user-1",
+      projectRoot: "/repo/lifecycle",
+      projectId: "project-lifecycle",
+      chatId: "chat-lifecycle",
+      agentSessionId: "agent-session-lifecycle",
     });
   });
 

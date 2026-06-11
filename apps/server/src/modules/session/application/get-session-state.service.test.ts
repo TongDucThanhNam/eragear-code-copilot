@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_MAX_VISIBLE_MODEL_COUNT } from "@/config/constants";
 import type { ChatSession } from "@/shared/types/session.types";
+import { isSessionConfigSelectOption } from "@/shared/utils/session-config-options.util";
 import { GetSessionStateService } from "./get-session-state.service";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -237,17 +238,22 @@ describe("GetSessionStateService", () => {
       const modelOption = result.configOptions!.find(
         (opt) => opt.category === "model" || opt.id === "primaryModel"
       );
-      expect(modelOption).toBeDefined();
-      expect(modelOption!.options.length).toBeLessThanOrEqual(
+      if (!isSessionConfigSelectOption(modelOption)) {
+        throw new Error("Expected model select config option");
+      }
+      expect(modelOption.options.length).toBeLessThanOrEqual(
         DEFAULT_MAX_VISIBLE_MODEL_COUNT
       );
-      expect(modelOption!.options.length).toBe(100);
+      expect(modelOption.options.length).toBe(100);
 
       // Original internal session should remain UNCHANGED (uncapped)
       const internalModelOption = session.configOptions!.find(
         (opt) => opt.category === "model" || opt.id === "primaryModel"
       );
-      expect(internalModelOption!.options.length).toBe(150); // Still 150 internally
+      if (!isSessionConfigSelectOption(internalModelOption)) {
+        throw new Error("Expected internal model select config option");
+      }
+      expect(internalModelOption.options.length).toBe(150); // Still 150 internally
     });
 
     test("AC3: getSessionState preserves currentModelId even when beyond cap", async () => {
@@ -371,7 +377,11 @@ describe("GetSessionStateService", () => {
         )
       ).toBe(false);
       expect(session.models?.availableModels).toHaveLength(150);
-      expect(session.configOptions?.[0]?.options).toHaveLength(150);
+      const modelOption = session.configOptions?.[0];
+      if (!isSessionConfigSelectOption(modelOption)) {
+        throw new Error("Expected session model select config option");
+      }
+      expect(modelOption.options).toHaveLength(150);
     });
   });
 

@@ -23,14 +23,24 @@ function tokenizeInput(
     current = "";
   };
 
-  for (const char of value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index] ?? "";
+    const nextChar = value[index + 1] ?? "";
     if (isEscaped) {
       current += char;
       isEscaped = false;
       continue;
     }
 
-    if (char === "\\" && quote !== "'") {
+    const escapesNext =
+      char === "\\" &&
+      quote !== "'" &&
+      nextChar.length > 0 &&
+      (nextChar === "\\" ||
+        nextChar === '"' ||
+        nextChar === "'" ||
+        (!quote && isSeparator(nextChar)));
+    if (escapesNext) {
       isEscaped = true;
       continue;
     }

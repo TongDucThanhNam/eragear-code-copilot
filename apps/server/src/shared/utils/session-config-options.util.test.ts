@@ -27,6 +27,15 @@ const makeModelOption = (
   description: null as string | null,
 });
 
+function expectSelectConfigOption(
+  option: SessionConfigOption | undefined
+): Extract<SessionConfigOption, { type: "select" }> {
+  if (!option || option.type !== "select") {
+    throw new Error("Expected select config option");
+  }
+  return option;
+}
+
 describe("capModelList", () => {
   describe("constants", () => {
     it("DEFAULT_MAX_VISIBLE_MODEL_COUNT should be 100", () => {
@@ -114,7 +123,7 @@ describe("capModelList", () => {
       });
 
       expect(result.configOptions.length).toBe(1);
-      const processed = result.configOptions[0]!;
+      const processed = expectSelectConfigOption(result.configOptions[0]);
       // Groups must be flattened into individual flat option entries
       expect(processed.options).toEqual([
         { value: "model-0", name: "Model 0", description: null },
@@ -213,7 +222,7 @@ describe("capModelList", () => {
       });
 
       expect(result.configOptions.length).toBe(1);
-      const processed = result.configOptions[0]!;
+      const processed = expectSelectConfigOption(result.configOptions[0]);
       // The currentValue entry should come first
       expect(processed.options[0]).toEqual({
         value: "model-5",
@@ -240,7 +249,7 @@ describe("capModelList", () => {
       const result = capModelList({ configOptions: [modeOption] });
 
       expect(result.configOptions.length).toBe(1);
-      const processed = result.configOptions[0]!;
+      const processed = expectSelectConfigOption(result.configOptions[0]);
       expect(processed.options[0]).toEqual({
         value: "fast",
         name: "Fast",
@@ -270,7 +279,7 @@ describe("capModelList", () => {
       });
 
       expect(result.configOptions.length).toBe(1);
-      const processed = result.configOptions[0]!;
+      const processed = expectSelectConfigOption(result.configOptions[0]);
       expect(processed.options.length).toBe(100);
       // currentValue should be first (reordered from index 150)
       expect(processed.options[0]).toEqual({
@@ -298,7 +307,7 @@ describe("capModelList", () => {
       const result = capModelList({ configOptions: [modelOption] });
 
       expect(result.configOptions.length).toBe(1);
-      const processed = result.configOptions[0]!;
+      const processed = expectSelectConfigOption(result.configOptions[0]);
       expect(processed.options.length).toBe(100);
       // First 100 values in original order
       expect(processed.options[0]).toEqual({
@@ -334,7 +343,7 @@ describe("capModelList", () => {
       });
 
       expect(result.configOptions.length).toBe(1);
-      const processed = result.configOptions[0]!;
+      const processed = expectSelectConfigOption(result.configOptions[0]);
       expect(processed.options.length).toBe(100);
       // currentValue moved to front from index 50
       expect(processed.options[0]).toEqual({
@@ -371,7 +380,7 @@ describe("capModelList", () => {
       });
 
       expect(result.configOptions.length).toBe(1);
-      const processed = result.configOptions[0]!;
+      const processed = expectSelectConfigOption(result.configOptions[0]);
       // maxVisible=0 → prefer empty (currentValue is not preserved)
       expect(processed.options.length).toBe(0);
       expect(result.truncated).toBe(true);
@@ -410,7 +419,7 @@ describe("capModelList", () => {
       });
 
       expect(result.configOptions.length).toBe(1);
-      const processed = result.configOptions[0]!;
+      const processed = expectSelectConfigOption(result.configOptions[0]);
       // 200 total → capped to 100
       expect(processed.options.length).toBe(100);
       // currentValue from group B should be first
@@ -444,7 +453,7 @@ describe("capModelList", () => {
       const result = capModelList({ configOptions: [modelOption] });
 
       expect(result.configOptions.length).toBe(1);
-      const processed = result.configOptions[0]!;
+      const processed = expectSelectConfigOption(result.configOptions[0]);
       expect(processed.options.length).toBe(50);
       expect(result.truncated).toBe(false);
     });

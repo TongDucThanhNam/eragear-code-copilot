@@ -22,6 +22,10 @@ import {
   type RuntimeCore,
   createRuntimeCoreFromSettings,
 } from "./core";
+import { getLogStore } from "@/platform/logging/log-store";
+import type { LogLevel } from "@/shared/types/log.types";
+import { createId } from "@/shared/utils/id.util";
+import { isAcpLogMessage } from "@/shared/utils/acp-log.util";
 
 const DESKTOP_SERVICE_TOKEN = process.env.ERAGEAR_DESKTOP_SERVICE_TOKEN ?? "";
 const LOCAL_DESKTOP_USER_ID =
@@ -36,6 +40,90 @@ const desktopServiceEndpoint: RuntimeEndpoint = {
     "Electron main bridges renderer IPC to the Bun runtime core over stdio NDJSON.",
 };
 
+const LOG_TEXT_PATTERN =
+  /^\S+\s+(DEBUG|INFO|WARN|ERROR)\s+\[([^\]]+)\]\s+([\s\S]*?)\s*(\{[\s\S]*\})?$/;
+
+function levelFromConsoleMethod(method: "log" | "info" | "warn" | "error"): LogLevel {
+  if (method === "warn") {
+    return "warn";
+  }
+  if (method === "error") {
+    return "error";
+  }
+  return "info";
+}
+
+function sanitizeDesktopLogMeta(
+  value: unknown
+): Record<string, string | number | boolean | null> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const meta: Record<string, string | number | boolean | null> = {};
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (key === "rawPayload") {
+      continue;
+    }
+    if (
+      rawValue === null ||
+      typeof rawValue === "string" ||
+      typeof rawValue === "number" ||
+      typeof rawValue === "boolean"
+    ) {
+      meta[key] = rawValue;
+    }
+  }
+  return meta;
+}
+
+function parseDesktopStructuredLog(rendered: string): {
+  level?: LogLevel;
+  tag?: string;
+  message: string;
+  context?: Record<string, string | number | boolean | null>;
+} {
+  const match = rendered.match(LOG_TEXT_PATTERN);
+  if (!match) {
+    return { message: rendered };
+  }
+  const level = match[1]?.toLowerCase() as LogLevel | undefined;
+  const tag = match[2];
+  const message = match[3]?.trim() ?? rendered;
+  let context: Record<string, string | number | boolean | null> | undefined;
+  if (match[4]) {
+    try {
+      context = sanitizeDesktopLogMeta(JSON.parse(match[4]));
+    } catch {
+      context = undefined;
+    }
+  }
+  return { level, tag, message, context };
+}
+
+function appendDesktopServiceLog(
+  method: "log" | "info" | "warn" | "error",
+  rendered: string
+): void {
+  const parsed = parseDesktopStructuredLog(rendered);
+  const context = parsed.context ?? {};
+  const chatId = typeof context.chatId === "string" ? context.chatId : undefined;
+  const userId = typeof context.userId === "string" ? context.userId : undefined;
+  const source = isAcpLogMessage(parsed.message) ? "acp" : "console";
+  getLogStore().append({
+    id: createId("log"),
+    timestamp: Date.now(),
+    level: parsed.level ?? levelFromConsoleMethod(method),
+    message: parsed.message,
+    source,
+    ...(chatId ? { chatId } : {}),
+    ...(userId ? { userId } : {}),
+    meta: {
+      ...context,
+      ...(parsed.tag ? { structuredTag: parsed.tag } : {}),
+    },
+  });
+}
+
 for (const method of ["log", "info", "warn", "error"] as const) {
   console[method] = (...args: unknown[]) => {
     const rendered = args
@@ -43,6 +131,7 @@ for (const method of ["log", "info", "warn", "error"] as const) {
         typeof arg === "string" ? arg : JSON.stringify(arg, null, 2)
       )
       .join(" ");
+    appendDesktopServiceLog(method, rendered);
     process.stderr.write(`${rendered}\n`);
   };
 }

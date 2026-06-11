@@ -269,7 +269,7 @@ export class SubscribeSessionEventsService {
         pendingLiveEvents.length = 0;
         pendingLiveEventIndexByKey.clear();
         session.emitter.off("data", internalListener);
-        await sessionRuntime.runExclusive(chatId, () => {
+        await sessionRuntime.runExclusive(chatId, async () => {
           assertSessionMutationLock({
             sessionRuntime,
             chatId,
@@ -327,7 +327,7 @@ function scheduleNoSubscriberPromptAbort(
   task.noSubscriberAbortReason =
     "Prompt aborted after realtime subscribers disconnected";
   task.noSubscriberAbortTimer = setTimeout(() => {
-    sessionRuntime.runExclusive(chatId, () => {
+    void sessionRuntime.runExclusive(chatId, async () => {
       const current = sessionRuntime.get(chatId);
       if (!current || current !== session) {
         return;
@@ -497,7 +497,7 @@ function buildBufferedEvents(session: ChatSession): {
             effectiveSnapshots.length - (INITIAL_SNAPSHOT_MESSAGE_LIMIT - 1)
           );
           const activeMsg = effectiveSnapshots[activeIndex];
-          limitedSnapshots = [...tail, activeMsg];
+          limitedSnapshots = activeMsg ? [...tail, activeMsg] : tail;
         } else {
           limitedSnapshots = effectiveSnapshots.slice(0, INITIAL_SNAPSHOT_MESSAGE_LIMIT);
         }

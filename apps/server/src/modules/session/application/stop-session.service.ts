@@ -58,7 +58,7 @@ export class StopSessionService {
       await terminateProcessGracefully(sessionToDelete.proc, {
         forceWindowsTreeTermination: true,
       });
-      await this.sessionRuntime.runExclusive(chatId, () => {
+      await this.sessionRuntime.runExclusive(chatId, async () => {
         assertSessionMutationLock({
           sessionRuntime: this.sessionRuntime,
           chatId,
@@ -77,6 +77,19 @@ export class StopSessionService {
       });
     }
     await this.sessionRepo.updateStatus(chatId, userId, "stopped");
+    await this.eventBus.publish({
+      type: "local_ade_lifecycle",
+      event: "after-agent-session-stop",
+      userId,
+      projectRoot: runtimeSession?.projectRoot ?? stored.projectRoot,
+      ...(runtimeSession?.projectId ?? stored.projectId
+        ? { projectId: runtimeSession?.projectId ?? stored.projectId }
+        : {}),
+      chatId,
+      ...(runtimeSession?.sessionId ?? stored.sessionId
+        ? { agentSessionId: runtimeSession?.sessionId ?? stored.sessionId }
+        : {}),
+    });
     await this.eventBus.publish({
       type: "dashboard_refresh",
       reason: "session_stopped",

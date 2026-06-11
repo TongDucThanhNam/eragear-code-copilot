@@ -85,7 +85,7 @@ export interface SessionConfigOptionValue {
 
 interface NormalizedConfigSelectOptionValue {
   value: string;
-  name?: string;
+  name: string;
   description?: string | null;
 }
 
@@ -98,6 +98,11 @@ interface SessionConfigSelectOptionValue {
 interface SessionConfigSelectGroupValue {
   options?: SessionConfigSelectOptionValue[];
 }
+
+type SessionConfigSelectOption = Extract<
+  SessionConfigOption,
+  { type: "select" }
+>;
 
 function isConfigSelectGroup(
   value: SessionConfigSelectOptionValue | SessionConfigSelectGroupValue
@@ -117,6 +122,21 @@ function normalizeAgentLabel(value: string | null | undefined): string {
   return value?.replace(/\s+/g, "").toLowerCase() ?? "";
 }
 
+export function isSessionConfigSelectOption(
+  option: SessionConfigOption | undefined
+): option is SessionConfigSelectOption {
+  return option?.type === "select" && Array.isArray(option.options);
+}
+
+function getCurrentStringValue(
+  option: SessionConfigOption | undefined
+): string | undefined {
+  const currentValue = option?.currentValue;
+  return typeof currentValue === "string" && hasNonEmptyString(currentValue)
+    ? currentValue
+    : undefined;
+}
+
 /**
  * Caps a config option's values to maxVisible items, preserving currentValue.
  * Flattens nested grouped options into a flat options array.
@@ -128,13 +148,22 @@ function capConfigOption(
   option: SessionConfigOption,
   maxVisible: number
 ): { option: SessionConfigOption; truncated: boolean; truncatedCount: number } {
+  if (!isSessionConfigSelectOption(option)) {
+    return {
+      option: { ...option },
+      truncated: false,
+      truncatedCount: 0,
+    };
+  }
+
   // Flatten all options (including nested groups) with deduplication
   const flatOptions = flattenConfigOptionValues(option);
+  const currentValue = getCurrentStringValue(option);
 
   // Reorder currentValue to front if it exists
-  if (hasNonEmptyString(option.currentValue)) {
+  if (currentValue) {
     const currentIdx = flatOptions.findIndex(
-      (opt) => opt.value === option.currentValue
+      (opt) => opt.value === currentValue
     );
     if (currentIdx > 0) {
       const [removed] = flatOptions.splice(currentIdx, 1);
@@ -157,9 +186,9 @@ function capConfigOption(
     name: option.name,
     description: option.description,
     type: option.type,
-    currentValue: option.currentValue,
+    currentValue: currentValue ?? option.currentValue,
     category: option.category,
-    options: cappedOptions as SessionConfigOption["options"],
+    options: cappedOptions,
   };
 
   return {
@@ -175,8 +204,12 @@ function capConfigOption(
  */
 function flattenConfigOptionValues(
   option: SessionConfigOption
-): SessionConfigSelectOptionValue[] {
-  const flatOptions: SessionConfigSelectOptionValue[] = [];
+): NormalizedConfigSelectOptionValue[] {
+  if (!isSessionConfigSelectOption(option)) {
+    return [];
+  }
+
+  const flatOptions: NormalizedConfigSelectOptionValue[] = [];
   const seen = new Set<string>();
 
   for (const item of option.options ?? []) {
@@ -188,7 +221,7 @@ function flattenConfigOptionValues(
         seen.add(nested.value);
         flatOptions.push({
           value: nested.value,
-          name: nested.name,
+          name: nested.name ?? nested.value,
           description: nested.description ?? null,
         });
       }
@@ -201,7 +234,7 @@ function flattenConfigOptionValues(
     seen.add(item.value);
     flatOptions.push({
       value: item.value,
-      name: item.name,
+      name: item.name ?? item.value,
       description: item.description ?? null,
     });
   }
@@ -342,6 +375,10 @@ export function capSessionSelectionState(
 function collectConfigOptionValues(
   option: SessionConfigOption
 ): NormalizedConfigSelectOptionValue[] {
+  if (!isSessionConfigSelectOption(option)) {
+    return [];
+  }
+
   const values: NormalizedConfigSelectOptionValue[] = [];
   const seen = new Set<string>();
 
@@ -357,7 +394,7 @@ function collectConfigOptionValues(
         seen.add(nested.value);
         values.push({
           value: nested.value,
-          name: nested.name,
+          name: nested.name ?? nested.value,
           description: nested.description,
         });
       }
@@ -373,7 +410,7 @@ function collectConfigOptionValues(
     seen.add(item.value);
     values.push({
       value: item.value,
-      name: item.name,
+      name: item.name ?? item.value,
       description: item.description,
     });
   }
@@ -407,10 +444,11 @@ export function getSessionConfigOptionCurrentValue(params: {
   target: "mode" | "model";
 }): string | undefined {
   const option = findSessionConfigOption(params.configOptions, params.target);
-  if (!(option && hasNonEmptyString(option.currentValue))) {
+  const currentValue = getCurrentStringValue(option);
+  if (!currentValue) {
     return undefined;
   }
-  return option.currentValue;
+  return currentValue;
 }
 
 export function findSessionConfigOption(
@@ -430,7 +468,8 @@ function deriveModeState(
   modeOption: SessionConfigOption | undefined,
   existingModes: SessionModeState | undefined
 ): SessionModeState | undefined {
-  if (!(modeOption && hasNonEmptyString(modeOption.currentValue))) {
+  const currentValue = getCurrentStringValue(modeOption);
+  if (!(modeOption && currentValue)) {
     return existingModes;
   }
 
@@ -445,7 +484,7 @@ function deriveModeState(
       : (existingModes?.availableModes ?? []);
 
   return {
-    currentModeId: modeOption.currentValue,
+    currentModeId: currentValue,
     availableModes: nextAvailableModes,
   };
 }
@@ -454,7 +493,8 @@ function deriveModelState(
   modelOption: SessionConfigOption | undefined,
   existingModels: SessionModelState | undefined
 ): SessionModelState | undefined {
-  if (!(modelOption && hasNonEmptyString(modelOption.currentValue))) {
+  const currentValue = getCurrentStringValue(modelOption);
+  if (!(modelOption && currentValue)) {
     return existingModels;
   }
 
@@ -469,7 +509,7 @@ function deriveModelState(
       : (existingModels?.availableModels ?? []);
 
   return {
-    currentModelId: modelOption.currentValue,
+    currentModelId: currentValue,
     availableModels: nextAvailableModels,
   };
 }
@@ -516,7 +556,13 @@ export function updateSessionConfigOptionCurrentValue(params: {
   value: string;
 }): boolean {
   const option = findSessionConfigOption(params.configOptions, params.target);
-  if (!(option && hasNonEmptyString(params.value))) {
+  if (
+    !(
+      option &&
+      isSessionConfigSelectOption(option) &&
+      hasNonEmptyString(params.value)
+    )
+  ) {
     return false;
   }
   if (option.currentValue === params.value) {

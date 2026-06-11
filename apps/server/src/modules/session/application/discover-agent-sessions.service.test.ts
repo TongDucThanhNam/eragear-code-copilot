@@ -95,7 +95,7 @@ describe("DiscoverAgentSessionsService", () => {
                 },
               ],
             }),
-            unstable_listSessions: (params: {
+            listSessions: (params: {
               cwd?: string | null;
               cursor?: string | null;
             }) => {
@@ -115,7 +115,7 @@ describe("DiscoverAgentSessionsService", () => {
           }) as never,
       } as unknown as AgentRuntimePort,
       createLoggerStub(),
-      (...args) => {
+      async (...args) => {
         terminateCalls.push(args);
       }
     );
@@ -211,14 +211,14 @@ describe("DiscoverAgentSessionsService", () => {
                 version: "0.9.1",
               },
             }),
-            unstable_listSessions: () => {
+            listSessions: () => {
               listCalls.push(true);
               return { sessions: [] };
             },
           }) as never,
       } as unknown as AgentRuntimePort,
       createLoggerStub(),
-      () => undefined
+      async () => undefined
     );
 
     const result = await service.execute({
@@ -271,7 +271,7 @@ describe("DiscoverAgentSessionsService", () => {
           }) as never,
       } as unknown as AgentRuntimePort,
       createLoggerStub(),
-      () => undefined
+      async () => undefined
     );
 
     const result = await service.execute({
@@ -325,13 +325,13 @@ describe("DiscoverAgentSessionsService", () => {
                 version: "1.0.0",
               },
             }),
-            unstable_listSessions: () => {
+            listSessions: () => {
               throw RequestError.methodNotFound("session/list");
             },
           }) as never,
       } as unknown as AgentRuntimePort,
       createLoggerStub(),
-      () => undefined
+      async () => undefined
     );
 
     const result = await service.execute({

@@ -121,7 +121,11 @@ export interface PromptCapabilities {
   embeddedContext?: boolean;
 }
 
-export type SessionConfigOption = AcpSessionConfigOption;
+export type SessionConfigOption =
+  | Extract<AcpSessionConfigOption, { type: "select" }>
+  | (Extract<AcpSessionConfigOption, { type: "boolean" }> & {
+      options?: never;
+    });
 
 /**
  * Session info metadata synchronized from ACP session_info_update.

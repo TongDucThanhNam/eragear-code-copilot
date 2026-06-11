@@ -88,7 +88,9 @@ export function createSessionUseCases(
     spawnSessionProcess,
     bootstrapSessionConnection,
     persistSessionBootstrap,
-    deps.appLogger
+    deps.appLogger,
+    undefined,
+    deps.eventBus
   );
   const discoverAgentSessionsService = new DiscoverAgentSessionsService(
     projectContextResolver,

@@ -84,7 +84,7 @@ function createContext(params: {
     params.sessionRepo ??
     ({
       appendMessage: async () => ({ appended: true }),
-    } as SessionRepositoryPort);
+    } as unknown as SessionRepositoryPort);
   return {
     chatId: params.chatId,
     buffer: params.buffer,
@@ -672,7 +672,7 @@ describe("handleBufferedMessage", () => {
         });
         return { appended: true } as const;
       },
-    } as SessionRepositoryPort;
+    } as unknown as SessionRepositoryPort;
 
     await handleBufferedMessage(
       createContext({
@@ -728,7 +728,7 @@ describe("handleBufferedMessage", () => {
         appendCalls.push({ messageId: message.id, content: message.content });
         return { appended: true } as const;
       },
-    } as SessionRepositoryPort;
+    } as unknown as SessionRepositoryPort;
 
     await handleBufferedMessage(
       createContext({
@@ -786,7 +786,7 @@ describe("handleBufferedMessage", () => {
         appendCalls.push({ messageId: message.id, content: message.content });
         return { appended: true } as const;
       },
-    } as SessionRepositoryPort;
+    } as unknown as SessionRepositoryPort;
 
     await handleBufferedMessage(
       createContext({

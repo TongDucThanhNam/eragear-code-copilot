@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { StoredMessage } from "@/modules/session/domain/stored-session.types";
+import type {
+  Plan,
+  StoredMessage,
+} from "@/modules/session/domain/stored-session.types";
 import {
   buildRecentToolContext,
   computeDecisionFingerprint,
@@ -850,15 +853,7 @@ describe("NoopSupervisorAuditAdapter", () => {
     const { NoopSupervisorAuditAdapter } = await import("../infra/obsidian-supervisor-memory.adapter");
     const adapter = new NoopSupervisorAuditAdapter();
     // Should not throw
-    await expect(
-      adapter.appendEntry({
-        chatId: "test",
-        projectRoot: "/test",
-        semanticAction: "DONE",
-        reason: "test",
-        latestAssistantTextPart: "text",
-      })
-    ).resolves.toBeUndefined();
+    await expect(adapter.appendEntry()).resolves.toBeUndefined();
   });
 });
 
@@ -868,19 +863,9 @@ describe("NoopSupervisorMemoryAdapter appendLog does not contaminate lookup", ()
     const adapter = new NoopSupervisorMemoryAdapter();
 
     // appendLog is a no-op, so lookup should always return empty
-    await adapter.appendLog({
-      chatId: "chat-1",
-      projectRoot: "/repo",
-      action: "save_memory",
-      reason: "test",
-      latestAssistantTextPart: "text",
-    });
+    await adapter.appendLog();
 
-    const result = await adapter.lookup({
-      query: "test",
-      chatId: "chat-1",
-      projectRoot: "/repo",
-    });
+    const result = await adapter.lookup();
     expect(result.results).toEqual([]);
   });
 });
@@ -947,7 +932,7 @@ describe("computePlanSnapshot", () => {
   });
 
   test("returns deterministic snapshot for same plan entries", () => {
-    const plan = {
+    const plan: Plan = {
       entries: [
         { content: "Step 1", status: "completed", priority: "high" },
         { content: "Step 2", status: "in_progress", priority: "medium" },
@@ -960,13 +945,13 @@ describe("computePlanSnapshot", () => {
   });
 
   test("returns same snapshot regardless of entry order", () => {
-    const plan1 = {
+    const plan1: Plan = {
       entries: [
         { content: "Step A", status: "completed", priority: "high" },
         { content: "Step B", status: "pending", priority: "low" },
       ],
     };
-    const plan2 = {
+    const plan2: Plan = {
       entries: [
         { content: "Step B", status: "pending", priority: "low" },
         { content: "Step A", status: "completed", priority: "high" },
@@ -976,12 +961,12 @@ describe("computePlanSnapshot", () => {
   });
 
   test("returns different snapshots when entry status changes", () => {
-    const planBefore = {
+    const planBefore: Plan = {
       entries: [
         { content: "Step 1", status: "in_progress", priority: "high" },
       ],
     };
-    const planAfter = {
+    const planAfter: Plan = {
       entries: [
         { content: "Step 1", status: "completed", priority: "high" },
       ],

@@ -29,7 +29,8 @@ type SqliteWorkerFactory = (
 ) => SqliteWorkerHandle;
 
 type SqliteWorkerEvent = "message" | "error" | "exit";
-type SqliteWorkerListener = (...args: unknown[]) => void;
+// Internal event multiplexer mirrors Node/EventTarget listener variance.
+type SqliteWorkerListener = (...args: any[]) => void;
 
 interface SqliteWorkerHandle {
   postMessage(message: unknown): void;
@@ -83,6 +84,9 @@ class StandaloneSqliteWorker implements SqliteWorkerHandle {
     this.emit("exit", 0);
   }
 
+  on(event: "message", listener: (message: unknown) => void): this;
+  on(event: "error", listener: (error: Error) => void): this;
+  on(event: "exit", listener: (code: number) => void): this;
   on(event: SqliteWorkerEvent, listener: SqliteWorkerListener): this {
     const listeners = this.listeners.get(event) ?? new Set();
     listeners.add(listener);
@@ -90,6 +94,9 @@ class StandaloneSqliteWorker implements SqliteWorkerHandle {
     return this;
   }
 
+  off(event: "message", listener: (message: unknown) => void): this;
+  off(event: "error", listener: (error: Error) => void): this;
+  off(event: "exit", listener: (code: number) => void): this;
   off(event: SqliteWorkerEvent, listener: SqliteWorkerListener): this {
     this.listeners.get(event)?.delete(listener);
     return this;

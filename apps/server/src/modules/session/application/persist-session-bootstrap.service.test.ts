@@ -166,7 +166,7 @@ describe("PersistSessionBootstrapService", () => {
     const service = new PersistSessionBootstrapService(
       metadataPersistence,
       sessionRepo,
-      () => {
+      async () => {
         resolverCalls += 1;
         return [
           {
@@ -239,7 +239,7 @@ describe("PersistSessionBootstrapService", () => {
     const service = new PersistSessionBootstrapService(
       metadataPersistence,
       sessionRepo,
-      () => {
+      async () => {
         resolverCalls += 1;
         return [
           {
@@ -324,7 +324,7 @@ describe("PersistSessionBootstrapService", () => {
     const service = new PersistSessionBootstrapService(
       metadataPersistence,
       sessionRepo,
-      () => {
+      async () => {
         resolverCalls += 1;
         return [
           {
@@ -447,7 +447,7 @@ describe("PersistSessionBootstrapService", () => {
     const service = new PersistSessionBootstrapService(
       metadataPersistence,
       sessionRepo,
-      () => externalMessages
+      async () => externalMessages
     );
 
     const chatSession = createChatSession();

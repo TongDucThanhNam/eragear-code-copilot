@@ -14,7 +14,9 @@ import type { SessionRuntimePort } from "@/modules/session/application/ports/ses
 import { SubscribeSessionEventsService } from "@/modules/session/application/subscribe-session-events.service";
 import { SessionBuffering } from "@/platform/acp/update";
 import type { ClockPort } from "@/shared/ports/clock.port";
+import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
+import type { DomainEvent } from "@/shared/types/domain-events.types";
 import type {
   BroadcastEvent,
   ChatSession,
@@ -287,7 +289,8 @@ function createService(
   repo: SessionRepositoryPort,
   runtime: SessionRuntimePort,
   policyOverrides?: Partial<SendMessagePolicy>,
-  afterTurnComplete?: (event: PromptTurnCompleteEvent) => void | Promise<void>
+  afterTurnComplete?: (event: PromptTurnCompleteEvent) => void | Promise<void>,
+  eventBus?: EventBusPort
 ): SendMessageService {
   const clock: ClockPort = {
     nowMs: () => Date.now(),
@@ -318,6 +321,7 @@ function createService(
     logger,
     inputPolicy: policy,
     clock,
+    ...(eventBus ? { eventBus } : {}),
   });
 }
 
@@ -425,6 +429,40 @@ describe("SendMessageService", () => {
       expect(readyEvent.turnId).toBe(result.turnId);
     }
     expect(session.activeTurnId).toBeUndefined();
+  });
+
+  test("publishes local ADE lifecycle event after prompt submission", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const domainEvents: DomainEvent[] = [];
+    const session = createChatSession({
+      prompt: async () => ({ stopReason: "end_turn" }),
+    });
+    session.projectId = "project-1";
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime, undefined, undefined, {
+      subscribe: () => () => undefined,
+      publish: async (event) => {
+        domainEvents.push(event);
+      },
+    });
+
+    const result = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "hello",
+    });
+
+    expect(domainEvents).toContainEqual({
+      type: "local_ade_lifecycle",
+      event: "after-agent-message-send",
+      userId: "user-1",
+      projectRoot: "/tmp/project",
+      projectId: "project-1",
+      chatId: "chat-1",
+      agentSessionId: "acp-session-1",
+      turnId: result.turnId,
+    });
   });
 
   test("notifies after turn completion even after chat_finish state is cleared", async () => {

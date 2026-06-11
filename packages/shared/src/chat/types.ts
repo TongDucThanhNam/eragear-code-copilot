@@ -87,15 +87,24 @@ export interface SessionConfigSelectGroup {
   options: SessionConfigSelectOption[];
 }
 
-export interface SessionConfigOption {
+export interface SessionConfigOptionBase {
   id: string;
   name: string;
   description?: string | null;
   category?: SessionConfigOptionCategory | null;
-  type: "select";
-  currentValue: string;
-  options: SessionConfigSelectOption[] | SessionConfigSelectGroup[];
 }
+
+export type SessionConfigOption =
+  | (SessionConfigOptionBase & {
+      type: "select";
+      currentValue: string;
+      options: SessionConfigSelectOption[] | SessionConfigSelectGroup[];
+    })
+  | (SessionConfigOptionBase & {
+      type: "boolean";
+      currentValue: boolean;
+      options?: never;
+    });
 
 export interface SessionInfo {
   title?: string | null;

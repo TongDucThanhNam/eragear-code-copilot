@@ -12,7 +12,9 @@ import type {
 } from "@/modules/session";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
+import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
+import type { LocalAdeLifecycleEvent } from "@/shared/types/domain-events.types";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
   isBusyChatStatus,
@@ -54,6 +56,7 @@ export interface SendMessageServiceDeps {
   logger: LoggerPort;
   inputPolicy: SendMessagePolicy;
   clock: ClockPort;
+  eventBus?: EventBusPort;
 }
 
 /**
@@ -70,6 +73,7 @@ export class SendMessageService {
   private readonly sessionGateway: AiSessionRuntimePort;
   private readonly logger: LoggerPort;
   private readonly clock: ClockPort;
+  private readonly eventBus?: EventBusPort;
   private readonly policy: NormalizedSendMessagePolicy;
   private readonly payloadBudgetGuard: PayloadBudgetGuard;
   private readonly promptTaskRunner: PromptTaskRunner;
@@ -81,6 +85,7 @@ export class SendMessageService {
     this.promptTaskRunner = deps.promptTaskRunner;
     this.logger = deps.logger;
     this.clock = deps.clock;
+    this.eventBus = deps.eventBus;
     this.policy = normalizeSendMessagePolicy(deps.inputPolicy);
     this.payloadBudgetGuard = new PayloadBudgetGuard(
       this.policy.messagePartsMaxBytes
@@ -118,7 +123,8 @@ export class SendMessageService {
     this.payloadBudgetGuard.assertInlineMediaPayloadBudget(input);
 
     const lockRequestedAt = this.clock.nowMs();
-    return await this.sessionRuntime.runExclusive(input.chatId, async () => {
+    let lifecycleEvent: LocalAdeLifecycleEvent | undefined;
+    const result: SendMessageResult = await this.sessionRuntime.runExclusive(input.chatId, async () => {
       const lockAcquiredAt = this.clock.nowMs();
       this.logger.debug("SendMessageService execute lock acquired", {
         chatId: input.chatId,
@@ -325,6 +331,16 @@ export class SendMessageService {
             promise: promptTask,
             abortController: promptAbortController,
           });
+          lifecycleEvent = {
+            type: "local_ade_lifecycle",
+            event: "after-agent-message-send",
+            userId: input.userId,
+            projectRoot: session.projectRoot,
+            ...(session.projectId ? { projectId: session.projectId } : {}),
+            chatId: input.chatId,
+            ...(session.sessionId ? { agentSessionId: session.sessionId } : {}),
+            turnId,
+          };
         } catch (error) {
           const errorText =
             error instanceof Error
@@ -358,6 +374,15 @@ export class SendMessageService {
         });
       }
     });
+    if (lifecycleEvent) {
+      await this.eventBus?.publish(lifecycleEvent).catch((error) => {
+        this.logger.warn("SendMessage lifecycle event publish failed", {
+          chatId: input.chatId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+    return result;
   }
 
   private assertPromptCapabilities(

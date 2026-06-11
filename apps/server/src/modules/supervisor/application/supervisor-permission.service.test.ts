@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, vi } from "bun:test";
+import { describe, expect, test, vi } from "bun:test";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { SupervisorPermissionSnapshot } from "./ports/supervisor-decision.port";
 import { evaluateHardDeny } from "./supervisor-hard-deny";
@@ -109,7 +109,6 @@ function makeMockLogger(): LoggerPort {
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-    verbose: vi.fn(),
   };
 }
 
@@ -436,7 +435,6 @@ describe("SupervisorPermissionService.getTaskGoal", () => {
 
   test("uses latest user message when multiple messages exist", async () => {
     const latestContent = "latest user request";
-    const olderContent = "older user request";
 
     const mockSessionRepo = {
       getMessagesPage: vi.fn().mockResolvedValue({

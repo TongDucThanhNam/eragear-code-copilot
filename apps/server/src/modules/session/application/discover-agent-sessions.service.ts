@@ -69,14 +69,14 @@ export interface DiscoverAgentSessionsResult {
 
 function createDiscoveryClient(): acp.Client {
   return {
-    requestPermission() {
+    async requestPermission() {
       return {
         outcome: {
           outcome: "cancelled",
         },
       };
     },
-    sessionUpdate() {
+    async sessionUpdate() {
       // Discovery connection does not stream UI updates.
     },
   };
@@ -260,7 +260,7 @@ export class DiscoverAgentSessionsService {
       }
 
       try {
-        const listResult = await conn.unstable_listSessions({
+        const listResult = await conn.listSessions({
           cwd: projectRoot,
           ...(cursor ? { cursor } : {}),
         });

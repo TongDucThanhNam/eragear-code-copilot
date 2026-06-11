@@ -8,6 +8,7 @@
  */
 
 import { execFile } from "node:child_process";
+import type { Dirent } from "node:fs";
 import {
   mkdtemp,
   readdir,
@@ -73,7 +74,7 @@ async function scanProjectFiles(scanRoot: string): Promise<{
       continue;
     }
 
-    let entries: Awaited<ReturnType<typeof readdir>>;
+    let entries: Dirent<string>[];
     try {
       entries = await readdir(dir, {
         withFileTypes: true,

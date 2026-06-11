@@ -25,6 +25,14 @@ process.stdin.on("data", (chunk) => {
           capabilities: { tools: {}, resources: {} },
         },
       });
+      send({
+        jsonrpc: "2.0",
+        method: "notifications/message",
+        params: {
+          level: "info",
+          data: "desktop stdio mcp initialized",
+        },
+      });
       continue;
     }
     if (message.method === "tools/list") {
@@ -51,6 +59,45 @@ process.stdin.on("data", (chunk) => {
             {
               uri: "file:///desktop-smoke",
               name: "desktop-smoke-resource",
+            },
+          ],
+        },
+      });
+      continue;
+    }
+    if (message.method === "tools/call") {
+      send({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          content: [
+            {
+              type: "text",
+              text: `desktop tool call ${message.params?.name ?? "unknown"} path=${message.params?.arguments?.path ?? ""}`,
+            },
+          ],
+        },
+      });
+      send({
+        jsonrpc: "2.0",
+        method: "notifications/progress",
+        params: {
+          progressToken: "desktop-tool",
+          message: `completed ${message.params?.name ?? "unknown"}`,
+        },
+      });
+      continue;
+    }
+    if (message.method === "resources/read") {
+      send({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          contents: [
+            {
+              uri: message.params?.uri ?? "unknown",
+              mimeType: "text/plain",
+              text: `desktop resource read ${message.params?.uri ?? "unknown"}`,
             },
           ],
         },

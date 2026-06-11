@@ -64,6 +64,7 @@ export function createAiUseCases(
     logger: deps.appLogger,
     inputPolicy: deps.sendMessagePolicy,
     clock: deps.clock,
+    eventBus: deps.eventBus,
   });
   const setModelService = new SetModelService(
     deps.sessionRuntime,

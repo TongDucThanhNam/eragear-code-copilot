@@ -88,6 +88,10 @@ import {
   parseRecentSlashCommandNames,
   readRecentSlashCommandNames,
 } from "./chat-input/shared";
+import {
+  ProjectMemoryActionMenu,
+  type ProjectMemoryMenuSource,
+} from "./chat-input/project-memory-action-menu";
 import { SlashCommandActionMenuItem } from "./chat-input/slash-command-action-menu-item";
 import { SlashCommandInlinePopup } from "./chat-input/slash-command-inline-popup";
 import { SlashCommandPaletteItem } from "./chat-input/slash-command-palette-item";
@@ -140,6 +144,7 @@ export interface ChatInputProps {
   activeTabs?: { path: string }[];
   projectRules?: { path: string; location: string }[];
   availableCommands?: SlashCommand[];
+  projectMemorySources?: ProjectMemoryMenuSource[];
   onCancel?: () => void;
 }
 
@@ -164,6 +169,7 @@ export const ChatInput = memo(function ChatInput({
   activeTabs = [],
   projectRules = [],
   availableCommands = [],
+  projectMemorySources = [],
   onCancel,
 }: ChatInputProps) {
   const files = useFileStore((state) => state.files);
@@ -675,6 +681,16 @@ console.debug(
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
               <PromptInputActionAddAttachments />
+              {projectMemorySources.some((source) => source.enabled) && (
+                <>
+                  <DropdownMenuSeparator />
+                  <ProjectMemoryActionMenu
+                    onCommandApplied={rememberSlashCommand}
+                    sources={projectMemorySources}
+                    textareaRef={textareaRef}
+                  />
+                </>
+              )}
               {quickSlashCommands.length > 0 && <DropdownMenuSeparator />}
               {quickSlashCommands.map((cmd) => (
                 <SlashCommandActionMenuItem

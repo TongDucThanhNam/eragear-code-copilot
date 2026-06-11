@@ -35,7 +35,7 @@ describe("updateChatStatus", () => {
     await updateChatStatus({
       chatId: "chat-1",
       session,
-      broadcast: (_chatId, event) => {
+      broadcast: async (_chatId, event) => {
         events.push(event);
       },
       status: "streaming",
@@ -60,7 +60,7 @@ describe("updateChatStatus", () => {
     await updateChatStatus({
       chatId: "chat-1",
       session,
-      broadcast: (_chatId, event) => {
+      broadcast: async (_chatId, event) => {
         events.push(event);
       },
       status: "inactive",
@@ -82,7 +82,7 @@ describe("updateChatStatus", () => {
     await updateChatStatus({
       chatId: "chat-1",
       session,
-      broadcast: (_chatId, event) => {
+      broadcast: async (_chatId, event) => {
         events.push(event);
       },
       status: "ready",
@@ -112,7 +112,7 @@ describe("maybeBroadcastChatFinish", () => {
     await maybeBroadcastChatFinish({
       chatId: session.id,
       session,
-      broadcast: (_chatId, event) => {
+      broadcast: async (_chatId, event) => {
         events.push(event);
       },
     });

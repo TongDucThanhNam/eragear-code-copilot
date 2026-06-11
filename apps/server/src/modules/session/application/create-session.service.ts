@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { ValidationError } from "@/shared/errors";
+import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
@@ -29,6 +30,7 @@ export class CreateSessionService {
   private readonly bootstrapSessionConnection: BootstrapSessionConnectionService;
   private readonly persistSessionBootstrap: PersistSessionBootstrapService;
   private readonly logger: LoggerPort;
+  private readonly eventBus?: EventBusPort;
   private readonly terminateProcess: (
     proc: ChatSession["proc"],
     policy?: ProcessTerminationPolicy
@@ -44,7 +46,8 @@ export class CreateSessionService {
     terminateProcess: (
       proc: ChatSession["proc"],
       policy?: ProcessTerminationPolicy
-    ) => Promise<unknown> = terminateProcessGracefully
+    ) => Promise<unknown> = terminateProcessGracefully,
+    eventBus?: EventBusPort
   ) {
     this.projectContextResolver = projectContextResolver;
     this.sessionAgentResolver = sessionAgentResolver;
@@ -52,6 +55,7 @@ export class CreateSessionService {
     this.bootstrapSessionConnection = bootstrapSessionConnection;
     this.persistSessionBootstrap = persistSessionBootstrap;
     this.logger = logger;
+    this.eventBus = eventBus;
     this.terminateProcess = terminateProcess;
   }
 
@@ -132,6 +136,25 @@ export class CreateSessionService {
         agentArgs,
         agentEnv,
       });
+
+      await this.eventBus
+        ?.publish({
+          type: "local_ade_lifecycle",
+          event: "after-agent-session-create",
+          userId: params.userId,
+          projectRoot,
+          ...(projectId ? { projectId } : {}),
+          chatId,
+          ...(chatSession.sessionId
+            ? { agentSessionId: chatSession.sessionId }
+            : {}),
+        })
+        .catch((error) => {
+          this.logger.warn("CreateSession lifecycle event publish failed", {
+            chatId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
 
       return chatSession;
     } catch (error) {

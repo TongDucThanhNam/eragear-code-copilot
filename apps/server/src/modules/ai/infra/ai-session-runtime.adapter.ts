@@ -282,7 +282,7 @@ export class AiSessionRuntimeAdapter implements AiSessionRuntimePort {
         forceWindowsTreeTermination: true,
       });
     }
-    await this.sessionRuntime.runExclusive(chatId, () => {
+    await this.sessionRuntime.runExclusive(chatId, async () => {
       assertSessionMutationLock({
         sessionRuntime: this.sessionRuntime,
         chatId,

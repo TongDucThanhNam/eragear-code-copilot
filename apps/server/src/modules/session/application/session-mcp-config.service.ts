@@ -1,3 +1,8 @@
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { SettingsRepositoryPort } from "@/modules/settings";
 import { ValidationError } from "@/shared/errors";
@@ -9,10 +14,261 @@ import type {
 } from "@/shared/types/settings.types";
 
 const OP = "session.lifecycle.create";
+const PROJECT_MCP_FILE = "mcp-servers.json";
+const MCP_AGENT_BROKER_FILE = path.join("runtime", "mcp-agent-broker.js");
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SECRET_HINT_PATTERN =
+  /(api[_-]?key|secret|token|password|private[_-]?key|authorization|cookie)/i;
 
 interface AgentMcpCapabilities {
   mcpCapabilities?: { http?: boolean; sse?: boolean };
   mcp?: { http?: boolean; sse?: boolean };
+}
+
+interface ProjectLocalMcpServer {
+  id: string;
+  name: string;
+  transport: "stdio" | "streamable-http" | "sse";
+  enabled: boolean;
+  command?: string;
+  args?: string[];
+  url?: string;
+  messageEndpoint?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  headerEnv?: Record<string, string>;
+  trustedFingerprint?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isJavaScriptRuntimeExecutable(command: string): boolean {
+  const basename = path.basename(command).toLowerCase();
+  return (
+    basename === "bun" ||
+    basename === "bun.exe" ||
+    basename === "node" ||
+    basename === "node.exe"
+  );
+}
+
+export function resolveMcpAgentBrokerRuntimeCommand(
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const configured = env.ERAGEAR_MCP_AGENT_BROKER_RUNTIME?.trim();
+  if (configured) {
+    return configured;
+  }
+  return isJavaScriptRuntimeExecutable(process.execPath) ? process.execPath : "bun";
+}
+
+export function resolveMcpAgentBrokerScript(options: {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  moduleDir?: string;
+} = {}): string {
+  const cwd = options.cwd ?? process.cwd();
+  const env = options.env ?? process.env;
+  const moduleDir = options.moduleDir ?? MODULE_DIR;
+  const configured = env.ERAGEAR_MCP_AGENT_BROKER_SCRIPT?.trim();
+  const candidates = [
+    configured ? path.resolve(configured) : undefined,
+    path.resolve(moduleDir, "..", "..", "..", MCP_AGENT_BROKER_FILE),
+    path.resolve(moduleDir, MCP_AGENT_BROKER_FILE),
+    path.resolve(cwd, "src", MCP_AGENT_BROKER_FILE),
+    path.resolve(cwd, "dist", MCP_AGENT_BROKER_FILE),
+    path.resolve(cwd, "apps", "server", "src", MCP_AGENT_BROKER_FILE),
+    path.resolve(cwd, "apps", "server", "dist", MCP_AGENT_BROKER_FILE),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return candidates[0] ?? path.resolve(cwd, "src", MCP_AGENT_BROKER_FILE);
+}
+
+function sanitizeRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const result: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (typeof rawValue === "string" && key.trim()) {
+      result[key.trim()] = rawValue;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function hashSecretMaterial(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function sortedMcpRecordHashes(
+  record: Record<string, string> | undefined
+): Array<{ key: string; valueHash: string }> {
+  return Object.entries(record ?? {})
+    .map(([key, value]) => ({
+      key,
+      valueHash: hashSecretMaterial(String(value)),
+    }))
+    .sort((left, right) => left.key.localeCompare(right.key));
+}
+
+function sortedMcpHeaderEnv(
+  record: Record<string, string> | undefined
+): Array<{ header: string; envKey: string }> {
+  return Object.entries(record ?? {})
+    .map(([header, envKey]) => ({ header, envKey }))
+    .sort((left, right) => left.header.localeCompare(right.header));
+}
+
+export function projectLocalMcpFingerprint(
+  server: Pick<
+    ProjectLocalMcpServer,
+    | "transport"
+    | "command"
+    | "args"
+    | "url"
+    | "messageEndpoint"
+    | "env"
+    | "headers"
+    | "headerEnv"
+  >
+): string {
+  const payload = JSON.stringify({
+    version: 1,
+    transport: server.transport,
+    command: server.command?.trim() ?? "",
+    args: (server.args ?? []).map((arg) => String(arg)),
+    url: server.url?.trim() ?? "",
+    messageEndpoint: server.messageEndpoint?.trim() ?? "",
+    env: sortedMcpRecordHashes(server.env),
+    headers: sortedMcpRecordHashes(server.headers),
+    headerEnv: sortedMcpHeaderEnv(server.headerEnv),
+  });
+  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+}
+
+function hasTrustedProjectLocalFingerprint(server: ProjectLocalMcpServer): boolean {
+  return (
+    Boolean(server.trustedFingerprint) &&
+    server.trustedFingerprint === projectLocalMcpFingerprint(server)
+  );
+}
+
+function unsafeLiteralMcpHeaderNames(
+  headers: Record<string, string> | undefined
+): string[] {
+  return Object.keys(headers ?? {}).filter((header) =>
+    SECRET_HINT_PATTERN.test(header)
+  );
+}
+
+function parseProjectLocalMcpServer(value: unknown): ProjectLocalMcpServer | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") {
+    return null;
+  }
+  const transport =
+    value.transport === "sse" || value.transport === "streamable-http"
+      ? value.transport
+      : "stdio";
+  const args = Array.isArray(value.args)
+    ? value.args.filter((arg): arg is string => typeof arg === "string")
+    : undefined;
+  return {
+    id: value.id,
+    name: value.name,
+    transport,
+    enabled: typeof value.enabled === "boolean" ? value.enabled : false,
+    ...(typeof value.command === "string" ? { command: value.command } : {}),
+    ...(args && args.length > 0 ? { args } : {}),
+    ...(typeof value.url === "string" ? { url: value.url } : {}),
+    ...(typeof value.messageEndpoint === "string"
+      ? { messageEndpoint: value.messageEndpoint }
+      : {}),
+    ...(sanitizeRecord(value.env) ? { env: sanitizeRecord(value.env) } : {}),
+    ...(sanitizeRecord(value.headers) ? { headers: sanitizeRecord(value.headers) } : {}),
+    ...(sanitizeRecord(value.headerEnv)
+      ? { headerEnv: sanitizeRecord(value.headerEnv) }
+      : {}),
+    ...(typeof value.trustedFingerprint === "string"
+      ? { trustedFingerprint: value.trustedFingerprint }
+      : {}),
+  };
+}
+
+async function readProjectLocalMcpServers(
+  projectRoot: string
+): Promise<ProjectLocalMcpServer[]> {
+  const filePath = path.join(projectRoot, ".eragear", PROJECT_MCP_FILE);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return [];
+  }
+  if (!isRecord(parsed) || !Array.isArray(parsed.servers)) {
+    return [];
+  }
+  return parsed.servers
+    .map(parseProjectLocalMcpServer)
+    .filter((server): server is ProjectLocalMcpServer => Boolean(server));
+}
+
+function missingHeaderEnvKeys(server: ProjectLocalMcpServer): string[] {
+  return Object.values(server.headerEnv ?? {}).filter((envKey) => !process.env[envKey]);
+}
+
+function toBrokeredMcpServer(
+  projectRoot: string,
+  server: ProjectLocalMcpServer
+): McpStdioServerConfig {
+  const fingerprint = projectLocalMcpFingerprint(server);
+  return {
+    name: server.name,
+    command: resolveMcpAgentBrokerRuntimeCommand(),
+    args: [
+      resolveMcpAgentBrokerScript(),
+      "--project-root",
+      projectRoot,
+      "--server-id",
+      server.id,
+      "--fingerprint",
+      fingerprint,
+    ],
+    env: [],
+  };
+}
+
+function toSettingsMcpServer(
+  projectRoot: string,
+  server: ProjectLocalMcpServer
+): McpServerConfig | null {
+  if (!server.enabled || !hasTrustedProjectLocalFingerprint(server)) {
+    return null;
+  }
+  if (server.transport === "stdio") {
+    if (!server.command?.trim()) {
+      return null;
+    }
+    return toBrokeredMcpServer(projectRoot, server);
+  }
+
+  if (!server.url?.trim()) {
+    return null;
+  }
+  if (
+    unsafeLiteralMcpHeaderNames(server.headers).length > 0 ||
+    missingHeaderEnvKeys(server).length > 0
+  ) {
+    return null;
+  }
+  return toBrokeredMcpServer(projectRoot, server);
 }
 
 /**
@@ -59,10 +315,15 @@ export class SessionMcpConfigService {
   }
 
   async resolveServers(
+    projectRoot: string,
     agentCapabilities?: AgentMcpCapabilities
   ): Promise<McpServerConfig[]> {
     const { mcpServers } = await this.settingsRepo.get();
-    if (!mcpServers || mcpServers.length === 0) {
+    const projectLocalMcpServers = (await readProjectLocalMcpServers(projectRoot))
+      .map((server) => toSettingsMcpServer(projectRoot, server))
+      .filter((server): server is McpServerConfig => Boolean(server));
+    const resolvedServers = [...(mcpServers ?? []), ...projectLocalMcpServers];
+    if (resolvedServers.length === 0) {
       return [];
     }
 
@@ -71,7 +332,7 @@ export class SessionMcpConfigService {
     const httpSupported = Boolean(mcpCaps?.http);
     const sseSupported = Boolean(mcpCaps?.sse);
 
-    const blocked = mcpServers.filter((server) => {
+    const blocked = resolvedServers.filter((server) => {
       if (this.isHttpServer(server)) {
         return !httpSupported;
       }
@@ -93,7 +354,7 @@ export class SessionMcpConfigService {
       );
     }
 
-    return mcpServers;
+    return resolvedServers;
   }
 
   private isHttpServer(server: McpServerConfig): server is McpHttpServerConfig {

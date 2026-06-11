@@ -345,13 +345,13 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
       }
 
       const current = this.mapRow(row);
-      const nextType = input.type || current.type;
+      const nextType: AgentConfig["type"] = input.type ?? current.type;
       const currentDefaultTemplate = getDefaultAgentResumeCommandTemplate(
         current.type
       );
       const nextDefaultTemplate =
         getDefaultAgentResumeCommandTemplate(nextType);
-      let nextResumeCommandTemplate: string;
+      let nextResumeCommandTemplate: string | undefined;
       if (input.resumeCommandTemplate !== undefined) {
         nextResumeCommandTemplate = normalizeAgentResumeCommandTemplate({
           type: nextType,
@@ -371,10 +371,10 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         ...current,
         name: input.name?.trim() || current.name,
         type: nextType,
-        command: input.command || current.command,
-        args: input.args !== undefined ? input.args : current.args,
+        command: input.command ?? current.command,
+        args: input.args ?? current.args,
         resumeCommandTemplate: nextResumeCommandTemplate,
-        env: input.env !== undefined ? input.env : current.env,
+        env: input.env ?? current.env,
         projectId:
           input.projectId !== undefined ? input.projectId : current.projectId,
         updatedAt: Date.now(),

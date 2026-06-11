@@ -14,6 +14,11 @@ interface SessionConfigSelectGroupValue {
   options?: SessionConfigSelectOptionValue[];
 }
 
+type SessionConfigSelectOption = Extract<
+  SessionConfigOption,
+  { type: "select" }
+>;
+
 export interface SessionConfigOptionValue {
   value: string;
   name?: string;
@@ -34,9 +39,28 @@ function hasNonEmptyString(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+export function isSessionConfigSelectOption(
+  option: SessionConfigOption | undefined
+): option is SessionConfigSelectOption {
+  return option?.type === "select" && Array.isArray(option.options);
+}
+
+function getCurrentStringValue(
+  option: SessionConfigOption | undefined
+): string | undefined {
+  const currentValue = option?.currentValue;
+  return typeof currentValue === "string" && hasNonEmptyString(currentValue)
+    ? currentValue
+    : undefined;
+}
+
 function collectConfigOptionValues(
   option: SessionConfigOption
 ): SessionConfigOptionValue[] {
+  if (!isSessionConfigSelectOption(option)) {
+    return [];
+  }
+
   const values: SessionConfigOptionValue[] = [];
   const seen = new Set<string>();
 
@@ -97,17 +121,19 @@ export function getSessionConfigOptionCurrentValue(params: {
   target: "mode" | "model";
 }): string | undefined {
   const option = findSessionConfigOption(params.configOptions, params.target);
-  if (!(option && hasNonEmptyString(option.currentValue))) {
+  const currentValue = getCurrentStringValue(option);
+  if (!currentValue) {
     return undefined;
   }
-  return option.currentValue;
+  return currentValue;
 }
 
 function deriveModeState(
   modeOption: SessionConfigOption | undefined,
   fallbackModes: SessionModeState | null | undefined
 ): SessionModeState | null {
-  if (!(modeOption && hasNonEmptyString(modeOption.currentValue))) {
+  const currentValue = getCurrentStringValue(modeOption);
+  if (!(modeOption && currentValue)) {
     return fallbackModes ?? null;
   }
 
@@ -122,7 +148,7 @@ function deriveModeState(
       : (fallbackModes?.availableModes ?? []);
 
   return {
-    currentModeId: modeOption.currentValue,
+    currentModeId: currentValue,
     availableModes,
   };
 }
@@ -131,7 +157,8 @@ function deriveModelState(
   modelOption: SessionConfigOption | undefined,
   fallbackModels: SessionModelState | null | undefined
 ): SessionModelState | null {
-  if (!(modelOption && hasNonEmptyString(modelOption.currentValue))) {
+  const currentValue = getCurrentStringValue(modelOption);
+  if (!(modelOption && currentValue)) {
     return fallbackModels ?? null;
   }
 
@@ -146,7 +173,7 @@ function deriveModelState(
       : (fallbackModels?.availableModels ?? []);
 
   return {
-    currentModelId: modelOption.currentValue,
+    currentModelId: currentValue,
     availableModels,
   };
 }
@@ -188,7 +215,13 @@ export function updateSessionConfigOptionCurrentValue(params: {
     return params.configOptions;
   }
   const currentOption = params.configOptions[optionIndex];
-  if (!currentOption || currentOption.currentValue === params.value) {
+  if (
+    !(
+      currentOption &&
+      isSessionConfigSelectOption(currentOption) &&
+      currentOption.currentValue !== params.value
+    )
+  ) {
     return params.configOptions;
   }
   const nextConfigOptions = [...params.configOptions];

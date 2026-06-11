@@ -6,6 +6,7 @@ import type {
 import {
   createRedactedValue,
   type RedactedValue,
+  type RedactionReason,
 } from "@/shared/utils/redaction.util";
 
 export const SESSION_EXPORT_SCHEMA_VERSION = "session-export/v1" as const;
@@ -159,7 +160,7 @@ export function buildRedactedSessionExport(
   };
 
   for (const path of OMITTED_RUNTIME_PATHS) {
-    let reason: string;
+    let reason: RedactionReason;
     if (path === "session.projectRoot" || path === "session.cwd") {
       reason = "filesystem_path";
     } else if (path === "session.commands") {

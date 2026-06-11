@@ -304,7 +304,7 @@ export function createSessionHandlers(params: {
     },
 
     /** Handles terminal termination */
-    async killTerminal(params: acp.KillTerminalCommandRequest) {
+    async killTerminal(params: acp.KillTerminalRequest) {
       return await withSessionLogContext(async () => {
         logger.debug("ACP handler killTerminal", {
           chatId,
