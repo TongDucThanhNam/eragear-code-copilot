@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import { existsSync } from "node:fs";
@@ -29,8 +29,12 @@ const MAX_MARKDOWN_BYTES = 96_000;
 const MAX_MEMORY_PREVIEW_BYTES = 16_000;
 const GIT_TIMEOUT_MS = 4000;
 const PROBE_TIMEOUT_MS = 2500;
+const MCP_PROTOCOL_TIMEOUT_MS = 3500;
+const MCP_PROTOCOL_VERSION = "2024-11-05";
 const MAX_CHECKPOINTS = 80;
 const MAX_CHECKPOINT_PREVIEW_BYTES = 32_000;
+const MAX_DIAGNOSTIC_CHARS = 900;
+const MAX_MCP_DISCOVERY_ITEMS = 80;
 const SECRET_HINT_PATTERN =
   /(api[_-]?key|secret|token|password|private[_-]?key|authorization)/i;
 
@@ -58,7 +62,19 @@ export interface LocalAdeProviderDescriptor {
   aliases: string[];
   compatibleAgents: string[];
   redactedEnvKeys: string[];
-  status: "configured" | "missing-config" | "not-probed" | "available" | "unavailable";
+  status:
+    | "configured"
+    | "missing-config"
+    | "not-probed"
+    | "cli-ok"
+    | "auth-unknown"
+    | "model-unknown"
+    | "ready"
+    | "unavailable";
+  cliStatus: "missing" | "ok" | "failed" | "unknown";
+  authStatus: "ok" | "unknown" | "failed" | "unsupported";
+  modelStatus: "ok" | "unknown" | "failed" | "unsupported";
+  readiness: "missing-config" | "cli-ok" | "auth-unknown" | "model-unknown" | "ready" | "unavailable";
   version?: string;
   lastProbedAt?: string;
   latencyMs?: number;
@@ -79,6 +95,18 @@ export interface LocalAdeMemorySource {
 
 export type McpTransport = "stdio" | "sse" | "streamable-http";
 
+export interface LocalAdeMcpTool {
+  name: string;
+  description?: string;
+}
+
+export interface LocalAdeMcpResource {
+  uri: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+}
+
 export interface LocalAdeMcpServer {
   id: string;
   name: string;
@@ -90,6 +118,17 @@ export interface LocalAdeMcpServer {
   envKeys: string[];
   headerKeys: string[];
   health: "not-probed" | "invalid-config" | "available" | "unavailable" | "disabled";
+  protocol: {
+    status: "not-run" | "initialized" | "failed" | "unsupported";
+    protocolVersion?: string;
+    serverName?: string;
+    serverVersion?: string;
+    toolsDiscovered: number;
+    resourcesDiscovered: number;
+    error?: string;
+  };
+  tools: LocalAdeMcpTool[];
+  resources: LocalAdeMcpResource[];
   lastProbedAt?: string;
   latencyMs?: number;
   diagnostics: string[];
@@ -110,7 +149,17 @@ export interface LocalAdeSubagentDescriptor {
   diagnostics: string[];
 }
 
-interface StoredMcpServer extends Omit<LocalAdeMcpServer, "envKeys" | "headerKeys" | "health" | "diagnostics"> {
+interface StoredMcpServer
+  extends Omit<
+    LocalAdeMcpServer,
+    | "envKeys"
+    | "headerKeys"
+    | "health"
+    | "protocol"
+    | "tools"
+    | "resources"
+    | "diagnostics"
+  > {
   env?: Record<string, string>;
   headers?: Record<string, string>;
 }
@@ -121,8 +170,13 @@ interface McpDocument {
 }
 
 interface ProviderHealthRecord {
-  status: "available" | "unavailable";
+  status: LocalAdeProviderDescriptor["status"];
+  cliStatus: LocalAdeProviderDescriptor["cliStatus"];
+  authStatus: LocalAdeProviderDescriptor["authStatus"];
+  modelStatus: LocalAdeProviderDescriptor["modelStatus"];
+  readiness: LocalAdeProviderDescriptor["readiness"];
   version?: string;
+  modelList?: string[];
   latencyMs?: number;
   checkedAt: string;
   diagnostics: string[];
@@ -210,6 +264,10 @@ export interface LocalAdeCheckpoint {
   gitHead?: string;
   changedFiles: string[];
   statusLines: string[];
+  restoreMode?: "reverse-patch" | "apply-patch";
+  restoreStatusLines?: string[];
+  safetyForCheckpointId?: string;
+  preRestoreSafetyCheckpointId?: string;
   patchPath: string;
   patchBytes: number;
   canRestore: boolean;
@@ -898,6 +956,87 @@ function redactPotentialSecrets(text: string): string {
     .join("\n");
 }
 
+function sanitizeDiagnosticText(text: string, secretValues: string[] = []): string {
+  let sanitized = redactPotentialSecrets(text);
+  for (const value of secretValues) {
+    if (value.length < 3) {
+      continue;
+    }
+    sanitized = sanitized.split(value).join("[redacted]");
+  }
+  return sanitized
+    .replace(/\0/g, "")
+    .replace(/[ \t]+/g, " ")
+    .trim()
+    .slice(0, MAX_DIAGNOSTIC_CHARS);
+}
+
+function firstOutputLine(stdout: string, stderr: string): string | undefined {
+  return `${stdout}\n${stderr}`
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+}
+
+function errorMessage(error: unknown, secretValues: string[] = []): string {
+  if (error instanceof Error) {
+    return sanitizeDiagnosticText(error.message, secretValues);
+  }
+  return sanitizeDiagnosticText(String(error), secretValues);
+}
+
+function commandLabel(command: string, args: string[] = []): string {
+  return [command, ...args].join(" ").trim();
+}
+
+function parseJsonRpcError(error: unknown): string {
+  if (!isRecord(error)) {
+    return "Unknown JSON-RPC error.";
+  }
+  const code = typeof error.code === "number" ? error.code : "unknown";
+  const message = typeof error.message === "string" ? error.message : "Unknown error";
+  const data = error.data === undefined ? "" : ` data=${JSON.stringify(error.data)}`;
+  return `JSON-RPC error ${code}: ${message}${data}`;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function parseMcpTools(result: unknown): LocalAdeMcpTool[] {
+  if (!isRecord(result) || !Array.isArray(result.tools)) {
+    return [];
+  }
+  return result.tools
+    .filter((tool): tool is Record<string, unknown> => isRecord(tool))
+    .map((tool) => ({
+      name: optionalString(tool.name) ?? "unnamed-tool",
+      ...(optionalString(tool.description)
+        ? { description: optionalString(tool.description) }
+        : {}),
+    }))
+    .slice(0, MAX_MCP_DISCOVERY_ITEMS);
+}
+
+function parseMcpResources(result: unknown): LocalAdeMcpResource[] {
+  if (!isRecord(result) || !Array.isArray(result.resources)) {
+    return [];
+  }
+  return result.resources
+    .filter((resource): resource is Record<string, unknown> => isRecord(resource))
+    .map((resource) => ({
+      uri: optionalString(resource.uri) ?? "unknown-resource",
+      ...(optionalString(resource.name) ? { name: optionalString(resource.name) } : {}),
+      ...(optionalString(resource.description)
+        ? { description: optionalString(resource.description) }
+        : {}),
+      ...(optionalString(resource.mimeType)
+        ? { mimeType: optionalString(resource.mimeType) }
+        : {}),
+    }))
+    .slice(0, MAX_MCP_DISCOVERY_ITEMS);
+}
+
 async function readMemorySource(params: {
   rootPath: string;
   relativePath: string;
@@ -1145,7 +1284,397 @@ async function probeHttpEndpoint(url: string): Promise<{
   }
 }
 
-async function toVisibleMcpServer(server: StoredMcpServer): Promise<LocalAdeMcpServer> {
+interface McpDiscoveryResult {
+  available: boolean;
+  latencyMs: number;
+  protocol: LocalAdeMcpServer["protocol"];
+  tools: LocalAdeMcpTool[];
+  resources: LocalAdeMcpResource[];
+  diagnostics: string[];
+}
+
+function failedMcpDiscovery(params: {
+  latencyMs: number;
+  diagnostics: string[];
+  error: string;
+  unsupported?: boolean;
+}): McpDiscoveryResult {
+  return {
+    available: false,
+    latencyMs: params.latencyMs,
+    protocol: {
+      status: params.unsupported ? "unsupported" : "failed",
+      toolsDiscovered: 0,
+      resourcesDiscovered: 0,
+      error: params.error,
+    },
+    tools: [],
+    resources: [],
+    diagnostics: params.diagnostics,
+  };
+}
+
+function initializedMcpDiscovery(params: {
+  latencyMs: number;
+  diagnostics: string[];
+  initializeResult: unknown;
+  tools: LocalAdeMcpTool[];
+  resources: LocalAdeMcpResource[];
+}): McpDiscoveryResult {
+  const result = isRecord(params.initializeResult) ? params.initializeResult : {};
+  const serverInfo = isRecord(result.serverInfo) ? result.serverInfo : {};
+  return {
+    available: true,
+    latencyMs: params.latencyMs,
+    protocol: {
+      status: "initialized",
+      protocolVersion:
+        optionalString(result.protocolVersion) ?? MCP_PROTOCOL_VERSION,
+      ...(optionalString(serverInfo.name)
+        ? { serverName: optionalString(serverInfo.name) }
+        : {}),
+      ...(optionalString(serverInfo.version)
+        ? { serverVersion: optionalString(serverInfo.version) }
+        : {}),
+      toolsDiscovered: params.tools.length,
+      resourcesDiscovered: params.resources.length,
+    },
+    tools: params.tools,
+    resources: params.resources,
+    diagnostics: params.diagnostics,
+  };
+}
+
+async function discoverStdioMcpProtocol(
+  rootPath: string,
+  server: StoredMcpServer
+): Promise<McpDiscoveryResult> {
+  const startedAt = Date.now();
+  const secretValues = Object.values(server.env ?? {});
+  const diagnostics: string[] = [];
+  const resolved = await resolveExecutable(server.command ?? "");
+  diagnostics.push(...resolved.diagnostics);
+  if (!resolved.available) {
+    const error = resolved.diagnostics.join(" ");
+    return failedMcpDiscovery({
+      latencyMs: Date.now() - startedAt,
+      error,
+      diagnostics,
+    });
+  }
+
+  let nextId = 1;
+  const pending = new Map<
+    string,
+    {
+      method: string;
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      timeout: ReturnType<typeof setTimeout>;
+    }
+  >();
+  const child = spawn(server.command ?? "", server.args ?? [], {
+    cwd: rootPath,
+    env: {
+      ...process.env,
+      ...(server.env ?? {}),
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  let stdoutBuffer = "";
+  let processExited = false;
+
+  const rejectPending = (message: string) => {
+    for (const [id, waiter] of pending) {
+      clearTimeout(waiter.timeout);
+      waiter.reject(new Error(`${waiter.method} failed: ${message}`));
+      pending.delete(id);
+    }
+  };
+
+  child.stdout.on("data", (chunk) => {
+    stdoutBuffer += chunk.toString();
+    const lines = stdoutBuffer.split(/\r?\n/);
+    stdoutBuffer = lines.pop() ?? "";
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) {
+        continue;
+      }
+      let message: unknown;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        diagnostics.push(
+          `MCP stdout parse error: ${sanitizeDiagnosticText(line, secretValues)}`
+        );
+        continue;
+      }
+      if (!isRecord(message) || message.id === undefined) {
+        continue;
+      }
+      const id = String(message.id);
+      const waiter = pending.get(id);
+      if (!waiter) {
+        continue;
+      }
+      clearTimeout(waiter.timeout);
+      pending.delete(id);
+      if (message.error !== undefined) {
+        waiter.reject(new Error(parseJsonRpcError(message.error)));
+        continue;
+      }
+      waiter.resolve(message.result);
+    }
+  });
+  child.stderr.on("data", (chunk) => {
+    const text = sanitizeDiagnosticText(chunk.toString(), secretValues);
+    if (text) {
+      diagnostics.push(`MCP stderr: ${text}`);
+    }
+  });
+  child.once("error", (error) => {
+    const message = errorMessage(error, secretValues);
+    diagnostics.push(`MCP process error: ${message}`);
+    rejectPending(message);
+  });
+  child.once("exit", (code, signal) => {
+    processExited = true;
+    const suffix = signal ? `signal ${signal}` : `code ${code ?? 0}`;
+    rejectPending(`MCP process exited with ${suffix}.`);
+  });
+
+  const request = (method: string, params?: unknown): Promise<unknown> => {
+    if (processExited || !child.stdin.writable) {
+      return Promise.reject(new Error("MCP process stdin is not writable."));
+    }
+    const id = String(nextId++);
+    const payload = {
+      jsonrpc: "2.0",
+      id,
+      method,
+      ...(params === undefined ? {} : { params }),
+    };
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pending.delete(id);
+        reject(
+          new Error(
+            `Timed out after ${MCP_PROTOCOL_TIMEOUT_MS}ms waiting for ${method}.`
+          )
+        );
+      }, MCP_PROTOCOL_TIMEOUT_MS);
+      pending.set(id, { method, resolve, reject, timeout });
+      child.stdin.write(`${JSON.stringify(payload)}\n`);
+    });
+  };
+
+  try {
+    const initializeResult = await request("initialize", {
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      capabilities: {},
+      clientInfo: {
+        name: "eragear-code-copilot",
+        version: "local-ade",
+      },
+    });
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+        params: {},
+      })}\n`
+    );
+
+    let tools: LocalAdeMcpTool[] = [];
+    let resources: LocalAdeMcpResource[] = [];
+    try {
+      tools = parseMcpTools(await request("tools/list", {}));
+      diagnostics.push(`MCP tools/list returned ${tools.length} tools.`);
+    } catch (error) {
+      diagnostics.push(`MCP tools/list failed: ${errorMessage(error, secretValues)}`);
+    }
+    try {
+      resources = parseMcpResources(await request("resources/list", {}));
+      diagnostics.push(`MCP resources/list returned ${resources.length} resources.`);
+    } catch (error) {
+      diagnostics.push(
+        `MCP resources/list failed: ${errorMessage(error, secretValues)}`
+      );
+    }
+
+    diagnostics.push(
+      `MCP initialize succeeded for ${commandLabel(server.command ?? "", server.args)}.`
+    );
+    return initializedMcpDiscovery({
+      latencyMs: Date.now() - startedAt,
+      diagnostics,
+      initializeResult,
+      tools,
+      resources,
+    });
+  } catch (error) {
+    const message = errorMessage(error, secretValues);
+    diagnostics.push(`MCP initialize failed: ${message}`);
+    return failedMcpDiscovery({
+      latencyMs: Date.now() - startedAt,
+      error: message,
+      diagnostics,
+    });
+  } finally {
+    for (const [id, waiter] of pending) {
+      clearTimeout(waiter.timeout);
+      pending.delete(id);
+    }
+    child.stdin.end();
+    if (!processExited) {
+      child.kill();
+    }
+  }
+}
+
+function parseMcpHttpMessage(text: string, contentType: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return {};
+  }
+  if (contentType.includes("text/event-stream")) {
+    const dataLine = trimmed
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.startsWith("data:"));
+    if (!dataLine) {
+      throw new Error("SSE response did not contain a data event.");
+    }
+    return JSON.parse(dataLine.slice("data:".length).trim());
+  }
+  return JSON.parse(trimmed);
+}
+
+async function mcpHttpRequest(params: {
+  url: string;
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+  sessionId?: string;
+}): Promise<{ result: unknown; sessionId?: string }> {
+  const response = await fetch(params.url, {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+      ...params.headers,
+      ...(params.sessionId ? { "mcp-session-id": params.sessionId } : {}),
+    },
+    body: JSON.stringify(params.body),
+  });
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  const sessionId = response.headers.get("mcp-session-id") ?? params.sessionId;
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${sanitizeDiagnosticText(text)}`);
+  }
+  if (!text.trim()) {
+    return { result: undefined, ...(sessionId ? { sessionId } : {}) };
+  }
+  const message = parseMcpHttpMessage(text, contentType);
+  if (isRecord(message) && message.error !== undefined) {
+    throw new Error(parseJsonRpcError(message.error));
+  }
+  return {
+    result: isRecord(message) ? message.result : message,
+    ...(sessionId ? { sessionId } : {}),
+  };
+}
+
+async function discoverHttpMcpProtocol(server: StoredMcpServer): Promise<McpDiscoveryResult> {
+  const startedAt = Date.now();
+  const diagnostics: string[] = [];
+  const secretValues = [
+    ...Object.values(server.env ?? {}),
+    ...Object.values(server.headers ?? {}),
+  ];
+  let sessionId: string | undefined;
+  let nextId = 1;
+  const request = async (method: string, params?: unknown) => {
+    const result = await mcpHttpRequest({
+      url: server.url ?? "",
+      headers: server.headers ?? {},
+      sessionId,
+      body: {
+        jsonrpc: "2.0",
+        id: nextId++,
+        method,
+        ...(params === undefined ? {} : { params }),
+      },
+    });
+    sessionId = result.sessionId;
+    return result.result;
+  };
+
+  try {
+    const initializeResult = await request("initialize", {
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      capabilities: {},
+      clientInfo: {
+        name: "eragear-code-copilot",
+        version: "local-ade",
+      },
+    });
+    await mcpHttpRequest({
+      url: server.url ?? "",
+      headers: server.headers ?? {},
+      sessionId,
+      body: {
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+        params: {},
+      },
+    }).catch((error) => {
+      diagnostics.push(
+        `MCP initialized notification failed: ${errorMessage(error, secretValues)}`
+      );
+    });
+
+    let tools: LocalAdeMcpTool[] = [];
+    let resources: LocalAdeMcpResource[] = [];
+    try {
+      tools = parseMcpTools(await request("tools/list", {}));
+      diagnostics.push(`MCP tools/list returned ${tools.length} tools.`);
+    } catch (error) {
+      diagnostics.push(`MCP tools/list failed: ${errorMessage(error, secretValues)}`);
+    }
+    try {
+      resources = parseMcpResources(await request("resources/list", {}));
+      diagnostics.push(`MCP resources/list returned ${resources.length} resources.`);
+    } catch (error) {
+      diagnostics.push(
+        `MCP resources/list failed: ${errorMessage(error, secretValues)}`
+      );
+    }
+    diagnostics.push("MCP initialize succeeded over streamable HTTP.");
+    return initializedMcpDiscovery({
+      latencyMs: Date.now() - startedAt,
+      diagnostics,
+      initializeResult,
+      tools,
+      resources,
+    });
+  } catch (error) {
+    const message = errorMessage(error, secretValues);
+    diagnostics.push(`MCP initialize failed: ${message}`);
+    return failedMcpDiscovery({
+      latencyMs: Date.now() - startedAt,
+      error: message,
+      diagnostics,
+    });
+  }
+}
+
+async function toVisibleMcpServer(
+  rootPath: string,
+  server: StoredMcpServer
+): Promise<LocalAdeMcpServer> {
   const invalid =
     server.transport === "stdio"
       ? !server.command
@@ -1162,11 +1691,19 @@ async function toVisibleMcpServer(server: StoredMcpServer): Promise<LocalAdeMcpS
     headerKeys: Object.keys(server.headers ?? {}),
     updatedAt: server.updatedAt,
   };
+  const emptyProtocol = {
+    status: "not-run" as const,
+    toolsDiscovered: 0,
+    resourcesDiscovered: 0,
+  };
 
   if (!server.enabled) {
     return {
       ...base,
       health: "disabled",
+      protocol: emptyProtocol,
+      tools: [],
+      resources: [],
       diagnostics: ["MCP entry is disabled."],
     };
   }
@@ -1175,20 +1712,39 @@ async function toVisibleMcpServer(server: StoredMcpServer): Promise<LocalAdeMcpS
     return {
       ...base,
       health: "invalid-config",
+      protocol: emptyProtocol,
+      tools: [],
+      resources: [],
       diagnostics: ["MCP entry is missing the command or URL required by its transport."],
     };
   }
 
   const probedAt = new Date().toISOString();
   if (server.transport === "stdio") {
-    const startedAt = Date.now();
-    const resolved = await resolveExecutable(server.command ?? "");
+    const discovery = await discoverStdioMcpProtocol(rootPath, server);
     return {
       ...base,
-      health: resolved.available ? "available" : "unavailable",
+      health: discovery.available ? "available" : "unavailable",
       lastProbedAt: probedAt,
-      latencyMs: Date.now() - startedAt,
-      diagnostics: resolved.diagnostics,
+      latencyMs: discovery.latencyMs,
+      protocol: discovery.protocol,
+      tools: discovery.tools,
+      resources: discovery.resources,
+      diagnostics: discovery.diagnostics,
+    };
+  }
+
+  if (server.transport === "streamable-http") {
+    const discovery = await discoverHttpMcpProtocol(server);
+    return {
+      ...base,
+      health: discovery.available ? "available" : "unavailable",
+      lastProbedAt: probedAt,
+      latencyMs: discovery.latencyMs,
+      protocol: discovery.protocol,
+      tools: discovery.tools,
+      resources: discovery.resources,
+      diagnostics: discovery.diagnostics,
     };
   }
 
@@ -1198,7 +1754,19 @@ async function toVisibleMcpServer(server: StoredMcpServer): Promise<LocalAdeMcpS
     health: probe.available ? "available" : "unavailable",
     lastProbedAt: probedAt,
     latencyMs: probe.latencyMs,
-    diagnostics: probe.diagnostics,
+    protocol: {
+      status: "unsupported",
+      toolsDiscovered: 0,
+      resourcesDiscovered: 0,
+      error:
+        "SSE discovery is unsupported without a configured MCP message endpoint.",
+    },
+    tools: [],
+    resources: [],
+    diagnostics: [
+      ...probe.diagnostics,
+      "MCP protocol discovery is unsupported for bare SSE URLs without a message endpoint.",
+    ],
   };
 }
 
@@ -1235,20 +1803,76 @@ async function readProviderHealthDocument(rootPath: string): Promise<ProviderHea
     if (!isRecord(value)) {
       continue;
     }
+    const legacyStatus =
+      value.status === "available"
+        ? "ready"
+        : value.status === "unavailable"
+          ? "unavailable"
+          : undefined;
     const status =
-      value.status === "available" || value.status === "unavailable"
+      value.status === "configured" ||
+      value.status === "missing-config" ||
+      value.status === "not-probed" ||
+      value.status === "cli-ok" ||
+      value.status === "auth-unknown" ||
+      value.status === "model-unknown" ||
+      value.status === "ready" ||
+      value.status === "unavailable"
         ? value.status
-        : undefined;
+        : legacyStatus;
     if (!status || typeof value.checkedAt !== "string") {
       continue;
     }
+    const cliStatus =
+      value.cliStatus === "missing" ||
+      value.cliStatus === "ok" ||
+      value.cliStatus === "failed" ||
+      value.cliStatus === "unknown"
+        ? value.cliStatus
+        : status === "unavailable"
+          ? "failed"
+          : "ok";
+    const authStatus =
+      value.authStatus === "ok" ||
+      value.authStatus === "unknown" ||
+      value.authStatus === "failed" ||
+      value.authStatus === "unsupported"
+        ? value.authStatus
+        : "unknown";
+    const modelStatus =
+      value.modelStatus === "ok" ||
+      value.modelStatus === "unknown" ||
+      value.modelStatus === "failed" ||
+      value.modelStatus === "unsupported"
+        ? value.modelStatus
+        : "unknown";
+    const readiness =
+      value.readiness === "missing-config" ||
+      value.readiness === "cli-ok" ||
+      value.readiness === "auth-unknown" ||
+      value.readiness === "model-unknown" ||
+      value.readiness === "ready" ||
+      value.readiness === "unavailable"
+        ? value.readiness
+        : status === "ready"
+          ? "ready"
+          : status === "unavailable"
+            ? "unavailable"
+            : "cli-ok";
     providers[id] = {
       status,
+      cliStatus,
+      authStatus,
+      modelStatus,
+      readiness,
       checkedAt: value.checkedAt,
       diagnostics: Array.isArray(value.diagnostics)
         ? value.diagnostics.filter((item): item is string => typeof item === "string")
         : [],
       ...(typeof value.version === "string" ? { version: value.version } : {}),
+      ...(Array.isArray(value.modelList)
+        ? { modelList: value.modelList.filter((item): item is string => typeof item === "string") }
+        : {}),
       ...(typeof value.latencyMs === "number" ? { latencyMs: value.latencyMs } : {}),
     };
   }
@@ -1268,6 +1892,335 @@ async function writeProviderHealthDocument(
   );
 }
 
+interface ProviderProbePlan {
+  auth: string[][];
+  models: string[][];
+}
+
+interface ProviderCommandProbe {
+  ok: boolean;
+  output: string;
+  diagnostics: string[];
+}
+
+interface ProviderReadinessProbe {
+  cliStatus: LocalAdeProviderDescriptor["cliStatus"];
+  authStatus: LocalAdeProviderDescriptor["authStatus"];
+  modelStatus: LocalAdeProviderDescriptor["modelStatus"];
+  readiness: LocalAdeProviderDescriptor["readiness"];
+  version?: string;
+  modelList: string[];
+  diagnostics: string[];
+}
+
+const PROVIDER_PROBE_PLANS: Record<
+  "claude" | "codex" | "gemini" | "opencode",
+  ProviderProbePlan
+> = {
+  opencode: {
+    auth: [["auth", "list"], ["auth", "status"]],
+    models: [["models"], ["models", "list"]],
+  },
+  codex: {
+    auth: [["auth", "status"], ["login", "status"]],
+    models: [["models"], ["models", "list"]],
+  },
+  claude: {
+    auth: [["auth", "status"], ["doctor"]],
+    models: [["models"], ["model", "list"]],
+  },
+  gemini: {
+    auth: [["auth", "status"], ["login", "status"]],
+    models: [["models"], ["models", "list"]],
+  },
+};
+
+function providerProbePrefixArgs(agent: Awaited<ReturnType<AgentRepositoryPort["findAll"]>>[number]): string[] {
+  const args = agent.args ?? [];
+  if (args.length === 0) {
+    return [];
+  }
+  const firstArg = args[0]?.toLowerCase() ?? "";
+  if (/\.(mjs|cjs|js|ts)$/.test(firstArg)) {
+    return args;
+  }
+  if (agent.type === "other") {
+    return args;
+  }
+  return [];
+}
+
+async function runProviderCommandProbe(params: {
+  command: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+  secretValues: string[];
+}): Promise<ProviderCommandProbe> {
+  try {
+    const result = await execFileAsync(params.command, params.args, {
+      timeout: PROBE_TIMEOUT_MS,
+      windowsHide: true,
+      env: params.env,
+      maxBuffer: 512 * 1024,
+    });
+    const output = sanitizeDiagnosticText(
+      `${result.stdout}\n${result.stderr}`,
+      params.secretValues
+    );
+    return {
+      ok: true,
+      output,
+      diagnostics: [
+        `Executed ${commandLabel(params.command, params.args)} without shell expansion.`,
+      ],
+    };
+  } catch (error) {
+    const detail = isRecord(error)
+      ? sanitizeDiagnosticText(
+          [
+            typeof error.message === "string" ? error.message : "",
+            typeof error.stdout === "string" ? error.stdout : "",
+            typeof error.stderr === "string" ? error.stderr : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          params.secretValues
+        )
+      : errorMessage(error, params.secretValues);
+    return {
+      ok: false,
+      output: detail,
+      diagnostics: [
+        `${commandLabel(params.command, params.args)} failed: ${detail}`,
+      ],
+    };
+  }
+}
+
+function outputLooksUnauthenticated(output: string): boolean {
+  return /(not\s+logged\s+in|not\s+authenticated|unauthenticated|login\s+required|no\s+auth|missing\s+credential)/i.test(
+    output
+  );
+}
+
+function parseProviderModelList(output: string): string[] {
+  const trimmed = output.trim();
+  const models = new Set<string>();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const candidates = Array.isArray(parsed)
+        ? parsed
+        : isRecord(parsed) && Array.isArray(parsed.models)
+          ? parsed.models
+          : [];
+      for (const item of candidates) {
+        if (typeof item === "string" && item.trim()) {
+          models.add(item.trim());
+        } else if (isRecord(item) && typeof item.id === "string") {
+          models.add(item.id.trim());
+        } else if (isRecord(item) && typeof item.name === "string") {
+          models.add(item.name.trim());
+        }
+      }
+    } catch {
+      // Fall through to line parsing.
+    }
+  }
+  for (const line of trimmed.split(/\r?\n/)) {
+    const candidate = line
+      .replace(/^[-*\s]+/, "")
+      .replace(/\s+\(.+\)$/, "")
+      .trim();
+    if (
+      candidate &&
+      candidate.length <= 120 &&
+      !candidate.includes(" ") &&
+      !candidate.includes(":")
+    ) {
+      models.add(candidate);
+    }
+  }
+  return [...models].slice(0, 80);
+}
+
+async function runFirstProviderProbe(params: {
+  command: string;
+  prefixArgs: string[];
+  candidates: string[][];
+  env: NodeJS.ProcessEnv;
+  secretValues: string[];
+}): Promise<ProviderCommandProbe | null> {
+  if (params.candidates.length === 0) {
+    return null;
+  }
+  const failures: string[] = [];
+  for (const candidate of params.candidates) {
+    const probe = await runProviderCommandProbe({
+      command: params.command,
+      args: [...params.prefixArgs, ...candidate],
+      env: params.env,
+      secretValues: params.secretValues,
+    });
+    if (probe.ok) {
+      return probe;
+    }
+    failures.push(...probe.diagnostics);
+  }
+  return {
+    ok: false,
+    output: failures.join("\n"),
+    diagnostics: failures,
+  };
+}
+
+function readinessFromStatuses(params: {
+  cliStatus: LocalAdeProviderDescriptor["cliStatus"];
+  authStatus: LocalAdeProviderDescriptor["authStatus"];
+  modelStatus: LocalAdeProviderDescriptor["modelStatus"];
+}): LocalAdeProviderDescriptor["readiness"] {
+  if (params.cliStatus !== "ok") {
+    return "unavailable";
+  }
+  if (params.authStatus === "failed") {
+    return "auth-unknown";
+  }
+  if (params.modelStatus === "failed") {
+    return "model-unknown";
+  }
+  if (params.authStatus === "unknown" || params.authStatus === "unsupported") {
+    return "auth-unknown";
+  }
+  if (params.modelStatus === "unknown" || params.modelStatus === "unsupported") {
+    return "model-unknown";
+  }
+  return "ready";
+}
+
+async function probeProviderReadiness(
+  agent: Awaited<ReturnType<AgentRepositoryPort["findAll"]>>[number]
+): Promise<ProviderReadinessProbe> {
+  const diagnostics: string[] = [];
+  const secretValues = Object.values(agent.env ?? {});
+  const command = agent.command.trim();
+  const resolved = await resolveExecutable(command);
+  diagnostics.push(...resolved.diagnostics);
+  if (!resolved.available) {
+    return {
+      cliStatus: "missing",
+      authStatus: "unknown",
+      modelStatus: "unknown",
+      readiness: "unavailable",
+      modelList: [],
+      diagnostics,
+    };
+  }
+
+  const env = {
+    ...process.env,
+    ...(agent.env ?? {}),
+  };
+  const prefixArgs = providerProbePrefixArgs(agent);
+  const versionProbe = await runProviderCommandProbe({
+    command,
+    args: [...prefixArgs, "--version"],
+    env,
+    secretValues,
+  });
+  diagnostics.push(...versionProbe.diagnostics);
+  const version = versionProbe.ok
+    ? firstOutputLine(versionProbe.output, "")?.slice(0, 160)
+    : undefined;
+  const cliStatus: LocalAdeProviderDescriptor["cliStatus"] = versionProbe.ok
+    ? "ok"
+    : "failed";
+  if (cliStatus !== "ok") {
+    return {
+      cliStatus,
+      authStatus: "unknown",
+      modelStatus: "unknown",
+      readiness: "unavailable",
+      modelList: [],
+      diagnostics,
+    };
+  }
+
+  const plan =
+    agent.type === "claude" ||
+    agent.type === "codex" ||
+    agent.type === "gemini" ||
+    agent.type === "opencode"
+      ? PROVIDER_PROBE_PLANS[agent.type]
+      : undefined;
+
+  let authStatus: LocalAdeProviderDescriptor["authStatus"] = "unsupported";
+  if (plan) {
+    const authProbe = await runFirstProviderProbe({
+      command,
+      prefixArgs,
+      candidates: plan.auth,
+      env,
+      secretValues,
+    });
+    if (authProbe?.ok) {
+      authStatus = outputLooksUnauthenticated(authProbe.output) ? "failed" : "ok";
+      diagnostics.push(...authProbe.diagnostics);
+      diagnostics.push(`Provider auth probe classified as ${authStatus}.`);
+    } else {
+      authStatus = "unknown";
+      diagnostics.push(
+        ...(authProbe?.diagnostics ?? ["No provider auth probe is configured."])
+      );
+      diagnostics.push("Provider auth probe is unknown for this CLI.");
+    }
+  } else {
+    diagnostics.push("No safe provider auth probe is configured for this agent type.");
+  }
+
+  let modelStatus: LocalAdeProviderDescriptor["modelStatus"] = "unsupported";
+  let modelList: string[] = [];
+  if (plan) {
+    const modelProbe = await runFirstProviderProbe({
+      command,
+      prefixArgs,
+      candidates: plan.models,
+      env,
+      secretValues,
+    });
+    if (modelProbe?.ok) {
+      modelList = parseProviderModelList(modelProbe.output);
+      modelStatus = modelList.length > 0 ? "ok" : "unknown";
+      diagnostics.push(...modelProbe.diagnostics);
+      diagnostics.push(
+        `Provider model probe returned ${modelList.length} model identifiers.`
+      );
+    } else {
+      modelStatus = "unknown";
+      diagnostics.push(
+        ...(modelProbe?.diagnostics ?? ["No provider model probe is configured."])
+      );
+      diagnostics.push("Provider model probe is unknown for this CLI.");
+    }
+  } else {
+    diagnostics.push("No safe provider model probe is configured for this agent type.");
+  }
+
+  const readiness = readinessFromStatuses({
+    cliStatus,
+    authStatus,
+    modelStatus,
+  });
+  return {
+    cliStatus,
+    authStatus,
+    modelStatus,
+    readiness,
+    ...(version ? { version } : {}),
+    modelList,
+    diagnostics,
+  };
+}
+
 async function providerDescriptorsFromAgents(
   rootPath: string,
   agents: Awaited<ReturnType<AgentRepositoryPort["findAll"]>>,
@@ -1275,7 +2228,7 @@ async function providerDescriptorsFromAgents(
 ): Promise<LocalAdeProviderDescriptor[]> {
   return await Promise.all(agents.map(async (agent) => {
     const envKeys = Object.keys(agent.env ?? {});
-    const modelList = [
+    const fallbackModelList = [
       ...(agent.type === "opencode" ? ["agent-configured"] : []),
       ...(agent.type === "codex" ? ["codex-default"] : []),
       ...(agent.type === "claude" ? ["claude-default"] : []),
@@ -1284,7 +2237,13 @@ async function providerDescriptorsFromAgents(
     const providerId = `provider.agent.${agent.id}`;
     const health = healthDocument.providers[providerId];
     const executable = await resolveExecutable(agent.command.trim());
-    const status = health?.status ?? (executable.available ? "configured" : "missing-config");
+    const status =
+      health?.status ?? (executable.available ? "configured" : "missing-config");
+    const readiness =
+      health?.readiness ?? (executable.available ? "cli-ok" : "missing-config");
+    const modelList = health?.modelList?.length
+      ? health.modelList
+      : fallbackModelList;
     return {
       id: providerId,
       displayName: agent.name,
@@ -1295,11 +2254,15 @@ async function providerDescriptorsFromAgents(
       compatibleAgents: [agent.id],
       redactedEnvKeys: envKeys,
       status,
+      cliStatus: health?.cliStatus ?? (executable.available ? "ok" : "missing"),
+      authStatus: health?.authStatus ?? "unknown",
+      modelStatus: health?.modelStatus ?? "unknown",
+      readiness,
       ...(health?.version ? { version: health.version } : {}),
       ...(health?.checkedAt ? { lastProbedAt: health.checkedAt } : {}),
       ...(typeof health?.latencyMs === "number" ? { latencyMs: health.latencyMs } : {}),
       diagnostics: [
-        "Provider state is derived from safe agent config metadata.",
+        "Provider state is derived from safe agent config metadata and redacted readiness probes.",
         ...executable.diagnostics,
         envKeys.length > 0
           ? "Secrets are present only as redacted ENV key names."
@@ -1369,7 +2332,7 @@ async function readGitSnapshot(rootPath: string): Promise<LocalAdeChangeTrustSna
         .map((line) => line.trimEnd())
         .filter(Boolean),
       diagnostics: [
-        "Read-only Git diff fallback is active; restore/rollback is intentionally not implemented.",
+        "Git diff fallback is active; checkpoints support preview plus guarded restore with an automatic pre-restore safety checkpoint.",
       ],
     };
   } catch (error) {
@@ -1400,6 +2363,13 @@ async function runGit(
   };
 }
 
+async function readGitStatusLines(rootPath: string): Promise<string[]> {
+  return (await runGit(rootPath, ["status", "--short"])).stdout
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+}
+
 async function readCheckpointDocument(rootPath: string): Promise<CheckpointDocument> {
   const parsed = await readJsonObject(
     path.join(ensureProjectDataDir(rootPath), CHECKPOINTS_FILE)
@@ -1419,6 +2389,15 @@ async function readCheckpointDocument(rootPath: string): Promise<CheckpointDocum
       Array.isArray(item.sessionIds) &&
       Array.isArray(item.changedFiles) &&
       Array.isArray(item.statusLines) &&
+      (item.restoreMode === undefined ||
+        item.restoreMode === "reverse-patch" ||
+        item.restoreMode === "apply-patch") &&
+      (item.restoreStatusLines === undefined ||
+        Array.isArray(item.restoreStatusLines)) &&
+      (item.safetyForCheckpointId === undefined ||
+        typeof item.safetyForCheckpointId === "string") &&
+      (item.preRestoreSafetyCheckpointId === undefined ||
+        typeof item.preRestoreSafetyCheckpointId === "string") &&
       typeof item.patchPath === "string" &&
       typeof item.patchBytes === "number" &&
       typeof item.canRestore === "boolean" &&
@@ -1453,6 +2432,8 @@ async function createGitCheckpoint(params: {
   rootPath: string;
   name?: string;
   sessionIds: string[];
+  restoreMode?: LocalAdeCheckpoint["restoreMode"];
+  safetyForCheckpointId?: string;
 }): Promise<LocalAdeCheckpoint> {
   const rootPath = params.rootPath;
   const id = `checkpoint-${randomUUID()}`;
@@ -1516,6 +2497,10 @@ async function createGitCheckpoint(params: {
     ...(gitHead ? { gitHead } : {}),
     changedFiles,
     statusLines,
+    restoreMode: params.restoreMode ?? "reverse-patch",
+    ...(params.safetyForCheckpointId
+      ? { safetyForCheckpointId: params.safetyForCheckpointId }
+      : {}),
     patchPath,
     patchBytes,
     canRestore: patchBytes > 0,
@@ -1605,11 +2590,13 @@ async function collectCheckpointRestoreBlockers(params: {
       .split(/\r?\n/)
       .map((line) => line.trimEnd())
       .filter(Boolean);
-    if (!equalLineSets(statusLines, params.checkpoint.statusLines)) {
+    const expectedStatusLines =
+      params.checkpoint.restoreStatusLines ?? params.checkpoint.statusLines;
+    if (!equalLineSets(statusLines, expectedStatusLines)) {
       blockers.push({
         file: serviceFile,
         reason:
-          "Current workspace status differs from the checkpoint capture; restore is blocked until changes are reviewed or a new checkpoint is created.",
+          "Current workspace status differs from the checkpoint restore precondition; restore is blocked until changes are reviewed or a new checkpoint is created.",
       });
     }
   } catch (error) {
@@ -1622,7 +2609,13 @@ async function collectCheckpointRestoreBlockers(params: {
   }
 
   try {
-    await runGit(params.rootPath, ["apply", "--check", "-R", params.patchPath]);
+    const mode = params.checkpoint.restoreMode ?? "reverse-patch";
+    await runGit(
+      params.rootPath,
+      mode === "apply-patch"
+        ? ["apply", "--check", params.patchPath]
+        : ["apply", "--check", "-R", params.patchPath]
+    );
   } catch (error) {
     blockers.push({
       file: serviceFile,
@@ -1704,7 +2697,13 @@ async function restoreGitCheckpoint(params: {
     throw new Error(blockers.map((blocker) => blocker.reason).join(" "));
   }
 
-  await runGit(params.rootPath, ["apply", "-R", "--whitespace=nowarn", resolvedPatchPath]);
+  const restoreMode = params.checkpoint.restoreMode ?? "reverse-patch";
+  await runGit(
+    params.rootPath,
+    restoreMode === "apply-patch"
+      ? ["apply", "--whitespace=nowarn", resolvedPatchPath]
+      : ["apply", "-R", "--whitespace=nowarn", resolvedPatchPath]
+  );
   return {
     ...params.checkpoint,
     restoredAt: new Date().toISOString(),
@@ -1787,7 +2786,11 @@ export class LocalAdeService {
       agents,
       providerHealth
     );
-    const mcpServers = await Promise.all(mcpDocument.servers.map(toVisibleMcpServer));
+    const mcpServers = await Promise.all(
+      mcpDocument.servers.map((server) =>
+        toVisibleMcpServer(projectContext.rootPath, server)
+      )
+    );
     const capabilities = createCapabilityRegistrySnapshot(
       [
         ...markdownCapabilities,
@@ -1995,52 +2998,32 @@ export class LocalAdeService {
     const providerHealthId = `provider.agent.${agent.id}`;
     const healthDocument = await readProviderHealthDocument(context.rootPath);
     const startedAt = Date.now();
-    let record: ProviderHealthRecord;
-
-    try {
-      const resolved = await resolveExecutable(command);
-      if (!resolved.available) {
-        throw new Error(resolved.diagnostics.join(" "));
-      }
-      const result = await execFileAsync(command, ["--version"], {
-        timeout: PROBE_TIMEOUT_MS,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          ...(agent.env ?? {}),
-        },
-      });
-      const version =
-        result.stdout
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .find(Boolean) ??
-        result.stderr
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .find(Boolean);
-      record = {
-        status: "available",
-        checkedAt: new Date().toISOString(),
-        latencyMs: Date.now() - startedAt,
-        ...(version ? { version: version.slice(0, 160) } : {}),
-        diagnostics: [
-          ...resolved.diagnostics,
-          `Executed ${command} --version without shell expansion.`,
-        ],
-      };
-    } catch (error) {
-      record = {
-        status: "unavailable",
-        checkedAt: new Date().toISOString(),
-        latencyMs: Date.now() - startedAt,
-        diagnostics: [
-          `Provider probe failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        ],
-      };
-    }
+    const readiness = await probeProviderReadiness(agent).catch(
+      (error): ProviderReadinessProbe => ({
+        cliStatus: "failed",
+        authStatus: "unknown",
+        modelStatus: "unknown",
+        readiness: "unavailable",
+        modelList: [],
+        diagnostics: [`Provider readiness probe failed: ${errorMessage(error)}`],
+      })
+    );
+    const record: ProviderHealthRecord = {
+      status: readiness.readiness === "unavailable" ? "unavailable" : readiness.readiness,
+      cliStatus: readiness.cliStatus,
+      authStatus: readiness.authStatus,
+      modelStatus: readiness.modelStatus,
+      readiness: readiness.readiness,
+      checkedAt: new Date().toISOString(),
+      latencyMs: Date.now() - startedAt,
+      ...(readiness.version ? { version: readiness.version } : {}),
+      ...(readiness.modelList.length > 0 ? { modelList: readiness.modelList } : {}),
+      diagnostics: [
+        ...readiness.diagnostics,
+        `Readiness summary: CLI ${readiness.cliStatus}, auth ${readiness.authStatus}, model ${readiness.modelStatus}.`,
+        `Provider probe completed for ${command} without exposing secret values.`,
+      ],
+    };
 
     healthDocument.providers[providerHealthId] = record;
     await writeProviderHealthDocument(context.rootPath, healthDocument);
@@ -2104,12 +3087,75 @@ export class LocalAdeService {
     if (checkpointIndex < 0) {
       throw new Error(`Checkpoint not found: ${input.checkpointId}`);
     }
+    const checkpoint = document.checkpoints[checkpointIndex];
+    if (!checkpoint) {
+      throw new Error(`Checkpoint not found: ${input.checkpointId}`);
+    }
+    const expectedConfirmation = checkpointRestoreToken(checkpoint);
+    if (input.confirmation.trim() !== expectedConfirmation) {
+      throw new Error(`Type '${expectedConfirmation}' to restore this checkpoint.`);
+    }
+    const preview = await readCheckpointPreview({
+      rootPath: context.rootPath,
+      checkpoint,
+    });
+    if (!preview.canRestore) {
+      throw new Error(
+        preview.restoreBlockers.map((blocker) => blocker.reason).join(" ")
+      );
+    }
+    const activeSessionIds = this.sessionRuntime
+      .getAll()
+      .filter(
+        (session) =>
+          session.userId === userId &&
+          path.resolve(session.projectRoot) === path.resolve(context.rootPath)
+      )
+      .map((session) => session.id);
+    const safetyCheckpoint = await createGitCheckpoint({
+      rootPath: context.rootPath,
+      name: `Safety before restore: ${checkpoint.name}`,
+      sessionIds: activeSessionIds,
+      restoreMode: "apply-patch",
+      safetyForCheckpointId: checkpoint.id,
+    });
     const restored = await restoreGitCheckpoint({
       rootPath: context.rootPath,
-      checkpoint: document.checkpoints[checkpointIndex],
+      checkpoint,
       confirmation: input.confirmation,
     });
-    document.checkpoints[checkpointIndex] = restored;
+    let safetyToStore: LocalAdeCheckpoint | null = null;
+    if (safetyCheckpoint.patchBytes > 0) {
+      safetyToStore = {
+        ...safetyCheckpoint,
+        restoreStatusLines: await readGitStatusLines(context.rootPath).catch(
+          () => []
+        ),
+        diagnostics: [
+          `Automatic pre-restore safety checkpoint for ${checkpoint.id}. Restore this checkpoint to re-apply the pre-restore patch if needed.`,
+          ...safetyCheckpoint.diagnostics,
+        ],
+      };
+    }
+    const restoredWithSafety = {
+      ...restored,
+      ...(safetyToStore
+        ? { preRestoreSafetyCheckpointId: safetyToStore.id }
+        : {}),
+      diagnostics: [
+        ...(safetyToStore
+          ? [`Pre-restore safety checkpoint created: ${safetyToStore.id}.`]
+          : ["Pre-restore safety checkpoint was empty and was not retained."]),
+        ...restored.diagnostics,
+      ],
+    };
+    const replaced = document.checkpoints.map((item) =>
+      item.id === checkpoint.id ? restoredWithSafety : item
+    );
+    document.checkpoints = [
+      ...(safetyToStore ? [safetyToStore] : []),
+      ...replaced,
+    ].slice(0, MAX_CHECKPOINTS);
     await writeCheckpointDocument(context.rootPath, document);
     return await this.snapshot(userId);
   }

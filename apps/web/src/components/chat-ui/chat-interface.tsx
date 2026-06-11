@@ -13,6 +13,10 @@ import { ChatPlanDockPane } from "@/components/chat-ui/chat-interface/chat-plan-
 import { ChatInput } from "@/components/chat-ui/chat-input";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import { QuickSwitchDialog } from "@/components/chat-ui/quick-switch-dialog";
+import {
+  resolveSubagentCommand,
+  subagentSlashCommandName,
+} from "@/components/chat-ui/subagent-command";
 import { LocalAdeControlCenter } from "@/components/local-ade/local-ade-control-center";
 import { Button } from "@/components/ui/button";
 import {
@@ -129,37 +133,6 @@ function getRejectDecision(
   }
   const normalized = resolvedValue.trim();
   return normalized.length > 0 ? normalized : null;
-}
-
-function slugCommandName(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/^@+/, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function buildSubagentDelegationPrompt(params: {
-  name: string;
-  description?: string;
-  prompt: string;
-  request: string;
-  sourcePath: string;
-}): string {
-  return [
-    `Delegate this task to the "${params.name}" subagent profile.`,
-    params.description ? `Subagent description: ${params.description}` : "",
-    `Subagent source: ${params.sourcePath}`,
-    "",
-    "Subagent instructions:",
-    params.prompt,
-    "",
-    "User request:",
-    params.request.trim() || "Review the current project state and report findings.",
-  ]
-    .filter((line) => line.length > 0)
-    .join("\n");
 }
 
 export function ChatInterface({
@@ -473,7 +446,7 @@ export function ChatInterface({
       (localAdeSnapshot?.subagents ?? [])
         .filter((subagent) => subagent.enabled)
         .map((subagent) => ({
-          name: `agent-${slugCommandName(subagent.name)}`,
+          name: subagentSlashCommandName(subagent.name),
           description:
             subagent.description ??
             `Invoke ${subagent.name} as a delegated subagent profile`,
@@ -485,18 +458,6 @@ export function ChatInterface({
     () => [...commands, ...localSlashCommands, ...localSubagentCommands],
     [commands, localSlashCommands, localSubagentCommands]
   );
-  const localSubagentsByCommand = useMemo(() => {
-    const map = new Map<
-      string,
-      NonNullable<typeof localAdeSnapshot>["subagents"][number]
-    >();
-    for (const subagent of localAdeSnapshot?.subagents ?? []) {
-      if (subagent.enabled) {
-        map.set(`agent-${slugCommandName(subagent.name)}`, subagent);
-      }
-    }
-    return map;
-  }, [localAdeSnapshot]);
   // Quick switch sessions
   const quickSwitchSessions = useMemo(() => {
     return (sessionsData || [])
@@ -1010,19 +971,11 @@ export function ChatInterface({
         }
       }
 
-      const leadingCommand = message.text.match(/^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/);
-      const subagent = leadingCommand
-        ? localSubagentsByCommand.get(leadingCommand[1])
-        : undefined;
-      const messageText = subagent
-        ? buildSubagentDelegationPrompt({
-            name: subagent.name,
-            description: subagent.description,
-            prompt: subagent.prompt,
-            request: leadingCommand?.[2] ?? "",
-            sourcePath: subagent.sourcePath,
-          })
-        : message.text;
+      const subagentCommand = resolveSubagentCommand({
+        text: message.text,
+        subagents: localAdeSnapshot?.subagents ?? [],
+      });
+      const messageText = subagentCommand?.prompt ?? message.text;
 
       const result = await sendMessage(messageText, {
         images: images.length > 0 ? images : undefined,
@@ -1045,7 +998,7 @@ export function ChatInterface({
       chatId,
       effectiveConnStatus,
       error,
-      localSubagentsByCommand,
+      localAdeSnapshot?.subagents,
       promptCapabilities?.embeddedContext,
       sendMessage,
       utils.getFileContent,

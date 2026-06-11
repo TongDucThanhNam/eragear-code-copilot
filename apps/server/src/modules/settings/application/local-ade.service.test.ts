@@ -106,6 +106,83 @@ function createService(agents: AgentConfig[] = []): LocalAdeService {
   });
 }
 
+async function writeMcpFixture(options: {
+  toolsError?: boolean;
+} = {}): Promise<string> {
+  const scriptPath = path.join(tempRoot, "fake-mcp-server.js");
+  await writeFile(
+    scriptPath,
+    `
+process.stdin.setEncoding("utf8");
+let buffer = "";
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  const lines = buffer.split(/\\r?\\n/);
+  buffer = lines.pop() ?? "";
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const message = JSON.parse(line);
+    if (message.method === "initialize") {
+      send({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: {
+          protocolVersion: "2024-11-05",
+          serverInfo: { name: "fake-mcp", version: "1.0.0" },
+          capabilities: { tools: {}, resources: {} }
+        }
+      });
+    } else if (message.method === "tools/list") {
+      ${
+        options.toolsError
+          ? 'send({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "no tools here" } });'
+          : 'send({ jsonrpc: "2.0", id: message.id, result: { tools: [{ name: "read_repo", description: "Read repository files" }] } });'
+      }
+    } else if (message.method === "resources/list") {
+      send({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: { resources: [{ uri: "file:///README.md", name: "README" }] }
+      });
+    }
+  }
+});
+`,
+    "utf8"
+  );
+  return scriptPath;
+}
+
+async function writeProviderFixture(): Promise<string> {
+  const scriptPath = path.join(tempRoot, "fake-provider-cli.js");
+  await writeFile(
+    scriptPath,
+    `
+const args = process.argv.slice(2);
+const joined = args.join(" ");
+if (joined === "--version") {
+  process.stdout.write("fake-provider 1.2.3\\n");
+  process.exit(0);
+}
+if (joined === "auth list" || joined === "auth status") {
+  process.stdout.write("authenticated\\n");
+  process.exit(0);
+}
+if (joined === "models" || joined === "models list") {
+  process.stdout.write(JSON.stringify({ models: [{ id: "model-alpha" }, { id: "model-beta" }] }));
+  process.exit(0);
+}
+process.stderr.write("unsupported command: " + joined + "\\n");
+process.exit(2);
+`,
+    "utf8"
+  );
+  return scriptPath;
+}
+
 test("discovers project commands and persists disabled state", async () => {
   await mkdir(path.join(tempRoot, ".eragear", "commands"), {
     recursive: true,
@@ -198,13 +275,15 @@ test("discovers project subagents as invokable capabilities", async () => {
   expect(capability?.enabled).toBe(true);
 });
 
-test("probes stdio MCP entries with an executable command", async () => {
+test("initializes stdio MCP entries and discovers tools/resources", async () => {
   const service = createService();
+  const mcpScript = await writeMcpFixture();
 
   const updated = await service.upsertMcpServer(userId, {
     name: "Local runtime probe",
     transport: "stdio",
     command: process.execPath,
+    args: [mcpScript],
     enabled: true,
   });
   const server = updated.mcp.servers.find(
@@ -213,18 +292,46 @@ test("probes stdio MCP entries with an executable command", async () => {
 
   expect(server).toBeDefined();
   expect(server?.health).toBe("available");
+  expect(server?.protocol.status).toBe("initialized");
+  expect(server?.protocol.serverName).toBe("fake-mcp");
+  expect(server?.tools.map((tool) => tool.name)).toEqual(["read_repo"]);
+  expect(server?.resources.map((resource) => resource.name)).toEqual(["README"]);
   expect(server?.latencyMs).toBeGreaterThanOrEqual(0);
-  expect(server?.diagnostics.join("\n")).toContain("Executable exists");
+  expect(server?.diagnostics.join("\n")).toContain("MCP initialize succeeded");
 });
 
-test("tests provider command and persists redacted health metadata", async () => {
+test("surfaces exact MCP protocol errors in diagnostics", async () => {
+  const service = createService();
+  const mcpScript = await writeMcpFixture({ toolsError: true });
+
+  const updated = await service.upsertMcpServer(userId, {
+    name: "Protocol error probe",
+    transport: "stdio",
+    command: process.execPath,
+    args: [mcpScript],
+    enabled: true,
+  });
+  const server = updated.mcp.servers.find(
+    (item) => item.name === "Protocol error probe"
+  );
+
+  expect(server?.health).toBe("available");
+  expect(server?.protocol.status).toBe("initialized");
+  expect(server?.tools).toEqual([]);
+  expect(server?.diagnostics.join("\n")).toContain(
+    "MCP tools/list failed: JSON-RPC error -32601: no tools here"
+  );
+});
+
+test("tests provider readiness and persists redacted health metadata", async () => {
+  const providerScript = await writeProviderFixture();
   const agent: AgentConfig = {
     id: "agent-1",
     userId,
     name: "Runtime Agent",
-    type: "other",
+    type: "opencode",
     command: process.execPath,
-    args: [],
+    args: [providerScript],
     env: { TEST_SECRET_KEY: "redacted-by-contract" },
     projectId: null,
     createdAt: Date.now(),
@@ -242,10 +349,15 @@ test("tests provider command and persists redacted health metadata", async () =>
     await readFile(path.join(tempRoot, ".eragear", "provider-health.json"), "utf8")
   );
 
-  expect(provider?.status).toBe("available");
+  expect(provider?.status).toBe("ready");
+  expect(provider?.cliStatus).toBe("ok");
+  expect(provider?.authStatus).toBe("ok");
+  expect(provider?.modelStatus).toBe("ok");
+  expect(provider?.modelList).toEqual(["model-alpha", "model-beta"]);
   expect(provider?.redactedEnvKeys).toEqual(["TEST_SECRET_KEY"]);
-  expect(provider?.version).toBeDefined();
-  expect(stored.providers["provider.agent.agent-1"].status).toBe("available");
+  expect(provider?.version).toBe("fake-provider 1.2.3");
+  expect(stored.providers["provider.agent.agent-1"].status).toBe("ready");
+  expect(JSON.stringify(stored)).not.toContain("redacted-by-contract");
 });
 
 test("captures checkpoint patch metadata from a git worktree", async () => {
@@ -307,9 +419,32 @@ test("captures checkpoint patch metadata from a git worktree", async () => {
   const restoredCheckpoint = restoredSnapshot.checkpoints.items.find(
     (item) => item.id === checkpoint?.id
   );
+  const safetyCheckpoint = restoredSnapshot.checkpoints.items.find(
+    (item) => item.safetyForCheckpointId === checkpoint?.id
+  );
   const restoredReadme = await readFile(path.join(tempRoot, "README.md"), "utf8");
 
   expect(restoredReadme.replace(/\r\n/g, "\n")).toBe("initial\n");
   expect(restoredCheckpoint?.restoredAt).toBeDefined();
   expect(restoredCheckpoint?.canRestore).toBe(false);
+  expect(restoredCheckpoint?.preRestoreSafetyCheckpointId).toBe(
+    safetyCheckpoint?.id
+  );
+  expect(safetyCheckpoint?.restoreMode).toBe("apply-patch");
+  expect(safetyCheckpoint?.canRestore).toBe(true);
+
+  const safetyPreview = await service.previewCheckpoint(userId, {
+    checkpointId: safetyCheckpoint?.id ?? "",
+  });
+  expect(safetyPreview.canRestore).toBe(true);
+  const safetyRestored = await service.restoreCheckpoint(userId, {
+    checkpointId: safetyCheckpoint?.id ?? "",
+    confirmation: safetyPreview.restoreToken,
+  });
+  const reappliedReadme = await readFile(path.join(tempRoot, "README.md"), "utf8");
+  const restoredSafety = safetyRestored.checkpoints.items.find(
+    (item) => item.id === safetyCheckpoint?.id
+  );
+  expect(reappliedReadme.replace(/\r\n/g, "\n")).toBe("initial\nchanged\n");
+  expect(restoredSafety?.restoredAt).toBeDefined();
 });

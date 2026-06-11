@@ -1,4 +1,5 @@
 import path from "node:path";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import type { RuntimeServiceOperation } from "@repo/shared";
 import { DesktopRuntimeHost } from "../src/runtime-host.js";
 
@@ -50,9 +51,27 @@ interface CapabilitySummary {
 
 interface LocalAdeSnapshot {
   projectRoot: string;
-  providers: Array<{ id: string; status: string; version?: string }>;
+  providers: Array<{
+    id: string;
+    status: string;
+    cliStatus?: string;
+    authStatus?: string;
+    modelStatus?: string;
+    version?: string;
+  }>;
   mcp: {
-    servers: Array<{ name: string; health: string }>;
+    configPath: string;
+    servers: Array<{
+      name: string;
+      health: string;
+      protocol: {
+        status: string;
+        toolsDiscovered: number;
+        resourcesDiscovered: number;
+      };
+      tools: Array<{ name: string }>;
+      resources: Array<{ uri: string; name?: string }>;
+    }>;
   };
   checkpoints: {
     items: Array<{ id: string; patchBytes: number }>;
@@ -69,6 +88,7 @@ interface LocalAdeSnapshot {
 
 const desktopRoot = path.resolve(import.meta.dir, "..");
 const repoRoot = path.resolve(desktopRoot, "..", "..");
+const smokeMcpScript = path.join(desktopRoot, "scripts", "mcp-smoke-server.js");
 const token = `smoke-${Date.now()}`;
 const promptWaitMs = Number(process.env.ERAGEAR_DESKTOP_SMOKE_PROMPT_WAIT_MS ?? 20_000);
 
@@ -147,6 +167,28 @@ async function chooseAgent(): Promise<AgentSummary> {
     throw new Error("No agent configuration available for desktop smoke.");
   }
   return agent;
+}
+
+async function withFileBackup<T>(
+  filePath: string,
+  run: () => Promise<T>
+): Promise<T> {
+  let previous: string | null = null;
+  try {
+    previous = await readFile(filePath, "utf8");
+  } catch {
+    previous = null;
+  }
+  try {
+    return await run();
+  } finally {
+    if (previous === null) {
+      await rm(filePath, { force: true }).catch(() => undefined);
+    } else {
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, previous, "utf8");
+    }
+  }
 }
 
 async function subscribeUntilConnected(chatId: string): Promise<{
@@ -235,9 +277,18 @@ async function main(): Promise<void> {
         providers: ade.providers.map((provider) => [
           provider.id,
           provider.status,
+          provider.cliStatus ?? null,
+          provider.authStatus ?? null,
+          provider.modelStatus ?? null,
           provider.version ?? null,
         ]),
-        mcp: ade.mcp.servers.map((server) => [server.name, server.health]),
+        mcp: ade.mcp.servers.map((server) => [
+          server.name,
+          server.health,
+          server.protocol.status,
+          server.protocol.toolsDiscovered,
+          server.protocol.resourcesDiscovered,
+        ]),
         checkpoints: ade.checkpoints.items.length,
         commands: ade.capabilities.capabilities
           .filter((item) => item.kind === "command")
@@ -250,6 +301,46 @@ async function main(): Promise<void> {
     if (!ade.subagents.some((item) => item.name === "code-reviewer" && item.enabled)) {
       throw new Error("Expected enabled code-reviewer subagent in Local ADE snapshot.");
     }
+    const subagentCommand = ade.capabilities.capabilities.find(
+      (item) =>
+        item.kind === "subagent" && item.name === "code-reviewer" && item.enabled
+    );
+    if (!subagentCommand) {
+      throw new Error("Expected code-reviewer subagent command in Local ADE capabilities.");
+    }
+
+    await withFileBackup(ade.mcp.configPath, async () => {
+      const mcpSnapshot = await request<LocalAdeSnapshot>(
+        operation("mutation", "settings.upsertMcpServer", {
+          id: "desktop-smoke-mcp",
+          name: "Desktop Smoke MCP",
+          transport: "stdio",
+          enabled: true,
+          command: process.execPath,
+          args: [smokeMcpScript],
+        })
+      );
+      const smokeMcp = mcpSnapshot.mcp.servers.find(
+        (server) => server.name === "Desktop Smoke MCP"
+      );
+      console.log(
+        "MCP_DISCOVERY",
+        JSON.stringify({
+          health: smokeMcp?.health ?? "missing",
+          protocol: smokeMcp?.protocol.status ?? "missing",
+          tools: smokeMcp?.tools.map((tool) => tool.name) ?? [],
+          resources:
+            smokeMcp?.resources.map((resource) => resource.name ?? resource.uri) ?? [],
+        })
+      );
+      if (
+        smokeMcp?.health !== "available" ||
+        smokeMcp.protocol.status !== "initialized" ||
+        !smokeMcp.tools.some((tool) => tool.name === "desktop_smoke_tool")
+      ) {
+        throw new Error("Desktop smoke MCP protocol discovery did not complete.");
+      }
+    });
 
     const agent = await chooseAgent();
     const providerSnapshot = await request<LocalAdeSnapshot>(
@@ -269,9 +360,17 @@ async function main(): Promise<void> {
         command: agent.command,
         args: agent.args ?? [],
         providerStatus: testedProvider?.status ?? "missing",
+        providerCliStatus: testedProvider?.cliStatus ?? "missing",
+        providerAuthStatus: testedProvider?.authStatus ?? "missing",
+        providerModelStatus: testedProvider?.modelStatus ?? "missing",
         providerVersion: testedProvider?.version ?? null,
       })
     );
+    if (testedProvider?.cliStatus !== "ok") {
+      throw new Error(
+        `Expected provider CLI readiness to be ok, got ${testedProvider?.cliStatus ?? "missing"}.`
+      );
+    }
 
     const created = await request<SessionCreateResult>(
       operation("mutation", "createSession", {

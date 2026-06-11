@@ -90,7 +90,12 @@ function formatTime(value: string | number | undefined): string {
 function statusVariant(
   value: string | boolean | undefined
 ): "default" | "secondary" | "destructive" | "outline" {
-  if (value === true || value === "ready" || value === "available") {
+  if (
+    value === true ||
+    value === "ready" ||
+    value === "available" ||
+    value === "ok"
+  ) {
     return "default";
   }
   if (
@@ -98,7 +103,9 @@ function statusVariant(
     value === "error" ||
     value === "blocked" ||
     value === "unavailable" ||
-    value === "invalid-config"
+    value === "invalid-config" ||
+    value === "failed" ||
+    value === "missing"
   ) {
     return "destructive";
   }
@@ -106,7 +113,12 @@ function statusVariant(
     value === "partial" ||
     value === "degraded" ||
     value === "missing-config" ||
-    value === "disabled"
+    value === "disabled" ||
+    value === "cli-ok" ||
+    value === "auth-unknown" ||
+    value === "model-unknown" ||
+    value === "unknown" ||
+    value === "unsupported"
   ) {
     return "secondary";
   }
@@ -367,17 +379,18 @@ function ProviderTable({ snapshot }: { snapshot: LocalAdeSnapshot | undefined })
   const providers = snapshot?.providers ?? [];
   return (
     <div className="overflow-hidden rounded-md border">
-      <div className="grid grid-cols-[1fr_0.7fr_0.8fr_1fr_88px] border-b bg-muted/30 px-3 py-2 font-medium text-xs">
+      <div className="grid grid-cols-[1fr_0.55fr_0.75fr_1.15fr_1fr_88px] border-b bg-muted/30 px-3 py-2 font-medium text-xs">
         <span>Provider</span>
         <span>Kind</span>
-        <span>Status</span>
+        <span>Ready</span>
+        <span>Probe Detail</span>
         <span>Safe Config</span>
         <span>Action</span>
       </div>
       <div className="max-h-64 overflow-y-auto">
         {providers.map((provider) => (
           <div
-            className="grid grid-cols-[1fr_0.7fr_0.8fr_1fr_88px] gap-2 border-b px-3 py-2 text-sm last:border-b-0"
+            className="grid grid-cols-[1fr_0.55fr_0.75fr_1.15fr_1fr_88px] gap-2 border-b px-3 py-2 text-sm last:border-b-0"
             key={provider.id}
           >
             <span className="min-w-0">
@@ -395,10 +408,24 @@ function ProviderTable({ snapshot }: { snapshot: LocalAdeSnapshot | undefined })
                 {provider.status}
               </Badge>
             </span>
+            <span className="flex flex-wrap gap-1">
+              <Badge variant={statusVariant(provider.cliStatus)}>
+                CLI {provider.cliStatus}
+              </Badge>
+              <Badge variant={statusVariant(provider.authStatus)}>
+                auth {provider.authStatus}
+              </Badge>
+              <Badge variant={statusVariant(provider.modelStatus)}>
+                model {provider.modelStatus}
+              </Badge>
+            </span>
             <span className="truncate text-muted-foreground text-xs">
               {provider.redactedEnvKeys.length > 0
                 ? `${provider.redactedEnvKeys.join(", ")} configured`
                 : "No provider secrets stored in agent config"}
+              {provider.modelList.length > 0
+                ? `; models: ${provider.modelList.slice(0, 3).join(", ")}`
+                : ""}
             </span>
             <Button
               disabled={testProvider.isPending}
@@ -528,9 +555,32 @@ function McpManager({
               </div>
               <div className="truncate text-muted-foreground text-[11px]">
                 {server.latencyMs !== undefined
-                  ? `${server.latencyMs}ms - ${server.diagnostics[0] ?? "probed"}`
+                  ? `${server.latencyMs}ms - ${server.protocol.status}; ${server.protocol.toolsDiscovered} tools / ${server.protocol.resourcesDiscovered} resources`
                   : server.diagnostics[0] ?? "not probed"}
               </div>
+              <div
+                className="mt-1 line-clamp-2 text-muted-foreground text-[11px]"
+                title={server.diagnostics.join("\n")}
+              >
+                {server.diagnostics.slice(0, 2).join(" ")}
+              </div>
+              {server.tools.length > 0 || server.resources.length > 0 ? (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {server.tools.slice(0, 5).map((tool) => (
+                    <Badge key={`tool-${server.id}-${tool.name}`} variant="outline">
+                      tool:{tool.name}
+                    </Badge>
+                  ))}
+                  {server.resources.slice(0, 3).map((resource) => (
+                    <Badge
+                      key={`resource-${server.id}-${resource.uri}`}
+                      variant="outline"
+                    >
+                      resource:{resource.name ?? resource.uri}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <Switch
               checked={server.enabled}
@@ -712,6 +762,16 @@ function MemoryAndTrust({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }
                 <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
                   {shortPath(checkpoint.patchPath)}
                 </div>
+                {checkpoint.preRestoreSafetyCheckpointId ? (
+                  <div className="mt-1 truncate text-[11px] text-emerald-600 dark:text-emerald-300">
+                    safety: {checkpoint.preRestoreSafetyCheckpointId}
+                  </div>
+                ) : null}
+                {checkpoint.safetyForCheckpointId ? (
+                  <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                    pre-restore safety for {checkpoint.safetyForCheckpointId}
+                  </div>
+                ) : null}
               </div>
             ))}
             {(snapshot?.checkpoints.items.length ?? 0) === 0 ? (
