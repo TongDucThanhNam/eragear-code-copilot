@@ -491,10 +491,12 @@ export function useChatActions({
           });
           return;
         }
-        const nextConfigOptions = Array.isArray(result?.configOptions)
-          ? result.configOptions
+        const nextConfigOptions: SessionConfigOption[] = Array.isArray(
+          result?.configOptions
+        )
+          ? (result.configOptions as SessionConfigOption[])
           : configOptions.map((option) =>
-              option.id === configId
+              option.id === configId && option.type === "select"
                 ? { ...option, currentValue: value }
                 : option
             );

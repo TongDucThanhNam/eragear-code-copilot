@@ -5,9 +5,10 @@ import type {
   DesktopRuntimeMode,
   RuntimeServiceAuth,
   RuntimeServiceOperation,
+  RuntimeSecurityPosture,
 } from "@repo/shared";
-import { app, BrowserWindow, ipcMain } from "electron";
-import type { IpcMainInvokeEvent, WebContents } from "electron";
+import { app, BrowserWindow, ipcMain, session } from "electron";
+import type { BrowserWindowConstructorOptions, IpcMainInvokeEvent, WebContents } from "electron";
 import { DesktopRuntimeHost } from "./runtime-host.js";
 
 const DEFAULT_REMOTE_RUNTIME_PORT = 443;
@@ -29,6 +30,16 @@ const rendererUrl =
 const remoteRuntimeUrl = normalizeRemoteRuntimeUrl(
   process.env.ERAGEAR_REMOTE_SERVER_URL
 );
+const webPreferences: NonNullable<BrowserWindowConstructorOptions["webPreferences"]> = {
+  contextIsolation: true,
+  nodeIntegration: false,
+  preload: path.join(app.getAppPath(), "dist", "preload.cjs"),
+  sandbox: false,
+};
+const securityPosture = createSecurityPosture({
+  rendererUrl,
+  webPreferences,
+});
 const runtimeHost = new DesktopRuntimeHost({
   mode: desktopMode,
   repoRoot: resolveRepoRoot(),
@@ -36,6 +47,7 @@ const runtimeHost = new DesktopRuntimeHost({
   runtimePort,
   localAuthToken,
   remoteRuntimeUrl,
+  securityPosture,
   ...(process.env.ERAGEAR_REMOTE_API_KEY
     ? { remoteApiKey: process.env.ERAGEAR_REMOTE_API_KEY }
     : {}),
@@ -78,6 +90,92 @@ function resolveRepoRoot(): string {
   return path.resolve(app.getAppPath(), "..", "..");
 }
 
+function rendererOrigin(): string {
+  try {
+    return new URL(rendererUrl).origin;
+  } catch {
+    return "http://127.0.0.1:3001";
+  }
+}
+
+function rendererWebSocketOrigin(): string {
+  try {
+    const url = new URL(rendererUrl);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.origin;
+  } catch {
+    return "ws://127.0.0.1:3001";
+  }
+}
+
+function rendererContentSecurityPolicy(): string {
+  const origin = rendererOrigin();
+  const wsOrigin = rendererWebSocketOrigin();
+  const scriptPolicy = app.isPackaged ? "'self'" : "'self' 'unsafe-eval'";
+  return [
+    "default-src 'self'",
+    `script-src ${scriptPolicy} ${origin}`,
+    `connect-src 'self' ${origin} ${wsOrigin}`,
+    "img-src 'self' data: blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
+
+function configureRendererSecurityHeaders(): void {
+  const csp = rendererContentSecurityPolicy();
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        "Content-Security-Policy": [csp],
+      },
+    });
+  });
+}
+
+function createSecurityPosture(params: {
+  rendererUrl: string;
+  webPreferences: NonNullable<BrowserWindowConstructorOptions["webPreferences"]>;
+}): RuntimeSecurityPosture {
+  const isDevelopmentRenderer =
+    !app.isPackaged || /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?/i.test(params.rendererUrl);
+  const cspStatus = isDevelopmentRenderer
+    ? "development-warning"
+    : "enforced";
+  const diagnostics = [
+    "Renderer uses Electron preload IPC instead of direct Node integration.",
+    "Runtime service uses a private desktop-service channel and is not network exposed.",
+    "Desktop local auth token is generated per process and redacted from diagnostics.",
+    cspStatus === "development-warning"
+      ? "Development renderer CSP allows dev tooling; packaged builds should report enforced CSP."
+      : "Renderer CSP is enforced without development eval allowances.",
+    params.webPreferences.sandbox === false
+      ? "Renderer sandbox is disabled because the preload bridge owns runtime IPC; this is reported explicitly."
+      : "Renderer sandbox is enabled.",
+  ];
+  const status =
+    params.webPreferences.contextIsolation === true &&
+    params.webPreferences.nodeIntegration === false &&
+    cspStatus === "enforced"
+      ? "hardened"
+      : "development-warning";
+  return {
+    status,
+    contextIsolation: params.webPreferences.contextIsolation === true,
+    nodeIntegration: params.webPreferences.nodeIntegration === true,
+    sandbox: params.webPreferences.sandbox === true,
+    preloadBridge: Boolean(params.webPreferences.preload),
+    contentSecurityPolicy: cspStatus,
+    endpointNetworkExposed: false,
+    localAuthTokenRedacted: true,
+    diagnostics,
+  };
+}
+
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -85,12 +183,7 @@ function createMainWindow(): void {
     minWidth: 960,
     minHeight: 640,
     title: "Eragear Copilot",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      preload: path.join(app.getAppPath(), "dist", "preload.cjs"),
-      sandbox: false,
-    },
+    webPreferences,
   });
 
   mainWindow.webContents.on("console-message", (_event, level, message) => {
@@ -204,12 +297,14 @@ app
   .whenReady()
   .then(async () => {
     console.log(`[desktop] Starting Eragear desktop on ${os.platform()}.`);
+    configureRendererSecurityHeaders();
     const diagnostics = await runtimeHost.start();
     console.log("[desktop] Runtime diagnostics", {
       mode: diagnostics.mode,
       channel: diagnostics.endpoint.kind,
       ready: diagnostics.health.ready,
       processState: diagnostics.childProcess.status,
+      securityPosture: diagnostics.securityPosture?.status,
     });
     createMainWindow();
   })

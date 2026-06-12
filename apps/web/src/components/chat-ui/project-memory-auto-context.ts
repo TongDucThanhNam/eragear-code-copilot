@@ -1,4 +1,5 @@
 export const AUTO_PROJECT_MEMORY_CONTEXT_BYTES = 12_000;
+export const AUTO_PROJECT_MEMORY_CONTEXT_CHUNKS = 4;
 
 export interface AutoProjectMemoryContextInput {
   text: string;
@@ -62,4 +63,3 @@ export function composeProjectContextPrompt(params: {
     .filter((line) => line.length > 0)
     .join("\n");
 }
-

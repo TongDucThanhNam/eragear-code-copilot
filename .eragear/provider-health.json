@@ -7,8 +7,8 @@
       "authStatus": "ok",
       "modelStatus": "ok",
       "readiness": "ready",
-      "checkedAt": "2026-06-10T23:40:50.020Z",
-      "latencyMs": 3584,
+      "checkedAt": "2026-06-12T08:48:30.841Z",
+      "latencyMs": 3512,
       "version": "1.16.2",
       "modelList": [
         "opencode/big-pickle",
@@ -26,6 +26,9 @@
         "Provider model probe returned 5 model identifiers.",
         "Readiness summary: CLI ok, auth ok, model ok.",
         "Provider probe completed for opencode without exposing secret values."
+      ],
+      "remediation": [
+        "Provider is ready; no remediation required."
       ]
     }
   }

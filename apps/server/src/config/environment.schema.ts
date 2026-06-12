@@ -88,6 +88,7 @@ export const envSchema = z.object({
   BACKGROUND_TASK_TIMEOUT_MS: z.string().optional(),
   BACKGROUND_SESSION_CLEANUP_INTERVAL_MS: z.string().optional(),
   BACKGROUND_CACHE_PRUNE_INTERVAL_MS: z.string().optional(),
+  BACKGROUND_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS: z.string().optional(),
   BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS: z.string().optional(),
   STORAGE_BUSY_TIMEOUT_MS: z.string().optional(),
   STORAGE_BUSY_MAX_RETRIES: z.string().optional(),

@@ -69,6 +69,18 @@ export interface AgentCliAvailability {
   installHint: string;
 }
 
+export interface RuntimeSecurityPosture {
+  status: "hardened" | "development-warning" | "attention";
+  contextIsolation: boolean;
+  nodeIntegration: boolean;
+  sandbox: boolean;
+  preloadBridge: boolean;
+  contentSecurityPolicy: "enforced" | "development-warning" | "missing";
+  endpointNetworkExposed: boolean;
+  localAuthTokenRedacted: boolean;
+  diagnostics: string[];
+}
+
 export interface RuntimeDiagnostics {
   mode: RuntimeHostMode;
   endpoint: RuntimeEndpoint;
@@ -76,6 +88,7 @@ export interface RuntimeDiagnostics {
   childProcess: RuntimeChildProcessDiagnostics;
   cliAvailability: AgentCliAvailability[];
   capabilityRegistry?: CapabilityRegistrySnapshot;
+  securityPosture?: RuntimeSecurityPosture;
   messages: string[];
   updatedAt: string;
 }

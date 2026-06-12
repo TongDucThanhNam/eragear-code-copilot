@@ -119,6 +119,7 @@ export function initializeServiceModule({
     sessionEventOutbox: core.sessionEventOutbox,
     eventBus: core.eventBus,
     sessionUseCases,
+    localAde: settingsUseCases.localAde,
     appConfig: appConfigService,
     policy: runtimeConfig.lifecyclePolicy,
     setBackgroundRunnerStateProvider,

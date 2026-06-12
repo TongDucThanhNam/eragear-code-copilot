@@ -33,6 +33,7 @@ import {
   DEFAULT_AUTH_BOOTSTRAP_INFLIGHT_MAX_USERS,
   DEFAULT_AUTH_REQUIRE_CLOUDFLARE_ACCESS,
   DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
+  DEFAULT_BACKGROUND_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS,
   DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
   DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
   DEFAULT_BACKGROUND_TASK_TIMEOUT_MS,
@@ -730,6 +731,11 @@ export const ENV = {
   backgroundCachePruneIntervalMs: toPositiveInt(
     env.BACKGROUND_CACHE_PRUNE_INTERVAL_MS,
     DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS
+  ),
+  /** Interval for plugin batch schedule dispatch task in milliseconds */
+  backgroundPluginBatchScheduleIntervalMs: toPositiveInt(
+    env.BACKGROUND_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS,
+    DEFAULT_BACKGROUND_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS
   ),
   /** Interval for sqlite maintenance task in milliseconds */
   backgroundSqliteMaintenanceIntervalMs: toPositiveInt(

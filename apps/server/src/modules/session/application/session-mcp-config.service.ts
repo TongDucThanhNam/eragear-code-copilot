@@ -17,6 +17,15 @@ const OP = "session.lifecycle.create";
 const PROJECT_MCP_FILE = "mcp-servers.json";
 const MCP_AGENT_BROKER_FILE = path.join("runtime", "mcp-agent-broker.js");
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const MCP_PROTOCOL_TIMEOUT_MS = 3500;
+const MCP_SSE_RECONNECT_ATTEMPTS = 1;
+const DEFAULT_MCP_NOTIFICATION_WATCH_MS = 1_000;
+const MIN_MCP_REMOTE_REQUEST_TIMEOUT_MS = 1_000;
+const MAX_MCP_REMOTE_REQUEST_TIMEOUT_MS = 15_000;
+const MIN_MCP_REMOTE_RECONNECT_ATTEMPTS = 0;
+const MAX_MCP_REMOTE_RECONNECT_ATTEMPTS = 3;
+const MIN_MCP_NOTIFICATION_WATCH_MS = 250;
+const MAX_MCP_NOTIFICATION_WATCH_MS = 5_000;
 const SECRET_HINT_PATTERN =
   /(api[_-]?key|secret|token|password|private[_-]?key|authorization|cookie)/i;
 
@@ -37,7 +46,19 @@ interface ProjectLocalMcpServer {
   env?: Record<string, string>;
   headers?: Record<string, string>;
   headerEnv?: Record<string, string>;
+  remoteControls?: Partial<Pick<
+    ProjectLocalMcpRemoteControls,
+    "requestTimeoutMs" | "reconnectAttempts" | "notificationWatchMs"
+  >>;
   trustedFingerprint?: string;
+}
+
+interface ProjectLocalMcpRemoteControls {
+  requestTimeoutMs: number;
+  reconnectAttempts: number;
+  notificationWatchMs: number;
+  mode: "default" | "custom";
+  diagnostics: string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -127,6 +148,74 @@ function sortedMcpHeaderEnv(
     .sort((left, right) => left.header.localeCompare(right.header));
 }
 
+function clampMcpInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed =
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.round(value)
+      : fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function normalizeMcpNotificationWatchMs(value: unknown): number {
+  return clampMcpInteger(
+    value,
+    DEFAULT_MCP_NOTIFICATION_WATCH_MS,
+    MIN_MCP_NOTIFICATION_WATCH_MS,
+    MAX_MCP_NOTIFICATION_WATCH_MS
+  );
+}
+
+function normalizeProjectLocalMcpRemoteControls(
+  value: unknown
+):
+  | Pick<
+      ProjectLocalMcpRemoteControls,
+      "requestTimeoutMs" | "reconnectAttempts" | "notificationWatchMs"
+    >
+  | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const requestTimeoutMs = clampMcpInteger(
+    value.requestTimeoutMs,
+    MCP_PROTOCOL_TIMEOUT_MS,
+    MIN_MCP_REMOTE_REQUEST_TIMEOUT_MS,
+    MAX_MCP_REMOTE_REQUEST_TIMEOUT_MS
+  );
+  const reconnectAttempts = clampMcpInteger(
+    value.reconnectAttempts,
+    MCP_SSE_RECONNECT_ATTEMPTS,
+    MIN_MCP_REMOTE_RECONNECT_ATTEMPTS,
+    MAX_MCP_REMOTE_RECONNECT_ATTEMPTS
+  );
+  const notificationWatchMs = normalizeMcpNotificationWatchMs(
+    value.notificationWatchMs
+  );
+  const hasCustom =
+    requestTimeoutMs !== MCP_PROTOCOL_TIMEOUT_MS ||
+    reconnectAttempts !== MCP_SSE_RECONNECT_ATTEMPTS ||
+    notificationWatchMs !== DEFAULT_MCP_NOTIFICATION_WATCH_MS;
+  return hasCustom
+    ? { requestTimeoutMs, reconnectAttempts, notificationWatchMs }
+    : undefined;
+}
+
+function visibleProjectLocalMcpRemoteControls(
+  server: Pick<ProjectLocalMcpServer, "remoteControls">
+): ProjectLocalMcpRemoteControls {
+  const controls = normalizeProjectLocalMcpRemoteControls(server.remoteControls);
+  return {
+    requestTimeoutMs: controls?.requestTimeoutMs ?? MCP_PROTOCOL_TIMEOUT_MS,
+    reconnectAttempts: controls?.reconnectAttempts ?? MCP_SSE_RECONNECT_ATTEMPTS,
+    notificationWatchMs:
+      controls?.notificationWatchMs ?? DEFAULT_MCP_NOTIFICATION_WATCH_MS,
+    mode: controls ? "custom" : "default",
+    diagnostics: controls
+      ? ["MCP remote operational controls are customized for this server."]
+      : ["MCP remote operational controls use Eragear defaults."],
+  };
+}
+
 export function projectLocalMcpFingerprint(
   server: Pick<
     ProjectLocalMcpServer,
@@ -138,6 +227,7 @@ export function projectLocalMcpFingerprint(
     | "env"
     | "headers"
     | "headerEnv"
+    | "remoteControls"
   >
 ): string {
   const payload = JSON.stringify({
@@ -150,6 +240,7 @@ export function projectLocalMcpFingerprint(
     env: sortedMcpRecordHashes(server.env),
     headers: sortedMcpRecordHashes(server.headers),
     headerEnv: sortedMcpHeaderEnv(server.headerEnv),
+    remoteControls: visibleProjectLocalMcpRemoteControls(server),
   });
   return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
 }
@@ -195,6 +286,9 @@ function parseProjectLocalMcpServer(value: unknown): ProjectLocalMcpServer | nul
     ...(sanitizeRecord(value.headers) ? { headers: sanitizeRecord(value.headers) } : {}),
     ...(sanitizeRecord(value.headerEnv)
       ? { headerEnv: sanitizeRecord(value.headerEnv) }
+      : {}),
+    ...(normalizeProjectLocalMcpRemoteControls(value.remoteControls)
+      ? { remoteControls: normalizeProjectLocalMcpRemoteControls(value.remoteControls) }
       : {}),
     ...(typeof value.trustedFingerprint === "string"
       ? { trustedFingerprint: value.trustedFingerprint }

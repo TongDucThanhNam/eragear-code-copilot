@@ -90,6 +90,7 @@ import {
 } from "./chat-input/shared";
 import {
   ProjectMemoryActionMenu,
+  type ProjectMemoryMenuPreset,
   type ProjectMemoryMenuSource,
 } from "./chat-input/project-memory-action-menu";
 import { SlashCommandActionMenuItem } from "./chat-input/slash-command-action-menu-item";
@@ -144,6 +145,7 @@ export interface ChatInputProps {
   activeTabs?: { path: string }[];
   projectRules?: { path: string; location: string }[];
   availableCommands?: SlashCommand[];
+  projectMemoryPresets?: ProjectMemoryMenuPreset[];
   projectMemorySources?: ProjectMemoryMenuSource[];
   onCancel?: () => void;
 }
@@ -169,6 +171,7 @@ export const ChatInput = memo(function ChatInput({
   activeTabs = [],
   projectRules = [],
   availableCommands = [],
+  projectMemoryPresets = [],
   projectMemorySources = [],
   onCancel,
 }: ChatInputProps) {
@@ -681,11 +684,13 @@ console.debug(
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
               <PromptInputActionAddAttachments />
-              {projectMemorySources.some((source) => source.enabled) && (
+              {(projectMemorySources.some((source) => source.enabled) ||
+                projectMemoryPresets.length > 0) && (
                 <>
                   <DropdownMenuSeparator />
                   <ProjectMemoryActionMenu
                     onCommandApplied={rememberSlashCommand}
+                    presets={projectMemoryPresets}
                     sources={projectMemorySources}
                     textareaRef={textareaRef}
                   />

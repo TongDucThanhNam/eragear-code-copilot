@@ -7,6 +7,14 @@ const PROJECT_MCP_FILE = "mcp-servers.json";
 const MCP_AGENT_AUDIT_FILE = "mcp-agent-audit.jsonl";
 const MAX_AUDIT_TEXT = 2000;
 const MCP_PROTOCOL_TIMEOUT_MS = 3500;
+const MCP_SSE_RECONNECT_ATTEMPTS = 1;
+const DEFAULT_MCP_NOTIFICATION_WATCH_MS = 1000;
+const MIN_MCP_REMOTE_REQUEST_TIMEOUT_MS = 1000;
+const MAX_MCP_REMOTE_REQUEST_TIMEOUT_MS = 15000;
+const MIN_MCP_REMOTE_RECONNECT_ATTEMPTS = 0;
+const MAX_MCP_REMOTE_RECONNECT_ATTEMPTS = 3;
+const MIN_MCP_NOTIFICATION_WATCH_MS = 250;
+const MAX_MCP_NOTIFICATION_WATCH_MS = 5000;
 const SECRET_HINT_PATTERN =
   /(api[_-]?key|secret|token|password|private[_-]?key|authorization|cookie)/i;
 
@@ -46,6 +54,69 @@ function sortedHeaderEnv(record) {
     .sort((left, right) => left.header.localeCompare(right.header));
 }
 
+function clampMcpInteger(value, fallback, min, max) {
+  const parsed =
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.round(value)
+      : fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function normalizeMcpNotificationWatchMs(value) {
+  return clampMcpInteger(
+    value,
+    DEFAULT_MCP_NOTIFICATION_WATCH_MS,
+    MIN_MCP_NOTIFICATION_WATCH_MS,
+    MAX_MCP_NOTIFICATION_WATCH_MS
+  );
+}
+
+function normalizeRemoteControls(value) {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const requestTimeoutMs = clampMcpInteger(
+    value.requestTimeoutMs,
+    MCP_PROTOCOL_TIMEOUT_MS,
+    MIN_MCP_REMOTE_REQUEST_TIMEOUT_MS,
+    MAX_MCP_REMOTE_REQUEST_TIMEOUT_MS
+  );
+  const reconnectAttempts = clampMcpInteger(
+    value.reconnectAttempts,
+    MCP_SSE_RECONNECT_ATTEMPTS,
+    MIN_MCP_REMOTE_RECONNECT_ATTEMPTS,
+    MAX_MCP_REMOTE_RECONNECT_ATTEMPTS
+  );
+  const notificationWatchMs = normalizeMcpNotificationWatchMs(
+    value.notificationWatchMs
+  );
+  const hasCustom =
+    requestTimeoutMs !== MCP_PROTOCOL_TIMEOUT_MS ||
+    reconnectAttempts !== MCP_SSE_RECONNECT_ATTEMPTS ||
+    notificationWatchMs !== DEFAULT_MCP_NOTIFICATION_WATCH_MS;
+  return hasCustom
+    ? { requestTimeoutMs, reconnectAttempts, notificationWatchMs }
+    : undefined;
+}
+
+function visibleRemoteControls(server) {
+  const controls = normalizeRemoteControls(server.remoteControls);
+  return {
+    requestTimeoutMs: controls?.requestTimeoutMs ?? MCP_PROTOCOL_TIMEOUT_MS,
+    reconnectAttempts: controls?.reconnectAttempts ?? MCP_SSE_RECONNECT_ATTEMPTS,
+    notificationWatchMs:
+      controls?.notificationWatchMs ?? DEFAULT_MCP_NOTIFICATION_WATCH_MS,
+    mode: controls ? "custom" : "default",
+    diagnostics: controls
+      ? ["MCP remote operational controls are customized for this server."]
+      : ["MCP remote operational controls use Eragear defaults."],
+  };
+}
+
+function requestTimeoutMs(server) {
+  return visibleRemoteControls(server).requestTimeoutMs;
+}
+
 function fingerprint(server) {
   const payload = JSON.stringify({
     version: 1,
@@ -57,6 +128,7 @@ function fingerprint(server) {
     env: sortedRecordHashes(server.env),
     headers: sortedRecordHashes(server.headers),
     headerEnv: sortedHeaderEnv(server.headerEnv),
+    remoteControls: visibleRemoteControls(server),
   });
   return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
 }
@@ -84,6 +156,7 @@ function normalizeServer(value) {
       typeof value.messageEndpoint === "string" ? value.messageEndpoint : "",
     headers: isRecord(value.headers) ? value.headers : {},
     headerEnv: isRecord(value.headerEnv) ? value.headerEnv : {},
+    remoteControls: normalizeRemoteControls(value.remoteControls),
     trustedFingerprint:
       typeof value.trustedFingerprint === "string"
         ? value.trustedFingerprint
@@ -326,14 +399,21 @@ function resolveMcpEndpoint(baseUrl, endpoint) {
   return new URL(endpoint, baseUrl).toString();
 }
 
-async function fetchWithTimeout(url, options) {
+async function fetchWithTimeout(url, options, timeoutMs = MCP_PROTOCOL_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MCP_PROTOCOL_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
+    try {
+      return await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`Timed out after ${timeoutMs}ms waiting for MCP response.`);
+      }
+      throw error;
+    }
   } finally {
     clearTimeout(timeout);
   }
@@ -350,7 +430,7 @@ async function mcpHttpExchange(server, body, sessionId, secrets) {
       ...(sessionId ? { "mcp-session-id": sessionId } : {}),
     },
     body: JSON.stringify(body),
-  });
+  }, requestTimeoutMs(server));
   const text = await response.text();
   const contentType = response.headers.get("content-type") ?? "";
   const nextSessionId = response.headers.get("mcp-session-id") ?? sessionId;
@@ -585,14 +665,28 @@ async function main() {
     const headerPolicy = resolveRuntimeHeaders(currentServer);
     const controller = new AbortController();
     sseBridge.streamController = controller;
-    const response = await fetch(currentServer.url, {
-      method: "GET",
-      signal: controller.signal,
-      headers: {
-        accept: "text/event-stream",
-        ...headerPolicy.headers,
-      },
-    });
+    const headerTimeoutMs = requestTimeoutMs(currentServer);
+    const headerTimeout = setTimeout(() => controller.abort(), headerTimeoutMs);
+    let response;
+    try {
+      response = await fetch(currentServer.url, {
+        method: "GET",
+        signal: controller.signal,
+        headers: {
+          accept: "text/event-stream",
+          ...headerPolicy.headers,
+        },
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `Timed out after ${headerTimeoutMs}ms waiting for SSE stream response.`
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(headerTimeout);
+    }
     if (!response.ok) {
       throw new Error(
         `HTTP ${response.status}: ${redact(await response.text(), secretsForMessage)}`
@@ -648,7 +742,23 @@ async function main() {
 
   async function postSseMessage(currentServer, message, secretsForMessage) {
     await ensureSseStream(currentServer, secretsForMessage);
-    const endpoint = sseBridge.endpointUrl || (await sseBridge.endpointPromise);
+    const timeoutMs = requestTimeoutMs(currentServer);
+    const endpoint =
+      sseBridge.endpointUrl ||
+      (await Promise.race([
+        sseBridge.endpointPromise,
+        new Promise((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Timed out after ${timeoutMs}ms waiting for SSE endpoint event.`
+                )
+              ),
+            timeoutMs
+          )
+        ),
+      ]));
     const headerPolicy = resolveRuntimeHeaders(currentServer);
     const response = await fetchWithTimeout(endpoint, {
       method: "POST",
@@ -658,7 +768,7 @@ async function main() {
         ...headerPolicy.headers,
       },
       body: JSON.stringify(message),
-    });
+    }, timeoutMs);
     const text = await response.text();
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${redact(text, secretsForMessage)}`);
@@ -728,10 +838,10 @@ async function main() {
             sseBridge.pending.delete(String(id));
             reject(
               new Error(
-                `Timed out after ${MCP_PROTOCOL_TIMEOUT_MS}ms waiting for ${method}.`
+                `Timed out after ${requestTimeoutMs(currentServer)}ms waiting for ${method}.`
               )
             );
-          }, MCP_PROTOCOL_TIMEOUT_MS);
+          }, requestTimeoutMs(currentServer));
           sseBridge.pending.set(String(id), {
             method,
             resolve,

@@ -1,5 +1,6 @@
 import { ENV } from "@/config/environment";
 import type { AuthContext } from "@/platform/auth/guards";
+import { LOCAL_DESKTOP_USER_ID } from "@/platform/auth/local-desktop-user";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { createAuthContextResolverWithBootstrap } from "@/transport/auth/auth-context.bootstrap";
 import type { HttpRouteDependencies } from "@/transport/http/routes/deps";
@@ -13,7 +14,6 @@ import type { ServerRuntimePolicy } from "./server-runtime-policy";
 const logger = createLogger("Server");
 const LOCAL_AUTH_TOKEN_HEADER = "x-eragear-local-token";
 const INTERNAL_REMOTE_ADDRESS_HEADER = "x-eragear-remote-address";
-const LOCAL_DESKTOP_USER_ID = "local-desktop-user";
 
 function getHeader(req: RequestLike, key: string): string | null {
   if (req.headers instanceof Headers) {

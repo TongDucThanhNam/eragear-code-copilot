@@ -36,6 +36,41 @@ test("parses selected memory source paths", () => {
   });
 });
 
+test("parses project memory preset ids", () => {
+  expect(parseProjectMemoryCommand("/memory --preset restore-review")).toEqual({
+    query: "",
+    sourcePaths: [],
+    presetId: "restore-review",
+  });
+  expect(
+    parseProjectMemoryCommand(
+      '/memory -p "restore review" summarize checkpoint risk'
+    )
+  ).toEqual({
+    query: "summarize checkpoint risk",
+    sourcePaths: [],
+    presetId: "restore review",
+  });
+});
+
+test("parses semantic project memory retrieval flags", () => {
+  expect(
+    parseProjectMemoryCommand(
+      "/memory --semantic --chunks 2 --source AGENTS.md checkpoint restore"
+    )
+  ).toEqual({
+    query: "checkpoint restore",
+    sourcePaths: ["AGENTS.md"],
+    retrievalMode: "semantic",
+    maxChunks: 2,
+  });
+  expect(parseProjectMemoryCommand("/memory --full provider policy")).toEqual({
+    query: "provider policy",
+    sourcePaths: [],
+    retrievalMode: "full",
+  });
+});
+
 test("does not parse other slash commands as project memory context", () => {
   expect(parseProjectMemoryCommand("/index LocalAdeService")).toBeNull();
   expect(parseProjectMemoryCommand("memory LocalAdeService")).toBeNull();
@@ -66,6 +101,20 @@ test("builds visible project memory picker commands", () => {
       sourcePaths: [],
     })
   ).toBe("/memory ");
+  expect(
+    buildProjectMemoryCommandText({
+      presetId: "restore-review",
+      request: "summarize checkpoint risk",
+    })
+  ).toBe("/memory --preset restore-review summarize checkpoint risk");
+  expect(
+    buildProjectMemoryCommandText({
+      retrievalMode: "semantic",
+      maxChunks: 2,
+      sourcePaths: ["AGENTS.md"],
+      request: "checkpoint restore",
+    })
+  ).toBe("/memory --semantic --chunks 2 --source AGENTS.md checkpoint restore");
 });
 
 test("quotes project memory source paths only when needed", () => {

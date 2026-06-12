@@ -173,7 +173,7 @@ export const parseToolOutput = (
       return {
         result: undefined,
         terminalIds: [],
-        changedFilePaths: [(output as { path: string }).path],
+        changedFilePaths: [(output as unknown as { path: string }).path],
       };
     }
     return {

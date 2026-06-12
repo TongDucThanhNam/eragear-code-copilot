@@ -26,6 +26,10 @@ export function createSettingsUseCases(
     sessionRepo: deps.sessionRepo,
     sessionRuntime: deps.sessionRuntime,
     logStore: deps.logStore,
+    settingsRepo: deps.settingsRepo,
+    appConfigService: deps.appConfigService,
+    getBackgroundRunnerState: deps.getBackgroundRunnerState,
+    eventBus: deps.eventBus,
   });
   localAdeService.subscribeLifecycleEvents(deps.eventBus);
 

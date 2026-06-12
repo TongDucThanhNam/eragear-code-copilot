@@ -433,12 +433,15 @@ describe("use-chat-message-state", () => {
     expect(updated).not.toBe(initial);
     const parts = updated.byId.get("m1")?.parts;
     expect(parts).toHaveLength(2);
-    expect(parts?.[1]).toEqual({
-      type: "text",
-      text: "tail",
-      state: "streaming",
-      id: "part-text-tail-1",
-    });
+    const recoveredPart = parts?.[1] as
+      | (UIMessage["parts"][number] & { id?: string })
+      | undefined;
+    expect(recoveredPart?.type).toBe("text");
+    expect(recoveredPart?.id).toBe("part-text-tail-1");
+    if (recoveredPart?.type === "text") {
+      expect(recoveredPart.text).toBe("tail");
+      expect(recoveredPart.state).toBe("streaming");
+    }
 
     const replayed = applyPartUpdate(updated, {
       messageId: "m1",

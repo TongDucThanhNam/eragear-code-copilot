@@ -32,6 +32,17 @@ interface ConnectionSetupDialogProps {
   authClient?: BetterAuthClient;
 }
 
+type UsernameSignInClient = BetterAuthClient & {
+  signIn: BetterAuthClient["signIn"] & {
+    username: (
+      credentials: { username: string; password: string },
+      options?: {
+        onError?: (context: { error: { message?: string } }) => void;
+      }
+    ) => Promise<{ error?: { message?: string } | null }>;
+  };
+};
+
 export function ConnectionSetupDialog({
   authClient,
 }: ConnectionSetupDialogProps = {}) {
@@ -115,7 +126,7 @@ export function ConnectionSetupDialog({
     try {
       let signInError: string | null = null;
 
-      const result = await signInClient.signIn.username(
+      const result = await (signInClient as UsernameSignInClient).signIn.username(
         {
           username: username.trim(),
           password,

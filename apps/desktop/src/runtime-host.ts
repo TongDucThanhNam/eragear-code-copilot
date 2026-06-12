@@ -23,6 +23,7 @@ import type {
   RuntimeServiceResponseMessage,
   RuntimeServiceServerMessage,
   RuntimeServiceSubscriptionEventMessage,
+  RuntimeSecurityPosture,
 } from "@repo/shared";
 
 const execFileAsync = promisify(execFile);
@@ -111,6 +112,7 @@ export interface DesktopRuntimeHostOptions {
   localAuthToken: string;
   remoteRuntimeUrl: string;
   remoteApiKey?: string;
+  securityPosture?: RuntimeSecurityPosture;
 }
 
 interface PendingResponse {
@@ -806,6 +808,9 @@ export class DesktopRuntimeHost
         health: this.health(),
         childProcess: this.childProcessDiagnostics(),
         cliAvailability: [...this.cliAvailability],
+        ...(this.options.securityPosture
+          ? { securityPosture: this.options.securityPosture }
+          : {}),
         messages: [...serviceDiagnostics.messages, ...this.messages],
         updatedAt: new Date().toISOString(),
       };
@@ -817,6 +822,9 @@ export class DesktopRuntimeHost
       health: this.health(),
       childProcess: this.childProcessDiagnostics(),
       cliAvailability: [...this.cliAvailability],
+      ...(this.options.securityPosture
+        ? { securityPosture: this.options.securityPosture }
+        : {}),
       messages: [...this.messages],
       updatedAt: new Date().toISOString(),
     };
@@ -891,7 +899,7 @@ export class DesktopRuntimeHost
         this.healthState = message.diagnostics.health.ready
           ? "ready"
           : message.diagnostics.health.state;
-        this.readyResolve?.(message.diagnostics);
+        this.readyResolve?.(this.snapshotDiagnostics());
         this.readyResolve = undefined;
         this.readyReject = undefined;
         return;

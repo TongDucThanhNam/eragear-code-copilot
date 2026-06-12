@@ -38,6 +38,7 @@ import {
   PROJECT_INDEX_COMMAND_NAME,
 } from "@/components/chat-ui/project-index-command";
 import {
+  AUTO_PROJECT_MEMORY_CONTEXT_CHUNKS,
   AUTO_PROJECT_MEMORY_CONTEXT_BYTES,
   composeProjectContextPrompt,
   shouldAutoAttachProjectMemoryContext,
@@ -235,6 +236,10 @@ export function ChatInterface({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatIdRef = useRef<string | null>(chatId);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
+  const [pendingLocalAdeCommand, setPendingLocalAdeCommand] = useState<{
+    chatId: string;
+    text: string;
+  } | null>(null);
   const handledPermissionIdRef = useRef<string | null>(null);
   const lastPermissionIdRef = useRef<string | null>(null);
   chatIdRef.current = chatId;
@@ -824,7 +829,7 @@ export function ChatInterface({
 
   // Session initialization
   const initChat = useCallback(
-    async (agentId?: string) => {
+    async (agentId?: string): Promise<string | null> => {
       const targetId = agentId || activeAgentId;
       const agent = agentModels.find((a: { id: string }) => a.id === targetId);
       const currentProject = useProjectStore.getState().getActiveProject();
@@ -833,13 +838,13 @@ export function ChatInterface({
         console.warn("No active agent selected");
         setConnStatus("idle");
         setStatus("inactive");
-        return;
+        return null;
       }
       if (!currentProject) {
         toast.error("Please select a project before starting a chat.");
         setConnStatus("idle");
         setStatus("inactive");
-        return;
+        return null;
       }
 
       setSessionBootstrapPhase("creating_session");
@@ -857,11 +862,13 @@ export function ChatInterface({
         } else {
           setUncontrolledChatId(data.chatId);
         }
+        return data.chatId;
       } catch (e) {
         console.error("Failed to init chat", e);
         setConnStatus("error");
         setStatus("error");
         setSessionBootstrapPhase("idle");
+        return null;
       }
     },
     [
@@ -986,6 +993,32 @@ export function ChatInterface({
       await setSupervisorMode(mode);
     },
     [chatId, setSupervisorMode]
+  );
+
+  const handleLocalAdeCommandSubmit = useCallback(
+    async (command: string, targetChatId?: string) => {
+      const text = command.trim();
+      if (!text) {
+        return;
+      }
+
+      const activeChatId =
+        targetChatId ?? localAdeSnapshot?.sessions.active[0]?.id ?? null;
+      if (activeChatId) {
+        setPendingLocalAdeCommand({ chatId: activeChatId, text });
+        selectSession(activeChatId);
+        toast.info("Command queued for active chat.");
+        return;
+      }
+
+      const createdChatId = await initChat();
+      if (!createdChatId) {
+        return;
+      }
+      setPendingLocalAdeCommand({ chatId: createdChatId, text });
+      toast.info("Command queued for new session.");
+    },
+    [initChat, localAdeSnapshot?.sessions.active, selectSession]
   );
 
   // Handle submit
@@ -1140,12 +1173,15 @@ export function ChatInterface({
         : parseProjectMemoryCommand(message.text);
       let projectMemoryPrompt: string | null = null;
       if (projectMemoryCommand) {
-        if (!projectMemoryCommand.query) {
+        if (!projectMemoryCommand.query && !projectMemoryCommand.presetId) {
           toast.error("Add a request after /memory.");
           throw new Error("PROJECT_MEMORY_QUERY_REQUIRED");
         }
         const memoryContext = await utils.settings.buildProjectMemoryContext.fetch({
           query: projectMemoryCommand.query,
+          presetId: projectMemoryCommand.presetId,
+          retrievalMode: projectMemoryCommand.retrievalMode,
+          maxChunks: projectMemoryCommand.maxChunks,
           sourcePaths:
             projectMemoryCommand.sourcePaths.length > 0
               ? projectMemoryCommand.sourcePaths
@@ -1254,7 +1290,9 @@ export function ChatInterface({
         try {
           const memoryContext = await utils.settings.buildProjectMemoryContext.fetch({
             query: message.text,
+            retrievalMode: "semantic",
             maxBytes: AUTO_PROJECT_MEMORY_CONTEXT_BYTES,
+            maxChunks: AUTO_PROJECT_MEMORY_CONTEXT_CHUNKS,
           });
           if (
             shouldUseProjectMemoryContextResult({
@@ -1330,6 +1368,42 @@ export function ChatInterface({
     { chatId: chatId || "" },
     { enabled: !!chatId }
   );
+
+  useEffect(() => {
+    const pending = pendingLocalAdeCommand;
+    if (
+      !pending ||
+      pending.chatId !== chatId ||
+      effectiveConnStatus !== "connected" ||
+      isStreaming
+    ) {
+      return;
+    }
+
+    setPendingLocalAdeCommand(null);
+    void handleSubmit({
+      text: pending.text,
+      files: [],
+      mentions: [],
+    })
+      .then(() => {
+        toast.success("Local ADE command submitted.");
+      })
+      .catch((error) => {
+        console.error("Local ADE command submit failed", error);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Local ADE command submit failed"
+        );
+      });
+  }, [
+    chatId,
+    effectiveConnStatus,
+    handleSubmit,
+    isStreaming,
+    pendingLocalAdeCommand,
+  ]);
 
   const { setFiles } = useFileStore();
   const setActiveChatId = useChatStatusStore((state) => state.setActiveChatId);
@@ -1426,8 +1500,18 @@ export function ChatInterface({
     return (
       <>
         <LocalAdeControlCenter
-          onStartSession={() => {
-            void initChat();
+          onOpenSession={(nextChatId) => {
+            if (onChatIdChange) {
+              onChatIdChange(nextChatId);
+            } else {
+              setUncontrolledChatId(nextChatId);
+            }
+          }}
+          onStartSession={(agentId) => {
+            void initChat(agentId);
+          }}
+          onSubmitCommand={(command, targetChatId) => {
+            void handleLocalAdeCommandSubmit(command, targetChatId);
           }}
         />
         <QuickSwitchDialog
@@ -1524,6 +1608,7 @@ export function ChatInterface({
           onModelChange={handleSetModel}
           onSetSupervisorMode={handleSetSupervisorMode}
           onSubmit={handleSubmit}
+          projectMemoryPresets={localAdeSnapshot?.projectMemory.presets ?? []}
           projectMemorySources={localAdeSnapshot?.projectMemory.sources ?? []}
           projectRules={projectContext?.projectRules}
           status={status}

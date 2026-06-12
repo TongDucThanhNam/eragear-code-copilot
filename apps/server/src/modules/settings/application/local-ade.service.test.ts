@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -15,20 +17,38 @@ import type {
   StoredSession,
 } from "@/modules/session";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
+import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import type { AgentConfig } from "@/shared/types/agent.types";
 import type { LogEntry, LogQuery } from "@/shared/types/log.types";
 import type { Project } from "@/shared/types/project.types";
+import type { AppConfig, Settings } from "@/shared/types/settings.types";
 import { matchesLogQuery } from "@/shared/utils/log-query.util";
+import type { AppConfigService } from "../app-config.service";
+import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
 
 const userId = "local-test-user";
 let tempRoot = "";
 const execFileAsync = promisify(execFile);
 type RuntimeSession = ReturnType<SessionRuntimePort["getAll"]>[number];
+type TestCanonicalJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | TestCanonicalJsonValue[]
+  | { [key: string]: TestCanonicalJsonValue | undefined };
 
 interface CreateServiceOptions {
   activeSessions?: RuntimeSession[];
   storedSessions?: Record<string, StoredSession>;
   logEntries?: LogEntry[];
+  defaultModel?: string;
+  backgroundRunnerState?: BackgroundRunnerState | null;
+}
+
+interface MockEmbeddingServerContext {
+  calls: string[][];
+  url: string;
 }
 
 beforeEach(async () => {
@@ -40,6 +60,107 @@ afterEach(async () => {
     await rm(tempRoot, { force: true, recursive: true });
   }
 });
+
+function canonicalTestJson(value: TestCanonicalJsonValue): string {
+  if (value === null || typeof value === "boolean" || typeof value === "string") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalTestJson(item)).join(",")}]`;
+  }
+  return `{${Object.entries(value)
+    .filter((entry): entry is [string, TestCanonicalJsonValue] => entry[1] !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalTestJson(entryValue)}`)
+    .join(",")}}`;
+}
+
+function mockEmbeddingVector(text: string): number[] {
+  const lower = text.toLowerCase();
+  const includesAny = (tokens: string[]) =>
+    tokens.some((token) => lower.includes(token));
+  return [
+    includesAny(["checkpoint", "restore", "rollback", "safety", "snapshot", "recovery"])
+      ? 1
+      : 0,
+    includesAny(["provider", "auth", "login", "credential"]) ? 1 : 0,
+    includesAny(["runtime", "local ade", "session"]) ? 1 : 0,
+    includesAny(["plugin", "hook", "extension"]) ? 1 : 0,
+    Math.min(1, lower.length / 1000),
+  ];
+}
+
+async function withMockEmbeddingServer(
+  run: (context: MockEmbeddingServerContext) => Promise<void>
+): Promise<void> {
+  const previousEndpoint = process.env.ERAGEAR_EMBEDDINGS_ENDPOINT;
+  const previousModel = process.env.ERAGEAR_EMBEDDINGS_MODEL;
+  const previousApiKey = process.env.ERAGEAR_EMBEDDINGS_API_KEY;
+  const calls: string[][] = [];
+  const server = createServer((request, response) => {
+    void (async () => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+        input?: unknown;
+        model?: string;
+      };
+      const input = Array.isArray(body.input)
+        ? body.input.map((item) => String(item))
+        : [String(body.input ?? "")];
+      calls.push(input);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          object: "list",
+          model: body.model ?? "mock-embedding",
+          data: input.map((text, index) => ({
+            object: "embedding",
+            index,
+            embedding: mockEmbeddingVector(text),
+          })),
+        })
+      );
+    })().catch((error) => {
+      response.writeHead(500, { "content-type": "text/plain" });
+      response.end(String(error));
+    });
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address() as AddressInfo;
+  process.env.ERAGEAR_EMBEDDINGS_ENDPOINT = `http://127.0.0.1:${address.port}/v1/embeddings`;
+  process.env.ERAGEAR_EMBEDDINGS_MODEL = "mock-embedding";
+  process.env.ERAGEAR_EMBEDDINGS_API_KEY = "embedding-secret";
+  try {
+    await run({ calls, url: process.env.ERAGEAR_EMBEDDINGS_ENDPOINT });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    if (previousEndpoint === undefined) {
+      delete process.env.ERAGEAR_EMBEDDINGS_ENDPOINT;
+    } else {
+      process.env.ERAGEAR_EMBEDDINGS_ENDPOINT = previousEndpoint;
+    }
+    if (previousModel === undefined) {
+      delete process.env.ERAGEAR_EMBEDDINGS_MODEL;
+    } else {
+      process.env.ERAGEAR_EMBEDDINGS_MODEL = previousModel;
+    }
+    if (previousApiKey === undefined) {
+      delete process.env.ERAGEAR_EMBEDDINGS_API_KEY;
+    } else {
+      process.env.ERAGEAR_EMBEDDINGS_API_KEY = previousApiKey;
+    }
+  }
+}
 
 function createProject(): Project {
   return {
@@ -140,13 +261,113 @@ function createService(
     subscribe: () => () => undefined,
     flush: async () => undefined,
   };
+  const initialAppConfig: AppConfig = {
+    sessionIdleTimeoutMs: 300_000,
+    sessionListPageMaxLimit: 50,
+    sessionMessagesPageMaxLimit: 100,
+    logLevel: "info",
+    maxTokens: 4096,
+    defaultModel: options.defaultModel ?? "",
+    acpPromptMetaPolicy: "allowlist",
+    acpPromptMetaAllowlist: [],
+  };
+  let settings: Settings = {
+    ui: {
+      theme: "system",
+      accentColor: "#3b82f6",
+      density: "comfortable",
+      fontScale: 1,
+    },
+    projectRoots: [tempRoot],
+    mcpServers: [],
+    app: initialAppConfig,
+  };
+  const settingsRepo: SettingsRepositoryPort = {
+    get: async () => settings,
+    update: async (patch) => {
+      settings = {
+        ...settings,
+        ...patch,
+        app: patch.app ? { ...settings.app, ...patch.app } : settings.app,
+      };
+      return settings;
+    },
+  };
+  const appConfigService: AppConfigService = {
+    getConfig: () => settings.app,
+    getDefaults: () => initialAppConfig,
+    subscribe: () => () => undefined,
+    validatePatch: (patch: Partial<AppConfig>) => ({ ...settings.app, ...patch }),
+    applyPatch: (patch: Partial<AppConfig>) => {
+      settings = {
+        ...settings,
+        app: { ...settings.app, ...patch },
+      };
+      return settings.app;
+    },
+    reloadFromSettings: (nextSettings: Pick<Settings, "app">) => {
+      settings = {
+        ...settings,
+        app: nextSettings.app,
+      };
+      return settings.app;
+    },
+  } as unknown as AppConfigService;
   return new LocalAdeService({
     projectRepo,
     agentRepo,
     sessionRepo,
     sessionRuntime,
     logStore,
+    settingsRepo,
+    appConfigService,
+    getBackgroundRunnerState: () => options.backgroundRunnerState ?? null,
   });
+}
+
+async function approvePluginRunOperation(
+  service: LocalAdeService,
+  pluginId: string
+): Promise<string> {
+  const snapshot = await service.snapshot(userId);
+  const plugin = snapshot.plugins.items.find((item) => item.id === pluginId);
+  expect(plugin?.runOperation.fingerprint.startsWith("sha256:")).toBe(true);
+  const approved = await service.approvePluginRun(userId, {
+    pluginId,
+    operationFingerprint: plugin?.runOperation.fingerprint ?? "",
+  });
+  const approvedPlugin = approved.plugins.items.find((item) => item.id === pluginId);
+  expect(approvedPlugin?.runOperation.approvalStatus).toBe("approved");
+  expect(approvedPlugin?.runOperation.approvalId).toBeDefined();
+  return approvedPlugin?.runOperation.approvalId ?? "";
+}
+
+async function approveHookRunOperation(
+  service: LocalAdeService,
+  hookId: string
+): Promise<string> {
+  const snapshot = await service.snapshot(userId);
+  const hook = snapshot.hooks.items.find((item) => item.id === hookId);
+  expect(hook?.runOperation.fingerprint.startsWith("sha256:")).toBe(true);
+  const approved = await service.approveHookRun(userId, {
+    hookId,
+    operationFingerprint: hook?.runOperation.fingerprint ?? "",
+  });
+  const approvedHook = approved.hooks.items.find((item) => item.id === hookId);
+  expect(approvedHook?.runOperation.approvalStatus).toBe("approved");
+  expect(approvedHook?.runOperation.approvalId).toBeDefined();
+  return approvedHook?.runOperation.approvalId ?? "";
+}
+
+async function waitForFile(filePath: string, timeoutMs = 1500): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(filePath)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${filePath}`);
 }
 
 async function writeMcpFixture(options: {
@@ -245,12 +466,14 @@ async function startSseMcpFixture(options: {
   streamUrl: string;
   messageEndpoint: string;
   requestCounts: Record<string, number>;
+  closeNextStreamOnFirstRequest: () => void;
   close: () => Promise<void>;
 }> {
   const clients = new Set<ServerResponse>();
   const requestCounts: Record<string, number> = {};
   let firstRequestStreamClosed = false;
   let methodStreamClosed = false;
+  let closeNextStreamOnFirstRequest = false;
   const server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/sse") {
       response.writeHead(200, {
@@ -280,6 +503,13 @@ async function startSseMcpFixture(options: {
           !firstRequestStreamClosed
         ) {
           firstRequestStreamClosed = true;
+          for (const client of clients) {
+            client.end();
+          }
+          return;
+        }
+        if (closeNextStreamOnFirstRequest) {
+          closeNextStreamOnFirstRequest = false;
           for (const client of clients) {
             client.end();
           }
@@ -364,6 +594,9 @@ async function startSseMcpFixture(options: {
     streamUrl: `${baseUrl}/sse`,
     messageEndpoint: `${baseUrl}/messages`,
     requestCounts,
+    closeNextStreamOnFirstRequest: () => {
+      closeNextStreamOnFirstRequest = true;
+    },
     close: async () => {
       for (const client of clients) {
         client.end();
@@ -538,6 +771,64 @@ process.exit(2);
   return scriptPath;
 }
 
+async function writeClaudeProviderFixture(): Promise<string> {
+  const scriptPath = path.join(tempRoot, "fake-claude-provider-cli.js");
+  await writeFile(
+    scriptPath,
+    `
+const args = process.argv.slice(2);
+const joined = args.join(" ");
+if (joined === "--version") {
+  process.stdout.write("claude-code 3.2.1\\n");
+  process.exit(0);
+}
+if (joined === "doctor --json") {
+  process.stdout.write(JSON.stringify({
+    status: "ok",
+    auth: { status: "ok", account: "user@example.test" },
+    models: [{ name: "claude-sonnet-smoke" }, { modelId: "claude-opus-smoke" }]
+  }));
+  process.exit(0);
+}
+process.stderr.write("unsupported claude command: " + joined + " token=" + (process.env.CLAUDE_TEST_SECRET ?? "") + "\\n");
+process.exit(2);
+`,
+    "utf8"
+  );
+  return scriptPath;
+}
+
+async function writeGeminiProviderFixture(): Promise<string> {
+  const scriptPath = path.join(tempRoot, "fake-gemini-provider-cli.js");
+  await writeFile(
+    scriptPath,
+    `
+const args = process.argv.slice(2);
+const joined = args.join(" ");
+if (joined === "--version") {
+  process.stdout.write("gemini-cli 4.5.6\\n");
+  process.exit(0);
+}
+if (joined === "doctor --json") {
+  process.stderr.write("doctor unavailable for fixture\\n");
+  process.exit(2);
+}
+if (joined === "auth status") {
+  process.stdout.write("logged in as gemini-user@example.test\\n");
+  process.exit(0);
+}
+if (joined === "models" || joined === "models list") {
+  process.stdout.write("gemini-2.5-pro - production model\\ngemini-2.5-flash - fast model\\n");
+  process.exit(0);
+}
+process.stderr.write("unsupported gemini command: " + joined + " key=" + (process.env.GEMINI_TEST_SECRET ?? "") + "\\n");
+process.exit(2);
+`,
+    "utf8"
+  );
+  return scriptPath;
+}
+
 test("discovers project commands and persists disabled state", async () => {
   await mkdir(path.join(tempRoot, ".eragear", "commands"), {
     recursive: true,
@@ -581,6 +872,63 @@ test("discovers project commands and persists disabled state", async () => {
   expect(disabled?.enabled).toBe(false);
   expect(disabledInvokable?.enabled).toBe(false);
   expect(state.capabilities[command?.id ?? ""]?.enabled).toBe(false);
+});
+
+test("classifies remote auth admin dashboard parity as local N/A policy", async () => {
+  const service = createService();
+  const snapshot = await service.snapshot(userId);
+  const authAdmin = snapshot.dashboardParity.find(
+    (item) => item.workflow === "Auth admin and device sessions"
+  );
+
+  expect(authAdmin?.status).toBe("not-applicable");
+  expect(authAdmin?.policy?.scope).toBe("local-desktop");
+  expect(authAdmin?.policy?.decision).toBe("not-applicable");
+  expect(authAdmin?.reason).toContain("outside the local desktop ADE surface");
+  expect(snapshot.blockers.map((item) => item.workflow)).not.toContain(
+    "Auth admin and device sessions"
+  );
+});
+
+test("exposes background runner task state in local ADE snapshot", async () => {
+  const service = createService([], {
+    backgroundRunnerState: {
+      enabled: true,
+      startedAt: 1_781_229_000_000,
+      tickMs: 1000,
+      tasks: [
+        {
+          name: "plugin-batch-schedule-dispatch",
+          intervalMs: 1000,
+          timeoutMs: 30_000,
+          running: false,
+          lastStartedAt: 1_781_229_001_000,
+          lastFinishedAt: 1_781_229_001_125,
+          lastDurationMs: 125,
+          successCount: 3,
+          failureCount: 0,
+          lastResult: {
+            users: 1,
+            projects: 1,
+            dueSchedules: 1,
+            dispatchedSchedules: 1,
+            failedProjects: 0,
+          },
+        },
+      ],
+    },
+  });
+
+  const snapshot = await service.snapshot(userId);
+  const background = snapshot.runtime.background;
+  const task = background?.tasks.find(
+    (item) => item.name === "plugin-batch-schedule-dispatch"
+  );
+
+  expect(background?.enabled).toBe(true);
+  expect(background?.tickMs).toBe(1000);
+  expect(task?.successCount).toBe(3);
+  expect(task?.lastResult?.dispatchedSchedules).toBe(1);
 });
 
 test("toggles project memory state separately from generic capabilities", async () => {
@@ -688,6 +1036,163 @@ test("builds project memory context for selected source paths", async () => {
   expect(context.prompt).not.toContain("Use broad memory.");
 });
 
+test("builds semantic project memory context from ranked chunks", async () => {
+  await mkdir(path.join(tempRoot, ".eragear"), { recursive: true });
+  await writeFile(
+    path.join(tempRoot, ".eragear", "context.md"),
+    [
+      "# Provider notes",
+      "Use provider auth diagnostics when login fails.",
+      "",
+      "# Runtime workflow",
+      "Prefer runtime-backed Local ADE actions before editing.",
+      "api_key=semantic-secret",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const service = createService();
+  const context = await service.buildProjectMemoryContext(userId, {
+    query: "runtime-backed Local ADE actions",
+    sourcePaths: [".eragear/context.md"],
+    retrievalMode: "semantic",
+    maxChunks: 1,
+    maxBytes: 4000,
+  });
+
+  expect(context.status).toBe("ready");
+  expect(context.retrievalMode).toBe("semantic");
+  expect(context.chunks).toHaveLength(1);
+  expect(context.sources.map((source) => source.relativePath)).toEqual([
+    ".eragear/context.md",
+  ]);
+  expect(context.chunks[0]?.relativePath).toBe(".eragear/context.md");
+  expect(context.chunks[0]?.score).toBeGreaterThan(0);
+  expect(context.prompt).toContain(
+    "Project memory retrieval mode: local hashed token-vector chunk ranking."
+  );
+  expect(context.prompt).toContain(
+    "Prefer runtime-backed Local ADE actions before editing."
+  );
+  expect(context.prompt).toContain("api_key= [redacted]");
+  expect(context.prompt).not.toContain("semantic-secret");
+  expect(context.prompt).not.toContain("Use provider auth diagnostics");
+});
+
+test("builds model-backed project memory context when embeddings are configured", async () => {
+  await mkdir(path.join(tempRoot, ".eragear"), { recursive: true });
+  await writeFile(
+    path.join(tempRoot, ".eragear", "context.md"),
+    [
+      "# Provider notes",
+      "Use provider auth diagnostics when login fails.",
+      "",
+      "# Restore notes",
+      "Prefer checkpoint restore safety plans before touching files.",
+      "api_key=model-memory-secret",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+
+  await withMockEmbeddingServer(async ({ calls }) => {
+    const service = createService();
+    const context = await service.buildProjectMemoryContext(userId, {
+      query: "rollback safety checkpoint",
+      sourcePaths: [".eragear/context.md"],
+      retrievalMode: "semantic",
+      maxChunks: 1,
+      maxBytes: 4000,
+    });
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(context.status).toBe("ready");
+    expect(context.semantic?.ranker).toBe("model-embedding");
+    expect(context.semantic?.model).toBe("mock-embedding");
+    expect(context.semantic?.dimensions).toBe(5);
+    expect(context.chunks).toHaveLength(1);
+    expect(context.chunks[0]?.ranker).toBe("model-embedding");
+    expect(context.chunks[0]?.embeddingModel).toBe("mock-embedding");
+    expect(context.prompt).toContain(
+      "Project memory retrieval mode: model-backed embedding chunk ranking."
+    );
+    expect(context.prompt).toContain("Prefer checkpoint restore safety plans");
+    expect(context.prompt).not.toContain("Use provider auth diagnostics");
+    expect(context.prompt).not.toContain("model-memory-secret");
+    expect(context.diagnostics.join("\n")).toContain(
+      "model-backed embeddings"
+    );
+    expect(context.diagnostics.join("\n")).not.toContain("embedding-secret");
+  });
+});
+
+test("saves uses and deletes project memory presets", async () => {
+  await mkdir(path.join(tempRoot, ".eragear"), { recursive: true });
+  await writeFile(
+    path.join(tempRoot, "AGENTS.md"),
+    "# Agent context\nUse broad memory.\n",
+    "utf8"
+  );
+  await writeFile(
+    path.join(tempRoot, ".eragear", "context.md"),
+    [
+      "# Broad notes",
+      "Use broad memory.",
+      "",
+      "# Restore notes",
+      "Prefer checkpoint-safe restore plans.",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const service = createService();
+  const saved = await service.upsertProjectMemoryPreset(userId, {
+    id: "restore-review",
+    name: "Restore Review",
+    sourcePaths: [".eragear/context.md"],
+    defaultQuery: "Review restore risk",
+    retrievalMode: "semantic",
+    maxBytes: 4000,
+    maxChunks: 1,
+  });
+  const preset = saved.projectMemory.presets.find(
+    (item) => item.id === "restore-review"
+  );
+
+  expect(preset?.name).toBe("Restore Review");
+  expect(preset?.sourcePaths).toEqual([".eragear/context.md"]);
+  expect(preset?.retrievalMode).toBe("semantic");
+  expect(preset?.maxBytes).toBe(4000);
+  expect(preset?.maxChunks).toBe(1);
+
+  const context = await service.buildProjectMemoryContext(userId, {
+    presetId: "restore-review",
+  });
+
+  expect(context.status).toBe("ready");
+  expect(context.presetId).toBe("restore-review");
+  expect(context.presetName).toBe("Restore Review");
+  expect(context.retrievalMode).toBe("semantic");
+  expect(context.query).toBe("Review restore risk");
+  expect(context.sources.map((source) => source.relativePath)).toEqual([
+    ".eragear/context.md",
+  ]);
+  expect(context.chunks).toHaveLength(1);
+  expect(context.prompt).toContain(
+    'Use project memory preset "Restore Review" for: Review restore risk'
+  );
+  expect(context.prompt).toContain("Prefer checkpoint-safe restore plans.");
+  expect(context.prompt).not.toContain("Use broad memory.");
+
+  const deleted = await service.deleteProjectMemoryPreset(userId, {
+    id: "restore-review",
+  });
+
+  expect(deleted.projectMemory.presets).toEqual([]);
+});
+
 test("refreshes project index metadata and skips generated directories", async () => {
   await mkdir(path.join(tempRoot, "src"), { recursive: true });
   await mkdir(path.join(tempRoot, "node_modules", "pkg"), { recursive: true });
@@ -703,6 +1208,7 @@ test("refreshes project index metadata and skips generated directories", async (
       "  return true;",
       "}",
       "export class IndexedWorker {}",
+      "// Checkpoint restore safety planning handles snapshot recovery.",
       "// FIXME: tighten scan coverage",
       "",
     ].join("\n"),
@@ -755,6 +1261,9 @@ test("refreshes project index metadata and skips generated directories", async (
     await readFile(path.join(tempRoot, ".eragear", "repo-index.json"), "utf8")
   );
   const storedPaths = stored.files.map((file: { path: string }) => file.path);
+  const storedIndexFile = stored.files.find(
+    (file: { path: string }) => file.path === "src/index.ts"
+  );
   const snapshot = await service.snapshot(userId);
 
   expect(updated.projectIndex.indexedFiles).toBeGreaterThanOrEqual(2);
@@ -770,6 +1279,11 @@ test("refreshes project index metadata and skips generated directories", async (
   expect(updated.projectIndex.diagnostics.join("\n")).toContain(
     "code-symbol signals"
   );
+  expect(updated.projectIndex.semantic.status).toBe("ready");
+  expect(updated.projectIndex.semantic.profiledFiles).toBeGreaterThan(0);
+  expect(storedIndexFile?.semanticTags).toContain("restore");
+  expect(storedIndexFile?.semanticTags).toContain("rollback");
+  expect(storedIndexFile?.semanticHash).toStartWith("sha256:");
   expect(indexedSymbols).toContain("runIndexedTask");
   expect(indexedSymbols).toContain("IndexedWorker");
   expect(indexedTasks).toContain("TODO");
@@ -807,6 +1321,465 @@ test("refreshes project index metadata and skips generated directories", async (
   expect(taskSearch.status).toBe("ready");
   expect(taskSearch.results.some((item) => item.title.includes("FIXME"))).toBe(true);
   expect(taskSearch.prompt).toContain("tighten scan coverage");
+
+  const semanticSearch = await service.searchProjectIndex(userId, {
+    query: "rollback safety",
+    limit: 4,
+  });
+  const semanticHit = semanticSearch.results.find(
+    (item) => item.path === "src/index.ts"
+  );
+  expect(semanticSearch.status).toBe("ready");
+  expect(semanticHit?.matchKind).toBe("semantic");
+  expect(semanticHit?.detail).toContain("semantic profile match");
+  expect(semanticSearch.prompt).toContain("local semantic token profiles");
+  expect(semanticSearch.prompt).not.toContain("snapshot recovery");
+});
+
+test("refreshes project index with model-backed embedding vectors", async () => {
+  await mkdir(path.join(tempRoot, "src"), { recursive: true });
+  await mkdir(path.join(tempRoot, "docs"), { recursive: true });
+  await writeFile(
+    path.join(tempRoot, "src", "restore.ts"),
+    [
+      "export function planRestoreSafety() {",
+      "  return 'checkpoint restore safety planning';",
+      "}",
+      "// Snapshot recovery should be reviewed before file edits.",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(tempRoot, "docs", "provider.md"),
+    "# Provider\nUse provider auth login diagnostics.\n",
+    "utf8"
+  );
+
+  await withMockEmbeddingServer(async ({ calls }) => {
+    const service = createService();
+    const snapshot = await service.refreshProjectIndex(userId, {});
+    const stored = JSON.parse(
+      await readFile(path.join(tempRoot, ".eragear", "repo-index.json"), "utf8")
+    );
+    const storedRestoreFile = stored.files.find(
+      (file: { path: string }) => file.path === "src/restore.ts"
+    );
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(snapshot.projectIndex.semantic.source).toBe("model-embedding");
+    expect(snapshot.projectIndex.semantic.model).toBe("mock-embedding");
+    expect(snapshot.projectIndex.semantic.dimensions).toBe(5);
+    expect(snapshot.projectIndex.semantic.embeddedFiles).toBeGreaterThan(0);
+    expect(Array.isArray(storedRestoreFile?.embeddingVector)).toBe(true);
+    expect(storedRestoreFile?.embeddingModel).toBe("mock-embedding");
+    expect(storedRestoreFile?.embeddingHash).toStartWith("sha256:");
+    expect(snapshot.projectIndex.files[0]).not.toHaveProperty("embeddingVector");
+
+    const search = await service.searchProjectIndex(userId, {
+      query: "rollback safety",
+      limit: 4,
+    });
+    const hit = search.results.find((item) => item.path === "src/restore.ts");
+
+    expect(search.status).toBe("ready");
+    expect(hit?.matchKind).toBe("embedding");
+    expect(hit?.detail).toContain("model embedding match");
+    expect(search.prompt).toContain("model-backed embedding vectors");
+    expect(search.prompt).not.toContain("Snapshot recovery should be reviewed");
+    expect(search.diagnostics.join("\n")).toContain(
+      "Compared query embedding"
+    );
+    expect(search.diagnostics.join("\n")).not.toContain("embedding-secret");
+  });
+});
+
+test("governs lifecycle hook batches with pause and stop-on-failure policy", async () => {
+  await writeFile(path.join(tempRoot, "README.md"), "# Lifecycle Governance\n", "utf8");
+  const failScript = path.join(tempRoot, "lifecycle-fail.js");
+  const secondScript = path.join(tempRoot, "lifecycle-second.js");
+  const secondOutput = path.join(tempRoot, "lifecycle-second-output.txt");
+  await writeFile(
+    failScript,
+    "process.stderr.write('first failed'); process.exit(2);",
+    "utf8"
+  );
+  await writeFile(
+    secondScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(secondOutput)}, 'ran');`,
+      "process.stdout.write('second ran '+process.env.ERAGEAR_HOOK_EVENT);",
+    ].join(" "),
+    "utf8"
+  );
+
+  const service = createService();
+  const firstSaved = await service.upsertHook(userId, {
+    id: "lifecycle-first",
+    name: "Lifecycle First",
+    event: "after-project-index-refresh",
+    command: process.execPath,
+    args: [failScript],
+    timeoutMs: 5000,
+  });
+  const secondSaved = await service.upsertHook(userId, {
+    id: "lifecycle-second",
+    name: "Lifecycle Second",
+    event: "after-project-index-refresh",
+    command: process.execPath,
+    args: [secondScript],
+    timeoutMs: 5000,
+  });
+  await service.trustHook(userId, {
+    hookId: "lifecycle-first",
+    fingerprint:
+      firstSaved.hooks.items.find((item) => item.id === "lifecycle-first")
+        ?.fingerprint ?? "",
+  });
+  await service.trustHook(userId, {
+    hookId: "lifecycle-second",
+    fingerprint:
+      secondSaved.hooks.items.find((item) => item.id === "lifecycle-second")
+        ?.fingerprint ?? "",
+  });
+
+  const governed = await service.updateHookLifecyclePolicy(userId, {
+    failureMode: "stop-on-failure",
+  });
+  expect(governed.hooks.lifecyclePolicy.enabled).toBe(true);
+  expect(governed.hooks.lifecyclePolicy.failureMode).toBe("stop-on-failure");
+
+  const stopped = await service.refreshProjectIndex(userId, {});
+  const failedHook = stopped.hooks.items.find((item) => item.id === "lifecycle-first");
+  const skippedHook = stopped.hooks.items.find(
+    (item) => item.id === "lifecycle-second"
+  );
+  expect(failedHook?.lastRun?.status).toBe("failed");
+  expect(skippedHook?.lastRun?.status).toBe("disabled");
+  expect(failedHook?.lastRun?.batchId?.startsWith("hook-batch-")).toBe(true);
+  expect(skippedHook?.lastRun?.batchId).toBe(failedHook?.lastRun?.batchId);
+  expect(skippedHook?.lastRun?.diagnostics.join("\n")).toContain(
+    "stop-on-failure"
+  );
+  expect(existsSync(secondOutput)).toBe(false);
+
+  const pausedPolicy = await service.updateHookLifecyclePolicy(userId, {
+    disabledEvents: ["after-project-index-refresh"],
+    failureMode: "continue",
+  });
+  expect(pausedPolicy.hooks.lifecyclePolicy.disabledEvents).toEqual([
+    "after-project-index-refresh",
+  ]);
+  const paused = await service.refreshProjectIndex(userId, {});
+  const pausedFirst = paused.hooks.items.find((item) => item.id === "lifecycle-first");
+  const pausedSecond = paused.hooks.items.find(
+    (item) => item.id === "lifecycle-second"
+  );
+  expect(pausedFirst?.lastRun?.status).toBe("disabled");
+  expect(pausedSecond?.lastRun?.status).toBe("disabled");
+  expect(pausedFirst?.lastRun?.batchId).not.toBe(failedHook?.lastRun?.batchId);
+  expect(pausedSecond?.lastRun?.batchId).toBe(pausedFirst?.lastRun?.batchId);
+  expect(pausedFirst?.lastRun?.diagnostics.join("\n")).toContain(
+    "event after-project-index-refresh is paused"
+  );
+  expect(existsSync(secondOutput)).toBe(false);
+
+  await service.updateHookLifecyclePolicy(userId, {
+    disabledEvents: [],
+    failureMode: "continue",
+  });
+  await service.toggleHook(userId, { id: "lifecycle-first", enabled: false });
+  const resumed = await service.refreshProjectIndex(userId, {});
+  const resumedSecond = resumed.hooks.items.find(
+    (item) => item.id === "lifecycle-second"
+  );
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "hooks.json"), "utf8")
+  );
+  expect(resumed.hooks.lifecyclePolicy.disabledEvents).toEqual([]);
+  expect(resumedSecond?.lastRun?.status).toBe("success");
+  expect(resumedSecond?.lastRun?.batchId?.startsWith("hook-batch-")).toBe(true);
+  expect(await readFile(secondOutput, "utf8")).toBe("ran");
+  expect(stored.lifecyclePolicy.failureMode).toBe("continue");
+});
+
+test("enforces hook scheduling pause and cooldown before spawn", async () => {
+  const hookScript = path.join(tempRoot, "scheduled-hook.js");
+  const outputPath = path.join(tempRoot, "scheduled-hook-count.txt");
+  await writeFile(
+    hookScript,
+    [
+      "const fs = require('node:fs');",
+      `const p = ${JSON.stringify(outputPath)};`,
+      "const next = fs.existsSync(p) ? Number(fs.readFileSync(p, 'utf8')) + 1 : 1;",
+      "fs.writeFileSync(p, String(next));",
+      "process.stdout.write('scheduled hook ran '+next);",
+    ].join(" "),
+    "utf8"
+  );
+
+  const service = createService();
+  const saved = await service.upsertHook(userId, {
+    id: "scheduled-hook",
+    name: "Scheduled Hook",
+    command: process.execPath,
+    args: [hookScript],
+    timeoutMs: 5000,
+  });
+  await service.trustHook(userId, {
+    hookId: "scheduled-hook",
+    fingerprint:
+      saved.hooks.items.find((item) => item.id === "scheduled-hook")?.fingerprint ??
+      "",
+  });
+
+  const firstApprovalId = await approveHookRunOperation(service, "scheduled-hook");
+  const firstRun = await service.runHook(userId, {
+    hookId: "scheduled-hook",
+    confirmation: "RUN HOOK scheduled-hook",
+    operationApprovalId: firstApprovalId,
+  });
+  expect(
+    firstRun.hooks.items.find((item) => item.id === "scheduled-hook")?.lastRun?.status
+  ).toBe("success");
+  expect(await readFile(outputPath, "utf8")).toBe("1");
+
+  const cooldownPolicy = await service.updateHookSchedulingPolicy(userId, {
+    cooldownMs: 600000,
+  });
+  const cooldownHook = cooldownPolicy.hooks.items.find(
+    (item) => item.id === "scheduled-hook"
+  );
+  expect(cooldownPolicy.hooks.schedulingPolicy.cooldownMs).toBe(600000);
+  expect(cooldownHook?.scheduling.status).toBe("cooldown");
+  expect(
+    cooldownPolicy.capabilities.capabilities.find(
+      (item) => item.id === "hook.project.scheduled-hook"
+    )?.enabled
+  ).toBe(false);
+
+  const cooldownApprovalId = await approveHookRunOperation(service, "scheduled-hook");
+  const cooldownRun = await service.runHook(userId, {
+    hookId: "scheduled-hook",
+    confirmation: "RUN HOOK scheduled-hook",
+    operationApprovalId: cooldownApprovalId,
+  });
+  const cooldownLastRun = cooldownRun.hooks.items.find(
+    (item) => item.id === "scheduled-hook"
+  )?.lastRun;
+  expect(cooldownLastRun?.status).toBe("disabled");
+  expect(cooldownLastRun?.diagnostics.join("\n")).toContain("cooldown");
+  expect(await readFile(outputPath, "utf8")).toBe("1");
+
+  const pausedPolicy = await service.updateHookSchedulingPolicy(userId, {
+    enabled: false,
+    cooldownMs: 0,
+  });
+  const pausedHook = pausedPolicy.hooks.items.find(
+    (item) => item.id === "scheduled-hook"
+  );
+  expect(pausedPolicy.hooks.schedulingPolicy.enabled).toBe(false);
+  expect(pausedHook?.scheduling.status).toBe("paused");
+  const pausedApprovalId = await approveHookRunOperation(service, "scheduled-hook");
+  const pausedRun = await service.runHook(userId, {
+    hookId: "scheduled-hook",
+    confirmation: "RUN HOOK scheduled-hook",
+    operationApprovalId: pausedApprovalId,
+  });
+  const pausedLastRun = pausedRun.hooks.items.find(
+    (item) => item.id === "scheduled-hook"
+  )?.lastRun;
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "hooks.json"), "utf8")
+  );
+  expect(pausedLastRun?.status).toBe("disabled");
+  expect(pausedLastRun?.diagnostics.join("\n")).toContain("scheduling is paused");
+  expect(await readFile(outputPath, "utf8")).toBe("1");
+  expect(stored.schedulingPolicy.enabled).toBe(false);
+  expect(stored.schedulingPolicy.cooldownMs).toBe(0);
+});
+
+test("runs guarded hook batch queue with fingerprint rechecks", async () => {
+  const firstScript = path.join(tempRoot, "hook-batch-first.js");
+  const secondScript = path.join(tempRoot, "hook-batch-second.js");
+  const firstOutput = path.join(tempRoot, "hook-batch-first.txt");
+  const secondOutput = path.join(tempRoot, "hook-batch-second.txt");
+  await writeFile(
+    firstScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(firstOutput)}, 'first');`,
+      "process.stdout.write('hook batch first ok');",
+    ].join(" "),
+    "utf8"
+  );
+  await writeFile(
+    secondScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(secondOutput)}, 'second');`,
+      "process.stdout.write('hook batch second ok');",
+    ].join(" "),
+    "utf8"
+  );
+
+  const service = createService();
+  const savedFirst = await service.upsertHook(userId, {
+    id: "hook-batch-first",
+    name: "Hook Batch First",
+    command: process.execPath,
+    args: [firstScript],
+    timeoutMs: 5000,
+  });
+  await service.trustHook(userId, {
+    hookId: "hook-batch-first",
+    fingerprint:
+      savedFirst.hooks.items.find((item) => item.id === "hook-batch-first")
+        ?.fingerprint ?? "",
+  });
+  const savedSecond = await service.upsertHook(userId, {
+    id: "hook-batch-second",
+    name: "Hook Batch Second",
+    command: process.execPath,
+    args: [secondScript],
+    timeoutMs: 5000,
+  });
+  const trustedSecond = await service.trustHook(userId, {
+    hookId: "hook-batch-second",
+    fingerprint:
+      savedSecond.hooks.items.find((item) => item.id === "hook-batch-second")
+        ?.fingerprint ?? "",
+  });
+  const fingerprints = Object.fromEntries(
+    trustedSecond.hooks.items
+      .filter((item) => item.id.startsWith("hook-batch-"))
+      .map((item) => [item.id, item.runOperation.fingerprint])
+  );
+
+  await expect(
+    service.runHookBatch(userId, {
+      hookIds: ["hook-batch-first"],
+      operationFingerprints: {
+        "hook-batch-first": fingerprints["hook-batch-first"] ?? "",
+      },
+      confirmation: "RUN HOOK wrong",
+    })
+  ).rejects.toThrow("Hook batch confirmation mismatch");
+
+  const result = await service.runHookBatch(userId, {
+    hookIds: ["hook-batch-first", "hook-batch-second"],
+    operationFingerprints: fingerprints,
+    confirmation: "RUN HOOK BATCH",
+    failureMode: "stop-on-failure",
+  });
+  const first = result.hooks.items.find((item) => item.id === "hook-batch-first");
+  const second = result.hooks.items.find((item) => item.id === "hook-batch-second");
+  const batch = result.hooks.recentBatches[0];
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "hooks.json"), "utf8")
+  );
+
+  expect(first?.lastRun?.status).toBe("success");
+  expect(second?.lastRun?.status).toBe("success");
+  expect(first?.lastRun?.batchId?.startsWith("hook-batch-")).toBe(true);
+  expect(second?.lastRun?.batchId).toBe(first?.lastRun?.batchId);
+  expect(batch?.status).toBe("success");
+  expect(batch?.failureMode).toBe("stop-on-failure");
+  expect(batch?.counts.success).toBe(2);
+  expect(stored.batches[0].id).toBe(batch?.id);
+  expect(await readFile(firstOutput, "utf8")).toBe("first");
+  expect(await readFile(secondOutput, "utf8")).toBe("second");
+});
+
+test("terminates hook and plugin child process trees on timeout", async () => {
+  const makeParentScript = async (name: string, sentinelPath: string) => {
+    const scriptPath = path.join(tempRoot, `${name}.js`);
+    await writeFile(
+      scriptPath,
+      [
+        "const { spawn } = require('node:child_process');",
+        `const sentinel = ${JSON.stringify(sentinelPath)};`,
+        "const code = `setTimeout(()=>require('node:fs').writeFileSync(process.argv[1], 'orphan'), 1500);`;",
+        "const child = spawn(process.execPath, ['-e', code, sentinel], { stdio: 'ignore' });",
+        "child.unref();",
+        "setTimeout(() => {}, 10000);",
+      ].join("\n"),
+      "utf8"
+    );
+    return scriptPath;
+  };
+  const hookSentinel = path.join(tempRoot, "hook-orphan.txt");
+  const pluginSentinel = path.join(tempRoot, "plugin-orphan.txt");
+  const hookScript = await makeParentScript("hook-timeout-parent", hookSentinel);
+  const pluginScript = await makeParentScript(
+    "plugin-timeout-parent",
+    pluginSentinel
+  );
+  const service = createService();
+
+  const savedHook = await service.upsertHook(userId, {
+    id: "tree-kill-hook",
+    name: "Tree Kill Hook",
+    command: process.execPath,
+    args: [hookScript],
+    timeoutMs: 500,
+  });
+  await service.trustHook(userId, {
+    hookId: "tree-kill-hook",
+    fingerprint:
+      savedHook.hooks.items.find((item) => item.id === "tree-kill-hook")
+        ?.fingerprint ?? "",
+  });
+  const hookApprovalId = await approveHookRunOperation(service, "tree-kill-hook");
+  const hookRun = await service.runHook(userId, {
+    hookId: "tree-kill-hook",
+    confirmation: "RUN HOOK tree-kill-hook",
+    operationApprovalId: hookApprovalId,
+  });
+  const hookLastRun = hookRun.hooks.items.find(
+    (item) => item.id === "tree-kill-hook"
+  )?.lastRun;
+  expect(hookLastRun?.status).toBe("timeout");
+  expect(hookLastRun?.isolation?.processTreeTerminated).toBe(true);
+  expect(hookLastRun?.diagnostics.join("\n")).toContain("Process tree termination");
+
+  const savedPlugin = await service.upsertPlugin(userId, {
+    id: "tree-kill-plugin",
+    name: "Tree Kill Plugin",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [pluginScript],
+    timeoutMs: 500,
+  });
+  await service.trustPlugin(userId, {
+    pluginId: "tree-kill-plugin",
+    fingerprint:
+      savedPlugin.plugins.items.find((item) => item.id === "tree-kill-plugin")
+        ?.fingerprint ?? "",
+  });
+  const pluginApprovalId = await approvePluginRunOperation(
+    service,
+    "tree-kill-plugin"
+  );
+  const pluginRun = await service.runPlugin(userId, {
+    pluginId: "tree-kill-plugin",
+    confirmation: "RUN PLUGIN tree-kill-plugin",
+    operationApprovalId: pluginApprovalId,
+  });
+  const pluginLastRun = pluginRun.plugins.items.find(
+    (item) => item.id === "tree-kill-plugin"
+  )?.lastRun;
+  expect(pluginLastRun?.status).toBe("timeout");
+  expect(pluginLastRun?.isolation?.cwdScope).toBe("temporary-sandbox");
+  expect(pluginLastRun?.isolation?.processTreeTerminated).toBe(true);
+  expect(pluginLastRun?.diagnostics.join("\n")).toContain(
+    "Process tree termination"
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 1800));
+  expect(existsSync(hookSentinel)).toBe(false);
+  expect(existsSync(pluginSentinel)).toBe(false);
 });
 
 test("upserts toggles and runs project hooks with redacted output", async () => {
@@ -847,11 +1820,16 @@ test("upserts toggles and runs project hooks with redacted output", async () => 
     expect(hook?.enabled).toBe(true);
     expect(hook?.envKeys).toEqual(["LOCAL_ADE_HOOK_ALLOWED"]);
     expect(hook?.fingerprint.startsWith("sha256:")).toBe(true);
+    expect(hook?.runConfirmationToken).toBe("RUN HOOK hook-test");
     expect(hook?.trustStatus).toBe("untrusted");
     expect(capability?.kind).toBe("hook");
     expect(capability?.enabled).toBe(false);
     await expect(
-      service.runHook(userId, { hookId: "hook-test" })
+      service.runHook(userId, {
+        hookId: "hook-test",
+        confirmation: "RUN HOOK hook-test",
+        operationApprovalId: "hook-approval-unused",
+      })
     ).rejects.toThrow("must be trusted");
 
     const disabled = await service.toggleHook(userId, {
@@ -862,7 +1840,11 @@ test("upserts toggles and runs project hooks with redacted output", async () => 
       false
     );
     await expect(
-      service.runHook(userId, { hookId: "hook-test" })
+      service.runHook(userId, {
+        hookId: "hook-test",
+        confirmation: "RUN HOOK hook-test",
+        operationApprovalId: "hook-approval-unused",
+      })
     ).rejects.toThrow("Hook is disabled");
 
     await service.toggleHook(userId, { id: "hook-test", enabled: true });
@@ -890,20 +1872,52 @@ test("upserts toggles and runs project hooks with redacted output", async () => 
     const changedHook = changed.hooks.items.find((item) => item.id === "hook-test");
     expect(changedHook?.trustStatus).toBe("changed");
     await expect(
-      service.runHook(userId, { hookId: "hook-test" })
+      service.runHook(userId, {
+        hookId: "hook-test",
+        confirmation: "RUN HOOK hook-test",
+        operationApprovalId: "hook-approval-unused",
+      })
     ).rejects.toThrow("changed after trust approval");
     await service.trustHook(userId, {
       hookId: "hook-test",
       fingerprint: changedHook?.fingerprint ?? "",
     });
 
-    const ran = await service.runHook(userId, { hookId: "hook-test" });
+    await expect(
+      service.runHook(userId, {
+        hookId: "hook-test",
+        confirmation: "RUN HOOK wrong",
+        operationApprovalId: "hook-approval-unused",
+      })
+    ).rejects.toThrow("confirmation mismatch");
+
+    await expect(
+      service.runHook(userId, {
+        hookId: "hook-test",
+        confirmation: "RUN HOOK hook-test",
+        operationApprovalId: "hook-approval-unused",
+      })
+    ).rejects.toThrow("must be approved");
+    await expect(
+      service.approveHookRun(userId, {
+        hookId: "hook-test",
+        operationFingerprint: "sha256:not-current",
+      })
+    ).rejects.toThrow("run operation changed");
+
+    const runApprovalId = await approveHookRunOperation(service, "hook-test");
+    const ran = await service.runHook(userId, {
+      hookId: "hook-test",
+      confirmation: "RUN HOOK hook-test",
+      operationApprovalId: runApprovalId,
+    });
     const ranHook = ran.hooks.items.find((item) => item.id === "hook-test");
     const stored = JSON.parse(
       await readFile(path.join(tempRoot, ".eragear", "hooks.json"), "utf8")
     );
 
     expect(ranHook?.lastRun?.status).toBe("success");
+    expect(ranHook?.runOperation.approvalStatus).toBe("consumed");
     expect(ranHook?.lastRun?.stdout).toContain("hook event=manual-check");
     expect(ranHook?.lastRun?.stdout).toContain("allowed_secret= [redacted]");
     expect(ranHook?.lastRun?.stdout).toContain("blocked=false");
@@ -911,8 +1925,183 @@ test("upserts toggles and runs project hooks with redacted output", async () => 
     expect(ranHook?.lastRun?.stdout).not.toContain("blocked-unit-hook-secret");
     expect(ranHook?.lastRun?.stderr).toContain("api_key= [redacted]");
     expect(ranHook?.lastRun?.stderr).not.toContain("super-secret-value");
+    expect(ranHook?.lastRun?.reviewedAt).toBeUndefined();
+    await expect(
+      service.runHook(userId, {
+        hookId: "hook-test",
+        confirmation: "RUN HOOK hook-test",
+        operationApprovalId: runApprovalId,
+      })
+    ).rejects.toThrow("must be approved");
+    const expiredApprovalId = await approveHookRunOperation(service, "hook-test");
+    const hookDocumentPath = path.join(tempRoot, ".eragear", "hooks.json");
+    const hookDocument = JSON.parse(await readFile(hookDocumentPath, "utf8"));
+    hookDocument.approvals = hookDocument.approvals.map(
+      (approval: Record<string, unknown>) =>
+        approval.id === expiredApprovalId
+          ? { ...approval, expiresAt: "2025-01-01T00:00:00.000Z" }
+          : approval
+    );
+    await writeFile(
+      hookDocumentPath,
+      `${JSON.stringify(hookDocument, null, 2)}\n`,
+      "utf8"
+    );
+    await expect(
+      service.runHook(userId, {
+        hookId: "hook-test",
+        confirmation: "RUN HOOK hook-test",
+        operationApprovalId: expiredApprovalId,
+      })
+    ).rejects.toThrow("approval expired");
     expect(stored.runs[0].status).toBe("success");
     expect(stored.runs[0].stderr).not.toContain("super-secret-value");
+
+    const reviewed = await service.reviewHookRun(userId, {
+      runId: ranHook?.lastRun?.id ?? "",
+      reviewed: true,
+    });
+    const reviewedHook = reviewed.hooks.items.find((item) => item.id === "hook-test");
+    const reviewedStored = JSON.parse(
+      await readFile(path.join(tempRoot, ".eragear", "hooks.json"), "utf8")
+    );
+    expect(reviewedHook?.lastRun?.reviewedAt).toBeDefined();
+    expect(reviewedStored.runs[0].reviewedAt).toBe(reviewedHook?.lastRun?.reviewedAt);
+
+    const reviewedAudit = await service.exportHookRuns(userId, {
+      reviewState: "reviewed",
+      status: "success",
+      limit: 1,
+    });
+    expect(reviewedAudit.schemaVersion).toBe(1);
+    expect(reviewedAudit.redacted).toBe(true);
+    expect(reviewedAudit.projectRoot).toBe(tempRoot);
+    expect(reviewedAudit.filters).toEqual({
+      reviewState: "reviewed",
+      status: "success",
+      limit: 1,
+    });
+    expect(reviewedAudit.stats.total).toBe(1);
+    expect(reviewedAudit.stats.matching).toBe(1);
+    expect(reviewedAudit.stats.included).toBe(1);
+    expect(reviewedAudit.stats.reviewed).toBe(1);
+    expect(reviewedAudit.stats.open).toBe(0);
+    expect(reviewedAudit.runs[0]?.id).toBe(ranHook?.lastRun?.id);
+    expect(reviewedAudit.runs[0]?.reviewedAt).toBeDefined();
+    expect(JSON.stringify(reviewedAudit)).not.toContain("unit-hook-secret");
+    expect(JSON.stringify(reviewedAudit)).not.toContain("super-secret-value");
+
+    const reopened = await service.reviewHookRun(userId, {
+      runId: ranHook?.lastRun?.id ?? "",
+      reviewed: false,
+    });
+    const reopenedHook = reopened.hooks.items.find((item) => item.id === "hook-test");
+    expect(reopenedHook?.lastRun?.reviewedAt).toBeUndefined();
+    const openAudit = await service.exportHookRuns(userId, {
+      reviewState: "open",
+    });
+    expect(openAudit.stats.matching).toBe(1);
+    expect(openAudit.runs[0]?.id).toBe(ranHook?.lastRun?.id);
+
+    const blockedShell = await service.upsertHook(userId, {
+      id: "hook-shell-eval",
+      name: "Shell Eval Hook",
+      command: process.platform === "win32" ? "powershell" : "sh",
+      args:
+        process.platform === "win32"
+          ? ["-NoProfile", "-Command", "Write-Output blocked"]
+          : ["-c", "printf blocked"],
+    });
+    const shellHook = blockedShell.hooks.items.find(
+      (item) => item.id === "hook-shell-eval"
+    );
+    expect(shellHook?.executionPolicy.status).toBe("blocked");
+    expect(
+      blockedShell.capabilities.capabilities.find(
+        (item) => item.id === "hook.project.hook-shell-eval"
+      )?.enabled
+    ).toBe(false);
+    const trustedShell = await service.trustHook(userId, {
+      hookId: "hook-shell-eval",
+      fingerprint: shellHook?.fingerprint ?? "",
+    });
+    expect(
+      trustedShell.hooks.items.find((item) => item.id === "hook-shell-eval")
+        ?.trustStatus
+    ).toBe("trusted");
+    expect(
+      trustedShell.capabilities.capabilities.find(
+        (item) => item.id === "hook.project.hook-shell-eval"
+      )?.enabled
+    ).toBe(false);
+    await expect(
+      service.runHook(userId, {
+        hookId: "hook-shell-eval",
+        confirmation: "RUN HOOK hook-shell-eval",
+        operationApprovalId: "hook-approval-unused",
+      })
+    ).rejects.toThrow("sandbox");
+
+    const restrictedPolicy = await service.upsertHook(userId, {
+      id: "hook-policy-restricted",
+      name: "Restricted Policy Hook",
+      policyPreset: "restricted",
+      command: process.execPath,
+      args: [hookScript],
+      timeoutMs: 5000,
+    });
+    const restrictedHook = restrictedPolicy.hooks.items.find(
+      (item) => item.id === "hook-policy-restricted"
+    );
+    expect(restrictedHook?.policyPreset).toBe("restricted");
+    expect(restrictedHook?.executionPolicy.status).toBe("blocked");
+    expect(restrictedHook?.executionPolicy.blockers.join("\n")).toContain(
+      "restricted policy"
+    );
+    expect(
+      restrictedPolicy.capabilities.capabilities.find(
+        (item) => item.id === "hook.project.hook-policy-restricted"
+      )?.enabled
+    ).toBe(false);
+    const trustedRestrictedHook = await service.trustHook(userId, {
+      hookId: "hook-policy-restricted",
+      fingerprint: restrictedHook?.fingerprint ?? "",
+    });
+    expect(
+      trustedRestrictedHook.capabilities.capabilities.find(
+        (item) => item.id === "hook.project.hook-policy-restricted"
+      )?.enabled
+    ).toBe(false);
+    await expect(
+      service.approveHookRun(userId, {
+        hookId: "hook-policy-restricted",
+        operationFingerprint: restrictedHook?.runOperation.fingerprint ?? "",
+      })
+    ).rejects.toThrow("restricted policy");
+
+    const blockedPolicy = await service.upsertHook(userId, {
+      id: "hook-policy-blocked",
+      name: "Blocked Policy Hook",
+      policyPreset: "blocked",
+      command: process.execPath,
+      args: [hookScript],
+      timeoutMs: 5000,
+    });
+    const blockedPolicyHook = blockedPolicy.hooks.items.find(
+      (item) => item.id === "hook-policy-blocked"
+    );
+    expect(blockedPolicyHook?.policyPreset).toBe("blocked");
+    expect(blockedPolicyHook?.executionPolicy.status).toBe("blocked");
+    await service.trustHook(userId, {
+      hookId: "hook-policy-blocked",
+      fingerprint: blockedPolicyHook?.fingerprint ?? "",
+    });
+    await expect(
+      service.approveHookRun(userId, {
+        hookId: "hook-policy-blocked",
+        operationFingerprint: blockedPolicyHook?.runOperation.fingerprint ?? "",
+      })
+    ).rejects.toThrow("blocked policy preset");
   } finally {
     if (previousAllowed === undefined) {
       delete process.env.LOCAL_ADE_HOOK_ALLOWED;
@@ -1027,11 +2216,18 @@ test("upserts toggles and runs project plugins with redacted output", async () =
   expect(plugin?.scopes).toEqual(["process", "project-root", "env"]);
   expect(plugin?.envKeys).toEqual(["LOCAL_ADE_PLUGIN_ALLOWED"]);
   expect(plugin?.fingerprint.startsWith("sha256:")).toBe(true);
+  expect(plugin?.permissionFingerprint.startsWith("sha256:")).toBe(true);
+  expect(plugin?.permissionStatus).toBe("missing");
+  expect(plugin?.runConfirmationToken).toBe("RUN PLUGIN plugin-test");
   expect(plugin?.trustStatus).toBe("untrusted");
   expect(capability?.kind).toBe("plugin");
   expect(capability?.enabled).toBe(false);
   await expect(
-    service.runPlugin(userId, { pluginId: "plugin-test" })
+    service.runPlugin(userId, {
+      pluginId: "plugin-test",
+      confirmation: "RUN PLUGIN plugin-test",
+      operationApprovalId: "plugin-approval-unused",
+    })
   ).rejects.toThrow("must be trusted");
   await expect(
     service.trustPlugin(userId, {
@@ -1050,7 +2246,55 @@ test("upserts toggles and runs project plugins with redacted output", async () =
   expect(trustedPlugin?.trustStatus).toBe("trusted");
   expect(trustedPlugin?.trustedFingerprint).toBe(trustedPlugin?.fingerprint);
   expect(trustedPlugin?.trustedAt).toBeDefined();
+  expect(trustedPlugin?.permissionStatus).toBe("granted");
+  expect(trustedPlugin?.grantedPermissionFingerprint).toBe(
+    trustedPlugin?.permissionFingerprint
+  );
+  expect(trustedPlugin?.permissionGrantedAt).toBeDefined();
   expect(trustedCapability?.enabled).toBe(true);
+
+  const permissionRevoked = await service.updatePluginPermissionGrant(userId, {
+    pluginId: "plugin-test",
+    permissionFingerprint: trustedPlugin?.permissionFingerprint ?? "",
+    granted: false,
+  });
+  const revokedPlugin = permissionRevoked.plugins.items.find(
+    (item) => item.id === "plugin-test"
+  );
+  expect(revokedPlugin?.permissionStatus).toBe("missing");
+  expect(
+    permissionRevoked.capabilities.capabilities.find(
+      (item) => item.id === "plugin.project.plugin-test"
+    )?.enabled
+  ).toBe(false);
+  await expect(
+    service.runPlugin(userId, {
+      pluginId: "plugin-test",
+      confirmation: "RUN PLUGIN plugin-test",
+      operationApprovalId: "plugin-approval-unused",
+    })
+  ).rejects.toThrow("permissions must be granted");
+  await expect(
+    service.updatePluginPermissionGrant(userId, {
+      pluginId: "plugin-test",
+      permissionFingerprint: "sha256:not-current",
+      granted: true,
+    })
+  ).rejects.toThrow("permission fingerprint changed");
+  const permissionGranted = await service.updatePluginPermissionGrant(userId, {
+    pluginId: "plugin-test",
+    permissionFingerprint: revokedPlugin?.permissionFingerprint ?? "",
+    granted: true,
+  });
+  expect(
+    permissionGranted.plugins.items.find((item) => item.id === "plugin-test")
+      ?.permissionStatus
+  ).toBe("granted");
+  expect(
+    permissionGranted.capabilities.capabilities.find(
+      (item) => item.id === "plugin.project.plugin-test"
+    )?.enabled
+  ).toBe(true);
 
   const disabled = await service.updateCapabilityState(userId, {
     capabilityId: "plugin.project.plugin-test",
@@ -1060,17 +2304,48 @@ test("upserts toggles and runs project plugins with redacted output", async () =
     disabled.plugins.items.find((item) => item.id === "plugin-test")?.enabled
   ).toBe(false);
   await expect(
-    service.runPlugin(userId, { pluginId: "plugin-test" })
+    service.runPlugin(userId, {
+      pluginId: "plugin-test",
+      confirmation: "RUN PLUGIN plugin-test",
+      operationApprovalId: "plugin-approval-unused",
+    })
   ).rejects.toThrow("Plugin is disabled");
 
   await service.togglePlugin(userId, { id: "plugin-test", enabled: true });
-  const ran = await service.runPlugin(userId, { pluginId: "plugin-test" });
+  await expect(
+    service.runPlugin(userId, {
+      pluginId: "plugin-test",
+      confirmation: "RUN PLUGIN wrong",
+      operationApprovalId: "plugin-approval-unused",
+    })
+  ).rejects.toThrow("confirmation mismatch");
+  await expect(
+    service.runPlugin(userId, {
+      pluginId: "plugin-test",
+      confirmation: "RUN PLUGIN plugin-test",
+      operationApprovalId: "plugin-approval-unused",
+    })
+  ).rejects.toThrow("must be approved");
+  await expect(
+    service.approvePluginRun(userId, {
+      pluginId: "plugin-test",
+      operationFingerprint: "sha256:not-current",
+    })
+  ).rejects.toThrow("run operation changed");
+
+  const runApprovalId = await approvePluginRunOperation(service, "plugin-test");
+  const ran = await service.runPlugin(userId, {
+    pluginId: "plugin-test",
+    confirmation: "RUN PLUGIN plugin-test",
+    operationApprovalId: runApprovalId,
+  });
   const ranPlugin = ran.plugins.items.find((item) => item.id === "plugin-test");
   const stored = JSON.parse(
     await readFile(path.join(tempRoot, ".eragear", "plugins.json"), "utf8")
   );
 
   expect(ranPlugin?.lastRun?.status).toBe("success");
+  expect(ranPlugin?.runOperation.approvalStatus).toBe("consumed");
   expect(ranPlugin?.lastRun?.stdout).toContain("plugin name=Smoke Plugin");
   expect(ranPlugin?.lastRun?.stdout).toContain("scopes=process,project-root,env");
   expect(ranPlugin?.lastRun?.stdout).toContain("allowed_secret= [redacted]");
@@ -1079,12 +2354,268 @@ test("upserts toggles and runs project plugins with redacted output", async () =
   expect(ranPlugin?.lastRun?.stdout).not.toContain("blocked-unit-plugin-secret");
   expect(ranPlugin?.lastRun?.stderr).toContain("token= [redacted]");
   expect(ranPlugin?.lastRun?.stderr).not.toContain("plugin-secret-value");
+  await expect(
+    service.runPlugin(userId, {
+      pluginId: "plugin-test",
+      confirmation: "RUN PLUGIN plugin-test",
+      operationApprovalId: runApprovalId,
+    })
+  ).rejects.toThrow("must be approved");
+  const expiredApprovalId = await approvePluginRunOperation(service, "plugin-test");
+  const pluginDocumentPath = path.join(tempRoot, ".eragear", "plugins.json");
+  const pluginDocument = JSON.parse(await readFile(pluginDocumentPath, "utf8"));
+  pluginDocument.approvals = pluginDocument.approvals.map(
+    (approval: Record<string, unknown>) =>
+      approval.id === expiredApprovalId
+        ? { ...approval, expiresAt: "2025-01-01T00:00:00.000Z" }
+        : approval
+  );
+  await writeFile(
+    pluginDocumentPath,
+    `${JSON.stringify(pluginDocument, null, 2)}\n`,
+    "utf8"
+  );
+  await expect(
+    service.runPlugin(userId, {
+      pluginId: "plugin-test",
+      confirmation: "RUN PLUGIN plugin-test",
+      operationApprovalId: expiredApprovalId,
+    })
+  ).rejects.toThrow("approval expired");
   expect(stored.plugins[0].id).toBe("plugin-test");
   expect(stored.plugins[0].scopes).toEqual(["process", "project-root", "env"]);
   expect(stored.plugins[0].envKeys).toEqual(["LOCAL_ADE_PLUGIN_ALLOWED"]);
   expect(stored.plugins[0].trustedFingerprint).toBe(ranPlugin?.fingerprint);
+  expect(stored.plugins[0].grantedPermissionFingerprint).toBe(
+    ranPlugin?.permissionFingerprint
+  );
   expect(stored.runs[0].status).toBe("success");
   expect(stored.runs[0].stderr).not.toContain("plugin-secret-value");
+  expect(ranPlugin?.lastRun?.reviewedAt).toBeUndefined();
+
+  const reviewed = await service.reviewPluginRun(userId, {
+    runId: ranPlugin?.lastRun?.id ?? "",
+    reviewed: true,
+  });
+  const reviewedPlugin = reviewed.plugins.items.find((item) => item.id === "plugin-test");
+  const reviewedStored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "plugins.json"), "utf8")
+  );
+  expect(reviewedPlugin?.lastRun?.reviewedAt).toBeDefined();
+  expect(reviewedStored.runs[0].reviewedAt).toBe(
+    reviewedPlugin?.lastRun?.reviewedAt
+  );
+
+  const reviewedAudit = await service.exportPluginRuns(userId, {
+    reviewState: "reviewed",
+    status: "success",
+    limit: 1,
+  });
+  expect(reviewedAudit.schemaVersion).toBe(1);
+  expect(reviewedAudit.redacted).toBe(true);
+  expect(reviewedAudit.projectRoot).toBe(tempRoot);
+  expect(reviewedAudit.filters).toEqual({
+    reviewState: "reviewed",
+    status: "success",
+    limit: 1,
+  });
+  expect(reviewedAudit.stats.total).toBe(1);
+  expect(reviewedAudit.stats.matching).toBe(1);
+  expect(reviewedAudit.stats.included).toBe(1);
+  expect(reviewedAudit.stats.reviewed).toBe(1);
+  expect(reviewedAudit.stats.open).toBe(0);
+  expect(reviewedAudit.runs[0]?.id).toBe(ranPlugin?.lastRun?.id);
+  expect(reviewedAudit.runs[0]?.reviewedAt).toBeDefined();
+  expect(JSON.stringify(reviewedAudit)).not.toContain("unit-plugin-secret");
+  expect(JSON.stringify(reviewedAudit)).not.toContain("plugin-secret-value");
+
+  const reopened = await service.reviewPluginRun(userId, {
+    runId: ranPlugin?.lastRun?.id ?? "",
+    reviewed: false,
+  });
+  const reopenedPlugin = reopened.plugins.items.find((item) => item.id === "plugin-test");
+  expect(reopenedPlugin?.lastRun?.reviewedAt).toBeUndefined();
+  const openAudit = await service.exportPluginRuns(userId, {
+    reviewState: "open",
+  });
+  expect(openAudit.stats.matching).toBe(1);
+  expect(openAudit.runs[0]?.id).toBe(ranPlugin?.lastRun?.id);
+
+  const blockedShell = await service.upsertPlugin(userId, {
+    id: "plugin-shell-eval",
+    name: "Shell Eval Plugin",
+    command: process.platform === "win32" ? "powershell" : "sh",
+    args:
+      process.platform === "win32"
+        ? ["-NoProfile", "-Command", "Write-Output blocked"]
+        : ["-c", "printf blocked"],
+  });
+  const shellPlugin = blockedShell.plugins.items.find(
+    (item) => item.id === "plugin-shell-eval"
+  );
+  expect(shellPlugin?.executionPolicy.status).toBe("blocked");
+  expect(
+    blockedShell.capabilities.capabilities.find(
+      (item) => item.id === "plugin.project.plugin-shell-eval"
+    )?.enabled
+  ).toBe(false);
+  const trustedShell = await service.trustPlugin(userId, {
+    pluginId: "plugin-shell-eval",
+    fingerprint: shellPlugin?.fingerprint ?? "",
+  });
+  expect(
+    trustedShell.plugins.items.find((item) => item.id === "plugin-shell-eval")
+      ?.trustStatus
+  ).toBe("trusted");
+  expect(
+    trustedShell.capabilities.capabilities.find(
+      (item) => item.id === "plugin.project.plugin-shell-eval"
+    )?.enabled
+  ).toBe(false);
+  await expect(
+    service.runPlugin(userId, {
+      pluginId: "plugin-shell-eval",
+      confirmation: "RUN PLUGIN plugin-shell-eval",
+      operationApprovalId: "plugin-approval-unused",
+    })
+  ).rejects.toThrow("sandbox");
+
+  const restricted = await service.upsertPlugin(userId, {
+    id: "plugin-sandbox",
+    name: "Sandboxed Plugin",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [
+      "-e",
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        "fs.writeFileSync(path.join(process.cwd(), 'restricted-output.txt'), 'written');",
+        "process.stdout.write(`root=${Boolean(process.env.ERAGEAR_PROJECT_ROOT)} access=${process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS} scopes=${process.env.ERAGEAR_PLUGIN_SCOPES}`);",
+      ].join(" "),
+    ],
+    timeoutMs: 5000,
+  });
+  const restrictedPlugin = restricted.plugins.items.find(
+    (item) => item.id === "plugin-sandbox"
+  );
+  expect(restrictedPlugin?.scopes).toEqual(["process"]);
+  expect(restrictedPlugin?.diagnostics.join("\n")).toContain("temporary sandbox cwd");
+  const trustedRestricted = await service.trustPlugin(userId, {
+    pluginId: "plugin-sandbox",
+    fingerprint: restrictedPlugin?.fingerprint ?? "",
+  });
+  expect(
+    trustedRestricted.capabilities.capabilities.find(
+      (item) => item.id === "plugin.project.plugin-sandbox"
+    )?.tags
+  ).toContain("workspace:sandbox");
+  const sandboxApprovalId = await approvePluginRunOperation(
+    service,
+    "plugin-sandbox"
+  );
+  const sandboxRun = await service.runPlugin(userId, {
+    pluginId: "plugin-sandbox",
+    confirmation: "RUN PLUGIN plugin-sandbox",
+    operationApprovalId: sandboxApprovalId,
+  });
+  const sandboxPlugin = sandboxRun.plugins.items.find(
+    (item) => item.id === "plugin-sandbox"
+  );
+  expect(sandboxPlugin?.lastRun?.status).toBe("success");
+  expect(sandboxPlugin?.lastRun?.stdout).toContain("root=false");
+  expect(sandboxPlugin?.lastRun?.stdout).toContain("access=sandbox");
+  expect(sandboxPlugin?.lastRun?.stdout).toContain("scopes=process");
+  expect(sandboxPlugin?.lastRun?.diagnostics.join("\n")).toContain(
+    "ERAGEAR_PROJECT_ROOT was not exposed"
+  );
+  expect(existsSync(path.join(tempRoot, "restricted-output.txt"))).toBe(false);
+
+  const restrictedPreset = await service.upsertPlugin(userId, {
+    id: "plugin-policy-restricted",
+    name: "Restricted Policy Plugin",
+    policyPreset: "restricted",
+    scopes: ["process", "project-root"],
+    command: process.execPath,
+    args: [
+      "-e",
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        "fs.writeFileSync(path.join(process.cwd(), 'restricted-policy-output.txt'), 'written');",
+        "process.stdout.write([",
+        "`root=${Boolean(process.env.ERAGEAR_PROJECT_ROOT)}`,",
+        "`access=${process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS}`,",
+        "`scopes=${process.env.ERAGEAR_PLUGIN_SCOPES}`,",
+        "`policy=${process.env.ERAGEAR_PLUGIN_POLICY_PRESET}`",
+        "].join('\\n'));",
+      ].join(" "),
+    ],
+    timeoutMs: 5000,
+  });
+  const restrictedPresetPlugin = restrictedPreset.plugins.items.find(
+    (item) => item.id === "plugin-policy-restricted"
+  );
+  expect(restrictedPresetPlugin?.policyPreset).toBe("restricted");
+  expect(restrictedPresetPlugin?.scopes).toEqual(["process"]);
+  expect(restrictedPresetPlugin?.runOperation.workspaceAccess).toBe("sandbox");
+  expect(restrictedPresetPlugin?.diagnostics.join("\n")).toContain(
+    "forces sandbox"
+  );
+  expect(
+    restrictedPreset.capabilities.capabilities.find(
+      (item) => item.id === "plugin.project.plugin-policy-restricted"
+    )?.tags
+  ).toEqual(
+    expect.arrayContaining(["policy:restricted", "workspace:sandbox"])
+  );
+  await service.trustPlugin(userId, {
+    pluginId: "plugin-policy-restricted",
+    fingerprint: restrictedPresetPlugin?.fingerprint ?? "",
+  });
+  const restrictedPresetApprovalId = await approvePluginRunOperation(
+    service,
+    "plugin-policy-restricted"
+  );
+  const restrictedPresetRun = await service.runPlugin(userId, {
+    pluginId: "plugin-policy-restricted",
+    confirmation: "RUN PLUGIN plugin-policy-restricted",
+    operationApprovalId: restrictedPresetApprovalId,
+  });
+  const restrictedPresetRan = restrictedPresetRun.plugins.items.find(
+    (item) => item.id === "plugin-policy-restricted"
+  );
+  expect(restrictedPresetRan?.lastRun?.status).toBe("success");
+  expect(restrictedPresetRan?.lastRun?.stdout).toContain("root=false");
+  expect(restrictedPresetRan?.lastRun?.stdout).toContain("access=sandbox");
+  expect(restrictedPresetRan?.lastRun?.stdout).toContain("scopes=process");
+  expect(restrictedPresetRan?.lastRun?.stdout).toContain("policy=restricted");
+  expect(existsSync(path.join(tempRoot, "restricted-policy-output.txt"))).toBe(
+    false
+  );
+
+  const blockedPreset = await service.upsertPlugin(userId, {
+    id: "plugin-policy-blocked",
+    name: "Blocked Policy Plugin",
+    policyPreset: "blocked",
+    command: process.execPath,
+    args: [pluginScript],
+  });
+  const blockedPresetPlugin = blockedPreset.plugins.items.find(
+    (item) => item.id === "plugin-policy-blocked"
+  );
+  expect(blockedPresetPlugin?.policyPreset).toBe("blocked");
+  expect(blockedPresetPlugin?.executionPolicy.status).toBe("blocked");
+  await service.trustPlugin(userId, {
+    pluginId: "plugin-policy-blocked",
+    fingerprint: blockedPresetPlugin?.fingerprint ?? "",
+  });
+  await expect(
+    service.approvePluginRun(userId, {
+      pluginId: "plugin-policy-blocked",
+      operationFingerprint: blockedPresetPlugin?.runOperation.fingerprint ?? "",
+    })
+  ).rejects.toThrow("blocked policy preset");
 
   const changed = await service.upsertPlugin(userId, {
     id: "plugin-test",
@@ -1102,7 +2633,11 @@ test("upserts toggles and runs project plugins with redacted output", async () =
   expect(changedPlugin?.trustedFingerprint).not.toBe(changedPlugin?.fingerprint);
   expect(changedCapability?.enabled).toBe(false);
   await expect(
-    service.runPlugin(userId, { pluginId: "plugin-test" })
+    service.runPlugin(userId, {
+      pluginId: "plugin-test",
+      confirmation: "RUN PLUGIN plugin-test",
+      operationApprovalId: "plugin-approval-unused",
+    })
   ).rejects.toThrow("must be trusted");
 
   await expect(
@@ -1124,6 +2659,1626 @@ test("upserts toggles and runs project plugins with redacted output", async () =
     process.env.LOCAL_ADE_PLUGIN_BLOCKED = previousBlocked;
   }
   }
+});
+
+test("enforces plugin scheduling parallel limit before spawn", async () => {
+  const longScript = path.join(tempRoot, "plugin-long.js");
+  const fastScript = path.join(tempRoot, "plugin-fast.js");
+  const longStarted = path.join(tempRoot, "plugin-long-started.txt");
+  const longOutput = path.join(tempRoot, "plugin-long-output.txt");
+  const fastOutput = path.join(tempRoot, "plugin-fast-output.txt");
+  await writeFile(
+    longScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(longStarted)}, 'started');`,
+      "setTimeout(() => {",
+      `fs.writeFileSync(${JSON.stringify(longOutput)}, 'long-ran');`,
+      "process.stdout.write('long plugin ran');",
+      "}, 500);",
+    ].join(" "),
+    "utf8"
+  );
+  await writeFile(
+    fastScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(fastOutput)}, 'fast-ran');`,
+      "process.stdout.write('fast plugin ran');",
+    ].join(" "),
+    "utf8"
+  );
+
+  const service = createService();
+  const first = await service.upsertPlugin(userId, {
+    id: "plugin-long",
+    name: "Long Plugin",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [longScript],
+    timeoutMs: 5000,
+  });
+  const second = await service.upsertPlugin(userId, {
+    id: "plugin-fast",
+    name: "Fast Plugin",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [fastScript],
+    timeoutMs: 5000,
+  });
+  await service.trustPlugin(userId, {
+    pluginId: "plugin-long",
+    fingerprint:
+      first.plugins.items.find((item) => item.id === "plugin-long")?.fingerprint ?? "",
+  });
+  await service.trustPlugin(userId, {
+    pluginId: "plugin-fast",
+    fingerprint:
+      second.plugins.items.find((item) => item.id === "plugin-fast")?.fingerprint ??
+      "",
+  });
+  const scheduling = await service.updatePluginSchedulingPolicy(userId, {
+    enabled: true,
+    maxConcurrentRuns: 1,
+    cooldownMs: 0,
+  });
+  expect(scheduling.plugins.schedulingPolicy.maxConcurrentRuns).toBe(1);
+  expect(
+    scheduling.capabilities.capabilities.find(
+      (item) => item.id === "plugin.project.plugin-long"
+    )?.tags
+  ).toContain("schedule:ready");
+
+  const longApprovalId = await approvePluginRunOperation(service, "plugin-long");
+  const fastApprovalId = await approvePluginRunOperation(service, "plugin-fast");
+  const longPromise = service.runPlugin(userId, {
+    pluginId: "plugin-long",
+    confirmation: "RUN PLUGIN plugin-long",
+    operationApprovalId: longApprovalId,
+  });
+  await waitForFile(longStarted);
+
+  const blocked = await service.runPlugin(userId, {
+    pluginId: "plugin-fast",
+    confirmation: "RUN PLUGIN plugin-fast",
+    operationApprovalId: fastApprovalId,
+  });
+  const blockedPlugin = blocked.plugins.items.find((item) => item.id === "plugin-fast");
+  expect(blockedPlugin?.lastRun?.status).toBe("disabled");
+  expect(blockedPlugin?.lastRun?.diagnostics.join("\n")).toContain(
+    "parallel run limit"
+  );
+  expect(blockedPlugin?.runOperation.approvalStatus).toBe("consumed");
+  expect(existsSync(fastOutput)).toBe(false);
+
+  const longResult = await longPromise;
+  const longPlugin = longResult.plugins.items.find((item) => item.id === "plugin-long");
+  expect(longPlugin?.lastRun?.status).toBe("success");
+  expect(await readFile(longOutput, "utf8")).toBe("long-ran");
+
+  const paused = await service.updatePluginSchedulingPolicy(userId, {
+    enabled: false,
+  });
+  const pausedPlugin = paused.plugins.items.find((item) => item.id === "plugin-fast");
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "plugins.json"), "utf8")
+  );
+  expect(paused.plugins.schedulingPolicy.enabled).toBe(false);
+  expect(pausedPlugin?.scheduling.status).toBe("paused");
+  expect(stored.schedulingPolicy.maxConcurrentRuns).toBe(1);
+  expect(stored.schedulingPolicy.enabled).toBe(false);
+});
+
+test("runs plugin batch queue with fingerprint guards and persisted summary", async () => {
+  const firstScript = path.join(tempRoot, "plugin-batch-first.js");
+  const secondScript = path.join(tempRoot, "plugin-batch-second.js");
+  const blockedScript = path.join(tempRoot, "plugin-batch-blocked.js");
+  const firstOutput = path.join(tempRoot, "plugin-batch-first.txt");
+  const secondOutput = path.join(tempRoot, "plugin-batch-second.txt");
+  const blockedOutput = path.join(tempRoot, "plugin-batch-blocked.txt");
+  await writeFile(
+    firstScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(firstOutput)}, 'first');`,
+      "process.stdout.write('batch first ok');",
+    ].join(" "),
+    "utf8"
+  );
+  await writeFile(
+    secondScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(secondOutput)}, 'second');`,
+      "process.stdout.write('batch second ok');",
+    ].join(" "),
+    "utf8"
+  );
+  await writeFile(
+    blockedScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(blockedOutput)}, 'blocked');`,
+      "process.stdout.write('batch blocked should not run');",
+    ].join(" "),
+    "utf8"
+  );
+
+  const service = createService();
+  await service.upsertPlugin(userId, {
+    id: "plugin-batch-first",
+    name: "Batch First",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [firstScript],
+    timeoutMs: 5000,
+  });
+  await service.upsertPlugin(userId, {
+    id: "plugin-batch-second",
+    name: "Batch Second",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [secondScript],
+    timeoutMs: 5000,
+  });
+  const blockedSaved = await service.upsertPlugin(userId, {
+    id: "plugin-batch-blocked",
+    name: "Batch Blocked",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [blockedScript],
+    timeoutMs: 5000,
+  });
+  for (const plugin of blockedSaved.plugins.items.filter((item) =>
+    item.id.startsWith("plugin-batch-")
+  )) {
+    await service.trustPlugin(userId, {
+      pluginId: plugin.id,
+      fingerprint: plugin.fingerprint,
+    });
+  }
+  const ready = await service.snapshot(userId);
+  const fingerprints = Object.fromEntries(
+    ready.plugins.items
+      .filter((item) => item.id.startsWith("plugin-batch-"))
+      .map((item) => [item.id, item.runOperation.fingerprint])
+  );
+
+  await expect(
+    service.runPluginBatch(userId, {
+      pluginIds: ["plugin-batch-first"],
+      operationFingerprints: {
+        "plugin-batch-first": fingerprints["plugin-batch-first"] ?? "",
+      },
+      confirmation: "RUN PLUGIN WRONG",
+    })
+  ).rejects.toThrow("Plugin batch confirmation mismatch");
+
+  const result = await service.runPluginBatch(userId, {
+    pluginIds: [
+      "plugin-batch-first",
+      "plugin-batch-second",
+      "plugin-batch-blocked",
+    ],
+    operationFingerprints: {
+      "plugin-batch-first": fingerprints["plugin-batch-first"] ?? "",
+      "plugin-batch-second": fingerprints["plugin-batch-second"] ?? "",
+      "plugin-batch-blocked": "sha256:0000",
+    },
+    confirmation: "RUN PLUGIN BATCH",
+  });
+  const first = result.plugins.items.find((item) => item.id === "plugin-batch-first");
+  const second = result.plugins.items.find(
+    (item) => item.id === "plugin-batch-second"
+  );
+  const blocked = result.plugins.items.find(
+    (item) => item.id === "plugin-batch-blocked"
+  );
+  const batch = result.plugins.recentBatches[0];
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "plugins.json"), "utf8")
+  );
+
+  expect(first?.lastRun?.status).toBe("success");
+  expect(second?.lastRun?.status).toBe("success");
+  expect(blocked?.lastRun?.status).toBe("disabled");
+  expect(first?.lastRun?.batchId?.startsWith("plugin-batch-")).toBe(true);
+  expect(second?.lastRun?.batchId).toBe(first?.lastRun?.batchId);
+  expect(blocked?.lastRun?.batchId).toBe(first?.lastRun?.batchId);
+  expect(blocked?.lastRun?.diagnostics.join("\n")).toContain(
+    "operation fingerprint changed"
+  );
+  expect(batch?.status).toBe("partial");
+  expect(batch?.counts.success).toBe(2);
+  expect(batch?.counts.disabled).toBe(1);
+  expect(batch?.runIds.length).toBe(3);
+  expect(stored.batches[0].id).toBe(batch?.id);
+  expect(stored.runs.filter((run: { batchId?: string }) => run.batchId === batch?.id))
+    .toHaveLength(3);
+  expect(await readFile(firstOutput, "utf8")).toBe("first");
+  expect(await readFile(secondOutput, "utf8")).toBe("second");
+  expect(existsSync(blockedOutput)).toBe(false);
+});
+
+test("stops plugin batch queue after first failed item when configured", async () => {
+  const failingScript = path.join(tempRoot, "plugin-batch-failing.js");
+  const skippedScript = path.join(tempRoot, "plugin-batch-skipped.js");
+  const skippedOutput = path.join(tempRoot, "plugin-batch-skipped.txt");
+  await writeFile(
+    failingScript,
+    "process.stderr.write('batch failing plugin'); process.exit(7);",
+    "utf8"
+  );
+  await writeFile(
+    skippedScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(skippedOutput)}, 'skipped');`,
+      "process.stdout.write('batch skipped should not run');",
+    ].join(" "),
+    "utf8"
+  );
+
+  const service = createService();
+  await service.upsertPlugin(userId, {
+    id: "plugin-batch-failing",
+    name: "Batch Failing",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [failingScript],
+    timeoutMs: 5000,
+  });
+  const saved = await service.upsertPlugin(userId, {
+    id: "plugin-batch-skipped",
+    name: "Batch Skipped",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [skippedScript],
+    timeoutMs: 5000,
+  });
+  for (const plugin of saved.plugins.items.filter((item) =>
+    item.id.startsWith("plugin-batch-")
+  )) {
+    await service.trustPlugin(userId, {
+      pluginId: plugin.id,
+      fingerprint: plugin.fingerprint,
+    });
+  }
+  const ready = await service.snapshot(userId);
+  const fingerprints = Object.fromEntries(
+    ready.plugins.items
+      .filter((item) => item.id.startsWith("plugin-batch-"))
+      .map((item) => [item.id, item.runOperation.fingerprint])
+  );
+
+  const result = await service.runPluginBatch(userId, {
+    pluginIds: ["plugin-batch-failing", "plugin-batch-skipped"],
+    operationFingerprints: {
+      "plugin-batch-failing": fingerprints["plugin-batch-failing"] ?? "",
+      "plugin-batch-skipped": fingerprints["plugin-batch-skipped"] ?? "",
+    },
+    confirmation: "RUN PLUGIN BATCH",
+    failureMode: "stop-on-failure",
+  });
+  const failing = result.plugins.items.find(
+    (item) => item.id === "plugin-batch-failing"
+  );
+  const skipped = result.plugins.items.find(
+    (item) => item.id === "plugin-batch-skipped"
+  );
+  const batch = result.plugins.recentBatches[0];
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "plugins.json"), "utf8")
+  );
+
+  expect(failing?.lastRun?.status).toBe("failed");
+  expect(skipped?.lastRun?.status).toBe("disabled");
+  expect(skipped?.lastRun?.batchId).toBe(failing?.lastRun?.batchId);
+  expect(skipped?.lastRun?.diagnostics.join("\n")).toContain("stop-on-failure");
+  expect(batch?.failureMode).toBe("stop-on-failure");
+  expect(batch?.status).toBe("partial");
+  expect(batch?.counts.failed).toBe(1);
+  expect(batch?.counts.disabled).toBe(1);
+  expect(batch?.runIds.length).toBe(2);
+  expect(stored.batches[0].failureMode).toBe("stop-on-failure");
+  expect(existsSync(skippedOutput)).toBe(false);
+});
+
+test("orders plugin batch queue by dependencies and skips failed dependents", async () => {
+  const dependencyScript = path.join(tempRoot, "plugin-dependency-fails.js");
+  const dependentScript = path.join(tempRoot, "plugin-dependent-should-skip.js");
+  const dependentOutput = path.join(tempRoot, "plugin-dependent-output.txt");
+  await writeFile(
+    dependencyScript,
+    "process.stderr.write('dependency failed'); process.exit(9);",
+    "utf8"
+  );
+  await writeFile(
+    dependentScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(dependentOutput)}, 'dependent-ran');`,
+      "process.stdout.write('dependent should not run');",
+    ].join(" "),
+    "utf8"
+  );
+
+  const service = createService();
+  await service.upsertPlugin(userId, {
+    id: "plugin-dependency-fails",
+    name: "Dependency Fails",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [dependencyScript],
+    timeoutMs: 5000,
+  });
+  const saved = await service.upsertPlugin(userId, {
+    id: "plugin-dependent-should-skip",
+    name: "Dependent Should Skip",
+    scopes: ["process"],
+    dependencyIds: ["plugin-dependency-fails"],
+    command: process.execPath,
+    args: [dependentScript],
+    timeoutMs: 5000,
+  });
+  for (const plugin of saved.plugins.items.filter((item) =>
+    item.id.startsWith("plugin-dependency-") ||
+    item.id.startsWith("plugin-dependent-")
+  )) {
+    await service.trustPlugin(userId, {
+      pluginId: plugin.id,
+      fingerprint: plugin.fingerprint,
+    });
+  }
+
+  const ready = await service.snapshot(userId);
+  const dependencyNode = ready.plugins.dependencyGraph.nodes.find(
+    (node) => node.pluginId === "plugin-dependent-should-skip"
+  );
+  expect(dependencyNode?.dependencyIds).toEqual(["plugin-dependency-fails"]);
+  expect(dependencyNode?.status).toBe("ready");
+  expect(ready.plugins.dependencyGraph.edges).toContainEqual(
+    expect.objectContaining({
+      pluginId: "plugin-dependent-should-skip",
+      dependencyId: "plugin-dependency-fails",
+      status: "ready",
+    })
+  );
+  const fingerprints = Object.fromEntries(
+    ready.plugins.items
+      .filter(
+        (item) =>
+          item.id === "plugin-dependent-should-skip" ||
+          item.id === "plugin-dependency-fails"
+      )
+      .map((item) => [item.id, item.runOperation.fingerprint])
+  );
+
+  const result = await service.runPluginBatch(userId, {
+    pluginIds: ["plugin-dependent-should-skip", "plugin-dependency-fails"],
+    operationFingerprints: {
+      "plugin-dependent-should-skip":
+        fingerprints["plugin-dependent-should-skip"] ?? "",
+      "plugin-dependency-fails": fingerprints["plugin-dependency-fails"] ?? "",
+    },
+    confirmation: "RUN PLUGIN BATCH",
+  });
+  const dependency = result.plugins.items.find(
+    (item) => item.id === "plugin-dependency-fails"
+  );
+  const dependent = result.plugins.items.find(
+    (item) => item.id === "plugin-dependent-should-skip"
+  );
+  const batch = result.plugins.recentBatches[0];
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "plugins.json"), "utf8")
+  );
+
+  expect(batch?.pluginIds).toEqual([
+    "plugin-dependency-fails",
+    "plugin-dependent-should-skip",
+  ]);
+  expect(batch?.diagnostics.join("\n")).toContain("dependency order");
+  expect(dependency?.lastRun?.status).toBe("failed");
+  expect(dependent?.lastRun?.status).toBe("disabled");
+  expect(dependent?.lastRun?.diagnostics.join("\n")).toContain(
+    "dependency plugin(s) did not complete successfully"
+  );
+  expect(batch?.status).toBe("partial");
+  expect(batch?.counts.failed).toBe(1);
+  expect(batch?.counts.disabled).toBe(1);
+  expect(stored.plugins.find(
+    (plugin: { id: string }) => plugin.id === "plugin-dependent-should-skip"
+  )?.dependencyIds).toEqual(["plugin-dependency-fails"]);
+  expect(existsSync(dependentOutput)).toBe(false);
+});
+test("persists and runs reusable plugin batch presets", async () => {
+  const firstScript = path.join(tempRoot, "plugin-batch-preset-first.js");
+  const secondScript = path.join(tempRoot, "plugin-batch-preset-second.js");
+  await writeFile(
+    firstScript,
+    "process.stdout.write('preset first ok');",
+    "utf8"
+  );
+  await writeFile(
+    secondScript,
+    "process.stdout.write('preset second ok');",
+    "utf8"
+  );
+
+  const service = createService();
+  await service.upsertPlugin(userId, {
+    id: "plugin-batch-preset-first",
+    name: "Preset First",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [firstScript],
+    timeoutMs: 5000,
+  });
+  const savedPlugin = await service.upsertPlugin(userId, {
+    id: "plugin-batch-preset-second",
+    name: "Preset Second",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [secondScript],
+    timeoutMs: 5000,
+  });
+  for (const plugin of savedPlugin.plugins.items.filter((item) =>
+    item.id.startsWith("plugin-batch-preset-")
+  )) {
+    await service.trustPlugin(userId, {
+      pluginId: plugin.id,
+      fingerprint: plugin.fingerprint,
+    });
+  }
+
+  const savedPreset = await service.upsertPluginBatchPreset(userId, {
+    id: "preset-review-format",
+    name: "Review and format",
+    pluginIds: ["plugin-batch-preset-first", "plugin-batch-preset-second"],
+    failureMode: "stop-on-failure",
+  });
+  const preset = savedPreset.plugins.batchPresets[0];
+  expect(preset?.id).toBe("preset-review-format");
+  expect(preset?.pluginNames).toEqual(["Preset First", "Preset Second"]);
+  expect(preset?.failureMode).toBe("stop-on-failure");
+
+  const ready = await service.snapshot(userId);
+  const fingerprints = Object.fromEntries(
+    ready.plugins.items
+      .filter((item) => item.id.startsWith("plugin-batch-preset-"))
+      .map((item) => [item.id, item.runOperation.fingerprint])
+  );
+  const run = await service.runPluginBatchPreset(userId, {
+    presetId: "preset-review-format",
+    operationFingerprints: {
+      "plugin-batch-preset-first":
+        fingerprints["plugin-batch-preset-first"] ?? "",
+      "plugin-batch-preset-second":
+        fingerprints["plugin-batch-preset-second"] ?? "",
+    },
+    confirmation: "RUN PLUGIN BATCH",
+  });
+  const runPreset = run.plugins.batchPresets.find(
+    (item) => item.id === "preset-review-format"
+  );
+  const batch = run.plugins.recentBatches[0];
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "plugins.json"), "utf8")
+  );
+
+  expect(batch?.status).toBe("success");
+  expect(batch?.failureMode).toBe("stop-on-failure");
+  expect(batch?.counts.success).toBe(2);
+  expect(runPreset?.lastRunBatchId).toBe(batch?.id);
+  expect(stored.batchPresets[0].lastRunBatchId).toBe(batch?.id);
+
+  const deleted = await service.deletePluginBatchPreset(userId, {
+    presetId: "preset-review-format",
+  });
+  expect(deleted.plugins.batchPresets).toHaveLength(0);
+});
+
+test("runs due plugin batch schedules through guarded batch runner", async () => {
+  const scheduledScript = path.join(tempRoot, "plugin-batch-scheduled.js");
+  const staleScript = path.join(tempRoot, "plugin-batch-scheduled-stale.js");
+  const scheduledOutput = path.join(tempRoot, "plugin-batch-scheduled.txt");
+  const staleOutput = path.join(tempRoot, "plugin-batch-scheduled-stale.txt");
+  await writeFile(
+    scheduledScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(scheduledOutput)}, 'scheduled-ran');`,
+      "process.stdout.write('scheduled batch ok');",
+    ].join(" "),
+    "utf8"
+  );
+  await writeFile(
+    staleScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(staleOutput)}, 'stale-ran');`,
+      "process.stdout.write('stale schedule should not run');",
+    ].join(" "),
+    "utf8"
+  );
+
+  const service = createService();
+  const savedPlugin = await service.upsertPlugin(userId, {
+    id: "plugin-batch-scheduled",
+    name: "Scheduled Plugin",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [scheduledScript],
+    timeoutMs: 5000,
+  });
+  const plugin = savedPlugin.plugins.items.find(
+    (item) => item.id === "plugin-batch-scheduled"
+  );
+  expect(plugin).toBeDefined();
+  await service.trustPlugin(userId, {
+    pluginId: "plugin-batch-scheduled",
+    fingerprint: plugin?.fingerprint ?? "",
+  });
+  await service.upsertPluginBatchPreset(userId, {
+    id: "preset-scheduled",
+    name: "Scheduled preset",
+    pluginIds: ["plugin-batch-scheduled"],
+  });
+  const ready = await service.snapshot(userId);
+  const operationFingerprint =
+    ready.plugins.items.find((item) => item.id === "plugin-batch-scheduled")
+      ?.runOperation.fingerprint ?? "";
+  const dueAt = new Date(Date.now() - 1000).toISOString();
+  const savedSchedule = await service.upsertPluginBatchSchedule(userId, {
+    id: "schedule-scheduled",
+    name: "Every minute scheduled preset",
+    presetId: "preset-scheduled",
+    intervalMs: 60_000,
+    nextRunAt: dueAt,
+    operationFingerprints: {
+      "plugin-batch-scheduled": operationFingerprint,
+    },
+  });
+  const schedule = savedSchedule.plugins.batchSchedules.find(
+    (item) => item.id === "schedule-scheduled"
+  );
+  expect(schedule?.status).toBe("due");
+  expect(schedule?.pluginNames).toEqual(["Scheduled Plugin"]);
+
+  const run = await service.runDuePluginBatchSchedules(userId, {
+    now: new Date().toISOString(),
+  });
+  const runSchedule = run.plugins.batchSchedules.find(
+    (item) => item.id === "schedule-scheduled"
+  );
+  const batch = run.plugins.recentBatches[0];
+  expect(batch?.status).toBe("success");
+  expect(batch?.counts.success).toBe(1);
+  expect(runSchedule?.lastRunBatchId).toBe(batch?.id);
+  expect(runSchedule?.lastRunStatus).toBe("success");
+  expect(runSchedule?.status).toBe("scheduled");
+  expect(Date.parse(runSchedule?.nextRunAt ?? "")).toBeGreaterThan(Date.now());
+  expect(await readFile(scheduledOutput, "utf8")).toBe("scheduled-ran");
+
+  await service.upsertPlugin(userId, {
+    id: "plugin-batch-scheduled",
+    name: "Scheduled Plugin",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [staleScript],
+    timeoutMs: 5000,
+  });
+  const staleSchedule = await service.upsertPluginBatchSchedule(userId, {
+    id: "schedule-scheduled",
+    name: "Every minute scheduled preset",
+    presetId: "preset-scheduled",
+    intervalMs: 60_000,
+    nextRunAt: dueAt,
+    operationFingerprints: {
+      "plugin-batch-scheduled": operationFingerprint,
+    },
+  });
+  expect(
+    staleSchedule.plugins.batchSchedules.find(
+      (item) => item.id === "schedule-scheduled"
+    )?.status
+  ).toBe("stale-fingerprint");
+
+  const staleRun = await service.runDuePluginBatchSchedules(userId, {
+    now: new Date().toISOString(),
+    scheduleIds: ["schedule-scheduled"],
+  });
+  const staleBatch = staleRun.plugins.recentBatches[0];
+  const staleRunRecord = staleRun.plugins.items.find(
+    (item) => item.id === "plugin-batch-scheduled"
+  )?.lastRun;
+  expect(staleBatch?.status).toBe("blocked");
+  expect(staleBatch?.counts.disabled).toBe(1);
+  expect(staleRunRecord?.status).toBe("disabled");
+  expect(staleRunRecord?.diagnostics.join("\n")).toContain(
+    "operation fingerprint changed"
+  );
+  expect(existsSync(staleOutput)).toBe(false);
+
+  const deleted = await service.deletePluginBatchSchedule(userId, {
+    scheduleId: "schedule-scheduled",
+  });
+  expect(deleted.plugins.batchSchedules).toHaveLength(0);
+
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "plugins.json"), "utf8")
+  );
+  expect(stored.batchSchedules).toHaveLength(0);
+});
+
+test("dispatches due plugin batch schedules for project users", async () => {
+  const scheduledScript = path.join(tempRoot, "plugin-batch-dispatch.js");
+  const scheduledOutput = path.join(tempRoot, "plugin-batch-dispatch.txt");
+  await writeFile(
+    scheduledScript,
+    [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(scheduledOutput)}, 'dispatch-ran');`,
+      "process.stdout.write('dispatch batch ok');",
+    ].join(" "),
+    "utf8"
+  );
+
+  const service = createService();
+  const savedPlugin = await service.upsertPlugin(userId, {
+    id: "plugin-batch-dispatch",
+    name: "Dispatch Plugin",
+    scopes: ["process"],
+    command: process.execPath,
+    args: [scheduledScript],
+    timeoutMs: 5000,
+  });
+  const plugin = savedPlugin.plugins.items.find(
+    (item) => item.id === "plugin-batch-dispatch"
+  );
+  await service.trustPlugin(userId, {
+    pluginId: "plugin-batch-dispatch",
+    fingerprint: plugin?.fingerprint ?? "",
+  });
+  await service.upsertPluginBatchPreset(userId, {
+    id: "preset-dispatch",
+    name: "Dispatch preset",
+    pluginIds: ["plugin-batch-dispatch"],
+  });
+  const ready = await service.snapshot(userId);
+  const operationFingerprint =
+    ready.plugins.items.find((item) => item.id === "plugin-batch-dispatch")
+      ?.runOperation.fingerprint ?? "";
+  await service.upsertPluginBatchSchedule(userId, {
+    id: "schedule-dispatch",
+    name: "Dispatch schedule",
+    presetId: "preset-dispatch",
+    intervalMs: 60_000,
+    nextRunAt: new Date(Date.now() - 1000).toISOString(),
+    operationFingerprints: {
+      "plugin-batch-dispatch": operationFingerprint,
+    },
+  });
+
+  const dispatch = await service.dispatchDuePluginBatchSchedules({
+    userIds: [userId, userId, " "],
+    now: new Date().toISOString(),
+  });
+  expect(dispatch).toEqual({
+    users: 1,
+    projects: 1,
+    dueSchedules: 1,
+    dispatchedSchedules: 1,
+    failedProjects: 0,
+  });
+
+  const snapshot = await service.snapshot(userId);
+  const schedule = snapshot.plugins.batchSchedules.find(
+    (item) => item.id === "schedule-dispatch"
+  );
+  const batch = snapshot.plugins.recentBatches[0];
+  expect(schedule?.lastRunStatus).toBe("success");
+  expect(schedule?.lastRunBatchId).toBe(batch?.id);
+  expect(schedule?.status).toBe("scheduled");
+  expect(batch?.status).toBe("success");
+  expect(batch?.counts.success).toBe(1);
+  expect(await readFile(scheduledOutput, "utf8")).toBe("dispatch-ran");
+});
+
+test("installs signed plugin packages with signature verification", async () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const payload = {
+    schemaVersion: 1,
+    publisher: "Unit Signed Publisher",
+    publisherId: "unit.signed.publisher",
+    issuedAt: "2026-01-01T00:00:00.000Z",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    plugin: {
+      id: "signed-plugin",
+      name: "Signed Plugin",
+      description: "Signed executable plugin.",
+      enabled: true,
+      scopes: ["process"],
+      envKeys: [],
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('signed plugin ok')"],
+      timeoutMs: 5000,
+    },
+  } as const;
+  const signature = sign(
+    null,
+    Buffer.from(canonicalTestJson(payload as unknown as TestCanonicalJsonValue), "utf8"),
+    privateKey
+  ).toString("base64");
+  const manifestPath = path.join(
+    tempRoot,
+    ".eragear",
+    "plugin-packages",
+    "signed-plugin.json"
+  );
+  await mkdir(path.dirname(manifestPath), { recursive: true });
+  await writeFile(
+    manifestPath,
+    `${JSON.stringify(
+      {
+        ...payload,
+        publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+        signature,
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const service = createService();
+  const beforeInstall = await service.snapshot(userId);
+  const catalogItem = beforeInstall.plugins.catalog.find(
+    (item) => item.id === "signed-plugin"
+  );
+  expect(catalogItem?.status).toBe("installable");
+  expect(catalogItem?.manifestPath).toBe(
+    ".eragear/plugin-packages/signed-plugin.json"
+  );
+  expect(catalogItem?.signatureHash?.startsWith("sha256:")).toBe(true);
+  expect(catalogItem?.publicKeyFingerprint?.startsWith("sha256:")).toBe(true);
+  expect(catalogItem?.publisher).toBe("Unit Signed Publisher");
+  expect(catalogItem?.publisherId).toBe("unit.signed.publisher");
+  expect(catalogItem?.issuedAt).toBe("2026-01-01T00:00:00.000Z");
+  expect(catalogItem?.expiresAt).toBe("2099-01-01T00:00:00.000Z");
+  expect(catalogItem?.expiryStatus).toBe("valid");
+  expect(catalogItem?.workspaceAccess).toBe("sandbox");
+  expect(catalogItem?.diagnostics.join("\n")).toContain("ready to install");
+
+  const installed = await service.installPluginPackage(userId, {
+    manifestPath: ".eragear/plugin-packages/signed-plugin.json",
+  });
+  const plugin = installed.plugins.items.find((item) => item.id === "signed-plugin");
+  const installedCatalogItem = installed.plugins.catalog.find(
+    (item) => item.id === "signed-plugin"
+  );
+  const capability = installed.capabilities.capabilities.find(
+    (item) => item.id === "plugin.project.signed-plugin"
+  );
+
+  expect(plugin?.installSource).toBe("signed-package");
+  expect(plugin?.publisher).toBe("Unit Signed Publisher");
+  expect(plugin?.packagePublisherId).toBe("unit.signed.publisher");
+  expect(plugin?.packageIssuedAt).toBe("2026-01-01T00:00:00.000Z");
+  expect(plugin?.packageExpiresAt).toBe("2099-01-01T00:00:00.000Z");
+  expect(plugin?.packageExpiryStatus).toBe("valid");
+  expect(plugin?.packageManifestPath).toBe(
+    ".eragear/plugin-packages/signed-plugin.json"
+  );
+  expect(plugin?.packageSignatureHash?.startsWith("sha256:")).toBe(true);
+  expect(plugin?.packagePublicKeyFingerprint?.startsWith("sha256:")).toBe(true);
+  expect(plugin?.packageVerifiedAt).toBeDefined();
+  expect(plugin?.trustStatus).toBe("trusted");
+  expect(plugin?.trustedFingerprint).toBe(plugin?.fingerprint);
+  expect(plugin?.permissionStatus).toBe("granted");
+  expect(plugin?.grantedPermissionFingerprint).toBe(plugin?.permissionFingerprint);
+  expect(plugin?.scopes).toEqual(["process"]);
+  expect(installedCatalogItem?.status).toBe("installed");
+  expect(installedCatalogItem?.installedPluginId).toBe("signed-plugin");
+  expect(capability?.enabled).toBe(true);
+  expect(capability?.tags).toContain("signed-package");
+
+  const signedApprovalId = await approvePluginRunOperation(service, "signed-plugin");
+  const ran = await service.runPlugin(userId, {
+    pluginId: "signed-plugin",
+    confirmation: "RUN PLUGIN signed-plugin",
+    operationApprovalId: signedApprovalId,
+  });
+  const ranPlugin = ran.plugins.items.find((item) => item.id === "signed-plugin");
+  expect(ranPlugin?.lastRun?.status).toBe("success");
+  expect(ranPlugin?.lastRun?.stdout).toContain("signed plugin ok");
+
+  const revalidated = await service.revalidatePluginPackage(userId, {
+    pluginId: "signed-plugin",
+  });
+  const revalidatedPlugin = revalidated.plugins.items.find(
+    (item) => item.id === "signed-plugin"
+  );
+  expect(revalidatedPlugin?.packageGovernanceStatus).toBe("verified");
+  expect(revalidatedPlugin?.packageGovernanceDiagnostics?.join("\n")).toContain(
+    "revalidated"
+  );
+
+  await writeFile(
+    manifestPath,
+    `${JSON.stringify(
+      {
+        ...payload,
+        plugin: {
+          ...payload.plugin,
+          args: ["-e", "process.stdout.write('tampered signed plugin')"],
+        },
+        publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+        signature,
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  const failedRevalidation = await service.revalidatePluginPackage(userId, {
+    pluginId: "signed-plugin",
+  });
+  const failedGovernancePlugin = failedRevalidation.plugins.items.find(
+    (item) => item.id === "signed-plugin"
+  );
+  const failedCapability = failedRevalidation.capabilities.capabilities.find(
+    (item) => item.id === "plugin.project.signed-plugin"
+  );
+  expect(failedGovernancePlugin?.packageGovernanceStatus).toBe(
+    "verification-failed"
+  );
+  expect(
+    failedGovernancePlugin?.packageGovernanceDiagnostics?.join("\n")
+  ).toContain("signature verification failed");
+  expect(failedCapability?.enabled).toBe(false);
+  await expect(
+    service.approvePluginRun(userId, {
+      pluginId: "signed-plugin",
+      operationFingerprint:
+        failedGovernancePlugin?.runOperation.fingerprint ?? "",
+    })
+  ).rejects.toThrow("governance check failed");
+
+  const pluginDocumentPath = path.join(tempRoot, ".eragear", "plugins.json");
+  const pluginDocument = JSON.parse(await readFile(pluginDocumentPath, "utf8"));
+  pluginDocument.plugins = pluginDocument.plugins.map((item: Record<string, unknown>) =>
+    item.id === "signed-plugin"
+      ? { ...item, packageExpiresAt: "2025-02-01T00:00:00.000Z" }
+      : item
+  );
+  await writeFile(
+    pluginDocumentPath,
+    `${JSON.stringify(pluginDocument, null, 2)}\n`,
+    "utf8"
+  );
+  const expiredInstalled = await service.snapshot(userId);
+  const expiredInstalledPlugin = expiredInstalled.plugins.items.find(
+    (item) => item.id === "signed-plugin"
+  );
+  const expiredCapability = expiredInstalled.capabilities.capabilities.find(
+    (item) => item.id === "plugin.project.signed-plugin"
+  );
+  expect(expiredInstalledPlugin?.packageExpiryStatus).toBe("expired");
+  expect(expiredCapability?.enabled).toBe(false);
+  await expect(
+    service.runPlugin(userId, {
+      pluginId: "signed-plugin",
+      confirmation: "RUN PLUGIN signed-plugin",
+      operationApprovalId: "plugin-approval-unused",
+    })
+  ).rejects.toThrow("signature has expired");
+
+  await writeFile(
+    manifestPath,
+    `${JSON.stringify(
+      {
+        ...payload,
+        plugin: {
+          ...payload.plugin,
+          args: ["-e", "process.stdout.write('tampered signed plugin')"],
+        },
+        publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+        signature,
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await expect(
+    service.installPluginPackage(userId, {
+      manifestPath: ".eragear/plugin-packages/signed-plugin.json",
+    })
+  ).rejects.toThrow("signature verification failed");
+  const tamperedCatalog = await service.snapshot(userId);
+  const tamperedCatalogItem = tamperedCatalog.plugins.catalog.find(
+    (item) => item.manifestPath === ".eragear/plugin-packages/signed-plugin.json"
+  );
+  expect(tamperedCatalogItem?.status).toBe("invalid");
+  expect(tamperedCatalogItem?.diagnostics.join("\n")).toContain(
+    "signature verification failed"
+  );
+
+  await expect(
+    service.installPluginPackage(userId, {
+      manifestPath: "../signed-plugin.json",
+    })
+  ).rejects.toThrow("inside the project root");
+
+  const expiredPayload = {
+    ...payload,
+    publisherId: "unit.expired.publisher",
+    issuedAt: "2025-01-01T00:00:00.000Z",
+    expiresAt: "2025-02-01T00:00:00.000Z",
+    plugin: {
+      ...payload.plugin,
+      id: "expired-signed-plugin",
+      name: "Expired Signed Plugin",
+    },
+  } as const;
+  const expiredSignature = sign(
+    null,
+    Buffer.from(
+      canonicalTestJson(expiredPayload as unknown as TestCanonicalJsonValue),
+      "utf8"
+    ),
+    privateKey
+  ).toString("base64");
+  const expiredManifestPath = path.join(
+    tempRoot,
+    ".eragear",
+    "plugin-packages",
+    "expired-signed-plugin.json"
+  );
+  await writeFile(
+    expiredManifestPath,
+    `${JSON.stringify(
+      {
+        ...expiredPayload,
+        publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+        signature: expiredSignature,
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await expect(
+    service.installPluginPackage(userId, {
+      manifestPath: ".eragear/plugin-packages/expired-signed-plugin.json",
+    })
+  ).rejects.toThrow("signature has expired");
+  const expiredCatalog = await service.snapshot(userId);
+  const expiredCatalogItem = expiredCatalog.plugins.catalog.find(
+    (item) => item.manifestPath === ".eragear/plugin-packages/expired-signed-plugin.json"
+  );
+  expect(expiredCatalogItem?.status).toBe("invalid");
+  expect(expiredCatalogItem?.diagnostics.join("\n")).toContain(
+    "signature has expired"
+  );
+});
+
+test("installs signed plugin packages from a pinned remote registry", async () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const payload = {
+    schemaVersion: 1,
+    publisher: "Registry Signed Publisher",
+    publisherId: "registry.signed.publisher",
+    issuedAt: "2026-01-01T00:00:00.000Z",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    plugin: {
+      id: "registry-plugin",
+      name: "Registry Plugin",
+      description: "Registry delivered plugin.",
+      enabled: true,
+      scopes: ["process"],
+      envKeys: [],
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('registry plugin ok')"],
+      timeoutMs: 5000,
+    },
+  } as const;
+  const signature = sign(
+    null,
+    Buffer.from(canonicalTestJson(payload as unknown as TestCanonicalJsonValue), "utf8"),
+    privateKey
+  ).toString("base64");
+  const signatureHash = `sha256:${createHash("sha256")
+    .update(Buffer.from(signature, "base64"))
+    .digest("hex")}`;
+  const publicKeyFingerprint = `sha256:${createHash("sha256")
+    .update(publicKey.export({ type: "spki", format: "der" }))
+    .digest("hex")}`;
+  const manifest = `${JSON.stringify(
+    {
+      ...payload,
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+      signature,
+    },
+    null,
+    2
+  )}\n`;
+  const server = createServer((request, response) => {
+    const baseUrl = `http://${request.headers.host ?? "127.0.0.1"}`;
+    if (request.url === "/registry-plugin.json") {
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(manifest);
+      return;
+    }
+    if (
+      request.url === "/registry.json" ||
+      request.url === "/bad-registry.json" ||
+      request.url === "/bad-identity-registry.json" ||
+      request.url === "/expired-registry.json" ||
+      request.url === "/revoked-registry.json"
+    ) {
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(
+          JSON.stringify({
+            schemaVersion: 1,
+            name: "Unit Registry",
+            revokedSigners:
+              request.url === "/revoked-registry.json"
+                ? [
+                    {
+                      publicKeyFingerprint,
+                      revokedAt: new Date().toISOString(),
+                      reason: "direct feed revocation",
+                    },
+                  ]
+                : [],
+            packages: [
+              {
+                id: "registry-plugin",
+                name: "Registry Plugin",
+                publisher: "Registry Signed Publisher",
+                publisherId:
+                  request.url === "/bad-identity-registry.json"
+                    ? "wrong.publisher"
+                    : "registry.signed.publisher",
+                issuedAt: "2026-01-01T00:00:00.000Z",
+                expiresAt:
+                  request.url === "/expired-registry.json"
+                    ? "2025-02-01T00:00:00.000Z"
+                    : "2099-01-01T00:00:00.000Z",
+                manifestUrl: `${baseUrl}/registry-plugin.json`,
+                signatureHash:
+                  request.url === "/bad-registry.json"
+                    ? "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                    : signatureHash,
+                publicKeyFingerprint,
+              },
+            ],
+          })
+        );
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    const service = createService();
+    const installed = await service.installPluginPackage(userId, {
+      registryUrl: `${baseUrl}/registry.json`,
+      packageId: "registry-plugin",
+    });
+    const plugin = installed.plugins.items.find((item) => item.id === "registry-plugin");
+    const capability = installed.capabilities.capabilities.find(
+      (item) => item.id === "plugin.project.registry-plugin"
+    );
+
+    expect(plugin?.installSource).toBe("signed-package");
+    expect(plugin?.publisher).toBe("Registry Signed Publisher");
+    expect(plugin?.packagePublisherId).toBe("registry.signed.publisher");
+    expect(plugin?.packageIssuedAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(plugin?.packageExpiresAt).toBe("2099-01-01T00:00:00.000Z");
+    expect(plugin?.packageExpiryStatus).toBe("valid");
+    expect(plugin?.packageManifestPath).toBe(`${baseUrl}/registry-plugin.json`);
+    expect(plugin?.packageRegistryUrl).toBe(`${baseUrl}/registry.json`);
+    expect(plugin?.packageRegistryName).toBe("Unit Registry");
+    expect(plugin?.packageRegistryPackageId).toBe("registry-plugin");
+    expect(plugin?.packageSignatureHash).toBe(signatureHash);
+    expect(plugin?.packagePublicKeyFingerprint).toBe(publicKeyFingerprint);
+    expect(plugin?.trustStatus).toBe("trusted");
+    expect(plugin?.permissionStatus).toBe("granted");
+    expect(capability?.enabled).toBe(true);
+    expect(capability?.tags).toContain("signed-package");
+
+    const registryApprovalId = await approvePluginRunOperation(
+      service,
+      "registry-plugin"
+    );
+    const ran = await service.runPlugin(userId, {
+      pluginId: "registry-plugin",
+      confirmation: "RUN PLUGIN registry-plugin",
+      operationApprovalId: registryApprovalId,
+    });
+    const ranPlugin = ran.plugins.items.find((item) => item.id === "registry-plugin");
+    expect(ranPlugin?.lastRun?.status).toBe("success");
+    expect(ranPlugin?.lastRun?.stdout).toContain("registry plugin ok");
+
+    await expect(
+      service.installPluginPackage(userId, {
+        registryUrl: `${baseUrl}/bad-registry.json`,
+        packageId: "registry-plugin",
+      })
+    ).rejects.toThrow("signatureHash pin does not match");
+    await expect(
+      service.installPluginPackage(userId, {
+        registryUrl: `${baseUrl}/bad-identity-registry.json`,
+        packageId: "registry-plugin",
+      })
+    ).rejects.toThrow("publisherId");
+    await expect(
+      service.installPluginPackage(userId, {
+        registryUrl: `${baseUrl}/expired-registry.json`,
+        packageId: "registry-plugin",
+      })
+    ).rejects.toThrow("signature has expired");
+    await expect(
+      service.installPluginPackage(userId, {
+        registryUrl: `${baseUrl}/revoked-registry.json`,
+        packageId: "registry-plugin",
+      })
+    ).rejects.toThrow("revoked by registry feed");
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+});
+
+test("manages trusted plugin registries with refresh and update state", async () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const buildPayload = (text: string) =>
+    ({
+      schemaVersion: 1,
+      publisher: "Managed Registry Publisher",
+      publisherId: "managed.registry.publisher",
+      issuedAt: "2026-01-01T00:00:00.000Z",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      plugin: {
+        id: "managed-registry-plugin",
+        name: "Managed Registry Plugin",
+        description: "Managed registry delivered plugin.",
+        enabled: true,
+        scopes: ["process"],
+        envKeys: [],
+        command: process.execPath,
+        args: ["-e", `process.stdout.write('${text}')`],
+        timeoutMs: 5000,
+      },
+    }) as const;
+  const signManifest = (payload: ReturnType<typeof buildPayload>) => {
+    const signature = sign(
+      null,
+      Buffer.from(canonicalTestJson(payload as unknown as TestCanonicalJsonValue), "utf8"),
+      privateKey
+    ).toString("base64");
+    const manifest = `${JSON.stringify(
+      {
+        ...payload,
+        publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+        signature,
+      },
+      null,
+      2
+    )}\n`;
+    return {
+      manifest,
+      signatureHash: `sha256:${createHash("sha256")
+        .update(Buffer.from(signature, "base64"))
+        .digest("hex")}`,
+      publicKeyFingerprint: `sha256:${createHash("sha256")
+        .update(publicKey.export({ type: "spki", format: "der" }))
+        .digest("hex")}`,
+    };
+  };
+  let current = signManifest(buildPayload("managed registry v1"));
+  let registryFeedRevokedSigners: Array<{
+    publicKeyFingerprint: string;
+    revokedAt: string;
+    reason: string;
+  }> = [];
+  const server = createServer((request, response) => {
+    const baseUrl = `http://${request.headers.host ?? "127.0.0.1"}`;
+    if (request.url === "/managed-plugin.json") {
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(current.manifest);
+      return;
+    }
+    if (request.url === "/registry.json") {
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(
+          JSON.stringify({
+            schemaVersion: 1,
+            name: "Managed Unit Registry",
+            revokedSigners: registryFeedRevokedSigners,
+            packages: [
+              {
+                id: "managed-registry-plugin",
+                name: "Managed Registry Plugin",
+                publisher: "Managed Registry Publisher",
+                publisherId: "managed.registry.publisher",
+                issuedAt: "2026-01-01T00:00:00.000Z",
+                expiresAt: "2099-01-01T00:00:00.000Z",
+                manifestUrl: `${baseUrl}/managed-plugin.json`,
+                signatureHash: current.signatureHash,
+                publicKeyFingerprint: current.publicKeyFingerprint,
+              },
+            ],
+          })
+        );
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address() as AddressInfo;
+  const registryUrl = `http://127.0.0.1:${address.port}/registry.json`;
+  try {
+    const service = createService();
+    const saved = await service.upsertPluginRegistry(userId, {
+      id: "managed-registry",
+      name: "Managed Unit Registry",
+      url: registryUrl,
+    });
+    const savedRegistry = saved.plugins.registries.find(
+      (registry) => registry.id === "managed-registry"
+    );
+    expect(savedRegistry?.trustStatus).toBe("untrusted");
+    expect(savedRegistry?.status).toBe("untrusted");
+    await expect(
+      service.refreshPluginRegistry(userId, {
+        registryId: "managed-registry",
+      })
+    ).rejects.toThrow("must be trusted");
+
+    const trusted = await service.trustPluginRegistry(userId, {
+      registryId: "managed-registry",
+      fingerprint: savedRegistry?.fingerprint ?? "",
+    });
+    expect(
+      trusted.plugins.registries.find((registry) => registry.id === "managed-registry")
+        ?.trustStatus
+    ).toBe("trusted");
+
+    const urlChanged = await service.upsertPluginRegistry(userId, {
+      id: "managed-registry",
+      name: "Managed Unit Registry",
+      url: registryUrl.replace("/registry.json", "/registry-rotated.json"),
+    });
+    const changedRegistry = urlChanged.plugins.registries.find(
+      (registry) => registry.id === "managed-registry"
+    );
+    expect(changedRegistry?.trustStatus).toBe("untrusted");
+    expect(changedRegistry?.trustedFingerprint).toBeUndefined();
+    expect(changedRegistry?.packages).toHaveLength(0);
+    await expect(
+      service.refreshPluginRegistry(userId, {
+        registryId: "managed-registry",
+      })
+    ).rejects.toThrow("must be trusted");
+
+    const resetUrl = await service.upsertPluginRegistry(userId, {
+      id: "managed-registry",
+      name: "Managed Unit Registry",
+      url: registryUrl,
+    });
+    const resetRegistry = resetUrl.plugins.registries.find(
+      (registry) => registry.id === "managed-registry"
+    );
+    expect(resetRegistry?.trustStatus).toBe("untrusted");
+    const retrustedOriginal = await service.trustPluginRegistry(userId, {
+      registryId: "managed-registry",
+      fingerprint: resetRegistry?.fingerprint ?? "",
+    });
+    expect(
+      retrustedOriginal.plugins.registries.find(
+        (registry) => registry.id === "managed-registry"
+      )?.trustStatus
+    ).toBe("trusted");
+
+    const refreshed = await service.refreshPluginRegistry(userId, {
+      registryId: "managed-registry",
+    });
+    const refreshedRegistry = refreshed.plugins.registries.find(
+      (registry) => registry.id === "managed-registry"
+    );
+    const installablePackage = refreshedRegistry?.packages.find(
+      (item) => item.id === "managed-registry-plugin"
+    );
+    expect(refreshedRegistry?.status).toBe("ready");
+    expect(installablePackage?.status).toBe("installable");
+    expect(installablePackage?.signingStatus).toBe("trusted");
+    expect(installablePackage?.publisherId).toBe("managed.registry.publisher");
+    expect(installablePackage?.issuedAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(installablePackage?.expiresAt).toBe("2099-01-01T00:00:00.000Z");
+    expect(installablePackage?.expiryStatus).toBe("valid");
+    expect(installablePackage?.signatureHash).toBe(current.signatureHash);
+
+    const trustRevoked = await service.revokePluginRegistryTrust(userId, {
+      registryId: "managed-registry",
+    });
+    expect(
+      trustRevoked.plugins.registries.find(
+        (registry) => registry.id === "managed-registry"
+      )?.trustStatus
+    ).toBe("untrusted");
+    await expect(
+      service.refreshPluginRegistry(userId, {
+        registryId: "managed-registry",
+      })
+    ).rejects.toThrow("must be trusted");
+    const retrusted = await service.trustPluginRegistry(userId, {
+      registryId: "managed-registry",
+      fingerprint:
+        trustRevoked.plugins.registries.find(
+          (registry) => registry.id === "managed-registry"
+        )?.fingerprint ?? "",
+    });
+    expect(
+      retrusted.plugins.registries.find(
+        (registry) => registry.id === "managed-registry"
+      )?.trustStatus
+    ).toBe("trusted");
+
+    const signerRevoked = await service.revokePluginRegistrySigner(userId, {
+      registryId: "managed-registry",
+      publicKeyFingerprint: current.publicKeyFingerprint,
+      reason: "unit revocation",
+    });
+    const revokedPackage = signerRevoked.plugins.registries
+      .find((registry) => registry.id === "managed-registry")
+      ?.packages.find((item) => item.id === "managed-registry-plugin");
+    expect(revokedPackage?.status).toBe("revoked");
+    expect(revokedPackage?.signingStatus).toBe("revoked");
+    expect(revokedPackage?.revocationReason).toBe("unit revocation");
+    await expect(
+      service.installPluginRegistryPackage(userId, {
+        registryId: "managed-registry",
+        packageId: "managed-registry-plugin",
+      })
+    ).rejects.toThrow("signer is revoked");
+    const signerRestored = await service.restorePluginRegistrySigner(userId, {
+      registryId: "managed-registry",
+      publicKeyFingerprint: current.publicKeyFingerprint,
+    });
+    const restoredPackage = signerRestored.plugins.registries
+      .find((registry) => registry.id === "managed-registry")
+      ?.packages.find((item) => item.id === "managed-registry-plugin");
+    expect(restoredPackage?.status).toBe("installable");
+    expect(restoredPackage?.signingStatus).toBe("trusted");
+
+    registryFeedRevokedSigners = [
+      {
+        publicKeyFingerprint: current.publicKeyFingerprint,
+        revokedAt: new Date().toISOString(),
+        reason: "feed revocation",
+      },
+    ];
+    const feedRevoked = await service.refreshPluginRegistry(userId, {
+      registryId: "managed-registry",
+    });
+    const feedRevokedPackage = feedRevoked.plugins.registries
+      .find((registry) => registry.id === "managed-registry")
+      ?.packages.find((item) => item.id === "managed-registry-plugin");
+    expect(feedRevokedPackage?.status).toBe("revoked");
+    expect(feedRevokedPackage?.signingStatus).toBe("revoked");
+    expect(feedRevokedPackage?.revocationSource).toBe("registry");
+    await expect(
+      service.installPluginRegistryPackage(userId, {
+        registryId: "managed-registry",
+        packageId: "managed-registry-plugin",
+      })
+    ).rejects.toThrow("signer is revoked");
+    await expect(
+      service.restorePluginRegistrySigner(userId, {
+        registryId: "managed-registry",
+        publicKeyFingerprint: current.publicKeyFingerprint,
+      })
+    ).rejects.toThrow("registry feed");
+    registryFeedRevokedSigners = [];
+    const feedCleared = await service.refreshPluginRegistry(userId, {
+      registryId: "managed-registry",
+    });
+    const feedClearedPackage = feedCleared.plugins.registries
+      .find((registry) => registry.id === "managed-registry")
+      ?.packages.find((item) => item.id === "managed-registry-plugin");
+    expect(feedClearedPackage?.status).toBe("installable");
+    expect(feedClearedPackage?.signingStatus).toBe("trusted");
+
+    const installed = await service.installPluginRegistryPackage(userId, {
+      registryId: "managed-registry",
+      packageId: "managed-registry-plugin",
+    });
+    const installedPlugin = installed.plugins.items.find(
+      (item) => item.id === "managed-registry-plugin"
+    );
+    const installedPackage = installed.plugins.registries
+      .find((registry) => registry.id === "managed-registry")
+      ?.packages.find((item) => item.id === "managed-registry-plugin");
+    expect(installedPlugin?.packageRegistryName).toBe("Managed Unit Registry");
+    expect(installedPlugin?.packageRegistryPackageId).toBe("managed-registry-plugin");
+    expect(installedPlugin?.packagePublisherId).toBe("managed.registry.publisher");
+    expect(installedPlugin?.packageExpiresAt).toBe("2099-01-01T00:00:00.000Z");
+    expect(installedPlugin?.packageExpiryStatus).toBe("valid");
+    expect(installedPlugin?.packageSignatureHash).toBe(current.signatureHash);
+    expect(installedPackage?.status).toBe("installed");
+
+    current = signManifest(buildPayload("managed registry v2"));
+    const updateReady = await service.refreshPluginRegistry(userId, {
+      registryId: "managed-registry",
+    });
+    const updatePackage = updateReady.plugins.registries
+      .find((registry) => registry.id === "managed-registry")
+      ?.packages.find((item) => item.id === "managed-registry-plugin");
+    expect(updatePackage?.status).toBe("update-available");
+    expect(updatePackage?.signatureHash).toBe(current.signatureHash);
+
+    const updated = await service.installPluginRegistryPackage(userId, {
+      registryId: "managed-registry",
+      packageId: "managed-registry-plugin",
+    });
+    const updatedPlugin = updated.plugins.items.find(
+      (item) => item.id === "managed-registry-plugin"
+    );
+    expect(updatedPlugin?.packageSignatureHash).toBe(current.signatureHash);
+    const managedApprovalId = await approvePluginRunOperation(
+      service,
+      "managed-registry-plugin"
+    );
+    const ran = await service.runPlugin(userId, {
+      pluginId: "managed-registry-plugin",
+      confirmation: "RUN PLUGIN managed-registry-plugin",
+      operationApprovalId: managedApprovalId,
+    });
+    expect(
+      ran.plugins.items.find((item) => item.id === "managed-registry-plugin")?.lastRun
+        ?.stdout
+    ).toContain("managed registry v2");
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+});
+
+test("audits project-root plugin workspace changes with checkpoint safety", async () => {
+  try {
+    await execFileAsync("git", ["--version"], { windowsHide: true });
+  } catch {
+    return;
+  }
+
+  await execFileAsync("git", ["init"], { cwd: tempRoot, windowsHide: true });
+  await execFileAsync("git", ["config", "user.email", "local-ade@example.test"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["config", "user.name", "Local ADE"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await writeFile(path.join(tempRoot, "WORK.md"), "initial\n", "utf8");
+  await writeFile(path.join(tempRoot, "DIRTY.md"), "clean\n", "utf8");
+  await execFileAsync("git", ["add", "WORK.md", "DIRTY.md"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["commit", "-m", "initial"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await writeFile(path.join(tempRoot, "DIRTY.md"), "dirty before plugin\n", "utf8");
+
+  const service = createService();
+  const saved = await service.upsertPlugin(userId, {
+    id: "plugin-workspace-audit",
+    name: "Workspace Audit Plugin",
+    scopes: ["process", "project-root"],
+    command: process.execPath,
+    args: [
+      "-e",
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        "fs.appendFileSync(path.join(process.env.ERAGEAR_PROJECT_ROOT, 'WORK.md'), 'plugin wrote\\n');",
+        "process.stdout.write('workspace write ok');",
+      ].join(" "),
+    ],
+    timeoutMs: 5000,
+  });
+  const plugin = saved.plugins.items.find(
+    (item) => item.id === "plugin-workspace-audit"
+  );
+  await service.trustPlugin(userId, {
+    pluginId: "plugin-workspace-audit",
+    fingerprint: plugin?.fingerprint ?? "",
+  });
+
+  const approvalId = await approvePluginRunOperation(
+    service,
+    "plugin-workspace-audit"
+  );
+  const ran = await service.runPlugin(userId, {
+    pluginId: "plugin-workspace-audit",
+    confirmation: "RUN PLUGIN plugin-workspace-audit",
+    operationApprovalId: approvalId,
+  });
+  const ranPlugin = ran.plugins.items.find(
+    (item) => item.id === "plugin-workspace-audit"
+  );
+  const run = ranPlugin?.lastRun;
+
+  expect(run?.status).toBe("success");
+  expect(run?.stdout).toContain("workspace write ok");
+  expect(run?.workspaceStatusBefore).toEqual([" M DIRTY.md"]);
+  expect(run?.workspaceStatusAfter).toEqual([" M DIRTY.md", " M WORK.md"]);
+  expect(run?.workspaceChangedFiles).toEqual(["WORK.md"]);
+  expect(run?.preRunCheckpointId).toBeDefined();
+  expect(run?.postRunCheckpointId).toBeDefined();
+  expect(run?.diagnostics.join("\n")).toContain(
+    "Plugin pre-run safety checkpoint created"
+  );
+  expect(run?.diagnostics.join("\n")).toContain(
+    "Plugin post-run change checkpoint created"
+  );
+
+  const preRunCheckpoint = ran.checkpoints.items.find(
+    (item) => item.id === run?.preRunCheckpointId
+  );
+  const postRunCheckpoint = ran.checkpoints.items.find(
+    (item) => item.id === run?.postRunCheckpointId
+  );
+  expect(preRunCheckpoint?.restoreMode).toBe("apply-patch");
+  expect(preRunCheckpoint?.changedFiles).toEqual(["DIRTY.md"]);
+  expect(postRunCheckpoint?.restoreMode).toBe("reverse-patch");
+  expect(postRunCheckpoint?.changedFiles).toEqual(["DIRTY.md", "WORK.md"]);
+
+  const preview = await service.previewCheckpoint(userId, {
+    checkpointId: postRunCheckpoint?.id ?? "",
+  });
+  const workDiff = preview.diffFiles.find((file) => file.path === "WORK.md");
+  expect(workDiff?.hunks.some((hunk) =>
+    hunk.rows.some((row) => row.kind === "add" && row.newText === "plugin wrote")
+  )).toBe(true);
+
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "plugins.json"), "utf8")
+  );
+  expect(stored.runs[0].preRunCheckpointId).toBe(run?.preRunCheckpointId);
+  expect(stored.runs[0].postRunCheckpointId).toBe(run?.postRunCheckpointId);
+  expect(stored.runs[0].workspaceChangedFiles).toEqual(["WORK.md"]);
 });
 
 test("discovers invokable skills and output styles with persisted disabled state", async () => {
@@ -1493,10 +4648,13 @@ test("summarizes MCP agent session routing policy without exposing secrets", asy
       (item) => item.serverId === "route-http"
     );
 
-    expect(remoteRoute?.status).toBe("conditional");
-    expect(remoteRoute?.brokerMode).toBe("native-agent-transport");
-    expect(remoteRoute?.requiresAgentCapability).toBe("http");
-    expect(remoteRoute?.agentSupport).toBe("required-at-session-start");
+    expect(remoteRoute?.status).toBe("injectable");
+    expect(remoteRoute?.brokerMode).toBe("stdio-proxy");
+    expect(remoteRoute?.requiresAgentCapability).toBeUndefined();
+    expect(remoteRoute?.agentSupport).toBe("not-required");
+    expect(remoteRoute?.diagnostics.join(" ")).toContain(
+      "Remote MCP headers are resolved inside the broker"
+    );
     expect(remoteRoute?.headerEnv).toEqual([
       {
         header: "Authorization",
@@ -1799,6 +4957,215 @@ test("invokes SSE MCP tools with header env redaction", async () => {
   }
 });
 
+test("watches SSE MCP notifications with reconnect and redacted history", async () => {
+  const service = createService();
+  const secret = "Bearer sse-monitor-secret-value";
+  const previous = process.env.ERAGEAR_TEST_MCP_AUTH;
+  process.env.ERAGEAR_TEST_MCP_AUTH = secret;
+  const fixture = await startSseMcpFixture();
+  try {
+    const updated = await service.upsertMcpServer(userId, {
+      id: "sse-monitor",
+      name: "SSE notification monitor",
+      transport: "sse",
+      url: fixture.streamUrl,
+      messageEndpoint: fixture.messageEndpoint,
+      headerEnv: {
+        Authorization: "ERAGEAR_TEST_MCP_AUTH",
+      },
+      enabled: true,
+    });
+    const server = updated.mcp.servers.find((item) => item.id === "sse-monitor");
+    if (!server) {
+      throw new Error("Expected SSE notification monitor server.");
+    }
+    await service.trustMcpServer(userId, {
+      serverId: "sse-monitor",
+      fingerprint: server.fingerprint,
+    });
+    const beforeInitializeCount = fixture.requestCounts.initialize ?? 0;
+    fixture.closeNextStreamOnFirstRequest();
+
+    const watched = await service.watchMcpNotifications(userId, {
+      serverId: "sse-monitor",
+      durationMs: 350,
+    });
+    const monitoredServer = watched.mcp.servers.find(
+      (item) => item.id === "sse-monitor"
+    );
+    const run = monitoredServer?.notificationMonitorHistory[0];
+    const serializedServer = JSON.stringify(monitoredServer);
+    const stored = JSON.parse(
+      await readFile(path.join(tempRoot, ".eragear", "mcp-servers.json"), "utf8")
+    );
+    const storedServer = stored.servers.find(
+      (item: { id?: string }) => item.id === "sse-monitor"
+    );
+
+    expect(run?.status).toBe("success");
+    expect(run?.reconnectCount).toBe(1);
+    expect(run?.streamOpenCount).toBeGreaterThanOrEqual(2);
+    expect(run?.notificationCount).toBeGreaterThanOrEqual(1);
+    expect(fixture.requestCounts.initialize ?? 0).toBeGreaterThan(
+      beforeInitializeCount
+    );
+    expect(run?.notifications).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "monitor",
+          method: "notifications/message",
+        }),
+      ])
+    );
+    expect(monitoredServer?.notificationHistory).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: "monitor",
+          method: "notifications/message",
+        }),
+      ])
+    );
+    expect(serializedServer).toContain("[redacted]");
+    expect(serializedServer).not.toContain(secret);
+    expect(JSON.stringify(storedServer)).not.toContain(secret);
+    expect(storedServer.notificationMonitorHistory[0].reconnectCount).toBe(1);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.ERAGEAR_TEST_MCP_AUTH;
+    } else {
+      process.env.ERAGEAR_TEST_MCP_AUTH = previous;
+    }
+    await fixture.close();
+  }
+});
+
+test("configures remote MCP controls and applies them to SSE notification watches", async () => {
+  const service = createService();
+  const fixture = await startSseMcpFixture();
+  try {
+    const updated = await service.upsertMcpServer(userId, {
+      id: "sse-remote-controls",
+      name: "SSE remote controls",
+      transport: "sse",
+      url: fixture.streamUrl,
+      messageEndpoint: fixture.messageEndpoint,
+      enabled: true,
+    });
+    const server = updated.mcp.servers.find(
+      (item) => item.id === "sse-remote-controls"
+    );
+    if (!server) {
+      throw new Error("Expected SSE remote controls server.");
+    }
+    expect(server.remoteControls.mode).toBe("default");
+
+    const trusted = await service.trustMcpServer(userId, {
+      serverId: "sse-remote-controls",
+      fingerprint: server.fingerprint,
+    });
+    const trustedServer = trusted.mcp.servers.find(
+      (item) => item.id === "sse-remote-controls"
+    );
+    if (!trustedServer) {
+      throw new Error("Expected trusted SSE remote controls server.");
+    }
+
+    const configured = await service.configureMcpRemoteControls(userId, {
+      serverId: "sse-remote-controls",
+      fingerprint: trustedServer.fingerprint,
+      requestTimeoutMs: 2500,
+      reconnectAttempts: 0,
+      notificationWatchMs: 400,
+    });
+    const configuredServer = configured.mcp.servers.find(
+      (item) => item.id === "sse-remote-controls"
+    );
+    if (!configuredServer) {
+      throw new Error("Expected configured SSE remote controls server.");
+    }
+    expect(configuredServer.remoteControls).toMatchObject({
+      mode: "custom",
+      requestTimeoutMs: 2500,
+      reconnectAttempts: 0,
+      notificationWatchMs: 400,
+    });
+    expect(configuredServer.trustStatus).toBe("changed");
+
+    const storedConfigured = JSON.parse(
+      await readFile(path.join(tempRoot, ".eragear", "mcp-servers.json"), "utf8")
+    );
+    expect(
+      storedConfigured.servers.find(
+        (item: { id?: string }) => item.id === "sse-remote-controls"
+      )?.remoteControls
+    ).toEqual({
+      requestTimeoutMs: 2500,
+      reconnectAttempts: 0,
+      notificationWatchMs: 400,
+    });
+
+    const retrusted = await service.trustMcpServer(userId, {
+      serverId: "sse-remote-controls",
+      fingerprint: configuredServer.fingerprint,
+    });
+    const zeroReconnectServer = retrusted.mcp.servers.find(
+      (item) => item.id === "sse-remote-controls"
+    );
+    fixture.closeNextStreamOnFirstRequest();
+    const failedWatch = await service.watchMcpNotifications(userId, {
+      serverId: "sse-remote-controls",
+    });
+    const failedRun = failedWatch.mcp.servers.find(
+      (item) => item.id === "sse-remote-controls"
+    )?.notificationMonitorHistory[0];
+    expect(zeroReconnectServer?.trustStatus).toBe("trusted");
+    expect(failedRun?.requestedDurationMs).toBe(400);
+    expect(failedRun?.status).toBe("failed");
+    expect(failedRun?.reconnectCount).toBe(0);
+    expect(failedRun?.diagnostics.join("\n")).toContain(
+      "timeout 2500ms, reconnects 0, watch 400ms"
+    );
+
+    const reconnectConfigured = await service.configureMcpRemoteControls(userId, {
+      serverId: "sse-remote-controls",
+      fingerprint:
+        failedWatch.mcp.servers.find((item) => item.id === "sse-remote-controls")
+          ?.fingerprint ?? "",
+      requestTimeoutMs: 2500,
+      reconnectAttempts: 2,
+      notificationWatchMs: 400,
+    });
+    const reconnectServer = reconnectConfigured.mcp.servers.find(
+      (item) => item.id === "sse-remote-controls"
+    );
+    if (!reconnectServer) {
+      throw new Error("Expected reconnect-configured SSE remote controls server.");
+    }
+    expect(reconnectServer.trustStatus).toBe("changed");
+
+    await service.trustMcpServer(userId, {
+      serverId: "sse-remote-controls",
+      fingerprint: reconnectServer.fingerprint,
+    });
+    fixture.closeNextStreamOnFirstRequest();
+    const recoveredWatch = await service.watchMcpNotifications(userId, {
+      serverId: "sse-remote-controls",
+    });
+    const recoveredRun = recoveredWatch.mcp.servers.find(
+      (item) => item.id === "sse-remote-controls"
+    )?.notificationMonitorHistory[0];
+    expect(recoveredRun?.requestedDurationMs).toBe(400);
+    expect(recoveredRun?.status).toBe("success");
+    expect(recoveredRun?.reconnectCount).toBe(1);
+    expect(recoveredRun?.streamOpenCount).toBeGreaterThanOrEqual(2);
+    expect(recoveredRun?.diagnostics.join("\n")).toContain(
+      "timeout 2500ms, reconnects 2, watch 400ms"
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("reconnects SSE MCP resource invocations and replays safe requests", async () => {
   const service = createService();
   const fixture = await startSseMcpFixture({
@@ -2080,6 +5447,217 @@ test("uses Codex doctor JSON for provider auth and model readiness", async () =>
   expect(JSON.stringify(stored)).not.toContain("codex-secret-value");
 });
 
+test("uses Claude and Gemini provider probes with remediation guidance", async () => {
+  const claudeScript = await writeClaudeProviderFixture();
+  const geminiScript = await writeGeminiProviderFixture();
+  const agents: AgentConfig[] = [
+    {
+      id: "claude-agent",
+      userId,
+      name: "Claude Runtime",
+      type: "claude",
+      command: process.execPath,
+      args: [claudeScript],
+      env: { CLAUDE_TEST_SECRET: "claude-secret-value" },
+      projectId: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    },
+    {
+      id: "gemini-agent",
+      userId,
+      name: "Gemini Runtime",
+      type: "gemini",
+      command: process.execPath,
+      args: [geminiScript],
+      env: { GEMINI_TEST_SECRET: "gemini-secret-value" },
+      projectId: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    },
+  ];
+  const service = createService(agents);
+
+  await service.testProvider(userId, {
+    providerId: "provider.agent.claude-agent",
+  });
+  const updated = await service.testProvider(userId, {
+    providerId: "provider.agent.gemini-agent",
+  });
+  const claude = updated.providers.find(
+    (item) => item.id === "provider.agent.claude-agent"
+  );
+  const gemini = updated.providers.find(
+    (item) => item.id === "provider.agent.gemini-agent"
+  );
+  const stored = JSON.parse(
+    await readFile(path.join(tempRoot, ".eragear", "provider-health.json"), "utf8")
+  );
+
+  expect(claude?.status).toBe("ready");
+  expect(claude?.authStatus).toBe("ok");
+  expect(claude?.modelStatus).toBe("ok");
+  expect(claude?.modelList).toEqual([
+    "claude-sonnet-smoke",
+    "claude-opus-smoke",
+  ]);
+  expect(claude?.diagnostics.join("\n")).toContain(
+    "claude doctor overall status: ok."
+  );
+  expect(claude?.remediation).toEqual([
+    "Provider is ready; no remediation required.",
+  ]);
+
+  expect(gemini?.status).toBe("ready");
+  expect(gemini?.authStatus).toBe("ok");
+  expect(gemini?.modelStatus).toBe("ok");
+  expect(gemini?.modelList).toEqual(["gemini-2.5-pro", "gemini-2.5-flash"]);
+  expect(gemini?.diagnostics.join("\n")).toContain(
+    "Provider doctor probe failed; falling back to CLI probes."
+  );
+  expect(gemini?.remediation).toEqual([
+    "Provider is ready; no remediation required.",
+  ]);
+
+  expect(stored.providers["provider.agent.claude-agent"].remediation).toEqual(
+    ["Provider is ready; no remediation required."]
+  );
+  expect(stored.providers["provider.agent.gemini-agent"].remediation).toEqual(
+    ["Provider is ready; no remediation required."]
+  );
+  expect(JSON.stringify(stored)).not.toContain("claude-secret-value");
+  expect(JSON.stringify(stored)).not.toContain("gemini-secret-value");
+});
+
+test("selects a readiness-probed provider model as the runtime default model", async () => {
+  const providerScript = await writeProviderFixture();
+  const agent: AgentConfig = {
+    id: "agent-select",
+    userId,
+    name: "Selectable Runtime Agent",
+    type: "opencode",
+    command: process.execPath,
+    args: [providerScript],
+    env: { TEST_SECRET_KEY: "redacted-by-contract" },
+    projectId: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const service = createService([agent]);
+
+  await service.testProvider(userId, {
+    providerId: "provider.agent.agent-select",
+  });
+  const selected = await service.selectProviderModel(userId, {
+    providerId: "provider.agent.agent-select",
+    modelId: "model-beta",
+  });
+  const provider = selected.providers.find(
+    (item) => item.id === "provider.agent.agent-select"
+  );
+
+  expect(selected.runtime.defaultModel).toBe("model-beta");
+  expect(selected.runtime.defaultModelProviderId).toBe(
+    "provider.agent.agent-select"
+  );
+  expect(selected.runtime.defaultModelStatus).toBe("selected");
+  expect(provider?.selectedModel).toBe("model-beta");
+  expect(provider?.modelListSource).toBe("readiness-probe");
+  expect(JSON.stringify(selected)).not.toContain("redacted-by-contract");
+
+  const cleared = await service.clearProviderModel(userId);
+  const clearedProvider = cleared.providers.find(
+    (item) => item.id === "provider.agent.agent-select"
+  );
+
+  expect(cleared.runtime.defaultModel).toBe("");
+  expect(cleared.runtime.defaultModelProviderId).toBeNull();
+  expect(cleared.runtime.defaultModelStatus).toBe("not-set");
+  expect(clearedProvider?.selectedModel).toBeUndefined();
+});
+
+test("rejects provider model selection before a successful model readiness probe", async () => {
+  const agent: AgentConfig = {
+    id: "agent-fallback",
+    userId,
+    name: "Fallback Runtime Agent",
+    type: "opencode",
+    command: process.execPath,
+    args: ["--version"],
+    env: {},
+    projectId: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const service = createService([agent]);
+  const snapshot = await service.snapshot(userId);
+  const provider = snapshot.providers.find(
+    (item) => item.id === "provider.agent.agent-fallback"
+  );
+
+  expect(provider?.modelList).toEqual(["agent-configured"]);
+  expect(provider?.modelListSource).toBe("fallback");
+  await expect(
+    service.selectProviderModel(userId, {
+      providerId: "provider.agent.agent-fallback",
+      modelId: "agent-configured",
+    })
+  ).rejects.toThrow("successful readiness probe");
+});
+
+test("surfaces active session model switching options from config state", async () => {
+  const activeSession = {
+    id: "chat-model-1",
+    userId,
+    projectId: "project-1",
+    projectRoot: tempRoot,
+    sessionId: "agent-session-model-1",
+    chatStatus: "ready",
+    subscriberCount: 1,
+    pendingPermissions: new Map(),
+    toolCalls: new Map(),
+    proc: { pid: 12345 },
+    agentInfo: { name: "Model Agent" },
+    supportsModelSwitching: false,
+    models: {
+      currentModelId: "legacy-model",
+      availableModels: [
+        { modelId: "legacy-model", name: "Legacy Model" },
+      ],
+    },
+    configOptions: [
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: "model-a",
+        options: [
+          { value: "model-a", name: "Model A" },
+          { value: "model-b", name: "Model B", description: "Beta model" },
+        ],
+      },
+    ],
+  } as unknown as RuntimeSession;
+  const service = createService([], { activeSessions: [activeSession] });
+
+  const snapshot = await service.snapshot(userId);
+  const session = snapshot.sessions.active.find(
+    (item) => item.id === "chat-model-1"
+  );
+
+  expect(session?.model.currentModelId).toBe("model-a");
+  expect(session?.model.supportsSwitching).toBe(true);
+  expect(session?.model.source).toBe("config-option");
+  expect(session?.model.availableModels).toEqual([
+    { modelId: "model-a", name: "Model A" },
+    { modelId: "model-b", name: "Model B", description: "Beta model" },
+  ]);
+  expect(session?.model.diagnostics.join("\n")).toContain(
+    "session config options"
+  );
+});
+
 test("surfaces redacted ACP activity for owned chats", async () => {
   const storedSession: StoredSession = {
     id: "chat-owned",
@@ -2178,6 +5756,267 @@ test("surfaces redacted ACP activity for owned chats", async () => {
   expect(Object.keys(setupEntry.metadata)).not.toContain("rawPayloadLength");
   expect(Object.keys(setupEntry.metadata)).not.toContain("token");
   expect(snapshot.acpActivity.diagnostics.join("\n")).toContain("hidden");
+});
+
+test("builds redacted cross-session ACP activity timeline", async () => {
+  const storedSessions: Record<string, StoredSession> = {
+    "chat-a": {
+      id: "chat-a",
+      userId,
+      projectId: "project-1",
+      projectRoot: tempRoot,
+      agentId: "agent-1",
+      agentName: "OpenCode",
+      status: "running",
+      createdAt: 1000,
+      lastActiveAt: 1200,
+      messages: [],
+      messageCount: 0,
+    },
+    "chat-b": {
+      id: "chat-b",
+      userId,
+      projectId: "project-1",
+      projectRoot: tempRoot,
+      agentId: "agent-1",
+      agentName: "OpenCode",
+      status: "running",
+      createdAt: 1050,
+      lastActiveAt: 1300,
+      messages: [],
+      messageCount: 0,
+    },
+  };
+  const service = createService([], {
+    storedSessions,
+    logEntries: [
+      {
+        id: "a-init",
+        timestamp: 1000,
+        level: "info",
+        source: "acp",
+        message: "ACP raw session setup payload",
+        chatId: "chat-a",
+        meta: {
+          step: "initialize",
+          sessionId: "agent-session-a",
+          rawPayload: '{"token":"do-not-show"}',
+          rawPayloadLength: 16,
+        },
+      },
+      {
+        id: "b-init",
+        timestamp: 1100,
+        level: "info",
+        source: "acp",
+        message: "ACP raw session setup payload",
+        chatId: "chat-b",
+        meta: {
+          step: "initialize",
+          sessionId: "agent-session-b",
+          rawPayloadLength: 24,
+        },
+      },
+      {
+        id: "a-turn",
+        timestamp: 1200,
+        level: "debug",
+        source: "acp",
+        message: "ACP session update",
+        chatId: "chat-a",
+        meta: {
+          rawType: "agent_message_chunk",
+          sessionId: "agent-session-a",
+          turnId: "turn-a",
+          rawPayload: '{"secret":"do-not-show"}',
+        },
+      },
+      {
+        id: "b-tool",
+        timestamp: 1300,
+        level: "warn",
+        source: "acp",
+        message: "ACP session update",
+        chatId: "chat-b",
+        meta: {
+          rawType: "tool_call",
+          sessionId: "agent-session-b",
+          toolCallId: "tool-b",
+          token: "do-not-show",
+        },
+      },
+      {
+        id: "other-user",
+        timestamp: 1250,
+        level: "error",
+        source: "acp",
+        userId: "other-user",
+        message: "ACP session update",
+        chatId: "chat-c",
+        meta: {
+          rawType: "tool_call",
+        },
+      },
+    ],
+  });
+
+  const snapshot = await service.snapshot(userId);
+  const timeline = snapshot.acpActivity.timeline;
+
+  expect(timeline.lanes.map((lane) => lane.chatId)).toEqual(["chat-b", "chat-a"]);
+  expect(timeline.lanes[0]?.eventCount).toBe(2);
+  expect(timeline.lanes[0]?.latestKind).toBe("tool_call");
+  expect(timeline.lanes[1]?.eventCount).toBe(2);
+  expect(timeline.frames.map((frame) => frame.id)).toEqual([
+    "a-init",
+    "b-init",
+    "a-turn",
+    "b-tool",
+  ]);
+  expect(timeline.frames.map((frame) => frame.sequence)).toEqual([1, 2, 3, 4]);
+  expect(timeline.frames.map((frame) => frame.offsetMs)).toEqual([
+    0,
+    100,
+    200,
+    300,
+  ]);
+  expect(timeline.frames[2]?.laneKey).toBe("chat:chat-a");
+  expect(timeline.frames[2]?.correlationKey).toBe("turn:turn-a");
+  expect(timeline.transitions).toHaveLength(3);
+  expect(timeline.transitions[0]).toMatchObject({
+    fromChatId: "chat-a",
+    toChatId: "chat-b",
+    fromKind: "initialize",
+    toKind: "initialize",
+  });
+  expect(timeline.spanMs).toBe(300);
+  expect(timeline.omittedFrames).toBe(0);
+  expect(JSON.stringify(timeline)).not.toContain("do-not-show");
+  expect(JSON.stringify(timeline)).not.toContain("rawPayload");
+  expect(JSON.stringify(timeline)).not.toContain("token");
+  expect(JSON.stringify(timeline)).not.toContain("other-user");
+
+  const workspaceReplay = await service.replayAcpActivity(userId, { limit: 10 });
+  expect(workspaceReplay.filters).toEqual({ limit: 10 });
+  expect(workspaceReplay.frames.map((frame) => frame.chatId)).toEqual([
+    "chat-a",
+    "chat-b",
+    "chat-a",
+    "chat-b",
+  ]);
+  expect(JSON.stringify(workspaceReplay)).not.toContain("rawPayload");
+});
+
+test("derives ACP stream retry controls and causality diagnostics", async () => {
+  const now = Date.now();
+  const storedSession: StoredSession = {
+    id: "chat-owned",
+    userId,
+    projectId: "project-1",
+    projectRoot: tempRoot,
+    agentId: "agent-1",
+    agentName: "OpenCode",
+    status: "running",
+    createdAt: now - 6_000,
+    lastActiveAt: now - 1_000,
+    messages: [],
+    messageCount: 0,
+  };
+  const service = createService([], {
+    storedSessions: { "chat-owned": storedSession },
+    logEntries: [
+      {
+        id: "stream-init",
+        timestamp: now - 5_000,
+        level: "info",
+        source: "acp",
+        message: "ACP raw session setup payload",
+        chatId: "chat-owned",
+        meta: {
+          step: "initialize",
+          sessionId: "agent-session-owned",
+          rawPayload: '{"secret":"do-not-show"}',
+          rawPayloadLength: 64,
+        },
+      },
+      {
+        id: "stream-chunk",
+        timestamp: now - 2_500,
+        level: "debug",
+        source: "acp",
+        message: "ACP session update",
+        chatId: "chat-owned",
+        meta: {
+          rawType: "agent_message_chunk",
+          sessionId: "agent-session-owned",
+          rawPayload: '{"token":"do-not-show"}',
+          rawPayloadLength: 24,
+        },
+      },
+      {
+        id: "stream-orphan",
+        timestamp: now - 1_000,
+        level: "info",
+        source: "acp",
+        message: "ACP transport heartbeat",
+        meta: {
+          step: "stream-heartbeat",
+          rawPayload: '{"token":"do-not-show"}',
+        },
+      },
+    ],
+  });
+
+  const snapshot = await service.snapshot(userId);
+  const stream = snapshot.acpActivity.stream;
+
+  expect(stream.status).toBe("attention");
+  expect(stream.retryEligible).toBe(true);
+  expect(stream.retryDelayMs).toBe(1000);
+  expect(stream.retryMaxAttempts).toBe(5);
+  expect(stream.staleAfterMs).toBe(60_000);
+  expect(stream.heartbeatWindowMs).toBe(30_000);
+  expect(stream.latestTimestamp).toBe(now - 1_000);
+  expect(stream.rootCount).toBe(1);
+  expect(stream.correlatedFrameCount).toBe(2);
+  expect(stream.orphanFrameCount).toBe(1);
+  expect(stream.longestChainLength).toBe(2);
+  expect(stream.maxSilenceMs).toBe(2_500);
+  expect(stream.averageDeltaMs).toBe(2_000);
+  expect(stream.gaps).toHaveLength(1);
+  expect(stream.gaps[0]).toMatchObject({
+    deltaMs: 2_500,
+    fromFrameId: "stream-init",
+    toFrameId: "stream-chunk",
+    fromKind: "initialize",
+    toKind: "agent_message_chunk",
+    fromChatId: "chat-owned",
+    toChatId: "chat-owned",
+  });
+  const sessionChain = stream.chains.find(
+    (chain) => chain.key === "agent-session:agent-session-owned"
+  );
+  expect(sessionChain).toMatchObject({
+    key: "agent-session:agent-session-owned",
+    eventCount: 2,
+    chatId: "chat-owned",
+    sessionId: "agent-session-owned",
+  });
+  expect(stream.diagnostics.join("\n")).toContain("Retry Stream");
+  expect(JSON.stringify(stream)).not.toContain("do-not-show");
+  expect(JSON.stringify(stream)).not.toContain("rawPayload");
+
+  const trace = await service.exportAcpActivity(userId, { limit: 10 });
+  expect(trace.stream.retryEligible).toBe(true);
+  expect(trace.stream.gaps[0]?.deltaMs).toBe(2_500);
+  expect(JSON.stringify(trace.stream)).not.toContain("do-not-show");
+  expect(JSON.stringify(trace.stream)).not.toContain("rawPayload");
+
+  const retried = await service.retryAcpActivityStream(userId);
+  expect(retried.acpActivity.stream.retryDelayMs).toBe(1000);
+  expect(retried.acpActivity.stream.retryMaxAttempts).toBe(5);
+  expect(JSON.stringify(retried.acpActivity)).not.toContain("do-not-show");
+  expect(JSON.stringify(retried.acpActivity)).not.toContain("rawPayload");
 });
 
 test("exports redacted ACP activity for a selected chat", async () => {
@@ -2425,6 +6264,20 @@ test("replays redacted ACP activity frames chronologically", async () => {
   });
   expect(turnReplay.frames.map((frame) => frame.id)).toEqual(["log-turn"]);
 
+  const kindReplay = await service.replayAcpActivity(userId, {
+    chatId: "chat-owned",
+    kind: "initialize",
+    limit: 10,
+  });
+  expect(kindReplay.filters).toEqual({
+    chatId: "chat-owned",
+    kind: "initialize",
+    limit: 10,
+  });
+  expect(kindReplay.frames.map((frame) => frame.id)).toEqual(["log-initialize"]);
+  expect(kindReplay.frames.every((frame) => frame.kind === "initialize")).toBe(true);
+  expect(kindReplay.stats.kinds).toEqual({ initialize: 1 });
+
   const limitedReplay = await service.replayAcpActivity(userId, {
     chatId: "chat-owned",
     limit: 2,
@@ -2434,6 +6287,103 @@ test("replays redacted ACP activity frames chronologically", async () => {
     "log-turn",
   ]);
   expect(limitedReplay.diagnostics.join("\n")).toContain("omitted");
+});
+
+test("saves and deletes project-local ACP replay presets", async () => {
+  const storedSession: StoredSession = {
+    id: "chat-owned",
+    userId,
+    projectId: "project-1",
+    projectRoot: tempRoot,
+    agentId: "agent-1",
+    agentName: "OpenCode",
+    status: "running",
+    createdAt: 1000,
+    lastActiveAt: 1400,
+    messages: [],
+    messageCount: 0,
+  };
+  const service = createService([], {
+    storedSessions: { "chat-owned": storedSession },
+    logEntries: [
+      {
+        id: "log-new-session",
+        timestamp: 1300,
+        level: "info",
+        source: "acp",
+        message: "ACP raw session setup payload",
+        chatId: "chat-owned",
+        meta: {
+          step: "newSession",
+          rawPayloadLength: 128,
+          rawPayload: '{"token":"do-not-show"}',
+        },
+      },
+      {
+        id: "log-initialize",
+        timestamp: 1200,
+        level: "info",
+        source: "acp",
+        message: "ACP raw session setup payload",
+        chatId: "chat-owned",
+        meta: {
+          step: "initialize",
+          rawPayloadLength: 256,
+          rawPayload: '{"secret":"do-not-show"}',
+        },
+      },
+    ],
+  });
+
+  const saved = await service.saveAcpReplayPreset(userId, {
+    name: "  Initialize   replay  ",
+    chatId: "chat-owned",
+    kind: "initialize",
+    limit: 10,
+  });
+
+  expect(saved.acpActivity.replayPresets).toHaveLength(1);
+  const preset = saved.acpActivity.replayPresets[0];
+  expect(preset?.name).toBe("Initialize replay");
+  expect(preset?.chatId).toBe("chat-owned");
+  expect(preset?.kind).toBe("initialize");
+  expect(preset?.limit).toBe(10);
+  const persisted = await readFile(
+    path.join(tempRoot, ".eragear", "acp-replay-presets.json"),
+    "utf8"
+  );
+  expect(persisted).toContain("Initialize replay");
+  expect(persisted).not.toContain("do-not-show");
+  expect(persisted).not.toContain("rawPayload");
+
+  const replay = await service.replayAcpActivity(userId, {
+    chatId: preset?.chatId,
+    kind: preset?.kind,
+    limit: preset?.limit,
+  });
+  expect(replay.filters).toEqual({
+    chatId: "chat-owned",
+    kind: "initialize",
+    limit: 10,
+  });
+  expect(replay.frames.map((frame) => frame.id)).toEqual(["log-initialize"]);
+
+  const updated = await service.saveAcpReplayPreset(userId, {
+    id: preset?.id,
+    name: "New session replay",
+    chatId: "chat-owned",
+    kind: "newSession",
+    limit: 5,
+  });
+  expect(updated.acpActivity.replayPresets).toHaveLength(1);
+  expect(updated.acpActivity.replayPresets[0]?.id).toBe(preset?.id);
+  expect(updated.acpActivity.replayPresets[0]?.kind).toBe("newSession");
+  expect(updated.acpActivity.replayPresets[0]?.limit).toBe(5);
+
+  const deleted = await service.deleteAcpReplayPreset(userId, {
+    id: preset?.id ?? "",
+  });
+  expect(deleted.acpActivity.replayPresets).toEqual([]);
 });
 
 test("captures checkpoint patch metadata from a git worktree", async () => {
@@ -2771,6 +6721,427 @@ test("restores selected checkpoint files while unrelated workspace changes remai
     "initial\nchanged\n"
   );
   expect(restoredSafety?.partialRestores?.[0]?.files).toEqual(["README.md"]);
+}, 15_000);
+
+test("shelves untracked checkpoint blockers before guarded full restore", async () => {
+  try {
+    await execFileAsync("git", ["--version"], { windowsHide: true });
+  } catch {
+    return;
+  }
+
+  await execFileAsync("git", ["init"], { cwd: tempRoot, windowsHide: true });
+  await execFileAsync("git", ["config", "user.email", "local-ade@example.test"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["config", "user.name", "Local ADE"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await writeFile(path.join(tempRoot, "README.md"), "initial\n", "utf8");
+  await writeFile(path.join(tempRoot, "NOTES.md"), "notes\n", "utf8");
+  await execFileAsync("git", ["add", "README.md", "NOTES.md"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["commit", "-m", "initial"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+
+  await writeFile(path.join(tempRoot, "README.md"), "initial\nchanged\n", "utf8");
+  await writeFile(path.join(tempRoot, "NOTES.md"), "notes\nchanged\n", "utf8");
+
+  const service = createService();
+  const updated = await service.createCheckpoint(userId, {
+    name: "Shelve conflict checkpoint",
+  });
+  const checkpoint = updated.checkpoints.items[0];
+  const preview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
+
+  await writeFile(path.join(tempRoot, "EXTRA.md"), "keep me\n", "utf8");
+  const blockedPreview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
+  const extraRisk = blockedPreview.restoreRisks.find(
+    (risk) => risk.file === "EXTRA.md"
+  );
+  expect(blockedPreview.canRestore).toBe(false);
+  expect(extraRisk?.level).toBe("blocked");
+  expect(extraRisk?.currentStatus).toBe("?? EXTRA.md");
+
+  await expect(
+    service.shelveCheckpointConflicts(userId, {
+      checkpointId: checkpoint?.id ?? "",
+      confirmation: "RESTORE wrong",
+      files: ["EXTRA.md"],
+    })
+  ).rejects.toThrow("Type 'RESTORE");
+
+  const shelvedSnapshot = await service.shelveCheckpointConflicts(userId, {
+    checkpointId: checkpoint?.id ?? "",
+    confirmation: preview.restoreToken,
+    files: ["EXTRA.md"],
+  });
+  const shelvedCheckpoint = shelvedSnapshot.checkpoints.items.find(
+    (item) => item.id === checkpoint?.id
+  );
+  const shelf = shelvedCheckpoint?.conflictShelves?.[0];
+
+  expect(existsSync(path.join(tempRoot, "EXTRA.md"))).toBe(false);
+  expect(shelf?.files).toEqual(["EXTRA.md"]);
+  expect(shelf?.shelfPath).toContain("checkpoint-shelves");
+  expect(
+    (await readFile(path.join(shelf?.shelfPath ?? "", "EXTRA.md"), "utf8")).replace(
+      /\r\n/g,
+      "\n"
+    )
+  ).toBe("keep me\n");
+
+  const readyPreview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
+  expect(readyPreview.canRestore).toBe(true);
+  expect(readyPreview.restoreRisks.some((risk) => risk.file === "EXTRA.md")).toBe(
+    false
+  );
+
+  const restored = await service.restoreCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+    confirmation: readyPreview.restoreToken,
+  });
+  const restoredCheckpoint = restored.checkpoints.items.find(
+    (item) => item.id === checkpoint?.id
+  );
+
+  expect((await readFile(path.join(tempRoot, "README.md"), "utf8")).replace(/\r\n/g, "\n")).toBe(
+    "initial\n"
+  );
+  expect((await readFile(path.join(tempRoot, "NOTES.md"), "utf8")).replace(/\r\n/g, "\n")).toBe(
+    "notes\n"
+  );
+  expect(restoredCheckpoint?.restoredAt).toBeDefined();
+  expect(existsSync(path.join(shelf?.shelfPath ?? "", "EXTRA.md"))).toBe(true);
+}, 15_000);
+
+test("resolves tracked checkpoint patch conflicts with a safety checkpoint", async () => {
+  try {
+    await execFileAsync("git", ["--version"], { windowsHide: true });
+  } catch {
+    return;
+  }
+
+  await execFileAsync("git", ["init"], { cwd: tempRoot, windowsHide: true });
+  await execFileAsync("git", ["config", "user.email", "local-ade@example.test"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["config", "user.name", "Local ADE"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await writeFile(path.join(tempRoot, "TRACKED.md"), "line 1\nline 2\n", "utf8");
+  await execFileAsync("git", ["add", "TRACKED.md"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["commit", "-m", "initial"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+
+  await writeFile(
+    path.join(tempRoot, "TRACKED.md"),
+    "line 1\nline 2 checkpoint\n",
+    "utf8"
+  );
+
+  const service = createService();
+  const updated = await service.createCheckpoint(userId, {
+    name: "Tracked conflict checkpoint",
+  });
+  const checkpoint = updated.checkpoints.items[0];
+  const preview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
+  expect(preview.restoreRisks.find((risk) => risk.file === "TRACKED.md")?.level).toBe(
+    "safe"
+  );
+
+  await writeFile(
+    path.join(tempRoot, "TRACKED.md"),
+    "line 1\nline 2 user edit\n",
+    "utf8"
+  );
+  const conflictPreview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
+  const trackedRisk = conflictPreview.restoreRisks.find(
+    (risk) => risk.file === "TRACKED.md"
+  );
+  expect(conflictPreview.canRestore).toBe(false);
+  expect(trackedRisk?.level).toBe("blocked");
+  expect(trackedRisk?.currentStatus).toBe(" M TRACKED.md");
+  expect(trackedRisk?.reason).toContain(
+    "Tracked checkpoint patch no longer applies cleanly"
+  );
+
+  await expect(
+    service.resolveCheckpointTrackedConflicts(userId, {
+      checkpointId: checkpoint?.id ?? "",
+      confirmation: "RESTORE wrong",
+      files: ["TRACKED.md"],
+    })
+  ).rejects.toThrow("Type 'RESTORE");
+
+  const resolved = await service.resolveCheckpointTrackedConflicts(userId, {
+    checkpointId: checkpoint?.id ?? "",
+    confirmation: conflictPreview.restoreToken,
+    files: ["TRACKED.md"],
+  });
+  const resolvedCheckpoint = resolved.checkpoints.items.find(
+    (item) => item.id === checkpoint?.id
+  );
+  const safetyCheckpoint = resolved.checkpoints.items.find(
+    (item) => item.id === resolvedCheckpoint?.partialRestores?.[0]?.safetyCheckpointId
+  );
+
+  expect((await readFile(path.join(tempRoot, "TRACKED.md"), "utf8")).replace(/\r\n/g, "\n")).toBe(
+    "line 1\nline 2\n"
+  );
+  expect(resolvedCheckpoint?.partialRestores?.[0]?.files).toEqual(["TRACKED.md"]);
+  expect(resolvedCheckpoint?.partialRestores?.[0]?.resolution).toBe("restore");
+  expect(safetyCheckpoint?.changedFiles).toEqual(["TRACKED.md"]);
+  expect(safetyCheckpoint?.restoreMode).toBe("apply-patch");
+
+  const safetyPreview = await service.previewCheckpoint(userId, {
+    checkpointId: safetyCheckpoint?.id ?? "",
+  });
+  expect(safetyPreview.canRestore).toBe(true);
+  const reapplied = await service.restoreCheckpoint(userId, {
+    checkpointId: safetyCheckpoint?.id ?? "",
+    confirmation: safetyPreview.restoreToken,
+  });
+  const restoredSafety = reapplied.checkpoints.items.find(
+    (item) => item.id === safetyCheckpoint?.id
+  );
+  expect((await readFile(path.join(tempRoot, "TRACKED.md"), "utf8")).replace(/\r\n/g, "\n")).toBe(
+    "line 1\nline 2 user edit\n"
+  );
+  expect(restoredSafety?.restoredAt).toBeDefined();
+}, 15_000);
+
+test("keeps current tracked checkpoint conflict and restores remaining patch", async () => {
+  try {
+    await execFileAsync("git", ["--version"], { windowsHide: true });
+  } catch {
+    return;
+  }
+
+  await execFileAsync("git", ["init"], { cwd: tempRoot, windowsHide: true });
+  await execFileAsync("git", ["config", "user.email", "local-ade@example.test"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["config", "user.name", "Local ADE"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await writeFile(path.join(tempRoot, "KEEP.md"), "keep base\n", "utf8");
+  await writeFile(path.join(tempRoot, "RESTORE.md"), "restore base\n", "utf8");
+  await execFileAsync("git", ["add", "KEEP.md", "RESTORE.md"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["commit", "-m", "initial"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+
+  await writeFile(path.join(tempRoot, "KEEP.md"), "keep checkpoint\n", "utf8");
+  await writeFile(
+    path.join(tempRoot, "RESTORE.md"),
+    "restore checkpoint\n",
+    "utf8"
+  );
+
+  const service = createService();
+  const updated = await service.createCheckpoint(userId, {
+    name: "Tracked conflict choice checkpoint",
+  });
+  const checkpoint = updated.checkpoints.items[0];
+
+  await writeFile(path.join(tempRoot, "KEEP.md"), "keep user edit\n", "utf8");
+  const conflictPreview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
+  expect(conflictPreview.canRestore).toBe(false);
+  expect(
+    conflictPreview.restoreRisks.find((risk) => risk.file === "KEEP.md")?.level
+  ).toBe("blocked");
+
+  const kept = await service.resolveCheckpointTrackedConflictChoice(userId, {
+    checkpointId: checkpoint?.id ?? "",
+    confirmation: conflictPreview.restoreToken,
+    files: ["KEEP.md"],
+    resolution: "current",
+  });
+  const keptCheckpoint = kept.checkpoints.items.find(
+    (item) => item.id === checkpoint?.id
+  );
+  expect(keptCheckpoint?.partialRestores?.[0]).toMatchObject({
+    files: ["KEEP.md"],
+    resolution: "current",
+  });
+  expect((await readFile(path.join(tempRoot, "KEEP.md"), "utf8")).replace(/\r\n/g, "\n")).toBe(
+    "keep user edit\n"
+  );
+
+  const readyPreview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
+  const keepRisk = readyPreview.restoreRisks.find((risk) => risk.file === "KEEP.md");
+  const restoreRisk = readyPreview.restoreRisks.find(
+    (risk) => risk.file === "RESTORE.md"
+  );
+  expect(readyPreview.canRestore).toBe(true);
+  expect(keepRisk?.level).toBe("warning");
+  expect(keepRisk?.patchAction).toBe("keep current content");
+  expect(restoreRisk?.level).toBe("safe");
+
+  const restored = await service.restoreCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+    confirmation: readyPreview.restoreToken,
+  });
+  const restoredCheckpoint = restored.checkpoints.items.find(
+    (item) => item.id === checkpoint?.id
+  );
+  expect((await readFile(path.join(tempRoot, "KEEP.md"), "utf8")).replace(/\r\n/g, "\n")).toBe(
+    "keep user edit\n"
+  );
+  expect((await readFile(path.join(tempRoot, "RESTORE.md"), "utf8")).replace(/\r\n/g, "\n")).toBe(
+    "restore base\n"
+  );
+  expect(restoredCheckpoint?.restoredAt).toBeDefined();
+}, 15_000);
+
+test("resolves tracked checkpoint conflicts with per-hunk choices", async () => {
+  try {
+    await execFileAsync("git", ["--version"], { windowsHide: true });
+  } catch {
+    return;
+  }
+
+  await execFileAsync("git", ["init"], { cwd: tempRoot, windowsHide: true });
+  await execFileAsync("git", ["config", "user.email", "local-ade@example.test"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["config", "user.name", "Local ADE"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  const baseLines = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`);
+  await writeFile(path.join(tempRoot, "MIXED.md"), `${baseLines.join("\n")}\n`, "utf8");
+  await execFileAsync("git", ["add", "MIXED.md"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+  await execFileAsync("git", ["commit", "-m", "initial"], {
+    cwd: tempRoot,
+    windowsHide: true,
+  });
+
+  const checkpointLines = [...baseLines];
+  checkpointLines[1] = "line 2 checkpoint";
+  checkpointLines[17] = "line 18 checkpoint";
+  await writeFile(
+    path.join(tempRoot, "MIXED.md"),
+    `${checkpointLines.join("\n")}\n`,
+    "utf8"
+  );
+
+  const service = createService();
+  const updated = await service.createCheckpoint(userId, {
+    name: "Tracked hunk conflict checkpoint",
+  });
+  const checkpoint = updated.checkpoints.items[0];
+  const preview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
+  const initialDiff = preview.diffFiles.find((file) => file.path === "MIXED.md");
+  expect(initialDiff?.hunks).toHaveLength(2);
+
+  const currentLines = [...checkpointLines];
+  currentLines[17] = "line 18 user current";
+  await writeFile(
+    path.join(tempRoot, "MIXED.md"),
+    `${currentLines.join("\n")}\n`,
+    "utf8"
+  );
+
+  const conflictPreview = await service.previewCheckpoint(userId, {
+    checkpointId: checkpoint?.id ?? "",
+  });
+  const risk = conflictPreview.restoreRisks.find(
+    (item) => item.file === "MIXED.md"
+  );
+  expect(conflictPreview.canRestore).toBe(false);
+  expect(risk?.level).toBe("blocked");
+  expect(risk?.currentStatus).toBe(" M MIXED.md");
+  expect(risk?.reason).toContain(
+    "Tracked checkpoint patch no longer applies cleanly"
+  );
+
+  const mixed = await service.resolveCheckpointTrackedConflictHunks(userId, {
+    checkpointId: checkpoint?.id ?? "",
+    confirmation: conflictPreview.restoreToken,
+    hunks: [{ file: "MIXED.md", hunkIndex: 0 }],
+  });
+  const mixedCheckpoint = mixed.checkpoints.items.find(
+    (item) => item.id === checkpoint?.id
+  );
+  const safetyCheckpoint = mixed.checkpoints.items.find(
+    (item) => item.id === mixedCheckpoint?.partialRestores?.[0]?.safetyCheckpointId
+  );
+  const afterMixed = (await readFile(path.join(tempRoot, "MIXED.md"), "utf8"))
+    .replace(/\r\n/g, "\n")
+    .split("\n");
+
+  expect(afterMixed[1]).toBe("line 2");
+  expect(afterMixed[17]).toBe("line 18 user current");
+  expect(mixedCheckpoint?.partialRestores?.[0]?.files).toEqual(["MIXED.md"]);
+  expect(mixedCheckpoint?.partialRestores?.[0]?.resolution).toBe("mixed");
+  expect(mixedCheckpoint?.partialRestores?.[0]?.hunks).toEqual([
+    expect.objectContaining({
+      file: "MIXED.md",
+      hunkIndex: 0,
+    }),
+  ]);
+  expect(mixedCheckpoint?.partialRestores?.[0]?.hunkChoices).toEqual([
+    expect.objectContaining({
+      file: "MIXED.md",
+      hunkIndex: 0,
+      resolution: "restore",
+    }),
+    expect.objectContaining({
+      file: "MIXED.md",
+      hunkIndex: 1,
+      resolution: "current",
+    }),
+  ]);
+  expect(safetyCheckpoint?.changedFiles).toEqual(["MIXED.md"]);
+  expect(safetyCheckpoint?.restoreMode).toBe("apply-patch");
+
+  await expect(
+    service.restoreCheckpoint(userId, {
+      checkpointId: checkpoint?.id ?? "",
+      confirmation: conflictPreview.restoreToken,
+    })
+  ).rejects.toThrow("no remaining tracked patch");
 }, 15_000);
 
 test("restores selected checkpoint hunks while preserving other hunks in the same file", async () => {

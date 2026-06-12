@@ -12,6 +12,10 @@ const requestedRendererPort = parsePort(
 );
 const rendererPort = String(await findAvailablePort(requestedRendererPort));
 const rendererUrl = `http://127.0.0.1:${rendererPort}`;
+const smokeExitMs = parsePositiveInteger(
+  process.env.ERAGEAR_DESKTOP_SMOKE_EXIT_MS,
+  0
+);
 
 const children = new Set<ChildProcess>();
 let shuttingDown = false;
@@ -19,6 +23,14 @@ let shuttingDown = false;
 function parsePort(value: string | undefined, fallback: number) {
   const parsed = Number(value);
   if (Number.isInteger(parsed) && parsed > 0 && parsed < 65_536) {
+    return parsed;
+  }
+  return fallback;
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed > 0) {
     return parsed;
   }
   return fallback;
@@ -96,7 +108,14 @@ function startChild(name: string, args: string[], cwd: string, env = {}) {
 
 function stopChildren() {
   for (const child of children) {
-    if (!child.killed) {
+    if (child.killed || child.exitCode !== null || child.signalCode !== null) {
+      continue;
+    }
+    if (process.platform === "win32" && child.pid) {
+      spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
+    } else {
       child.kill("SIGTERM");
     }
   }
@@ -163,3 +182,18 @@ startChild("electron", ["run", "electron:start"], desktopRoot, {
   ERAGEAR_DESKTOP_RENDERER_URL: rendererUrl,
   ERAGEAR_REPO_ROOT: repoRoot,
 });
+
+if (smokeExitMs > 0) {
+  const fallbackMs = smokeExitMs + 15_000;
+  setTimeout(() => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    console.log(
+      `[desktop:dev] Smoke exit fallback reached after ${fallbackMs}ms; stopping dev children.`
+    );
+    stopChildren();
+    process.exit(0);
+  }, fallbackMs).unref();
+}

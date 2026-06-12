@@ -4,13 +4,15 @@ import type {
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
-import type { AppConfigService } from "@/modules/settings";
-import type { SessionUseCases } from "@/modules/use-cases";
+import type { AppConfigService, LocalAdeService } from "@/modules/settings";
+import type { SessionUseCases, UseCasePort } from "@/modules/use-cases";
+import { LOCAL_DESKTOP_USER_ID } from "@/platform/auth/local-desktop-user";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import type { AuthRuntime } from "../platform/auth/auth";
 import {
   BackgroundRunner,
   createCachePruneTask,
+  createPluginBatchScheduleDispatchTask,
   createSessionEventOutboxDispatchTask,
   createSessionIdleCleanupTask,
   createSqliteStorageMaintenanceTask,
@@ -45,6 +47,7 @@ export interface ServerLifecycleDependencies {
   sessionEventOutbox: SessionEventOutboxPort;
   eventBus: EventBusPort;
   sessionUseCases: SessionUseCases;
+  localAde: Pick<UseCasePort<LocalAdeService>, "dispatchDuePluginBatchSchedules">;
   appConfig: AppConfigService;
   policy: ServerLifecyclePolicy;
   setBackgroundRunnerStateProvider: (
@@ -80,6 +83,15 @@ class DefaultServerLifecycle implements ServerLifecycle {
       createSessionEventOutboxDispatchTask({
         outbox: deps.sessionEventOutbox,
         eventBus: deps.eventBus,
+      })
+    );
+    this.backgroundRunner.register(
+      createPluginBatchScheduleDispatchTask({
+        dispatcher: deps.localAde,
+        getUserIds: () => [
+          LOCAL_DESKTOP_USER_ID,
+          ...deps.sessionRuntime.getAll().map((session) => session.userId),
+        ],
       })
     );
     this.backgroundRunner.register(createCachePruneTask());

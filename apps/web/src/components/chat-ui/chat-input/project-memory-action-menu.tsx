@@ -26,7 +26,19 @@ export interface ProjectMemoryMenuSource {
   warnings?: string[];
 }
 
+export interface ProjectMemoryMenuPreset {
+  id: string;
+  name: string;
+  sourcePaths: string[];
+  defaultQuery?: string;
+  retrievalMode?: "full" | "semantic";
+  maxBytes: number;
+  maxChunks?: number;
+  diagnostics?: string[];
+}
+
 interface ProjectMemoryActionMenuProps {
+  presets?: ProjectMemoryMenuPreset[];
   sources: ProjectMemoryMenuSource[];
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onCommandApplied?: (commandName: string) => void;
@@ -48,6 +60,7 @@ function formatMemoryBytes(bytes: number): string {
 }
 
 export function ProjectMemoryActionMenu({
+  presets = [],
   sources,
   textareaRef,
   onCommandApplied,
@@ -56,13 +69,25 @@ export function ProjectMemoryActionMenu({
   const enabledSources = sources
     .filter((source) => source.enabled && source.relativePath.trim())
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  const visiblePresets = presets
+    .filter((preset) => preset.id.trim() && preset.sourcePaths.length > 0)
+    .sort((left, right) => left.name.localeCompare(right.name));
 
   const applyMemoryCommand = useCallback(
-    (sourcePaths: string[]) => {
+    (input: {
+      sourcePaths?: string[];
+      presetId?: string;
+      request?: string;
+      retrievalMode?: "full" | "semantic";
+      maxChunks?: number;
+    }) => {
       const request = getProjectMemoryRequestDraft(controller.textInput.value);
       const commandText = buildProjectMemoryCommandText({
-        request,
-        sourcePaths,
+        request: input.request ?? request,
+        retrievalMode: input.retrievalMode,
+        presetId: input.presetId,
+        sourcePaths: input.sourcePaths ?? [],
+        maxChunks: input.maxChunks,
       });
       controller.textInput.setInput(commandText);
       onCommandApplied?.(PROJECT_MEMORY_COMMAND_NAME);
@@ -86,7 +111,7 @@ export function ProjectMemoryActionMenu({
     ]
   );
 
-  if (enabledSources.length === 0) {
+  if (enabledSources.length === 0 && visiblePresets.length === 0) {
     return null;
   }
 
@@ -97,15 +122,16 @@ export function ProjectMemoryActionMenu({
         <div className="min-w-0 space-y-0.5">
           <div className="font-medium text-xs">Project Memory</div>
           <div className="truncate text-muted-foreground text-xs">
-            {enabledSources.length} enabled source
-            {enabledSources.length === 1 ? "" : "s"}
+            {visiblePresets.length > 0
+              ? `${visiblePresets.length} preset${visiblePresets.length === 1 ? "" : "s"}`
+              : `${enabledSources.length} enabled source${enabledSources.length === 1 ? "" : "s"}`}
           </div>
         </div>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="max-h-72 w-80 overflow-y-auto p-1">
         <PromptInputActionMenuItem
           className="items-start"
-          onSelect={() => applyMemoryCommand([])}
+          onSelect={() => applyMemoryCommand({ sourcePaths: [] })}
         >
           <FileTextIcon className="mt-0.5 size-4 text-muted-foreground" />
           <div className="min-w-0 space-y-0.5">
@@ -115,11 +141,49 @@ export function ProjectMemoryActionMenu({
             </div>
           </div>
         </PromptInputActionMenuItem>
+        <PromptInputActionMenuItem
+          className="items-start"
+          onSelect={() =>
+            applyMemoryCommand({ retrievalMode: "semantic", maxChunks: 4 })
+          }
+        >
+          <FileTextIcon className="mt-0.5 size-4 text-muted-foreground" />
+          <div className="min-w-0 space-y-0.5">
+            <div className="font-medium text-xs">Best matching chunks</div>
+            <div className="truncate text-muted-foreground text-xs">
+              /memory --semantic request
+            </div>
+          </div>
+        </PromptInputActionMenuItem>
+        {visiblePresets.map((preset) => (
+          <PromptInputActionMenuItem
+            className="items-start"
+            key={preset.id}
+            onSelect={() =>
+              applyMemoryCommand({
+                presetId: preset.id,
+                request: preset.defaultQuery ?? "",
+              })
+            }
+          >
+            <FileTextIcon className="mt-0.5 size-4 text-muted-foreground" />
+            <div className="min-w-0 space-y-0.5">
+              <div className="truncate font-medium text-xs">{preset.name}</div>
+              <div className="truncate text-muted-foreground text-xs">
+                {preset.sourcePaths.length} source
+                {preset.sourcePaths.length === 1 ? "" : "s"} -{" "}
+                {formatMemoryBytes(preset.maxBytes)}
+                {preset.retrievalMode === "semantic" ? " - semantic" : ""}
+                {preset.diagnostics?.length ? " - warning" : ""}
+              </div>
+            </div>
+          </PromptInputActionMenuItem>
+        ))}
         {enabledSources.map((source) => (
           <PromptInputActionMenuItem
             className="items-start"
             key={source.id}
-            onSelect={() => applyMemoryCommand([source.relativePath])}
+            onSelect={() => applyMemoryCommand({ sourcePaths: [source.relativePath] })}
           >
             <FileTextIcon className="mt-0.5 size-4 text-muted-foreground" />
             <div className="min-w-0 space-y-0.5">
