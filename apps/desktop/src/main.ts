@@ -10,8 +10,13 @@ import type {
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import type { BrowserWindowConstructorOptions, IpcMainInvokeEvent, WebContents } from "electron";
 import { DesktopRuntimeHost } from "./runtime-host.js";
+import {
+  createRendererContentSecurityPolicy,
+  withRendererContentSecurityPolicyHeaders,
+} from "./security.js";
 
 const DEFAULT_REMOTE_RUNTIME_PORT = 443;
+const DEFAULT_RENDERER_URL_PORT = 3001;
 const DEFAULT_RENDERER_URL = "http://127.0.0.1:3001";
 
 let mainWindow: BrowserWindow | null = null;
@@ -27,6 +32,7 @@ const runtimePort = parsePort(
 );
 const rendererUrl =
   process.env.ERAGEAR_DESKTOP_RENDERER_URL ?? DEFAULT_RENDERER_URL;
+configureDevelopmentUserDataPath(rendererUrl);
 const remoteRuntimeUrl = normalizeRemoteRuntimeUrl(
   process.env.ERAGEAR_REMOTE_SERVER_URL
 );
@@ -82,6 +88,30 @@ function normalizeRemoteRuntimeUrl(rawValue: string | undefined): string {
   }
 }
 
+function configureDevelopmentUserDataPath(currentRendererUrl: string): void {
+  if (app.isPackaged) {
+    return;
+  }
+  const override = process.env.ERAGEAR_DESKTOP_USER_DATA_DIR?.trim();
+  const port = parsePortFromUrl(currentRendererUrl);
+  const basePath = override
+    ? path.resolve(override)
+    : path.join(
+        os.tmpdir(),
+        `eragear-code-copilot-electron-dev-${port}-${process.pid}`
+      );
+  app.setPath("userData", basePath);
+}
+
+function parsePortFromUrl(value: string): number {
+  try {
+    const parsed = new URL(value);
+    return parsePort(parsed.port, DEFAULT_RENDERER_URL_PORT);
+  } catch {
+    return DEFAULT_RENDERER_URL_PORT;
+  }
+}
+
 function resolveRepoRoot(): string {
   const override = process.env.ERAGEAR_REPO_ROOT?.trim();
   if (override) {
@@ -90,49 +120,21 @@ function resolveRepoRoot(): string {
   return path.resolve(app.getAppPath(), "..", "..");
 }
 
-function rendererOrigin(): string {
-  try {
-    return new URL(rendererUrl).origin;
-  } catch {
-    return "http://127.0.0.1:3001";
-  }
-}
-
-function rendererWebSocketOrigin(): string {
-  try {
-    const url = new URL(rendererUrl);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    return url.origin;
-  } catch {
-    return "ws://127.0.0.1:3001";
-  }
-}
-
 function rendererContentSecurityPolicy(): string {
-  const origin = rendererOrigin();
-  const wsOrigin = rendererWebSocketOrigin();
-  const scriptPolicy = app.isPackaged ? "'self'" : "'self' 'unsafe-eval'";
-  return [
-    "default-src 'self'",
-    `script-src ${scriptPolicy} ${origin}`,
-    `connect-src 'self' ${origin} ${wsOrigin}`,
-    "img-src 'self' data: blob:",
-    "style-src 'self' 'unsafe-inline'",
-    "font-src 'self' data:",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "frame-ancestors 'none'",
-  ].join("; ");
+  return createRendererContentSecurityPolicy({
+    appIsPackaged: app.isPackaged,
+    rendererUrl,
+  });
 }
 
 function configureRendererSecurityHeaders(): void {
   const csp = rendererContentSecurityPolicy();
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "Content-Security-Policy": [csp],
-      },
+      responseHeaders: withRendererContentSecurityPolicyHeaders(
+        details.responseHeaders ?? {},
+        csp
+      ),
     });
   });
 }
@@ -151,7 +153,7 @@ function createSecurityPosture(params: {
     "Runtime service uses a private desktop-service channel and is not network exposed.",
     "Desktop local auth token is generated per process and redacted from diagnostics.",
     cspStatus === "development-warning"
-      ? "Development renderer CSP allows dev tooling; packaged builds should report enforced CSP."
+      ? "Development renderer CSP allows Vite React dev tooling; packaged builds should report enforced CSP."
       : "Renderer CSP is enforced without development eval allowances.",
     params.webPreferences.sandbox === false
       ? "Renderer sandbox is disabled because the preload bridge owns runtime IPC; this is reported explicitly."

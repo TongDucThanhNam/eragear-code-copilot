@@ -1188,7 +1188,7 @@ export function ChatInterface({
               : undefined,
         });
         if (memoryContext.status === "no-enabled-sources") {
-          toast.error("Enable a project memory source in Local ADE first.");
+          toast.error("Enable a project memory source in Settings > Memory first.");
           throw new Error("PROJECT_MEMORY_NOT_READY");
         }
         projectMemoryPrompt = memoryContext.prompt;
@@ -1208,7 +1208,7 @@ export function ChatInterface({
           limit: 12,
         });
         if (indexSearch.status === "not-indexed") {
-          toast.error("Refresh Project Index in Local ADE Control Center first.");
+          toast.error("Refresh Project Index in Settings > Memory first.");
           throw new Error("PROJECT_INDEX_NOT_READY");
         }
         if (indexSearch.status === "no-results") {

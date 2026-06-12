@@ -2249,7 +2249,7 @@ const DASHBOARD_PARITY: LocalAdeWorkflowParity[] = [
   {
     workflow: "Agents and runtime allowlists",
     status: "available",
-    electronSurface: "Settings dialog and Local ADE Control Center",
+    electronSurface: "Settings routes and Local ADE panels",
     sourceFile: "apps/server/src/presentation/dashboard/components/agents-tab.tsx",
   },
   {
@@ -2261,7 +2261,7 @@ const DASHBOARD_PARITY: LocalAdeWorkflowParity[] = [
   {
     workflow: "Boot settings",
     status: "partial",
-    electronSurface: "Settings dialog runtime allowlist panel",
+    electronSurface: "Settings connection route runtime allowlist panel",
     sourceFile: "apps/server/src/presentation/dashboard/components/settings-tab.tsx",
     reason:
       "Common boot tuning fields are not all editable in Electron yet; allowlists and ACP toggles are on the desktop path.",

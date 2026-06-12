@@ -9,38 +9,168 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsRuntimeRouteImport } from './routes/settings.runtime'
+import { Route as SettingsMemoryRouteImport } from './routes/settings.memory'
+import { Route as SettingsMcpRouteImport } from './routes/settings.mcp'
+import { Route as SettingsConnectionRouteImport } from './routes/settings.connection'
+import { Route as SettingsCapabilitiesRouteImport } from './routes/settings.capabilities'
+import { Route as SettingsAutomationRouteImport } from './routes/settings.automation'
+import { Route as SettingsAgentsRouteImport } from './routes/settings.agents'
+import { Route as SettingsActivityRouteImport } from './routes/settings.activity'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRuntimeRoute = SettingsRuntimeRouteImport.update({
+  id: '/runtime',
+  path: '/runtime',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsMemoryRoute = SettingsMemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsMcpRoute = SettingsMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsConnectionRoute = SettingsConnectionRouteImport.update({
+  id: '/connection',
+  path: '/connection',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsCapabilitiesRoute = SettingsCapabilitiesRouteImport.update({
+  id: '/capabilities',
+  path: '/capabilities',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAutomationRoute = SettingsAutomationRouteImport.update({
+  id: '/automation',
+  path: '/automation',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsActivityRoute = SettingsActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => SettingsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/settings': typeof SettingsRouteWithChildren
+  '/settings/activity': typeof SettingsActivityRoute
+  '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/automation': typeof SettingsAutomationRoute
+  '/settings/capabilities': typeof SettingsCapabilitiesRoute
+  '/settings/connection': typeof SettingsConnectionRoute
+  '/settings/mcp': typeof SettingsMcpRoute
+  '/settings/memory': typeof SettingsMemoryRoute
+  '/settings/runtime': typeof SettingsRuntimeRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/settings/activity': typeof SettingsActivityRoute
+  '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/automation': typeof SettingsAutomationRoute
+  '/settings/capabilities': typeof SettingsCapabilitiesRoute
+  '/settings/connection': typeof SettingsConnectionRoute
+  '/settings/mcp': typeof SettingsMcpRoute
+  '/settings/memory': typeof SettingsMemoryRoute
+  '/settings/runtime': typeof SettingsRuntimeRoute
+  '/settings': typeof SettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/settings': typeof SettingsRouteWithChildren
+  '/settings/activity': typeof SettingsActivityRoute
+  '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/automation': typeof SettingsAutomationRoute
+  '/settings/capabilities': typeof SettingsCapabilitiesRoute
+  '/settings/connection': typeof SettingsConnectionRoute
+  '/settings/mcp': typeof SettingsMcpRoute
+  '/settings/memory': typeof SettingsMemoryRoute
+  '/settings/runtime': typeof SettingsRuntimeRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/settings'
+    | '/settings/activity'
+    | '/settings/agents'
+    | '/settings/automation'
+    | '/settings/capabilities'
+    | '/settings/connection'
+    | '/settings/mcp'
+    | '/settings/memory'
+    | '/settings/runtime'
+    | '/settings/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/settings/activity'
+    | '/settings/agents'
+    | '/settings/automation'
+    | '/settings/capabilities'
+    | '/settings/connection'
+    | '/settings/mcp'
+    | '/settings/memory'
+    | '/settings/runtime'
+    | '/settings'
+  id:
+    | '__root__'
+    | '/'
+    | '/settings'
+    | '/settings/activity'
+    | '/settings/agents'
+    | '/settings/automation'
+    | '/settings/capabilities'
+    | '/settings/connection'
+    | '/settings/mcp'
+    | '/settings/memory'
+    | '/settings/runtime'
+    | '/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,11 +178,103 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/': {
+      id: '/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/runtime': {
+      id: '/settings/runtime'
+      path: '/runtime'
+      fullPath: '/settings/runtime'
+      preLoaderRoute: typeof SettingsRuntimeRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/memory': {
+      id: '/settings/memory'
+      path: '/memory'
+      fullPath: '/settings/memory'
+      preLoaderRoute: typeof SettingsMemoryRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/mcp': {
+      id: '/settings/mcp'
+      path: '/mcp'
+      fullPath: '/settings/mcp'
+      preLoaderRoute: typeof SettingsMcpRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/connection': {
+      id: '/settings/connection'
+      path: '/connection'
+      fullPath: '/settings/connection'
+      preLoaderRoute: typeof SettingsConnectionRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/capabilities': {
+      id: '/settings/capabilities'
+      path: '/capabilities'
+      fullPath: '/settings/capabilities'
+      preLoaderRoute: typeof SettingsCapabilitiesRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/automation': {
+      id: '/settings/automation'
+      path: '/automation'
+      fullPath: '/settings/automation'
+      preLoaderRoute: typeof SettingsAutomationRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/agents': {
+      id: '/settings/agents'
+      path: '/agents'
+      fullPath: '/settings/agents'
+      preLoaderRoute: typeof SettingsAgentsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/activity': {
+      id: '/settings/activity'
+      path: '/activity'
+      fullPath: '/settings/activity'
+      preLoaderRoute: typeof SettingsActivityRouteImport
+      parentRoute: typeof SettingsRoute
+    }
   }
 }
 
+interface SettingsRouteChildren {
+  SettingsActivityRoute: typeof SettingsActivityRoute
+  SettingsAgentsRoute: typeof SettingsAgentsRoute
+  SettingsAutomationRoute: typeof SettingsAutomationRoute
+  SettingsCapabilitiesRoute: typeof SettingsCapabilitiesRoute
+  SettingsConnectionRoute: typeof SettingsConnectionRoute
+  SettingsMcpRoute: typeof SettingsMcpRoute
+  SettingsMemoryRoute: typeof SettingsMemoryRoute
+  SettingsRuntimeRoute: typeof SettingsRuntimeRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsActivityRoute: SettingsActivityRoute,
+  SettingsAgentsRoute: SettingsAgentsRoute,
+  SettingsAutomationRoute: SettingsAutomationRoute,
+  SettingsCapabilitiesRoute: SettingsCapabilitiesRoute,
+  SettingsConnectionRoute: SettingsConnectionRoute,
+  SettingsMcpRoute: SettingsMcpRoute,
+  SettingsMemoryRoute: SettingsMemoryRoute,
+  SettingsRuntimeRoute: SettingsRuntimeRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SettingsRoute: SettingsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -99,7 +99,36 @@ interface LocalAdeControlCenterProps {
   onStartSession?: (agentId?: string) => void;
   onOpenSession?: (chatId: string) => void;
   onSubmitCommand?: (command: string, chatId?: string) => void | Promise<void>;
+  showHeader?: boolean;
+  visibleSections?: readonly LocalAdeControlCenterSection[];
 }
+
+export type LocalAdeControlCenterSection =
+  | "overview"
+  | "runtime"
+  | "providers"
+  | "capabilities"
+  | "hooks"
+  | "plugins"
+  | "memory"
+  | "mcp"
+  | "project-index"
+  | "activity"
+  | "storage";
+
+const LOCAL_ADE_CONTROL_CENTER_SECTIONS: readonly LocalAdeControlCenterSection[] = [
+  "overview",
+  "runtime",
+  "providers",
+  "capabilities",
+  "hooks",
+  "plugins",
+  "memory",
+  "mcp",
+  "project-index",
+  "activity",
+  "storage",
+];
 
 const CAPABILITY_ORDER = [
   "skill",
@@ -8317,6 +8346,8 @@ export function LocalAdeControlCenter({
   onOpenSession,
   onStartSession,
   onSubmitCommand,
+  showHeader = true,
+  visibleSections,
 }: LocalAdeControlCenterProps) {
   const utils = trpc.useUtils();
   const desktopBootstrap = useServerConfigStore((state) => state.desktopBootstrap);
@@ -8464,164 +8495,209 @@ export function LocalAdeControlCenter({
       toast.error("Failed to copy command");
     }
   }, []);
+  const visibleSectionSet = React.useMemo(
+    () => new Set(visibleSections ?? LOCAL_ADE_CONTROL_CENTER_SECTIONS),
+    [visibleSections]
+  );
+  const hasSection = (section: LocalAdeControlCenterSection) =>
+    visibleSectionSet.has(section);
+  const hasMemoryOrMcp = hasSection("memory") || hasSection("mcp");
+  const splitMemoryAndMcp =
+    !compact && hasSection("memory") && hasSection("mcp");
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-4", className)}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="font-semibold text-xl tracking-tight">
-            Local ADE Control Center
-          </h2>
-          <p className="mt-1 truncate text-muted-foreground text-sm">
-            {shortPath(snapshot?.projectRoot)} - Electron IPC/private desktop-service
-          </p>
+      {showHeader ? (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="font-semibold text-xl tracking-tight">
+              Local ADE Control Center
+            </h2>
+            <p className="mt-1 truncate text-muted-foreground text-sm">
+              {shortPath(snapshot?.projectRoot)} - Electron IPC/private desktop-service
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              disabled={snapshotQuery.isFetching}
+              onClick={() => {
+                void refreshDiagnostics();
+              }}
+              size="sm"
+              variant="outline"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            disabled={snapshotQuery.isFetching}
-            onClick={() => {
-              void refreshDiagnostics();
-            }}
-            size="sm"
-            variant="outline"
-          >
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-      </div>
+      ) : null}
 
-      <WorkflowActionStrip
-        diagnostics={diagnostics}
-        isCreatingCheckpoint={createCheckpoint.isPending}
-        isProbingMcp={isProbingMcp}
-        isRefreshing={snapshotQuery.isFetching}
-        isRefreshingIndex={refreshProjectIndex.isPending}
-        isTestingProviders={isTestingProviders}
-        onCopyCommand={handleCopyCommand}
-        onCreateCheckpoint={() => createCheckpoint.mutate({})}
-        onOpenSession={onOpenSession}
-        onProbeMcp={() => {
-          void handleProbeMcpServers();
-        }}
-        onRefreshIndex={() => refreshProjectIndex.mutate({})}
-        onRefreshRuntime={() => {
-          scrollToLocalAdeSection("local-ade-runtime");
-          void refreshDiagnostics();
-        }}
-        onStartSession={onStartSession}
-        onSubmitCommand={onSubmitCommand}
-        onTestProviders={() => {
-          void handleTestProviders();
-        }}
-        snapshot={snapshot}
-      />
-
-      <div id="local-ade-runtime">
-        <RuntimeStrip diagnostics={diagnostics} snapshot={snapshot} />
-      </div>
-
-      <div className={cn("grid gap-3", compact ? "xl:grid-cols-1" : "2xl:grid-cols-[1fr_1fr]")}>
-        <Section title="Agent CLI Detection" icon={Terminal}>
-          <CliGrid diagnostics={diagnostics} />
-        </Section>
-
-        <Section id="local-ade-providers" title="Provider And Agent State" icon={KeyRound}>
-          <ProviderTable snapshot={snapshot} />
-        </Section>
-      </div>
-
-      <Section
-        id="local-ade-capabilities"
-        action={
-          <Badge variant={statusVariant(snapshot?.capabilities.diagnostics.status)}>
-            {snapshot?.capabilities.diagnostics.status ?? "loading"}
-          </Badge>
-        }
-        icon={SlidersHorizontal}
-        title="Capability Registry"
-      >
-        <CapabilityRows
-          capabilities={capabilities}
-          disabled={updateCapability.isPending}
-          onToggle={(capability, enabled) =>
-            updateCapability.mutate({
-              capabilityId: capability.id,
-              enabled,
-            })
-          }
+      {hasSection("overview") ? (
+        <WorkflowActionStrip
+          diagnostics={diagnostics}
+          isCreatingCheckpoint={createCheckpoint.isPending}
+          isProbingMcp={isProbingMcp}
+          isRefreshing={snapshotQuery.isFetching}
+          isRefreshingIndex={refreshProjectIndex.isPending}
+          isTestingProviders={isTestingProviders}
+          onCopyCommand={handleCopyCommand}
+          onCreateCheckpoint={() => createCheckpoint.mutate({})}
+          onOpenSession={onOpenSession}
+          onProbeMcp={() => {
+            void handleProbeMcpServers();
+          }}
+          onRefreshIndex={() => refreshProjectIndex.mutate({})}
+          onRefreshRuntime={() => {
+            scrollToLocalAdeSection("local-ade-runtime");
+            void refreshDiagnostics();
+          }}
+          onStartSession={onStartSession}
+          onSubmitCommand={onSubmitCommand}
+          onTestProviders={() => {
+            void handleTestProviders();
+          }}
+          snapshot={snapshot}
         />
-      </Section>
+      ) : null}
 
-      <Section
-        action={<Badge variant="outline">{snapshot?.hooks.items.length ?? 0}</Badge>}
-        icon={Play}
-        title="Hooks"
-      >
-        <HookRunner snapshot={snapshot} />
-      </Section>
+      {hasSection("runtime") ? (
+        <div id="local-ade-runtime">
+          <RuntimeStrip diagnostics={diagnostics} snapshot={snapshot} />
+        </div>
+      ) : null}
 
-      <Section
-        action={<Badge variant="outline">{snapshot?.plugins.items.length ?? 0}</Badge>}
-        icon={PlugZap}
-        title="Plugins"
-      >
-        <PluginRunner snapshot={snapshot} />
-      </Section>
+      {hasSection("providers") ? (
+        <div
+          className={cn(
+            "grid gap-3",
+            compact ? "xl:grid-cols-1" : "2xl:grid-cols-[1fr_1fr]"
+          )}
+        >
+          <Section title="Agent CLI Detection" icon={Terminal}>
+            <CliGrid diagnostics={diagnostics} />
+          </Section>
 
-      <div className={cn("grid gap-3", compact ? "xl:grid-cols-1" : "2xl:grid-cols-[1fr_1fr]")}>
-        <Section id="local-ade-change-trust" title="Project Memory And Change Trust" icon={FileText}>
-          <MemoryAndTrust snapshot={snapshot} />
-        </Section>
+          <Section id="local-ade-providers" title="Provider And Agent State" icon={KeyRound}>
+            <ProviderTable snapshot={snapshot} />
+          </Section>
+        </div>
+      ) : null}
 
-        <Section id="local-ade-mcp" title="MCP Servers" icon={PlugZap}>
-          <McpManager
-            onProbe={() => {
-              void refreshDiagnostics();
-              toast.success("MCP probes refreshed");
-            }}
-            snapshot={snapshot}
+      {hasSection("capabilities") ? (
+        <Section
+          id="local-ade-capabilities"
+          action={
+            <Badge variant={statusVariant(snapshot?.capabilities.diagnostics.status)}>
+              {snapshot?.capabilities.diagnostics.status ?? "loading"}
+            </Badge>
+          }
+          icon={SlidersHorizontal}
+          title="Capability Registry"
+        >
+          <CapabilityRows
+            capabilities={capabilities}
+            disabled={updateCapability.isPending}
+            onToggle={(capability, enabled) =>
+              updateCapability.mutate({
+                capabilityId: capability.id,
+                enabled,
+              })
+            }
           />
         </Section>
-      </div>
+      ) : null}
 
-      <Section
-        action={
-          <Badge variant={snapshot?.projectIndex.indexedAt ? "default" : "outline"}>
-            {snapshot?.projectIndex.indexedAt ? "ready" : "not indexed"}
-          </Badge>
-        }
-        icon={Database}
-        id="local-ade-project-index"
-        title="Project Index"
-      >
-        <ProjectIndex snapshot={snapshot} />
-      </Section>
+      {hasSection("hooks") ? (
+        <Section
+          action={<Badge variant="outline">{snapshot?.hooks.items.length ?? 0}</Badge>}
+          icon={Play}
+          title="Hooks"
+        >
+          <HookRunner snapshot={snapshot} />
+        </Section>
+      ) : null}
 
-      <Section title="Runtime Logs And Dashboard Parity" icon={GitBranch}>
-        <LogsAndParity snapshot={snapshot} />
-      </Section>
+      {hasSection("plugins") ? (
+        <Section
+          action={<Badge variant="outline">{snapshot?.plugins.items.length ?? 0}</Badge>}
+          icon={PlugZap}
+          title="Plugins"
+        >
+          <PluginRunner snapshot={snapshot} />
+        </Section>
+      ) : null}
 
-      <div className="grid gap-2 sm:grid-cols-3">
-        <StatTile
-          detail={`${snapshot?.storage?.messageCount ?? 0} messages`}
+      {hasMemoryOrMcp ? (
+        <div
+          className={cn(
+            "grid gap-3",
+            splitMemoryAndMcp ? "2xl:grid-cols-[1fr_1fr]" : "xl:grid-cols-1"
+          )}
+        >
+          {hasSection("memory") ? (
+            <Section id="local-ade-change-trust" title="Project Memory And Change Trust" icon={FileText}>
+              <MemoryAndTrust snapshot={snapshot} />
+            </Section>
+          ) : null}
+
+          {hasSection("mcp") ? (
+            <Section id="local-ade-mcp" title="MCP Servers" icon={PlugZap}>
+              <McpManager
+                onProbe={() => {
+                  void refreshDiagnostics();
+                  toast.success("MCP probes refreshed");
+                }}
+                snapshot={snapshot}
+              />
+            </Section>
+          ) : null}
+        </div>
+      ) : null}
+
+      {hasSection("project-index") ? (
+        <Section
+          action={
+            <Badge variant={snapshot?.projectIndex.indexedAt ? "default" : "outline"}>
+              {snapshot?.projectIndex.indexedAt ? "ready" : "not indexed"}
+            </Badge>
+          }
           icon={Database}
-          label="SQLite Store"
-          value={formatBytes(snapshot?.storage?.dbSizeBytes)}
-        />
-        <StatTile
-          detail={snapshot?.blockers.map((item) => item.workflow).join(", ") || "No local blockers"}
-          icon={ShieldAlert}
-          label="Explicit Blockers"
-          value={snapshot?.blockers.length ?? 0}
-        />
-        <StatTile
-          detail={diagnostics?.childProcess.message}
-          icon={Activity}
-          label="Runtime PID"
-          value={diagnostics?.childProcess.pid ?? "n/a"}
-        />
-      </div>
+          id="local-ade-project-index"
+          title="Project Index"
+        >
+          <ProjectIndex snapshot={snapshot} />
+        </Section>
+      ) : null}
+
+      {hasSection("activity") ? (
+        <Section title="Runtime Logs And Dashboard Parity" icon={GitBranch}>
+          <LogsAndParity snapshot={snapshot} />
+        </Section>
+      ) : null}
+
+      {hasSection("storage") ? (
+        <div className="grid gap-2 sm:grid-cols-3">
+          <StatTile
+            detail={`${snapshot?.storage?.messageCount ?? 0} messages`}
+            icon={Database}
+            label="SQLite Store"
+            value={formatBytes(snapshot?.storage?.dbSizeBytes)}
+          />
+          <StatTile
+            detail={snapshot?.blockers.map((item) => item.workflow).join(", ") || "No local blockers"}
+            icon={ShieldAlert}
+            label="Explicit Blockers"
+            value={snapshot?.blockers.length ?? 0}
+          />
+          <StatTile
+            detail={diagnostics?.childProcess.message}
+            icon={Activity}
+            label="Runtime PID"
+            value={diagnostics?.childProcess.pid ?? "n/a"}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

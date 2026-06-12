@@ -34,6 +34,7 @@ function resolveLocalProxyTarget(): string {
 }
 
 const localProxyTarget = resolveLocalProxyTarget();
+const isElectronRenderer = process.env.ERAGEAR_DESKTOP_RENDERER === "true";
 
 export default defineConfig({
   plugins: [
@@ -49,7 +50,7 @@ export default defineConfig({
         theme_color: "#0c0c0c",
       },
       pwaAssets: { disabled: false, config: true },
-      devOptions: { enabled: true },
+      devOptions: { enabled: !isElectronRenderer },
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB
       },

@@ -165,7 +165,8 @@ console.log(
 startChild(
   "web renderer",
   ["run", "dev", "--host", "127.0.0.1", "--port", rendererPort, "--strictPort"],
-  webRoot
+  webRoot,
+  { ERAGEAR_DESKTOP_RENDERER: "true" }
 );
 
 try {

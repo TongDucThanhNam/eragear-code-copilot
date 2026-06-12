@@ -1,10 +1,10 @@
 "use client";
 
+import { Link } from "@tanstack/react-router";
 import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useBetterAuthClient } from "@/components/auth/auth-client-provider";
-import { SettingsDialog } from "@/components/left-sidebar/settings-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -34,7 +34,6 @@ export function NavUser({
 }) {
   const authClient = useBetterAuthClient();
   const { isMobile } = useSidebar();
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const setConfigured = useServerConfigStore((state) => state.setConfigured);
   const isDesktopLocalMode = useServerConfigStore(
@@ -116,9 +115,11 @@ export function NavUser({
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => setIsSettingsOpen(true)}>
-                  <Settings />
-                  ACP Agents
+                <DropdownMenuItem asChild>
+                  <Link to="/settings/agents">
+                    <Settings />
+                    Settings
+                  </Link>
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               {isDesktopLocalMode ? null : (
@@ -140,7 +141,6 @@ export function NavUser({
           </DropdownMenu>
         </SidebarMenuItem>
       </SidebarMenu>
-      <SettingsDialog onOpenChange={setIsSettingsOpen} open={isSettingsOpen} />
     </>
   );
 }
