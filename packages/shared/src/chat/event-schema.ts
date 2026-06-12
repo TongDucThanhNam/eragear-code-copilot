@@ -226,6 +226,23 @@ const AVAILABLE_COMMAND_SCHEMA = z
   })
   .passthrough();
 
+const SUBAGENT_INVOCATION_SCHEMA = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    sourcePath: z.string(),
+    status: z.enum(["running", "completed", "failed"]),
+    parentChatId: z.string(),
+    parentTurnId: z.string(),
+    agentSessionId: z.string().optional(),
+    startedAt: z.number().finite(),
+    completedAt: z.number().finite().optional(),
+    resultMessageId: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .passthrough();
+
 export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
   z.object({ type: z.literal("connected") }).passthrough(),
   z
@@ -317,6 +334,13 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .passthrough(),
   z
     .object({
+      type: z.literal("subagent_status"),
+      invocation: SUBAGENT_INVOCATION_SCHEMA,
+      turnId: z.string().optional(),
+    })
+    .passthrough(),
+  z
+    .object({
       type: z.literal("current_mode_update"),
       modeId: z.string(),
       reason: z.string().optional(),
@@ -372,6 +396,7 @@ const BROADCAST_EVENT_TYPES = [
   "session_info_update",
   "supervisor_status",
   "supervisor_decision",
+  "subagent_status",
   "current_mode_update",
   "current_model_update",
   "terminal_output",

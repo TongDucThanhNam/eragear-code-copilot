@@ -1,6 +1,11 @@
 import { z } from "zod";
 import type { StoredMessage } from "@/modules/session/domain/stored-session.types";
 import type { sqliteSchema } from "@/platform/storage/sqlite-db";
+import type {
+  SessionConfigOption,
+  SessionModelState,
+  SessionModeState,
+} from "@/shared/types/session.types";
 import { isRecord as isRecordValue } from "@/shared/utils/type-guards.util";
 
 export type SessionRow = typeof sqliteSchema.sessions.$inferSelect;
@@ -86,6 +91,28 @@ const AuthMethodSchema = z.object({
 });
 
 const AgentCapabilitiesSchema = z.record(z.string(), z.unknown());
+const SessionModeStateSchema = z.object({
+  currentModeId: z.string(),
+  availableModes: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string().nullable().optional(),
+    })
+  ),
+}) satisfies z.ZodType<SessionModeState>;
+const SessionModelStateSchema = z.object({
+  currentModelId: z.string(),
+  availableModels: z.array(
+    z.object({
+      modelId: z.string(),
+      name: z.string(),
+      description: z.string().nullable().optional(),
+      provider: z.string().optional(),
+      providers: z.array(z.string()).optional(),
+    })
+  ),
+}) satisfies z.ZodType<SessionModelState>;
 const SupervisorDecisionSummarySchema = z.object({
   action: z.enum(["done", "continue", "needs_user", "abort"]),
   reason: z.string(),
@@ -120,6 +147,14 @@ export const OptionalAvailableCommandsSchema = z
   .optional();
 export const OptionalAgentCapabilitiesSchema =
   AgentCapabilitiesSchema.optional();
+export const OptionalSessionModeStateSchema = SessionModeStateSchema.optional();
+export const OptionalSessionModelStateSchema =
+  SessionModelStateSchema.optional();
+export const OptionalSessionConfigOptionsSchema = z
+  .custom<SessionConfigOption[]>(
+    (value) => value === undefined || Array.isArray(value)
+  )
+  .optional();
 export const OptionalAuthMethodsSchema = z.array(AuthMethodSchema).optional();
 export const OptionalToolCallsSchema = z.array(ToolCallSchema).optional();
 export const OptionalSupervisorSessionStateSchema =

@@ -321,4 +321,27 @@ describe("parseBroadcastEventClientSafe", () => {
     expect(parsed.value.decision.action).toBe("continue");
     expect(parsed.value.supervisor.status).toBe("continuing");
   });
+
+  test("parses subagent_status payload", () => {
+    const parsed = parseBroadcastEventClientSafe({
+      type: "subagent_status",
+      turnId: "turn-1",
+      invocation: {
+        id: "subagent-1",
+        name: "code-reviewer",
+        sourcePath: "C:/repo/.eragear/subagents/reviewer.md",
+        status: "running",
+        parentChatId: "chat-1",
+        parentTurnId: "turn-1",
+        startedAt: 1234,
+      },
+    });
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "subagent_status") {
+      return;
+    }
+    expect(parsed.value.invocation.name).toBe("code-reviewer");
+    expect(parsed.value.turnId).toBe("turn-1");
+  });
 });

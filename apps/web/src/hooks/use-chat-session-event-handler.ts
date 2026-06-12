@@ -8,6 +8,7 @@ import type {
   SessionInfo,
   SessionModelState,
   SessionModeState,
+  SubagentInvocation,
   SupervisorDecisionSummary,
   SupervisorSessionState,
   UIMessage,
@@ -74,7 +75,9 @@ interface UseChatSessionEventHandlerParams {
   setSessionInfo: Dispatch<SetStateAction<SessionInfo | null>>;
   setError: Dispatch<SetStateAction<string | null>>;
   setSupervisor: Dispatch<SetStateAction<SupervisorSessionState | null>>;
+  setSubagents: Dispatch<SetStateAction<SubagentInvocation[]>>;
   lastSupervisorDecisionRef: MutableRefObject<SupervisorDecisionSummary | null>;
+  onFileModified?: (path: string) => void;
 }
 
 export function reconcileMessageUpsertAfterStatus(
@@ -337,7 +340,9 @@ export function useChatSessionEventHandler(
     setSessionInfo,
     setError,
     setSupervisor,
+    setSubagents,
     lastSupervisorDecisionRef,
+    onFileModified,
   } = params;
 
   return useCallback(
@@ -650,6 +655,14 @@ export function useChatSessionEventHandler(
           onSupervisorDecision: (decision) => {
             lastSupervisorDecisionRef.current = decision;
           },
+          onSubagentStatus: (invocation) => {
+            setSubagents((current) => {
+              const next = current.filter((item) => item.id !== invocation.id);
+              return [invocation, ...next].sort(
+                (left, right) => right.startedAt - left.startedAt
+              );
+            });
+          },
           onTerminalOutput: (terminalId, data) => {
             const activeChatId = activeChatIdRef.current;
             if (!activeChatId) {
@@ -661,6 +674,7 @@ export function useChatSessionEventHandler(
           },
           onFileModified: (filePath) => {
             useFileStore.getState().upsertFile(filePath);
+            onFileModified?.(filePath);
           },
           onError: (eventError) => {
             setError(eventError);
@@ -782,6 +796,7 @@ export function useChatSessionEventHandler(
       messageStateRef,
       modelsRef,
       modesRef,
+      onFileModified,
       onError,
       onFinish,
       setCommands,

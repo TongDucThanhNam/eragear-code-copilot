@@ -48,6 +48,7 @@ export interface AgentRuntimePolicy {
   allowedAgentCommandPolicies: CommandPolicy[];
   allowedEnvKeys: string[];
   agentTimeoutMs?: number;
+  trafficProxyEnvironment?: () => Record<string, string>;
 }
 
 interface TrackedProcess {
@@ -78,6 +79,7 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
   private commandPolicies: CommandPolicyRegistry = new Map();
   private allowedEnvKeys: string[] = [];
   private readonly agentTimeoutMs: number | undefined;
+  private readonly trafficProxyEnvironment: () => Record<string, string>;
   private isShuttingDown = false;
 
   constructor(policy: AgentRuntimePolicy) {
@@ -86,6 +88,7 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
       allowedEnvKeys: policy.allowedEnvKeys,
     });
     this.agentTimeoutMs = policy.agentTimeoutMs;
+    this.trafficProxyEnvironment = policy.trafficProxyEnvironment ?? (() => ({}));
   }
 
   updateInvocationPolicy(policy: {
@@ -266,10 +269,15 @@ export class AgentRuntimeAdapter implements AgentRuntimePort {
       );
     }
 
-    const env = filterEnvAllowlist(
+    const filteredEnv = filterEnvAllowlist(
       { ...process.env, ...options.env },
       this.allowedEnvKeys
     );
+    const proxyEnv = this.trafficProxyEnvironment();
+    const env = { ...filteredEnv, ...proxyEnv };
+    if (filteredEnv.NODE_OPTIONS && proxyEnv.NODE_OPTIONS) {
+      env.NODE_OPTIONS = `${filteredEnv.NODE_OPTIONS} ${proxyEnv.NODE_OPTIONS}`;
+    }
     const detached = isPosix();
     const shell = shouldUseWindowsShellFallback(resolvedCommand);
 

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("eragearDesktop", {
   getBootstrap: () => ipcRenderer.invoke("eragear:getBootstrap"),
   getRuntimeDiagnostics: () =>
     ipcRenderer.invoke("eragear:getRuntimeDiagnostics"),
+  checkForUpdates: () => ipcRenderer.invoke("eragear:checkForUpdates"),
   requestRuntime: (input: {
     auth?: RuntimeServiceAuth;
     operation: RuntimeServiceOperation;

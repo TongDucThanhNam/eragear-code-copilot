@@ -44,7 +44,15 @@ export function buildSubagentDelegationPrompt(params: {
 export function resolveSubagentCommand(params: {
   text: string;
   subagents: SubagentCommandDescriptor[];
-}): { command: string; prompt: string } | null {
+}): {
+  command: string;
+  prompt: string;
+  subagent: {
+    name: string;
+    description?: string;
+    sourcePath: string;
+  };
+} | null {
   const leadingCommand = params.text.match(/^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/);
   if (!leadingCommand) {
     return null;
@@ -65,5 +73,10 @@ export function resolveSubagentCommand(params: {
       request: leadingCommand[2] ?? "",
       sourcePath: subagent.sourcePath,
     }),
+    subagent: {
+      name: subagent.name,
+      ...(subagent.description ? { description: subagent.description } : {}),
+      sourcePath: subagent.sourcePath,
+    },
   };
 }

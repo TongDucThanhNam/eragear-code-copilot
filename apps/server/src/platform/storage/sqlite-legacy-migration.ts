@@ -387,6 +387,9 @@ function importLegacySessions(params: {
       session.lastActiveAt,
       session.modeId ?? null,
       session.modelId ?? null,
+      toJson(session.modes),
+      toJson(session.models),
+      toJson(session.configOptions),
       toJson(session.plan),
       toJson(session.commands),
       toJson(session.agentCapabilities),
@@ -415,11 +418,12 @@ function importLegacySessions(params: {
     prefixSql: `INSERT OR IGNORE INTO sessions (
       id, name, session_id, project_id, project_root, command, args_json, env_json, cwd,
       load_session_supported, use_unstable_resume, supports_model_switching, agent_info_json,
-      status, pinned, archived, created_at, last_active_at, mode_id, model_id, plan_json,
+      status, pinned, archived, created_at, last_active_at, mode_id, model_id,
+      modes_json, models_json, config_options_json, plan_json,
       commands_json, agent_capabilities_json, auth_methods_json, message_count
     ) VALUES`,
     rows: sessionRows,
-    columnCount: 25,
+    columnCount: 28,
     preferredChunkSize: SESSION_IMPORT_CHUNK_SIZE,
   });
 

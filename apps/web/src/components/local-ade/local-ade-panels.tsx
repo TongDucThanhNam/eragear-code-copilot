@@ -93,17 +93,18 @@ const DEFAULT_MCP_REQUEST_TIMEOUT_MS = 3500;
 const DEFAULT_MCP_RECONNECT_ATTEMPTS = 1;
 const DEFAULT_MCP_NOTIFICATION_WATCH_MS = 1000;
 
-interface LocalAdeControlCenterProps {
+interface LocalAdeSurfaceProps {
   className?: string;
   compact?: boolean;
   onStartSession?: (agentId?: string) => void;
   onOpenSession?: (chatId: string) => void;
   onSubmitCommand?: (command: string, chatId?: string) => void | Promise<void>;
-  showHeader?: boolean;
-  visibleSections?: readonly LocalAdeControlCenterSection[];
+  sections: readonly LocalAdeSectionId[];
+  showTitle?: boolean;
+  title?: string;
 }
 
-export type LocalAdeControlCenterSection =
+type LocalAdeSectionId =
   | "overview"
   | "runtime"
   | "providers"
@@ -116,16 +117,34 @@ export type LocalAdeControlCenterSection =
   | "activity"
   | "storage";
 
-const LOCAL_ADE_CONTROL_CENTER_SECTIONS: readonly LocalAdeControlCenterSection[] = [
+const LOCAL_ADE_WORKSPACE_HOME_SECTIONS: readonly LocalAdeSectionId[] = [
   "overview",
   "runtime",
   "providers",
+];
+
+const LOCAL_ADE_RUNTIME_SETTINGS_SECTIONS: readonly LocalAdeSectionId[] = [
+  "runtime",
+  "providers",
+];
+
+const LOCAL_ADE_CAPABILITIES_SETTINGS_SECTIONS: readonly LocalAdeSectionId[] = [
   "capabilities",
+];
+
+const LOCAL_ADE_AUTOMATION_SETTINGS_SECTIONS: readonly LocalAdeSectionId[] = [
   "hooks",
   "plugins",
+];
+
+const LOCAL_ADE_MEMORY_SETTINGS_SECTIONS: readonly LocalAdeSectionId[] = [
   "memory",
-  "mcp",
   "project-index",
+];
+
+const LOCAL_ADE_MCP_SETTINGS_SECTIONS: readonly LocalAdeSectionId[] = ["mcp"];
+
+const LOCAL_ADE_ACTIVITY_SETTINGS_SECTIONS: readonly LocalAdeSectionId[] = [
   "activity",
   "storage",
 ];
@@ -6074,16 +6093,34 @@ function MemoryAndTrust({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }
   const checkpointRestoreConfirmed = checkpointPreview
     ? restoreConfirmation.trim() === checkpointPreview.restoreToken
     : false;
-  const updateMemory = trpc.settings.updateCapabilityState.useMutation({
+  const updateProjectMemoryCache = React.useCallback(
+    (data: RouterOutput["memory"]["list"]) => {
+      utils.memory.list.setData(undefined, data);
+      utils.settings.getLocalAdeSnapshot.setData(undefined, (current) =>
+        current
+          ? {
+              ...current,
+              projectMemory: {
+                sources: data.sources,
+                presets: data.presets,
+                warnings: data.warnings,
+              },
+            }
+          : current
+      );
+    },
+    [utils]
+  );
+  const updateMemory = trpc.memory.setSourceEnabled.useMutation({
     onSuccess: (data) => {
-      utils.settings.getLocalAdeSnapshot.setData(undefined, data);
+      updateProjectMemoryCache(data);
     },
     onError: (error) => toast.error(error.message),
   });
   const upsertProjectMemoryPreset =
-    trpc.settings.upsertProjectMemoryPreset.useMutation({
+    trpc.memory.upsertPreset.useMutation({
       onSuccess: (data) => {
-        utils.settings.getLocalAdeSnapshot.setData(undefined, data);
+        updateProjectMemoryCache(data);
         setMemoryPresetName("");
         setMemoryPresetQuery("");
         setMemoryPresetMaxBytes("12000");
@@ -6095,9 +6132,9 @@ function MemoryAndTrust({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }
       onError: (error) => toast.error(error.message),
     });
   const deleteProjectMemoryPreset =
-    trpc.settings.deleteProjectMemoryPreset.useMutation({
+    trpc.memory.deletePreset.useMutation({
       onSuccess: (data) => {
-        utils.settings.getLocalAdeSnapshot.setData(undefined, data);
+        updateProjectMemoryCache(data);
         toast.success("Project Memory preset deleted");
       },
       onError: (error) => toast.error(error.message),
@@ -6437,7 +6474,7 @@ function MemoryAndTrust({ snapshot }: { snapshot: LocalAdeSnapshot | undefined }
                   disabled={updateMemory.isPending}
                   onCheckedChange={(enabled) =>
                     updateMemory.mutate({
-                      capabilityId: source.id,
+                      sourceId: source.id,
                       enabled,
                     })
                   }
@@ -8340,15 +8377,16 @@ function LogsAndParity({ snapshot }: { snapshot: LocalAdeSnapshot | undefined })
   );
 }
 
-export function LocalAdeControlCenter({
+function LocalAdeSectionsSurface({
   className,
   compact = false,
   onOpenSession,
   onStartSession,
   onSubmitCommand,
-  showHeader = true,
-  visibleSections,
-}: LocalAdeControlCenterProps) {
+  sections,
+  showTitle = true,
+  title = "Workspace Overview",
+}: LocalAdeSurfaceProps) {
   const utils = trpc.useUtils();
   const desktopBootstrap = useServerConfigStore((state) => state.desktopBootstrap);
   const [isTestingProviders, setIsTestingProviders] = React.useState(false);
@@ -8495,24 +8533,18 @@ export function LocalAdeControlCenter({
       toast.error("Failed to copy command");
     }
   }, []);
-  const visibleSectionSet = React.useMemo(
-    () => new Set(visibleSections ?? LOCAL_ADE_CONTROL_CENTER_SECTIONS),
-    [visibleSections]
-  );
-  const hasSection = (section: LocalAdeControlCenterSection) =>
-    visibleSectionSet.has(section);
+  const visibleSectionSet = React.useMemo(() => new Set(sections), [sections]);
+  const hasSection = (section: LocalAdeSectionId) => visibleSectionSet.has(section);
   const hasMemoryOrMcp = hasSection("memory") || hasSection("mcp");
   const splitMemoryAndMcp =
     !compact && hasSection("memory") && hasSection("mcp");
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-4", className)}>
-      {showHeader ? (
+      {showTitle ? (
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-semibold text-xl tracking-tight">
-              Local ADE Control Center
-            </h2>
+            <h2 className="font-semibold text-xl tracking-tight">{title}</h2>
             <p className="mt-1 truncate text-muted-foreground text-sm">
               {shortPath(snapshot?.projectRoot)} - Electron IPC/private desktop-service
             </p>
@@ -8700,4 +8732,57 @@ export function LocalAdeControlCenter({
       ) : null}
     </div>
   );
+}
+
+type LocalAdeWorkspaceHomeProps = Pick<
+  LocalAdeSurfaceProps,
+  "className" | "compact" | "onOpenSession" | "onStartSession" | "onSubmitCommand"
+>;
+
+export function LocalAdeWorkspaceHome(props: LocalAdeWorkspaceHomeProps) {
+  return (
+    <LocalAdeSectionsSurface
+      {...props}
+      sections={LOCAL_ADE_WORKSPACE_HOME_SECTIONS}
+      title="Workspace Overview"
+    />
+  );
+}
+
+function LocalAdeSettingsPanel({
+  sections,
+}: {
+  sections: readonly LocalAdeSectionId[];
+}) {
+  return (
+    <LocalAdeSectionsSurface
+      className="overflow-visible p-0"
+      sections={sections}
+      showTitle={false}
+    />
+  );
+}
+
+export function LocalAdeRuntimeSettingsPanel() {
+  return <LocalAdeSettingsPanel sections={LOCAL_ADE_RUNTIME_SETTINGS_SECTIONS} />;
+}
+
+export function LocalAdeCapabilitiesSettingsPanel() {
+  return <LocalAdeSettingsPanel sections={LOCAL_ADE_CAPABILITIES_SETTINGS_SECTIONS} />;
+}
+
+export function LocalAdeAutomationSettingsPanel() {
+  return <LocalAdeSettingsPanel sections={LOCAL_ADE_AUTOMATION_SETTINGS_SECTIONS} />;
+}
+
+export function LocalAdeMemorySettingsPanel() {
+  return <LocalAdeSettingsPanel sections={LOCAL_ADE_MEMORY_SETTINGS_SECTIONS} />;
+}
+
+export function LocalAdeMcpSettingsPanel() {
+  return <LocalAdeSettingsPanel sections={LOCAL_ADE_MCP_SETTINGS_SECTIONS} />;
+}
+
+export function LocalAdeActivitySettingsPanel() {
+  return <LocalAdeSettingsPanel sections={LOCAL_ADE_ACTIVITY_SETTINGS_SECTIONS} />;
 }

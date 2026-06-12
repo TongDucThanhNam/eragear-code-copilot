@@ -80,6 +80,8 @@ export const DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS = 15_000;
 export const DEFAULT_BACKGROUND_CACHE_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 /** Default interval for plugin batch schedule dispatch in milliseconds */
 export const DEFAULT_BACKGROUND_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS = 1000;
+/** Default interval for task auto-archive maintenance in milliseconds */
+export const DEFAULT_BACKGROUND_TASK_AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000;
 /** Default cooldown before retrying failed storage initialization */
 export const DEFAULT_STORAGE_INIT_RETRY_COOLDOWN_MS = 60_000;
 /** Default storage busy timeout in milliseconds */

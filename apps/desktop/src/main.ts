@@ -7,8 +7,9 @@ import type {
   RuntimeServiceOperation,
   RuntimeSecurityPosture,
 } from "@repo/shared";
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, Notification, session } from "electron";
 import type { BrowserWindowConstructorOptions, IpcMainInvokeEvent, WebContents } from "electron";
+import { DesktopAutoUpdateController } from "./auto-update.js";
 import { DesktopRuntimeHost } from "./runtime-host.js";
 import {
   createRendererContentSecurityPolicy,
@@ -57,6 +58,20 @@ const runtimeHost = new DesktopRuntimeHost({
   ...(process.env.ERAGEAR_REMOTE_API_KEY
     ? { remoteApiKey: process.env.ERAGEAR_REMOTE_API_KEY }
     : {}),
+});
+const autoUpdateController = new DesktopAutoUpdateController({
+  currentVersion: app.getVersion(),
+  manifestUrl: process.env.ERAGEAR_DESKTOP_UPDATE_MANIFEST_URL,
+  notifyUpdate: (status) => {
+    if (!Notification.isSupported()) {
+      return;
+    }
+    const version = status.latestVersion ?? "latest";
+    new Notification({
+      title: "Eragear update available",
+      body: `Version ${version} is available.`,
+    }).show();
+  },
 });
 
 function parsePort(value: string | undefined, fallback: number): number {
@@ -185,8 +200,17 @@ function createMainWindow(): void {
     minWidth: 960,
     minHeight: 640,
     title: "Eragear Copilot",
+    autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#111827",
+      symbolColor: "#f9fafb",
+      height: 40,
+    },
     webPreferences,
   });
+
+  mainWindow.setMenuBarVisibility(false);
 
   mainWindow.webContents.on("console-message", (_event, level, message) => {
     const label = level >= 2 ? "renderer:err" : "renderer";
@@ -204,9 +228,19 @@ function createMainWindow(): void {
   void mainWindow.loadURL(rendererUrl);
 }
 
-ipcMain.handle("eragear:getBootstrap", () => runtimeHost.getBootstrap());
+function getDesktopBootstrap() {
+  return {
+    ...runtimeHost.getBootstrap(),
+    autoUpdate: autoUpdateController.status(),
+  };
+}
+
+ipcMain.handle("eragear:getBootstrap", () => getDesktopBootstrap());
 ipcMain.handle("eragear:getRuntimeDiagnostics", () =>
   runtimeHost.diagnostics()
+);
+ipcMain.handle("eragear:checkForUpdates", () =>
+  autoUpdateController.checkForUpdates({ notify: true })
 );
 ipcMain.handle(
   "eragear:runtimeRequest",
@@ -299,6 +333,7 @@ app
   .whenReady()
   .then(async () => {
     console.log(`[desktop] Starting Eragear desktop on ${os.platform()}.`);
+    Menu.setApplicationMenu(null);
     configureRendererSecurityHeaders();
     const diagnostics = await runtimeHost.start();
     console.log("[desktop] Runtime diagnostics", {
@@ -309,6 +344,15 @@ app
       securityPosture: diagnostics.securityPosture?.status,
     });
     createMainWindow();
+    if (process.env.ERAGEAR_DESKTOP_UPDATE_CHECK_ON_STARTUP !== "0") {
+      void autoUpdateController.checkForUpdates({ notify: true }).catch((error) => {
+        console.warn(
+          `[desktop] Update check failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      });
+    }
   })
   .catch((error) => {
     console.warn(

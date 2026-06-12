@@ -1,5 +1,9 @@
 import type { AgentRepositoryPort } from "@/modules/agent";
-import type { SendMessagePolicy } from "@/modules/ai";
+import type {
+  OutputStylePromptPort,
+  PromptEnhancerPort,
+  SendMessagePolicy,
+} from "@/modules/ai";
 import type { ProjectRepositoryPort } from "@/modules/project";
 import type {
   AgentRuntimePort,
@@ -35,6 +39,8 @@ export interface ServiceRegistryDependencies {
   agentRuntimeAdapter: AgentRuntimePort;
   sessionAcpAdapter: SessionAcpPort;
   sendMessagePolicy: SendMessagePolicy;
+  promptEnhancer?: PromptEnhancerPort;
+  outputStylePrompt?: OutputStylePromptPort;
   supervisorPolicy: SupervisorPolicy;
   sessionUiMessageLimit: number;
   getCacheStats: () => CacheStats;

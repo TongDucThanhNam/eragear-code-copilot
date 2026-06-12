@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotEnv } from "dotenv";
+import { resolveAuthOAuthProvidersFromEnv } from "@/platform/auth/oauth-providers";
 import type { LogLevel, LogOutputFormat } from "@/shared/types/log.types";
 import {
   assertCompiledBootRequirements,
@@ -36,6 +37,7 @@ import {
   DEFAULT_BACKGROUND_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS,
   DEFAULT_BACKGROUND_SESSION_CLEANUP_INTERVAL_MS,
   DEFAULT_BACKGROUND_STORAGE_MAINTENANCE_INTERVAL_MS,
+  DEFAULT_BACKGROUND_TASK_AUTO_ARCHIVE_INTERVAL_MS,
   DEFAULT_BACKGROUND_TASK_TIMEOUT_MS,
   DEFAULT_BACKGROUND_TICK_MS,
   DEFAULT_EDITOR_BUFFER_MAX_FILES_PER_SESSION,
@@ -328,6 +330,23 @@ const authTrustedOrigins = resolveAuthTrustedOrigins({
   authBaseUrl,
   wsPort,
 });
+const authOAuthProviders = resolveAuthOAuthProvidersFromEnv({
+  githubClientId: env.AUTH_OAUTH_GITHUB_CLIENT_ID,
+  githubClientIdAlias: env.GITHUB_CLIENT_ID,
+  githubClientSecret: env.AUTH_OAUTH_GITHUB_CLIENT_SECRET,
+  githubClientSecretAlias: env.GITHUB_CLIENT_SECRET,
+  githubScopes: toList(env.AUTH_OAUTH_GITHUB_SCOPES),
+  googleClientId: env.AUTH_OAUTH_GOOGLE_CLIENT_ID,
+  googleClientIdAlias: env.GOOGLE_CLIENT_ID,
+  googleClientSecret: env.AUTH_OAUTH_GOOGLE_CLIENT_SECRET,
+  googleClientSecretAlias: env.GOOGLE_CLIENT_SECRET,
+  googleScopes: toList(env.AUTH_OAUTH_GOOGLE_SCOPES),
+  discordClientId: env.AUTH_OAUTH_DISCORD_CLIENT_ID,
+  discordClientIdAlias: env.DISCORD_CLIENT_ID,
+  discordClientSecret: env.AUTH_OAUTH_DISCORD_CLIENT_SECRET,
+  discordClientSecretAlias: env.DISCORD_CLIENT_SECRET,
+  discordScopes: toList(env.AUTH_OAUTH_DISCORD_SCOPES),
+});
 const authTrustedProxyIps = toList(env.AUTH_TRUSTED_PROXY_IPS);
 const authRequireCloudflareAccess = toBoolean(
   env.AUTH_REQUIRE_CLOUDFLARE_ACCESS,
@@ -535,6 +554,8 @@ export const ENV = {
   authBaseUrl,
   /** Better Auth trusted origins */
   authTrustedOrigins,
+  /** Better Auth OAuth providers configured from environment */
+  authOAuthProviders,
   /** Trusted reverse-proxy source IPs allowed to provide forwarded client IP headers */
   authTrustedProxyIps,
   /** Enable loopback-only desktop local auth token resolution */
@@ -736,6 +757,11 @@ export const ENV = {
   backgroundPluginBatchScheduleIntervalMs: toPositiveInt(
     env.BACKGROUND_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS,
     DEFAULT_BACKGROUND_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS
+  ),
+  /** Interval for task auto-archive maintenance in milliseconds */
+  backgroundTaskAutoArchiveIntervalMs: toPositiveInt(
+    env.BACKGROUND_TASK_AUTO_ARCHIVE_INTERVAL_MS,
+    DEFAULT_BACKGROUND_TASK_AUTO_ARCHIVE_INTERVAL_MS
   ),
   /** Interval for sqlite maintenance task in milliseconds */
   backgroundSqliteMaintenanceIntervalMs: toPositiveInt(

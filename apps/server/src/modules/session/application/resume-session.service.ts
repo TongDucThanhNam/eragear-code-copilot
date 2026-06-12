@@ -7,7 +7,7 @@
  * @module modules/session/application/resume-session.service
  */
 
-import { isAppError, NotFoundError, ValidationError } from "@/shared/errors";
+import { isAppError, NotFoundError } from "@/shared/errors";
 import type { CreateSessionService } from "./create-session.service";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
@@ -69,14 +69,6 @@ export class ResumeSessionService {
         details: { chatId },
       });
     }
-    if (!stored.sessionId) {
-      throw new ValidationError("Session is missing ACP sessionId", {
-        module: "session",
-        op: OP,
-        details: { chatId },
-      });
-    }
-
     const existing = this.sessionRuntime.get(chatId);
     if (existing) {
       return {
@@ -95,6 +87,20 @@ export class ResumeSessionService {
     }
 
     let res: Awaited<ReturnType<CreateSessionService["execute"]>>;
+    if (!stored.sessionId) {
+      res = await this.createSession.execute({
+        userId,
+        projectId: stored.projectId,
+        projectRoot: stored.projectRoot,
+        command: stored.command,
+        args: stored.args,
+        env: stored.env,
+        chatId: stored.id,
+        importExternalHistoryOnLoad: false,
+      });
+      return toResumeResult(res, stored);
+    }
+
     try {
       res = await this.createSession.execute({
         userId,
@@ -126,18 +132,25 @@ export class ResumeSessionService {
       });
     }
 
-    return {
-      ok: true,
-      chatId: res.id,
-      sessionLoadMethod: res.sessionLoadMethod ?? null,
-      modes: res.modes,
-      models: res.models,
-      configOptions: res.configOptions ?? null,
-      sessionInfo: res.sessionInfo ?? null,
-      promptCapabilities: res.promptCapabilities,
-      loadSessionSupported: res.loadSessionSupported ?? false,
-      supportsModelSwitching: res.supportsModelSwitching ?? false,
-      plan: res.plan ?? stored.plan ?? null,
-    };
+    return toResumeResult(res, stored);
   }
+}
+
+function toResumeResult(
+  res: Awaited<ReturnType<CreateSessionService["execute"]>>,
+  stored: Awaited<ReturnType<SessionRepositoryPort["findById"]>>
+) {
+  return {
+    ok: true,
+    chatId: res.id,
+    sessionLoadMethod: res.sessionLoadMethod ?? null,
+    modes: res.modes,
+    models: res.models,
+    configOptions: res.configOptions ?? null,
+    sessionInfo: res.sessionInfo ?? null,
+    promptCapabilities: res.promptCapabilities,
+    loadSessionSupported: res.loadSessionSupported ?? false,
+    supportsModelSwitching: res.supportsModelSwitching ?? false,
+    plan: res.plan ?? stored?.plan ?? null,
+  };
 }

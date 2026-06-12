@@ -8,6 +8,13 @@ export const SessionChatIdInputSchema = z.object({
   chatId: z.string(),
 });
 
+export const ForkSessionInputSchema = z
+  .object({
+    chatId: z.string().min(1),
+    name: z.string().trim().min(1).max(120).optional(),
+  })
+  .strict();
+
 /**
  * Input schema for the onSessionEvents subscription.
  * `subscriptionEpoch` is an opaque client-side monotonic counter used to force
@@ -92,7 +99,19 @@ export const SessionMessageByIdInputSchema = z.object({
   messageId: z.string().min(1),
 });
 
+export const CompactSessionMessagesInputSchema = z
+  .object({
+    beforeTimestamp: z.number().int().nonnegative(),
+    batchSize: z.number().int().min(1).max(10_000),
+  })
+  .strict();
+
+export const ListSubagentInvocationsInputSchema = z.object({
+  chatId: z.string(),
+});
+
 export type SessionChatIdInput = z.infer<typeof SessionChatIdInputSchema>;
+export type ForkSessionInput = z.infer<typeof ForkSessionInputSchema>;
 export type SessionEventsInput = z.infer<typeof SessionEventsInputSchema>;
 export type CreateSessionInput = z.infer<typeof CreateSessionInputSchema>;
 export type DiscoverAgentSessionsInput = z.infer<
@@ -109,4 +128,10 @@ export type SessionMessagesPageInput = z.infer<
 >;
 export type SessionMessageByIdInput = z.infer<
   typeof SessionMessageByIdInputSchema
+>;
+export type CompactSessionMessagesInput = z.infer<
+  typeof CompactSessionMessagesInputSchema
+>;
+export type ListSubagentInvocationsInput = z.infer<
+  typeof ListSubagentInvocationsInputSchema
 >;

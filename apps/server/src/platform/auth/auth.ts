@@ -5,6 +5,11 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { apiKey, multiSession, username } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { authSchema } from "./drizzle-schema";
+import {
+  type AuthOAuthProviderCredentialsMap,
+  createAuthOAuthProviderDescriptors,
+  createBetterAuthSocialProviders,
+} from "./oauth-providers";
 import { ensureAuthDbWritable } from "./paths";
 import { getAuthSecret } from "./secret";
 
@@ -22,6 +27,7 @@ export interface AuthRuntimePolicy {
   authApiKeyRateLimitEnabled: boolean;
   authApiKeyRateLimitTimeWindowMs: number;
   authApiKeyRateLimitMaxRequests: number;
+  oauthProviders: AuthOAuthProviderCredentialsMap;
 }
 
 export function createAuthRuntime(policy: AuthRuntimePolicy) {
@@ -36,6 +42,12 @@ export function createAuthRuntime(policy: AuthRuntimePolicy) {
     bootstrapApiKey: null,
   };
   const expoPlugin = expo() as BetterAuthPlugin;
+  const socialProviders = createBetterAuthSocialProviders(
+    policy.oauthProviders
+  );
+  const oauthProviderDescriptors = createAuthOAuthProviderDescriptors(
+    policy.oauthProviders
+  );
 
   const authConfig = {
     database: drizzleAdapter(authOrm, {
@@ -48,6 +60,7 @@ export function createAuthRuntime(policy: AuthRuntimePolicy) {
     emailAndPassword: {
       enabled: true,
     },
+    ...(Object.keys(socialProviders).length > 0 ? { socialProviders } : {}),
     plugins: [
       expoPlugin,
       username(),
@@ -79,6 +92,7 @@ export function createAuthRuntime(policy: AuthRuntimePolicy) {
     authState,
     authConfig,
     authMigrationConfig,
+    oauthProviderDescriptors,
     auth,
   };
 }

@@ -55,6 +55,21 @@ export function createAiUseCases(
     runtimePolicyProvider: () => ({
       maxTokens: deps.appConfigService.getConfig().maxTokens,
     }),
+    afterTurnComplete: async (event) => {
+      await deps.eventBus.publish({
+        type: "local_ade_lifecycle",
+        event: "after-agent-turn-complete",
+        userId: event.userId,
+        projectRoot: event.projectRoot,
+        ...(event.projectId ? { projectId: event.projectId } : {}),
+        chatId: event.chatId,
+        ...(event.agentSessionId
+          ? { agentSessionId: event.agentSessionId }
+          : {}),
+        turnId: event.turnId,
+        stopReason: event.stopReason,
+      });
+    },
   });
   const sendMessageService = new SendMessageService({
     sessionRepo: deps.sessionRepo,
@@ -65,6 +80,10 @@ export function createAiUseCases(
     inputPolicy: deps.sendMessagePolicy,
     clock: deps.clock,
     eventBus: deps.eventBus,
+    ...(deps.promptEnhancer ? { promptEnhancer: deps.promptEnhancer } : {}),
+    ...(deps.outputStylePrompt
+      ? { outputStylePrompt: deps.outputStylePrompt }
+      : {}),
   });
   const setModelService = new SetModelService(
     deps.sessionRuntime,
@@ -72,7 +91,8 @@ export function createAiUseCases(
     {
       acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
       acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
-    }
+    },
+    deps.sessionRepo
   );
   const setModeService = new SetModeService(
     deps.sessionRuntime,
@@ -80,7 +100,8 @@ export function createAiUseCases(
     {
       acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
       acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
-    }
+    },
+    deps.sessionRepo
   );
   const setConfigOptionService = new SetConfigOptionService(
     deps.sessionRuntime,
@@ -88,7 +109,8 @@ export function createAiUseCases(
     {
       acpRetryMaxAttempts: deps.sendMessagePolicy.acpRetryMaxAttempts,
       acpRetryBaseDelayMs: deps.sendMessagePolicy.acpRetryBaseDelayMs,
-    }
+    },
+    deps.sessionRepo
   );
   const cancelPromptService = new CancelPromptService(
     deps.sessionRuntime,

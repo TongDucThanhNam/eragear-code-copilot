@@ -12,14 +12,34 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
+import { Route as SettingsTrafficProxyRouteImport } from './routes/settings.traffic-proxy'
+import { Route as SettingsTerminalRouteImport } from './routes/settings.terminal'
+import { Route as SettingsSyncRouteImport } from './routes/settings.sync'
+import { Route as SettingsSkillsRouteImport } from './routes/settings.skills'
 import { Route as SettingsRuntimeRouteImport } from './routes/settings.runtime'
+import { Route as SettingsRepoSnapshotsRouteImport } from './routes/settings.repo-snapshots'
+import { Route as SettingsRemoteControlRouteImport } from './routes/settings.remote-control'
+import { Route as SettingsPromptEnhancementRouteImport } from './routes/settings.prompt-enhancement'
+import { Route as SettingsPluginsRouteImport } from './routes/settings.plugins'
+import { Route as SettingsPlanRouteImport } from './routes/settings.plan'
+import { Route as SettingsOutputStyleRouteImport } from './routes/settings.output-style'
+import { Route as SettingsOauthRouteImport } from './routes/settings.oauth'
+import { Route as SettingsModelProvidersRouteImport } from './routes/settings.model-providers'
 import { Route as SettingsMemoryRouteImport } from './routes/settings.memory'
 import { Route as SettingsMcpRouteImport } from './routes/settings.mcp'
+import { Route as SettingsHooksRouteImport } from './routes/settings.hooks'
+import { Route as SettingsCredentialsRouteImport } from './routes/settings.credentials'
+import { Route as SettingsCrashReportingRouteImport } from './routes/settings.crash-reporting'
 import { Route as SettingsConnectionRouteImport } from './routes/settings.connection'
+import { Route as SettingsCommandsRouteImport } from './routes/settings.commands'
 import { Route as SettingsCapabilitiesRouteImport } from './routes/settings.capabilities'
+import { Route as SettingsBotsRouteImport } from './routes/settings.bots'
 import { Route as SettingsAutomationRouteImport } from './routes/settings.automation'
+import { Route as SettingsArchiveRouteImport } from './routes/settings.archive'
 import { Route as SettingsAgentsRouteImport } from './routes/settings.agents'
 import { Route as SettingsActivityRouteImport } from './routes/settings.activity'
+import { Route as SettingsAcpAuthRouteImport } from './routes/settings.acp-auth'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -36,9 +56,75 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsUsageRoute = SettingsUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsTrafficProxyRoute = SettingsTrafficProxyRouteImport.update({
+  id: '/traffic-proxy',
+  path: '/traffic-proxy',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsTerminalRoute = SettingsTerminalRouteImport.update({
+  id: '/terminal',
+  path: '/terminal',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSyncRoute = SettingsSyncRouteImport.update({
+  id: '/sync',
+  path: '/sync',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSkillsRoute = SettingsSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsRuntimeRoute = SettingsRuntimeRouteImport.update({
   id: '/runtime',
   path: '/runtime',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRepoSnapshotsRoute = SettingsRepoSnapshotsRouteImport.update({
+  id: '/repo-snapshots',
+  path: '/repo-snapshots',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRemoteControlRoute = SettingsRemoteControlRouteImport.update({
+  id: '/remote-control',
+  path: '/remote-control',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsPromptEnhancementRoute =
+  SettingsPromptEnhancementRouteImport.update({
+    id: '/prompt-enhancement',
+    path: '/prompt-enhancement',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsPluginsRoute = SettingsPluginsRouteImport.update({
+  id: '/plugins',
+  path: '/plugins',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsPlanRoute = SettingsPlanRouteImport.update({
+  id: '/plan',
+  path: '/plan',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsOutputStyleRoute = SettingsOutputStyleRouteImport.update({
+  id: '/output-style',
+  path: '/output-style',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsOauthRoute = SettingsOauthRouteImport.update({
+  id: '/oauth',
+  path: '/oauth',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsModelProvidersRoute = SettingsModelProvidersRouteImport.update({
+  id: '/model-providers',
+  path: '/model-providers',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsMemoryRoute = SettingsMemoryRouteImport.update({
@@ -51,9 +137,29 @@ const SettingsMcpRoute = SettingsMcpRouteImport.update({
   path: '/mcp',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsHooksRoute = SettingsHooksRouteImport.update({
+  id: '/hooks',
+  path: '/hooks',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsCredentialsRoute = SettingsCredentialsRouteImport.update({
+  id: '/credentials',
+  path: '/credentials',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsCrashReportingRoute = SettingsCrashReportingRouteImport.update({
+  id: '/crash-reporting',
+  path: '/crash-reporting',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsConnectionRoute = SettingsConnectionRouteImport.update({
   id: '/connection',
   path: '/connection',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsCommandsRoute = SettingsCommandsRouteImport.update({
+  id: '/commands',
+  path: '/commands',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsCapabilitiesRoute = SettingsCapabilitiesRouteImport.update({
@@ -61,9 +167,19 @@ const SettingsCapabilitiesRoute = SettingsCapabilitiesRouteImport.update({
   path: '/capabilities',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsBotsRoute = SettingsBotsRouteImport.update({
+  id: '/bots',
+  path: '/bots',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsAutomationRoute = SettingsAutomationRouteImport.update({
   id: '/automation',
   path: '/automation',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsArchiveRoute = SettingsArchiveRouteImport.update({
+  id: '/archive',
+  path: '/archive',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
@@ -76,44 +192,109 @@ const SettingsActivityRoute = SettingsActivityRouteImport.update({
   path: '/activity',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsAcpAuthRoute = SettingsAcpAuthRouteImport.update({
+  id: '/acp-auth',
+  path: '/acp-auth',
+  getParentRoute: () => SettingsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/settings/acp-auth': typeof SettingsAcpAuthRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/archive': typeof SettingsArchiveRoute
   '/settings/automation': typeof SettingsAutomationRoute
+  '/settings/bots': typeof SettingsBotsRoute
   '/settings/capabilities': typeof SettingsCapabilitiesRoute
+  '/settings/commands': typeof SettingsCommandsRoute
   '/settings/connection': typeof SettingsConnectionRoute
+  '/settings/crash-reporting': typeof SettingsCrashReportingRoute
+  '/settings/credentials': typeof SettingsCredentialsRoute
+  '/settings/hooks': typeof SettingsHooksRoute
   '/settings/mcp': typeof SettingsMcpRoute
   '/settings/memory': typeof SettingsMemoryRoute
+  '/settings/model-providers': typeof SettingsModelProvidersRoute
+  '/settings/oauth': typeof SettingsOauthRoute
+  '/settings/output-style': typeof SettingsOutputStyleRoute
+  '/settings/plan': typeof SettingsPlanRoute
+  '/settings/plugins': typeof SettingsPluginsRoute
+  '/settings/prompt-enhancement': typeof SettingsPromptEnhancementRoute
+  '/settings/remote-control': typeof SettingsRemoteControlRoute
+  '/settings/repo-snapshots': typeof SettingsRepoSnapshotsRoute
   '/settings/runtime': typeof SettingsRuntimeRoute
+  '/settings/skills': typeof SettingsSkillsRoute
+  '/settings/sync': typeof SettingsSyncRoute
+  '/settings/terminal': typeof SettingsTerminalRoute
+  '/settings/traffic-proxy': typeof SettingsTrafficProxyRoute
+  '/settings/usage': typeof SettingsUsageRoute
   '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/settings/acp-auth': typeof SettingsAcpAuthRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/archive': typeof SettingsArchiveRoute
   '/settings/automation': typeof SettingsAutomationRoute
+  '/settings/bots': typeof SettingsBotsRoute
   '/settings/capabilities': typeof SettingsCapabilitiesRoute
+  '/settings/commands': typeof SettingsCommandsRoute
   '/settings/connection': typeof SettingsConnectionRoute
+  '/settings/crash-reporting': typeof SettingsCrashReportingRoute
+  '/settings/credentials': typeof SettingsCredentialsRoute
+  '/settings/hooks': typeof SettingsHooksRoute
   '/settings/mcp': typeof SettingsMcpRoute
   '/settings/memory': typeof SettingsMemoryRoute
+  '/settings/model-providers': typeof SettingsModelProvidersRoute
+  '/settings/oauth': typeof SettingsOauthRoute
+  '/settings/output-style': typeof SettingsOutputStyleRoute
+  '/settings/plan': typeof SettingsPlanRoute
+  '/settings/plugins': typeof SettingsPluginsRoute
+  '/settings/prompt-enhancement': typeof SettingsPromptEnhancementRoute
+  '/settings/remote-control': typeof SettingsRemoteControlRoute
+  '/settings/repo-snapshots': typeof SettingsRepoSnapshotsRoute
   '/settings/runtime': typeof SettingsRuntimeRoute
+  '/settings/skills': typeof SettingsSkillsRoute
+  '/settings/sync': typeof SettingsSyncRoute
+  '/settings/terminal': typeof SettingsTerminalRoute
+  '/settings/traffic-proxy': typeof SettingsTrafficProxyRoute
+  '/settings/usage': typeof SettingsUsageRoute
   '/settings': typeof SettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/settings/acp-auth': typeof SettingsAcpAuthRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/archive': typeof SettingsArchiveRoute
   '/settings/automation': typeof SettingsAutomationRoute
+  '/settings/bots': typeof SettingsBotsRoute
   '/settings/capabilities': typeof SettingsCapabilitiesRoute
+  '/settings/commands': typeof SettingsCommandsRoute
   '/settings/connection': typeof SettingsConnectionRoute
+  '/settings/crash-reporting': typeof SettingsCrashReportingRoute
+  '/settings/credentials': typeof SettingsCredentialsRoute
+  '/settings/hooks': typeof SettingsHooksRoute
   '/settings/mcp': typeof SettingsMcpRoute
   '/settings/memory': typeof SettingsMemoryRoute
+  '/settings/model-providers': typeof SettingsModelProvidersRoute
+  '/settings/oauth': typeof SettingsOauthRoute
+  '/settings/output-style': typeof SettingsOutputStyleRoute
+  '/settings/plan': typeof SettingsPlanRoute
+  '/settings/plugins': typeof SettingsPluginsRoute
+  '/settings/prompt-enhancement': typeof SettingsPromptEnhancementRoute
+  '/settings/remote-control': typeof SettingsRemoteControlRoute
+  '/settings/repo-snapshots': typeof SettingsRepoSnapshotsRoute
   '/settings/runtime': typeof SettingsRuntimeRoute
+  '/settings/skills': typeof SettingsSkillsRoute
+  '/settings/sync': typeof SettingsSyncRoute
+  '/settings/terminal': typeof SettingsTerminalRoute
+  '/settings/traffic-proxy': typeof SettingsTrafficProxyRoute
+  '/settings/usage': typeof SettingsUsageRoute
   '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRouteTypes {
@@ -121,39 +302,99 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/settings'
+    | '/settings/acp-auth'
     | '/settings/activity'
     | '/settings/agents'
+    | '/settings/archive'
     | '/settings/automation'
+    | '/settings/bots'
     | '/settings/capabilities'
+    | '/settings/commands'
     | '/settings/connection'
+    | '/settings/crash-reporting'
+    | '/settings/credentials'
+    | '/settings/hooks'
     | '/settings/mcp'
     | '/settings/memory'
+    | '/settings/model-providers'
+    | '/settings/oauth'
+    | '/settings/output-style'
+    | '/settings/plan'
+    | '/settings/plugins'
+    | '/settings/prompt-enhancement'
+    | '/settings/remote-control'
+    | '/settings/repo-snapshots'
     | '/settings/runtime'
+    | '/settings/skills'
+    | '/settings/sync'
+    | '/settings/terminal'
+    | '/settings/traffic-proxy'
+    | '/settings/usage'
     | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/settings/acp-auth'
     | '/settings/activity'
     | '/settings/agents'
+    | '/settings/archive'
     | '/settings/automation'
+    | '/settings/bots'
     | '/settings/capabilities'
+    | '/settings/commands'
     | '/settings/connection'
+    | '/settings/crash-reporting'
+    | '/settings/credentials'
+    | '/settings/hooks'
     | '/settings/mcp'
     | '/settings/memory'
+    | '/settings/model-providers'
+    | '/settings/oauth'
+    | '/settings/output-style'
+    | '/settings/plan'
+    | '/settings/plugins'
+    | '/settings/prompt-enhancement'
+    | '/settings/remote-control'
+    | '/settings/repo-snapshots'
     | '/settings/runtime'
+    | '/settings/skills'
+    | '/settings/sync'
+    | '/settings/terminal'
+    | '/settings/traffic-proxy'
+    | '/settings/usage'
     | '/settings'
   id:
     | '__root__'
     | '/'
     | '/settings'
+    | '/settings/acp-auth'
     | '/settings/activity'
     | '/settings/agents'
+    | '/settings/archive'
     | '/settings/automation'
+    | '/settings/bots'
     | '/settings/capabilities'
+    | '/settings/commands'
     | '/settings/connection'
+    | '/settings/crash-reporting'
+    | '/settings/credentials'
+    | '/settings/hooks'
     | '/settings/mcp'
     | '/settings/memory'
+    | '/settings/model-providers'
+    | '/settings/oauth'
+    | '/settings/output-style'
+    | '/settings/plan'
+    | '/settings/plugins'
+    | '/settings/prompt-enhancement'
+    | '/settings/remote-control'
+    | '/settings/repo-snapshots'
     | '/settings/runtime'
+    | '/settings/skills'
+    | '/settings/sync'
+    | '/settings/terminal'
+    | '/settings/traffic-proxy'
+    | '/settings/usage'
     | '/settings/'
   fileRoutesById: FileRoutesById
 }
@@ -185,11 +426,102 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/usage': {
+      id: '/settings/usage'
+      path: '/usage'
+      fullPath: '/settings/usage'
+      preLoaderRoute: typeof SettingsUsageRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/traffic-proxy': {
+      id: '/settings/traffic-proxy'
+      path: '/traffic-proxy'
+      fullPath: '/settings/traffic-proxy'
+      preLoaderRoute: typeof SettingsTrafficProxyRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/terminal': {
+      id: '/settings/terminal'
+      path: '/terminal'
+      fullPath: '/settings/terminal'
+      preLoaderRoute: typeof SettingsTerminalRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/sync': {
+      id: '/settings/sync'
+      path: '/sync'
+      fullPath: '/settings/sync'
+      preLoaderRoute: typeof SettingsSyncRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/skills': {
+      id: '/settings/skills'
+      path: '/skills'
+      fullPath: '/settings/skills'
+      preLoaderRoute: typeof SettingsSkillsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/runtime': {
       id: '/settings/runtime'
       path: '/runtime'
       fullPath: '/settings/runtime'
       preLoaderRoute: typeof SettingsRuntimeRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/repo-snapshots': {
+      id: '/settings/repo-snapshots'
+      path: '/repo-snapshots'
+      fullPath: '/settings/repo-snapshots'
+      preLoaderRoute: typeof SettingsRepoSnapshotsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/remote-control': {
+      id: '/settings/remote-control'
+      path: '/remote-control'
+      fullPath: '/settings/remote-control'
+      preLoaderRoute: typeof SettingsRemoteControlRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/prompt-enhancement': {
+      id: '/settings/prompt-enhancement'
+      path: '/prompt-enhancement'
+      fullPath: '/settings/prompt-enhancement'
+      preLoaderRoute: typeof SettingsPromptEnhancementRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/plugins': {
+      id: '/settings/plugins'
+      path: '/plugins'
+      fullPath: '/settings/plugins'
+      preLoaderRoute: typeof SettingsPluginsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/plan': {
+      id: '/settings/plan'
+      path: '/plan'
+      fullPath: '/settings/plan'
+      preLoaderRoute: typeof SettingsPlanRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/output-style': {
+      id: '/settings/output-style'
+      path: '/output-style'
+      fullPath: '/settings/output-style'
+      preLoaderRoute: typeof SettingsOutputStyleRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/oauth': {
+      id: '/settings/oauth'
+      path: '/oauth'
+      fullPath: '/settings/oauth'
+      preLoaderRoute: typeof SettingsOauthRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/model-providers': {
+      id: '/settings/model-providers'
+      path: '/model-providers'
+      fullPath: '/settings/model-providers'
+      preLoaderRoute: typeof SettingsModelProvidersRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/memory': {
@@ -206,11 +538,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsMcpRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/hooks': {
+      id: '/settings/hooks'
+      path: '/hooks'
+      fullPath: '/settings/hooks'
+      preLoaderRoute: typeof SettingsHooksRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/credentials': {
+      id: '/settings/credentials'
+      path: '/credentials'
+      fullPath: '/settings/credentials'
+      preLoaderRoute: typeof SettingsCredentialsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/crash-reporting': {
+      id: '/settings/crash-reporting'
+      path: '/crash-reporting'
+      fullPath: '/settings/crash-reporting'
+      preLoaderRoute: typeof SettingsCrashReportingRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/connection': {
       id: '/settings/connection'
       path: '/connection'
       fullPath: '/settings/connection'
       preLoaderRoute: typeof SettingsConnectionRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/commands': {
+      id: '/settings/commands'
+      path: '/commands'
+      fullPath: '/settings/commands'
+      preLoaderRoute: typeof SettingsCommandsRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/capabilities': {
@@ -220,11 +580,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsCapabilitiesRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/bots': {
+      id: '/settings/bots'
+      path: '/bots'
+      fullPath: '/settings/bots'
+      preLoaderRoute: typeof SettingsBotsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/automation': {
       id: '/settings/automation'
       path: '/automation'
       fullPath: '/settings/automation'
       preLoaderRoute: typeof SettingsAutomationRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/archive': {
+      id: '/settings/archive'
+      path: '/archive'
+      fullPath: '/settings/archive'
+      preLoaderRoute: typeof SettingsArchiveRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/agents': {
@@ -241,30 +615,77 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsActivityRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/acp-auth': {
+      id: '/settings/acp-auth'
+      path: '/acp-auth'
+      fullPath: '/settings/acp-auth'
+      preLoaderRoute: typeof SettingsAcpAuthRouteImport
+      parentRoute: typeof SettingsRoute
+    }
   }
 }
 
 interface SettingsRouteChildren {
+  SettingsAcpAuthRoute: typeof SettingsAcpAuthRoute
   SettingsActivityRoute: typeof SettingsActivityRoute
   SettingsAgentsRoute: typeof SettingsAgentsRoute
+  SettingsArchiveRoute: typeof SettingsArchiveRoute
   SettingsAutomationRoute: typeof SettingsAutomationRoute
+  SettingsBotsRoute: typeof SettingsBotsRoute
   SettingsCapabilitiesRoute: typeof SettingsCapabilitiesRoute
+  SettingsCommandsRoute: typeof SettingsCommandsRoute
   SettingsConnectionRoute: typeof SettingsConnectionRoute
+  SettingsCrashReportingRoute: typeof SettingsCrashReportingRoute
+  SettingsCredentialsRoute: typeof SettingsCredentialsRoute
+  SettingsHooksRoute: typeof SettingsHooksRoute
   SettingsMcpRoute: typeof SettingsMcpRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
+  SettingsModelProvidersRoute: typeof SettingsModelProvidersRoute
+  SettingsOauthRoute: typeof SettingsOauthRoute
+  SettingsOutputStyleRoute: typeof SettingsOutputStyleRoute
+  SettingsPlanRoute: typeof SettingsPlanRoute
+  SettingsPluginsRoute: typeof SettingsPluginsRoute
+  SettingsPromptEnhancementRoute: typeof SettingsPromptEnhancementRoute
+  SettingsRemoteControlRoute: typeof SettingsRemoteControlRoute
+  SettingsRepoSnapshotsRoute: typeof SettingsRepoSnapshotsRoute
   SettingsRuntimeRoute: typeof SettingsRuntimeRoute
+  SettingsSkillsRoute: typeof SettingsSkillsRoute
+  SettingsSyncRoute: typeof SettingsSyncRoute
+  SettingsTerminalRoute: typeof SettingsTerminalRoute
+  SettingsTrafficProxyRoute: typeof SettingsTrafficProxyRoute
+  SettingsUsageRoute: typeof SettingsUsageRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsAcpAuthRoute: SettingsAcpAuthRoute,
   SettingsActivityRoute: SettingsActivityRoute,
   SettingsAgentsRoute: SettingsAgentsRoute,
+  SettingsArchiveRoute: SettingsArchiveRoute,
   SettingsAutomationRoute: SettingsAutomationRoute,
+  SettingsBotsRoute: SettingsBotsRoute,
   SettingsCapabilitiesRoute: SettingsCapabilitiesRoute,
+  SettingsCommandsRoute: SettingsCommandsRoute,
   SettingsConnectionRoute: SettingsConnectionRoute,
+  SettingsCrashReportingRoute: SettingsCrashReportingRoute,
+  SettingsCredentialsRoute: SettingsCredentialsRoute,
+  SettingsHooksRoute: SettingsHooksRoute,
   SettingsMcpRoute: SettingsMcpRoute,
   SettingsMemoryRoute: SettingsMemoryRoute,
+  SettingsModelProvidersRoute: SettingsModelProvidersRoute,
+  SettingsOauthRoute: SettingsOauthRoute,
+  SettingsOutputStyleRoute: SettingsOutputStyleRoute,
+  SettingsPlanRoute: SettingsPlanRoute,
+  SettingsPluginsRoute: SettingsPluginsRoute,
+  SettingsPromptEnhancementRoute: SettingsPromptEnhancementRoute,
+  SettingsRemoteControlRoute: SettingsRemoteControlRoute,
+  SettingsRepoSnapshotsRoute: SettingsRepoSnapshotsRoute,
   SettingsRuntimeRoute: SettingsRuntimeRoute,
+  SettingsSkillsRoute: SettingsSkillsRoute,
+  SettingsSyncRoute: SettingsSyncRoute,
+  SettingsTerminalRoute: SettingsTerminalRoute,
+  SettingsTrafficProxyRoute: SettingsTrafficProxyRoute,
+  SettingsUsageRoute: SettingsUsageRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 }
 

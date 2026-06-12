@@ -30,6 +30,9 @@ import migration0008 from "../../../drizzle/0008_sessions_supervisor_state.sql" 
 import migration0009 from "../../../drizzle/0009_projects_supervisor_memory_config.sql" with {
   type: "file",
 };
+import migration0010 from "../../../drizzle/0010_sessions_config_state.sql" with {
+  type: "file",
+};
 import journalAsset from "../../../drizzle/meta/_journal.json" with {
   type: "file",
 };
@@ -68,6 +71,10 @@ const EMBEDDED_MIGRATION_FILES = [
   {
     relativePath: "0009_projects_supervisor_memory_config.sql",
     sourcePath: migration0009,
+  },
+  {
+    relativePath: "0010_sessions_config_state.sql",
+    sourcePath: migration0010,
   },
   {
     relativePath: path.join("meta", "0006_snapshot.json"),

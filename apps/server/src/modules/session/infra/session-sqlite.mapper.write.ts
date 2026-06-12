@@ -31,6 +31,9 @@ type SessionMetadataUpdateKey =
   | "createdAt"
   | "modeId"
   | "modelId"
+  | "modes"
+  | "models"
+  | "configOptions"
   | "plan"
   | "commands"
   | "agentCapabilities"
@@ -70,6 +73,9 @@ const SESSION_METADATA_WRITERS: MetadataWriter = {
   createdAt: (value) => (typeof value === "number" ? { createdAt: value } : {}),
   modeId: (value) => ({ modeId: value ?? null }),
   modelId: (value) => ({ modelId: value ?? null }),
+  modes: (value) => ({ modesJson: toSqliteJson(value) }),
+  models: (value) => ({ modelsJson: toSqliteJson(value) }),
+  configOptions: (value) => ({ configOptionsJson: toSqliteJson(value) }),
   plan: (value) => ({ planJson: toSqliteJson(value) }),
   commands: (value) => ({ commandsJson: toSqliteJson(value) }),
   agentCapabilities: (value) => ({
@@ -133,6 +139,9 @@ export class SessionSqliteMapper extends SessionSqliteReadMapper {
       lastActiveAt: session.lastActiveAt,
       modeId: session.modeId ?? null,
       modelId: session.modelId ?? null,
+      modesJson: toSqliteJson(session.modes),
+      modelsJson: toSqliteJson(session.models),
+      configOptionsJson: toSqliteJson(session.configOptions),
       planJson: toSqliteJson(session.plan),
       commandsJson: toSqliteJson(session.commands),
       agentCapabilitiesJson: toSqliteJson(session.agentCapabilities),

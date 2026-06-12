@@ -7,6 +7,8 @@
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
+  --eragear-titlebar-height: 0px;
+  --eragear-window-controls-width: 0px;
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -37,6 +39,17 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+}
+
+:root[data-eragear-platform="electron"] {
+  --eragear-titlebar-height: env(titlebar-area-height, 40px);
+  --eragear-window-controls-width: max(
+    0px,
+    calc(
+      100vw - env(titlebar-area-x, 0px) -
+        env(titlebar-area-width, 100vw)
+    )
+  );
 }
 
 .dark {
@@ -124,5 +137,14 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer utilities {
+  :root[data-eragear-platform="electron"]
+    [data-eragear-window-controls-safe="right"] {
+    padding-inline-end: calc(
+      var(--spacing) * 4 + var(--eragear-window-controls-width)
+    );
   }
 }

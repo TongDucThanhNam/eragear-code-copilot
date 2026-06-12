@@ -1,5 +1,6 @@
 import { normalizeServerUrl } from "@/lib/server-url";
 import type {
+  DesktopAutoUpdateStatus,
   DesktopRuntimeBootstrap,
   DesktopRuntimeMode,
   RuntimeDiagnostics,
@@ -15,6 +16,7 @@ export type EragearDesktopBootstrap = DesktopRuntimeBootstrap;
 interface EragearDesktopBridge {
   getBootstrap: () => Promise<unknown>;
   getRuntimeDiagnostics?: () => Promise<unknown>;
+  checkForUpdates?: () => Promise<unknown>;
   requestRuntime?: (input: {
     auth?: RuntimeServiceAuth;
     operation: RuntimeServiceOperation;
@@ -89,6 +91,9 @@ function toDesktopBootstrap(
     ...(isRuntimeDiagnostics(candidate.runtimeDiagnostics)
       ? { runtimeDiagnostics: candidate.runtimeDiagnostics }
       : {}),
+    ...(isDesktopAutoUpdateStatus(candidate.autoUpdate)
+      ? { autoUpdate: candidate.autoUpdate }
+      : {}),
   };
 }
 
@@ -113,6 +118,20 @@ function isRuntimeDiagnostics(value: unknown): value is RuntimeDiagnostics {
     typeof candidate.endpoint?.kind === "string" &&
     typeof candidate.health?.ready === "boolean" &&
     Array.isArray(candidate.cliAvailability)
+  );
+}
+
+function isDesktopAutoUpdateStatus(
+  value: unknown
+): value is DesktopAutoUpdateStatus {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<DesktopAutoUpdateStatus>;
+  return (
+    typeof candidate.state === "string" &&
+    typeof candidate.currentVersion === "string" &&
+    typeof candidate.updateAvailable === "boolean"
   );
 }
 
@@ -156,6 +175,23 @@ export async function getDesktopBootstrap() {
   })();
 
   return bootstrapPromise;
+}
+
+export async function checkForDesktopUpdates(): Promise<DesktopAutoUpdateStatus | null> {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const bridge = window.eragearDesktop;
+  if (!bridge?.checkForUpdates) {
+    return null;
+  }
+  try {
+    const status = await bridge.checkForUpdates();
+    return isDesktopAutoUpdateStatus(status) ? status : null;
+  } catch (error) {
+    console.warn("[desktop] Failed to check for updates", error);
+    return null;
+  }
 }
 
 export function isDesktopLocalBootstrap(

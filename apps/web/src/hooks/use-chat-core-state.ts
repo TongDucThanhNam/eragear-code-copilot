@@ -9,6 +9,7 @@ import type {
   SessionInfo,
   SessionModelState,
   SessionModeState,
+  SubagentInvocation,
   SupervisorDecisionSummary,
   SupervisorSessionState,
   UIMessage,
@@ -76,6 +77,7 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   const [supervisor, setSupervisor] =
     useState<SupervisorSessionState | null>(null);
   const [supervisorCapable, setSupervisorCapable] = useState(false);
+  const [subagents, setSubagents] = useState<SubagentInvocation[]>([]);
 
   const messageStateRef = useRef<MessageState>(
     getChatMessageStateSnapshot(chatId ?? null)
@@ -111,6 +113,10 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
   supervisorRef.current = supervisor;
 
   const messages = getChatMessageStateSnapshot(chatId ?? null).orderedMessages;
+
+  useEffect(() => {
+    setSubagents([]);
+  }, [chatId]);
 
   useEffect(() => {
     const activeChatId = chatId ?? null;
@@ -210,6 +216,8 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
     setSupervisor,
     supervisorCapable,
     setSupervisorCapable,
+    subagents,
+    setSubagents,
     messageStateRef,
     modesRef,
     modelsRef,

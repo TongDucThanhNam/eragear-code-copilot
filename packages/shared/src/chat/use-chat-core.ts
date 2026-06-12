@@ -27,6 +27,7 @@ import type {
   SessionInfo,
   SessionModelState,
   SessionModeState,
+  SubagentInvocation,
   SupervisorDecisionSummary,
   SupervisorSessionState,
 } from "./types.js";
@@ -512,6 +513,7 @@ export interface EventProcessingCallbacks {
     decision: SupervisorDecisionSummary,
     supervisor: SupervisorSessionState
   ) => void;
+  onSubagentStatus?: (invocation: SubagentInvocation) => void;
   onPromptCapabilitiesChange?: (caps: PromptCapabilities | null) => void;
   onAgentInfoChange?: (info: AgentInfo | null) => void;
   onTerminalOutput?: (terminalId: string, data: string) => void;
@@ -630,6 +632,10 @@ export function processSessionEvent(
     case "supervisor_decision":
       callbacks.onSupervisorDecision?.(event.decision, event.supervisor);
       callbacks.onSupervisorChange?.(event.supervisor);
+      return;
+
+    case "subagent_status":
+      callbacks.onSubagentStatus?.(event.invocation);
       return;
 
     case "current_mode_update":

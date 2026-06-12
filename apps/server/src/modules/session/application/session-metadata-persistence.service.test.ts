@@ -23,6 +23,16 @@ function createChatSessionStub(): ChatSession {
       currentModelId: "model-1",
       availableModels: [],
     },
+    configOptions: [
+      {
+        id: "mode",
+        name: "Mode",
+        category: "mode",
+        type: "select",
+        currentValue: "mode-1",
+        options: [{ value: "mode-1", name: "Mode 1" }],
+      },
+    ],
   } as unknown as ChatSession;
 }
 
@@ -66,6 +76,14 @@ describe("SessionMetadataPersistenceService", () => {
       status: "running",
       modeId: "mode-1",
       modelId: "model-1",
+      modes: { currentModeId: "mode-1" },
+      models: { currentModelId: "model-1" },
+      configOptions: [
+        expect.objectContaining({
+          id: "mode",
+          currentValue: "mode-1",
+        }),
+      ],
     });
   });
 

@@ -37,6 +37,28 @@ function nodeEvalArgs(script: string): string[] {
   return ["-e", script];
 }
 
+async function createSymlinkOrSkip(
+  target: string,
+  destination: string
+): Promise<boolean> {
+  try {
+    await symlink(target, destination);
+    return true;
+  } catch (error) {
+    const code =
+      typeof error === "object" && error && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : "";
+    if (code === "EPERM" || code === "EACCES") {
+      console.warn(
+        `Skipping symlink assertion because this environment denied symlink creation: ${code}`
+      );
+      return false;
+    }
+    throw error;
+  }
+}
+
 function createSession(chatId: string, projectRoot: string): ChatSession {
   return {
     id: chatId,
@@ -499,7 +521,9 @@ describe("createToolCallHandlers", () => {
     const outsideRoot = path.join(tmpDir, "outside");
     await mkdir(projectRoot, { recursive: true });
     await mkdir(outsideRoot, { recursive: true });
-    await symlink(outsideRoot, path.join(projectRoot, "link-out"));
+    if (!(await createSymlinkOrSkip(outsideRoot, path.join(projectRoot, "link-out")))) {
+      return;
+    }
 
     const session = createSession("chat-symlink-escape", projectRoot);
     const runtime = createRuntime(session);
@@ -519,7 +543,9 @@ describe("createToolCallHandlers", () => {
     const linkedRoot = path.join(tmpDir, "linked-root");
     await mkdir(realRoot, { recursive: true });
     await writeFile(path.join(realRoot, "existing.txt"), "hello", "utf8");
-    await symlink(realRoot, linkedRoot);
+    if (!(await createSymlinkOrSkip(realRoot, linkedRoot))) {
+      return;
+    }
 
     const session = createSession("chat-symlink-root", linkedRoot);
     const runtime = createRuntime(session);

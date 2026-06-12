@@ -8,6 +8,7 @@ import type {
 import {
   CheckIcon,
   ChevronDown,
+  CircleGaugeIcon,
   FileTextIcon,
   SearchIcon,
   XIcon,
@@ -66,12 +67,17 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputAttachments,
+  usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import { CommandDialog } from "@/components/ui/command";
 import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { MovingBorder } from "@/components/ui/moving-border";
+import { Progress } from "@/components/ui/progress";
 import { ATTACHMENT_HARD_LIMIT_BYTES } from "@/config/attachments";
+import { trpc } from "@/lib/trpc";
+import { cn } from "@/lib/utils";
 import { useFileStore } from "@/store/file-store";
 import { SupervisorControl } from "./supervisor-control";
 import { MentionMenu } from "./chat-input/mention-menu";
@@ -117,6 +123,7 @@ export type ChatInputStatus =
 export type ConnStatus = "idle" | "connecting" | "connected" | "error";
 
 export interface ChatInputProps {
+  chatId: string;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   status: ChatInputStatus;
   connStatus: ConnStatus;
@@ -147,10 +154,139 @@ export interface ChatInputProps {
   availableCommands?: SlashCommand[];
   projectMemoryPresets?: ProjectMemoryMenuPreset[];
   projectMemorySources?: ProjectMemoryMenuSource[];
+  contextUsageRevision?: number;
   onCancel?: () => void;
+  imageInputSupported?: boolean;
+}
+
+const CONTEXT_USAGE_DEBOUNCE_MS = 350;
+const PERCENT_MAX = 100;
+
+interface ContextUsageBarProps {
+  chatId: string;
+  currentModelId: string | null;
+  mentionCount: number;
+  revision: number;
+}
+
+function ContextUsageBar({
+  chatId,
+  currentModelId,
+  mentionCount,
+  revision,
+}: ContextUsageBarProps) {
+  const controller = usePromptInputController();
+  const attachments = usePromptInputAttachments();
+  const draftValue = controller.textInput.value;
+  const [debouncedDraftText, setDebouncedDraftText] = useState(draftValue);
+  const attachmentStats = useMemo(
+    () =>
+      attachments.files.reduce(
+        (stats, file) => ({
+          count: stats.count + 1,
+          bytes: stats.bytes + (file.file?.size ?? 0),
+        }),
+        { count: 0, bytes: 0 }
+      ),
+    [attachments.files]
+  );
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedDraftText(draftValue);
+    }, CONTEXT_USAGE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [draftValue]);
+
+  const estimateInput = useMemo(
+    () => ({
+      chatId,
+      draftText: debouncedDraftText,
+      attachmentCount: attachmentStats.count,
+      attachmentBytes: attachmentStats.bytes,
+      mentionCount,
+      ...(currentModelId ? { modelId: currentModelId } : {}),
+    }),
+    [
+      attachmentStats.bytes,
+      attachmentStats.count,
+      chatId,
+      currentModelId,
+      debouncedDraftText,
+      mentionCount,
+    ]
+  );
+  const estimateQuery = trpc.contextUsage.estimate.useQuery(estimateInput, {
+    enabled: Boolean(chatId),
+    refetchOnWindowFocus: false,
+    retry: false,
+    staleTime: 1_000,
+  });
+  const { refetch } = estimateQuery;
+
+  useEffect(() => {
+    if (!chatId || revision <= 0) {
+      return;
+    }
+    void refetch();
+  }, [chatId, refetch, revision]);
+
+  const estimate = estimateQuery.data;
+  if (!estimate) {
+    return null;
+  }
+
+  const boundedPercent = Math.max(
+    0,
+    Math.min(PERCENT_MAX, estimate.percentUsed)
+  );
+  const percentLabel = `${Math.round(estimate.percentUsed)}%`;
+
+  return (
+    <div className="w-full px-2 pb-1">
+      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <CircleGaugeIcon className="size-3 shrink-0" />
+          <span className="truncate">Context</span>
+        </div>
+        <span
+          className={cn(
+            "shrink-0 font-mono",
+            estimate.status === "warn" && "text-amber-600 dark:text-amber-400",
+            (estimate.status === "compact" || estimate.status === "overflow") &&
+              "text-destructive"
+          )}
+        >
+          {formatCompactTokens(estimate.usedTokens)} /{" "}
+          {formatCompactTokens(estimate.maxTokens)} ({percentLabel})
+        </span>
+      </div>
+      <Progress
+        aria-label="Context usage"
+        className={cn(
+          "h-1 rounded-sm",
+          estimate.status === "warn" &&
+            "[&_[data-slot=progress-indicator]]:bg-amber-500",
+          estimate.status === "compact" &&
+            "[&_[data-slot=progress-indicator]]:bg-orange-600",
+          estimate.status === "overflow" &&
+            "[&_[data-slot=progress-indicator]]:bg-destructive"
+        )}
+        value={boundedPercent}
+      />
+    </div>
+  );
+}
+
+function formatCompactTokens(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: value >= 10_000 ? 1 : 0,
+  }).format(value);
 }
 
 export const ChatInput = memo(function ChatInput({
+  chatId,
   textareaRef,
   status,
   connStatus,
@@ -173,7 +309,9 @@ export const ChatInput = memo(function ChatInput({
   availableCommands = [],
   projectMemoryPresets = [],
   projectMemorySources = [],
+  contextUsageRevision = 0,
   onCancel,
+  imageInputSupported = false,
 }: ChatInputProps) {
   const files = useFileStore((state) => state.files);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
@@ -631,7 +769,8 @@ console.debug(
 
   const promptInputContent = (
     <PromptInput
-      globalDrop
+      accept="image/*"
+      globalDrop={imageInputSupported}
       maxFileSize={ATTACHMENT_HARD_LIMIT_BYTES}
       multiple
       onError={handleAttachmentError}
@@ -666,6 +805,12 @@ console.debug(
         <PromptInputAttachments>
           {(attachment) => <PromptInputAttachment data={attachment} />}
         </PromptInputAttachments>
+        <ContextUsageBar
+          chatId={chatId}
+          currentModelId={currentModelId}
+          mentionCount={mentions.length}
+          revision={contextUsageRevision}
+        />
       </PromptInputHeader>
       <PromptInputBody>
         <PromptInputTextarea
@@ -683,7 +828,12 @@ console.debug(
               className="w-72 p-1"
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              <PromptInputActionAddAttachments />
+              <PromptInputActionAddAttachments
+                disabled={!imageInputSupported}
+                label={
+                  imageInputSupported ? "Add image" : "Image input unavailable"
+                }
+              />
               {(projectMemorySources.some((source) => source.enabled) ||
                 projectMemoryPresets.length > 0) && (
                 <>

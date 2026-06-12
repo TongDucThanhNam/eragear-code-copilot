@@ -7,6 +7,10 @@ interface AppWithFetch {
   fetch: (request: Request) => Promise<Response>;
 }
 
+interface DisposableComposition {
+  dispose(): Promise<void>;
+}
+
 const TEST_ADMIN_USERNAME = "admin";
 const TEST_ADMIN_PASSWORD = "admin123";
 const TEST_BASE_URL = "http://127.0.0.1:3010";
@@ -25,11 +29,30 @@ const AUTH_TEST_ENV_KEYS = [
 ] as const;
 
 let app: AppWithFetch;
+let composition: DisposableComposition | null = null;
 let tempDir = "";
 const previousEnv: Record<string, string | undefined> = {};
 
 function buildUrl(pathname: string): string {
   return `${TEST_BASE_URL}${pathname}`;
+}
+
+async function removeTempDirWithRetry(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code =
+        typeof error === "object" && error && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+      if (!(code === "EBUSY" || code === "EPERM") || attempt === 99) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
 }
 
 function extractCookieHeader(response: Response): string {
@@ -120,13 +143,17 @@ beforeAll(async () => {
     `../../bootstrap/server.ts?integration=${stamp}`
   );
 
-  const composition =
+  const createdComposition =
     await compositionBootstrap.createAppCompositionFromSettings();
-  await composition.deps.lifecycle.prepareStartup();
-  app = (await serverBootstrap.createApp(composition)) as AppWithFetch;
+  composition = createdComposition;
+  await createdComposition.deps.lifecycle.prepareStartup();
+  app = (await serverBootstrap.createApp(createdComposition)) as AppWithFetch;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await composition?.dispose();
+  composition = null;
+
   for (const key of AUTH_TEST_ENV_KEYS) {
     const previousValue = previousEnv[key];
     if (previousValue === undefined) {
@@ -136,9 +163,9 @@ afterAll(() => {
     process.env[key] = previousValue;
   }
   if (tempDir) {
-    rmSync(tempDir, { recursive: true, force: true });
+    await removeTempDirWithRetry(tempDir);
   }
-});
+}, 15_000);
 
 describe("auth + dashboard integration", () => {
   test("redirects anonymous dashboard requests to /login", async () => {

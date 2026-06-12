@@ -8,6 +8,7 @@ import { ChatInterface } from "@/components/chat-ui/chat-interface";
 import { CodeViewer } from "@/components/chat-ui/code-viewer";
 import { ThreePaneLayout } from "@/components/layout/three-pane-layout";
 import { AppSidebar } from "@/components/left-sidebar/app-sidebar";
+import { ContextPanel } from "@/components/right-sidebar/context-panel";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { useFileStore } from "@/store/file-store";
 
@@ -45,7 +46,9 @@ function ChatPage() {
       {/* App Sidebar */}
       <AppSidebar variant="sidebar" />
       <SidebarInset>
-        <ThreePaneLayout>
+        <ThreePaneLayout
+          rightSidebar={({ onClose }) => <ContextPanel onClose={onClose} />}
+        >
           <div
             className={
               selectedFile

@@ -5,7 +5,11 @@ import type {
   SessionRuntimePort,
 } from "@/modules/session";
 import type { AppConfigService, LocalAdeService } from "@/modules/settings";
-import type { SessionUseCases, UseCasePort } from "@/modules/use-cases";
+import type {
+  SessionUseCases,
+  TaskAutoArchiveUseCases,
+  UseCasePort,
+} from "@/modules/use-cases";
 import { LOCAL_DESKTOP_USER_ID } from "@/platform/auth/local-desktop-user";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import type { AuthRuntime } from "../platform/auth/auth";
@@ -16,6 +20,7 @@ import {
   createSessionEventOutboxDispatchTask,
   createSessionIdleCleanupTask,
   createSqliteStorageMaintenanceTask,
+  createTaskAutoArchiveTask,
 } from "../platform/background";
 import { createLogger } from "../platform/logging/structured-logger";
 import type { EventBusPort } from "../shared/ports/event-bus.port";
@@ -47,7 +52,11 @@ export interface ServerLifecycleDependencies {
   sessionEventOutbox: SessionEventOutboxPort;
   eventBus: EventBusPort;
   sessionUseCases: SessionUseCases;
-  localAde: Pick<UseCasePort<LocalAdeService>, "dispatchDuePluginBatchSchedules">;
+  localAde: Pick<
+    UseCasePort<LocalAdeService>,
+    "dispatchDuePluginBatchSchedules"
+  >;
+  taskAutoArchive: TaskAutoArchiveUseCases["taskAutoArchive"];
   appConfig: AppConfigService;
   policy: ServerLifecyclePolicy;
   setBackgroundRunnerStateProvider: (
@@ -88,6 +97,15 @@ class DefaultServerLifecycle implements ServerLifecycle {
     this.backgroundRunner.register(
       createPluginBatchScheduleDispatchTask({
         dispatcher: deps.localAde,
+        getUserIds: () => [
+          LOCAL_DESKTOP_USER_ID,
+          ...deps.sessionRuntime.getAll().map((session) => session.userId),
+        ],
+      })
+    );
+    this.backgroundRunner.register(
+      createTaskAutoArchiveTask({
+        runner: deps.taskAutoArchive,
         getUserIds: () => [
           LOCAL_DESKTOP_USER_ID,
           ...deps.sessionRuntime.getAll().map((session) => session.userId),

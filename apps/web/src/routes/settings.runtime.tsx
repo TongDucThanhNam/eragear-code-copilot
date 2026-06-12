@@ -1,15 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  LocalAdeControlCenter,
-  type LocalAdeControlCenterSection,
-} from "@/components/local-ade/local-ade-control-center";
+import { LocalAdeRuntimeSettingsPanel } from "@/components/local-ade/local-ade-panels";
+import { DesktopUpdatePanel } from "@/components/settings/desktop-update-panel";
+import { ProviderQuotaPanel } from "@/components/settings/provider-quota-panel";
 import { SettingsPageHeader } from "@/components/settings/settings-panels";
-
-const RUNTIME_SECTIONS = [
-  "overview",
-  "runtime",
-  "providers",
-] satisfies readonly LocalAdeControlCenterSection[];
 
 export const Route = createFileRoute("/settings/runtime")({
   component: RuntimeSettingsPage,
@@ -22,11 +15,11 @@ function RuntimeSettingsPage() {
         description="Inspect desktop runtime health, transport state, CLI detection, and provider readiness."
         title="Runtime"
       />
-      <LocalAdeControlCenter
-        className="overflow-visible p-0"
-        showHeader={false}
-        visibleSections={RUNTIME_SECTIONS}
-      />
+      <div className="grid gap-4">
+        <DesktopUpdatePanel />
+        <ProviderQuotaPanel />
+        <LocalAdeRuntimeSettingsPanel />
+      </div>
     </>
   );
 }

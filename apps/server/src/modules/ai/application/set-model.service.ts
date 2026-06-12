@@ -7,7 +7,10 @@
  * @module modules/ai/application/set-model.service
  */
 
-import type { SessionRuntimePort } from "@/modules/session";
+import type {
+  SessionRepositoryPort,
+  SessionRuntimePort,
+} from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ChatSession } from "@/shared/types/session.types";
@@ -28,6 +31,7 @@ import {
 } from "./ai.constants";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { AiSessionRuntimeError } from "./ports/ai-session-runtime.port";
+import { persistSessionSelectionState } from "./session-selection-persistence";
 
 const OP = AI_OP.SESSION_MODEL_SET;
 
@@ -53,6 +57,7 @@ interface ModelSwitchRuntimeContext {
 export class SetModelService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;
+  private readonly sessionRepo: SessionRepositoryPort | undefined;
   private readonly policy: ModelSwitchPolicy;
 
   constructor(
@@ -61,10 +66,12 @@ export class SetModelService {
     policy: ModelSwitchPolicy = {
       acpRetryMaxAttempts: DEFAULT_AI_ACP_RETRY_POLICY.maxAttempts,
       acpRetryBaseDelayMs: DEFAULT_AI_ACP_RETRY_POLICY.retryBaseDelayMs,
-    }
+    },
+    sessionRepo?: SessionRepositoryPort
   ) {
     this.sessionRuntime = sessionRuntime;
     this.sessionGateway = sessionGateway;
+    this.sessionRepo = sessionRepo;
     this.policy = {
       acpRetryMaxAttempts: Math.max(1, Math.trunc(policy.acpRetryMaxAttempts)),
       acpRetryBaseDelayMs: Math.max(1, Math.trunc(policy.acpRetryBaseDelayMs)),
@@ -140,6 +147,11 @@ export class SetModelService {
           configOptions: capped.configOptions,
         });
       }
+      await persistSessionSelectionState({
+        sessionRepo: this.sessionRepo,
+        chatId,
+        session,
+      });
       return { ok: true };
     });
   }

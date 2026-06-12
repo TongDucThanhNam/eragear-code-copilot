@@ -26,6 +26,8 @@ import type {
 } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import { AiSessionRuntimeAdapter } from "../infra/ai-session-runtime.adapter";
+import type { OutputStylePromptPort } from "./ports/output-style-prompt.port";
+import type { PromptEnhancerPort } from "./ports/prompt-enhancer.port";
 import {
   PromptTaskRunner,
   type PromptTurnCompleteEvent,
@@ -290,7 +292,9 @@ function createService(
   runtime: SessionRuntimePort,
   policyOverrides?: Partial<SendMessagePolicy>,
   afterTurnComplete?: (event: PromptTurnCompleteEvent) => void | Promise<void>,
-  eventBus?: EventBusPort
+  eventBus?: EventBusPort,
+  promptEnhancer?: PromptEnhancerPort,
+  outputStylePrompt?: OutputStylePromptPort
 ): SendMessageService {
   const clock: ClockPort = {
     nowMs: () => Date.now(),
@@ -322,6 +326,8 @@ function createService(
     inputPolicy: policy,
     clock,
     ...(eventBus ? { eventBus } : {}),
+    ...(promptEnhancer ? { promptEnhancer } : {}),
+    ...(outputStylePrompt ? { outputStylePrompt } : {}),
   });
 }
 
@@ -442,8 +448,9 @@ describe("SendMessageService", () => {
     const runtime = createSessionRuntime("chat-1", session, events);
     const service = createService(repo, runtime, undefined, undefined, {
       subscribe: () => () => undefined,
-      publish: async (event) => {
+      publish: (event) => {
         domainEvents.push(event);
+        return Promise.resolve();
       },
     });
 
@@ -462,6 +469,146 @@ describe("SendMessageService", () => {
       chatId: "chat-1",
       agentSessionId: "acp-session-1",
       turnId: result.turnId,
+    });
+  });
+
+  test("sends enhanced prompt to ACP while storing original user message", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    let promptRequest: unknown;
+    const session = createChatSession({
+      prompt: (input) => {
+        promptRequest = input;
+        return Promise.resolve({ stopReason: "end_turn" });
+      },
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(
+      repo,
+      runtime,
+      undefined,
+      undefined,
+      undefined,
+      {
+        enhance: async () => ({
+          text: "[enhanced]\nOriginal user request:\nraw prompt",
+          applied: true,
+        }),
+      }
+    );
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "raw prompt",
+    });
+    await flushAsync();
+
+    expect(repo.appendedMessages[0]?.message.content).toBe("raw prompt");
+    const request = promptRequest as {
+      prompt?: Array<{ type: string; text?: string }>;
+    };
+    expect(request.prompt?.[0]?.text).toContain("[enhanced]");
+    const userMessageEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "ui_message" }> =>
+        event.type === "ui_message"
+    );
+    expect(userMessageEvent?.message.parts[0]?.type).toBe("text");
+    expect(
+      userMessageEvent?.message.parts[0]?.type === "text"
+        ? userMessageEvent.message.parts[0].text
+        : ""
+    ).toBe("raw prompt");
+  });
+
+  test("sends output-styled prompt to ACP while storing original user message", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    let promptRequest: unknown;
+    const session = createChatSession({
+      prompt: (input) => {
+        promptRequest = input;
+        return Promise.resolve({ stopReason: "end_turn" });
+      },
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(
+      repo,
+      runtime,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        resolvePromptPrefix: async () => ({
+          applied: true,
+          presetId: "concise",
+          text: "Response style: Concise\nStyle instructions:\nKeep it brief.",
+        }),
+      }
+    );
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "raw prompt",
+    });
+    await flushAsync();
+
+    expect(repo.appendedMessages[0]?.message.content).toBe("raw prompt");
+    const request = promptRequest as {
+      prompt?: Array<{ type: string; text?: string }>;
+    };
+    expect(request.prompt?.[0]?.text).toContain("Response style: Concise");
+    expect(request.prompt?.[0]?.text).toContain("User request:\nraw prompt");
+    const userMessageEvent = events.find(
+      (event): event is Extract<BroadcastEvent, { type: "ui_message" }> =>
+        event.type === "ui_message"
+    );
+    expect(
+      userMessageEvent?.message.parts[0]?.type === "text"
+        ? userMessageEvent.message.parts[0].text
+        : ""
+    ).toBe("raw prompt");
+  });
+
+  test("publishes subagent invocation event when delegated metadata is submitted", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    const domainEvents: DomainEvent[] = [];
+    const session = createChatSession({
+      prompt: async () => ({ stopReason: "end_turn" }),
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(repo, runtime, undefined, undefined, {
+      subscribe: () => () => undefined,
+      publish: (event) => {
+        domainEvents.push(event);
+        return Promise.resolve();
+      },
+    });
+
+    const result = await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "delegated prompt",
+      subagent: {
+        name: "code-reviewer",
+        sourcePath: "/tmp/project/.eragear/subagents/reviewer.md",
+      },
+    });
+
+    expect(domainEvents).toContainEqual({
+      type: "subagent_invocation_requested",
+      userId: "user-1",
+      projectRoot: "/tmp/project",
+      chatId: "chat-1",
+      agentSessionId: "acp-session-1",
+      turnId: result.turnId,
+      subagent: {
+        name: "code-reviewer",
+        sourcePath: "/tmp/project/.eragear/subagents/reviewer.md",
+      },
     });
   });
 
@@ -490,6 +637,8 @@ describe("SendMessageService", () => {
       {
         chatId: "chat-1",
         userId: "user-1",
+        projectRoot: "/tmp/project",
+        agentSessionId: "acp-session-1",
         turnId: result.turnId,
         stopReason: "end_turn",
         source: "client",

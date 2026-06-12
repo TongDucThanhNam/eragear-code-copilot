@@ -12,6 +12,7 @@ import {
   BetterAuthClientProvider,
   useBetterAuthClient,
 } from "./components/auth/auth-client-provider";
+import { CrashReportingErrorBoundary } from "./components/crash-reporting/crash-reporting-error-boundary";
 import { ConnectionSetupDialog } from "./components/connection-setup-dialog";
 import { ThemeProvider } from "./components/theme-provider";
 import Loader from "./components/ui/loader";
@@ -22,6 +23,7 @@ import {
   hasDesktopTransportCredential,
   isDesktopLocalBootstrap,
 } from "./lib/desktop-bootstrap";
+import { installEragearDeepLinkHandlers } from "./lib/deep-link";
 import { electronTrpcLink } from "./lib/electron-trpc-link";
 import { buildTrpcWsUrl, DEFAULT_SERVER_URL } from "./lib/server-url";
 import { trpc } from "./lib/trpc";
@@ -59,6 +61,8 @@ async function bootstrapRenderer() {
   if (!desktopBootstrap) {
     return;
   }
+
+  document.documentElement.dataset.eragearPlatform = "electron";
 
   const store = useServerConfigStore.getState();
   store.setDesktopBootstrap(desktopBootstrap);
@@ -219,6 +223,26 @@ function ConfiguredApp({
   }, [connectionParams, wsUrl]);
 
   useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    let disposed = false;
+    installEragearDeepLinkHandlers(router)
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        cleanup = unlisten;
+      })
+      .catch((error) => {
+        console.warn("[desktop] Deep link handler unavailable", error);
+      });
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       wsClient?.close();
     };
@@ -253,7 +277,9 @@ function ConfiguredApp({
       queryClient={queryClient}
     >
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <CrashReportingErrorBoundary>
+          <RouterProvider router={router} />
+        </CrashReportingErrorBoundary>
       </QueryClientProvider>
     </trpc.Provider>
   );

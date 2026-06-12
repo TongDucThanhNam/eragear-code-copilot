@@ -89,6 +89,7 @@ export function resolveAppRuntimeConfig(): AppRuntimeConfig {
       authApiKeyRateLimitEnabled: ENV.authApiKeyRateLimitEnabled,
       authApiKeyRateLimitTimeWindowMs: ENV.authApiKeyRateLimitTimeWindowMs,
       authApiKeyRateLimitMaxRequests: ENV.authApiKeyRateLimitMaxRequests,
+      oauthProviders: ENV.authOAuthProviders,
     },
     lifecyclePolicy: {
       sqliteRetentionHotDays: ENV.sqliteRetentionHotDays,

@@ -11,6 +11,10 @@ const PUBLIC_API_ROUTE_ALLOWLIST: readonly PublicApiRouteRule[] = [
     pattern: /^\/api\/health\/?$/,
   },
   {
+    methods: ["GET", "OPTIONS"],
+    pattern: /^\/api\/auth\/oauth\/providers\/?$/,
+  },
+  {
     methods: ["POST", "OPTIONS"],
     pattern: /^\/api\/auth\/sign-in(?:\/[^/]+)?\/?$/,
   },

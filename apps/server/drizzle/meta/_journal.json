@@ -71,6 +71,13 @@
       "when": 1777420800000,
       "tag": "0009_projects_supervisor_memory_config",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781222400000,
+      "tag": "0010_sessions_config_state",
+      "breakpoints": true
     }
   ]
 }

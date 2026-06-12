@@ -58,6 +58,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setSupervisor,
     supervisorCapable,
     setSupervisorCapable,
+    subagents,
+    setSubagents,
     messageStateRef,
     modesRef,
     modelsRef,
@@ -183,6 +185,16 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setStreamLifecycle,
     setConnStatus,
   });
+  const handleFileModified = useCallback(
+    (path: string) => {
+      if (!chatId) {
+        return;
+      }
+      void utils.getProjectContext.invalidate({ chatId });
+      void utils.getFileContent.invalidate({ chatId, path });
+    },
+    [chatId, utils]
+  );
   const handleSessionEvent = useChatSessionEventHandler({
     loadHistory,
     onFinish,
@@ -211,7 +223,9 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     setSessionInfo,
     setError,
     setSupervisor,
+    setSubagents,
     lastSupervisorDecisionRef,
+    onFileModified: handleFileModified,
   });
 
   useChatSubscription({
@@ -338,6 +352,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
     sessionInfo,
     supervisor,
     supervisorCapable,
+    subagents,
     lastSupervisorDecision: lastSupervisorDecisionRef.current,
     promptCapabilities,
     agentInfo,

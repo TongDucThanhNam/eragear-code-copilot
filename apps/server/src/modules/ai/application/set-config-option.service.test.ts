@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import type { SessionRepositoryPort } from "@/modules/session/application/ports/session-repository.port";
 import type { SessionRuntimePort } from "@/modules/session/application/ports/session-runtime.port";
 import { SessionRuntimeEntity } from "@/modules/session/domain/session-runtime.entity";
+import type { StoredSession } from "@/modules/session/domain/stored-session.types";
 import type { BroadcastEvent, ChatSession } from "@/shared/types/session.types";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { SetConfigOptionService } from "./set-config-option.service";
@@ -20,10 +22,13 @@ async function flushAsync(): Promise<void> {
   });
 }
 
-function createSessionRuntimeStub(): SessionRuntimePort {
+function createSessionRuntimeStub(): SessionRuntimePort & {
+  broadcasts: Array<{ chatId: string; event: BroadcastEvent }>;
+} {
   const sessions = new Map<string, ChatSession>();
   const lockTails = new Map<string, Promise<void>>();
   const heldLocks = new Set<string>();
+  const broadcasts: Array<{ chatId: string; event: BroadcastEvent }> = [];
 
   return {
     set(chatId, session) {
@@ -77,8 +82,14 @@ function createSessionRuntimeStub(): SessionRuntimePort {
       return heldLocks.has(chatId);
     },
     broadcast(_chatId: string, _event: BroadcastEvent) {
+      broadcasts.push({ chatId: _chatId, event: _event });
       return Promise.resolve();
     },
+    get broadcasts() {
+      return broadcasts;
+    },
+  } satisfies SessionRuntimePort & {
+    broadcasts: Array<{ chatId: string; event: BroadcastEvent }>;
   };
 }
 
@@ -160,6 +171,79 @@ function createGateway(params: {
 }
 
 describe("SetConfigOptionService", () => {
+  test("persists and broadcasts config option snapshots after a successful update", async () => {
+    const session = createSession();
+    const sessionRuntime = createSessionRuntimeStub();
+    const updateCalls: [string, string, Partial<StoredSession>][] = [];
+    const sessionRepo = {
+      updateMetadata: (
+        chatId: string,
+        userId: string,
+        updates: Partial<StoredSession>
+      ) => {
+        updateCalls.push([chatId, userId, updates]);
+        return Promise.resolve();
+      },
+    } as unknown as SessionRepositoryPort;
+
+    const service = new SetConfigOptionService(
+      sessionRuntime,
+      createGateway({
+        session,
+        setSessionConfigOption: (_session, configId, value) => {
+          const nextOptions: SessionConfigOption[] =
+            session.configOptions?.map((option) =>
+              option.id === configId
+                ? ({ ...option, currentValue: value } as SessionConfigOption)
+                : option
+            ) ?? [];
+          return Promise.resolve(nextOptions);
+        },
+      }),
+      undefined,
+      sessionRepo
+    );
+
+    const result = await service.execute(
+      "user-1",
+      "chat-1",
+      "reasoning",
+      "high"
+    );
+
+    expect(result.ok).toBe(true);
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]).toMatchObject([
+      "chat-1",
+      "user-1",
+      {
+        modeId: "code",
+        modelId: "model-1",
+        modes: { currentModeId: "code" },
+        models: { currentModelId: "model-1" },
+      },
+    ]);
+    expect(updateCalls[0]?.[2].configOptions).toEqual(session.configOptions);
+    const configUpdate = sessionRuntime.broadcasts.find(
+      (broadcast) => broadcast.event.type === "config_options_update"
+    );
+    expect(configUpdate?.chatId).toBe("chat-1");
+    const broadcastOptions =
+      configUpdate?.event.type === "config_options_update"
+        ? configUpdate.event.configOptions
+        : [];
+    expect(
+      broadcastOptions.find((option) => option.id === "mode")
+    ).toMatchObject({
+      currentValue: "code",
+    });
+    expect(
+      broadcastOptions.find((option) => option.id === "reasoning")
+    ).toMatchObject({
+      currentValue: "high",
+    });
+  });
+
   test("serializes concurrent config updates and keeps the latest response", async () => {
     const session = createSession();
     const sessionRuntime = createSessionRuntimeStub();
@@ -278,10 +362,10 @@ describe("SetConfigOptionService", () => {
       sessionRuntime,
       createGateway({
         session,
-        setSessionConfigOption: async (_session, configId, value) => {
+        setSessionConfigOption: (_session, configId, value) => {
           configCalls.push({ configId, value });
           // Return updated config with new selection
-          return [
+          return Promise.resolve([
             createSelectOption({
               id: "reasoning",
               name: "Reasoning Level",
@@ -289,12 +373,17 @@ describe("SetConfigOptionService", () => {
               currentValue: value,
               values: largeValues,
             }),
-          ];
+          ]);
         },
       })
     );
 
-    const result = await service.execute("user-1", "chat-1", "reasoning", "level-120");
+    const result = await service.execute(
+      "user-1",
+      "chat-1",
+      "reasoning",
+      "level-120"
+    );
 
     expect(result.ok).toBe(true);
     expect(configCalls).toEqual([
@@ -304,7 +393,8 @@ describe("SetConfigOptionService", () => {
       },
     ]);
     expect(
-      result.configOptions.find((option) => option.id === "reasoning")?.currentValue
+      result.configOptions.find((option) => option.id === "reasoning")
+        ?.currentValue
     ).toBe("level-120");
   });
 
@@ -407,6 +497,6 @@ describe("SetConfigOptionService", () => {
 
     // Should throw - level-999 does not exist
     expect(errorThrown).not.toBeNull();
-    expect(errorThrown!.message).toContain("Config option value is not valid");
+    expect(errorThrown?.message).toContain("Config option value is not valid");
   });
 });

@@ -10,8 +10,10 @@
 
 import { observable } from "@trpc/server/observable";
 import {
+  CompactSessionMessagesInputSchema,
   CreateSessionInputSchema,
   DiscoverAgentSessionsInputSchema,
+  ForkSessionInputSchema,
   ListSessionsInputSchema,
   LoadAgentSessionInputSchema,
   SessionChatIdInputSchema,
@@ -168,6 +170,28 @@ export const sessionRouter = router({
       };
     }),
 
+  /** Fork a stored session into a new local-history task. */
+  forkSession: protectedProcedure
+    .input(ForkSessionInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const service = ctx.useCases.session.fork;
+      return await service.execute({
+        ...input,
+        userId: getRequiredUserId(ctx),
+      });
+    }),
+
+  /** List persisted fork bindings for a stored session. */
+  listSessionForks: protectedProcedure
+    .input(SessionChatIdInputSchema)
+    .query(async ({ input, ctx }) => {
+      const service = ctx.useCases.session.forkBindings;
+      return await service.execute({
+        userId: getRequiredUserId(ctx),
+        chatId: input.chatId,
+      });
+    }),
+
   /** Delete a session */
   deleteSession: protectedProcedure
     .input(SessionChatIdInputSchema)
@@ -261,6 +285,14 @@ export const sessionRouter = router({
     const queries = ctx.useCases.session.queries;
     return await queries.storageStats();
   }),
+
+  /** Compact old stopped-session message payloads in SQLite storage. */
+  compactSessionMessages: protectedProcedure
+    .input(CompactSessionMessagesInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const queries = ctx.useCases.session.queries;
+      return await queries.compact(input);
+    }),
 
   /** Subscribe to real-time session events */
   onSessionEvents: protectedProcedure

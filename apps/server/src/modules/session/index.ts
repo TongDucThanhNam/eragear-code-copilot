@@ -1,9 +1,12 @@
 export { BootstrapSessionConnectionService } from "./application/bootstrap-session-connection.service";
 export { CleanupProjectSessionsService } from "./application/cleanup-project-sessions.service";
 export type {
+  CompactSessionMessagesInput,
   CreateSessionInput,
   DiscoverAgentSessionsInput,
+  ForkSessionInput,
   ListSessionsInput,
+  ListSubagentInvocationsInput,
   LoadAgentSessionInput,
   SessionChatIdInput,
   SessionEventsInput,
@@ -13,9 +16,12 @@ export type {
   UpdateSessionMetaInput,
 } from "./application/contracts/session.contract";
 export {
+  CompactSessionMessagesInputSchema,
   CreateSessionInputSchema,
   DiscoverAgentSessionsInputSchema,
+  ForkSessionInputSchema,
   ListSessionsInputSchema,
+  ListSubagentInvocationsInputSchema,
   LoadAgentSessionInputSchema,
   SessionChatIdInputSchema,
   SessionEventsInputSchema,
@@ -27,6 +33,8 @@ export {
 export { CreateSessionService } from "./application/create-session.service";
 export { DeleteSessionService } from "./application/delete-session.service";
 export { DiscoverAgentSessionsService } from "./application/discover-agent-sessions.service";
+export { ForkSessionService } from "./application/fork-session.service";
+export { ListSessionForksService } from "./application/list-session-forks.service";
 export { LoadAgentSessionService } from "./application/load-agent-session.service";
 export { PersistSessionBootstrapService } from "./application/persist-session-bootstrap.service";
 export type { AgentRuntimePort } from "./application/ports/agent-runtime.port";
@@ -34,6 +42,10 @@ export type {
   SessionAcpPort,
   SessionBufferingPort,
 } from "./application/ports/session-acp.port";
+export type {
+  SessionBindingPort,
+  SessionForkBinding,
+} from "./application/ports/session-binding.port";
 export type {
   SessionEventOutboxDispatchPolicy,
   SessionEventOutboxDispatchResult,
@@ -65,6 +77,7 @@ export { SessionProjectContextResolverService } from "./application/session-proj
 export { SessionRuntimeBootstrapService } from "./application/session-runtime-bootstrap.service";
 export { SpawnSessionProcessService } from "./application/spawn-session-process.service";
 export { StopSessionService } from "./application/stop-session.service";
+export { SubagentService } from "./application/subagent.service";
 export { SubscribeSessionEventsService } from "./application/subscribe-session-events.service";
 export { UpdateSessionMetaService } from "./application/update-session-meta.service";
 export {

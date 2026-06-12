@@ -1,4 +1,8 @@
-import type { SessionRuntimePort } from "@/modules/session";
+import { DEFAULT_MAX_VISIBLE_MODEL_COUNT } from "@/config/constants";
+import type {
+  SessionRepositoryPort,
+  SessionRuntimePort,
+} from "@/modules/session";
 import { assertSessionMutationLock } from "@/modules/session/application/session-runtime-lock.assert";
 import { AppError, ValidationError } from "@/shared/errors";
 import type {
@@ -6,7 +10,9 @@ import type {
   SessionConfigOption,
 } from "@/shared/types/session.types";
 import {
+  capSessionSelectionState,
   isSessionConfigSelectOption,
+  shouldStripAvailableModelsForAgent,
   syncSessionSelectionFromConfigOptions,
 } from "@/shared/utils/session-config-options.util";
 import { getAcpRetryDelayMs, getAcpRetryPolicy } from "./acp-retry-policy";
@@ -17,6 +23,7 @@ import {
 } from "./ai.constants";
 import type { AiSessionRuntimePort } from "./ports/ai-session-runtime.port";
 import { AiSessionRuntimeError } from "./ports/ai-session-runtime.port";
+import { persistSessionSelectionState } from "./session-selection-persistence";
 
 const OP = AI_OP.SESSION_CONFIG_OPTION_SET;
 
@@ -74,6 +81,7 @@ function collectConfigOptionValues(option: SessionConfigOption): Set<string> {
 export class SetConfigOptionService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;
+  private readonly sessionRepo: SessionRepositoryPort | undefined;
   private readonly policy: ConfigOptionSwitchPolicy;
 
   constructor(
@@ -82,10 +90,12 @@ export class SetConfigOptionService {
     policy: ConfigOptionSwitchPolicy = {
       acpRetryMaxAttempts: DEFAULT_AI_ACP_RETRY_POLICY.maxAttempts,
       acpRetryBaseDelayMs: DEFAULT_AI_ACP_RETRY_POLICY.retryBaseDelayMs,
-    }
+    },
+    sessionRepo?: SessionRepositoryPort
   ) {
     this.sessionRuntime = sessionRuntime;
     this.sessionGateway = sessionGateway;
+    this.sessionRepo = sessionRepo;
     this.policy = {
       acpRetryMaxAttempts: Math.max(1, Math.trunc(policy.acpRetryMaxAttempts)),
       acpRetryBaseDelayMs: Math.max(1, Math.trunc(policy.acpRetryBaseDelayMs)),
@@ -174,7 +184,42 @@ export class SetConfigOptionService {
                 ? { ...option, currentValue: value }
                 : option
             );
-      syncSessionSelectionFromConfigOptions(session);
+      const selection = syncSessionSelectionFromConfigOptions(session);
+      await persistSessionSelectionState({
+        sessionRepo: this.sessionRepo,
+        chatId,
+        session,
+      });
+
+      const capped = capSessionSelectionState({
+        models: session.models,
+        configOptions: session.configOptions,
+        maxVisible: DEFAULT_MAX_VISIBLE_MODEL_COUNT,
+        stripAvailableModels: shouldStripAvailableModelsForAgent(
+          session.agentInfo
+        ),
+      });
+      await this.sessionRuntime.broadcast(chatId, {
+        type: "config_options_update",
+        configOptions: capped.configOptions,
+      });
+      if (selection.modeChanged && selection.modeId) {
+        await this.sessionRuntime.broadcast(chatId, {
+          type: "current_mode_update",
+          modeId: selection.modeId,
+          reason: "config_option_update",
+          metadata: {
+            source: "set_config_option",
+            configId,
+          },
+        });
+      }
+      if (selection.modelChanged && selection.modelId) {
+        await this.sessionRuntime.broadcast(chatId, {
+          type: "current_model_update",
+          modelId: selection.modelId,
+        });
+      }
 
       return { ok: true, configOptions: session.configOptions };
     });

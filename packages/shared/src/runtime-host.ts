@@ -93,6 +93,27 @@ export interface RuntimeDiagnostics {
   updatedAt: string;
 }
 
+export type DesktopAutoUpdateState =
+  | "not-configured"
+  | "idle"
+  | "checking"
+  | "available"
+  | "not-available"
+  | "error";
+
+export interface DesktopAutoUpdateStatus {
+  state: DesktopAutoUpdateState;
+  currentVersion: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  manifestUrl?: string;
+  downloadUrl?: string;
+  releaseNotes?: string;
+  checkedAt?: string;
+  error?: string;
+  notificationShown?: boolean;
+}
+
 export interface DesktopRuntimeBootstrap {
   platform: "electron";
   mode: DesktopRuntimeMode;
@@ -103,6 +124,7 @@ export interface DesktopRuntimeBootstrap {
   runtimeReady: boolean;
   diagnostics: string[];
   runtimeDiagnostics?: RuntimeDiagnostics;
+  autoUpdate?: DesktopAutoUpdateStatus;
 }
 
 export type RuntimeProcedureType = "query" | "mutation" | "subscription";

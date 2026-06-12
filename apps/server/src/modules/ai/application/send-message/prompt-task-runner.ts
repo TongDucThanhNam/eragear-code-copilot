@@ -67,6 +67,9 @@ interface PromptTaskParams {
 export interface PromptTurnCompleteEvent {
   chatId: string;
   userId: string;
+  projectRoot: string;
+  projectId?: string;
+  agentSessionId?: string;
   turnId: string;
   stopReason: string;
   source: "client" | "supervisor";
@@ -271,6 +274,9 @@ export class PromptTaskRunner {
     await this.afterTurnComplete({
       chatId,
       userId: session.userId,
+      projectRoot: session.projectRoot,
+      ...(session.projectId ? { projectId: session.projectId } : {}),
+      ...(session.sessionId ? { agentSessionId: session.sessionId } : {}),
       turnId,
       stopReason,
       source,

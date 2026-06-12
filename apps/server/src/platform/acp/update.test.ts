@@ -177,7 +177,12 @@ describe("createSessionUpdateHandler", () => {
       {
         chatId: "chat-mode",
         userId: "user-1",
-        updates: { modeId: "mode-new" },
+        updates: expect.objectContaining({
+          modeId: "mode-new",
+          modes: expect.objectContaining({
+            currentModeId: "mode-new",
+          }),
+        }),
       },
     ]);
     expect(events).toContainEqual({
@@ -300,10 +305,11 @@ describe("createSessionUpdateHandler", () => {
     expect(metadataCalls).toContainEqual({
       chatId: "chat-config-options",
       userId: "user-1",
-      updates: {
+      updates: expect.objectContaining({
         modeId: "mode-new",
         modelId: "model-new",
-      },
+        configOptions: expect.any(Array),
+      }),
     });
     expect(events).toContainEqual({
       type: "config_options_update",
@@ -1156,10 +1162,11 @@ describe("createSessionUpdateHandler", () => {
     expect(metadataCalls).toContainEqual({
       chatId: "chat-config-fallback",
       userId: "user-1",
-      updates: {
+      updates: expect.objectContaining({
         modeId: "architect",
         modelId: "claude-sonnet",
-      },
+        configOptions: expect.any(Array),
+      }),
     });
     expect(events).toContainEqual({
       type: "current_mode_update",

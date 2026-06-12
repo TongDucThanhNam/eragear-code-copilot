@@ -53,6 +53,7 @@ export interface LocalAdeLifecycleEvent {
   event:
     | "after-agent-session-create"
     | "after-agent-message-send"
+    | "after-agent-turn-complete"
     | "after-agent-session-stop";
   userId: string;
   projectRoot: string;
@@ -60,6 +61,85 @@ export interface LocalAdeLifecycleEvent {
   chatId?: string;
   agentSessionId?: string;
   turnId?: string;
+  stopReason?: string;
+}
+
+export interface SubagentInvocationRequestedEvent {
+  type: "subagent_invocation_requested";
+  userId: string;
+  chatId: string;
+  projectRoot: string;
+  projectId?: string;
+  agentSessionId?: string;
+  turnId: string;
+  subagent: {
+    name: string;
+    description?: string;
+    sourcePath: string;
+  };
+}
+
+export type ProviderQuotaEventStatus =
+  | "ready"
+  | "not_configured"
+  | "unavailable"
+  | "error";
+
+export interface ProviderQuotaEventWindow {
+  id: string;
+  windowType?: string;
+  label: string;
+  percentRemaining?: number;
+  used?: number;
+  total?: number;
+  remaining?: number;
+  resetAt?: string;
+  scope?: string;
+}
+
+export interface ProviderQuotaRefreshedEvent {
+  type: "provider_quota_refreshed";
+  userId: string;
+  providerId: string;
+  providerDisplayName: string;
+  status: ProviderQuotaEventStatus;
+  previousStatus?: ProviderQuotaEventStatus;
+  fetchedAt: string;
+  windows: ProviderQuotaEventWindow[];
+  minPercentRemaining?: number;
+  nextResetAt?: string;
+  changed: boolean;
+}
+
+export interface CodingPlanSubscriptionUpdatedEvent {
+  type: "coding_plan_subscription_updated";
+  userId: string;
+  tier: "free" | "pro" | "team" | "enterprise";
+  previousTier?: "free" | "pro" | "team" | "enterprise";
+  status: "none" | "trialing" | "active" | "past_due" | "canceled" | "expired";
+  previousStatus?:
+    | "none"
+    | "trialing"
+    | "active"
+    | "past_due"
+    | "canceled"
+    | "expired";
+  source: "local" | "billing_sync";
+  updatedAt: string;
+  changed: boolean;
+}
+
+export interface FileWatcherFileChangedEvent {
+  type: "file_watcher_file_changed";
+  projectRoot: string;
+  path: string;
+  eventKind: "changed" | "renamed";
+  occurredAt: string;
+  sessions: Array<{
+    userId: string;
+    chatId: string;
+    projectId?: string;
+  }>;
 }
 
 export type DomainEvent =
@@ -68,4 +148,8 @@ export type DomainEvent =
   | ProjectDeletedEvent
   | SettingsUpdatedEvent
   | SessionBroadcastEvent
-  | LocalAdeLifecycleEvent;
+  | LocalAdeLifecycleEvent
+  | SubagentInvocationRequestedEvent
+  | ProviderQuotaRefreshedEvent
+  | CodingPlanSubscriptionUpdatedEvent
+  | FileWatcherFileChangedEvent;

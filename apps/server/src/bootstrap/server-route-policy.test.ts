@@ -13,6 +13,11 @@ describe("isPublicApiRoute", () => {
     expect(isPublicApiRoute("POST", "/api/auth/api-key/verify")).toBe(true);
   });
 
+  test("keeps OAuth provider metadata public and read-only", () => {
+    expect(isPublicApiRoute("GET", "/api/auth/oauth/providers")).toBe(true);
+    expect(isPublicApiRoute("POST", "/api/auth/oauth/providers")).toBe(false);
+  });
+
   test("requires auth for API key management endpoints", () => {
     expect(isPublicApiRoute("POST", "/api/auth/api-key/create")).toBe(false);
     expect(isPublicApiRoute("GET", "/api/auth/api-key/list")).toBe(false);

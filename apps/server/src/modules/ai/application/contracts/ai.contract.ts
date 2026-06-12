@@ -70,6 +70,14 @@ const ResourceLinkInputSchema = z.object({
   annotations: AnnotationsSchema.optional(),
 });
 
+const SubagentInvocationInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().min(1).max(2000).optional(),
+    sourcePath: z.string().trim().min(1).max(4096),
+  })
+  .strict();
+
 export const SendMessageInputSchema = z.object({
   chatId: z.string(),
   text: z.string().max(MAX_MESSAGE_TEXT_CHARS),
@@ -84,6 +92,7 @@ export const SendMessageInputSchema = z.object({
     .array(ResourceLinkInputSchema)
     .max(MAX_RESOURCE_LINK_ITEMS)
     .optional(),
+  subagent: SubagentInvocationInputSchema.optional(),
 });
 
 export const SetModelInputSchema = z.object({

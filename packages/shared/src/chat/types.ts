@@ -176,6 +176,23 @@ export interface PermissionRequest {
   options?: PermissionOptions;
 }
 
+export type SubagentInvocationStatus = "running" | "completed" | "failed";
+
+export interface SubagentInvocation {
+  id: string;
+  name: string;
+  description?: string;
+  sourcePath: string;
+  status: SubagentInvocationStatus;
+  parentChatId: string;
+  parentTurnId: string;
+  agentSessionId?: string;
+  startedAt: number;
+  completedAt?: number;
+  resultMessageId?: string;
+  error?: string;
+}
+
 // ============================================================================
 // Broadcast Event Types (matching server's BroadcastEvent)
 // ============================================================================
@@ -238,6 +255,11 @@ export type BroadcastEvent =
       turnId?: string;
     }
   | {
+      type: "subagent_status";
+      invocation: SubagentInvocation;
+      turnId?: string;
+    }
+  | {
       type: "current_mode_update";
       modeId: string;
       reason?: string;
@@ -285,6 +307,7 @@ export interface UseChatState {
   sessionInfo: SessionInfo | null;
   supervisor: SupervisorSessionState | null;
   supervisorCapable: boolean;
+  subagents: SubagentInvocation[];
   promptCapabilities: PromptCapabilities | null;
   agentInfo: AgentInfo | null;
   loadSessionSupported: boolean | undefined;

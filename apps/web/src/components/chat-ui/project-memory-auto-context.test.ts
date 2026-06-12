@@ -96,14 +96,13 @@ describe("project memory context composition", () => {
     const prompt = composeProjectContextPrompt({
       userRequest: "Improve Local ADE UX",
       memoryPrompt: "Memory: use checkpoints",
-      indexPrompt: "Index: LocalAdeControlCenter",
+      indexPrompt: "Index: LocalAdeWorkspaceHome",
     });
 
     expect(prompt).toContain("Project Memory Context:");
     expect(prompt).toContain("Memory: use checkpoints");
     expect(prompt).toContain("Project Index Context:");
-    expect(prompt).toContain("Index: LocalAdeControlCenter");
+    expect(prompt).toContain("Index: LocalAdeWorkspaceHome");
     expect(prompt).toContain("Final user request:\nImprove Local ADE UX");
   });
 });
-

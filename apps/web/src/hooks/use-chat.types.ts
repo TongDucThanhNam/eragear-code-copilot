@@ -9,6 +9,7 @@ import type {
   SessionInfo,
   SessionModelState,
   SessionModeState,
+  SubagentInvocation,
   SessionStateData,
   SupervisorDecisionSummary,
   SupervisorSessionState,
@@ -22,6 +23,11 @@ export interface SendMessageOptions {
   images?: { base64: string; mimeType: string }[];
   resources?: { uri: string; text: string; mimeType?: string }[];
   resourceLinks?: { uri: string; name: string; mimeType?: string }[];
+  subagent?: {
+    name: string;
+    description?: string;
+    sourcePath: string;
+  };
 }
 
 /**
@@ -55,6 +61,7 @@ export interface UseChatResult {
   sessionInfo: SessionInfo | null;
   supervisor: SupervisorSessionState | null;
   supervisorCapable: boolean;
+  subagents: SubagentInvocation[];
   lastSupervisorDecision: SupervisorDecisionSummary | null;
   promptCapabilities: PromptCapabilities | null;
   agentInfo: AgentInfo | null;

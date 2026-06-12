@@ -61,6 +61,9 @@ export class SessionMetadataPersistenceService {
       status: "running" as const,
       modeId: selection.modeId ?? chatSession.modes?.currentModeId,
       modelId: selection.modelId ?? chatSession.models?.currentModelId,
+      modes: chatSession.modes,
+      models: chatSession.models,
+      configOptions: chatSession.configOptions,
     };
 
     const shouldUpdateExistingSession =

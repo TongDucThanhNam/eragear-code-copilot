@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitAdapter } from "./index";
@@ -30,6 +30,125 @@ afterEach(async () => {
 });
 
 describe("GitAdapter", () => {
+  test("getRepositoryState returns branch and changed files", async () => {
+    const projectRoot = await createTempProjectDir();
+    runGitOrThrow(projectRoot, ["init"]);
+    runGitOrThrow(projectRoot, ["config", "user.email", "test@example.com"]);
+    runGitOrThrow(projectRoot, ["config", "user.name", "Test User"]);
+    await writeFile(join(projectRoot, "tracked.txt"), "initial\n", "utf8");
+    runGitOrThrow(projectRoot, ["add", "tracked.txt"]);
+    runGitOrThrow(projectRoot, ["commit", "-m", "initial"]);
+    await writeFile(join(projectRoot, "tracked.txt"), "changed\n", "utf8");
+    await writeFile(join(projectRoot, "staged.txt"), "staged\n", "utf8");
+    await writeFile(join(projectRoot, "untracked.txt"), "new\n", "utf8");
+    runGitOrThrow(projectRoot, ["add", "staged.txt"]);
+
+    const adapter = new GitAdapter();
+    const state = await adapter.getRepositoryState(projectRoot);
+
+    expect(state.isRepository).toBe(true);
+    expect(state.head).toBeTruthy();
+    expect(state.changedFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "staged.txt",
+          status: "added",
+          staged: true,
+          unstaged: false,
+        }),
+        expect.objectContaining({
+          path: "tracked.txt",
+          status: "modified",
+          staged: false,
+          unstaged: true,
+        }),
+        expect.objectContaining({
+          path: "untracked.txt",
+          status: "untracked",
+          staged: false,
+          unstaged: true,
+        }),
+      ])
+    );
+  });
+
+  test("getRepositoryState returns unavailable state outside git repos", async () => {
+    const projectRoot = await createTempProjectDir();
+    const adapter = new GitAdapter();
+
+    const state = await adapter.getRepositoryState(projectRoot);
+
+    expect(state).toMatchObject({
+      isRepository: false,
+      ahead: 0,
+      behind: 0,
+      changedFiles: [],
+    });
+    expect(state.error).toContain("not a Git repository");
+  });
+
+  test("createCheckpoint persists metadata and restore reverses tracked changes", async () => {
+    const projectRoot = await createTempProjectDir();
+    runGitOrThrow(projectRoot, ["init"]);
+    runGitOrThrow(projectRoot, ["config", "user.email", "test@example.com"]);
+    runGitOrThrow(projectRoot, ["config", "user.name", "Test User"]);
+    const filePath = join(projectRoot, "tracked.txt");
+    await writeFile(filePath, "initial\n", "utf8");
+    runGitOrThrow(projectRoot, ["add", "tracked.txt"]);
+    runGitOrThrow(projectRoot, ["commit", "-m", "initial"]);
+    await writeFile(filePath, "changed\n", "utf8");
+
+    const adapter = new GitAdapter();
+    const checkpoint = await adapter.createCheckpoint({
+      projectRoot,
+      projectId: "project-1",
+      projectName: "Repo",
+      name: "Manual checkpoint",
+      kind: "manual",
+    });
+
+    expect(checkpoint.canRestore).toBe(true);
+    expect(checkpoint.patchBytes).toBeGreaterThan(0);
+    expect(checkpoint.changedFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "tracked.txt",
+          status: "modified",
+        }),
+      ])
+    );
+    expect(await adapter.listCheckpoints({ projectRoot })).toEqual([
+      expect.objectContaining({
+        id: checkpoint.id,
+        name: "Manual checkpoint",
+      }),
+    ]);
+
+    const restored = await adapter.restoreCheckpoint({
+      projectRoot,
+      checkpointId: checkpoint.id,
+    });
+
+    expect((await readFile(filePath, "utf8")).replace(/\r\n/g, "\n")).toBe(
+      "initial\n"
+    );
+    expect(restored.checkpoint.canRestore).toBe(false);
+    expect(restored.safetyCheckpoint).toEqual(
+      expect.objectContaining({ kind: "safety" })
+    );
+    expect(await adapter.listCheckpoints({ projectRoot })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: checkpoint.id,
+          canRestore: false,
+        }),
+        expect.objectContaining({
+          kind: "safety",
+        }),
+      ])
+    );
+  });
+
   test("getProjectContext returns filesystem snapshot and excludes .git internals", async () => {
     const projectRoot = await createTempProjectDir();
     await mkdir(join(projectRoot, "src"), { recursive: true });

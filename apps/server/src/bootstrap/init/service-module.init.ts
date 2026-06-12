@@ -13,14 +13,40 @@ import { GitAdapter } from "@/platform/git";
 import { AgentRuntimeAdapter } from "@/platform/process";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import { createServerLifecycle, type ServerLifecycle } from "../lifecycle";
+import { createAcpAuthUseCases } from "../service-registry/acp-auth-services";
 import { createAgentUseCases } from "../service-registry/agent-services";
 import { createAiUseCases } from "../service-registry/ai-services";
+import { createBotsUseCases } from "../service-registry/bots-services";
+import { createCodingPlanSubscriptionUseCases } from "../service-registry/coding-plan-subscription-services";
+import { createCommandsUseCases } from "../service-registry/commands-services";
+import { createContextUsageUseCases } from "../service-registry/context-usage-services";
+import { createCrashReportingUseCases } from "../service-registry/crash-reporting-services";
+import { createCredentialUseCases } from "../service-registry/credential-services";
 import type { ServiceRegistryDependencies } from "../service-registry/dependencies";
+import { createFeedbackUseCases } from "../service-registry/feedback-services";
+import { createFileWatcherUseCases } from "../service-registry/file-watcher-services";
+import { createGitUseCases } from "../service-registry/git-services";
+import { createHooksUseCases } from "../service-registry/hooks-services";
+import { createMemoryUseCases } from "../service-registry/memory-services";
+import { createModelProviderUseCases } from "../service-registry/model-provider-services";
+import { createOAuthUseCases } from "../service-registry/oauth-services";
 import { createOpsUseCases } from "../service-registry/ops-services";
+import { createOutputStyleUseCases } from "../service-registry/output-style-services";
+import { createPluginsUseCases } from "../service-registry/plugins-services";
 import { createProjectUseCases } from "../service-registry/project-services";
+import { createPromptEnhancementUseCases } from "../service-registry/prompt-enhancement-services";
+import { createQuotaUseCases } from "../service-registry/quota-services";
+import { createRemoteControlUseCases } from "../service-registry/remote-control-services";
+import { createRepoSnapshotIndexingUseCases } from "../service-registry/repo-snapshot-indexing-services";
 import { createSessionUseCases } from "../service-registry/session-services";
 import { createSettingsUseCases } from "../service-registry/settings-services";
+import { createSettingsSyncUseCases } from "../service-registry/settings-sync-services";
+import { createSkillsUseCases } from "../service-registry/skills-services";
+import { createTaskAutoArchiveUseCases } from "../service-registry/task-auto-archive-services";
+import { createTerminalUseCases } from "../service-registry/terminal-services";
 import { createToolingUseCases } from "../service-registry/tooling-services";
+import { createTrafficProxyUseCases } from "../service-registry/traffic-proxy-services";
+import { createUsageStatsUseCases } from "../service-registry/usage-stats-services";
 import type { CoreModule } from "./core-module.init";
 import type { PersistenceModule } from "./persistence-module.init";
 import type { AppRuntimeConfig } from "./runtime-config.init";
@@ -57,10 +83,14 @@ export function initializeServiceModule({
   authRuntime,
 }: ServiceModuleInitParams): ServiceModule {
   const gitAdapter = new GitAdapter();
+  const trafficProxyUseCases = createTrafficProxyUseCases();
+  const crashReportingUseCases = createCrashReportingUseCases();
   const agentRuntimeAdapter = new AgentRuntimeAdapter({
     allowedAgentCommandPolicies: runtimeConfig.allowedAgentCommandPolicies,
     allowedEnvKeys: runtimeConfig.allowedEnvKeys,
     agentTimeoutMs: runtimeConfig.agentTimeoutMs,
+    trafficProxyEnvironment: () =>
+      trafficProxyUseCases.trafficProxy.getAgentEnvironment(),
   });
 
   let backgroundRunnerStateProvider: (() => BackgroundRunnerState) | undefined;
@@ -77,6 +107,8 @@ export function initializeServiceModule({
   };
 
   const getCacheStats = (): CacheStats => getResponseCache().getStats();
+  const promptEnhancementUseCases = createPromptEnhancementUseCases();
+  const outputStyleUseCases = createOutputStyleUseCases();
   const serviceRegistryDependencies: ServiceRegistryDependencies = {
     ...core,
     ...persistence,
@@ -84,6 +116,8 @@ export function initializeServiceModule({
     gitAdapter,
     agentRuntimeAdapter,
     sendMessagePolicy: runtimeConfig.sendMessagePolicy,
+    promptEnhancer: promptEnhancementUseCases.promptEnhancement,
+    outputStylePrompt: outputStyleUseCases.outputStyle,
     supervisorPolicy: runtimeConfig.supervisorPolicy,
     sessionUiMessageLimit: runtimeConfig.sessionUiMessageLimit,
     getCacheStats,
@@ -95,8 +129,52 @@ export function initializeServiceModule({
   const projectUseCases = createProjectUseCases(serviceRegistryDependencies);
   const agentUseCases = createAgentUseCases(serviceRegistryDependencies);
   const settingsUseCases = createSettingsUseCases(serviceRegistryDependencies);
+  const settingsSyncUseCases = createSettingsSyncUseCases(
+    serviceRegistryDependencies,
+    settingsUseCases.update
+  );
   const toolingUseCases = createToolingUseCases(serviceRegistryDependencies);
   const opsUseCases = createOpsUseCases(serviceRegistryDependencies);
+  const gitUseCases = createGitUseCases(serviceRegistryDependencies);
+  const credentialUseCases = createCredentialUseCases();
+  const modelProviderUseCases = createModelProviderUseCases();
+  const quotaUseCases = createQuotaUseCases(
+    serviceRegistryDependencies,
+    credentialUseCases,
+    modelProviderUseCases
+  );
+  const commandsUseCases = createCommandsUseCases(
+    serviceRegistryDependencies,
+    settingsUseCases.localAde
+  );
+  const skillsUseCases = createSkillsUseCases(settingsUseCases.localAde);
+  const hooksUseCases = createHooksUseCases(settingsUseCases.localAde);
+  const memoryUseCases = createMemoryUseCases(settingsUseCases.localAde);
+  const fileWatcherUseCases = createFileWatcherUseCases(
+    serviceRegistryDependencies
+  );
+  const contextUsageUseCases = createContextUsageUseCases(
+    serviceRegistryDependencies
+  );
+  const acpAuthUseCases = createAcpAuthUseCases(credentialUseCases);
+  const feedbackUseCases = createFeedbackUseCases();
+  const terminalUseCases = createTerminalUseCases(serviceRegistryDependencies);
+  const oauthUseCases = createOAuthUseCases(authRuntime);
+  const codingPlanSubscriptionUseCases = createCodingPlanSubscriptionUseCases(
+    serviceRegistryDependencies
+  );
+  const usageStatsUseCases = createUsageStatsUseCases(
+    serviceRegistryDependencies
+  );
+  const pluginsUseCases = createPluginsUseCases(settingsUseCases.localAde);
+  const repoSnapshotIndexingUseCases = createRepoSnapshotIndexingUseCases(
+    settingsUseCases.localAde
+  );
+  const taskAutoArchiveUseCases = createTaskAutoArchiveUseCases(
+    serviceRegistryDependencies
+  );
+  const remoteControlUseCases = createRemoteControlUseCases();
+  const botsUseCases = createBotsUseCases();
   const authUserRead = new AuthUserReadAdapter(authRuntime.authDb);
   const authUseCases: AuthUseCases = {
     getMe: new GetMeService(authUserRead),
@@ -110,7 +188,40 @@ export function initializeServiceModule({
     tooling: toolingUseCases,
     auth: authUseCases,
     ops: opsUseCases,
+    git: gitUseCases,
+    quota: quotaUseCases,
+    commands: commandsUseCases,
+    skills: skillsUseCases,
+    hooks: hooksUseCases,
+    memory: memoryUseCases,
+    fileWatcher: fileWatcherUseCases,
+    contextUsage: contextUsageUseCases,
+    credential: credentialUseCases,
+    modelProvider: modelProviderUseCases,
+    acpAuth: acpAuthUseCases,
+    promptEnhancement: promptEnhancementUseCases,
+    terminal: terminalUseCases,
+    oauth: oauthUseCases,
+    settingsSync: settingsSyncUseCases,
+    feedback: feedbackUseCases,
+    outputStyle: outputStyleUseCases,
+    codingPlanSubscription: codingPlanSubscriptionUseCases,
+    usageStats: usageStatsUseCases,
+    plugins: pluginsUseCases,
+    repoSnapshotIndexing: repoSnapshotIndexingUseCases,
+    taskAutoArchive: taskAutoArchiveUseCases,
+    remoteControl: remoteControlUseCases,
+    bots: botsUseCases,
+    trafficProxy: trafficProxyUseCases,
+    crashReporting: crashReportingUseCases,
   };
+  installCrashReportingProcessHandlers({
+    crashReporting: crashReportingUseCases.crashReporting,
+    warn: (message, error) =>
+      core.appLogger.warn(message, {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+  });
   const lifecycle = createServerLifecycle({
     authRuntime,
     agentRuntime: agentRuntimeAdapter,
@@ -120,6 +231,7 @@ export function initializeServiceModule({
     eventBus: core.eventBus,
     sessionUseCases,
     localAde: settingsUseCases.localAde,
+    taskAutoArchive: taskAutoArchiveUseCases.taskAutoArchive,
     appConfig: appConfigService,
     policy: runtimeConfig.lifecyclePolicy,
     setBackgroundRunnerStateProvider,
@@ -128,6 +240,12 @@ export function initializeServiceModule({
     authRuntime.auth
   );
 
+  acpAuthUseCases.acpAuth.syncStartup().catch((error) => {
+    core.appLogger.warn("ACP auth startup sync failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+
   return {
     useCases,
     lifecycle,
@@ -135,4 +253,43 @@ export function initializeServiceModule({
     setBackgroundRunnerStateProvider,
     getBackgroundRunnerState,
   };
+}
+
+let crashReportingHandlersInstalled = false;
+
+function installCrashReportingProcessHandlers(params: {
+  crashReporting: AppUseCases["crashReporting"]["crashReporting"];
+  warn: (message: string, error: unknown) => void;
+}): void {
+  if (crashReportingHandlersInstalled) {
+    return;
+  }
+  crashReportingHandlersInstalled = true;
+  process.on("unhandledRejection", (reason) => {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    params.crashReporting
+      .captureSystem({
+        source: "server",
+        level: "error",
+        message: error.message || "Unhandled promise rejection",
+        stack: error.stack,
+        metadata: { kind: "unhandledRejection" },
+      })
+      .catch((captureError) =>
+        params.warn("Failed to archive unhandled rejection", captureError)
+      );
+  });
+  process.on("uncaughtExceptionMonitor", (error, origin) => {
+    params.crashReporting
+      .captureSystem({
+        source: "server",
+        level: "fatal",
+        message: error.message || "Uncaught exception",
+        stack: error.stack,
+        metadata: { kind: "uncaughtException", origin },
+      })
+      .catch((captureError) =>
+        params.warn("Failed to archive uncaught exception", captureError)
+      );
+  });
 }

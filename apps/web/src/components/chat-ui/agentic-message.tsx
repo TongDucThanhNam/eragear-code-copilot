@@ -17,6 +17,7 @@ import { AttachmentList } from "@/components/chat-ui/agentic-parts/attachment-li
 import { UserTextParts } from "@/components/chat-ui/agentic-parts/user-text-parts";
 import { AssistantMessageBody } from "@/components/chat-ui/agentic-message/assistant-message-body";
 import { CopyMessageAction } from "@/components/chat-ui/agentic-message/copy-message-action";
+import { FeedbackMessageActions } from "@/components/chat-ui/agentic-message/feedback-message-actions";
 import { useChatMessageById } from "@/store/chat-stream-store";
 
 export interface AgenticMessageProps {
@@ -94,6 +95,9 @@ export const AgenticMessage = memo(function AgenticMessage({
         ) : null}
         <div className="mt-2 flex justify-end opacity-0 transition group-hover:opacity-100">
           <MessageActions>
+            {message.role === "assistant" ? (
+              <FeedbackMessageActions chatId={chatId} messageId={message.id} />
+            ) : null}
             <CopyMessageAction text={copyText} />
           </MessageActions>
         </div>

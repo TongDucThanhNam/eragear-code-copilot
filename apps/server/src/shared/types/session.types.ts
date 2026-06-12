@@ -302,6 +302,23 @@ export interface ActivePromptTask {
   orphanedSinceAt?: number;
 }
 
+export type SubagentInvocationStatus = "running" | "completed" | "failed";
+
+export interface SubagentInvocation {
+  id: string;
+  name: string;
+  description?: string;
+  sourcePath: string;
+  status: SubagentInvocationStatus;
+  parentChatId: string;
+  parentTurnId: string;
+  agentSessionId?: string;
+  startedAt: number;
+  completedAt?: number;
+  resultMessageId?: string;
+  error?: string;
+}
+
 /**
  * Unsaved text buffer snapshot synchronized from connected clients/editors.
  */
@@ -367,6 +384,11 @@ export type BroadcastEvent =
       supervisor: SupervisorSessionState;
       turnId?: string;
     }
+  | {
+      type: "subagent_status";
+      invocation: SubagentInvocation;
+      turnId?: string;
+    }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string }
   | {
@@ -426,6 +448,12 @@ export interface StoredSession {
   modeId?: string;
   /** Current model identifier */
   modelId?: string;
+  /** Persisted mode state for this session */
+  modes?: SessionModeState;
+  /** Persisted model state for this session */
+  models?: SessionModelState;
+  /** Persisted session configuration options */
+  configOptions?: SessionConfigOption[];
   /** Message history */
   messages: StoredMessage[];
   /** Precomputed message count for summary views */
@@ -440,6 +468,8 @@ export interface StoredSession {
   authMethods?: Array<{ name: string; id: string; description: string }>;
   /** Supervisor mode/status persisted for this session. */
   supervisor?: SupervisorSessionState;
+  /** Subagent invocation artifacts observed for this session. */
+  subagentInvocations?: SubagentInvocation[];
 }
 
 // ============================================================================
@@ -502,6 +532,8 @@ export interface ChatSession {
   toolCalls: Map<string, ToolCall>;
   /** Active terminals */
   terminals: Map<string, unknown>;
+  /** Subagent invocations associated with prompt turns */
+  subagentInvocations?: Map<string, SubagentInvocation>;
   /** Unsaved editor text buffers keyed by canonical absolute file path */
   editorTextBuffers?: Map<string, SessionEditorTextBuffer>;
   /** Message buffer for streaming */

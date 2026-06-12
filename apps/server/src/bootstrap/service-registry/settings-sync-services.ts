@@ -1,0 +1,27 @@
+import type { UpdateSettingsService } from "@/modules/settings";
+import {
+  SettingsSyncFileRepository,
+  SettingsSyncService,
+} from "@/modules/settings-sync";
+import type { SettingsSyncUseCases, UseCasePort } from "@/modules/use-cases";
+import { getStorageFileSync } from "@/platform/storage/storage-path";
+import type { ServiceRegistryDependencies } from "./dependencies";
+
+export function createSettingsSyncUseCases(
+  deps: ServiceRegistryDependencies,
+  settingsUpdater: UseCasePort<UpdateSettingsService>
+): SettingsSyncUseCases {
+  const repository = new SettingsSyncFileRepository({
+    stateFilePath: () => getStorageFileSync("settings-sync-state.json"),
+    remoteFilePath: () => getStorageFileSync("settings-sync-cloud.json"),
+  });
+
+  return {
+    settingsSync: new SettingsSyncService({
+      settingsRepo: deps.settingsRepo,
+      settingsUpdater,
+      stateRepo: repository,
+      cloud: repository,
+    }),
+  };
+}

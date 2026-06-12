@@ -4,6 +4,8 @@ import { isNodeErrno } from "@/shared/utils/node-error.util";
 import { fileUriToPath } from "@/shared/utils/path.util";
 
 const MAX_CANONICAL_ANCESTOR_ASCENT = 256;
+const WINDOWS_DRIVE_ABSOLUTE_PATH_RE = /^[a-zA-Z]:[\\/]/;
+const WINDOWS_DRIVE_RELATIVE_ROOT_RE = /^[a-zA-Z]:$/;
 
 function isPathOutsideRoot(rootPath: string, targetPath: string): boolean {
   const relative = path.relative(rootPath, targetPath);
@@ -16,6 +18,20 @@ function isPathOutsideRoot(rootPath: string, targetPath: string): boolean {
 
 function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
   return isNodeErrno(error, "ENOENT") || isNodeErrno(error, "ENOTDIR");
+}
+
+function isAbsoluteInputPath(value: string): boolean {
+  return (
+    path.isAbsolute(value) ||
+    value.startsWith("/") ||
+    value.startsWith("\\") ||
+    WINDOWS_DRIVE_ABSOLUTE_PATH_RE.test(value) ||
+    value.startsWith("\\\\")
+  );
+}
+
+function normalizeCanonicalAncestorPath(value: string): string {
+  return WINDOWS_DRIVE_RELATIVE_ROOT_RE.test(value) ? `${value}\\` : value;
 }
 
 async function canonicalizeTargetPath(resolvedPath: string): Promise<string> {
@@ -32,7 +48,9 @@ async function canonicalizeTargetPath(resolvedPath: string): Promise<string> {
   let ascents = 0;
   while (true) {
     try {
-      const canonicalAncestor = await realpath(cursor);
+      const canonicalAncestor = normalizeCanonicalAncestorPath(
+        await realpath(cursor)
+      );
       return path.resolve(canonicalAncestor, ...pathSuffix);
     } catch (error) {
       if (!isMissingPathError(error)) {
@@ -66,7 +84,7 @@ export async function resolvePathWithinRoot(params: {
     throw new Error(`Invalid project root: ${configuredRoot}`);
   }
 
-  const resolvedPath = path.isAbsolute(rawPath)
+  const resolvedPath = isAbsoluteInputPath(rawPath)
     ? path.resolve(rawPath)
     : path.resolve(canonicalRootPath, rawPath);
   const canonicalTargetPath = await canonicalizeTargetPath(resolvedPath);

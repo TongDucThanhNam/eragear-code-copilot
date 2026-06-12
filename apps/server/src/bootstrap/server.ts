@@ -11,16 +11,16 @@
 import type { IncomingMessage } from "node:http";
 import { createServer } from "node:http";
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { compress } from "hono/compress";
 import { WebSocketServer } from "ws";
 import { hasAuthCredentialsInHeaders } from "../platform/auth/guards";
 import { installConsoleLogger } from "../platform/logging/logger";
 import { createRequestLogger } from "../platform/logging/request-logger";
 import { createLogger } from "../platform/logging/structured-logger";
+import { createRuntimeCoreFromSettings, type RuntimeCore } from "../runtime";
 import { patchObservabilityContext } from "../shared/utils/observability-context.util";
 import { withTimeout } from "../shared/utils/timeout.util";
-import { createRuntimeCoreFromSettings, type RuntimeCore } from "../runtime";
 import { createCorsMiddlewares } from "../transport/http/cors-factory";
 import { createErrorHandler } from "../transport/http/error-handler";
 import { requestIdMiddleware } from "../transport/http/request-id";
@@ -86,6 +86,47 @@ function toCloudflareAccessHandshakePolicy(
         }
       : undefined,
   };
+}
+
+async function maybeHandleApiKeyVerify(params: {
+  c: Context;
+  authRuntime: AppComposition["deps"]["authRuntime"];
+  runtimePolicy: RuntimePolicy;
+}): Promise<Response | null> {
+  const { c, authRuntime, runtimePolicy } = params;
+  if (!(c.req.path === "/api/auth/api-key/verify" && c.req.method === "POST")) {
+    return null;
+  }
+
+  try {
+    const body = await parseJsonBodyWithLimit<Record<string, unknown>>(
+      c.req.raw,
+      runtimePolicy.httpMaxBodyBytes
+    );
+    const payload = body as {
+      key: string;
+      permissions?: Record<string, string[]>;
+    };
+    if (typeof payload.key !== "string" || payload.key.trim().length === 0) {
+      return c.json({ error: "key is required" }, 400);
+    }
+    const result = await authRuntime.auth.api.verifyApiKey({
+      body: payload,
+    });
+    return c.json(result);
+  } catch (error) {
+    if (isJsonBodyParseError(error)) {
+      return c.json({ error: error.message }, error.statusCode);
+    }
+    logger.error("Failed to verify API key", error as Error);
+    return c.json(
+      {
+        valid: false,
+        error: { message: "Invalid API key", code: "INVALID_API_KEY" },
+      },
+      401
+    );
+  }
 }
 
 export function hasCloudflareAccessHandshakeAuth(
@@ -254,39 +295,22 @@ export function createApp(
       "/api/auth/is-username-available"
     );
 
-    if (path === "/api/auth/api-key/verify" && c.req.method === "POST") {
-      try {
-        const body = await parseJsonBodyWithLimit<Record<string, unknown>>(
-          c.req.raw,
-          runtimePolicy.httpMaxBodyBytes
-        );
-        const payload = body as {
-          key: string;
-          permissions?: Record<string, string[]>;
-        };
-        if (
-          typeof payload.key !== "string" ||
-          payload.key.trim().length === 0
-        ) {
-          return c.json({ error: "key is required" }, 400);
-        }
-        const result = await authRuntime.auth.api.verifyApiKey({
-          body: payload,
-        });
-        return c.json(result);
-      } catch (error) {
-        if (isJsonBodyParseError(error)) {
-          return c.json({ error: error.message }, error.statusCode);
-        }
-        logger.error("Failed to verify API key", error as Error);
-        return c.json(
-          {
-            valid: false,
-            error: { message: "Invalid API key", code: "INVALID_API_KEY" },
-          },
-          401
-        );
-      }
+    const apiKeyVerifyResponse = await maybeHandleApiKeyVerify({
+      c,
+      authRuntime,
+      runtimePolicy,
+    });
+    if (apiKeyVerifyResponse) {
+      return apiKeyVerifyResponse;
+    }
+
+    if (path === "/api/auth/oauth/providers" && c.req.method === "GET") {
+      return c.json({
+        providers: authRuntime.oauthProviderDescriptors,
+        configuredCount: authRuntime.oauthProviderDescriptors.filter(
+          (provider) => provider.configured
+        ).length,
+      });
     }
 
     if (

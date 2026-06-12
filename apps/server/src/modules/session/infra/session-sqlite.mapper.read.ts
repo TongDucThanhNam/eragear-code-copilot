@@ -18,6 +18,9 @@ import {
   OptionalPartsSchema,
   OptionalPlanSchema,
   OptionalReasoningBlocksSchema,
+  OptionalSessionConfigOptionsSchema,
+  OptionalSessionModelStateSchema,
+  OptionalSessionModeStateSchema,
   OptionalSupervisorSessionStateSchema,
   OptionalToolCallsSchema,
   type SessionListRow,
@@ -182,6 +185,33 @@ export class SessionSqliteReadMapper {
       lastActiveAt,
       modeId: row.modeId ?? undefined,
       modelId: row.modelId ?? undefined,
+      modes: fromSqliteJsonWithSchema(
+        row.modesJson,
+        undefined,
+        OptionalSessionModeStateSchema,
+        {
+          table: "sessions",
+          column: "modes_json",
+        }
+      ),
+      models: fromSqliteJsonWithSchema(
+        row.modelsJson,
+        undefined,
+        OptionalSessionModelStateSchema,
+        {
+          table: "sessions",
+          column: "models_json",
+        }
+      ),
+      configOptions: fromSqliteJsonWithSchema(
+        row.configOptionsJson,
+        undefined,
+        OptionalSessionConfigOptionsSchema,
+        {
+          table: "sessions",
+          column: "config_options_json",
+        }
+      ),
       messages: [],
       messageCount,
       plan: fromSqliteJsonWithSchema(

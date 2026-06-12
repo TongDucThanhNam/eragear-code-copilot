@@ -4,6 +4,8 @@ import {
   CreateSessionService,
   DeleteSessionService,
   DiscoverAgentSessionsService,
+  ForkSessionService,
+  ListSessionForksService,
   LoadAgentSessionService,
   PersistSessionBootstrapService,
   ReconcileSessionStatusService,
@@ -20,10 +22,13 @@ import {
   SessionRuntimeBootstrapService,
   SpawnSessionProcessService,
   StopSessionService,
+  SubagentService,
   SubscribeSessionEventsService,
   UpdateSessionMetaService,
 } from "@/modules/session";
+import { SessionBindingFileRepository } from "@/modules/session/di";
 import type { SessionUseCases } from "@/modules/use-cases";
+import { getStorageFileSync } from "@/platform/storage/storage-path";
 import type { ServiceRegistryDependencies } from "./dependencies";
 
 export function createSessionUseCases(
@@ -138,6 +143,18 @@ export function createSessionUseCases(
     deps.sessionRepo,
     deps.sessionRuntime
   );
+  const subagentService = new SubagentService(deps.sessionRuntime, deps.clock);
+  const sessionBindingRepository = new SessionBindingFileRepository({
+    filePath: () => getStorageFileSync("session-bindings.json"),
+  });
+  const forkSessionService = new ForkSessionService({
+    sessionRepo: deps.sessionRepo,
+    bindings: sessionBindingRepository,
+    nowMs: deps.clock.nowMs,
+  });
+  const listSessionForksService = new ListSessionForksService(
+    sessionBindingRepository
+  );
 
   return {
     create: createSessionService,
@@ -151,5 +168,8 @@ export function createSessionUseCases(
     events: subscribeSessionEventsService,
     cleanupProjectSessions: cleanupProjectSessionsService,
     reconcileStatus: reconcileSessionStatusService,
+    subagents: subagentService,
+    fork: forkSessionService,
+    forkBindings: listSessionForksService,
   };
 }

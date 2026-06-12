@@ -7,7 +7,6 @@ import type { SessionRuntimePort } from "./ports/session-runtime.port";
 import { ResumeSessionService } from "./resume-session.service";
 
 const SESSION_NOT_FOUND_REGEX = /session not found in store/i;
-const MISSING_ACP_SESSION_ID_REGEX = /missing acp sessionid/i;
 
 function createStoredSession(overrides: Record<string, unknown> = {}) {
   return {
@@ -204,7 +203,12 @@ describe("ResumeSessionService", () => {
     );
   });
 
-  test("throws when stored session has no ACP sessionId", async () => {
+  test("starts a fresh runtime when stored session has no ACP sessionId", async () => {
+    let receivedInput: unknown;
+    const resumed = createRunningSession({
+      id: "chat-1",
+      promptCapabilities: { image: false },
+    });
     const repo = {
       findById: async () => createStoredSession({ sessionId: undefined }),
     } as unknown as SessionRepositoryPort;
@@ -212,13 +216,26 @@ describe("ResumeSessionService", () => {
       get: () => undefined,
     } as unknown as SessionRuntimePort;
     const createSession = {
-      execute: () => createRunningSession(),
+      execute: (input: Record<string, unknown>) => {
+        receivedInput = input;
+        return resumed;
+      },
     } as unknown as CreateSessionService;
 
     const service = new ResumeSessionService(repo, runtime, createSession);
-    await expect(service.execute("user-1", "chat-1")).rejects.toThrow(
-      MISSING_ACP_SESSION_ID_REGEX
-    );
+    const result = await service.execute("user-1", "chat-1");
+
+    expect(receivedInput).toMatchObject({
+      chatId: "chat-1",
+      importExternalHistoryOnLoad: false,
+    });
+    expect(
+      (receivedInput as { sessionIdToLoad?: string }).sessionIdToLoad
+    ).toBeUndefined();
+    expect(result).toMatchObject({
+      ok: true,
+      chatId: "chat-1",
+    });
   });
 
   test("falls back to a fresh session when agent session load fails", async () => {

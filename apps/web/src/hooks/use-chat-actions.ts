@@ -217,6 +217,7 @@ export function useChatActions({
           images: messageOptions?.images,
           resources: messageOptions?.resources,
           resourceLinks: messageOptions?.resourceLinks,
+          subagent: messageOptions?.subagent,
         });
         if (!isActiveChat(activeChatId) || readOnly) {
           return { submitted: false };

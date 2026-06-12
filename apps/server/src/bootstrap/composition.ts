@@ -1,15 +1,19 @@
 import { ENV } from "@/config/environment";
+import { initializeFileWatcherEvents } from "@/modules/file-watcher/init/file-watcher-events.init";
+import { initializeGitEvents } from "@/modules/git/init/git-events.init";
 import { initializeProjectEvents } from "@/modules/project/init/project-events.init";
 import type {
   SessionEventOutboxPort,
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
+import { initializeSubagentEvents } from "@/modules/session/init/subagent-events.init";
 import {
   AppConfigService,
   type SettingsRepositoryPort,
 } from "@/modules/settings";
 import { SettingsSqliteRepository } from "@/modules/settings/di";
+import { initializeUsageStatsEvents } from "@/modules/usage-stats/init/usage-stats-events.init";
 import type { AppUseCases } from "@/modules/use-cases";
 import type { AuthRuntime } from "@/platform/auth/auth";
 import { setRuntimeLogLevel } from "@/platform/logging/runtime-log-level";
@@ -156,6 +160,35 @@ async function createAppCompositionWithRuntimeConfig(
       sessionUseCases: deps.useCases.session,
     })
   );
+  unsubscribeCallbacks.push(
+    initializeGitEvents({
+      eventBus: deps.eventBus,
+      gitUseCases: deps.useCases.git,
+      logger: deps.appLogger,
+    })
+  );
+  unsubscribeCallbacks.push(
+    initializeSubagentEvents({
+      eventBus: deps.eventBus,
+      sessionUseCases: deps.useCases.session,
+      logger: deps.appLogger,
+    })
+  );
+  unsubscribeCallbacks.push(
+    initializeFileWatcherEvents({
+      eventBus: deps.eventBus,
+      fileWatcherUseCases: deps.useCases.fileWatcher,
+      sessionRuntime: deps.sessionRuntime,
+      logger: deps.appLogger,
+    })
+  );
+  unsubscribeCallbacks.push(
+    initializeUsageStatsEvents({
+      eventBus: deps.eventBus,
+      usageStatsUseCases: deps.useCases.usageStats,
+      logger: deps.appLogger,
+    })
+  );
 
   let disposed = false;
   const dispose = async () => {
@@ -166,6 +199,7 @@ async function createAppCompositionWithRuntimeConfig(
     for (const unsubscribe of unsubscribeCallbacks.splice(0)) {
       unsubscribe();
     }
+    deps.useCases.fileWatcher.fileWatcher.dispose();
     await sqliteWorkerRuntimeConfigSync.flush();
     try {
       await closeSqliteStorage();

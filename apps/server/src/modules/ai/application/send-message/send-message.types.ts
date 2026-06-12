@@ -61,6 +61,11 @@ export interface SendMessageExecuteInput {
     size?: number;
     annotations?: Annotations;
   }[];
+  subagent?: {
+    name: string;
+    description?: string;
+    sourcePath: string;
+  };
 }
 
 export interface SendMessageResult {

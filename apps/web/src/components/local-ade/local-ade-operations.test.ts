@@ -486,7 +486,7 @@ test("builds workflow readiness lanes for the ADE first screen", () => {
       projectIndex: {
         indexedAt: "2026-06-11T01:58:00.000Z",
         indexedFiles: 42,
-        symbols: [{ name: "LocalAdeControlCenter" }],
+        symbols: [{ name: "LocalAdeWorkspaceHome" }],
         tasks: [{ marker: "TODO" }, { marker: "FIXME" }],
       },
     },

@@ -1,14 +1,26 @@
 "use client";
 
-import { Info, LogOut, Play, Radio, RefreshCw } from "lucide-react";
+import {
+  Bot,
+  Folder,
+  GitFork,
+  Info,
+  LogOut,
+  MoreHorizontal,
+  PanelRightClose,
+  PanelRightOpen,
+  Play,
+  RefreshCw,
+} from "lucide-react";
 import { memo } from "react";
+import { useRightSidebarControls } from "@/components/layout/three-pane-layout";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type { ChatDisplayConnectionStatus } from "./chat-connection-display";
 import { SidebarTrigger } from "../ui/sidebar";
 
@@ -20,11 +32,14 @@ export interface ChatHeaderAgentDisplay {
 
 export interface ChatHeaderProps {
   agentDisplay: ChatHeaderAgentDisplay;
+  chatTitle?: string | null;
   projectName?: string | null;
   connStatus: ChatDisplayConnectionStatus;
   onStopChat: () => void;
   onResumeChat?: () => void;
+  onForkChat?: () => void;
   isResuming?: boolean;
+  isForking?: boolean;
   /** True when agent doesn't support session load */
   loadNotSupported?: boolean;
 }
@@ -32,92 +47,164 @@ export interface ChatHeaderProps {
 const getConnectionTone = (connStatus: ChatHeaderProps["connStatus"]) => {
   switch (connStatus) {
     case "connected":
-      return "animate-pulse text-green-500";
+      return "bg-green-500";
     case "connecting":
-      return "animate-pulse text-amber-500";
+      return "animate-pulse bg-amber-500";
     case "error":
-      return "text-red-500";
+      return "bg-red-500";
     case "inactive":
-      return "text-red-500";
+      return "bg-red-500";
     default:
-      return "text-muted-foreground";
+      return "bg-muted-foreground";
   }
 };
 
 export const ChatHeader = memo(function ChatHeader({
   agentDisplay,
+  chatTitle,
   projectName,
   connStatus,
   onStopChat,
   onResumeChat,
+  onForkChat,
   isResuming,
+  isForking,
   loadNotSupported,
 }: ChatHeaderProps) {
+  const rightSidebar = useRightSidebarControls();
+  const displayTitle = chatTitle?.trim() || "New Task";
+  const projectLabel = projectName?.trim() || "Workspace";
+  const sidebarIcon = rightSidebar.isOpen ? PanelRightClose : PanelRightOpen;
+  const SidebarIcon = sidebarIcon;
+
   return (
-    <div className="flex shrink-0 items-center justify-between bg-background/50 px-4 py-2 backdrop-blur-sm">
-      <SidebarTrigger className="-ml-1" />
-      <div className="flex items-center gap-3">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm leading-none">
-              {agentDisplay.name}
-            </span>
-            {projectName && (
-              <>
-                <span className="text-muted-foreground text-xs">in</span>
-                <span className="font-medium text-muted-foreground text-sm">
-                  {projectName}
-                </span>
-              </>
-            )}
-          </div>
-          <div className="mt-1 flex items-center gap-1.5">
-            <Radio className={`h-3 w-3 ${getConnectionTone(connStatus)}`} />
-            <span className="font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
-              {connStatus}
-            </span>
-          </div>
+    <header
+      className="flex h-12 shrink-0 items-center gap-2 border-b bg-background/90 px-3 backdrop-blur-sm"
+      data-eragear-window-controls-safe="right"
+    >
+      <SidebarTrigger className="-ml-1 text-muted-foreground hover:text-foreground" />
+
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <h1 className="min-w-0 max-w-[min(42rem,48vw)] truncate font-semibold text-foreground text-sm leading-none">
+          {displayTitle}
+        </h1>
+
+        <div className="hidden h-8 min-w-0 max-w-72 items-center gap-1.5 rounded-md border bg-muted/40 px-2 text-xs shadow-sm sm:flex">
+          <Folder className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate font-medium text-foreground">
+            {projectLabel}
+          </span>
+          <span className="h-3 w-px shrink-0 bg-border" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <Bot className="size-4 shrink-0 text-muted-foreground" />
+                <span className="sr-only">{agentDisplay.name}</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{agentDisplay.name}</TooltipContent>
+          </Tooltip>
         </div>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="More chat actions"
+              className="hidden text-muted-foreground hover:text-foreground sm:inline-flex"
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>More chat actions</TooltipContent>
+        </Tooltip>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5">
+        <div className="hidden h-7 items-center gap-1.5 rounded-md border bg-muted/20 px-2 text-muted-foreground text-xs md:flex">
+          <span
+            className={cn("size-1.5 rounded-full", getConnectionTone(connStatus))}
+          />
+          <span className="font-medium">{connStatus}</span>
+        </div>
+
         {connStatus === "connected" && (
-          <Button
-            className="h-8 gap-1.5 text-muted-foreground transition-colors hover:text-destructive"
-            onClick={onStopChat}
-            size="sm"
-            variant="ghost"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            Disconnect
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label="Disconnect"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={onStopChat}
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              >
+                <LogOut className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Disconnect</TooltipContent>
+          </Tooltip>
+        )}
+        {onForkChat && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label={isForking ? "Forking task" : "Fork task"}
+                className="text-muted-foreground hover:text-foreground"
+                disabled={isForking}
+                onClick={onForkChat}
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              >
+                <GitFork className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isForking ? "Forking task" : "Fork task"}
+            </TooltipContent>
+          </Tooltip>
         )}
         {(connStatus === "idle" || connStatus === "inactive") && onResumeChat && (
-          <Button
-            className="h-8 gap-1.5 border-green-200 bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-700 dark:border-green-800 dark:bg-green-950/20 dark:text-green-400 dark:hover:text-green-300"
-            disabled={isResuming}
-            onClick={onResumeChat}
-            size="sm"
-            variant="outline"
-          >
-            {isResuming ? (
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Play className="h-3.5 w-3.5 fill-current" />
-            )}
-            {isResuming ? "Loading..." : "Load From Agent"}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label={isResuming ? "Loading session" : "Load from agent"}
+                className="text-muted-foreground hover:text-foreground"
+                disabled={isResuming}
+                onClick={onResumeChat}
+                size="icon-sm"
+                type="button"
+                variant="outline"
+              >
+                {isResuming ? (
+                  <RefreshCw className="size-4 animate-spin" />
+                ) : (
+                  <Play className="size-4 fill-current" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isResuming ? "Loading session" : "Load from agent"}
+            </TooltipContent>
+          </Tooltip>
         )}
         {(connStatus === "idle" || connStatus === "inactive") &&
           !onResumeChat &&
           loadNotSupported && (
-          <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
-                  <Info className="h-3.5 w-3.5" />
-                  <span>Read-only</span>
-                </span>
+                <Button
+                  aria-label="Read-only session"
+                  className="text-muted-foreground"
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Info className="size-4" />
+                </Button>
               </TooltipTrigger>
               <TooltipContent>
                 <p>This agent does not support session load.</p>
@@ -126,9 +213,39 @@ export const ChatHeader = memo(function ChatHeader({
                 </p>
               </TooltipContent>
             </Tooltip>
-          </TooltipProvider>
         )}
+
+        {rightSidebar.hasRightSidebar ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-controls="context-panel"
+                aria-label={
+                  rightSidebar.isOpen
+                    ? "Close context sidebar"
+                    : "Open context sidebar"
+                }
+                aria-pressed={rightSidebar.isOpen}
+                className={cn(
+                  "text-muted-foreground hover:text-foreground",
+                  rightSidebar.isOpen && "bg-muted text-foreground"
+                )}
+                onClick={rightSidebar.toggle}
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              >
+                <SidebarIcon className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {rightSidebar.isOpen
+                ? "Close context sidebar"
+                : "Open context sidebar"}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
-    </div>
+    </header>
   );
 });

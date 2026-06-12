@@ -441,6 +441,8 @@ async function handleModeUpdate(
   if (session?.userId) {
     await sessionRepo.updateMetadata(chatId, session.userId, {
       modeId: update.currentModeId,
+      modes: session.modes,
+      configOptions: session.configOptions,
     });
   }
   logger.debug("ACP current mode update", {
@@ -579,6 +581,9 @@ async function handleConfigOptionsUpdate(
     const metadataUpdates: {
       modeId?: string;
       modelId?: string;
+      modes?: ChatSession["modes"];
+      models?: ChatSession["models"];
+      configOptions?: ChatSession["configOptions"];
     } = {};
     if (modeOption && selection.modeId) {
       metadataUpdates.modeId = selection.modeId;
@@ -586,9 +591,10 @@ async function handleConfigOptionsUpdate(
     if (modelOption && selection.modelId) {
       metadataUpdates.modelId = selection.modelId;
     }
-    if (metadataUpdates.modeId || metadataUpdates.modelId) {
-      await sessionRepo.updateMetadata(chatId, session.userId, metadataUpdates);
-    }
+    metadataUpdates.modes = session.modes;
+    metadataUpdates.models = session.models;
+    metadataUpdates.configOptions = session.configOptions;
+    await sessionRepo.updateMetadata(chatId, session.userId, metadataUpdates);
   }
 
   logger.debug("ACP config options update", {

@@ -2237,13 +2237,13 @@ const DASHBOARD_PARITY: LocalAdeWorkflowParity[] = [
   {
     workflow: "Projects",
     status: "available",
-    electronSurface: "Sidebar project tree and Local ADE Control Center",
+    electronSurface: "Sidebar project tree and workspace overview",
     sourceFile: "apps/server/src/presentation/dashboard/components/projects-tab.tsx",
   },
   {
     workflow: "Sessions",
     status: "available",
-    electronSurface: "Sidebar session tree and Local ADE Control Center",
+    electronSurface: "Sidebar session tree and workspace overview",
     sourceFile: "apps/server/src/presentation/dashboard/components/sessions-tab.tsx",
   },
   {
@@ -2255,7 +2255,7 @@ const DASHBOARD_PARITY: LocalAdeWorkflowParity[] = [
   {
     workflow: "Logs and observability",
     status: "available",
-    electronSurface: "Local ADE Control Center timeline",
+    electronSurface: "Settings > Activity route",
     sourceFile: "apps/server/src/presentation/dashboard/components/logs-tab.tsx",
   },
   {
@@ -5346,7 +5346,7 @@ function buildRepoIndexContextPrompt(params: {
       `Search the local project index for: ${query}`,
       "",
       "The project index has not been refreshed yet.",
-      "Refresh Project Index in the Local ADE Control Center before using /index for retrieval.",
+      "Refresh Project Index in Settings > Memory before using /index for retrieval.",
     ].join("\n");
   }
 
@@ -6808,7 +6808,7 @@ function toVisibleHooks(
       runs: document.runs,
     });
     const diagnostics = [
-      "Manual hook execution is available from the Local ADE Control Center.",
+      "Manual hook execution is available from Settings > Automation.",
       `Hook execution fingerprint: ${fingerprint}.`,
       `Hook policy preset: ${normalizeExecutionPolicyPreset(hook.policyPreset)}.`,
       `Manual hook runs require confirmation token: ${hookRunConfirmationToken(hook)}.`,
@@ -6879,7 +6879,7 @@ function hookCapabilities(hooks: LocalAdeHookDescriptor[]): CapabilityDescriptor
     name: hook.name,
     description:
       hook.event === "manual"
-        ? "Manual hook runnable from the Local ADE Control Center."
+        ? "Manual hook runnable from Settings > Automation."
         : `Lifecycle hook for ${hook.event}.`,
     scope: "project",
     enabled:
@@ -9693,7 +9693,7 @@ function toVisiblePlugins(
       plugin.id
     );
     const diagnostics = [
-      "Project-local plugin execution is available from the Local ADE Control Center.",
+      "Project-local plugin execution is available from Settings > Automation.",
       policy.scopes.includes("project-root")
         ? "Plugins run without shell expansion and are constrained to the project root for cwd."
         : "Plugin lacks project-root scope; manual runs use a temporary sandbox cwd and hide ERAGEAR_PROJECT_ROOT.",
@@ -9882,7 +9882,7 @@ function pluginCapabilities(
     name: plugin.name,
     description:
       plugin.description ??
-      "Project-local plugin runnable from the Local ADE Control Center.",
+      "Project-local plugin runnable from Settings > Automation.",
     scope: "project",
     enabled:
       plugin.enabled &&
