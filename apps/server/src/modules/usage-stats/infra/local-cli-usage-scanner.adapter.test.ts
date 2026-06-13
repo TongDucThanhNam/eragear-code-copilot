@@ -76,7 +76,12 @@ describe("LocalCliUsageScannerAdapter", () => {
       expect(result.totals.outputTokens).toBe(60);
       expect(result.modelUsage[0]?.name).toBe("gpt-5");
       expect(result.modelUsage[0]?.tokens.totalTokens).toBe(210);
+      expect(result.modelUsage[0]?.cost.totalUsd).toBeCloseTo(0.000_753_75, 8);
+      expect(result.cost.totalUsd).toBeCloseTo(0.000_753_75, 8);
+      expect(result.pricing.pricedTokens).toBe(210);
+      expect(result.pricing.unpricedTokens).toBe(0);
       expect(result.daily[0]?.tokens.totalTokens).toBe(210);
+      expect(result.daily[0]?.cost.totalUsd).toBeCloseTo(0.000_753_75, 8);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

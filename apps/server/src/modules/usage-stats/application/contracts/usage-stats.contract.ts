@@ -99,11 +99,30 @@ export interface UsageStatsTokenTotals {
   totalTokens: number;
 }
 
+export interface UsageStatsCostTotals {
+  inputUsd: number;
+  outputUsd: number;
+  cacheInputUsd: number;
+  cacheOutputUsd: number;
+  totalUsd: number;
+  pricedTokens: number;
+  unpricedTokens: number;
+}
+
+export interface UsageStatsPricingMetadata {
+  source: string;
+  generatedAt: number;
+  units: string;
+  pricedTokens: number;
+  unpricedTokens: number;
+}
+
 export interface UsageStatsModelUsage {
   name: string;
   providerId: UsageStatsCliProviderId;
   providerDisplayName: string;
   tokens: UsageStatsTokenTotals;
+  cost: UsageStatsCostTotals;
   share: number;
 }
 
@@ -112,17 +131,20 @@ export interface UsageStatsDailyModelUsage {
   providerId: UsageStatsCliProviderId;
   providerDisplayName: string;
   tokens: UsageStatsTokenTotals;
+  cost: UsageStatsCostTotals;
 }
 
 export interface UsageStatsProviderDailyUsage {
   providerId: UsageStatsCliProviderId;
   providerDisplayName: string;
   tokens: UsageStatsTokenTotals;
+  cost: UsageStatsCostTotals;
 }
 
 export interface UsageStatsCliDailyUsage {
   date: string;
   tokens: UsageStatsTokenTotals;
+  cost: UsageStatsCostTotals;
   displayTokens: number;
   breakdown: UsageStatsDailyModelUsage[];
   providers: UsageStatsProviderDailyUsage[];
@@ -136,6 +158,7 @@ export interface UsageStatsCliProviderSummary {
   status: UsageStatsCliProviderStatus;
   error?: string;
   totals: UsageStatsTokenTotals;
+  cost: UsageStatsCostTotals;
   daily: UsageStatsCliDailyUsage[];
   modelUsage: UsageStatsModelUsage[];
   favoriteModel?: UsageStatsModelUsage;
@@ -149,6 +172,8 @@ export interface UsageStatsCliSummary {
   range: UsageStatsRange;
   providers: UsageStatsCliProviderSummary[];
   totals: UsageStatsTokenTotals;
+  cost: UsageStatsCostTotals;
+  pricing: UsageStatsPricingMetadata;
   daily: UsageStatsCliDailyUsage[];
   modelUsage: UsageStatsModelUsage[];
   favoriteModel?: UsageStatsModelUsage;

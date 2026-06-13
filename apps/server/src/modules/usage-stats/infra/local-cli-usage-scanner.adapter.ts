@@ -21,6 +21,7 @@ import type {
   UsageStatsCliProviderId,
   UsageStatsCliProviderSummary,
   UsageStatsCliSummary,
+  UsageStatsCostTotals,
   UsageStatsDailyModelUsage,
   UsageStatsModelUsage,
   UsageStatsProviderDailyUsage,
@@ -30,6 +31,13 @@ import type {
   UsageStatsScannerInput,
   UsageStatsScannerPort,
 } from "../application/ports/usage-stats-scanner.port";
+import {
+  addCost,
+  calculateUsageCost,
+  cloneCost,
+  createEmptyCost,
+  getUsagePricingMetadata,
+} from "./usage-pricing";
 
 const CLI_PROVIDER_IDS: UsageStatsCliProviderId[] = [
   "amp",
@@ -69,14 +77,18 @@ const BEARER_TOKEN_RE = /Bearer\s+[A-Za-z0-9._-]+/g;
 interface MutableDailyUsage {
   date: string;
   tokens: UsageStatsTokenTotals;
+  cost: UsageStatsCostTotals;
   models: Map<string, UsageStatsTokenTotals>;
+  modelCosts: Map<string, UsageStatsCostTotals>;
 }
 
 interface MutableProviderUsage {
   providerId: UsageStatsCliProviderId;
   daily: Map<string, MutableDailyUsage>;
   modelTotals: Map<string, UsageStatsTokenTotals>;
+  modelCosts: Map<string, UsageStatsCostTotals>;
   recentModelTotals: Map<string, UsageStatsTokenTotals>;
+  recentModelCosts: Map<string, UsageStatsCostTotals>;
 }
 
 interface CodexUsagePayload {
@@ -275,7 +287,9 @@ function createProviderUsage(
     providerId,
     daily: new Map(),
     modelTotals: new Map(),
+    modelCosts: new Map(),
     recentModelTotals: new Map(),
+    recentModelCosts: new Map(),
   };
 }
 
@@ -290,6 +304,11 @@ function recordUsage(params: {
     return;
   }
 
+  const cost = calculateUsageCost({
+    providerId: params.usage.providerId,
+    modelName: params.modelName,
+    tokens: params.tokens,
+  });
   const dateKey = formatLocalDate(params.date);
   let daily = params.usage.daily.get(dateKey);
 
@@ -297,19 +316,24 @@ function recordUsage(params: {
     daily = {
       date: dateKey,
       tokens: createEmptyTokens(),
+      cost: createEmptyCost(),
       models: new Map(),
+      modelCosts: new Map(),
     };
     params.usage.daily.set(dateKey, daily);
   }
 
   addTokens(daily.tokens, params.tokens);
+  addCost(daily.cost, cost);
 
   if (!params.modelName) {
     return;
   }
 
   addModelTokens(daily.models, params.modelName, params.tokens);
+  addModelCost(daily.modelCosts, params.modelName, cost);
   addModelTokens(params.usage.modelTotals, params.modelName, params.tokens);
+  addModelCost(params.usage.modelCosts, params.modelName, cost);
 
   if (params.date >= params.recentStart) {
     addModelTokens(
@@ -317,6 +341,7 @@ function recordUsage(params: {
       params.modelName,
       params.tokens
     );
+    addModelCost(params.usage.recentModelCosts, params.modelName, cost);
   }
 }
 
@@ -333,6 +358,19 @@ function addModelTokens(
   addTokens(existing, tokens);
 }
 
+function addModelCost(
+  map: Map<string, UsageStatsCostTotals>,
+  name: string,
+  cost: UsageStatsCostTotals
+): void {
+  const existing = map.get(name);
+  if (!existing) {
+    map.set(name, cloneCost(cost));
+    return;
+  }
+  addCost(existing, cost);
+}
+
 function buildProviderSummary(
   providerId: UsageStatsCliProviderId,
   status: UsageStatsCliProviderSummary["status"],
@@ -341,8 +379,10 @@ function buildProviderSummary(
   error?: string
 ): UsageStatsCliProviderSummary {
   const totals = createEmptyTokens();
+  const cost = createEmptyCost();
   for (const daily of usage.daily.values()) {
     addTokens(totals, daily.tokens);
+    addCost(cost, daily.cost);
   }
   const daily = buildDailyRows(usage.daily, {
     providerId,
@@ -350,11 +390,13 @@ function buildProviderSummary(
   });
   const modelUsage = buildModelUsageRows(
     usage.modelTotals,
+    usage.modelCosts,
     providerId,
     totals.totalTokens
   );
   const recentModelUsage = buildModelUsageRows(
     usage.recentModelTotals,
+    usage.recentModelCosts,
     providerId,
     sumTokenMap(usage.recentModelTotals).totalTokens
   );
@@ -366,6 +408,7 @@ function buildProviderSummary(
     status,
     ...(error ? { error } : {}),
     totals,
+    cost,
     daily,
     modelUsage,
     favoriteModel: modelUsage[0],
@@ -389,9 +432,11 @@ function buildCliSummary(params: {
   const modelTotals = new Map<string, UsageStatsModelUsage>();
   const recentModelTotals = new Map<string, UsageStatsModelUsage>();
   const totals = createEmptyTokens();
+  const cost = createEmptyCost();
 
   for (const provider of params.providers) {
     addTokens(totals, provider.totals);
+    addCost(cost, provider.cost);
 
     for (const row of provider.daily) {
       let daily = dailyByDate.get(row.date);
@@ -399,23 +444,28 @@ function buildCliSummary(params: {
         daily = {
           date: row.date,
           tokens: createEmptyTokens(),
+          cost: createEmptyCost(),
           models: new Map(),
+          modelCosts: new Map(),
         };
         dailyByDate.set(row.date, daily);
       }
       addTokens(daily.tokens, row.tokens);
+      addCost(daily.cost, row.cost);
 
       const providerEntries = providerDailyByDate.get(row.date) ?? [];
       providerEntries.push({
         providerId: provider.providerId,
         providerDisplayName: provider.providerDisplayName,
         tokens: cloneTokens(row.tokens),
+        cost: cloneCost(row.cost),
       });
       providerDailyByDate.set(row.date, providerEntries);
 
       for (const model of row.breakdown) {
         const key = modelKey(model.providerId, model.name);
         addModelTokens(daily.models, key, model.tokens);
+        addModelCost(daily.modelCosts, key, model.cost);
       }
     }
 
@@ -424,6 +474,7 @@ function buildCliSummary(params: {
       modelTotals.set(key, {
         ...model,
         tokens: cloneTokens(model.tokens),
+        cost: cloneCost(model.cost),
       });
     }
 
@@ -439,6 +490,7 @@ function buildCliSummary(params: {
         recentModelTotals.set(modelKey(provider.providerId, model.name), {
           ...recentModel,
           tokens: cloneTokens(recentModel.tokens),
+          cost: cloneCost(recentModel.cost),
         });
       }
     }
@@ -453,6 +505,7 @@ function buildCliSummary(params: {
       return {
         date: row.date,
         tokens: cloneTokens(row.tokens),
+        cost: cloneCost(row.cost),
         displayTokens: row.tokens.totalTokens,
         providers,
         breakdown: [...row.models.entries()]
@@ -464,6 +517,7 @@ function buildCliSummary(params: {
               providerId,
               providerDisplayName: PROVIDER_DISPLAY_NAMES[providerId],
               tokens: cloneTokens(tokens),
+              cost: cloneCost(row.modelCosts.get(key) ?? createEmptyCost()),
             };
           }),
       };
@@ -486,6 +540,12 @@ function buildCliSummary(params: {
     range: params.range,
     providers: params.providers,
     totals,
+    cost,
+    pricing: {
+      ...getUsagePricingMetadata(),
+      pricedTokens: cost.pricedTokens,
+      unpricedTokens: cost.unpricedTokens,
+    },
     daily,
     modelUsage,
     favoriteModel: modelUsage[0],
@@ -510,6 +570,7 @@ function buildDailyRows(
     .map((row) => ({
       date: row.date,
       tokens: cloneTokens(row.tokens),
+      cost: cloneCost(row.cost),
       displayTokens: row.tokens.totalTokens,
       providers: provider
         ? [
@@ -517,6 +578,7 @@ function buildDailyRows(
               providerId: provider.providerId,
               providerDisplayName: provider.providerDisplayName,
               tokens: cloneTokens(row.tokens),
+              cost: cloneCost(row.cost),
             },
           ]
         : [],
@@ -527,12 +589,14 @@ function buildDailyRows(
           providerId: provider?.providerId ?? "codex",
           providerDisplayName: provider?.providerDisplayName ?? "Codex",
           tokens: cloneTokens(tokens),
+          cost: cloneCost(row.modelCosts.get(name) ?? createEmptyCost()),
         })),
     }));
 }
 
 function buildModelUsageRows(
   map: Map<string, UsageStatsTokenTotals>,
+  costMap: Map<string, UsageStatsCostTotals>,
   providerId: UsageStatsCliProviderId,
   totalTokens: number
 ): UsageStatsModelUsage[] {
@@ -543,6 +607,7 @@ function buildModelUsageRows(
       providerId,
       providerDisplayName: PROVIDER_DISPLAY_NAMES[providerId],
       tokens: cloneTokens(tokens),
+      cost: cloneCost(costMap.get(name) ?? createEmptyCost()),
       share: totalTokens > 0 ? tokens.totalTokens / totalTokens : 0,
     }));
 }

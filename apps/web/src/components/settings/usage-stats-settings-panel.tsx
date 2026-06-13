@@ -148,8 +148,13 @@ export function UsageStatsSettingsPanel() {
             />
             <Metric
               icon={MessageSquare}
-              label="Messages"
-              value={formatNumber(summary.totals.promptCount)}
+              label="Estimated Cost"
+              value={formatUsd(cliUsage.cost.totalUsd)}
+              detail={
+                cliUsage.pricing.unpricedTokens > 0
+                  ? `${formatTokenCount(cliUsage.pricing.unpricedTokens)} unpriced`
+                  : "priced API usage"
+              }
             />
             <Metric
               icon={CalendarDays}
@@ -198,6 +203,14 @@ export function UsageStatsSettingsPanel() {
           {cliUsage.warnings.length > 0 ? (
             <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-amber-700 text-xs dark:text-amber-300">
               {cliUsage.warnings.slice(0, 3).join(" ")}
+            </div>
+          ) : null}
+
+          {cliUsage.pricing.unpricedTokens > 0 ? (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-amber-700 text-xs dark:text-amber-300">
+              {formatTokenCount(cliUsage.pricing.unpricedTokens)} tokens do not
+              have matching API pricing in the bundled models.dev snapshot and
+              are excluded from estimated cost.
             </div>
           ) : null}
 
@@ -391,7 +404,7 @@ function DailyTokenBars({
                         (row.tokens.totalTokens / maxTokens) * 100
                       )}%`,
                     }}
-                    title={`${row.date}: ${formatTokenCount(row.tokens.totalTokens)}`}
+                    title={`${row.date}: ${formatTokenCount(row.tokens.totalTokens)} / ${formatUsd(row.cost.totalUsd)}`}
                   >
                     {row.providers.map((provider) => (
                       <div
@@ -450,6 +463,14 @@ function ProviderLegend({ rows }: { rows: CliDaily[] }) {
 }
 
 function ModelUsageList({ models }: { models: CliModel[] }) {
+  const visibleModels = [...models]
+    .sort(
+      (a, b) =>
+        b.cost.totalUsd - a.cost.totalUsd ||
+        b.tokens.totalTokens - a.tokens.totalTokens
+    )
+    .slice(0, 8);
+
   return (
     <div className="rounded-md border bg-background p-3">
       <div className="mb-3 font-medium text-sm">Model Usage</div>
@@ -457,7 +478,7 @@ function ModelUsageList({ models }: { models: CliModel[] }) {
         <EmptyState text="No model usage found." />
       ) : (
         <div className="grid gap-2">
-          {models.slice(0, 8).map((model) => (
+          {visibleModels.map((model) => (
             <div className="grid gap-2 border-b py-2 last:border-b-0" key={`${model.providerId}:${model.name}`}>
               <div className="flex min-w-0 items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -468,10 +489,10 @@ function ModelUsageList({ models }: { models: CliModel[] }) {
                 </div>
                 <div className="shrink-0 text-right">
                   <div className="font-semibold text-sm">
-                    {formatTokenCount(model.tokens.totalTokens)}
+                    {formatUsd(model.cost.totalUsd)}
                   </div>
                   <div className="text-muted-foreground text-xs">
-                    {Math.round(model.share * 100)}%
+                    {formatTokenCount(model.tokens.totalTokens)}
                   </div>
                 </div>
               </div>
@@ -487,7 +508,8 @@ function ModelUsageList({ models }: { models: CliModel[] }) {
               </div>
               <div className="text-muted-foreground text-xs">
                 {formatTokenCount(model.tokens.inputTokens)} in /{" "}
-                {formatTokenCount(model.tokens.outputTokens)} out
+                {formatTokenCount(model.tokens.outputTokens)} out /{" "}
+                {Math.round(model.share * 100)}%
               </div>
             </div>
           ))}
@@ -521,7 +543,8 @@ function ProviderStatusList({ providers }: { providers: CliProvider[] }) {
                 </span>
               </div>
               <div className="mt-1 text-muted-foreground text-xs">
-                {formatTokenCount(provider.totals.totalTokens)}
+                {formatTokenCount(provider.totals.totalTokens)} /{" "}
+                {formatUsd(provider.cost.totalUsd)}
               </div>
             </div>
             <Badge variant={provider.status === "ready" ? "secondary" : "outline"}>
@@ -646,6 +669,21 @@ function formatTokenCount(value: number): string {
     return `${trimNumber(value / 1_000)}K`;
   }
   return formatNumber(value);
+}
+
+function formatUsd(value: number): string {
+  if (!(Number.isFinite(value) && value > 0)) {
+    return "$0.00";
+  }
+  if (value < 0.01) {
+    return `$${value.toFixed(4)}`;
+  }
+  return new Intl.NumberFormat(undefined, {
+    currency: "USD",
+    maximumFractionDigits: value >= 100 ? 0 : 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
 }
 
 function trimNumber(value: number): string {

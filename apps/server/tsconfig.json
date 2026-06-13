@@ -12,5 +12,5 @@
     "types": ["bun", "react", "react-dom"],
     "strictNullChecks": true
   },
-  "include": ["src", "drizzle/**/*.json"]
+  "include": ["src", "src/**/*.json", "drizzle/**/*.json"]
 }
