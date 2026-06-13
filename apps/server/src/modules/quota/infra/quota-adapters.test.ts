@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readOAuthTokenFromEntry } from "./local-auth";
 import {
   MiniMaxQuotaAdapter,
   normalizeMiniMaxQuota,
@@ -198,6 +199,25 @@ describe("quota adapter normalizers", () => {
     expect(windows[1]).toMatchObject({
       id: "secondary",
       percentRemaining: 80,
+    });
+  });
+
+  test("reads Codex CLI top-level OAuth token cache", () => {
+    const token = readOAuthTokenFromEntry({
+      auth_mode: "chatgpt",
+      OPENAI_API_KEY: null,
+      tokens: {
+        id_token: "id-token",
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        account_id: "account-1",
+      },
+      last_refresh: "2026-06-13T00:00:00.000Z",
+    });
+
+    expect(token).toEqual({
+      token: "access-token",
+      accountId: "account-1",
     });
   });
 

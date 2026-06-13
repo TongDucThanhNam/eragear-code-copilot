@@ -50,29 +50,43 @@ export async function findOAuthTokenInLocalAuth(
 ): Promise<LocalAuthToken | null> {
   const documents = await readLocalAuthDocuments();
   for (const document of documents) {
+    const topLevelToken = readOAuthTokenFromEntry(document.json);
+    if (topLevelToken) {
+      return topLevelToken;
+    }
+
     const entry = findProviderEntry(document.json, providerKeys);
-    const record = asRecord(entry);
-    if (!record) {
-      continue;
+    const token = readOAuthTokenFromEntry(entry);
+    if (token) {
+      return token;
     }
-    const type = readString(record, ["type"])?.toLowerCase();
-    if (type && type !== "oauth") {
-      continue;
-    }
-    const token = readTokenFromEntry(record, [
-      "access",
-      "accessToken",
-      "access_token",
-    ]);
-    if (!token) {
-      continue;
-    }
-    return {
-      token,
-      accountId: readAccountId(record, token),
-    };
   }
   return null;
+}
+
+export function readOAuthTokenFromEntry(value: unknown): LocalAuthToken | null {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const type = readString(record, ["type"])?.toLowerCase();
+  if (type && type !== "oauth") {
+    return null;
+  }
+
+  const token = readTokenFromEntry(record, [
+    "access",
+    "accessToken",
+    "access_token",
+  ]);
+  if (!token) {
+    return null;
+  }
+  return {
+    token,
+    accountId: readAccountId(record, token),
+  };
 }
 
 function readTokenFromEntry(
@@ -111,6 +125,20 @@ function readAccountId(record: Record<string, unknown>, token: string) {
   ]);
   if (direct) {
     return direct;
+  }
+
+  const nestedTokens = asRecord(record.tokens);
+  if (nestedTokens) {
+    const nestedDirect = readString(nestedTokens, [
+      "accountId",
+      "account_id",
+      "account",
+      "chatgptAccountId",
+      "chatgpt_account_id",
+    ]);
+    if (nestedDirect) {
+      return nestedDirect;
+    }
   }
 
   const payload = decodeJwtPayload(token);

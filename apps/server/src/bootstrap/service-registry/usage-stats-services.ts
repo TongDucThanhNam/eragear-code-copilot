@@ -1,4 +1,5 @@
 import {
+  LocalCliUsageScannerAdapter,
   UsageStatsFileRepository,
   UsageStatsService,
 } from "@/modules/usage-stats";
@@ -14,6 +15,7 @@ export function createUsageStatsUseCases(
       repository: new UsageStatsFileRepository({
         filePath: () => getStorageFileSync("usage-stats.json"),
       }),
+      scanner: new LocalCliUsageScannerAdapter(),
       nowMs: deps.clock.nowMs,
     }),
   };

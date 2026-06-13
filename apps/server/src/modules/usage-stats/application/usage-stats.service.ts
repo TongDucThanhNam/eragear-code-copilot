@@ -7,24 +7,29 @@ import type {
   GetUsageStatsSummaryInput,
   UpdateUsageTelemetryInput,
   UsageStatsBucket,
+  UsageStatsRange,
   UsageStatsRecord,
   UsageStatsSummary,
   UsageTelemetrySettings,
 } from "./contracts/usage-stats.contract";
 import type { UsageStatsRepositoryPort } from "./ports/usage-stats-repository.port";
+import type { UsageStatsScannerPort } from "./ports/usage-stats-scanner.port";
 
 const RECENT_LIMIT = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export class UsageStatsService {
   private readonly repository: UsageStatsRepositoryPort;
+  private readonly scanner?: UsageStatsScannerPort;
   private readonly nowMs: () => number;
 
   constructor(deps: {
     repository: UsageStatsRepositoryPort;
+    scanner?: UsageStatsScannerPort;
     nowMs?: () => number;
   }) {
     this.repository = deps.repository;
+    this.scanner = deps.scanner;
     this.nowMs = deps.nowMs ?? Date.now;
   }
 
@@ -33,14 +38,26 @@ export class UsageStatsService {
     input?: GetUsageStatsSummaryInput
   ): Promise<UsageStatsSummary> {
     const range = input?.range ?? "7d";
-    const sinceMs = getRangeStartMs(range, this.nowMs());
+    const checkedAt = this.nowMs();
+    const sinceMs = getRangeStartMs(range, checkedAt);
     const records = await this.repository.listRecords(userId, { sinceMs });
     const telemetry = await this.getTelemetrySettings(userId);
+    const cliUsage =
+      input?.includeCliUsage === false || !this.scanner
+        ? undefined
+        : await this.scanner.scan({
+            range,
+            startMs: sinceMs,
+            endMs: checkedAt,
+            providers: input?.cliProviders,
+          });
+
     return buildSummary({
       telemetry,
       range,
       records,
-      checkedAt: this.nowMs(),
+      cliUsage,
+      checkedAt,
     });
   }
 
@@ -104,7 +121,7 @@ export class UsageStatsService {
 }
 
 function getRangeStartMs(
-  range: NonNullable<GetUsageStatsSummaryInput>["range"],
+  range: UsageStatsRange,
   nowMs: number
 ): number | undefined {
   switch (range) {
@@ -123,8 +140,9 @@ function getRangeStartMs(
 
 function buildSummary(params: {
   telemetry: UsageTelemetrySettings;
-  range: NonNullable<GetUsageStatsSummaryInput>["range"];
+  range: UsageStatsRange;
   records: UsageStatsRecord[];
+  cliUsage?: UsageStatsSummary["cliUsage"];
   checkedAt: number;
 }): UsageStatsSummary {
   const projectKeys = new Set<string>();
@@ -177,6 +195,7 @@ function buildSummary(params: {
     recent: [...params.records]
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, RECENT_LIMIT),
+    cliUsage: params.cliUsage,
     checkedAt: params.checkedAt,
   };
 }
