@@ -4,6 +4,15 @@
 
 The terminal methods allow Agents to execute shell commands within the Client's environment. These methods enable Agents to run build processes, execute scripts, and interact with command-line tools while providing real-time output streaming and process control.
 
+## Eragear Implementation Notes
+
+Eragear has two terminal surfaces that intentionally share the same backend process abstractions but expose different contracts:
+
+- ACP `terminal/*` is an Agent command-runner contract. It keeps the ACP lifecycle described below: `create`, `output`, `wait_for_exit`, `kill`, and `release`.
+- The web/desktop terminal dock is a user-interactive shell contract. It adds stdin writes and resize over tRPC for the browser terminal emulator.
+
+Both paths use the shared terminal process utilities for lifecycle, output buffering, termination, and PTY support. ACP terminal creation prefers a PTY backend when the host command can be started reliably, and falls back to the pipe-based child-process backend for command-runner compatibility when PTY startup is unavailable or unstable for that command/runtime combination. This preserves ACP semantics while keeping rendering and lifecycle behavior aligned with the interactive terminal dock.
+
 ## Checking Support
 
 Before attempting to use terminal methods, Agents **MUST** verify that the Client supports this capability by checking the [Client Capabilities](./acp-initialization#client-capabilities) field in the `initialize` response:

@@ -228,7 +228,7 @@ export class SendMessageService {
           // handler has already incremented subscriberCount but hasn't yet
           // attached the emitter listener (or vice-versa).
           if (
-            (input.source ?? "client") !== "supervisor" &&
+            !canSubmitWithoutSubscriber(input.source) &&
             liveSubscriberCount <= 0 &&
             session.subscriberCount <= 0
           ) {
@@ -327,7 +327,9 @@ export class SendMessageService {
             aggregate.raw.uiState.messages.set(uiMessage.id, uiMessage);
             aggregate.raw.uiState.currentUserId = uiMessage.id;
             aggregate.raw.uiState.currentUserSource =
-              input.source === "supervisor" ? "supervisor" : "client";
+              input.source === "supervisor" || input.source === "automation"
+                ? input.source
+                : "client";
             await this.sessionRuntime.broadcast(input.chatId, {
               type: "ui_message",
               message: uiMessage,
@@ -342,7 +344,10 @@ export class SendMessageService {
                 prompt: agentPrompt,
                 broadcast,
                 turnId,
-                source: input.source === "supervisor" ? "supervisor" : "client",
+                source:
+                  input.source === "supervisor" || input.source === "automation"
+                    ? input.source
+                    : "client",
                 abortSignal: promptAbortController.signal,
               })
               .catch((error) => {
@@ -595,6 +600,12 @@ function extractLeadingSlashCommand(value: string): string | null {
   const normalized = value.trimStart();
   const match = normalized.match(LEADING_SLASH_COMMAND_REGEX);
   return match?.[1] ?? null;
+}
+
+function canSubmitWithoutSubscriber(
+  source: SendMessageExecuteInput["source"] | undefined
+): boolean {
+  return source === "supervisor" || source === "automation";
 }
 
 function hasExplicitOutputStyleInstruction(value: string): boolean {

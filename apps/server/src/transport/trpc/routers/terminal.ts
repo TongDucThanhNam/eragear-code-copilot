@@ -2,6 +2,7 @@ import { observable } from "@trpc/server/observable";
 import {
   CreateTerminalInputSchema,
   KillTerminalInputSchema,
+  ResizeTerminalInputSchema,
   type TerminalEvent,
   TerminalEventsInputSchema,
   UpdateTerminalSettingsInputSchema,
@@ -43,6 +44,15 @@ export const terminalRouter = router({
     .input(WriteTerminalInputSchema)
     .mutation(async ({ ctx, input }) => {
       return await ctx.useCases.terminal.terminal.write(
+        getRequiredUserId(ctx),
+        input
+      );
+    }),
+
+  resize: protectedProcedure
+    .input(ResizeTerminalInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.useCases.terminal.terminal.resize(
         getRequiredUserId(ctx),
         input
       );

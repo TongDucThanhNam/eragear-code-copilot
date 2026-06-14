@@ -179,8 +179,27 @@ export function createAiUseCases(
     logger: deps.appLogger,
     clock: deps.clock,
   });
-  promptTaskRunner.setAfterTurnCompleteHook((event) => {
-    supervisorLoopService.scheduleReview(event);
+  promptTaskRunner.setAfterTurnCompleteHook(async (event) => {
+    await deps.eventBus.publish({
+      type: "local_ade_lifecycle",
+      event: "after-agent-turn-complete",
+      userId: event.userId,
+      projectRoot: event.projectRoot,
+      ...(event.projectId ? { projectId: event.projectId } : {}),
+      chatId: event.chatId,
+      ...(event.agentSessionId ? { agentSessionId: event.agentSessionId } : {}),
+      turnId: event.turnId,
+      stopReason: event.stopReason,
+    });
+    if (event.source !== "automation") {
+      supervisorLoopService.scheduleReview({
+        chatId: event.chatId,
+        userId: event.userId,
+        turnId: event.turnId,
+        stopReason: event.stopReason,
+        source: event.source,
+      });
+    }
   });
   deps.sessionAcpAdapter.setPermissionAutoResolver((input) =>
     supervisorPermissionService.handlePermissionRequest(input)

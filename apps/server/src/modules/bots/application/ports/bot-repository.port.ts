@@ -1,4 +1,8 @@
-import type { BotDefinition, BotRun } from "../contracts/bots.contract";
+import type {
+  BotDefinition,
+  BotQuotaAutomationState,
+  BotRun,
+} from "../contracts/bots.contract";
 
 export interface BotRepositoryPort {
   listBots(userId: string): Promise<BotDefinition[]>;
@@ -8,4 +12,6 @@ export interface BotRepositoryPort {
   listRuns(userId: string): Promise<BotRun[]>;
   getRun(userId: string, runId: string): Promise<BotRun | null>;
   saveRun(run: BotRun): Promise<BotRun>;
+  readQuotaAutomationState(): Promise<BotQuotaAutomationState>;
+  saveQuotaAutomationState(state: BotQuotaAutomationState): Promise<void>;
 }

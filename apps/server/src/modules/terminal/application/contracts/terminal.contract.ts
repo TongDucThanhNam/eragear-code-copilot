@@ -2,6 +2,13 @@ import { z } from "zod";
 
 export const TerminalStatusSchema = z.enum(["running", "exited"]);
 
+export const TerminalDimensionsSchema = z
+  .object({
+    cols: z.number().int().min(1).max(500),
+    rows: z.number().int().min(1).max(200),
+  })
+  .strict();
+
 export const TerminalSettingsSchema = z
   .object({
     inheritSystemProfile: z.boolean(),
@@ -21,6 +28,8 @@ export const TerminalRecordSchema = z
     cwd: z.string().min(1),
     command: z.string().min(1),
     args: z.array(z.string()),
+    cols: z.number().int().min(1).max(500),
+    rows: z.number().int().min(1).max(200),
     status: TerminalStatusSchema,
     createdAt: z.number().int().nonnegative(),
     updatedAt: z.number().int().nonnegative(),
@@ -33,6 +42,8 @@ export const CreateTerminalInputSchema = z
   .object({
     projectId: z.string().min(1).optional(),
     cwd: z.string().optional(),
+    cols: z.number().int().min(1).max(500).optional(),
+    rows: z.number().int().min(1).max(200).optional(),
   })
   .strict()
   .optional();
@@ -50,6 +61,14 @@ export const WriteTerminalInputSchema = z
 export const KillTerminalInputSchema = z
   .object({
     terminalId: z.string().min(1),
+  })
+  .strict();
+
+export const ResizeTerminalInputSchema = z
+  .object({
+    terminalId: z.string().min(1),
+    cols: z.number().int().min(1).max(500),
+    rows: z.number().int().min(1).max(200),
   })
   .strict();
 
@@ -72,6 +91,7 @@ export const TerminalSettingsResultSchema = z
   .strict();
 
 export type TerminalStatus = z.infer<typeof TerminalStatusSchema>;
+export type TerminalDimensions = z.infer<typeof TerminalDimensionsSchema>;
 export type TerminalSettings = z.infer<typeof TerminalSettingsSchema>;
 export type UpdateTerminalSettingsInput = z.infer<
   typeof UpdateTerminalSettingsInputSchema
@@ -80,6 +100,7 @@ export type TerminalRecord = z.infer<typeof TerminalRecordSchema>;
 export type CreateTerminalInput = z.infer<typeof CreateTerminalInputSchema>;
 export type WriteTerminalInput = z.infer<typeof WriteTerminalInputSchema>;
 export type KillTerminalInput = z.infer<typeof KillTerminalInputSchema>;
+export type ResizeTerminalInput = z.infer<typeof ResizeTerminalInputSchema>;
 export type TerminalEventsInput = z.infer<typeof TerminalEventsInputSchema>;
 export type TerminalListResult = z.infer<typeof TerminalListResultSchema>;
 export type TerminalSettingsResult = z.infer<

@@ -9,11 +9,9 @@ import {
   StopCircle,
   Trash2,
 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Terminal as XTerm } from "xterm";
-import { FitAddon } from "xterm-addon-fit";
-import "xterm/css/xterm.css";
+import { WtermTerminalSurface } from "@/components/chat-ui/wterm-terminal-surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,6 +72,11 @@ export function TerminalSettingsPanel() {
   const writeTerminal = trpc.terminal.write.useMutation({
     onError: (error) => {
       toast.error(error.message || "Failed to write to terminal");
+    },
+  });
+  const resizeTerminal = trpc.terminal.resize.useMutation({
+    onError: (error) => {
+      toast.error(error.message || "Failed to resize terminal");
     },
   });
   const killTerminal = trpc.terminal.kill.useMutation({
@@ -140,6 +143,13 @@ export function TerminalSettingsPanel() {
       return;
     }
     writeTerminal.mutate({ terminalId: selectedTerminalId, data });
+  };
+
+  const handleTerminalResize = (cols: number, rows: number) => {
+    if (!selectedTerminalId) {
+      return;
+    }
+    resizeTerminal.mutate({ terminalId: selectedTerminalId, cols, rows });
   };
 
   return (
@@ -319,6 +329,7 @@ export function TerminalSettingsPanel() {
             <InteractiveTerminalSurface
               disabled={!activeTerminal || activeTerminal.status !== "running"}
               onData={handleTerminalData}
+              onResize={handleTerminalResize}
               output={selectedOutput}
             />
           </div>
@@ -363,86 +374,20 @@ function InteractiveTerminalSurface({
   output,
   disabled,
   onData,
+  onResize,
 }: {
   output: string;
   disabled: boolean;
   onData: (data: string) => void;
+  onResize: (cols: number, rows: number) => void;
 }) {
-  const divRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<XTerm | null>(null);
-  const renderedOutputRef = useRef("");
-  const onDataRef = useRef(onData);
-
-  useEffect(() => {
-    onDataRef.current = onData;
-  }, [onData]);
-
-  useEffect(() => {
-    if (!divRef.current) {
-      return;
-    }
-    const terminal = new XTerm({
-      convertEol: true,
-      cursorBlink: true,
-      disableStdin: disabled,
-      fontSize: 12,
-      fontFamily:
-        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-      theme: {
-        background: "#09090b",
-        foreground: "#e4e4e7",
-      },
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(divRef.current);
-    fitAddon.fit();
-    const disposable = terminal.onData((data) => {
-      onDataRef.current(data);
-    });
-    termRef.current = terminal;
-
-    const handleResize = () => fitAddon.fit();
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      disposable.dispose();
-      terminal.dispose();
-      termRef.current = null;
-      renderedOutputRef.current = "";
-    };
-  }, []);
-
-  useEffect(() => {
-    if (termRef.current) {
-      termRef.current.options.disableStdin = disabled;
-    }
-  }, [disabled]);
-
-  useEffect(() => {
-    const terminal = termRef.current;
-    if (!terminal) {
-      return;
-    }
-    const previous = renderedOutputRef.current;
-    if (!output) {
-      terminal.reset();
-      renderedOutputRef.current = "";
-      return;
-    }
-    if (output.startsWith(previous)) {
-      terminal.write(output.slice(previous.length));
-    } else {
-      terminal.reset();
-      terminal.write(output);
-    }
-    renderedOutputRef.current = output;
-  }, [output]);
-
   return (
-    <div
-      className="h-[360px] w-full overflow-hidden rounded-md border border-zinc-800 bg-zinc-950 p-2"
-      ref={divRef}
+    <WtermTerminalSurface
+      className="h-[360px]"
+      disabled={disabled}
+      onData={onData}
+      onResize={onResize}
+      output={output}
     />
   );
 }

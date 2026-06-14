@@ -21,6 +21,7 @@ import type {
   WaitForTerminalExitResponse,
 } from "@agentclientprotocol/sdk";
 import type { UIMessage, UIMessagePart, UIMessageRole } from "@repo/shared";
+import type { TerminalPtyProcess } from "../terminal/pty-process";
 import type { AgentInfo as DomainAgentInfo } from "./agent.types";
 import type {
   SupervisorDecisionSummary,
@@ -235,7 +236,7 @@ export interface UiMessageState {
   /** Current user message ID for replayed chunks */
   currentUserId?: string;
   /** Source of the current contiguous user chunk stream */
-  currentUserSource?: "client" | "supervisor" | "acp";
+  currentUserSource?: "client" | "supervisor" | "automation" | "acp";
   /** Tool part lookup by tool call ID */
   toolPartIndex: Map<
     string,
@@ -585,7 +586,9 @@ export interface TerminalState {
   /** Terminal identifier */
   id: string;
   /** Terminal process */
-  process: ChildProcess;
+  process: ChildProcess | TerminalPtyProcess;
+  /** Process implementation backing this terminal */
+  processKind?: "child_process" | "pty";
   /** POSIX process group id used for tree termination */
   processGroupId?: number;
   /** Output buffer */
@@ -614,6 +617,8 @@ export interface TerminalState {
   terminationPromise?: Promise<void>;
   /** Terminal lifecycle state for race-safe exit/kill transitions */
   lifecycleState?: "running" | "terminating" | "exited";
+  /** Optional listener cleanup hooks for non-ChildProcess terminal backends */
+  processDisposables?: Array<{ dispose(): void }>;
   /** Promise resolving when terminal exits or fails to start */
   exitPromise: Promise<WaitForTerminalExitResponse>;
   /** Internal resolver for exitPromise */

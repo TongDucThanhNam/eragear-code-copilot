@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { LocalCliUsageScannerAdapter } from "./local-cli-usage-scanner.adapter";
+import { calculateUsageCost } from "./usage-pricing";
 
 const ORIGINAL_CODEX_HOME = process.env.CODEX_HOME;
 
@@ -15,6 +16,42 @@ afterEach(() => {
 });
 
 describe("LocalCliUsageScannerAdapter", () => {
+  test("prices Codex gpt-5.5 usage from the models.dev snapshot", () => {
+    const cost = calculateUsageCost({
+      providerId: "codex",
+      modelName: "gpt-5.5",
+      tokens: {
+        inputTokens: 150,
+        outputTokens: 60,
+        cacheInputTokens: 30,
+        cacheOutputTokens: 0,
+        totalTokens: 210,
+      },
+    });
+
+    expect(cost.totalUsd).toBeCloseTo(0.002_415, 8);
+    expect(cost.pricedTokens).toBe(210);
+    expect(cost.unpricedTokens).toBe(0);
+  });
+
+  test("prices MiniMax model hints from the models.dev snapshot", () => {
+    const cost = calculateUsageCost({
+      providerId: "opencode",
+      modelName: "default-minimax/MiniMax-M3",
+      tokens: {
+        inputTokens: 1000,
+        outputTokens: 100,
+        cacheInputTokens: 100,
+        cacheOutputTokens: 0,
+        totalTokens: 1100,
+      },
+    });
+
+    expect(cost.totalUsd).toBeCloseTo(0.000_792, 8);
+    expect(cost.pricedTokens).toBe(1100);
+    expect(cost.unpricedTokens).toBe(0);
+  });
+
   test("scans Codex JSONL token deltas and model usage", async () => {
     const tempDir = await mkdtemp(path.join(tmpdir(), "eragear-codex-usage-"));
     try {

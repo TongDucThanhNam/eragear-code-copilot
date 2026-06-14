@@ -30,6 +30,7 @@ type BotTrigger =
   | "repository_change"
   | "scheduled"
   | "remote_control";
+type BotExecutionTarget = "new_session" | "existing_session" | "queue_only";
 
 interface BotFormState {
   id?: string;
@@ -41,6 +42,12 @@ interface BotFormState {
   agentId: string;
   projectId: string;
   maxConcurrency: string;
+  executionTarget: BotExecutionTarget;
+  executionChatId: string;
+  quotaProviderIds: string;
+  quotaWindowIds: string;
+  quotaMinPercentRemaining: string;
+  quotaCooldownMs: string;
 }
 
 const EMPTY_FORM: BotFormState = {
@@ -52,6 +59,12 @@ const EMPTY_FORM: BotFormState = {
   agentId: "",
   projectId: "",
   maxConcurrency: "1",
+  executionTarget: "new_session",
+  executionChatId: "",
+  quotaProviderIds: "",
+  quotaWindowIds: "",
+  quotaMinPercentRemaining: "1",
+  quotaCooldownMs: "300000",
 };
 
 const TRIGGERS: BotTrigger[] = [
@@ -139,6 +152,24 @@ export function BotsSettingsPanel() {
       toast.error("Max concurrency must be at least 1");
       return;
     }
+    const quotaMinPercentRemaining = Number(form.quotaMinPercentRemaining);
+    const quotaCooldownMs = Number(form.quotaCooldownMs);
+    if (
+      form.trigger === "quota_refresh" &&
+      (!Number.isFinite(quotaMinPercentRemaining) ||
+        quotaMinPercentRemaining < 0 ||
+        quotaMinPercentRemaining > 100)
+    ) {
+      toast.error("Quota threshold must be between 0 and 100");
+      return;
+    }
+    if (
+      form.trigger === "quota_refresh" &&
+      (!Number.isInteger(quotaCooldownMs) || quotaCooldownMs < 0)
+    ) {
+      toast.error("Quota cooldown must be a non-negative integer");
+      return;
+    }
     upsertBot.mutate({
       ...(form.id ? { id: form.id } : {}),
       name: form.name.trim(),
@@ -149,6 +180,25 @@ export function BotsSettingsPanel() {
       ...(form.agentId.trim() ? { agentId: form.agentId.trim() } : {}),
       ...(form.projectId.trim() ? { projectId: form.projectId.trim() } : {}),
       maxConcurrency,
+      execution: {
+        target: form.executionTarget,
+        ...(form.executionTarget === "existing_session" &&
+        form.executionChatId.trim()
+          ? { chatId: form.executionChatId.trim() }
+          : {}),
+      },
+      ...(form.trigger === "quota_refresh"
+        ? {
+            triggerConfig: {
+              quota: {
+                providerIds: splitCsv(form.quotaProviderIds),
+                windowIds: splitCsv(form.quotaWindowIds),
+                minPercentRemaining: quotaMinPercentRemaining,
+                cooldownMs: quotaCooldownMs,
+              },
+            },
+          }
+        : {}),
     });
   };
 
@@ -315,6 +365,107 @@ export function BotsSettingsPanel() {
             </Field>
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field id="bot-execution-target" label="Execution Target">
+              <select
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                id="bot-execution-target"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    executionTarget: event.target.value as BotExecutionTarget,
+                  }))
+                }
+                value={form.executionTarget}
+              >
+                <option value="new_session">New session</option>
+                <option value="existing_session">Existing session</option>
+                <option value="queue_only">Queue only</option>
+              </select>
+            </Field>
+            <Field id="bot-execution-chat" label="Existing Chat ID">
+              <Input
+                disabled={form.executionTarget !== "existing_session"}
+                id="bot-execution-chat"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    executionChatId: event.target.value,
+                  }))
+                }
+                placeholder="Required for existing session"
+                value={form.executionChatId}
+              />
+            </Field>
+          </div>
+
+          {form.trigger === "quota_refresh" ? (
+            <div className="grid gap-3 rounded-md border bg-background p-3">
+              <div className="font-medium text-xs uppercase">
+                Quota Trigger
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field id="bot-quota-providers" label="Provider IDs">
+                  <Input
+                    id="bot-quota-providers"
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        quotaProviderIds: event.target.value,
+                      }))
+                    }
+                    placeholder="openai, zai, minimax-coding-plan"
+                    value={form.quotaProviderIds}
+                  />
+                </Field>
+                <Field id="bot-quota-windows" label="Window IDs">
+                  <Input
+                    id="bot-quota-windows"
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        quotaWindowIds: event.target.value,
+                      }))
+                    }
+                    placeholder="primary, 5h, daily"
+                    value={form.quotaWindowIds}
+                  />
+                </Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field id="bot-quota-threshold" label="Min Percent Remaining">
+                  <Input
+                    id="bot-quota-threshold"
+                    max={100}
+                    min={0}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        quotaMinPercentRemaining: event.target.value,
+                      }))
+                    }
+                    type="number"
+                    value={form.quotaMinPercentRemaining}
+                  />
+                </Field>
+                <Field id="bot-quota-cooldown" label="Cooldown Ms">
+                  <Input
+                    id="bot-quota-cooldown"
+                    min={0}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        quotaCooldownMs: event.target.value,
+                      }))
+                    }
+                    type="number"
+                    value={form.quotaCooldownMs}
+                  />
+                </Field>
+              </div>
+            </div>
+          ) : null}
+
           <Field id="bot-prompt" label="Prompt">
             <Textarea
               className="min-h-28"
@@ -469,9 +620,15 @@ function BotRow({
       </div>
       <div className="flex flex-wrap gap-2 text-xs">
         <Badge variant="outline">max {bot.maxConcurrency}</Badge>
+        <Badge variant="outline">{formatExecutionTarget(bot.execution.target)}</Badge>
         {bot.agentId ? <Badge variant="outline">agent {bot.agentId}</Badge> : null}
         {bot.projectId ? (
           <Badge variant="outline">project {bot.projectId}</Badge>
+        ) : null}
+        {bot.trigger === "quota_refresh" ? (
+          <Badge variant="outline">
+            quota {formatQuotaConfig(bot.triggerConfig?.quota)}
+          </Badge>
         ) : null}
       </div>
     </div>
@@ -504,7 +661,26 @@ function RunRow({
         </div>
         <div className="mt-1 truncate text-muted-foreground text-xs">
           queued {formatTimestamp(run.queuedAt)}
+          {run.nextAttemptAt ? ` · retry ${formatTimestamp(run.nextAttemptAt)}` : ""}
         </div>
+        <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground text-xs">
+          {run.chatId ? <span>chat {run.chatId}</span> : null}
+          {run.turnId ? <span>turn {run.turnId}</span> : null}
+          {run.triggerContext?.providerId ? (
+            <span>
+              {run.triggerContext.providerId}
+              {run.triggerContext.windowId
+                ? `/${run.triggerContext.windowId}`
+                : ""}
+            </span>
+          ) : null}
+          {run.triggerContext?.resetAt ? (
+            <span>reset {formatTimestamp(Date.parse(run.triggerContext.resetAt))}</span>
+          ) : null}
+        </div>
+        {run.error ? (
+          <div className="mt-1 text-destructive text-xs">{run.error}</div>
+        ) : null}
       </div>
       {canStop ? (
         <Button disabled={disabled} onClick={onStop} size="sm" variant="outline">
@@ -527,6 +703,14 @@ function formFromBot(bot: BotDefinition): BotFormState {
     agentId: bot.agentId ?? "",
     projectId: bot.projectId ?? "",
     maxConcurrency: String(bot.maxConcurrency),
+    executionTarget: bot.execution.target,
+    executionChatId: bot.execution.chatId ?? "",
+    quotaProviderIds: bot.triggerConfig?.quota?.providerIds?.join(", ") ?? "",
+    quotaWindowIds: bot.triggerConfig?.quota?.windowIds?.join(", ") ?? "",
+    quotaMinPercentRemaining: String(
+      bot.triggerConfig?.quota?.minPercentRemaining ?? 1
+    ),
+    quotaCooldownMs: String(bot.triggerConfig?.quota?.cooldownMs ?? 300000),
   };
 }
 
@@ -538,9 +722,43 @@ function formatTrigger(trigger: BotTrigger): string {
   return trigger.replaceAll("_", " ");
 }
 
+function formatExecutionTarget(target: BotExecutionTarget): string {
+  return target.replaceAll("_", " ");
+}
+
+function formatQuotaConfig(
+  quota:
+    | {
+        providerIds: string[];
+        windowIds: string[];
+        minPercentRemaining: number;
+        cooldownMs: number;
+      }
+    | undefined
+): string {
+  if (!quota) {
+    return "any provider";
+  }
+  const providers =
+    quota.providerIds.length > 0 ? quota.providerIds.join("/") : "any";
+  const windows = quota.windowIds.length > 0 ? quota.windowIds.join("/") : "any";
+  return `${providers}:${windows} >=${quota.minPercentRemaining}%`;
+}
+
 function formatTimestamp(value: number): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function splitCsv(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    ),
+  ];
 }

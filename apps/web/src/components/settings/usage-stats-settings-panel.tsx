@@ -678,10 +678,11 @@ function formatUsd(value: number): string {
   if (value < 0.01) {
     return `$${value.toFixed(4)}`;
   }
+  const fractionDigits = value >= 100 ? 0 : 2;
   return new Intl.NumberFormat(undefined, {
     currency: "USD",
-    maximumFractionDigits: value >= 100 ? 0 : 2,
-    minimumFractionDigits: 2,
+    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: fractionDigits,
     style: "currency",
   }).format(value);
 }

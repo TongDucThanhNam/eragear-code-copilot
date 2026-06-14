@@ -12,11 +12,12 @@ interface CostBuckets {
   cache_write?: number;
 }
 
-interface PricingSnapshot {
+export interface PricingSnapshot {
   _meta: {
     source: string;
     generatedAt: number;
     units: string;
+    providers?: string[];
   };
   providers: Record<string, Record<string, CostBuckets>>;
 }
@@ -27,18 +28,29 @@ interface PricingResolution {
   source: "models.dev" | "cursor-local";
 }
 
-const pricingSnapshot = pricingSnapshotJson as PricingSnapshot;
+const MODELS_DEV_API_URL = "https://models.dev/api.json";
+const PRICING_FETCH_TIMEOUT_MS_ENV = "SLOPMETER_PRICING_FETCH_TIMEOUT_MS";
+const PRICING_CACHE_TTL_MS_ENV = "SLOPMETER_PRICING_CACHE_TTL_MS";
+const DEFAULT_PRICING_FETCH_TIMEOUT_MS = 2500;
+const DEFAULT_PRICING_CACHE_TTL_MS = 0;
+
+const bundledPricingSnapshot = pricingSnapshotJson as PricingSnapshot;
+let runtimePricingSnapshot: PricingSnapshot | null = null;
+let runtimePricingFetchedAt = 0;
+let pendingPricingFetch: Promise<PricingSnapshot> | null = null;
 
 const CLI_PROVIDER_ALIASES: Record<string, string> = {
   amp: "anthropic",
   claude: "anthropic",
   codex: "openai",
   cursor: "cursor",
+  "default-minimax": "minimax",
   gemini: "google",
   glm: "zai",
   google: "google",
   grok: "xai",
   kimi: "moonshotai",
+  minimax: "minimax",
   opencode: "opencode",
   openai: "openai",
   pi: "openai",
@@ -50,6 +62,7 @@ const DATE_SUFFIX_PATTERN = /-\d{8}$/;
 const CLAUDE_DOTTED_VERSION_PATTERN =
   /(claude-[a-z-]+)-(\d+)\.(\d+)(?=$|[^0-9])/g;
 const GLM_FREE_PATTERN = /\bglm-(\d+)\.(\d+)-free\b/g;
+const OPENAI_GPT_VERSION_PATTERN = /^gpt-(\d+)\.(\d+)(-.*)?$/;
 
 const MODEL_PROVIDER_HINTS: [RegExp, string][] = [
   [/^claude|sonnet|opus|haiku/i, "anthropic"],
@@ -57,10 +70,13 @@ const MODEL_PROVIDER_HINTS: [RegExp, string][] = [
   [/^gpt|^o\d|codex/i, "openai"],
   [/^glm/i, "zai"],
   [/^kimi/i, "moonshotai"],
+  [/^minimax/i, "minimax"],
   [/^grok/i, "xai"],
 ];
 
 const MODEL_ALIASES: Record<string, string> = {
+  "gpt-5-5": "gpt-5.5",
+  "gpt-5-5-pro": "gpt-5.5-pro",
   "opus-4.5": "claude-opus-4-5",
   "opus-4.5-thinking": "claude-opus-4-5",
   "opus-4.6": "claude-opus-4-6",
@@ -178,7 +194,42 @@ export function addCost(
   target.unpricedTokens += source.unpricedTokens;
 }
 
-export function getUsagePricingMetadata() {
+export async function loadUsagePricingSnapshot(
+  warnings?: string[]
+): Promise<PricingSnapshot> {
+  const cacheTtlMs = readNonNegativeIntegerEnv(
+    PRICING_CACHE_TTL_MS_ENV,
+    DEFAULT_PRICING_CACHE_TTL_MS
+  );
+  const now = Date.now();
+  if (
+    runtimePricingSnapshot &&
+    cacheTtlMs > 0 &&
+    now - runtimePricingFetchedAt < cacheTtlMs
+  ) {
+    return runtimePricingSnapshot;
+  }
+
+  try {
+    const snapshot = await fetchRuntimePricingSnapshot();
+    runtimePricingSnapshot = snapshot;
+    runtimePricingFetchedAt = Date.now();
+    return snapshot;
+  } catch (error) {
+    const fallbackSnapshot = runtimePricingSnapshot ?? bundledPricingSnapshot;
+    warnings?.push(
+      `Pricing catalog refresh failed; using ${fallbackSnapshot._meta.source}: ${formatErrorMessage(
+        error
+      )}`
+    );
+    return fallbackSnapshot;
+  }
+}
+
+export function getUsagePricingMetadata(
+  pricingSnapshot: PricingSnapshot = runtimePricingSnapshot ??
+    bundledPricingSnapshot
+) {
   return {
     source: pricingSnapshot._meta.source,
     generatedAt: pricingSnapshot._meta.generatedAt,
@@ -190,8 +241,15 @@ export function calculateUsageCost(params: {
   providerId: UsageStatsCliProviderId;
   modelName?: string;
   tokens: UsageStatsTokenTotals;
+  pricingSnapshot?: PricingSnapshot;
 }): UsageStatsCostTotals {
-  const resolution = resolvePricing(params.providerId, params.modelName);
+  const pricingSnapshot =
+    params.pricingSnapshot ?? runtimePricingSnapshot ?? bundledPricingSnapshot;
+  const resolution = resolvePricing(
+    params.providerId,
+    params.modelName,
+    pricingSnapshot
+  );
   if (!resolution) {
     return {
       ...createEmptyCost(),
@@ -202,7 +260,7 @@ export function calculateUsageCost(params: {
   const buckets =
     resolution.source === "cursor-local"
       ? CURSOR_LOCAL_PRICING[resolution.modelId]
-      : lookupCost(resolution.providerId, resolution.modelId);
+      : lookupCost(pricingSnapshot, resolution.providerId, resolution.modelId);
   if (!buckets) {
     return {
       ...createEmptyCost(),
@@ -271,7 +329,8 @@ function costForTokens(tokens: number, usdPerMillion?: number): number {
 
 function resolvePricing(
   providerId: UsageStatsCliProviderId,
-  modelName?: string
+  modelName: string | undefined,
+  pricingSnapshot: PricingSnapshot
 ): PricingResolution | null {
   const parsed = parseModelHint(modelName);
   const modelId = normalizeModelId(parsed.modelId);
@@ -292,7 +351,11 @@ function resolvePricing(
     const officialAlias = CURSOR_OFFICIAL_ALIASES[modelId];
     if (
       officialAlias &&
-      lookupCost(officialAlias.providerId, officialAlias.modelId)
+      lookupCost(
+        pricingSnapshot,
+        officialAlias.providerId,
+        officialAlias.modelId
+      )
     ) {
       return {
         providerId: officialAlias.providerId,
@@ -305,10 +368,15 @@ function resolvePricing(
   const providerCandidates = getProviderCandidates(
     providerId,
     parsed.providerId,
-    modelId
+    modelId,
+    pricingSnapshot
   );
   for (const candidateProvider of providerCandidates) {
-    const resolvedModel = resolveModelForProvider(candidateProvider, modelId);
+    const resolvedModel = resolveModelForProvider(
+      pricingSnapshot,
+      candidateProvider,
+      modelId
+    );
     if (resolvedModel) {
       return {
         providerId: candidateProvider,
@@ -324,11 +392,12 @@ function resolvePricing(
 function getProviderCandidates(
   providerId: UsageStatsCliProviderId,
   modelProviderHint: string | undefined,
-  modelId: string
+  modelId: string,
+  pricingSnapshot: PricingSnapshot
 ): string[] {
   const candidates: string[] = [];
   const add = (value: string | undefined) => {
-    const normalized = normalizeProviderId(value);
+    const normalized = normalizeProviderId(value, pricingSnapshot);
     if (normalized && !candidates.includes(normalized)) {
       candidates.push(normalized);
     }
@@ -342,16 +411,20 @@ function getProviderCandidates(
 }
 
 function resolveModelForProvider(
+  pricingSnapshot: PricingSnapshot,
   providerId: string,
   modelId: string
 ): string | null {
-  const providerModels = pricingSnapshot.providers[providerId];
-  if (!providerModels) {
+  if (!pricingSnapshot.providers[providerId]) {
     return null;
   }
 
   const candidates = getModelCandidates(providerId, modelId);
-  return candidates.find((candidate) => providerModels[candidate]) ?? null;
+  return (
+    candidates.find((candidate) =>
+      lookupCost(pricingSnapshot, providerId, candidate)
+    ) ?? null
+  );
 }
 
 function getModelCandidates(providerId: string, modelId: string): string[] {
@@ -376,10 +449,41 @@ function getModelCandidates(providerId: string, modelId: string): string[] {
   if (providerId === "anthropic") {
     candidates.push(...anthropicVersionFallbacks(aliased));
   }
+  if (providerId === "openai") {
+    candidates.push(...openAiVersionFallbacks(aliased));
+  }
 
   return candidates.filter(
     (candidate, index, list) => candidate && list.indexOf(candidate) === index
   );
+}
+
+function openAiVersionFallbacks(modelId: string): string[] {
+  const match = OPENAI_GPT_VERSION_PATTERN.exec(modelId);
+  if (!match) {
+    return [];
+  }
+
+  const majorVersion = match[1];
+  const minorVersion = Number.parseInt(match[2] ?? "", 10);
+  const suffix = match[3] ?? "";
+  if (!(majorVersion && Number.isFinite(minorVersion))) {
+    return [];
+  }
+
+  const candidates: string[] = [];
+  if (suffix) {
+    for (let version = minorVersion - 1; version >= 1; version -= 1) {
+      candidates.push(`gpt-${majorVersion}.${version}${suffix}`);
+    }
+    candidates.push(`gpt-${majorVersion}${suffix}`);
+  }
+
+  for (let version = minorVersion - 1; version >= 1; version -= 1) {
+    candidates.push(`gpt-${majorVersion}.${version}`);
+  }
+  candidates.push(`gpt-${majorVersion}`);
+  return candidates;
 }
 
 function anthropicVersionFallbacks(modelId: string): string[] {
@@ -392,7 +496,11 @@ function anthropicVersionFallbacks(modelId: string): string[] {
   return [];
 }
 
-function lookupCost(providerId: string, modelId: string): CostBuckets | null {
+function lookupCost(
+  pricingSnapshot: PricingSnapshot,
+  providerId: string,
+  modelId: string
+): CostBuckets | null {
   return pricingSnapshot.providers[providerId]?.[modelId] ?? null;
 }
 
@@ -415,7 +523,10 @@ function parseModelHint(modelName?: string): {
   };
 }
 
-function normalizeProviderId(value?: string): string | null {
+function normalizeProviderId(
+  value: string | undefined,
+  pricingSnapshot: PricingSnapshot
+): string | null {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) {
     return null;
@@ -459,4 +570,138 @@ function inferProviderFromModel(modelId: string): string | null {
     }
   }
   return null;
+}
+
+async function fetchRuntimePricingSnapshot(): Promise<PricingSnapshot> {
+  if (!pendingPricingFetch) {
+    pendingPricingFetch = fetchModelsDevPricingSnapshot().finally(() => {
+      pendingPricingFetch = null;
+    });
+  }
+  return await pendingPricingFetch;
+}
+
+async function fetchModelsDevPricingSnapshot(): Promise<PricingSnapshot> {
+  const timeoutMs = readNonNegativeIntegerEnv(
+    PRICING_FETCH_TIMEOUT_MS_ENV,
+    DEFAULT_PRICING_FETCH_TIMEOUT_MS
+  );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(MODELS_DEV_API_URL, {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`models.dev returned HTTP ${response.status}`);
+    }
+    return createPricingSnapshotFromModelsDev(await response.json());
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function createPricingSnapshotFromModelsDev(catalog: unknown): PricingSnapshot {
+  if (!(catalog && typeof catalog === "object")) {
+    throw new Error("models.dev response is not an object");
+  }
+
+  const providers: PricingSnapshot["providers"] = {};
+  for (const [providerId, provider] of Object.entries(
+    catalog as Record<string, unknown>
+  )) {
+    if (!(provider && typeof provider === "object")) {
+      continue;
+    }
+
+    const models = (provider as { models?: unknown }).models;
+    if (!(models && typeof models === "object")) {
+      continue;
+    }
+
+    const modelPricing: Record<string, CostBuckets> = {};
+    for (const [modelId, model] of Object.entries(
+      models as Record<string, unknown>
+    )) {
+      if (!(model && typeof model === "object")) {
+        continue;
+      }
+
+      const buckets = readCostBuckets((model as { cost?: unknown }).cost);
+      if (buckets) {
+        modelPricing[normalizeModelSnapshotId(modelId)] = buckets;
+      }
+    }
+
+    if (Object.keys(modelPricing).length > 0) {
+      providers[normalizeProviderSnapshotId(providerId)] = Object.fromEntries(
+        Object.entries(modelPricing).sort(([left], [right]) =>
+          left.localeCompare(right)
+        )
+      );
+    }
+  }
+
+  const providerIds = Object.keys(providers).sort();
+  if (providerIds.length === 0) {
+    throw new Error("models.dev response did not include model pricing");
+  }
+
+  const sortedProviders: PricingSnapshot["providers"] = {};
+  for (const providerId of providerIds) {
+    const providerModels = providers[providerId];
+    if (providerModels) {
+      sortedProviders[providerId] = providerModels;
+    }
+  }
+
+  return {
+    _meta: {
+      source: MODELS_DEV_API_URL,
+      generatedAt: Date.now(),
+      units: "USD per 1M tokens",
+      providers: providerIds,
+    },
+    providers: sortedProviders,
+  };
+}
+
+function readCostBuckets(value: unknown): CostBuckets | null {
+  if (!(value && typeof value === "object")) {
+    return null;
+  }
+
+  const cost = value as Record<string, unknown>;
+  const buckets: CostBuckets = {};
+  for (const key of ["input", "output", "cache_read", "cache_write"] as const) {
+    const bucketValue = cost[key];
+    if (typeof bucketValue === "number" && Number.isFinite(bucketValue)) {
+      buckets[key] = bucketValue;
+    }
+  }
+
+  return Object.keys(buckets).length > 0 ? buckets : null;
+}
+
+function readNonNegativeIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function normalizeProviderSnapshotId(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeModelSnapshotId(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

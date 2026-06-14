@@ -6,6 +6,7 @@ import type {
 } from "@/modules/session";
 import type { AppConfigService, LocalAdeService } from "@/modules/settings";
 import type {
+  BotsUseCases,
   SessionUseCases,
   TaskAutoArchiveUseCases,
   UseCasePort,
@@ -17,6 +18,7 @@ import {
   BackgroundRunner,
   createCachePruneTask,
   createPluginBatchScheduleDispatchTask,
+  createProviderQuotaResetDispatchTask,
   createSessionEventOutboxDispatchTask,
   createSessionIdleCleanupTask,
   createSqliteStorageMaintenanceTask,
@@ -56,6 +58,7 @@ export interface ServerLifecycleDependencies {
     UseCasePort<LocalAdeService>,
     "dispatchDuePluginBatchSchedules"
   >;
+  bots: Pick<BotsUseCases["bots"], "dispatchDueQuotaResets">;
   taskAutoArchive: TaskAutoArchiveUseCases["taskAutoArchive"];
   appConfig: AppConfigService;
   policy: ServerLifecyclePolicy;
@@ -97,6 +100,15 @@ class DefaultServerLifecycle implements ServerLifecycle {
     this.backgroundRunner.register(
       createPluginBatchScheduleDispatchTask({
         dispatcher: deps.localAde,
+        getUserIds: () => [
+          LOCAL_DESKTOP_USER_ID,
+          ...deps.sessionRuntime.getAll().map((session) => session.userId),
+        ],
+      })
+    );
+    this.backgroundRunner.register(
+      createProviderQuotaResetDispatchTask({
+        dispatcher: deps.bots,
         getUserIds: () => [
           LOCAL_DESKTOP_USER_ID,
           ...deps.sessionRuntime.getAll().map((session) => session.userId),

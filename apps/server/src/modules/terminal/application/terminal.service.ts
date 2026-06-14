@@ -4,6 +4,7 @@ import { NotFoundError, ValidationError } from "@/shared/errors";
 import type {
   CreateTerminalInput,
   KillTerminalInput,
+  ResizeTerminalInput,
   TerminalEvent,
   TerminalListResult,
   TerminalRecord,
@@ -22,6 +23,8 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
 };
 
 const MODULE = "terminal";
+const DEFAULT_TERMINAL_COLS = 80;
+const DEFAULT_TERMINAL_ROWS = 24;
 
 export interface TerminalServiceDeps {
   runtime: TerminalRuntimePort;
@@ -72,6 +75,8 @@ export class TerminalService {
       projectId: project.id,
       cwd,
       settings,
+      cols: input?.cols ?? DEFAULT_TERMINAL_COLS,
+      rows: input?.rows ?? DEFAULT_TERMINAL_ROWS,
     });
   }
 
@@ -80,6 +85,18 @@ export class TerminalService {
     input: WriteTerminalInput
   ): Promise<TerminalRecord> {
     return await this.runtime.write(userId, input.terminalId, input.data);
+  }
+
+  async resize(
+    userId: string,
+    input: ResizeTerminalInput
+  ): Promise<TerminalRecord> {
+    return await this.runtime.resize(
+      userId,
+      input.terminalId,
+      input.cols,
+      input.rows
+    );
   }
 
   async kill(

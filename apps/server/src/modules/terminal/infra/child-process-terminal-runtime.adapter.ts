@@ -1,8 +1,13 @@
-import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import path from "node:path";
 import { ENV } from "@/config/environment";
 import { NotFoundError, ValidationError } from "@/shared/errors";
+import {
+  spawnTerminalPty,
+  type TerminalPtyDisposable,
+  type TerminalPtyFactory,
+  type TerminalPtyProcess,
+} from "@/shared/terminal/pty-process";
 import {
   compileCommandPolicies,
   filterEnvAllowlist,
@@ -21,11 +26,17 @@ import type {
 } from "../application/ports/terminal-runtime.port";
 
 const MODULE = "terminal";
-const OUTPUT_BUFFER_LIMIT = 1024 * 1024;
+
+export type {
+  TerminalPtyDisposable,
+  TerminalPtyFactory,
+  TerminalPtyProcess,
+} from "@/shared/terminal/pty-process";
 
 interface TerminalProcessState {
   record: TerminalRecord;
-  process: ChildProcess;
+  pty: TerminalPtyProcess;
+  disposables: TerminalPtyDisposable[];
   emitter: EventEmitter;
   outputBuffer: string;
 }
@@ -39,9 +50,14 @@ interface TerminalProfile {
 export class ChildProcessTerminalRuntimeAdapter implements TerminalRuntimePort {
   private readonly terminals = new Map<string, TerminalProcessState>();
   private readonly nowMs: () => number;
+  private readonly ptyFactory: TerminalPtyFactory;
 
-  constructor(options?: { nowMs?: () => number }) {
+  constructor(options?: {
+    nowMs?: () => number;
+    ptyFactory?: TerminalPtyFactory;
+  }) {
     this.nowMs = options?.nowMs ?? (() => Date.now());
+    this.ptyFactory = options?.ptyFactory ?? createNodePtyProcess;
   }
 
   list(userId: string): Promise<TerminalRecord[]> {
@@ -52,16 +68,18 @@ export class ChildProcessTerminalRuntimeAdapter implements TerminalRuntimePort {
     return Promise.resolve(terminals);
   }
 
-  create(input: TerminalRuntimeCreateInput): Promise<TerminalRecord> {
+  async create(input: TerminalRuntimeCreateInput): Promise<TerminalRecord> {
     const profile = resolveTerminalProfile(input.settings);
     assertCommandAllowed(profile.command, profile.args);
     const terminalId = createId("terminal");
     const createdAt = this.nowMs();
-    const child = spawn(profile.command, profile.args, {
+    const pty = await this.ptyFactory({
+      command: profile.command,
+      args: profile.args,
       cwd: input.cwd,
       env: profile.env,
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"],
+      cols: input.cols,
+      rows: input.rows,
     });
     const record: TerminalRecord = {
       id: terminalId,
@@ -70,32 +88,35 @@ export class ChildProcessTerminalRuntimeAdapter implements TerminalRuntimePort {
       cwd: input.cwd,
       command: profile.command,
       args: profile.args,
+      cols: input.cols,
+      rows: input.rows,
       status: "running",
       createdAt,
       updatedAt: createdAt,
     };
     const state: TerminalProcessState = {
       record,
-      process: child,
+      pty,
+      disposables: [],
       emitter: new EventEmitter(),
       outputBuffer: "",
     };
     this.terminals.set(terminalId, state);
 
-    const handleOutput = (chunk: Buffer) => {
-      this.appendOutput(state, chunk.toString("utf8"));
-    };
-    child.stdout?.on("data", handleOutput);
-    child.stderr?.on("data", handleOutput);
-    child.on("error", (error) => {
-      this.appendOutput(state, `${error.message}\n`);
-      this.markExited(state, null, null);
-    });
-    child.on("exit", (code, signal) => {
-      this.markExited(state, code, signal);
-    });
+    state.disposables.push(
+      pty.onData((data) => {
+        this.appendOutput(state, data);
+      }),
+      pty.onExit((event) => {
+        this.markExited(
+          state,
+          event.exitCode,
+          event.signal === undefined ? null : String(event.signal)
+        );
+      })
+    );
 
-    return Promise.resolve(record);
+    return record;
   }
 
   write(
@@ -104,21 +125,49 @@ export class ChildProcessTerminalRuntimeAdapter implements TerminalRuntimePort {
     data: string
   ): Promise<TerminalRecord> {
     const state = this.getOwnedTerminal(userId, terminalId);
-    if (state.record.status !== "running" || !state.process.stdin?.writable) {
+    if (state.record.status !== "running") {
       throw new ValidationError("Terminal is not writable", {
         module: MODULE,
         op: "write",
         details: { terminalId },
       });
     }
-    state.process.stdin.write(data);
+    state.pty.write(data);
+    return Promise.resolve(state.record);
+  }
+
+  resize(
+    userId: string,
+    terminalId: string,
+    cols: number,
+    rows: number
+  ): Promise<TerminalRecord> {
+    const state = this.getOwnedTerminal(userId, terminalId);
+    if (state.record.status !== "running") {
+      throw new ValidationError("Terminal is not resizable", {
+        module: MODULE,
+        op: "resize",
+        details: { terminalId },
+      });
+    }
+    state.pty.resize(cols, rows);
+    state.record = {
+      ...state.record,
+      cols,
+      rows,
+      updatedAt: this.nowMs(),
+    };
+    state.emitter.emit("event", {
+      type: "status",
+      terminal: state.record,
+    } satisfies TerminalEvent);
     return Promise.resolve(state.record);
   }
 
   kill(userId: string, terminalId: string): Promise<TerminalRecord> {
     const state = this.getOwnedTerminal(userId, terminalId);
     if (state.record.status === "running") {
-      state.process.kill();
+      state.pty.kill();
     }
     return Promise.resolve(state.record);
   }
@@ -161,10 +210,9 @@ export class ChildProcessTerminalRuntimeAdapter implements TerminalRuntimePort {
 
   private appendOutput(state: TerminalProcessState, data: string): void {
     const next = `${state.outputBuffer}${data}`;
+    const outputBufferLimit = Math.max(1, ENV.terminalOutputHardCapBytes);
     state.outputBuffer =
-      next.length > OUTPUT_BUFFER_LIMIT
-        ? next.slice(-OUTPUT_BUFFER_LIMIT)
-        : next;
+      next.length > outputBufferLimit ? next.slice(-outputBufferLimit) : next;
     state.record = {
       ...state.record,
       updatedAt: this.nowMs(),
@@ -179,11 +227,15 @@ export class ChildProcessTerminalRuntimeAdapter implements TerminalRuntimePort {
   private markExited(
     state: TerminalProcessState,
     exitCode: number | null,
-    signal: NodeJS.Signals | null
+    signal: string | null
   ): void {
     if (state.record.status === "exited") {
       return;
     }
+    for (const disposable of state.disposables) {
+      disposable.dispose();
+    }
+    state.disposables = [];
     state.record = {
       ...state.record,
       status: "exited",
@@ -196,6 +248,12 @@ export class ChildProcessTerminalRuntimeAdapter implements TerminalRuntimePort {
       terminal: state.record,
     } satisfies TerminalEvent);
   }
+}
+
+async function createNodePtyProcess(
+  input: Parameters<TerminalPtyFactory>[0]
+): Promise<TerminalPtyProcess> {
+  return await spawnTerminalPty(input);
 }
 
 function resolveTerminalProfile(settings: TerminalSettings): TerminalProfile {
@@ -215,7 +273,11 @@ function resolveTerminalProfile(settings: TerminalSettings): TerminalProfile {
 
 function defaultShellCommand(): string {
   if (isWindows()) {
-    return process.env.ComSpec || "powershell.exe";
+    return (
+      process.env.ComSpec ||
+      process.env.COMSPEC ||
+      "C:\\Windows\\System32\\cmd.exe"
+    );
   }
   return process.env.SHELL || "/bin/sh";
 }

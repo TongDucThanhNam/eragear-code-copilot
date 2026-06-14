@@ -5,11 +5,11 @@ import { ENV } from "@/config/environment";
 import type { SessionRuntimePort } from "@/modules/session";
 import type { ChatSession, TerminalState } from "@/shared/types/session.types";
 import { resolvePathWithinRoot } from "@/shared/utils/path-within-root.util";
-import {
-  hasProcessExited,
-  terminateProcessGracefully,
-} from "@/shared/utils/process-termination.util";
 import { isPosix } from "@/shared/utils/runtime-platform.util";
+import {
+  hasTerminalProcessExited,
+  terminateTerminalStateProcess,
+} from "@/shared/utils/terminal-process.util";
 
 /** Regex for splitting text into lines across platforms */
 export const LINE_SPLITTER_REGEX = /\r?\n/;
@@ -282,41 +282,14 @@ export function isPosixRuntime(): boolean {
 export async function terminateTerminalProcess(
   term: TerminalState
 ): Promise<void> {
-  if (term.terminationPromise) {
-    await term.terminationPromise;
-    return;
-  }
-
-  clearTerminalKillTimer(term);
-  if (
-    term.lifecycleState === "exited" ||
-    term.exitStatus ||
-    hasProcessExited(term.process)
-  ) {
-    return;
-  }
-  term.lifecycleState = "terminating";
-
-  const terminationPromise = terminateProcessGracefully(term.process, {
-    processGroupId: term.processGroupId,
-    forceWindowsTreeTermination: true,
-  }).then(() => undefined);
-  term.terminationPromise = terminationPromise;
-
-  try {
-    await terminationPromise;
-  } finally {
-    if (term.terminationPromise === terminationPromise) {
-      term.terminationPromise = undefined;
-    }
-  }
+  await terminateTerminalStateProcess(term);
 }
 
 export function shouldSkipTimedTermination(term: TerminalState): boolean {
   if (term.lifecycleState === "exited" || term.exitStatus) {
     return true;
   }
-  if (hasProcessExited(term.process)) {
+  if (hasTerminalProcessExited(term)) {
     return true;
   }
   if (term.lifecycleState === "terminating" || term.terminationPromise) {

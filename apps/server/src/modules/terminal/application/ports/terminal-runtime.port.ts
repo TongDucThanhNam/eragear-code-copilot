@@ -9,6 +9,8 @@ export interface TerminalRuntimeCreateInput {
   projectId?: string;
   cwd: string;
   settings: TerminalSettings;
+  cols: number;
+  rows: number;
 }
 
 export interface TerminalRuntimePort {
@@ -18,6 +20,12 @@ export interface TerminalRuntimePort {
     userId: string,
     terminalId: string,
     data: string
+  ): Promise<TerminalRecord>;
+  resize(
+    userId: string,
+    terminalId: string,
+    cols: number,
+    rows: number
   ): Promise<TerminalRecord>;
   kill(userId: string, terminalId: string): Promise<TerminalRecord>;
   subscribe(

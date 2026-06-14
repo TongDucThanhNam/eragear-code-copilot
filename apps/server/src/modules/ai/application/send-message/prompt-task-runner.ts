@@ -60,7 +60,7 @@ interface PromptTaskParams {
   prompt: ContentBlock[];
   broadcast: SessionRuntimePort["broadcast"];
   turnId: string;
-  source: "client" | "supervisor";
+  source: "client" | "supervisor" | "automation";
   abortSignal?: AbortSignal;
 }
 
@@ -72,7 +72,7 @@ export interface PromptTurnCompleteEvent {
   agentSessionId?: string;
   turnId: string;
   stopReason: string;
-  source: "client" | "supervisor";
+  source: "client" | "supervisor" | "automation";
 }
 
 export class PromptTaskRunner {
@@ -256,7 +256,7 @@ export class PromptTaskRunner {
     chatId: string;
     session: ChatSession;
     turnId: string;
-    source: "client" | "supervisor";
+    source: "client" | "supervisor" | "automation";
     stopReason?: string;
   }): Promise<void> {
     const { chatId, session, turnId, source } = params;

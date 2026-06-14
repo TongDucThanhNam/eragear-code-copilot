@@ -4,10 +4,12 @@ import path from "node:path";
 import { z } from "zod";
 import { getNodeErrnoCode } from "@/shared/utils/node-error.util";
 import {
-  BotDefinitionSchema,
   type BotDefinition,
-  BotRunSchema,
+  BotDefinitionSchema,
+  type BotQuotaAutomationState,
+  BotQuotaAutomationStateSchema,
   type BotRun,
+  BotRunSchema,
 } from "../application/contracts/bots.contract";
 import type { BotRepositoryPort } from "../application/ports/bot-repository.port";
 
@@ -18,6 +20,11 @@ const BotDocumentSchema = z
     version: z.literal(DOCUMENT_VERSION),
     bots: z.record(z.string(), BotDefinitionSchema),
     runs: z.record(z.string(), BotRunSchema),
+    quotaAutomation: BotQuotaAutomationStateSchema.default({
+      windows: {},
+      dispatched: {},
+      cooldowns: {},
+    }),
   })
   .strict();
 
@@ -43,7 +50,9 @@ export class BotFileRepository implements BotRepositoryPort {
   async listBots(userId: string): Promise<BotDefinition[]> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      return Object.values(document.bots).filter((bot) => bot.userId === userId);
+      return Object.values(document.bots).filter(
+        (bot) => bot.userId === userId
+      );
     });
   }
 
@@ -83,7 +92,9 @@ export class BotFileRepository implements BotRepositoryPort {
   async listRuns(userId: string): Promise<BotRun[]> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      return Object.values(document.runs).filter((run) => run.userId === userId);
+      return Object.values(document.runs).filter(
+        (run) => run.userId === userId
+      );
     });
   }
 
@@ -101,6 +112,23 @@ export class BotFileRepository implements BotRepositoryPort {
       document.runs[run.id] = run;
       await this.writeDocument(document);
       return run;
+    });
+  }
+
+  async readQuotaAutomationState(): Promise<BotQuotaAutomationState> {
+    return await this.enqueue(async () => {
+      const document = await this.readDocument();
+      return document.quotaAutomation;
+    });
+  }
+
+  async saveQuotaAutomationState(
+    state: BotQuotaAutomationState
+  ): Promise<void> {
+    await this.enqueue(async () => {
+      const document = await this.readDocument();
+      document.quotaAutomation = BotQuotaAutomationStateSchema.parse(state);
+      await this.writeDocument(document);
     });
   }
 
@@ -125,7 +153,12 @@ export class BotFileRepository implements BotRepositoryPort {
       return BotDocumentSchema.parse(JSON.parse(raw));
     } catch (error) {
       if (getNodeErrnoCode(error) === "ENOENT") {
-        return { version: DOCUMENT_VERSION, bots: {}, runs: {} };
+        return {
+          version: DOCUMENT_VERSION,
+          bots: {},
+          runs: {},
+          quotaAutomation: { windows: {}, dispatched: {}, cooldowns: {} },
+        };
       }
       throw error;
     }

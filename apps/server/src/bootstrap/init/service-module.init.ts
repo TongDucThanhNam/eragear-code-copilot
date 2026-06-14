@@ -174,7 +174,12 @@ export function initializeServiceModule({
     serviceRegistryDependencies
   );
   const remoteControlUseCases = createRemoteControlUseCases();
-  const botsUseCases = createBotsUseCases();
+  const botsUseCases = createBotsUseCases({
+    session: sessionUseCases,
+    ai: aiUseCases,
+    quota: quotaUseCases,
+    logger: core.appLogger,
+  });
   const authUserRead = new AuthUserReadAdapter(authRuntime.authDb);
   const authUseCases: AuthUseCases = {
     getMe: new GetMeService(authUserRead),
@@ -231,6 +236,7 @@ export function initializeServiceModule({
     eventBus: core.eventBus,
     sessionUseCases,
     localAde: settingsUseCases.localAde,
+    bots: botsUseCases.bots,
     taskAutoArchive: taskAutoArchiveUseCases.taskAutoArchive,
     appConfig: appConfigService,
     policy: runtimeConfig.lifecyclePolicy,

@@ -1,4 +1,5 @@
 import { ENV } from "@/config/environment";
+import { initializeBotAutomationEvents } from "@/modules/bots/init/bot-automation-events.init";
 import { initializeFileWatcherEvents } from "@/modules/file-watcher/init/file-watcher-events.init";
 import { initializeGitEvents } from "@/modules/git/init/git-events.init";
 import { initializeProjectEvents } from "@/modules/project/init/project-events.init";
@@ -186,6 +187,13 @@ async function createAppCompositionWithRuntimeConfig(
     initializeUsageStatsEvents({
       eventBus: deps.eventBus,
       usageStatsUseCases: deps.useCases.usageStats,
+      logger: deps.appLogger,
+    })
+  );
+  unsubscribeCallbacks.push(
+    initializeBotAutomationEvents({
+      eventBus: deps.eventBus,
+      botsUseCases: deps.useCases.bots,
       logger: deps.appLogger,
     })
   );

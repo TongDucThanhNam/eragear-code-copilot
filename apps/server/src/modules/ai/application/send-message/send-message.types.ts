@@ -32,7 +32,7 @@ export interface SendMessageExecuteInput {
   userId: string;
   chatId: string;
   text: string;
-  source?: "client" | "supervisor";
+  source?: "client" | "supervisor" | "automation";
   textAnnotations?: Annotations;
   images?: {
     base64: string;

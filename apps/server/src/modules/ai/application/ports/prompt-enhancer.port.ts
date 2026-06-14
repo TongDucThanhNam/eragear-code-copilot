@@ -2,7 +2,7 @@ export interface PromptEnhancerInput {
   userId: string;
   chatId: string;
   text: string;
-  source?: "client" | "supervisor";
+  source?: "client" | "supervisor" | "automation";
   projectRoot?: string;
   projectId?: string;
 }

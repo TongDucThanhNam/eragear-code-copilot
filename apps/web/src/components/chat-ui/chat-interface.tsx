@@ -14,6 +14,7 @@ import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatMessagesPane } from "@/components/chat-ui/chat-interface/chat-messages-pane";
 import { ChatPlanDockPane } from "@/components/chat-ui/chat-interface/chat-plan-dock-pane";
 import { ChatInput } from "@/components/chat-ui/chat-input";
+import { TerminalDock } from "@/components/chat-ui/terminal-dock";
 import { prepareSubmitImages } from "@/components/chat-ui/chat-submit-images";
 import {
   resolveLocalCommand,
@@ -1786,6 +1787,11 @@ export function ChatInterface({
           <div className="relative border-t bg-background/95 pb-[max(env(safe-area-inset-bottom),0px)] backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <ChatPlanDockPane chatId={chatId} />
             <SubagentStatusStrip invocations={subagents} />
+            <TerminalDock
+              projectId={activeProjectId}
+              projectName={activeProject?.name ?? null}
+              projectPath={activeProject?.path ?? null}
+            />
             <ChatInput
               activeTabs={projectContext?.activeTabs}
               availableCommands={availableCommands}

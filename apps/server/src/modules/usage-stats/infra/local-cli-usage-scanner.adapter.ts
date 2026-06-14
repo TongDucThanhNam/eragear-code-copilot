@@ -37,6 +37,8 @@ import {
   cloneCost,
   createEmptyCost,
   getUsagePricingMetadata,
+  loadUsagePricingSnapshot,
+  type PricingSnapshot,
 } from "./usage-pricing";
 
 const CLI_PROVIDER_IDS: UsageStatsCliProviderId[] = [
@@ -84,6 +86,7 @@ interface MutableDailyUsage {
 
 interface MutableProviderUsage {
   providerId: UsageStatsCliProviderId;
+  pricingSnapshot: PricingSnapshot;
   daily: Map<string, MutableDailyUsage>;
   modelTotals: Map<string, UsageStatsTokenTotals>;
   modelCosts: Map<string, UsageStatsCostTotals>;
@@ -162,11 +165,19 @@ export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
       : CLI_PROVIDER_IDS;
     const warnings: string[] = [];
     const summaries: UsageStatsCliProviderSummary[] = [];
+    const pricingSnapshot = await loadUsagePricingSnapshot(warnings);
 
     summaries.push(
       ...(await Promise.all(
         providers.map((providerId) =>
-          this.scanProvider(providerId, start, end, recentStart, warnings)
+          this.scanProvider(
+            providerId,
+            start,
+            end,
+            recentStart,
+            warnings,
+            pricingSnapshot
+          )
         )
       ))
     );
@@ -178,6 +189,7 @@ export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
       warnings,
       recentStart,
       end,
+      pricingSnapshot,
     });
   }
 
@@ -186,19 +198,27 @@ export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
     start: Date,
     end: Date,
     recentStart: Date,
-    warnings: string[]
+    warnings: string[],
+    pricingSnapshot: PricingSnapshot
   ): Promise<UsageStatsCliProviderSummary> {
     try {
       const usage = await withProviderScanTimeout(
         providerId,
-        this.loadProviderUsage(providerId, start, end, recentStart, warnings)
+        this.loadProviderUsage(
+          providerId,
+          start,
+          end,
+          recentStart,
+          warnings,
+          pricingSnapshot
+        )
       );
 
       if (!usage) {
         return buildProviderSummary(
           providerId,
           "not_found",
-          createProviderUsage(providerId),
+          createProviderUsage(providerId, pricingSnapshot),
           end
         );
       }
@@ -212,7 +232,7 @@ export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
       return buildProviderSummary(
         providerId,
         "error",
-        createProviderUsage(providerId),
+        createProviderUsage(providerId, pricingSnapshot),
         end,
         message
       );
@@ -224,23 +244,60 @@ export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
     start: Date,
     end: Date,
     recentStart: Date,
-    warnings: string[]
+    warnings: string[],
+    pricingSnapshot: PricingSnapshot
   ): Promise<MutableProviderUsage | null> {
     switch (providerId) {
       case "amp":
-        return await loadAmpUsage(start, end, recentStart, warnings);
+        return await loadAmpUsage(
+          start,
+          end,
+          recentStart,
+          warnings,
+          pricingSnapshot
+        );
       case "claude":
-        return await loadClaudeUsage(start, end, recentStart, warnings);
+        return await loadClaudeUsage(
+          start,
+          end,
+          recentStart,
+          warnings,
+          pricingSnapshot
+        );
       case "codex":
-        return await loadCodexUsage(start, end, recentStart, warnings);
+        return await loadCodexUsage(
+          start,
+          end,
+          recentStart,
+          warnings,
+          pricingSnapshot
+        );
       case "cursor":
-        return await loadCursorUsage(start, end, recentStart);
+        return await loadCursorUsage(start, end, recentStart, pricingSnapshot);
       case "gemini":
-        return await loadGeminiUsage(start, end, recentStart, warnings);
+        return await loadGeminiUsage(
+          start,
+          end,
+          recentStart,
+          warnings,
+          pricingSnapshot
+        );
       case "opencode":
-        return await loadOpenCodeUsage(start, end, recentStart, warnings);
+        return await loadOpenCodeUsage(
+          start,
+          end,
+          recentStart,
+          warnings,
+          pricingSnapshot
+        );
       case "pi":
-        return await loadPiUsage(start, end, recentStart, warnings);
+        return await loadPiUsage(
+          start,
+          end,
+          recentStart,
+          warnings,
+          pricingSnapshot
+        );
       default: {
         const exhaustive: never = providerId;
         throw new Error(`Unhandled usage provider: ${String(exhaustive)}`);
@@ -281,10 +338,12 @@ function addTokens(
 }
 
 function createProviderUsage(
-  providerId: UsageStatsCliProviderId
+  providerId: UsageStatsCliProviderId,
+  pricingSnapshot: PricingSnapshot
 ): MutableProviderUsage {
   return {
     providerId,
+    pricingSnapshot,
     daily: new Map(),
     modelTotals: new Map(),
     modelCosts: new Map(),
@@ -308,6 +367,7 @@ function recordUsage(params: {
     providerId: params.usage.providerId,
     modelName: params.modelName,
     tokens: params.tokens,
+    pricingSnapshot: params.usage.pricingSnapshot,
   });
   const dateKey = formatLocalDate(params.date);
   let daily = params.usage.daily.get(dateKey);
@@ -426,6 +486,7 @@ function buildCliSummary(params: {
   warnings: string[];
   recentStart: Date;
   end: Date;
+  pricingSnapshot: PricingSnapshot;
 }): UsageStatsCliSummary {
   const dailyByDate = new Map<string, MutableDailyUsage>();
   const providerDailyByDate = new Map<string, UsageStatsProviderDailyUsage[]>();
@@ -542,7 +603,7 @@ function buildCliSummary(params: {
     totals,
     cost,
     pricing: {
-      ...getUsagePricingMetadata(),
+      ...getUsagePricingMetadata(params.pricingSnapshot),
       pricedTokens: cost.pricedTokens,
       unpricedTokens: cost.unpricedTokens,
     },
@@ -626,14 +687,15 @@ async function loadAmpUsage(
   start: Date,
   end: Date,
   recentStart: Date,
-  warnings: string[]
+  warnings: string[],
+  pricingSnapshot: PricingSnapshot
 ): Promise<MutableProviderUsage | null> {
   const threadsDir = path.join(getAmpDataDir(), "threads");
   if (!existsSync(threadsDir)) {
     return null;
   }
 
-  const usage = createProviderUsage("amp");
+  const usage = createProviderUsage("amp", pricingSnapshot);
   const files = await listFilesRecursive(threadsDir, ".json");
   await runWithConcurrency(files, getFileConcurrency(), async (file) => {
     await processAmpFile(file, usage, start, end, recentStart, warnings);
@@ -714,7 +776,8 @@ async function loadClaudeUsage(
   start: Date,
   end: Date,
   recentStart: Date,
-  warnings: string[]
+  warnings: string[],
+  pricingSnapshot: PricingSnapshot
 ): Promise<MutableProviderUsage | null> {
   const projectDirs = getClaudeProjectDirs();
   const statsCacheFiles = getClaudeStatsCacheFiles();
@@ -722,7 +785,7 @@ async function loadClaudeUsage(
     return null;
   }
 
-  const usage = createProviderUsage("claude");
+  const usage = createProviderUsage("claude", pricingSnapshot);
   const processedHashes = new Set<string>();
   const files = (
     await Promise.all(
@@ -883,14 +946,15 @@ async function loadCodexUsage(
   start: Date,
   end: Date,
   recentStart: Date,
-  warnings: string[]
+  warnings: string[],
+  pricingSnapshot: PricingSnapshot
 ): Promise<MutableProviderUsage | null> {
   const sessionsDir = path.join(getCodexHome(), "sessions");
   if (!existsSync(sessionsDir)) {
     return null;
   }
 
-  const usage = createProviderUsage("codex");
+  const usage = createProviderUsage("codex", pricingSnapshot);
   const files = await listFilesRecursive(sessionsDir, ".jsonl");
   await runWithConcurrency(files, getFileConcurrency(), async (file) => {
     await processCodexFile(file, start, end, recentStart, usage, warnings);
@@ -981,7 +1045,8 @@ async function processCodexFile(
 async function loadCursorUsage(
   start: Date,
   end: Date,
-  recentStart: Date
+  recentStart: Date,
+  pricingSnapshot: PricingSnapshot
 ): Promise<MutableProviderUsage | null> {
   const databasePath = getCursorStateDbPath();
   if (!databasePath) {
@@ -990,11 +1055,11 @@ async function loadCursorUsage(
 
   const accessToken = await readCursorAccessToken(databasePath);
   if (!accessToken) {
-    return createProviderUsage("cursor");
+    return createProviderUsage("cursor", pricingSnapshot);
   }
 
   const csvText = await fetchCursorUsageCsv(accessToken);
-  const usage = createProviderUsage("cursor");
+  const usage = createProviderUsage("cursor", pricingSnapshot);
   processCursorCsvText(csvText, (row) => {
     const date = parseCursorDate(row.Date);
     const modelName = normalizeModelName(row.Model);
@@ -1011,14 +1076,15 @@ async function loadGeminiUsage(
   start: Date,
   end: Date,
   recentStart: Date,
-  warnings: string[]
+  warnings: string[],
+  pricingSnapshot: PricingSnapshot
 ): Promise<MutableProviderUsage | null> {
   const tmpDir = path.join(getGeminiBaseDir(), "tmp");
   if (!existsSync(tmpDir)) {
     return null;
   }
 
-  const usage = createProviderUsage("gemini");
+  const usage = createProviderUsage("gemini", pricingSnapshot);
   const files = (await listFilesRecursive(tmpDir, ".json")).filter((file) =>
     GEMINI_SESSION_FILE_RE.test(file)
   );
@@ -1095,7 +1161,8 @@ async function loadOpenCodeUsage(
   start: Date,
   end: Date,
   recentStart: Date,
-  warnings: string[]
+  warnings: string[],
+  pricingSnapshot: PricingSnapshot
 ): Promise<MutableProviderUsage | null> {
   const baseDir = getOpenCodeBaseDir();
   const databasePath = path.join(baseDir, "opencode.db");
@@ -1104,7 +1171,7 @@ async function loadOpenCodeUsage(
     return null;
   }
 
-  const usage = createProviderUsage("opencode");
+  const usage = createProviderUsage("opencode", pricingSnapshot);
   const dedupe = new Set<string>();
   const addMessage = (message: {
     id?: string;
@@ -1189,14 +1256,15 @@ async function loadPiUsage(
   start: Date,
   end: Date,
   recentStart: Date,
-  warnings: string[]
+  warnings: string[],
+  pricingSnapshot: PricingSnapshot
 ): Promise<MutableProviderUsage | null> {
   const sessionsDir = path.join(getPiAgentDir(), "sessions");
   if (!existsSync(sessionsDir)) {
     return null;
   }
 
-  const usage = createProviderUsage("pi");
+  const usage = createProviderUsage("pi", pricingSnapshot);
   const files = await listFilesRecursive(sessionsDir, ".jsonl");
   for (const file of files) {
     for await (const entry of readJsonLines<{

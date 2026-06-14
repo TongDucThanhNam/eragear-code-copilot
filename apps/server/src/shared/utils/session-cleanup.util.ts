@@ -6,9 +6,9 @@
 
 import type { ChatSession, TerminalState } from "../types/session.types";
 import {
-  hasProcessExited,
-  terminateProcessGracefully,
-} from "./process-termination.util";
+  hasTerminalProcessExited,
+  terminateTerminalStateProcess,
+} from "./terminal-process.util";
 
 async function terminateTerminalStates(
   terminalStates: TerminalState[]
@@ -23,13 +23,10 @@ async function terminateTerminalStates(
         await termState.terminationPromise;
         return;
       }
-      if (!termState.process || hasProcessExited(termState.process)) {
+      if (!termState.process || hasTerminalProcessExited(termState)) {
         return;
       }
-      await terminateProcessGracefully(termState.process, {
-        processGroupId: termState.processGroupId,
-        forceWindowsTreeTermination: true,
-      });
+      await terminateTerminalStateProcess(termState);
     })
   );
 }

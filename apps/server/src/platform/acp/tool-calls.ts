@@ -7,13 +7,17 @@
  * @module infra/acp/tool-calls
  */
 
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import type { SessionRuntimePort } from "@/modules/session";
 import { createLogger } from "@/platform/logging/structured-logger";
+import {
+  spawnTerminalPty,
+  type TerminalPtyProcess,
+} from "@/shared/terminal/pty-process";
 import {
   compileCommandPolicies,
   filterEnvAllowlist,
@@ -23,6 +27,10 @@ import { pruneEditorTextBuffers } from "@/shared/utils/editor-buffer.util";
 import { createId } from "@/shared/utils/id.util";
 import { isNodeErrno } from "@/shared/utils/node-error.util";
 import { toPortableRelativePath } from "@/shared/utils/path-within-root.util";
+import {
+  pauseTerminalProcessOutput,
+  resumeTerminalProcessOutput,
+} from "@/shared/utils/terminal-process.util";
 import { normalizeTimeoutMs } from "@/shared/utils/timeout.util";
 import { ENV } from "../../config/environment";
 import type { TerminalState } from "../../shared/types/session.types";
@@ -47,6 +55,8 @@ const logger = createLogger("Debug");
 const TERMINAL_OUTPUT_EVENT_MAX_CHARS = 8 * 1024;
 const TERMINAL_OUTPUT_QUEUE_HIGH_WATER_BYTES = 256 * 1024;
 const TERMINAL_OUTPUT_QUEUE_LOW_WATER_BYTES = 64 * 1024;
+const ACP_TERMINAL_DEFAULT_COLS = 80;
+const ACP_TERMINAL_DEFAULT_ROWS = 24;
 
 function assertAcpToolEnabled(params: {
   enabled: boolean;
@@ -79,8 +89,7 @@ function pauseTerminalStreams(termState: TerminalState): void {
   if (termState.outputStreamsPaused) {
     return;
   }
-  termState.process.stdout?.pause();
-  termState.process.stderr?.pause();
+  pauseTerminalProcessOutput(termState);
   termState.outputStreamsPaused = true;
 }
 
@@ -88,8 +97,7 @@ function resumeTerminalStreams(termState: TerminalState): void {
   if (!termState.outputStreamsPaused) {
     return;
   }
-  termState.process.stdout?.resume();
-  termState.process.stderr?.resume();
+  resumeTerminalProcessOutput(termState);
   termState.outputStreamsPaused = false;
 }
 
@@ -129,6 +137,247 @@ function scheduleTerminalOutputFlush(params: {
     });
   });
   return undefined;
+}
+
+function createFailedTerminalPtyProcess(): TerminalPtyProcess {
+  const disposable = { dispose: () => undefined };
+  return {
+    pid: undefined,
+    cols: ACP_TERMINAL_DEFAULT_COLS,
+    rows: ACP_TERMINAL_DEFAULT_ROWS,
+    onData: () => disposable,
+    onExit: () => disposable,
+    write: () => undefined,
+    resize: () => undefined,
+    kill: () => undefined,
+    pause: () => undefined,
+    resume: () => undefined,
+  };
+}
+
+function isRunningUnderBun(): boolean {
+  return typeof (process.versions as { bun?: string }).bun === "string";
+}
+
+function isSamePath(left: string, right: string): boolean {
+  const normalizedLeft = path.resolve(left);
+  const normalizedRight = path.resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
+}
+
+function shouldUseChildProcessForAcpCommand(command: string): boolean {
+  return isRunningUnderBun() && isSamePath(command, process.execPath);
+}
+
+function spawnChildProcessTerminal(params: {
+  command: string;
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+}): { process: ChildProcess; processGroupId?: number } {
+  const child = spawn(params.command, params.args, {
+    cwd: params.cwd,
+    env: params.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: isPosixRuntime(),
+  });
+  const processGroupId =
+    isPosixRuntime() && typeof child.pid === "number" && child.pid > 0
+      ? child.pid
+      : undefined;
+  return {
+    process: child,
+    ...(processGroupId ? { processGroupId } : {}),
+  };
+}
+
+interface AcpTerminalProcessSpawnResult {
+  process: ChildProcess | TerminalPtyProcess;
+  processKind: "child_process" | "pty";
+  processGroupId?: number;
+  spawnError?: unknown;
+}
+
+async function spawnAcpTerminalProcess(params: {
+  chatId: string;
+  terminalId: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+}): Promise<AcpTerminalProcessSpawnResult> {
+  if (shouldUseChildProcessForAcpCommand(params.command)) {
+    const childProcess = spawnChildProcessTerminal(params);
+    return {
+      process: childProcess.process,
+      processKind: "child_process",
+      ...(childProcess.processGroupId
+        ? { processGroupId: childProcess.processGroupId }
+        : {}),
+    };
+  }
+
+  try {
+    return {
+      process: await spawnTerminalPty({
+        command: params.command,
+        args: params.args,
+        cwd: params.cwd,
+        env: params.env,
+        cols: ACP_TERMINAL_DEFAULT_COLS,
+        rows: ACP_TERMINAL_DEFAULT_ROWS,
+      }),
+      processKind: "pty",
+    };
+  } catch (error) {
+    logger.warn("Terminal PTY start failed; falling back to child process", {
+      chatId: params.chatId,
+      terminalId: params.terminalId,
+      command: params.command,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    try {
+      const childProcess = spawnChildProcessTerminal(params);
+      return {
+        process: childProcess.process,
+        processKind: "child_process",
+        ...(childProcess.processGroupId
+          ? { processGroupId: childProcess.processGroupId }
+          : {}),
+      };
+    } catch (fallbackError) {
+      return {
+        process: createFailedTerminalPtyProcess(),
+        processKind: "pty",
+        spawnError: fallbackError,
+      };
+    }
+  }
+}
+
+function attachTerminalProcessHandlers(params: {
+  chatId: string;
+  terminalId: string;
+  termState: TerminalState;
+  process: ChildProcess | TerminalPtyProcess;
+  processKind: "child_process" | "pty";
+  handleOutput: (text: string) => void;
+  flushPendingTerminalOutput: () => Promise<void>;
+  finalizeTerminal: (status: acp.WaitForTerminalExitResponse) => void;
+}): void {
+  if (params.processKind === "pty") {
+    attachPtyTerminalHandlers({
+      ...params,
+      process: params.process as TerminalPtyProcess,
+    });
+    return;
+  }
+
+  attachChildProcessTerminalHandlers({
+    ...params,
+    process: params.process as ChildProcess,
+  });
+}
+
+function attachPtyTerminalHandlers(params: {
+  chatId: string;
+  terminalId: string;
+  termState: TerminalState;
+  process: TerminalPtyProcess;
+  handleOutput: (text: string) => void;
+  flushPendingTerminalOutput: () => Promise<void>;
+  finalizeTerminal: (status: acp.WaitForTerminalExitResponse) => void;
+}): void {
+  params.termState.processDisposables = [
+    params.process.onData(params.handleOutput),
+    params.process.onExit((event) => {
+      const signal =
+        event.signal === undefined || event.signal === null
+          ? null
+          : String(event.signal);
+      params
+        .flushPendingTerminalOutput()
+        .catch((error) => {
+          logger.error(
+            "Failed to flush terminal output during process exit",
+            error as Error,
+            {
+              chatId: params.chatId,
+              terminalId: params.terminalId,
+            }
+          );
+        })
+        .finally(() => {
+          params.finalizeTerminal({ exitCode: event.exitCode, signal });
+        });
+    }),
+  ];
+
+  if (params.process.pid === undefined) {
+    logger.warn("Terminal PTY started without process id", {
+      chatId: params.chatId,
+      terminalId: params.terminalId,
+    });
+  }
+
+  // Prime the PTY dimensions for command-runner terminals.
+  params.process.resize(ACP_TERMINAL_DEFAULT_COLS, ACP_TERMINAL_DEFAULT_ROWS);
+}
+
+function attachChildProcessTerminalHandlers(params: {
+  chatId: string;
+  terminalId: string;
+  process: ChildProcess;
+  handleOutput: (text: string) => void;
+  flushPendingTerminalOutput: () => Promise<void>;
+  finalizeTerminal: (status: acp.WaitForTerminalExitResponse) => void;
+}): void {
+  params.process.stdout?.on("data", (chunk: Buffer) => {
+    params.handleOutput(chunk.toString("utf8"));
+  });
+  params.process.stderr?.on("data", (chunk: Buffer) => {
+    params.handleOutput(chunk.toString("utf8"));
+  });
+  params.process.on("exit", (code, signal) => {
+    params
+      .flushPendingTerminalOutput()
+      .catch((error) => {
+        logger.error(
+          "Failed to flush terminal output during process exit",
+          error as Error,
+          {
+            chatId: params.chatId,
+            terminalId: params.terminalId,
+          }
+        );
+      })
+      .finally(() => {
+        params.finalizeTerminal({ exitCode: code, signal });
+      });
+  });
+  params.process.on("error", (error) => {
+    logger.error("Terminal process emitted runtime error", error as Error, {
+      chatId: params.chatId,
+      terminalId: params.terminalId,
+    });
+    params
+      .flushPendingTerminalOutput()
+      .catch((flushError) => {
+        logger.error(
+          "Failed to flush terminal output after runtime error",
+          flushError as Error,
+          {
+            chatId: params.chatId,
+            terminalId: params.terminalId,
+          }
+        );
+      })
+      .finally(() => {
+        params.finalizeTerminal({ exitCode: null, signal: null });
+      });
+  });
 }
 
 /**
@@ -318,17 +567,14 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
     } as Record<string, string>;
     const filteredEnv = filterEnvAllowlist(mergedEnv, ENV.allowedEnvKeys);
 
-    // Spawn the terminal process
-    const termProc = spawn(params.command, commandArgs, {
+    const spawnedTerminal = await spawnAcpTerminalProcess({
+      chatId,
+      terminalId: termId,
+      command: params.command,
+      args: commandArgs,
       cwd: allowedCwd,
       env: filteredEnv,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: isPosixRuntime(),
     });
-    const processGroupId =
-      isPosixRuntime() && typeof termProc.pid === "number" && termProc.pid > 0
-        ? termProc.pid
-        : undefined;
 
     // Store terminal state
     let resolveExit:
@@ -342,8 +588,11 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
 
     const termState: TerminalState = {
       id: termId,
-      process: termProc,
-      processGroupId,
+      process: spawnedTerminal.process,
+      processKind: spawnedTerminal.processKind,
+      ...(spawnedTerminal.processGroupId
+        ? { processGroupId: spawnedTerminal.processGroupId }
+        : {}),
       lifecycleState: "running",
       outputBuffer: "",
       turnId: session.activeTurnId,
@@ -429,14 +678,18 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       resumeTerminalStreams(termState);
       termState.exitStatus = status;
       termState.lifecycleState = "exited";
+      for (const disposable of termState.processDisposables ?? []) {
+        disposable.dispose();
+      }
+      termState.processDisposables = [];
       termState.resolveExit?.(status);
       termState.resolveExit = undefined;
       clearTerminalKillTimer(termState);
     };
 
     // Handle output streaming
-    const handleOutput = (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
+    const handleOutput = (text: string) => {
+      const chunk = Buffer.from(text, "utf8");
       const current = termState.outputBufferBytes ?? Buffer.alloc(0);
       let next = current.length === 0 ? chunk : Buffer.concat([current, chunk]);
       if (next.length > outputByteLimit) {
@@ -455,36 +708,19 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
       });
     };
 
-    termProc.stdout?.on("data", handleOutput);
-    termProc.stderr?.on("data", handleOutput);
-
-    // Handle process exit
-    termProc.on("exit", (code, signal) => {
+    if (spawnedTerminal.spawnError) {
+      logger.error(
+        "Terminal process failed to start",
+        spawnedTerminal.spawnError as Error,
+        {
+          chatId,
+          terminalId: termId,
+        }
+      );
       flushPendingTerminalOutput()
         .catch((error) => {
           logger.error(
-            "Failed to flush terminal output during process exit",
-            error as Error,
-            {
-              chatId,
-              terminalId: termId,
-            }
-          );
-        })
-        .finally(() => {
-          finalizeTerminal({ exitCode: code, signal });
-        });
-    });
-
-    termProc.on("error", (err) => {
-      logger.error("Terminal process emitted runtime error", err as Error, {
-        chatId,
-        terminalId: termId,
-      });
-      flushPendingTerminalOutput()
-        .catch((error) => {
-          logger.error(
-            "Failed to flush terminal output after runtime error",
+            "Failed to flush terminal output after PTY start failure",
             error as Error,
             {
               chatId,
@@ -495,6 +731,18 @@ export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
         .finally(() => {
           finalizeTerminal({ exitCode: null, signal: null });
         });
+      return { terminalId: termId };
+    }
+
+    attachTerminalProcessHandlers({
+      chatId,
+      terminalId: termId,
+      termState,
+      process: spawnedTerminal.process,
+      processKind: spawnedTerminal.processKind,
+      handleOutput,
+      flushPendingTerminalOutput,
+      finalizeTerminal,
     });
 
     const terminalTimeoutMs = ENV.terminalTimeoutMs;

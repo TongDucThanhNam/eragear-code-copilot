@@ -7,6 +7,7 @@ import type {
   ProjectUpdateInput,
 } from "@/shared/types/project.types";
 import type {
+  ResizeTerminalInput,
   TerminalEvent,
   TerminalRecord,
   TerminalSettings,
@@ -81,6 +82,8 @@ class TerminalRuntimeStub implements TerminalRuntimePort {
     cwd: path.resolve("C:/repo/project"),
     command: "shell",
     args: [],
+    cols: 80,
+    rows: 24,
     status: "running",
     createdAt: 1,
     updatedAt: 1,
@@ -105,6 +108,16 @@ class TerminalRuntimeStub implements TerminalRuntimePort {
 
   kill(_userId: string, _terminalId: string): Promise<TerminalRecord> {
     return Promise.resolve({ ...this.record, status: "exited" });
+  }
+
+  resize(
+    _userId: string,
+    _terminalId: string,
+    cols: number,
+    rows: number
+  ): Promise<TerminalRecord> {
+    this.record = { ...this.record, cols, rows };
+    return Promise.resolve(this.record);
   }
 
   subscribe(
@@ -156,6 +169,41 @@ describe("TerminalService", () => {
     );
     expect(runtime.createInput?.projectId).toBe("project-1");
     expect(runtime.createInput?.settings.inheritSystemProfile).toBe(true);
+    expect(runtime.createInput?.cols).toBe(80);
+    expect(runtime.createInput?.rows).toBe(24);
+  });
+
+  test("passes requested terminal dimensions to runtime", async () => {
+    const runtime = new TerminalRuntimeStub();
+    const service = new TerminalService({
+      runtime,
+      settingsRepo: new TerminalSettingsRepositoryStub(),
+      projectRepo: new ProjectRepositoryStub(),
+    });
+
+    await service.create("user-1", { cols: 120, rows: 40 });
+
+    expect(runtime.createInput?.cols).toBe(120);
+    expect(runtime.createInput?.rows).toBe(40);
+  });
+
+  test("resizes a terminal through the runtime", async () => {
+    const runtime = new TerminalRuntimeStub();
+    const service = new TerminalService({
+      runtime,
+      settingsRepo: new TerminalSettingsRepositoryStub(),
+      projectRepo: new ProjectRepositoryStub(),
+    });
+
+    const input: ResizeTerminalInput = {
+      terminalId: "terminal-1",
+      cols: 100,
+      rows: 32,
+    };
+    const terminal = await service.resize("user-1", input);
+
+    expect(terminal.cols).toBe(100);
+    expect(terminal.rows).toBe(32);
   });
 
   test("rejects cwd outside project root", async () => {
