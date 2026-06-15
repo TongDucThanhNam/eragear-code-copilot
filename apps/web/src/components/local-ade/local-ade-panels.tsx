@@ -489,10 +489,13 @@ function Section({
   id?: string;
 }) {
   return (
-    <section className="rounded-md border bg-background" id={id}>
-      <div className="flex min-h-11 items-center justify-between gap-3 border-b px-3 py-2">
+    <section
+      className="rounded-md border border-[color:var(--border_default)] bg-[var(--bg_default_primary)] text-[color:var(--text_default_primary)]"
+      id={id}
+    >
+      <div className="flex min-h-11 items-center justify-between gap-3 border-[color:var(--border_default)] border-b bg-[var(--bg_default_secondary)] px-3 py-2">
         <h3 className="flex min-w-0 items-center gap-2 font-medium text-sm">
-          <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Icon className="h-4 w-4 shrink-0 text-[color:var(--icon_default_secondary)]" />
           <span className="truncate">{title}</span>
         </h3>
         {action}

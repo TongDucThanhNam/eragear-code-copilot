@@ -25,6 +25,42 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  --bg_default_primary: var(--background);
+  --bg_default_secondary: var(--card);
+  --bg_grouped_primary: var(--muted);
+  --bg_grouped_secondary: var(--secondary);
+  --bg_grouped_secondary_elevated: var(--popover);
+  --bg_interaction_tertiary_hover: var(--accent);
+  --bg_interaction_tertiary_active: color-mix(
+    in oklch,
+    var(--accent) 86%,
+    var(--foreground) 14%
+  );
+  --text_default_primary: var(--foreground);
+  --text_default_secondary: var(--muted-foreground);
+  --text_default_tertiary: color-mix(
+    in oklch,
+    var(--muted-foreground) 76%,
+    var(--background) 24%
+  );
+  --text_default_accent: var(--primary);
+  --text_default_danger: var(--destructive);
+  --icon_default_primary: var(--foreground);
+  --icon_default_secondary: var(--muted-foreground);
+  --icon_default_tertiary: color-mix(
+    in oklch,
+    var(--muted-foreground) 70%,
+    var(--background) 30%
+  );
+  --border_default: var(--border);
+  --border_accent: var(--ring);
+  --border_danger: var(--destructive);
+  --surface-elevated-shadow: 0 1px 2px oklch(0 0 0 / 8%),
+    0 8px 24px oklch(0 0 0 / 6%);
+  --interaction-focus-ring: var(--ring);
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-slow: 300ms;
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
   --chart-3: oklch(0.546 0.245 262.881);
@@ -71,6 +107,42 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --bg_default_primary: var(--background);
+  --bg_default_secondary: var(--card);
+  --bg_grouped_primary: var(--muted);
+  --bg_grouped_secondary: var(--secondary);
+  --bg_grouped_secondary_elevated: var(--popover);
+  --bg_interaction_tertiary_hover: var(--accent);
+  --bg_interaction_tertiary_active: color-mix(
+    in oklch,
+    var(--accent) 84%,
+    var(--foreground) 16%
+  );
+  --text_default_primary: var(--foreground);
+  --text_default_secondary: var(--muted-foreground);
+  --text_default_tertiary: color-mix(
+    in oklch,
+    var(--muted-foreground) 70%,
+    var(--background) 30%
+  );
+  --text_default_accent: var(--primary);
+  --text_default_danger: var(--destructive);
+  --icon_default_primary: var(--foreground);
+  --icon_default_secondary: var(--muted-foreground);
+  --icon_default_tertiary: color-mix(
+    in oklch,
+    var(--muted-foreground) 64%,
+    var(--background) 36%
+  );
+  --border_default: var(--border);
+  --border_accent: var(--ring);
+  --border_danger: var(--destructive);
+  --surface-elevated-shadow: 0 1px 2px oklch(0 0 0 / 24%),
+    0 10px 28px oklch(0 0 0 / 20%);
+  --interaction-focus-ring: var(--ring);
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-slow: 300ms;
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
   --chart-3: oklch(0.546 0.245 262.881);
@@ -102,6 +174,24 @@
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
+  --color-bg_default_primary: var(--bg_default_primary);
+  --color-bg_default_secondary: var(--bg_default_secondary);
+  --color-bg_grouped_primary: var(--bg_grouped_primary);
+  --color-bg_grouped_secondary: var(--bg_grouped_secondary);
+  --color-bg_grouped_secondary_elevated: var(--bg_grouped_secondary_elevated);
+  --color-bg_interaction_tertiary_hover: var(--bg_interaction_tertiary_hover);
+  --color-bg_interaction_tertiary_active: var(--bg_interaction_tertiary_active);
+  --color-text_default_primary: var(--text_default_primary);
+  --color-text_default_secondary: var(--text_default_secondary);
+  --color-text_default_tertiary: var(--text_default_tertiary);
+  --color-text_default_accent: var(--text_default_accent);
+  --color-text_default_danger: var(--text_default_danger);
+  --color-icon_default_primary: var(--icon_default_primary);
+  --color-icon_default_secondary: var(--icon_default_secondary);
+  --color-icon_default_tertiary: var(--icon_default_tertiary);
+  --color-border_default: var(--border_default);
+  --color-border_accent: var(--border_accent);
+  --color-border_danger: var(--border_danger);
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);

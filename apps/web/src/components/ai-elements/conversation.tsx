@@ -11,7 +11,10 @@ export type ConversationProps = ComponentProps<typeof StickToBottom>;
 
 export const Conversation = ({ className, ...props }: ConversationProps) => (
   <StickToBottom
-    className={cn("relative w-full min-w-0 flex-1 overflow-hidden", className)}
+    className={cn(
+      "relative w-full min-w-0 flex-1 overflow-hidden bg-[var(--bg_default_primary)] text-[color:var(--text_default_primary)]",
+      className
+    )}
     initial="smooth"
     resize="auto"
     role="log"
@@ -56,11 +59,11 @@ export const ConversationEmptyState = ({
   >
     {children ?? (
       <>
-        {icon && <div className="text-muted-foreground">{icon}</div>}
+        {icon && <div className="text-[color:var(--icon_default_secondary)]">{icon}</div>}
         <div className="space-y-1">
           <h3 className="font-medium text-sm">{title}</h3>
           {description && (
-            <p className="text-muted-foreground text-sm">{description}</p>
+            <p className="text-sm text-[color:var(--text_default_secondary)]">{description}</p>
           )}
         </div>
       </>
@@ -84,7 +87,7 @@ export const ConversationScrollButton = ({
     !isAtBottom && (
       <Button
         className={cn(
-          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full",
+          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full border-[color:var(--border_default)] bg-[var(--bg_grouped_secondary_elevated)] shadow-[var(--surface-elevated-shadow)] hover:bg-[var(--bg_interaction_tertiary_hover)]",
           className
         )}
         onClick={handleScrollToBottom}

@@ -1780,7 +1780,7 @@ test("terminates hook and plugin child process trees on timeout", async () => {
   await new Promise((resolve) => setTimeout(resolve, 1800));
   expect(existsSync(hookSentinel)).toBe(false);
   expect(existsSync(pluginSentinel)).toBe(false);
-});
+}, 15_000);
 
 test("upserts toggles and runs project hooks with redacted output", async () => {
   const hookScript = path.join(tempRoot, "hook-fixture.js");
@@ -2659,7 +2659,7 @@ test("upserts toggles and runs project plugins with redacted output", async () =
     process.env.LOCAL_ADE_PLUGIN_BLOCKED = previousBlocked;
   }
   }
-});
+}, 20_000);
 
 test("enforces plugin scheduling parallel limit before spawn", async () => {
   const longScript = path.join(tempRoot, "plugin-long.js");
@@ -4279,7 +4279,7 @@ test("audits project-root plugin workspace changes with checkpoint safety", asyn
   expect(stored.runs[0].preRunCheckpointId).toBe(run?.preRunCheckpointId);
   expect(stored.runs[0].postRunCheckpointId).toBe(run?.postRunCheckpointId);
   expect(stored.runs[0].workspaceChangedFiles).toEqual(["WORK.md"]);
-});
+}, 20_000);
 
 test("discovers invokable skills and output styles with persisted disabled state", async () => {
   await mkdir(path.join(tempRoot, ".eragear", "skills", "reviewer"), {

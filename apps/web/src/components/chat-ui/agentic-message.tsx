@@ -72,7 +72,7 @@ export const AgenticMessage = memo(function AgenticMessage({
   const contentRef = useMessageContentRef(message);
 
   return (
-    <Message from={message.role}>
+    <Message data-message-id={message.id} from={message.role}>
       <div>
         {message.role === "assistant" ? (
           <MessageContent>
