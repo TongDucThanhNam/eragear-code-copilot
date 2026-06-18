@@ -15,14 +15,19 @@
  */
 
 import type { Context, Hono } from "hono";
-import type { HttpRouteDependencies } from "./deps";
 import {
-  isJsonBodyParseError,
+  parseCreateApiKeyRouteInput,
+  parseDeleteApiKeyRouteInput,
+  parseDeviceSessionRouteInput,
+} from "./admin-route-input";
+import {
   normalizeApiKeyCreateResponse,
   normalizeApiKeyItem,
   normalizeDeviceSessionItem,
-  parseJsonBodyWithLimit,
-} from "./helpers";
+} from "./auth-management-data";
+import type { HttpRouteDependencies } from "./deps";
+import { parseJsonBodyWithLimit } from "./helpers";
+import { respondToRouteError } from "./route-errors";
 
 /**
  * Registers admin-related HTTP routes
@@ -50,10 +55,12 @@ export function registerAdminRoutes(
         : [];
       return c.json({ keys: normalized });
     } catch (error) {
-      logger.error("Failed to list API keys", {
-        error: error instanceof Error ? error.message : String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to list API keys",
+        fallbackMessage: "Failed to list API keys",
+        fallbackStatus: 500,
       });
-      return c.json({ error: "Failed to list API keys" }, 500);
     }
   });
 
@@ -62,11 +69,14 @@ export function registerAdminRoutes(
    */
   api.post("/admin/api-keys", async (c: Context) => {
     try {
-      const { name, prefix, expiresIn } = await parseJsonBodyWithLimit<{
-        name?: string;
-        prefix?: string;
-        expiresIn?: number;
-      }>(c.req.raw, runtime.httpMaxBodyBytes);
+      const payload = await parseJsonBodyWithLimit<unknown>(
+        c.req.raw,
+        runtime.httpMaxBodyBytes
+      );
+      const parsedInput = parseCreateApiKeyRouteInput(payload);
+      if (!parsedInput.ok) {
+        return c.json({ error: parsedInput.error }, 400);
+      }
 
       const session = await auth.api.getSession({
         headers: c.req.raw.headers,
@@ -77,9 +87,7 @@ export function registerAdminRoutes(
 
       const created = await auth.api.createApiKey({
         body: {
-          name,
-          prefix,
-          expiresIn,
+          ...parsedInput.input,
           userId: session.user.id,
         },
       });
@@ -97,13 +105,12 @@ export function registerAdminRoutes(
 
       return c.json({ apiKey });
     } catch (error) {
-      if (isJsonBodyParseError(error)) {
-        return c.json({ error: error.message }, error.statusCode);
-      }
-      logger.error("Failed to create API key", {
-        error: error instanceof Error ? error.message : String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to create API key",
+        fallbackMessage: "Failed to create API key",
+        fallbackStatus: 500,
       });
-      return c.json({ error: "Failed to create API key" }, 500);
     }
   });
 
@@ -112,28 +119,27 @@ export function registerAdminRoutes(
    */
   api.delete("/admin/api-keys", async (c: Context) => {
     try {
-      const { keyId, id } = await parseJsonBodyWithLimit<{
-        keyId?: string;
-        id?: string;
-      }>(c.req.raw, runtime.httpMaxBodyBytes);
-      const resolvedKeyId = keyId ?? id;
-      if (!resolvedKeyId) {
-        return c.json({ error: "keyId is required" }, 400);
+      const payload = await parseJsonBodyWithLimit<unknown>(
+        c.req.raw,
+        runtime.httpMaxBodyBytes
+      );
+      const parsedInput = parseDeleteApiKeyRouteInput(payload);
+      if (!parsedInput.ok) {
+        return c.json({ error: parsedInput.error }, 400);
       }
 
       const result = await auth.api.deleteApiKey({
-        body: { keyId: resolvedKeyId },
+        body: { keyId: parsedInput.input.keyId },
         headers: c.req.raw.headers,
       });
       return c.json({ result });
     } catch (error) {
-      if (isJsonBodyParseError(error)) {
-        return c.json({ error: error.message }, error.statusCode);
-      }
-      logger.error("Failed to delete API key", {
-        error: error instanceof Error ? error.message : String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to delete API key",
+        fallbackMessage: "Failed to delete API key",
+        fallbackStatus: 500,
       });
-      return c.json({ error: "Failed to delete API key" }, 500);
     }
   });
 
@@ -154,10 +160,12 @@ export function registerAdminRoutes(
         : [];
       return c.json({ sessions: normalized });
     } catch (error) {
-      logger.error("Failed to list device sessions", {
-        error: error instanceof Error ? error.message : String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to list device sessions",
+        fallbackMessage: "Failed to list device sessions",
+        fallbackStatus: 500,
       });
-      return c.json({ error: "Failed to list device sessions" }, 500);
     }
   });
 
@@ -166,26 +174,27 @@ export function registerAdminRoutes(
    */
   api.post("/admin/device-sessions/revoke", async (c: Context) => {
     try {
-      const { sessionToken } = await parseJsonBodyWithLimit<{
-        sessionToken?: string;
-      }>(c.req.raw, runtime.httpMaxBodyBytes);
-      if (!sessionToken) {
-        return c.json({ error: "sessionToken is required" }, 400);
+      const payload = await parseJsonBodyWithLimit<unknown>(
+        c.req.raw,
+        runtime.httpMaxBodyBytes
+      );
+      const parsedInput = parseDeviceSessionRouteInput(payload);
+      if (!parsedInput.ok) {
+        return c.json({ error: parsedInput.error }, 400);
       }
 
       const result = await auth.api.revokeDeviceSession({
-        body: { sessionToken },
+        body: { sessionToken: parsedInput.input.sessionToken },
         headers: c.req.raw.headers,
       });
       return c.json({ result });
     } catch (error) {
-      if (isJsonBodyParseError(error)) {
-        return c.json({ error: error.message }, error.statusCode);
-      }
-      logger.error("Failed to revoke device session", {
-        error: error instanceof Error ? error.message : String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to revoke device session",
+        fallbackMessage: "Failed to revoke device session",
+        fallbackStatus: 500,
       });
-      return c.json({ error: "Failed to revoke device session" }, 500);
     }
   });
 
@@ -194,26 +203,27 @@ export function registerAdminRoutes(
    */
   api.post("/admin/device-sessions/activate", async (c: Context) => {
     try {
-      const { sessionToken } = await parseJsonBodyWithLimit<{
-        sessionToken?: string;
-      }>(c.req.raw, runtime.httpMaxBodyBytes);
-      if (!sessionToken) {
-        return c.json({ error: "sessionToken is required" }, 400);
+      const payload = await parseJsonBodyWithLimit<unknown>(
+        c.req.raw,
+        runtime.httpMaxBodyBytes
+      );
+      const parsedInput = parseDeviceSessionRouteInput(payload);
+      if (!parsedInput.ok) {
+        return c.json({ error: parsedInput.error }, 400);
       }
 
       const result = await auth.api.setActiveSession({
-        body: { sessionToken },
+        body: { sessionToken: parsedInput.input.sessionToken },
         headers: c.req.raw.headers,
       });
       return c.json({ session: result });
     } catch (error) {
-      if (isJsonBodyParseError(error)) {
-        return c.json({ error: error.message }, error.statusCode);
-      }
-      logger.error("Failed to set active session", {
-        error: error instanceof Error ? error.message : String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to set active session",
+        fallbackMessage: "Failed to set active session",
+        fallbackStatus: 500,
       });
-      return c.json({ error: "Failed to set active session" }, 500);
     }
   });
 }

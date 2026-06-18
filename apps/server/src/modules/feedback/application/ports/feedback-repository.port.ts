@@ -1,11 +1,8 @@
-import type {
-  FeedbackListResult,
-  FeedbackRecord,
-  ListFeedbackInput,
-  SubmitFeedbackInput,
-} from "../contracts/feedback.contract";
+import type { FeedbackRecord } from "../contracts/feedback.contract";
 
 export interface FeedbackRepositoryPort {
-  list(userId: string, input?: ListFeedbackInput): Promise<FeedbackListResult>;
-  upsert(userId: string, input: SubmitFeedbackInput): Promise<FeedbackRecord>;
+  read<T>(
+    reader: (records: readonly FeedbackRecord[]) => T | Promise<T>
+  ): Promise<T>;
+  mutate<T>(mutator: (records: FeedbackRecord[]) => T | Promise<T>): Promise<T>;
 }

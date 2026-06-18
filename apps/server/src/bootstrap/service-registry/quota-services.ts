@@ -1,4 +1,5 @@
 import {
+  createEventBusProviderQuotaNotifier,
   ProviderQuotaService,
   type QuotaCredentialKind,
   type QuotaCredentialResolverPort,
@@ -9,17 +10,21 @@ import type {
   ModelProviderUseCases,
   QuotaUseCases,
 } from "@/modules/use-cases";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type QuotaServiceDependencies = ServiceRegistrySlice<
+  "agentRepo" | "eventBus" | "clock" | "appLogger"
+>;
 
 export function createQuotaUseCases(
-  deps: ServiceRegistryDependencies,
+  deps: QuotaServiceDependencies,
   credentialUseCases?: CredentialUseCases,
   modelProviderUseCases?: ModelProviderUseCases
 ): QuotaUseCases {
   return {
     provider: new ProviderQuotaService({
       agentRepo: deps.agentRepo,
-      eventBus: deps.eventBus,
+      providerQuotaNotifier: createEventBusProviderQuotaNotifier(deps.eventBus),
       clock: deps.clock,
       logger: deps.appLogger,
       adapters: createQuotaProviderAdapters(),

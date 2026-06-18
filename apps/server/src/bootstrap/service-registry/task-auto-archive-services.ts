@@ -11,7 +11,11 @@ import {
 } from "@/modules/task-auto-archive";
 import type { TaskAutoArchiveUseCases } from "@/modules/use-cases";
 import { getStorageFileSync } from "@/platform/storage/storage-path";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type TaskAutoArchiveServiceDependencies = ServiceRegistrySlice<
+  "sessionRepo" | "sessionRuntime" | "clock"
+>;
 
 class SessionTaskAutoArchiveAdapter implements TaskAutoArchiveSessionPort {
   private readonly sessionRepo: SessionRepositoryPort;
@@ -67,7 +71,7 @@ function toTaskSession(session: {
 }
 
 export function createTaskAutoArchiveUseCases(
-  deps: ServiceRegistryDependencies
+  deps: TaskAutoArchiveServiceDependencies
 ): TaskAutoArchiveUseCases {
   return {
     taskAutoArchive: new TaskAutoArchiveService({

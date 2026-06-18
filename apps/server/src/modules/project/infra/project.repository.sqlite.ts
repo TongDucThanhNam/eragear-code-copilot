@@ -5,7 +5,11 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { getSqliteOrm, sqliteSchema } from "@/platform/storage/sqlite-db";
+import {
+  getSqliteOrm,
+  sqliteSchema,
+  withSqliteTransaction,
+} from "@/platform/storage/sqlite-db";
 import {
   fromSqliteJsonWithSchema,
   SQLITE_SETTING_KEYS,
@@ -17,7 +21,10 @@ import type {
   ProjectInput,
   ProjectUpdateInput,
 } from "@/shared/types/project.types";
-import type { ProjectRepositoryPort } from "../application/ports/project-repository.port";
+import type {
+  ProjectListWithActiveState,
+  ProjectRepositoryPort,
+} from "../application/ports/project-repository.port";
 
 type ProjectRow = typeof sqliteSchema.projects.$inferSelect;
 const ProjectTagsSchema = z.array(z.string());
@@ -132,6 +139,70 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
       )
       .get();
     return activeProject ? activeId : null;
+  }
+
+  listWithActiveState(userId: string): Promise<ProjectListWithActiveState> {
+    return enqueueSqliteWrite("project.list_with_active_state", async () => {
+      return await withSqliteTransaction(({ orm }) => {
+        const rows = orm
+          .select()
+          .from(sqliteSchema.projects)
+          .where(eq(sqliteSchema.projects.userId, userId))
+          .all();
+
+        const activeRow = orm
+          .select({ valueJson: sqliteSchema.userSettings.valueJson })
+          .from(sqliteSchema.userSettings)
+          .where(
+            and(
+              eq(sqliteSchema.userSettings.userId, userId),
+              eq(
+                sqliteSchema.userSettings.key,
+                SQLITE_SETTING_KEYS.activeProjectId
+              )
+            )
+          )
+          .get();
+        const currentActiveId = fromSqliteJsonWithSchema(
+          activeRow?.valueJson,
+          null,
+          NullableStringSchema,
+          {
+            table: "user_settings",
+            column: "value_json",
+          }
+        );
+        const hasCurrentActive =
+          currentActiveId !== null &&
+          rows.some((project) => project.id === currentActiveId);
+        const nextActiveId = hasCurrentActive ? currentActiveId : null;
+
+        if (nextActiveId !== currentActiveId) {
+          orm
+            .insert(sqliteSchema.userSettings)
+            .values({
+              userId,
+              key: SQLITE_SETTING_KEYS.activeProjectId,
+              valueJson: toSqliteJson(nextActiveId) ?? "null",
+            })
+            .onConflictDoUpdate({
+              target: [
+                sqliteSchema.userSettings.userId,
+                sqliteSchema.userSettings.key,
+              ],
+              set: {
+                valueJson: toSqliteJson(nextActiveId) ?? "null",
+              },
+            })
+            .run();
+        }
+
+        return {
+          projects: rows.map((row) => this.mapRow(row)),
+          activeProjectId: nextActiveId,
+        };
+      });
+    });
   }
 
   create(input: ProjectInput): Promise<Project> {
@@ -251,6 +322,89 @@ export class ProjectSqliteRepository implements ProjectRepositoryPort {
         )
         .run();
     });
+  }
+
+  async deleteAndClearActive(
+    id: string,
+    userId: string
+  ): Promise<{ activeProjectId: string | null }> {
+    return await enqueueSqliteWrite(
+      "project.delete_and_clear_active",
+      async () => {
+        return await withSqliteTransaction(({ orm }) => {
+          const activeRow = orm
+            .select({ valueJson: sqliteSchema.userSettings.valueJson })
+            .from(sqliteSchema.userSettings)
+            .where(
+              and(
+                eq(sqliteSchema.userSettings.userId, userId),
+                eq(
+                  sqliteSchema.userSettings.key,
+                  SQLITE_SETTING_KEYS.activeProjectId
+                )
+              )
+            )
+            .get();
+          const currentActiveId = fromSqliteJsonWithSchema(
+            activeRow?.valueJson,
+            null,
+            NullableStringSchema,
+            {
+              table: "user_settings",
+              column: "value_json",
+            }
+          );
+
+          orm
+            .delete(sqliteSchema.projects)
+            .where(
+              and(
+                eq(sqliteSchema.projects.id, id),
+                eq(sqliteSchema.projects.userId, userId)
+              )
+            )
+            .run();
+
+          const hasCurrentActive =
+            currentActiveId !== null &&
+            Boolean(
+              orm
+                .select({ id: sqliteSchema.projects.id })
+                .from(sqliteSchema.projects)
+                .where(
+                  and(
+                    eq(sqliteSchema.projects.id, currentActiveId),
+                    eq(sqliteSchema.projects.userId, userId)
+                  )
+                )
+                .get()
+            );
+          const nextActiveId = hasCurrentActive ? currentActiveId : null;
+
+          if (nextActiveId !== currentActiveId) {
+            orm
+              .insert(sqliteSchema.userSettings)
+              .values({
+                userId,
+                key: SQLITE_SETTING_KEYS.activeProjectId,
+                valueJson: toSqliteJson(nextActiveId) ?? "null",
+              })
+              .onConflictDoUpdate({
+                target: [
+                  sqliteSchema.userSettings.userId,
+                  sqliteSchema.userSettings.key,
+                ],
+                set: {
+                  valueJson: toSqliteJson(nextActiveId) ?? "null",
+                },
+              })
+              .run();
+          }
+
+          return { activeProjectId: nextActiveId };
+        });
+      }
+    );
   }
 
   async setActive(id: string | null, userId: string): Promise<void> {

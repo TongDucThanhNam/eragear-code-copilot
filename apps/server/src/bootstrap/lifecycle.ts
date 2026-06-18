@@ -25,7 +25,6 @@ import {
   createTaskAutoArchiveTask,
 } from "../platform/background";
 import { createLogger } from "../platform/logging/structured-logger";
-import type { EventBusPort } from "../shared/ports/event-bus.port";
 import { executeServerShutdown } from "./lifecycle-shutdown";
 import { prepareServerStartup } from "./lifecycle-startup";
 
@@ -52,7 +51,6 @@ export interface ServerLifecycleDependencies {
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
   sessionEventOutbox: SessionEventOutboxPort;
-  eventBus: EventBusPort;
   sessionUseCases: SessionUseCases;
   localAde: Pick<
     UseCasePort<LocalAdeService>,
@@ -94,7 +92,6 @@ class DefaultServerLifecycle implements ServerLifecycle {
     this.backgroundRunner.register(
       createSessionEventOutboxDispatchTask({
         outbox: deps.sessionEventOutbox,
-        eventBus: deps.eventBus,
       })
     );
     this.backgroundRunner.register(

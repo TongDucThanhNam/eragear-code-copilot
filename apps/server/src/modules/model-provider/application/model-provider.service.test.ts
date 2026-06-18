@@ -1,109 +1,67 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  DeleteModelProviderInput,
-  DeleteModelProviderResult,
-  GetModelProviderInput,
-  ListModelProvidersInput,
-  ModelProviderListResult,
-  ModelProviderRecord,
-  ModelProviderSeed,
-  UpsertModelProviderInput,
-} from "./contracts/model-provider.contract";
 import { ModelProviderService } from "./model-provider.service";
-import type { ModelProviderRepositoryPort } from "./ports/model-provider-repository.port";
+import type {
+  ModelProviderRepositoryPort,
+  ModelProviderStoreSnapshot,
+  MutableModelProviderStoreSnapshot,
+} from "./ports/model-provider-repository.port";
 
-class ModelProviderRepositoryStub implements ModelProviderRepositoryPort {
-  readonly calls: string[] = [];
-  upsertInput: UpsertModelProviderInput | null = null;
-  defaults: ModelProviderSeed[] = [];
-  record: ModelProviderRecord = {
-    id: "provider-1",
-    userId: "user-1",
-    name: "Provider",
-    endpoints: { anthropic: "", openai: "https://example.com/v1", gemini: "" },
-    models: ["model-a"],
-    modelSupportedFormats: { "model-a": ["openai"] },
-    providerMappings: {},
-    source: "custom",
-    enabled: true,
-    createdAt: 1,
-    updatedAt: 1,
+class MemoryModelProviderRepository implements ModelProviderRepositoryPort {
+  readonly snapshot: MutableModelProviderStoreSnapshot = {
+    seededUserIds: [],
+    providers: [],
   };
 
-  list(
-    _userId: string,
-    _input?: ListModelProvidersInput
-  ): Promise<ModelProviderListResult> {
-    this.calls.push("list");
-    return Promise.resolve({ providers: [this.record], totalCount: 1 });
+  async read<T>(
+    reader: (snapshot: ModelProviderStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await reader(cloneSnapshot(this.snapshot));
   }
 
-  get(
-    _userId: string,
-    _input: GetModelProviderInput
-  ): Promise<ModelProviderRecord | null> {
-    this.calls.push("get");
-    return Promise.resolve(this.record);
-  }
-
-  upsert(
-    _userId: string,
-    input: UpsertModelProviderInput
-  ): Promise<ModelProviderRecord> {
-    this.calls.push("upsert");
-    this.upsertInput = input;
-    return Promise.resolve(this.record);
-  }
-
-  delete(
-    _userId: string,
-    _input: DeleteModelProviderInput
-  ): Promise<DeleteModelProviderResult> {
-    this.calls.push("delete");
-    return Promise.resolve({ deleted: true });
-  }
-
-  ensureDefaults(
-    _userId: string,
-    defaults: ModelProviderSeed[]
-  ): Promise<void> {
-    this.calls.push("ensureDefaults");
-    this.defaults = defaults;
-    return Promise.resolve();
-  }
-
-  restoreDefaults(
-    _userId: string,
-    defaults: ModelProviderSeed[]
-  ): Promise<ModelProviderListResult> {
-    this.calls.push("restoreDefaults");
-    this.defaults = defaults;
-    return Promise.resolve({ providers: [this.record], totalCount: 1 });
+  async mutate<T>(
+    mutator: (snapshot: MutableModelProviderStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await mutator(this.snapshot);
   }
 }
 
 describe("ModelProviderService", () => {
-  test("seeds default providers before list and get", async () => {
-    const repository = new ModelProviderRepositoryStub();
-    const service = new ModelProviderService(repository);
+  test("seeds default providers once and restores missing defaults on request", async () => {
+    const repository = new MemoryModelProviderRepository();
+    const service = new ModelProviderService(repository, {
+      nowMs: () => 100,
+    });
 
-    await service.list("user-1");
-    await service.get("user-1", { id: "provider-1" });
+    const seeded = await service.list("user-1", { includeDisabled: true });
+    const deletedProvider = seeded.providers[0];
+    if (!deletedProvider) {
+      throw new Error("Expected default model providers to be seeded");
+    }
 
-    expect(repository.calls).toEqual([
-      "ensureDefaults",
-      "list",
-      "ensureDefaults",
-      "get",
-    ]);
-    expect(repository.defaults.length).toBeGreaterThanOrEqual(10);
+    await service.delete("user-1", { id: deletedProvider.id });
+    const afterDelete = await service.list("user-1", {
+      includeDisabled: true,
+    });
+    const restored = await service.restoreDefaults("user-1");
+
+    expect(repository.snapshot.seededUserIds).toEqual(["user-1"]);
+    expect(seeded.totalCount).toBeGreaterThanOrEqual(10);
+    expect(afterDelete.totalCount).toBe(seeded.totalCount - 1);
+    expect(restored.totalCount).toBe(seeded.totalCount);
+    expect(
+      restored.providers.some((item) => item.id === deletedProvider.id)
+    ).toBe(true);
   });
 
-  test("normalizes endpoints, models, mappings, and format support", async () => {
-    const repository = new ModelProviderRepositoryStub();
-    const service = new ModelProviderService(repository);
+  test("normalizes provider records and lists only enabled providers by default", async () => {
+    const repository = new MemoryModelProviderRepository();
+    let now = 100;
+    const service = new ModelProviderService(repository, {
+      createId: () => "provider-custom",
+      nowMs: () => now,
+    });
 
-    await service.upsert("user-1", {
+    const created = await service.upsert("user-1", {
       name: "  OpenRouter  ",
       endpoints: {
         anthropic: " https://example.com/anthropic ",
@@ -126,8 +84,25 @@ describe("ModelProviderService", () => {
       },
       enabled: false,
     });
+    now = 200;
+    const updated = await service.upsert("user-1", {
+      id: created.id,
+      name: "OpenRouter prod",
+      endpoints: created.endpoints,
+      models: ["model-b"],
+      modelSupportedFormats: { "model-b": ["openai"] },
+      providerMappings: {},
+      enabled: false,
+    });
 
-    expect(repository.upsertInput).toEqual({
+    const enabledOnly = await service.list("user-1");
+    const allProviders = await service.list("user-1", {
+      includeDisabled: true,
+    });
+
+    expect(created).toEqual({
+      id: "provider-custom",
+      userId: "user-1",
       name: "OpenRouter",
       endpoints: {
         anthropic: "https://example.com/anthropic",
@@ -148,7 +123,71 @@ describe("ModelProviderService", () => {
           reasoning: "model-b",
         },
       },
+      source: "custom",
       enabled: false,
+      createdAt: 100,
+      updatedAt: 100,
     });
+    expect(updated.createdAt).toBe(100);
+    expect(updated.updatedAt).toBe(200);
+    expect(updated.name).toBe("OpenRouter prod");
+    expect(enabledOnly.providers.some((item) => item.id === created.id)).toBe(
+      false
+    );
+    expect(allProviders.providers.some((item) => item.id === created.id)).toBe(
+      true
+    );
+  });
+
+  test("scopes provider access to the owning user", async () => {
+    const repository = new MemoryModelProviderRepository();
+    const service = new ModelProviderService(repository, {
+      createId: () => "provider-custom",
+      nowMs: () => 100,
+    });
+
+    const provider = await service.upsert("user-1", {
+      name: "OpenAI",
+      endpoints: {
+        anthropic: "",
+        openai: "https://api.openai.com/v1",
+        gemini: "",
+      },
+      models: ["gpt-5"],
+    });
+
+    await expect(service.get("user-2", { id: provider.id })).rejects.toThrow(
+      "Model provider not found"
+    );
+    await expect(service.delete("user-2", { id: provider.id })).rejects.toThrow(
+      "Model provider not found"
+    );
+    await expect(
+      service.delete("user-1", { id: provider.id })
+    ).resolves.toEqual({ deleted: true });
   });
 });
+
+function cloneSnapshot(
+  snapshot: MutableModelProviderStoreSnapshot
+): ModelProviderStoreSnapshot {
+  return {
+    seededUserIds: [...snapshot.seededUserIds],
+    providers: snapshot.providers.map((provider) => ({
+      ...provider,
+      endpoints: { ...provider.endpoints },
+      models: [...provider.models],
+      modelSupportedFormats: Object.fromEntries(
+        Object.entries(provider.modelSupportedFormats).map(
+          ([model, formats]) => [model, [...formats]]
+        )
+      ),
+      providerMappings: Object.fromEntries(
+        Object.entries(provider.providerMappings).map(([family, mapping]) => [
+          family,
+          { ...mapping },
+        ])
+      ),
+    })),
+  };
+}

@@ -1,3 +1,8 @@
+export {
+  type AgentIdentity,
+  type AgentLifecycleNotifier,
+  createEventBusAgentLifecycleNotifier,
+} from "./application/agent-lifecycle.notifier";
 export type {
   CreateAgentInput,
   DeleteAgentInput,

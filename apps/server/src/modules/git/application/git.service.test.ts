@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { ProjectRepositoryPort } from "@/modules/project";
+import {
+  type ProjectRepositoryPort,
+  ResolveActiveProjectService,
+} from "@/modules/project";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type {
   Project,
@@ -45,6 +48,13 @@ class ProjectRepoStub implements ProjectRepositoryPort {
     return Promise.resolve(this.activeId);
   }
 
+  listWithActiveState(userId: string) {
+    return Promise.resolve({
+      projects: this.projects.filter((project) => project.userId === userId),
+      activeProjectId: this.activeId,
+    });
+  }
+
   create(_input: ProjectInput): Promise<Project> {
     throw new Error("not implemented");
   }
@@ -55,6 +65,10 @@ class ProjectRepoStub implements ProjectRepositoryPort {
 
   delete(_id: string, _userId: string): Promise<void> {
     return Promise.resolve();
+  }
+
+  deleteAndClearActive(): Promise<{ activeProjectId: string | null }> {
+    return Promise.resolve({ activeProjectId: null });
   }
 
   setActive(_id: string | null, _userId: string): Promise<void> {
@@ -100,6 +114,10 @@ function createProject(overrides: Partial<Project> = {}): Project {
   };
 }
 
+function createActiveProjectResolver(projectRepo: ProjectRepositoryPort) {
+  return new ResolveActiveProjectService(projectRepo);
+}
+
 describe("GitService", () => {
   test("returns repository summary for active project", async () => {
     const project = createProject();
@@ -119,9 +137,14 @@ describe("GitService", () => {
         },
       ],
     });
+    const projectRepo = new ProjectRepoStub({
+      projects: [project],
+      activeId: project.id,
+    });
     const service = new GitService(
       git,
-      new ProjectRepoStub({ projects: [project], activeId: project.id }),
+      projectRepo,
+      createActiveProjectResolver(projectRepo),
       createClock()
     );
 
@@ -141,6 +164,7 @@ describe("GitService", () => {
   });
 
   test("rejects missing active project", async () => {
+    const projectRepo = new ProjectRepoStub({ projects: [], activeId: null });
     const service = new GitService(
       new GitRepoStub({
         isRepository: false,
@@ -148,7 +172,8 @@ describe("GitService", () => {
         behind: 0,
         changedFiles: [],
       }),
-      new ProjectRepoStub({ projects: [], activeId: null }),
+      projectRepo,
+      createActiveProjectResolver(projectRepo),
       createClock()
     );
 

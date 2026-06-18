@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type {
   AgentConfig,
   AgentInput,
   AgentUpdateInput,
 } from "@/shared/types/agent.types";
+import type {
+  AgentIdentity,
+  AgentLifecycleNotifier,
+} from "./agent-lifecycle.notifier";
 import { DeleteAgentService } from "./delete-agent.service";
 import type { AgentRepositoryPort } from "./ports/agent-repository.port";
 
@@ -41,7 +44,18 @@ class AgentRepoStub implements AgentRepositoryPort {
     return this.findAll(userId);
   }
 
+  listByProjectWithActiveState(): Promise<{
+    agents: AgentConfig[];
+    activeAgentId: string | null;
+  }> {
+    return Promise.reject(new Error("Not implemented"));
+  }
+
   create(_input: AgentInput): Promise<AgentConfig> {
+    return Promise.reject(new Error("Not implemented"));
+  }
+
+  createAndEnsureActive(_input: AgentInput): Promise<AgentConfig> {
     return Promise.reject(new Error("Not implemented"));
   }
 
@@ -54,6 +68,18 @@ class AgentRepoStub implements AgentRepositoryPort {
       (agent) => !(agent.id === id && agent.userId === userId)
     );
     return Promise.resolve();
+  }
+
+  async deleteAndRepairActive(
+    id: string,
+    userId: string
+  ): Promise<{ activeAgentId: string | null }> {
+    const currentActiveId = this.activeId;
+    await this.delete(id, userId);
+    if (currentActiveId === id) {
+      await this.setActive(this.agents[0]?.id ?? null, userId);
+    }
+    return { activeAgentId: this.activeId };
   }
 
   setActive(id: string | null, userId: string): Promise<void> {
@@ -70,11 +96,21 @@ class AgentRepoStub implements AgentRepositoryPort {
   }
 }
 
-function createEventBusStub(): EventBusPort {
+function createAgentLifecycleNotifierStub(calls: unknown[] = []) {
   return {
-    subscribe: () => () => undefined,
-    publish: async () => undefined,
-  };
+    agentCreated(input: AgentIdentity) {
+      calls.push(["created", input]);
+      return Promise.resolve();
+    },
+    agentUpdated(input: AgentIdentity) {
+      calls.push(["updated", input]);
+      return Promise.resolve();
+    },
+    agentDeleted(input: AgentIdentity) {
+      calls.push(["deleted", input]);
+      return Promise.resolve();
+    },
+  } satisfies AgentLifecycleNotifier;
 }
 
 describe("DeleteAgentService", () => {
@@ -103,10 +139,23 @@ describe("DeleteAgentService", () => {
       ],
       "agent-1"
     );
-    const service = new DeleteAgentService(repo, createEventBusStub());
+    const lifecycleCalls: unknown[] = [];
+    const service = new DeleteAgentService(
+      repo,
+      createAgentLifecycleNotifierStub(lifecycleCalls)
+    );
 
     await service.execute("user-1", "agent-1");
 
     expect(repo.setActiveCalls).toEqual([{ id: "agent-2", userId: "user-1" }]);
+    expect(lifecycleCalls).toEqual([
+      [
+        "deleted",
+        {
+          userId: "user-1",
+          agentId: "agent-1",
+        },
+      ],
+    ]);
   });
 });

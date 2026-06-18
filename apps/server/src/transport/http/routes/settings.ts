@@ -15,11 +15,13 @@
  */
 
 import type { Context, Hono } from "hono";
-import { isAppError } from "../../../shared/errors";
-import type { Settings } from "../../../shared/types/settings.types";
-import { parseUiSettingsForm } from "../../../shared/utils/ui-settings.util";
 import type { HttpRouteDependencies } from "./deps";
-import { isJsonBodyParseError, parseJsonBodyWithLimit } from "./helpers";
+import { parseJsonBodyWithLimit } from "./helpers";
+import { respondToRouteError } from "./route-errors";
+import {
+  readUiSettingsRouteInput,
+  type UiSettingsFormData,
+} from "./settings-route-input";
 
 /**
  * Registers settings-related HTTP routes
@@ -49,28 +51,19 @@ export function registerSettingsRoutes(
   const handleApiUpdate = async (c: Context) => {
     try {
       const updateSettings = useCases.settings.update;
-      const contentType = c.req.header("content-type") ?? "";
-      let result:
-        | Awaited<ReturnType<typeof updateSettings.execute>>
-        | undefined;
 
-      if (contentType.includes("application/json")) {
-        const patch = await parseJsonBodyWithLimit<Partial<Settings>>(
-          c.req.raw,
-          runtime.httpMaxBodyBytes
-        );
-        result = await updateSettings.execute(patch);
-      } else {
-        const body = await c.req.parseBody();
-        const getSettings = useCases.settings.get;
-        const currentSettings = await getSettings.execute();
-        const formData = body as Record<string, string | File | undefined>;
-        const { ui, projectRoots, app } = parseUiSettingsForm(
-          formData,
-          currentSettings
-        );
-        result = await updateSettings.execute({ ui, projectRoots, app });
+      const parsedInput = await readUiSettingsRouteInput({
+        contentType: c.req.header("content-type"),
+        readJson: () =>
+          parseJsonBodyWithLimit<unknown>(c.req.raw, runtime.httpMaxBodyBytes),
+        readForm: async () => (await c.req.parseBody()) as UiSettingsFormData,
+        getCurrentSettings: () => useCases.settings.get.execute(),
+      });
+      if (!parsedInput.ok) {
+        return c.json({ error: parsedInput.error }, 400);
       }
+
+      const result = await updateSettings.execute(parsedInput.input);
 
       return c.json({
         ...result.settings,
@@ -78,22 +71,13 @@ export function registerSettingsRoutes(
         requiresRestart: result.requiresRestart,
       });
     } catch (error) {
-      if (isAppError(error)) {
-        return c.json({ error: error.message }, error.statusCode as 400 | 404);
-      }
-      if (isJsonBodyParseError(error)) {
-        return c.json({ error: error.message }, error.statusCode);
-      }
-      if (error instanceof Error) {
-        logger.error("Failed to parse settings update payload", {
-          error: error.message,
-        });
-        return c.json({ error: error.message }, 400);
-      }
-      logger.error("Failed to parse settings update payload", {
-        error: String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to parse settings update payload",
+        fallbackMessage: "Failed to parse settings",
+        fallbackStatus: 400,
+        exposeUnexpectedErrorMessage: true,
       });
-      return c.json({ error: "Failed to parse settings" }, 400);
     }
   };
 
@@ -122,22 +106,13 @@ export function registerSettingsRoutes(
       const snapshot = await service.update(payload);
       return c.json(snapshot);
     } catch (error) {
-      if (isAppError(error)) {
-        return c.json({ error: error.message }, error.statusCode as 400 | 404);
-      }
-      if (isJsonBodyParseError(error)) {
-        return c.json({ error: error.message }, error.statusCode);
-      }
-      if (error instanceof Error) {
-        logger.error("Failed to update boot allowlist payload", {
-          error: error.message,
-        });
-        return c.json({ error: error.message }, 400);
-      }
-      logger.error("Failed to update boot allowlist payload", {
-        error: String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to update boot allowlist payload",
+        fallbackMessage: "Failed to update boot allowlists",
+        fallbackStatus: 400,
+        exposeUnexpectedErrorMessage: true,
       });
-      return c.json({ error: "Failed to update boot allowlists" }, 400);
     }
   };
 

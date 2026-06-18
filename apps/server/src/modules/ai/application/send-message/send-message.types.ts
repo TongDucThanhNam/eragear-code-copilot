@@ -1,4 +1,7 @@
 import type { Annotations } from "@/shared/types/annotation.types";
+import type { PromptTurnCompleteEvent } from "./prompt-task-runner";
+
+export type PromptSource = "client" | "supervisor" | "automation";
 
 export interface SendMessagePolicy {
   messageContentMaxBytes: number;
@@ -32,7 +35,7 @@ export interface SendMessageExecuteInput {
   userId: string;
   chatId: string;
   text: string;
-  source?: "client" | "supervisor" | "automation";
+  source?: PromptSource;
   textAnnotations?: Annotations;
   images?: {
     base64: string;
@@ -76,4 +79,42 @@ export interface SendMessageResult {
   userMessageId: string;
   submittedAt: number;
   turnId: string;
+}
+
+export interface PromptLifecycleMessageSent {
+  userId: string;
+  chatId: string;
+  projectRoot: string;
+  projectId?: string;
+  agentSessionId?: string;
+  turnId: string;
+  source: PromptSource;
+}
+
+export interface PromptLifecycleSubagentInvocationRequested {
+  userId: string;
+  chatId: string;
+  projectRoot: string;
+  projectId?: string;
+  agentSessionId?: string;
+  turnId: string;
+  subagent: {
+    name: string;
+    description?: string;
+    sourcePath: string;
+  };
+}
+
+export interface PromptLifecycleEvents {
+  afterMessageSend(input: PromptLifecycleMessageSent): Promise<void>;
+  requestSubagentInvocation(
+    input: PromptLifecycleSubagentInvocationRequested
+  ): Promise<void>;
+  afterTurnComplete(input: PromptTurnCompleteEvent): Promise<void>;
+}
+
+export function normalizePromptSource(
+  source: PromptSource | undefined
+): PromptSource {
+  return source === "supervisor" || source === "automation" ? source : "client";
 }

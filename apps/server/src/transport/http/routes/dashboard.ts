@@ -24,14 +24,18 @@ import {
 } from "@/presentation/dashboard/server/dashboard-assets";
 import { DashboardPage } from "@/presentation/dashboard/server/dashboard-page";
 import { renderDocument } from "@/presentation/dashboard/server/render-document";
-import { normalizeTab } from "@/presentation/dashboard/utils";
+import { DASHBOARD_ASSET_PATH, DASHBOARD_UI_PATH } from "../constants";
 import {
-  DASHBOARD_ASSET_PATH,
-  DASHBOARD_ASSET_PATH_PREFIX,
-  DASHBOARD_UI_PATH,
-} from "../constants";
+  normalizeApiKeyItem,
+  normalizeDeviceSessionItem,
+} from "./auth-management-data";
+import {
+  createDashboardAssetRouteHeaders,
+  parseDashboardAssetRouteRequest,
+} from "./dashboard-asset-route-input";
+import { parseDashboardPageRouteState } from "./dashboard-page-route-input";
+import { createDashboardLegacyRedirectLocation } from "./dashboard-redirect-route-input";
 import type { HttpRouteDependencies } from "./deps";
-import { normalizeApiKeyItem, normalizeDeviceSessionItem } from "./helpers";
 
 /**
  * Registers dashboard-related UI routes
@@ -44,38 +48,30 @@ export function registerDashboardUiRoutes(
   >
 ): void {
   const { useCases, logger, auth, authState, runtime } = deps;
-  // Static assets (long-term cache)
-  const assetCacheControl = runtime.isDev
-    ? "no-cache"
-    : "public, max-age=31536000, immutable";
 
   app.get(`${DASHBOARD_ASSET_PATH}/*`, (c) => {
-    const assetName = parseDashboardAssetName(c.req.path);
-    if (!assetName) {
-      return c.json({ error: "Not found" }, 404);
+    const parsedAsset = parseDashboardAssetRouteRequest(c.req.path);
+    if (!parsedAsset.ok) {
+      return c.json({ error: parsedAsset.error }, 404);
     }
+    const { assetName } = parsedAsset.input;
     const asset = getDashboardAsset(assetName);
     if (!asset) {
       return c.json({ error: "Not found" }, 404);
     }
     return new Response(bunFile(asset.path), {
-      headers: {
-        "Cache-Control": assetCacheControl,
-        "Content-Type": asset.contentType,
-        ETag: `"dashboard-${assetName}-${getDashboardAssetVersion()}"`,
-      },
+      headers: createDashboardAssetRouteHeaders({
+        assetName,
+        assetVersion: getDashboardAssetVersion(),
+        contentType: asset.contentType,
+        isDev: runtime.isDev,
+      }),
     });
   });
 
   // Legacy redirects
   const redirectWithQuery = (c: Context) => {
-    const requestUrl = c.req.raw.url ?? "";
-    const queryIndex = requestUrl.indexOf("?");
-    const query =
-      queryIndex === -1 ? "" : requestUrl.slice(queryIndex + 1).trim();
-    return c.redirect(
-      query ? `${DASHBOARD_UI_PATH}?${query}` : DASHBOARD_UI_PATH
-    );
+    return c.redirect(createDashboardLegacyRedirectLocation(c.req.raw.url));
   };
   app.get("/", redirectWithQuery);
   app.get("/dashboard", redirectWithQuery);
@@ -144,47 +140,24 @@ export function registerDashboardUiRoutes(
       deviceSessions: normalizedDeviceSessions,
     };
 
-    const { tab, success, error, notice, restart } = c.req.query();
-    const normalizedTab = normalizeTab(tab);
-    const requiresRestart = restart
-      ? restart
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
-      : undefined;
+    const pageState = parseDashboardPageRouteState(c.req.query());
 
     return renderDocument(
       c,
       createElement(DashboardPage, {
         settings,
         dashboardData,
-        activeTab: normalizedTab,
-        success: success === "1",
-        notice: notice || undefined,
-        errors: error ? { general: error } : undefined,
-        requiresRestart,
+        activeTab: pageState.activeTab,
+        success: pageState.success,
+        notice: pageState.notice,
+        errors: pageState.errors,
+        requiresRestart: pageState.requiresRestart,
       }),
       {
         title: `${APP_SERVER_TITLE} Dashboard`,
         bodyClassName: "bg-paper font-body text-ink antialiased",
-        bodyAttributes: { "data-active-tab": normalizedTab },
+        bodyAttributes: { "data-active-tab": pageState.activeTab },
       }
     );
   });
-}
-
-function parseDashboardAssetName(path: string): string | null {
-  const rawName = path.replace(DASHBOARD_ASSET_PATH_PREFIX, "");
-  if (!rawName || rawName.includes("/") || rawName.includes("\\")) {
-    return null;
-  }
-  try {
-    const decoded = decodeURIComponent(rawName);
-    if (!decoded || decoded.includes("/") || decoded.includes("\\")) {
-      return null;
-    }
-    return decoded;
-  } catch {
-    return null;
-  }
 }

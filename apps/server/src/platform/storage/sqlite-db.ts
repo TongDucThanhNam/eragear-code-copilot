@@ -8,6 +8,8 @@ import {
   sessionEventOutbox,
   sessionMessages,
   sessions,
+  usageStatsRecords,
+  usageTelemetrySettings,
   userSettings,
 } from "./sqlite-schema";
 import {
@@ -26,6 +28,8 @@ const sqliteSchema = {
   sessions,
   sessionMessages,
   sessionEventOutbox,
+  usageStatsRecords,
+  usageTelemetrySettings,
 };
 
 type SqliteOrmDb = BunSQLiteDatabase<typeof sqliteSchema>;

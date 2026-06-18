@@ -3,9 +3,21 @@ import type {
   CrashReportingConfig,
 } from "../contracts/crash-reporting.contract";
 
+export interface CrashReportingStoreSnapshot {
+  config: CrashReportingConfig | null;
+  reports: readonly CrashReport[];
+}
+
+export interface MutableCrashReportingStoreSnapshot {
+  config: CrashReportingConfig | null;
+  reports: CrashReport[];
+}
+
 export interface CrashReportingRepositoryPort {
-  getConfig(): Promise<CrashReportingConfig | null>;
-  saveConfig(config: CrashReportingConfig): Promise<CrashReportingConfig>;
-  listReports(userId: string): Promise<CrashReport[]>;
-  saveReport(report: CrashReport, archiveLimit: number): Promise<CrashReport>;
+  read<T>(
+    reader: (snapshot: CrashReportingStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
+  mutate<T>(
+    mutator: (snapshot: MutableCrashReportingStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
 }

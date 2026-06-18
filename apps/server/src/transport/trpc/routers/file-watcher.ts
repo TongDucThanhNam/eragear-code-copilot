@@ -1,23 +1,17 @@
-import { z } from "zod";
 import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
-
-const FileWatcherStatusInputSchema = z
-  .object({
-    currentUserOnly: z.boolean().optional(),
-  })
-  .strict()
-  .optional();
+import {
+  createFileWatcherStatusInput,
+  FileWatcherStatusRequestSchema,
+} from "./file-watcher-router-data";
 
 export const fileWatcherRouter = router({
   status: protectedProcedure
-    .input(FileWatcherStatusInputSchema)
+    .input(FileWatcherStatusRequestSchema)
     .query(({ input, ctx }) => {
       const service = ctx.useCases.fileWatcher.fileWatcher;
-      return service.status(
-        input?.currentUserOnly === false
-          ? undefined
-          : { userId: getRequiredUserId(ctx) }
+      return service.getStatus(
+        createFileWatcherStatusInput(input, getRequiredUserId(ctx))
       );
     }),
 });

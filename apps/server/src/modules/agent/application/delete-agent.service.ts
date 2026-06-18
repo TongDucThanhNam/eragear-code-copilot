@@ -1,5 +1,5 @@
 import { NotFoundError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
+import type { AgentLifecycleNotifier } from "./agent-lifecycle.notifier";
 import type { AgentRepositoryPort } from "./ports/agent-repository.port";
 
 const OP = "agent.config.delete";
@@ -7,16 +7,19 @@ const OP = "agent.config.delete";
 /**
  * Deletes one user-owned agent configuration.
  *
- * Invariant: deleting the active agent reassigns active state to the first
- * remaining agent or `null`, preventing dangling active-agent references.
+ * Invariant: delete repairs active state to the first remaining agent or
+ * `null`, preventing missing/dangling active-agent references.
  */
 export class DeleteAgentService {
   private readonly agentRepo: AgentRepositoryPort;
-  private readonly eventBus: EventBusPort;
+  private readonly agentLifecycleNotifier: AgentLifecycleNotifier;
 
-  constructor(agentRepo: AgentRepositoryPort, eventBus: EventBusPort) {
+  constructor(
+    agentRepo: AgentRepositoryPort,
+    agentLifecycleNotifier: AgentLifecycleNotifier
+  ) {
     this.agentRepo = agentRepo;
-    this.eventBus = eventBus;
+    this.agentLifecycleNotifier = agentLifecycleNotifier;
   }
 
   async execute(userId: string, id: string) {
@@ -28,15 +31,8 @@ export class DeleteAgentService {
         details: { id },
       });
     }
-    const activeAgentId = await this.agentRepo.getActiveId(userId);
-    await this.agentRepo.delete(id, userId);
-    if (activeAgentId === id) {
-      const remainingAgents = await this.agentRepo.findAll(userId);
-      await this.agentRepo.setActive(remainingAgents[0]?.id ?? null, userId);
-    }
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "agent_deleted",
+    await this.agentRepo.deleteAndRepairActive(id, userId);
+    await this.agentLifecycleNotifier.agentDeleted({
       userId,
       agentId: id,
     });

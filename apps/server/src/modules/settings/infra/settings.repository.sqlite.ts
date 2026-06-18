@@ -135,7 +135,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
       .run();
   }
 
-  private async saveSettings(settings: Settings): Promise<void> {
+  private async writeSettings(settings: Settings): Promise<void> {
     await enqueueSqliteWrite("settings.save", async () => {
       const db = await getSqliteOrm();
       this.upsertSetting(db, SQLITE_SETTING_KEYS.uiSettings, settings.ui);
@@ -193,7 +193,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
         mcpServers: parsed.mcpServers ?? [],
         app: parsed.app,
       };
-      await this.saveSettings(normalized);
+      await this.writeSettings(normalized);
       return normalized;
     } catch {
       const partial = raw as Partial<Settings>;
@@ -220,26 +220,13 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
           : (DEFAULT_SETTINGS.mcpServers ?? []),
         app: normalizeAppConfig(partial.app, appFallback),
       };
-      await this.saveSettings(normalized);
+      await this.writeSettings(normalized);
       return normalized;
     }
   }
 
-  async update(patch: Partial<Settings>): Promise<Settings> {
-    const current = await this.get();
-    const merged: Settings = {
-      ...current,
-      ...patch,
-      ui: { ...current.ui, ...(patch.ui ?? {}) },
-      mcpServers:
-        patch.mcpServers !== undefined ? patch.mcpServers : current.mcpServers,
-      projectRoots:
-        patch.projectRoots !== undefined
-          ? patch.projectRoots
-          : current.projectRoots,
-      app: { ...current.app, ...(patch.app ?? {}) },
-    };
-    const parsed = SettingsSchema.parse(merged);
+  async save(settings: Settings): Promise<Settings> {
+    const parsed = SettingsSchema.parse(settings);
     const normalizedProjectRoots = normalizeProjectRootsForSettings(
       parsed.projectRoots
     );
@@ -249,7 +236,7 @@ export class SettingsSqliteRepository implements SettingsRepositoryPort {
       mcpServers: parsed.mcpServers ?? [],
       app: parsed.app,
     };
-    await this.saveSettings(normalized);
+    await this.writeSettings(normalized);
     return normalized;
   }
 }

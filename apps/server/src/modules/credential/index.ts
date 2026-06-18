@@ -22,4 +22,5 @@ export { CredentialService } from "./application/credential.service";
 export type {
   CredentialStorePort,
   ResolvedCredentialSecret,
+  StoredCredential,
 } from "./application/ports/credential-store.port";

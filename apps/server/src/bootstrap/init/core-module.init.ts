@@ -1,4 +1,8 @@
-import type { SessionAcpPort, SessionEventOutboxPort } from "@/modules/session";
+import {
+  createEventBusSessionBroadcastNotifier,
+  type SessionAcpPort,
+  type SessionEventOutboxPort,
+} from "@/modules/session";
 import {
   createSessionEventOutbox,
   createSessionRuntimeStore,
@@ -32,7 +36,9 @@ export interface CoreModule {
 export function initializeCoreModule(policy: CoreModuleInitPolicy): CoreModule {
   const appLogger = createAppLogger("Server");
   const eventBus = new EventBus(appLogger);
-  const sessionEventOutbox = createSessionEventOutbox();
+  const sessionEventOutbox = createSessionEventOutbox({
+    broadcastNotifier: createEventBusSessionBroadcastNotifier(eventBus),
+  });
   const sessionRuntime = createSessionRuntimeStore({
     outbox: sessionEventOutbox,
     policy: {

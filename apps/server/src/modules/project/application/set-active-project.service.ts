@@ -1,20 +1,23 @@
 import { NotFoundError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { ProjectRepositoryPort } from "./ports/project-repository.port";
+import type { ProjectLifecycleNotifier } from "./project-lifecycle.notifier";
 
 /**
  * Sets or clears the active project for a user.
  *
  * Error mode: repository "Project not found" errors are mapped to
- * `NotFoundError`; successful changes publish a dashboard refresh event.
+ * `NotFoundError`; successful changes report an active-project notification.
  */
 export class SetActiveProjectService {
   private readonly projectRepo: ProjectRepositoryPort;
-  private readonly eventBus: EventBusPort;
+  private readonly projectLifecycleNotifier: ProjectLifecycleNotifier;
 
-  constructor(projectRepo: ProjectRepositoryPort, eventBus: EventBusPort) {
+  constructor(
+    projectRepo: ProjectRepositoryPort,
+    projectLifecycleNotifier: ProjectLifecycleNotifier
+  ) {
     this.projectRepo = projectRepo;
-    this.eventBus = eventBus;
+    this.projectLifecycleNotifier = projectLifecycleNotifier;
   }
 
   async execute(userId: string, id: string | null) {
@@ -30,9 +33,7 @@ export class SetActiveProjectService {
       }
       throw error;
     }
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "project_set_active",
+    await this.projectLifecycleNotifier.projectSetActive({
       userId,
       projectId: id ?? undefined,
     });

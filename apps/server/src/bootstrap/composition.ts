@@ -1,39 +1,26 @@
 import { ENV } from "@/config/environment";
-import { initializeBotAutomationEvents } from "@/modules/bots/init/bot-automation-events.init";
-import { initializeFileWatcherEvents } from "@/modules/file-watcher/init/file-watcher-events.init";
-import { initializeGitEvents } from "@/modules/git/init/git-events.init";
-import { initializeProjectEvents } from "@/modules/project/init/project-events.init";
 import type {
   SessionEventOutboxPort,
   SessionRepositoryPort,
   SessionRuntimePort,
 } from "@/modules/session";
-import { initializeSubagentEvents } from "@/modules/session/init/subagent-events.init";
-import {
+import type {
   AppConfigService,
-  type SettingsRepositoryPort,
+  SettingsRepositoryPort,
 } from "@/modules/settings";
 import { SettingsSqliteRepository } from "@/modules/settings/di";
-import { initializeUsageStatsEvents } from "@/modules/usage-stats/init/usage-stats-events.init";
 import type { AppUseCases } from "@/modules/use-cases";
 import type { AuthRuntime } from "@/platform/auth/auth";
 import { setRuntimeLogLevel } from "@/platform/logging/runtime-log-level";
-import { closeSqliteStorage } from "@/platform/storage/sqlite-db";
-import {
-  initializeSqliteWorker,
-  updateSqliteWorkerRuntimeConfig,
-} from "@/platform/storage/sqlite-worker-client";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
 import { normalizeProjectRootsForSettings } from "@/shared/utils/project-roots.util";
-import { initializeAuthModule } from "./init/auth-module.init";
+import { initializeAuthOwner } from "./init/auth-owner.init";
 import { initializeCoreModule } from "./init/core-module.init";
-import {
-  initializePersistenceModule,
-  initializeSettingsRepository,
-} from "./init/persistence-module.init";
+import { initializeModuleEventSubscriptions } from "./init/module-event-subscriptions.init";
+import { initializePersistenceOwner } from "./init/persistence-owner.init";
 import {
   type AppRuntimeConfig,
   resolveAppRuntimeConfig,
@@ -42,7 +29,6 @@ import {
   type ResolveAuthContext as InitResolveAuthContext,
   initializeServiceModule,
 } from "./init/service-module.init";
-import { createSqliteWorkerRuntimeConfigSync } from "./init/sqlite-worker-runtime-config-sync.init";
 import type { ServerLifecycle } from "./lifecycle";
 import type { ServerRuntimePolicy } from "./server-runtime-policy";
 
@@ -86,7 +72,8 @@ async function createAppCompositionWithRuntimeConfig(
   const normalizedRoots = normalizeAllowedRoots(allowedRoots);
   setRuntimeLogLevel(ENV.logLevel);
 
-  const { authRuntime } = initializeAuthModule(runtimeConfig.authPolicy);
+  const authOwner = initializeAuthOwner(runtimeConfig.authPolicy);
+  const { authRuntime } = authOwner;
   const core = initializeCoreModule({
     sessionBufferLimit: runtimeConfig.sessionBufferLimit,
     sessionLockAcquireTimeoutMs: runtimeConfig.sessionLockAcquireTimeoutMs,
@@ -94,40 +81,13 @@ async function createAppCompositionWithRuntimeConfig(
       runtimeConfig.sessionEventBusPublishMaxQueuePerChat,
   });
 
-  if (runtimeConfig.sqliteWorkerEnabled) {
-    await initializeSqliteWorker(normalizedRoots);
-  }
-
-  const settingsRepo =
-    settingsRepoOverride ??
-    initializeSettingsRepository(runtimeConfig.sqliteWorkerEnabled);
-  const appConfigService = await AppConfigService.create(settingsRepo);
-  setRuntimeLogLevel(appConfigService.getConfig().logLevel);
-
-  const persistence = initializePersistenceModule({
+  const persistenceOwner = await initializePersistenceOwner({
+    normalizedRoots,
     sqliteWorkerEnabled: runtimeConfig.sqliteWorkerEnabled,
-    appConfigService,
-    settingsRepoOverride: settingsRepo,
+    logger: core.appLogger,
+    settingsRepoOverride,
   });
-
-  const unsubscribeCallbacks: Array<() => void> = [];
-  const sqliteWorkerRuntimeConfigSync = createSqliteWorkerRuntimeConfigSync(
-    core.appLogger
-  );
-
-  if (runtimeConfig.sqliteWorkerEnabled) {
-    await updateSqliteWorkerRuntimeConfig(appConfigService.getConfig());
-    const unsubscribe = appConfigService.subscribe((nextConfig) => {
-      setRuntimeLogLevel(nextConfig.logLevel);
-      sqliteWorkerRuntimeConfigSync.enqueue(nextConfig);
-    });
-    unsubscribeCallbacks.push(unsubscribe);
-  } else {
-    const unsubscribe = appConfigService.subscribe((nextConfig) => {
-      setRuntimeLogLevel(nextConfig.logLevel);
-    });
-    unsubscribeCallbacks.push(unsubscribe);
-  }
+  const { appConfigService, persistence } = persistenceOwner;
 
   const serviceModule = initializeServiceModule({
     core,
@@ -155,48 +115,12 @@ async function createAppCompositionWithRuntimeConfig(
     getBackgroundRunnerState: serviceModule.getBackgroundRunnerState,
   };
 
-  unsubscribeCallbacks.push(
-    initializeProjectEvents({
-      eventBus: deps.eventBus,
-      sessionUseCases: deps.useCases.session,
-    })
-  );
-  unsubscribeCallbacks.push(
-    initializeGitEvents({
-      eventBus: deps.eventBus,
-      gitUseCases: deps.useCases.git,
-      logger: deps.appLogger,
-    })
-  );
-  unsubscribeCallbacks.push(
-    initializeSubagentEvents({
-      eventBus: deps.eventBus,
-      sessionUseCases: deps.useCases.session,
-      logger: deps.appLogger,
-    })
-  );
-  unsubscribeCallbacks.push(
-    initializeFileWatcherEvents({
-      eventBus: deps.eventBus,
-      fileWatcherUseCases: deps.useCases.fileWatcher,
-      sessionRuntime: deps.sessionRuntime,
-      logger: deps.appLogger,
-    })
-  );
-  unsubscribeCallbacks.push(
-    initializeUsageStatsEvents({
-      eventBus: deps.eventBus,
-      usageStatsUseCases: deps.useCases.usageStats,
-      logger: deps.appLogger,
-    })
-  );
-  unsubscribeCallbacks.push(
-    initializeBotAutomationEvents({
-      eventBus: deps.eventBus,
-      botsUseCases: deps.useCases.bots,
-      logger: deps.appLogger,
-    })
-  );
+  const moduleEventSubscriptions = initializeModuleEventSubscriptions({
+    eventBus: deps.eventBus,
+    useCases: deps.useCases,
+    sessionRuntime: deps.sessionRuntime,
+    logger: deps.appLogger,
+  });
 
   let disposed = false;
   const dispose = async () => {
@@ -204,25 +128,10 @@ async function createAppCompositionWithRuntimeConfig(
       return;
     }
     disposed = true;
-    for (const unsubscribe of unsubscribeCallbacks.splice(0)) {
-      unsubscribe();
-    }
-    deps.useCases.fileWatcher.fileWatcher.dispose();
-    await sqliteWorkerRuntimeConfigSync.flush();
-    try {
-      await closeSqliteStorage();
-    } catch (error) {
-      core.appLogger.warn("Failed to close sqlite storage during dispose", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-    try {
-      authRuntime.authDb.close();
-    } catch (error) {
-      core.appLogger.warn("Failed to close auth database during dispose", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    moduleEventSubscriptions.dispose();
+    serviceModule.dispose();
+    await persistenceOwner.dispose();
+    authOwner.dispose();
     await core.logStore.flush();
   };
 

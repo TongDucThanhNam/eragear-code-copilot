@@ -10,7 +10,12 @@ import type {
   SearchRepoSnapshotIndexInput,
 } from "./contracts/repo-snapshot-indexing.contract";
 import type { RepoSnapshotIndexPort } from "./ports/repo-snapshot-index.port";
-import type { RepoSnapshotIndexingRepositoryPort } from "./ports/repo-snapshot-indexing-repository.port";
+import type {
+  MutableRepoSnapshotIndexingSettingsSnapshot,
+  RepoSnapshotIndexingRepositoryPort,
+  RepoSnapshotIndexingSettingsScope,
+  RepoSnapshotIndexingSettingsSnapshot,
+} from "./ports/repo-snapshot-indexing-repository.port";
 import { RepoSnapshotIndexingService } from "./repo-snapshot-indexing.service";
 
 class RepoIndexPortStub implements RepoSnapshotIndexPort {
@@ -88,25 +93,34 @@ class RepoIndexPortStub implements RepoSnapshotIndexPort {
 
 class RepoSnapshotRepositoryStub implements RepoSnapshotIndexingRepositoryPort {
   manifestWrites = 0;
-  private settings: RepoSnapshotIndexingSettings | null;
+  private readonly settingsByScope = new Map<
+    string,
+    RepoSnapshotIndexingSettings
+  >();
   private state: RepoSnapshotStorageState;
 
   constructor(settings: RepoSnapshotIndexingSettings | null = null) {
-    this.settings = settings;
+    if (settings) {
+      this.settingsByScope.set(
+        settingsScopeKey({ userId: "user-1", projectRoot: "/repo" }),
+        settings
+      );
+    }
     this.state = createStorageState([]);
   }
 
-  getSettings(): Promise<RepoSnapshotIndexingSettings | null> {
-    return Promise.resolve(this.settings);
+  readSettings<T>(
+    reader: (snapshot: RepoSnapshotIndexingSettingsSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return Promise.resolve(reader(this.createSettingsSnapshot()));
   }
 
-  saveSettings(
-    _userId: string,
-    _projectRoot: string,
-    settings: RepoSnapshotIndexingSettings
-  ): Promise<RepoSnapshotIndexingSettings> {
-    this.settings = settings;
-    return Promise.resolve(settings);
+  mutateSettings<T>(
+    mutator: (
+      snapshot: MutableRepoSnapshotIndexingSettingsSnapshot
+    ) => T | Promise<T>
+  ): Promise<T> {
+    return Promise.resolve(mutator(this.createMutableSettingsSnapshot()));
   }
 
   getStorageState(): Promise<RepoSnapshotStorageState> {
@@ -143,6 +157,27 @@ class RepoSnapshotRepositoryStub implements RepoSnapshotIndexingRepositoryPort {
       state: this.state,
     });
   }
+
+  getStoredSettings(
+    scope: RepoSnapshotIndexingSettingsScope
+  ): RepoSnapshotIndexingSettings | null {
+    return this.settingsByScope.get(settingsScopeKey(scope)) ?? null;
+  }
+
+  private createSettingsSnapshot(): RepoSnapshotIndexingSettingsSnapshot {
+    return {
+      get: (scope) => this.getStoredSettings(scope),
+    };
+  }
+
+  private createMutableSettingsSnapshot(): MutableRepoSnapshotIndexingSettingsSnapshot {
+    return {
+      ...this.createSettingsSnapshot(),
+      set: (scope, settings) => {
+        this.settingsByScope.set(settingsScopeKey(scope), settings);
+      },
+    };
+  }
 }
 
 function createIndexData(): RepoSnapshotIndexData {
@@ -165,6 +200,10 @@ function createIndexData(): RepoSnapshotIndexData {
       diagnostics: ["Project index has not been refreshed yet."],
     },
   };
+}
+
+function settingsScopeKey(scope: RepoSnapshotIndexingSettingsScope): string {
+  return `${scope.userId}:${scope.projectRoot}`;
 }
 
 function createStorageState(
@@ -204,6 +243,12 @@ describe("RepoSnapshotIndexingService", () => {
     expect(index.refreshCount).toBe(1);
     expect(repository.manifestWrites).toBe(1);
     expect(result.settings.enabled).toBe(true);
+    expect(
+      repository.getStoredSettings({
+        userId: "user-1",
+        projectRoot: "/repo",
+      })?.lastRefreshAt
+    ).toBe("2026-06-12T00:00:00.000Z");
     expect(result.index.indexedFiles).toBe(1);
     expect(result.storage.manifests).toHaveLength(1);
   });

@@ -1,43 +1,12 @@
-import type { LocalAdeService } from "@/modules/settings";
+import { SkillsService } from "@/modules/skills";
 import {
-  type SetSkillEnabledInput,
-  type SkillDescriptor,
-  type SkillsPort,
-  type SkillsProjectInput,
-  SkillsService,
-} from "@/modules/skills";
-import type { SkillsUseCases, UseCasePort } from "@/modules/use-cases";
-
-class LocalAdeSkillsAdapter implements SkillsPort {
-  private readonly localAde: UseCasePort<LocalAdeService>;
-
-  constructor(localAde: UseCasePort<LocalAdeService>) {
-    this.localAde = localAde;
-  }
-
-  async listSkills(
-    userId: string,
-    _input?: SkillsProjectInput
-  ): Promise<SkillDescriptor[]> {
-    const snapshot = await this.localAde.snapshot(userId);
-    return snapshot.skills;
-  }
-
-  async setSkillEnabled(
-    userId: string,
-    input: SetSkillEnabledInput
-  ): Promise<SkillDescriptor[]> {
-    const snapshot = await this.localAde.updateCapabilityState(userId, {
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-      capabilityId: input.skillId,
-      enabled: input.enabled,
-    });
-    return snapshot.skills;
-  }
-}
+  LocalAdeSkillsAdapter,
+  type LocalAdeSkillsSource,
+} from "@/modules/skills/di";
+import type { SkillsUseCases } from "@/modules/use-cases";
 
 export function createSkillsUseCases(
-  localAde: UseCasePort<LocalAdeService>
+  localAde: LocalAdeSkillsSource
 ): SkillsUseCases {
   return {
     skills: new SkillsService(new LocalAdeSkillsAdapter(localAde)),

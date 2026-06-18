@@ -100,6 +100,8 @@ interface SupervisorJob {
   promise: Promise<void>;
 }
 
+type SupervisorPromptSender = Pick<SendMessageService, "execute">;
+
 /**
  * Supervises completed prompt turns and may enqueue a safe follow-up prompt.
  *
@@ -111,7 +113,7 @@ export class SupervisorLoopService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly projectRepo: ProjectRepositoryPort;
-  private readonly sendMessage: SendMessageService;
+  private readonly sendMessage: SupervisorPromptSender;
   private readonly decisionPort: SupervisorDecisionPort;
   private readonly researchPort: SupervisorResearchPort;
   private readonly memoryPort: SupervisorMemoryPort;
@@ -126,7 +128,7 @@ export class SupervisorLoopService {
     sessionRepo: SessionRepositoryPort;
     sessionRuntime: SessionRuntimePort;
     projectRepo: ProjectRepositoryPort;
-    sendMessage: SendMessageService;
+    sendMessage: SupervisorPromptSender;
     decisionPort: SupervisorDecisionPort;
     researchPort: SupervisorResearchPort;
     memoryPort: SupervisorMemoryPort;

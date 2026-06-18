@@ -1,5 +1,7 @@
 import {
   DashboardEventVisibilityService,
+  DashboardSessionAggregationService,
+  GetDashboardOverviewService,
   GetDashboardPageDataService,
   GetDashboardStatsService,
   GetObservabilitySnapshotService,
@@ -8,14 +10,28 @@ import {
 } from "@/modules/ops";
 import type { OpsUseCases } from "@/modules/use-cases";
 import { getTurnIdMigrationSnapshot } from "@/platform/acp/turn-id-observability";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
 
-export function createOpsUseCases(
-  deps: ServiceRegistryDependencies
-): OpsUseCases {
-  const dashboardProjectsService = new ListDashboardProjectsService(
+type OpsServiceDependencies = ServiceRegistrySlice<
+  | "projectRepo"
+  | "sessionRepo"
+  | "sessionRuntime"
+  | "logStore"
+  | "getCacheStats"
+  | "getBackgroundRunnerState"
+  | "agentRepo"
+  | "clock"
+>;
+
+export function createOpsUseCases(deps: OpsServiceDependencies): OpsUseCases {
+  const dashboardSessionAggregationService =
+    new DashboardSessionAggregationService(deps.sessionRepo, deps.clock);
+  const dashboardOverviewService = new GetDashboardOverviewService(
     deps.projectRepo,
-    deps.sessionRepo
+    dashboardSessionAggregationService
+  );
+  const dashboardProjectsService = new ListDashboardProjectsService(
+    dashboardOverviewService
   );
   const dashboardEventVisibilityService = new DashboardEventVisibilityService();
   const dashboardSessionsService = new ListDashboardSessionsService(
@@ -24,8 +40,7 @@ export function createOpsUseCases(
     deps.sessionRuntime
   );
   const dashboardStatsService = new GetDashboardStatsService(
-    deps.projectRepo,
-    deps.sessionRepo
+    dashboardOverviewService
   );
   const observabilitySnapshotService = new GetObservabilitySnapshotService({
     sessionRuntime: deps.sessionRuntime,
@@ -35,9 +50,8 @@ export function createOpsUseCases(
     getAcpTurnIdMigrationSnapshot: getTurnIdMigrationSnapshot,
   });
   const dashboardPageDataService = new GetDashboardPageDataService({
-    listDashboardProjects: dashboardProjectsService,
+    dashboardOverview: dashboardOverviewService,
     listDashboardSessions: dashboardSessionsService,
-    getDashboardStats: dashboardStatsService,
     agentRepo: deps.agentRepo,
   });
 

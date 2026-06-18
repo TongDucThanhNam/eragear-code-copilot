@@ -1,30 +1,27 @@
 import { DEFAULT_SESSION_LIST_PAGE_LIMIT } from "@/config/constants";
 import type { AgentRepositoryPort } from "@/modules/agent";
-import type { GetDashboardStatsService } from "./get-dashboard-stats.service";
-import type { ListDashboardProjectsService } from "./list-dashboard-projects.service";
+import type { GetDashboardOverviewService } from "./get-dashboard-overview.service";
 import type { ListDashboardSessionsService } from "./list-dashboard-sessions.service";
 
 /**
  * Aggregates the initial dashboard page read model.
  *
- * Ordering contract: project/session/stats/agent reads are independent and run
- * concurrently; callers should not rely on cross-section transactional state.
+ * Ordering contract: project/stats overview is the source of dashboard project
+ * context; session list enrichment reuses that context instead of re-reading
+ * projects.
  */
 export class GetDashboardPageDataService {
-  private readonly listDashboardProjects: ListDashboardProjectsService;
+  private readonly dashboardOverview: GetDashboardOverviewService;
   private readonly listDashboardSessions: ListDashboardSessionsService;
-  private readonly getDashboardStats: GetDashboardStatsService;
   private readonly agentRepo: AgentRepositoryPort;
 
   constructor(params: {
-    listDashboardProjects: ListDashboardProjectsService;
+    dashboardOverview: GetDashboardOverviewService;
     listDashboardSessions: ListDashboardSessionsService;
-    getDashboardStats: GetDashboardStatsService;
     agentRepo: AgentRepositoryPort;
   }) {
-    this.listDashboardProjects = params.listDashboardProjects;
+    this.dashboardOverview = params.dashboardOverview;
     this.listDashboardSessions = params.listDashboardSessions;
-    this.getDashboardStats = params.getDashboardStats;
     this.agentRepo = params.agentRepo;
   }
 
@@ -32,21 +29,20 @@ export class GetDashboardPageDataService {
     const limit = input?.limit ?? DEFAULT_SESSION_LIST_PAGE_LIMIT;
     const offset = input?.offset ?? 0;
 
-    const [projectsResult, sessionsResult, statsResult, agents] =
-      await Promise.all([
-        this.listDashboardProjects.execute(input.userId),
-        this.listDashboardSessions.execute({
-          userId: input.userId,
-          limit,
-          offset,
-        }),
-        this.getDashboardStats.execute(input.userId),
-        this.agentRepo.findAll(input.userId),
-      ]);
+    const [overview, agents] = await Promise.all([
+      this.dashboardOverview.execute(input.userId),
+      this.agentRepo.findAll(input.userId),
+    ]);
+    const sessionsResult = await this.listDashboardSessions.execute({
+      userId: input.userId,
+      limit,
+      offset,
+      projects: overview.projects,
+    });
 
     return {
-      stats: statsResult.stats,
-      projects: projectsResult.projects,
+      stats: overview.stats,
+      projects: overview.projects,
       sessions: sessionsResult.sessions,
       agents,
     };

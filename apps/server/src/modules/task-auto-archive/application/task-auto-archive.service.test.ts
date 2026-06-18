@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { TaskAutoArchiveSettings } from "./contracts/task-auto-archive.contract";
 import type {
-  TaskAutoArchiveRunResult,
-  TaskAutoArchiveSettings,
-} from "./contracts/task-auto-archive.contract";
-import type { TaskAutoArchiveRepositoryPort } from "./ports/task-auto-archive-repository.port";
+  MutableTaskAutoArchiveStoreSnapshot,
+  TaskAutoArchiveRepositoryPort,
+  TaskAutoArchiveStoreSnapshot,
+} from "./ports/task-auto-archive-repository.port";
 import type {
   TaskAutoArchiveSession,
   TaskAutoArchiveSessionPage,
@@ -12,34 +13,27 @@ import type {
 import { TaskAutoArchiveService } from "./task-auto-archive.service";
 
 class TaskAutoArchiveRepositoryStub implements TaskAutoArchiveRepositoryPort {
-  readonly lastRuns = new Map<string, TaskAutoArchiveRunResult>();
-  private readonly settings = new Map<string, TaskAutoArchiveSettings>();
+  readonly snapshot: MutableTaskAutoArchiveStoreSnapshot = {
+    settingsByUserId: {},
+    lastRunByUserId: {},
+  };
 
   constructor(entries: [string, TaskAutoArchiveSettings][] = []) {
     for (const [userId, settings] of entries) {
-      this.settings.set(userId, settings);
+      this.snapshot.settingsByUserId[userId] = settings;
     }
   }
 
-  getSettings(userId: string): Promise<TaskAutoArchiveSettings | null> {
-    return Promise.resolve(this.settings.get(userId) ?? null);
+  async read<T>(
+    reader: (snapshot: TaskAutoArchiveStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await reader(this.snapshot);
   }
 
-  saveSettings(
-    userId: string,
-    settings: TaskAutoArchiveSettings
-  ): Promise<TaskAutoArchiveSettings> {
-    this.settings.set(userId, settings);
-    return Promise.resolve(settings);
-  }
-
-  getLastRun(userId: string): Promise<TaskAutoArchiveRunResult | null> {
-    return Promise.resolve(this.lastRuns.get(userId) ?? null);
-  }
-
-  saveLastRun(userId: string, result: TaskAutoArchiveRunResult): Promise<void> {
-    this.lastRuns.set(userId, result);
-    return Promise.resolve();
+  async mutate<T>(
+    mutator: (snapshot: MutableTaskAutoArchiveStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await mutator(this.snapshot);
   }
 }
 
@@ -135,7 +129,10 @@ describe("TaskAutoArchiveService", () => {
     expect(result.skippedRunning).toBe(2);
     expect(result.skippedArchived).toBe(1);
     expect(sessions.archivedSessionIds).toEqual(["old"]);
-    expect(repository.lastRuns.get("user-1")?.archived).toBe(1);
+    expect(repository.snapshot.lastRunByUserId["user-1"]?.archived).toBe(1);
+    expect(repository.snapshot.settingsByUserId["user-1"]?.lastRunAt).toBe(
+      new Date(NOW).toISOString()
+    );
   });
 
   test("does not inspect sessions when policy is disabled", async () => {

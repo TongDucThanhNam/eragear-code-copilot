@@ -4,12 +4,16 @@ import path from "node:path";
 import { z } from "zod";
 import { getNodeErrnoCode } from "@/shared/utils/node-error.util";
 import {
-  CrashReportSchema,
   type CrashReport,
-  CrashReportingConfigSchema,
   type CrashReportingConfig,
+  CrashReportingConfigSchema,
+  CrashReportSchema,
 } from "../application/contracts/crash-reporting.contract";
-import type { CrashReportingRepositoryPort } from "../application/ports/crash-reporting-repository.port";
+import type {
+  CrashReportingRepositoryPort,
+  CrashReportingStoreSnapshot,
+  MutableCrashReportingStoreSnapshot,
+} from "../application/ports/crash-reporting-repository.port";
 
 const DOCUMENT_VERSION = 1;
 
@@ -42,52 +46,24 @@ export class CrashReportingFileRepository
     }
   }
 
-  async getConfig(): Promise<CrashReportingConfig | null> {
+  async read<T>(
+    reader: (snapshot: CrashReportingStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      return document.config;
+      return await reader(toStoreSnapshot(document));
     });
   }
 
-  async saveConfig(
-    config: CrashReportingConfig
-  ): Promise<CrashReportingConfig> {
+  async mutate<T>(
+    mutator: (snapshot: MutableCrashReportingStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      document.config = config;
-      await this.writeDocument(document);
-      return config;
-    });
-  }
-
-  async listReports(userId: string): Promise<CrashReport[]> {
-    return await this.enqueue(async () => {
-      const document = await this.readDocument();
-      return Object.values(document.reports)
-        .filter((report) => report.userId === userId || report.userId === null)
-        .sort((left, right) => right.createdAt - left.createdAt);
-    });
-  }
-
-  async saveReport(
-    report: CrashReport,
-    archiveLimit: number
-  ): Promise<CrashReport> {
-    return await this.enqueue(async () => {
-      const document = await this.readDocument();
-      document.reports[report.id] = report;
-      const keepIds = Object.values(document.reports)
-        .sort((left, right) => right.createdAt - left.createdAt)
-        .slice(0, archiveLimit)
-        .map((item) => item.id);
-      const keep = new Set(keepIds);
-      for (const reportId of Object.keys(document.reports)) {
-        if (!keep.has(reportId)) {
-          delete document.reports[reportId];
-        }
-      }
-      await this.writeDocument(document);
-      return report;
+      const snapshot = toMutableStoreSnapshot(document);
+      const result = await mutator(snapshot);
+      await this.writeDocument(fromMutableStoreSnapshot(snapshot));
+      return result;
     });
   }
 
@@ -118,9 +94,7 @@ export class CrashReportingFileRepository
     }
   }
 
-  private async writeDocument(
-    document: CrashReportingDocument
-  ): Promise<void> {
+  private async writeDocument(document: CrashReportingDocument): Promise<void> {
     const filePath = await this.resolveFilePath();
     await mkdir(path.dirname(filePath), { recursive: true });
     const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
@@ -131,4 +105,44 @@ export class CrashReportingFileRepository
   private async resolveFilePath(): Promise<string> {
     return await this.filePathProvider();
   }
+}
+
+function toStoreSnapshot(
+  document: CrashReportingDocument
+): CrashReportingStoreSnapshot {
+  return {
+    config: document.config ? cloneConfig(document.config) : null,
+    reports: Object.values(document.reports).map(cloneReport),
+  };
+}
+
+function toMutableStoreSnapshot(
+  document: CrashReportingDocument
+): MutableCrashReportingStoreSnapshot {
+  return {
+    config: document.config ? cloneConfig(document.config) : null,
+    reports: Object.values(document.reports).map(cloneReport),
+  };
+}
+
+function fromMutableStoreSnapshot(
+  snapshot: MutableCrashReportingStoreSnapshot
+): CrashReportingDocument {
+  const reports: CrashReportingDocument["reports"] = {};
+  for (const report of snapshot.reports) {
+    reports[report.id] = cloneReport(report);
+  }
+  return CrashReportingDocumentSchema.parse({
+    version: DOCUMENT_VERSION,
+    config: snapshot.config ? cloneConfig(snapshot.config) : null,
+    reports,
+  });
+}
+
+function cloneConfig(config: CrashReportingConfig): CrashReportingConfig {
+  return CrashReportingConfigSchema.parse(config);
+}
+
+function cloneReport(report: CrashReport): CrashReport {
+  return CrashReportSchema.parse(report);
 }

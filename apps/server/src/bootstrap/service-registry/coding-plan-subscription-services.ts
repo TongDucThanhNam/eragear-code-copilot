@@ -1,14 +1,19 @@
 import {
   CodingPlanSubscriptionFileRepository,
   CodingPlanSubscriptionService,
+  createEventBusCodingPlanSubscriptionNotifier,
   LocalCodingPlanBillingAdapter,
 } from "@/modules/coding-plan-subscription";
 import type { CodingPlanSubscriptionUseCases } from "@/modules/use-cases";
 import { getStorageFileSync } from "@/platform/storage/storage-path";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type CodingPlanSubscriptionServiceDependencies = ServiceRegistrySlice<
+  "eventBus" | "clock"
+>;
 
 export function createCodingPlanSubscriptionUseCases(
-  deps: ServiceRegistryDependencies
+  deps: CodingPlanSubscriptionServiceDependencies
 ): CodingPlanSubscriptionUseCases {
   return {
     codingPlanSubscription: new CodingPlanSubscriptionService({
@@ -16,7 +21,7 @@ export function createCodingPlanSubscriptionUseCases(
         filePath: () => getStorageFileSync("coding-plan-subscription.json"),
       }),
       billing: new LocalCodingPlanBillingAdapter(),
-      eventBus: deps.eventBus,
+      notifier: createEventBusCodingPlanSubscriptionNotifier(deps.eventBus),
       nowMs: deps.clock.nowMs,
     }),
   };

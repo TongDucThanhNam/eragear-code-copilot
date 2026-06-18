@@ -17,6 +17,8 @@ export {
 } from "./application/contracts/commands.contract";
 export type {
   CustomSlashCommandRepositoryPort,
+  CustomSlashCommandStoreSnapshot,
+  MutableCustomSlashCommandStoreSnapshot,
   SlashCommandDiscoveryPort,
 } from "./application/ports/slash-command-registry.port";
 export {

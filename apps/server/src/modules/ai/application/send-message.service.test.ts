@@ -14,9 +14,7 @@ import type { SessionRuntimePort } from "@/modules/session/application/ports/ses
 import { SubscribeSessionEventsService } from "@/modules/session/application/subscribe-session-events.service";
 import { SessionBuffering } from "@/platform/acp/update";
 import type { ClockPort } from "@/shared/ports/clock.port";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
-import type { DomainEvent } from "@/shared/types/domain-events.types";
 import type {
   BroadcastEvent,
   ChatSession,
@@ -32,6 +30,7 @@ import {
   PromptTaskRunner,
   type PromptTurnCompleteEvent,
 } from "./send-message/prompt-task-runner";
+import type { PromptLifecycleEvents } from "./send-message/send-message.types";
 import {
   type SendMessagePolicy,
   SendMessageService,
@@ -292,7 +291,7 @@ function createService(
   runtime: SessionRuntimePort,
   policyOverrides?: Partial<SendMessagePolicy>,
   afterTurnComplete?: (event: PromptTurnCompleteEvent) => void | Promise<void>,
-  eventBus?: EventBusPort,
+  promptLifecycleEvents?: PromptLifecycleEvents,
   promptEnhancer?: PromptEnhancerPort,
   outputStylePrompt?: OutputStylePromptPort
 ): SendMessageService {
@@ -325,7 +324,7 @@ function createService(
     logger,
     inputPolicy: policy,
     clock,
-    ...(eventBus ? { eventBus } : {}),
+    ...(promptLifecycleEvents ? { promptLifecycleEvents } : {}),
     ...(promptEnhancer ? { promptEnhancer } : {}),
     ...(outputStylePrompt ? { outputStylePrompt } : {}),
   });
@@ -437,21 +436,22 @@ describe("SendMessageService", () => {
     expect(session.activeTurnId).toBeUndefined();
   });
 
-  test("publishes local ADE lifecycle event after prompt submission", async () => {
+  test("notifies prompt lifecycle after message submission", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
-    const domainEvents: DomainEvent[] = [];
+    const messageSentEvents: unknown[] = [];
     const session = createChatSession({
       prompt: async () => ({ stopReason: "end_turn" }),
     });
     session.projectId = "project-1";
     const runtime = createSessionRuntime("chat-1", session, events);
     const service = createService(repo, runtime, undefined, undefined, {
-      subscribe: () => () => undefined,
-      publish: (event) => {
-        domainEvents.push(event);
+      afterMessageSend: (input) => {
+        messageSentEvents.push(input);
         return Promise.resolve();
       },
+      requestSubagentInvocation: async () => undefined,
+      afterTurnComplete: async () => undefined,
     });
 
     const result = await service.execute({
@@ -460,15 +460,14 @@ describe("SendMessageService", () => {
       text: "hello",
     });
 
-    expect(domainEvents).toContainEqual({
-      type: "local_ade_lifecycle",
-      event: "after-agent-message-send",
+    expect(messageSentEvents).toContainEqual({
       userId: "user-1",
       projectRoot: "/tmp/project",
       projectId: "project-1",
       chatId: "chat-1",
       agentSessionId: "acp-session-1",
       turnId: result.turnId,
+      source: "client",
     });
   });
 
@@ -572,20 +571,21 @@ describe("SendMessageService", () => {
     ).toBe("raw prompt");
   });
 
-  test("publishes subagent invocation event when delegated metadata is submitted", async () => {
+  test("notifies prompt lifecycle when delegated metadata is submitted", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];
-    const domainEvents: DomainEvent[] = [];
+    const subagentEvents: unknown[] = [];
     const session = createChatSession({
       prompt: async () => ({ stopReason: "end_turn" }),
     });
     const runtime = createSessionRuntime("chat-1", session, events);
     const service = createService(repo, runtime, undefined, undefined, {
-      subscribe: () => () => undefined,
-      publish: (event) => {
-        domainEvents.push(event);
+      afterMessageSend: async () => undefined,
+      requestSubagentInvocation: (input) => {
+        subagentEvents.push(input);
         return Promise.resolve();
       },
+      afterTurnComplete: async () => undefined,
     });
 
     const result = await service.execute({
@@ -598,8 +598,7 @@ describe("SendMessageService", () => {
       },
     });
 
-    expect(domainEvents).toContainEqual({
-      type: "subagent_invocation_requested",
+    expect(subagentEvents).toContainEqual({
       userId: "user-1",
       projectRoot: "/tmp/project",
       chatId: "chat-1",

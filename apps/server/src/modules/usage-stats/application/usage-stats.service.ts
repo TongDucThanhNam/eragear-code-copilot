@@ -1,10 +1,8 @@
-import type {
-  LocalAdeLifecycleEvent,
-  ProviderQuotaRefreshedEvent,
-} from "@/shared/types/domain-events.types";
 import { createId } from "@/shared/utils/id.util";
 import type {
   GetUsageStatsSummaryInput,
+  RecordLifecycleUsageInput,
+  RecordQuotaRefreshInput,
   UpdateUsageTelemetryInput,
   UsageStatsBucket,
   UsageStatsRange,
@@ -12,7 +10,10 @@ import type {
   UsageStatsSummary,
   UsageTelemetrySettings,
 } from "./contracts/usage-stats.contract";
-import type { UsageStatsRepositoryPort } from "./ports/usage-stats-repository.port";
+import type {
+  UsageStatsRepositoryPort,
+  UsageTelemetrySettingsSnapshot,
+} from "./ports/usage-stats-repository.port";
 import type { UsageStatsScannerPort } from "./ports/usage-stats-scanner.port";
 
 const RECENT_LIMIT = 20;
@@ -65,58 +66,64 @@ export class UsageStatsService {
     userId: string,
     input: UpdateUsageTelemetryInput
   ): Promise<UsageTelemetrySettings> {
-    return await this.repository.saveTelemetrySettings(userId, {
-      enabled: input.enabled,
-      updatedAt: this.nowMs(),
+    return await this.repository.mutateTelemetrySettings(userId, (snapshot) => {
+      const next = {
+        ...this.resolveTelemetrySettings(snapshot),
+        enabled: input.enabled,
+        updatedAt: this.nowMs(),
+      };
+      snapshot.set(next);
+      return next;
     });
   }
 
   async getTelemetrySettings(userId: string): Promise<UsageTelemetrySettings> {
-    return (
-      (await this.repository.getTelemetrySettings(userId)) ?? {
-        enabled: false,
-        updatedAt: this.nowMs(),
-      }
+    return await this.repository.readTelemetrySettings(userId, (snapshot) =>
+      this.resolveTelemetrySettings(snapshot)
     );
   }
 
-  async recordLifecycleEvent(
-    event: LocalAdeLifecycleEvent
-  ): Promise<UsageStatsRecord | null> {
-    if (
-      event.event !== "after-agent-message-send" &&
-      event.event !== "after-agent-turn-complete"
-    ) {
-      return null;
-    }
+  async recordLifecycleUsage(
+    input: RecordLifecycleUsageInput
+  ): Promise<UsageStatsRecord> {
     return await this.repository.appendRecord({
       id: createId("usage"),
-      userId: event.userId,
-      kind:
-        event.event === "after-agent-message-send"
-          ? "prompt_sent"
-          : "turn_completed",
-      projectRoot: event.projectRoot,
-      ...(event.projectId ? { projectId: event.projectId } : {}),
-      ...(event.chatId ? { chatId: event.chatId } : {}),
-      ...(event.agentSessionId ? { agentSessionId: event.agentSessionId } : {}),
-      ...(event.turnId ? { turnId: event.turnId } : {}),
+      userId: input.userId,
+      kind: input.kind,
+      projectRoot: input.projectRoot,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      ...(input.chatId ? { chatId: input.chatId } : {}),
+      ...(input.agentSessionId ? { agentSessionId: input.agentSessionId } : {}),
+      ...(input.turnId ? { turnId: input.turnId } : {}),
       createdAt: this.nowMs(),
     });
   }
 
-  async recordQuotaRefreshedEvent(
-    event: ProviderQuotaRefreshedEvent
+  async recordQuotaRefresh(
+    input: RecordQuotaRefreshInput
   ): Promise<UsageStatsRecord> {
     return await this.repository.appendRecord({
       id: createId("usage"),
-      userId: event.userId,
+      userId: input.userId,
       kind: "quota_refreshed",
-      providerId: event.providerId,
-      providerDisplayName: event.providerDisplayName,
-      status: event.status,
+      providerId: input.providerId,
+      providerDisplayName: input.providerDisplayName,
+      status: input.status,
       createdAt: this.nowMs(),
     });
+  }
+
+  private resolveTelemetrySettings(
+    snapshot: UsageTelemetrySettingsSnapshot
+  ): UsageTelemetrySettings {
+    const existing = snapshot.get();
+    if (existing) {
+      return existing;
+    }
+    return {
+      enabled: false,
+      updatedAt: this.nowMs(),
+    };
   }
 }
 

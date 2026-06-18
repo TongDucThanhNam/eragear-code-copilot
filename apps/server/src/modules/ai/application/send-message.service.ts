@@ -6,18 +6,14 @@
  * @module modules/ai/application/send-message.service
  */
 
-import type {
-  SessionRepositoryPort,
-  SessionRuntimePort,
+import {
+  SessionRealtimeGate,
+  type SessionRepositoryPort,
+  type SessionRuntimePort,
 } from "@/modules/session";
 import { AppError, ValidationError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
-import type {
-  LocalAdeLifecycleEvent,
-  SubagentInvocationRequestedEvent,
-} from "@/shared/types/domain-events.types";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
   isBusyChatStatus,
@@ -35,7 +31,11 @@ import { PayloadBudgetGuard } from "./send-message/payload-budget.guard";
 import type { PromptTaskRunner } from "./send-message/prompt-task-runner";
 import {
   type NormalizedSendMessagePolicy,
+  normalizePromptSource,
   normalizeSendMessagePolicy,
+  type PromptLifecycleEvents,
+  type PromptLifecycleMessageSent,
+  type PromptLifecycleSubagentInvocationRequested,
   type SendMessageExecuteInput,
   type SendMessagePolicy,
   type SendMessageResult,
@@ -58,11 +58,12 @@ export interface SendMessageServiceDeps {
   sessionRepo: SessionRepositoryPort;
   sessionRuntime: SessionRuntimePort;
   sessionGateway: AiSessionRuntimePort;
+  sessionRealtimeGate?: SessionRealtimeGate;
   promptTaskRunner: PromptTaskRunner;
   logger: LoggerPort;
   inputPolicy: SendMessagePolicy;
   clock: ClockPort;
-  eventBus?: EventBusPort;
+  promptLifecycleEvents?: PromptLifecycleEvents;
   promptEnhancer?: PromptEnhancerPort;
   outputStylePrompt?: OutputStylePromptPort;
 }
@@ -79,9 +80,10 @@ export class SendMessageService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionGateway: AiSessionRuntimePort;
+  private readonly sessionRealtimeGate: SessionRealtimeGate;
   private readonly logger: LoggerPort;
   private readonly clock: ClockPort;
-  private readonly eventBus?: EventBusPort;
+  private readonly promptLifecycleEvents?: PromptLifecycleEvents;
   private readonly promptEnhancer?: PromptEnhancerPort;
   private readonly outputStylePrompt?: OutputStylePromptPort;
   private readonly policy: NormalizedSendMessagePolicy;
@@ -92,10 +94,16 @@ export class SendMessageService {
     this.sessionRepo = deps.sessionRepo;
     this.sessionRuntime = deps.sessionRuntime;
     this.sessionGateway = deps.sessionGateway;
+    this.sessionRealtimeGate =
+      deps.sessionRealtimeGate ??
+      new SessionRealtimeGate({
+        sessionRuntime: deps.sessionRuntime,
+        logger: deps.logger,
+      });
     this.promptTaskRunner = deps.promptTaskRunner;
     this.logger = deps.logger;
     this.clock = deps.clock;
-    this.eventBus = deps.eventBus;
+    this.promptLifecycleEvents = deps.promptLifecycleEvents;
     this.promptEnhancer = deps.promptEnhancer;
     this.outputStylePrompt = deps.outputStylePrompt;
     this.policy = normalizeSendMessagePolicy(deps.inputPolicy);
@@ -135,8 +143,10 @@ export class SendMessageService {
     this.payloadBudgetGuard.assertInlineMediaPayloadBudget(input);
 
     const lockRequestedAt = this.clock.nowMs();
-    let lifecycleEvent: LocalAdeLifecycleEvent | undefined;
-    let subagentInvocationEvent: SubagentInvocationRequestedEvent | undefined;
+    let messageSentEvent: PromptLifecycleMessageSent | undefined;
+    let subagentInvocationEvent:
+      | PromptLifecycleSubagentInvocationRequested
+      | undefined;
     const result: SendMessageResult = await this.sessionRuntime.runExclusive(
       input.chatId,
       async () => {
@@ -207,57 +217,13 @@ export class SendMessageService {
             });
           }
 
-          const liveSubscriberCount = session.emitter.listenerCount("data");
-          // Repair subscriber count drift – the tracked counter may lag behind
-          // the actual emitter listener count during rapid reconnects.
-          if (session.subscriberCount !== liveSubscriberCount) {
-            this.logger.warn(
-              "SendMessageService repaired pre-submit subscriber count drift",
-              {
-                chatId: input.chatId,
-                sessionId: session.sessionId,
-                trackedSubscriberCount: session.subscriberCount,
-                emitterSubscriberCount: liveSubscriberCount,
-              }
-            );
-            session.subscriberCount = liveSubscriberCount;
-          }
-          // Only hard-reject when BOTH the tracked count and the emitter count
-          // confirm zero listeners.  This avoids spurious rejections during
-          // transient WebSocket reconnection windows where the tRPC subscription
-          // handler has already incremented subscriberCount but hasn't yet
-          // attached the emitter listener (or vice-versa).
-          if (
-            !canSubmitWithoutSubscriber(input.source) &&
-            liveSubscriberCount <= 0 &&
-            session.subscriberCount <= 0
-          ) {
-            this.logger.warn(
-              "SendMessageService rejected prompt without subscribers",
-              {
-                chatId: input.chatId,
-                sessionId: session.sessionId,
-                chatStatus: session.chatStatus,
-                subscriberCount: session.subscriberCount,
-                emitterSubscriberCount: liveSubscriberCount,
-              }
-            );
-            throw new AppError({
-              message:
-                "Realtime chat stream is not connected. Reconnect session events and retry.",
-              code: "SESSION_SUBSCRIPTION_REQUIRED",
-              statusCode: HTTP_STATUS.CONFLICT,
-              module: "ai",
-              op: OP,
-              details: {
-                chatId: input.chatId,
-                sessionId: session.sessionId,
-                chatStatus: session.chatStatus,
-                subscriberCount: session.subscriberCount,
-                emitterSubscriberCount: liveSubscriberCount,
-              },
-            });
-          }
+          this.sessionRealtimeGate.assertPromptCanSubmit({
+            chatId: input.chatId,
+            session,
+            source: input.source,
+            module: "ai",
+            op: OP,
+          });
 
           const turnId = createId("turn");
           aggregate.startTurn(turnId);
@@ -366,16 +332,17 @@ export class SendMessageService {
               promise: promptTask,
               abortController: promptAbortController,
             });
-            lifecycleEvent = this.buildLocalAdeMessageSendEvent(
+            messageSentEvent = this.buildPromptMessageSentEvent(
               input,
               session,
               turnId
             );
-            subagentInvocationEvent = this.buildSubagentInvocationEvent(
-              input,
-              session,
-              turnId
-            );
+            subagentInvocationEvent =
+              this.buildSubagentInvocationRequestedEvent(
+                input,
+                session,
+                turnId
+              );
           } catch (error) {
             const errorText =
               error instanceof Error
@@ -410,39 +377,67 @@ export class SendMessageService {
         }
       }
     );
-    if (lifecycleEvent) {
-      await this.eventBus?.publish(lifecycleEvent).catch((error) => {
-        this.logger.warn("SendMessage lifecycle event publish failed", {
-          chatId: input.chatId,
-          error: error instanceof Error ? error.message : String(error),
+    if (messageSentEvent) {
+      await this.promptLifecycleEvents
+        ?.afterMessageSend(messageSentEvent)
+        .catch((error) => {
+          this.logger.warn("SendMessage lifecycle event publish failed", {
+            chatId: input.chatId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         });
-      });
     }
     if (subagentInvocationEvent) {
-      await this.eventBus?.publish(subagentInvocationEvent).catch((error) => {
-        this.logger.warn("Subagent invocation event publish failed", {
-          chatId: input.chatId,
-          error: error instanceof Error ? error.message : String(error),
+      await this.promptLifecycleEvents
+        ?.requestSubagentInvocation(subagentInvocationEvent)
+        .catch((error) => {
+          this.logger.warn("Subagent invocation event publish failed", {
+            chatId: input.chatId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         });
-      });
     }
     return result;
   }
 
-  private buildLocalAdeMessageSendEvent(
+  private buildPromptMessageSentEvent(
     input: SendMessageExecuteInput,
     session: ChatSession,
     turnId: string
-  ): LocalAdeLifecycleEvent {
+  ): PromptLifecycleMessageSent {
     return {
-      type: "local_ade_lifecycle",
-      event: "after-agent-message-send",
       userId: input.userId,
       projectRoot: session.projectRoot,
       ...(session.projectId ? { projectId: session.projectId } : {}),
       chatId: input.chatId,
       ...(session.sessionId ? { agentSessionId: session.sessionId } : {}),
       turnId,
+      source: normalizePromptSource(input.source),
+    };
+  }
+
+  private buildSubagentInvocationRequestedEvent(
+    input: SendMessageExecuteInput,
+    session: ChatSession,
+    turnId: string
+  ): PromptLifecycleSubagentInvocationRequested | undefined {
+    if (!input.subagent) {
+      return undefined;
+    }
+    return {
+      userId: input.userId,
+      projectRoot: session.projectRoot,
+      ...(session.projectId ? { projectId: session.projectId } : {}),
+      chatId: input.chatId,
+      ...(session.sessionId ? { agentSessionId: session.sessionId } : {}),
+      turnId,
+      subagent: {
+        name: input.subagent.name,
+        ...(input.subagent.description
+          ? { description: input.subagent.description }
+          : {}),
+        sourcePath: input.subagent.sourcePath,
+      },
     };
   }
 
@@ -534,32 +529,6 @@ export class SendMessageService {
     }
   }
 
-  private buildSubagentInvocationEvent(
-    input: SendMessageExecuteInput,
-    session: ChatSession,
-    turnId: string
-  ): SubagentInvocationRequestedEvent | undefined {
-    if (!input.subagent) {
-      return undefined;
-    }
-    return {
-      type: "subagent_invocation_requested",
-      userId: input.userId,
-      projectRoot: session.projectRoot,
-      ...(session.projectId ? { projectId: session.projectId } : {}),
-      chatId: input.chatId,
-      ...(session.sessionId ? { agentSessionId: session.sessionId } : {}),
-      turnId,
-      subagent: {
-        name: input.subagent.name,
-        ...(input.subagent.description
-          ? { description: input.subagent.description }
-          : {}),
-        sourcePath: input.subagent.sourcePath,
-      },
-    };
-  }
-
   private assertPromptCapabilities(
     session: ChatSession,
     chatId: string,
@@ -600,12 +569,6 @@ function extractLeadingSlashCommand(value: string): string | null {
   const normalized = value.trimStart();
   const match = normalized.match(LEADING_SLASH_COMMAND_REGEX);
   return match?.[1] ?? null;
-}
-
-function canSubmitWithoutSubscriber(
-  source: SendMessageExecuteInput["source"] | undefined
-): boolean {
-  return source === "supervisor" || source === "automation";
 }
 
 function hasExplicitOutputStyleInstruction(value: string): boolean {

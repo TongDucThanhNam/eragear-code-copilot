@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { PromptEnhancementSettings } from "./contracts/prompt-enhancement.contract";
 import type {
-  PromptEnhancementSettings,
-  UpdatePromptEnhancementSettingsInput,
-} from "./contracts/prompt-enhancement.contract";
-import type { PromptEnhancementRepositoryPort } from "./ports/prompt-enhancement-repository.port";
+  MutablePromptEnhancementStoreSnapshot,
+  PromptEnhancementRepositoryPort,
+  PromptEnhancementStoreSnapshot,
+} from "./ports/prompt-enhancement-repository.port";
 import {
   DEFAULT_PROMPT_ENHANCEMENT_SETTINGS,
   PromptEnhancementService,
@@ -12,26 +13,34 @@ import {
 class PromptEnhancementRepositoryStub
   implements PromptEnhancementRepositoryPort
 {
-  settings: PromptEnhancementSettings = {
-    ...DEFAULT_PROMPT_ENHANCEMENT_SETTINGS,
+  snapshot: MutablePromptEnhancementStoreSnapshot = {
+    settingsByUserId: {},
   };
-  lastUpdate: UpdatePromptEnhancementSettingsInput | null = null;
 
-  getSettings(_userId: string): Promise<PromptEnhancementSettings> {
-    return Promise.resolve(this.settings);
+  read<T>(
+    reader: (snapshot: PromptEnhancementStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return Promise.resolve(reader(cloneSnapshot(this.snapshot)));
   }
 
-  updateSettings(
-    _userId: string,
-    input: UpdatePromptEnhancementSettingsInput
-  ): Promise<PromptEnhancementSettings> {
-    this.lastUpdate = input;
-    this.settings = { ...this.settings, ...input };
-    return Promise.resolve(this.settings);
+  mutate<T>(
+    mutator: (snapshot: MutablePromptEnhancementStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return Promise.resolve(mutator(this.snapshot));
   }
 }
 
 describe("PromptEnhancementService", () => {
+  test("returns default settings through the service interface", async () => {
+    const service = new PromptEnhancementService(
+      new PromptEnhancementRepositoryStub()
+    );
+
+    const result = await service.getSettings("user-1");
+
+    expect(result.settings).toEqual(DEFAULT_PROMPT_ENHANCEMENT_SETTINGS);
+  });
+
   test("does not alter prompts when disabled", async () => {
     const repository = new PromptEnhancementRepositoryStub();
     const service = new PromptEnhancementService(repository);
@@ -49,7 +58,7 @@ describe("PromptEnhancementService", () => {
 
   test("injects project context, date, preset instructions, and custom instruction", async () => {
     const repository = new PromptEnhancementRepositoryStub();
-    repository.settings = {
+    repository.snapshot.settingsByUserId["user-1"] = {
       enabled: true,
       includeProjectContext: true,
       includeDate: true,
@@ -79,18 +88,45 @@ describe("PromptEnhancementService", () => {
     );
   });
 
-  test("trims custom instruction on settings update", async () => {
+  test("normalizes and persists settings updates through the service", async () => {
     const repository = new PromptEnhancementRepositoryStub();
     const service = new PromptEnhancementService(repository);
 
-    await service.updateSettings("user-1", {
+    const result = await service.updateSettings("user-1", {
       enabled: true,
+      includeDate: false,
+      instructionMode: "concise",
       customInstruction: "  Keep changes focused.  ",
     });
 
-    expect(repository.lastUpdate).toEqual({
+    expect(result.settings).toEqual({
+      ...DEFAULT_PROMPT_ENHANCEMENT_SETTINGS,
       enabled: true,
+      includeDate: false,
+      instructionMode: "concise",
       customInstruction: "Keep changes focused.",
     });
+    expect(repository.snapshot.settingsByUserId["user-1"]).toEqual(
+      result.settings
+    );
   });
 });
+
+function cloneSnapshot(
+  snapshot: MutablePromptEnhancementStoreSnapshot
+): PromptEnhancementStoreSnapshot {
+  return {
+    settingsByUserId: Object.fromEntries(
+      Object.entries(snapshot.settingsByUserId).map(([userId, settings]) => [
+        userId,
+        cloneSettings(settings),
+      ])
+    ),
+  };
+}
+
+function cloneSettings(
+  settings: PromptEnhancementSettings
+): PromptEnhancementSettings {
+  return { ...settings };
+}

@@ -1,14 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentRepositoryPort } from "@/modules/agent";
 import type { ClockPort } from "@/shared/ports/clock.port";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
   AgentConfig,
   AgentInput,
   AgentUpdateInput,
 } from "@/shared/types/agent.types";
-import type { DomainEvent } from "@/shared/types/domain-events.types";
 import type {
   QuotaAuthOk,
   QuotaAuthResult,
@@ -16,6 +14,10 @@ import type {
   QuotaProviderContext,
   QuotaProviderFetchResult,
 } from "./ports/quota-provider.port";
+import type {
+  ProviderQuotaNotifier,
+  ProviderQuotaRefreshNotification,
+} from "./provider-quota.notifier";
 import { ProviderQuotaService } from "./provider-quota.service";
 
 const NOW_MS = Date.parse("2026-06-12T12:00:00.000Z");
@@ -45,7 +47,18 @@ class AgentRepoStub implements AgentRepositoryPort {
     return Promise.resolve([]);
   }
 
+  listByProjectWithActiveState(): Promise<{
+    agents: AgentConfig[];
+    activeAgentId: string | null;
+  }> {
+    return Promise.resolve({ agents: [], activeAgentId: null });
+  }
+
   create(_input: AgentInput): Promise<AgentConfig> {
+    throw new Error("not implemented");
+  }
+
+  createAndEnsureActive(_input: AgentInput): Promise<AgentConfig> {
     throw new Error("not implemented");
   }
 
@@ -55,6 +68,10 @@ class AgentRepoStub implements AgentRepositoryPort {
 
   delete(): Promise<void> {
     return Promise.resolve();
+  }
+
+  deleteAndRepairActive(): Promise<{ activeAgentId: string | null }> {
+    return Promise.resolve({ activeAgentId: null });
   }
 
   setActive(): Promise<void> {
@@ -127,16 +144,15 @@ function createAgent(userId: string, command = "codex"): AgentConfig {
   };
 }
 
-function createEventBusStub() {
-  const events: DomainEvent[] = [];
-  const eventBus: EventBusPort = {
-    subscribe: () => () => undefined,
-    publish: (event) => {
-      events.push(event);
+function createProviderQuotaNotifierStub(
+  calls: ProviderQuotaRefreshNotification[] = []
+) {
+  return {
+    providerQuotaRefreshed(input) {
+      calls.push(input);
       return Promise.resolve();
     },
-  };
-  return { eventBus, events };
+  } satisfies ProviderQuotaNotifier;
 }
 
 function createClock(): ClockPort {
@@ -157,12 +173,12 @@ function createLogger(): LoggerPort {
 function createService(params: {
   adapters: QuotaProviderAdapter[];
   agents?: AgentConfig[];
-  eventBus?: EventBusPort;
+  providerQuotaNotifier?: ProviderQuotaNotifier;
 }) {
   return new ProviderQuotaService(
     {
       agentRepo: new AgentRepoStub(params.agents ?? [createAgent("user-1")]),
-      eventBus: params.eventBus ?? createEventBusStub().eventBus,
+      providerQuotaNotifier: params.providerQuotaNotifier,
       clock: createClock(),
       logger: createLogger(),
       adapters: params.adapters,
@@ -186,8 +202,12 @@ describe("ProviderQuotaService", () => {
         ],
       },
     });
-    const { eventBus, events } = createEventBusStub();
-    const service = createService({ adapters: [adapter], eventBus });
+    const quotaNotifications: ProviderQuotaRefreshNotification[] = [];
+    const service = createService({
+      adapters: [adapter],
+      providerQuotaNotifier:
+        createProviderQuotaNotifierStub(quotaNotifications),
+    });
 
     const first = await service.list("user-1");
     const second = await service.list("user-1");
@@ -196,12 +216,15 @@ describe("ProviderQuotaService", () => {
     expect(second.providers[0]?.windows[0]?.percentRemaining).toBe(42);
     expect(adapter.resolveAuthCalls).toBe(1);
     expect(adapter.fetchCalls).toBe(1);
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      type: "provider_quota_refreshed",
-      providerId: "openai",
-      minPercentRemaining: 42,
-      changed: true,
+    expect(quotaNotifications).toHaveLength(1);
+    expect(quotaNotifications[0]).toMatchObject({
+      userId: "user-1",
+      snapshot: {
+        providerId: "openai",
+        status: "ready",
+      },
+      previous: undefined,
+      nowMs: NOW_MS,
     });
   });
 
@@ -219,18 +242,28 @@ describe("ProviderQuotaService", () => {
         ],
       },
     });
-    const { eventBus, events } = createEventBusStub();
-    const service = createService({ adapters: [adapter], eventBus });
+    const quotaNotifications: ProviderQuotaRefreshNotification[] = [];
+    const service = createService({
+      adapters: [adapter],
+      providerQuotaNotifier:
+        createProviderQuotaNotifierStub(quotaNotifications),
+    });
 
     await service.list("user-1");
     await service.refresh("user-1", { providerId: "glm" });
 
     expect(adapter.fetchCalls).toBe(2);
-    expect(events).toHaveLength(2);
-    expect(events[1]).toMatchObject({
-      type: "provider_quota_refreshed",
-      providerId: "zai",
-      changed: false,
+    expect(quotaNotifications).toHaveLength(2);
+    expect(quotaNotifications[1]).toMatchObject({
+      userId: "user-1",
+      snapshot: {
+        providerId: "zai",
+        status: "ready",
+      },
+      previous: {
+        providerId: "zai",
+        status: "ready",
+      },
     });
   });
 

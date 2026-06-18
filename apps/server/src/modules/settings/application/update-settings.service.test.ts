@@ -8,6 +8,7 @@ import {
   createDefaultAppConfigFromEnv,
 } from "../app-config.service";
 import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
+import { createEventBusSettingsChangeNotifier } from "./settings-change.notifier";
 import { UpdateSettingsService } from "./update-settings.service";
 
 function createBaseSettings(): Settings {
@@ -40,18 +41,15 @@ describe("UpdateSettingsService", () => {
     const events: DomainEvent[] = [];
     const repo: SettingsRepositoryPort = {
       get: () => Promise.resolve(stored),
-      update: (patch) => {
-        stored = {
-          ...stored,
-          ...patch,
-        };
+      save: (settings) => {
+        stored = settings;
         return Promise.resolve(stored);
       },
     };
     const appConfigService = new AppConfigService(stored.app, stored.app);
     const service = new UpdateSettingsService(
       repo,
-      createEventBusStub(events),
+      createEventBusSettingsChangeNotifier(createEventBusStub(events)),
       appConfigService
     );
 
@@ -80,12 +78,12 @@ describe("UpdateSettingsService", () => {
     const stored = createBaseSettings();
     const repo: SettingsRepositoryPort = {
       get: () => Promise.resolve(stored),
-      update: () => Promise.reject(new Error("should not be called")),
+      save: () => Promise.reject(new Error("should not be called")),
     };
     const appConfigService = new AppConfigService(stored.app, stored.app);
     const service = new UpdateSettingsService(
       repo,
-      createEventBusStub([]),
+      createEventBusSettingsChangeNotifier(createEventBusStub([])),
       appConfigService
     );
 

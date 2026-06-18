@@ -8,6 +8,7 @@ import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { DomainEvent } from "@/shared/types/domain-events.types";
 import type { CommandPolicy } from "@/shared/utils/allowlist.util";
 import { ManageBootAllowlistsService } from "./manage-boot-allowlists.service";
+import { createEventBusSettingsChangeNotifier } from "./settings-change.notifier";
 
 const BOOT_CONFIG_PATH_ENV_KEY = "ERAGEAR_BOOT_CONFIG_PATH";
 
@@ -100,7 +101,7 @@ describe("ManageBootAllowlistsService", () => {
       const events: DomainEvent[] = [];
       const { runtime } = createAgentRuntimeStub();
       const service = new ManageBootAllowlistsService(
-        createEventBusStub(events),
+        createEventBusSettingsChangeNotifier(createEventBusStub(events)),
         runtime
       );
 
@@ -154,7 +155,7 @@ describe("ManageBootAllowlistsService", () => {
       const events: DomainEvent[] = [];
       const { runtime, updates } = createAgentRuntimeStub();
       const service = new ManageBootAllowlistsService(
-        createEventBusStub(events),
+        createEventBusSettingsChangeNotifier(createEventBusStub(events)),
         runtime
       );
 

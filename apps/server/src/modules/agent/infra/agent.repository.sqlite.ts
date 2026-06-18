@@ -28,6 +28,7 @@ import {
 import type { AgentRepositoryPort } from "../application/ports/agent-repository.port";
 
 type AgentRow = typeof sqliteSchema.agents.$inferSelect;
+type AgentSqliteOrm = Awaited<ReturnType<typeof getSqliteOrm>>;
 const StringArraySchema = z.array(z.string());
 const StringRecordSchema = z.record(z.string(), z.string());
 const NullableStringSchema = z.string().nullable();
@@ -89,6 +90,45 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     };
   }
 
+  private selectRowsByProject(
+    db: AgentSqliteOrm,
+    projectId: string | null | undefined,
+    userId: string
+  ): AgentRow[] {
+    if (projectId === undefined) {
+      return db
+        .select()
+        .from(sqliteSchema.agents)
+        .where(eq(sqliteSchema.agents.userId, userId))
+        .all();
+    }
+    if (projectId === null) {
+      return db
+        .select()
+        .from(sqliteSchema.agents)
+        .where(
+          and(
+            eq(sqliteSchema.agents.userId, userId),
+            isNull(sqliteSchema.agents.projectId)
+          )
+        )
+        .all();
+    }
+    return db
+      .select()
+      .from(sqliteSchema.agents)
+      .where(
+        and(
+          eq(sqliteSchema.agents.userId, userId),
+          or(
+            isNull(sqliteSchema.agents.projectId),
+            eq(sqliteSchema.agents.projectId, projectId)
+          )
+        )
+      )
+      .all();
+  }
+
   async findById(id: string, userId: string): Promise<AgentConfig | undefined> {
     const db = await getSqliteOrm();
     const row = db
@@ -138,41 +178,62 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     userId: string
   ): Promise<AgentConfig[]> {
     const db = await getSqliteOrm();
-    if (projectId === undefined) {
-      const rows = db
-        .select()
-        .from(sqliteSchema.agents)
-        .where(eq(sqliteSchema.agents.userId, userId))
-        .all();
-      return rows.map((row) => this.mapRow(row));
-    }
-    if (projectId === null) {
-      const rows = db
-        .select()
-        .from(sqliteSchema.agents)
-        .where(
-          and(
-            eq(sqliteSchema.agents.userId, userId),
-            isNull(sqliteSchema.agents.projectId)
-          )
-        )
-        .all();
-      return rows.map((row) => this.mapRow(row));
-    }
-    const rows = db
-      .select()
-      .from(sqliteSchema.agents)
-      .where(
-        and(
-          eq(sqliteSchema.agents.userId, userId),
-          or(
-            isNull(sqliteSchema.agents.projectId),
-            eq(sqliteSchema.agents.projectId, projectId)
-          )
-        )
-      )
-      .all();
+    const rows = this.selectRowsByProject(db, projectId, userId);
     return rows.map((row) => this.mapRow(row));
+  }
+
+  listByProjectWithActiveState(
+    projectId: string | null | undefined,
+    userId: string
+  ): Promise<{ agents: AgentConfig[]; activeAgentId: string | null }> {
+    return enqueueSqliteWrite(
+      "agent.list_by_project_with_active_state",
+      async () => {
+        return await withSqliteTransaction(({ orm }) => {
+          const scopedRows = this.selectRowsByProject(orm, projectId, userId);
+          const allRows = orm
+            .select()
+            .from(sqliteSchema.agents)
+            .where(eq(sqliteSchema.agents.userId, userId))
+            .all();
+
+          const activeRow = orm
+            .select({ valueJson: sqliteSchema.userSettings.valueJson })
+            .from(sqliteSchema.userSettings)
+            .where(
+              and(
+                eq(sqliteSchema.userSettings.userId, userId),
+                eq(
+                  sqliteSchema.userSettings.key,
+                  SQLITE_SETTING_KEYS.activeAgentId
+                )
+              )
+            )
+            .get();
+          const currentActiveId = this.parseActiveAgentId(activeRow?.valueJson);
+          const hasCurrentActive =
+            currentActiveId !== null &&
+            allRows.some((agent) => agent.id === currentActiveId);
+          const nextActiveId = hasCurrentActive
+            ? currentActiveId
+            : (allRows[0]?.id ?? null);
+
+          if (nextActiveId !== currentActiveId) {
+            this.upsertUserSetting(
+              orm,
+              userId,
+              SQLITE_SETTING_KEYS.activeAgentId,
+              toSqliteJson(nextActiveId) ?? "null"
+            );
+          }
+
+          return {
+            agents: scopedRows.map((row) => this.mapRow(row)),
+            activeAgentId: nextActiveId,
+          };
+        });
+      }
+    );
   }
 
   ensureDefaultsSeeded(
@@ -327,6 +388,93 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
     });
   }
 
+  createAndEnsureActive(input: AgentInput): Promise<AgentConfig> {
+    return enqueueSqliteWrite("agent.create_and_ensure_active", async () => {
+      return await withSqliteTransaction(({ orm }) => {
+        const name = input.name.trim();
+        if (!name) {
+          throw new Error("Agent name is required");
+        }
+
+        const now = Date.now();
+        const created: AgentConfig = {
+          id: randomUUID(),
+          userId: input.userId,
+          name,
+          type: input.type,
+          command: input.command,
+          args: input.args,
+          resumeCommandTemplate:
+            normalizeAgentResumeCommandTemplate({
+              type: input.type,
+              resumeCommandTemplate: input.resumeCommandTemplate,
+              fallbackToDefault: true,
+            }) ?? undefined,
+          env: input.env,
+          projectId: input.projectId,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        orm
+          .insert(sqliteSchema.agents)
+          .values({
+            id: created.id,
+            userId: created.userId,
+            name: created.name,
+            type: created.type,
+            command: created.command,
+            argsJson: toSqliteJson(created.args),
+            resumeCommandTemplate: created.resumeCommandTemplate ?? null,
+            envJson: toSqliteJson(created.env),
+            projectId: created.projectId ?? null,
+            createdAt: created.createdAt,
+            updatedAt: created.updatedAt,
+          })
+          .run();
+
+        const activeRow = orm
+          .select({ valueJson: sqliteSchema.userSettings.valueJson })
+          .from(sqliteSchema.userSettings)
+          .where(
+            and(
+              eq(sqliteSchema.userSettings.userId, input.userId),
+              eq(
+                sqliteSchema.userSettings.key,
+                SQLITE_SETTING_KEYS.activeAgentId
+              )
+            )
+          )
+          .get();
+        const currentActiveId = this.parseActiveAgentId(activeRow?.valueJson);
+        const hasCurrentActive =
+          currentActiveId !== null &&
+          Boolean(
+            orm
+              .select({ id: sqliteSchema.agents.id })
+              .from(sqliteSchema.agents)
+              .where(
+                and(
+                  eq(sqliteSchema.agents.id, currentActiveId),
+                  eq(sqliteSchema.agents.userId, input.userId)
+                )
+              )
+              .get()
+          );
+        if (!hasCurrentActive) {
+          this.upsertUserSetting(
+            orm,
+            input.userId,
+            SQLITE_SETTING_KEYS.activeAgentId,
+            toSqliteJson(created.id) ?? "null"
+          );
+        }
+
+        return created;
+      });
+    });
+  }
+
   update(input: AgentUpdateInput): Promise<AgentConfig> {
     return enqueueSqliteWrite("agent.update", async () => {
       const db = await getSqliteOrm();
@@ -415,6 +563,66 @@ export class AgentSqliteRepository implements AgentRepositoryPort {
         )
         .run();
     });
+  }
+
+  async deleteAndRepairActive(
+    id: string,
+    userId: string
+  ): Promise<{ activeAgentId: string | null }> {
+    return await enqueueSqliteWrite(
+      "agent.delete_and_repair_active",
+      async () => {
+        return await withSqliteTransaction(({ orm }) => {
+          const activeRow = orm
+            .select({ valueJson: sqliteSchema.userSettings.valueJson })
+            .from(sqliteSchema.userSettings)
+            .where(
+              and(
+                eq(sqliteSchema.userSettings.userId, userId),
+                eq(
+                  sqliteSchema.userSettings.key,
+                  SQLITE_SETTING_KEYS.activeAgentId
+                )
+              )
+            )
+            .get();
+          const currentActiveId = this.parseActiveAgentId(activeRow?.valueJson);
+
+          orm
+            .delete(sqliteSchema.agents)
+            .where(
+              and(
+                eq(sqliteSchema.agents.id, id),
+                eq(sqliteSchema.agents.userId, userId)
+              )
+            )
+            .run();
+
+          const remainingRows = orm
+            .select({ id: sqliteSchema.agents.id })
+            .from(sqliteSchema.agents)
+            .where(eq(sqliteSchema.agents.userId, userId))
+            .all();
+          const hasCurrentActive =
+            currentActiveId !== null &&
+            remainingRows.some((agent) => agent.id === currentActiveId);
+          const nextActiveId = hasCurrentActive
+            ? currentActiveId
+            : (remainingRows[0]?.id ?? null);
+
+          if (nextActiveId !== currentActiveId) {
+            this.upsertUserSetting(
+              orm,
+              userId,
+              SQLITE_SETTING_KEYS.activeAgentId,
+              toSqliteJson(nextActiveId) ?? "null"
+            );
+          }
+
+          return { activeAgentId: nextActiveId };
+        });
+      }
+    );
   }
 
   async setActive(id: string | null, userId: string): Promise<void> {

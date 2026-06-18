@@ -5,16 +5,34 @@ import type {
   RepoSnapshotStorageState,
 } from "../contracts/repo-snapshot-indexing.contract";
 
-export interface RepoSnapshotIndexingRepositoryPort {
-  getSettings(
-    userId: string,
-    projectRoot: string
-  ): Promise<RepoSnapshotIndexingSettings | null>;
-  saveSettings(
-    userId: string,
-    projectRoot: string,
+export interface RepoSnapshotIndexingSettingsScope {
+  userId: string;
+  projectRoot: string;
+}
+
+export interface RepoSnapshotIndexingSettingsSnapshot {
+  get(
+    scope: RepoSnapshotIndexingSettingsScope
+  ): RepoSnapshotIndexingSettings | null;
+}
+
+export interface MutableRepoSnapshotIndexingSettingsSnapshot
+  extends RepoSnapshotIndexingSettingsSnapshot {
+  set(
+    scope: RepoSnapshotIndexingSettingsScope,
     settings: RepoSnapshotIndexingSettings
-  ): Promise<RepoSnapshotIndexingSettings>;
+  ): void;
+}
+
+export interface RepoSnapshotIndexingRepositoryPort {
+  readSettings<T>(
+    reader: (snapshot: RepoSnapshotIndexingSettingsSnapshot) => T | Promise<T>
+  ): Promise<T>;
+  mutateSettings<T>(
+    mutator: (
+      snapshot: MutableRepoSnapshotIndexingSettingsSnapshot
+    ) => T | Promise<T>
+  ): Promise<T>;
   getStorageState(projectRoot: string): Promise<RepoSnapshotStorageState>;
   writeManifest(input: {
     projectRoot: string;

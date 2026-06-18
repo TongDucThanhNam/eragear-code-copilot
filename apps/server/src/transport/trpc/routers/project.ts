@@ -1,57 +1,19 @@
 /**
  * Project tRPC Router
  *
- * RPC endpoints for project management: listing, creating, updating, deleting,
- * and setting the active project. Projects represent code workspaces.
+ * Composition module for project management procedures. The public interface
+ * stays flat at the top level; focused routers own procedure groups.
  *
  * @module transport/trpc/routers/project
  */
 
-import {
-  CreateProjectInputSchema,
-  DeleteProjectInputSchema,
-  SetActiveProjectInputSchema,
-  UpdateProjectInputSchema,
-} from "@/modules/project";
-import { getRequiredUserId } from "../auth-helpers";
-import { protectedProcedure, router } from "../base";
+import t from "../base";
+import { projectActiveRouter } from "./project-active-router";
+import { projectMutationRouter } from "./project-mutation-router";
+import { projectQueryRouter } from "./project-query-router";
 
-export const projectRouter = router({
-  /** List all projects */
-  listProjects: protectedProcedure.query(async ({ ctx }) => {
-    const service = ctx.useCases.project.list;
-    return await service.execute(getRequiredUserId(ctx));
-  }),
-
-  /** Create a new project */
-  createProject: protectedProcedure
-    .input(CreateProjectInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const service = ctx.useCases.project.create;
-      return await service.execute(getRequiredUserId(ctx), input);
-    }),
-
-  /** Update an existing project */
-  updateProject: protectedProcedure
-    .input(UpdateProjectInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const service = ctx.useCases.project.update;
-      return await service.execute(getRequiredUserId(ctx), input);
-    }),
-
-  /** Delete a project */
-  deleteProject: protectedProcedure
-    .input(DeleteProjectInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const service = ctx.useCases.project.delete;
-      return await service.execute(getRequiredUserId(ctx), input.id);
-    }),
-
-  /** Set the active project (for UI state) */
-  setActiveProject: protectedProcedure
-    .input(SetActiveProjectInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const service = ctx.useCases.project.setActive;
-      return await service.execute(getRequiredUserId(ctx), input.id);
-    }),
-});
+export const projectRouter = t.mergeRouters(
+  projectQueryRouter,
+  projectMutationRouter,
+  projectActiveRouter
+);

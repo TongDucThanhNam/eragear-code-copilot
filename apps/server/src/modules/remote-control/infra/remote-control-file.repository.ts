@@ -4,12 +4,16 @@ import path from "node:path";
 import { z } from "zod";
 import { getNodeErrnoCode } from "@/shared/utils/node-error.util";
 import {
-  RemoteRelayDeviceSchema,
   type RemoteRelayDevice,
-  RemoteSessionSchema,
+  RemoteRelayDeviceSchema,
   type RemoteSession,
+  RemoteSessionSchema,
 } from "../application/contracts/remote-control.contract";
-import type { RemoteControlRepositoryPort } from "../application/ports/remote-control-repository.port";
+import type {
+  MutableRemoteControlStoreSnapshot,
+  RemoteControlRepositoryPort,
+  RemoteControlStoreSnapshot,
+} from "../application/ports/remote-control-repository.port";
 
 const DOCUMENT_VERSION = 1;
 
@@ -42,72 +46,24 @@ export class RemoteControlFileRepository
     }
   }
 
-  async listDevices(userId: string): Promise<RemoteRelayDevice[]> {
+  async read<T>(
+    reader: (snapshot: RemoteControlStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      return Object.values(document.devices).filter(
-        (device) => device.userId === userId
-      );
+      return await reader(toStoreSnapshot(document));
     });
   }
 
-  async getDevice(
-    userId: string,
-    deviceId: string
-  ): Promise<RemoteRelayDevice | null> {
+  async mutate<T>(
+    mutator: (snapshot: MutableRemoteControlStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      const device = document.devices[deviceId];
-      return device?.userId === userId ? device : null;
-    });
-  }
-
-  async saveDevice(device: RemoteRelayDevice): Promise<RemoteRelayDevice> {
-    return await this.enqueue(async () => {
-      const document = await this.readDocument();
-      document.devices[device.id] = device;
-      await this.writeDocument(document);
-      return device;
-    });
-  }
-
-  async deleteDevice(userId: string, deviceId: string): Promise<void> {
-    await this.enqueue(async () => {
-      const document = await this.readDocument();
-      const device = document.devices[deviceId];
-      if (device?.userId === userId) {
-        delete document.devices[deviceId];
-      }
-      await this.writeDocument(document);
-    });
-  }
-
-  async listSessions(userId: string): Promise<RemoteSession[]> {
-    return await this.enqueue(async () => {
-      const document = await this.readDocument();
-      return Object.values(document.sessions).filter(
-        (session) => session.userId === userId
-      );
-    });
-  }
-
-  async getSession(
-    userId: string,
-    sessionId: string
-  ): Promise<RemoteSession | null> {
-    return await this.enqueue(async () => {
-      const document = await this.readDocument();
-      const session = document.sessions[sessionId];
-      return session?.userId === userId ? session : null;
-    });
-  }
-
-  async saveSession(session: RemoteSession): Promise<RemoteSession> {
-    return await this.enqueue(async () => {
-      const document = await this.readDocument();
-      document.sessions[session.id] = session;
-      await this.writeDocument(document);
-      return session;
+      const snapshot = toMutableStoreSnapshot(document);
+      const result = await mutator(snapshot);
+      await this.writeDocument(fromMutableStoreSnapshot(snapshot));
+      return result;
     });
   }
 
@@ -138,9 +94,7 @@ export class RemoteControlFileRepository
     }
   }
 
-  private async writeDocument(
-    document: RemoteControlDocument
-  ): Promise<void> {
+  private async writeDocument(document: RemoteControlDocument): Promise<void> {
     const filePath = await this.resolveFilePath();
     await mkdir(path.dirname(filePath), { recursive: true });
     const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
@@ -151,4 +105,48 @@ export class RemoteControlFileRepository
   private async resolveFilePath(): Promise<string> {
     return await this.filePathProvider();
   }
+}
+
+function toStoreSnapshot(
+  document: RemoteControlDocument
+): RemoteControlStoreSnapshot {
+  return {
+    devices: Object.values(document.devices).map(cloneDevice),
+    sessions: Object.values(document.sessions).map(cloneSession),
+  };
+}
+
+function toMutableStoreSnapshot(
+  document: RemoteControlDocument
+): MutableRemoteControlStoreSnapshot {
+  return {
+    devices: Object.values(document.devices).map(cloneDevice),
+    sessions: Object.values(document.sessions).map(cloneSession),
+  };
+}
+
+function fromMutableStoreSnapshot(
+  snapshot: MutableRemoteControlStoreSnapshot
+): RemoteControlDocument {
+  const devices: RemoteControlDocument["devices"] = {};
+  for (const device of snapshot.devices) {
+    devices[device.id] = cloneDevice(device);
+  }
+  const sessions: RemoteControlDocument["sessions"] = {};
+  for (const session of snapshot.sessions) {
+    sessions[session.id] = cloneSession(session);
+  }
+  return RemoteControlDocumentSchema.parse({
+    version: DOCUMENT_VERSION,
+    devices,
+    sessions,
+  });
+}
+
+function cloneDevice(device: RemoteRelayDevice): RemoteRelayDevice {
+  return RemoteRelayDeviceSchema.parse(device);
+}
+
+function cloneSession(session: RemoteSession): RemoteSession {
+  return RemoteSessionSchema.parse(session);
 }

@@ -1,36 +1,34 @@
 import type { SettingsRepositoryPort } from "@/modules/settings";
 import { ValidationError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { Project, ProjectInput } from "@/shared/types/project.types";
 import { resolveProjectPath } from "@/shared/utils/project-roots.util";
 import type { ProjectRepositoryPort } from "./ports/project-repository.port";
+import type { ProjectLifecycleNotifier } from "./project-lifecycle.notifier";
 
 /**
  * Creates a user-owned project after resolving it against configured roots.
  *
  * Error mode: empty names and duplicate resolved paths throw `ValidationError`;
- * successful creation publishes a dashboard refresh event.
+ * successful creation reports a project-created lifecycle notification.
  */
 export class CreateProjectService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly settingsRepo: SettingsRepositoryPort;
-  private readonly eventBus: EventBusPort;
+  private readonly projectLifecycleNotifier: ProjectLifecycleNotifier;
 
   constructor(
     projectRepo: ProjectRepositoryPort,
     settingsRepo: SettingsRepositoryPort,
-    eventBus: EventBusPort
+    projectLifecycleNotifier: ProjectLifecycleNotifier
   ) {
     this.projectRepo = projectRepo;
     this.settingsRepo = settingsRepo;
-    this.eventBus = eventBus;
+    this.projectLifecycleNotifier = projectLifecycleNotifier;
   }
 
   async execute(userId: string, input: Omit<ProjectInput, "userId">) {
     const project = await this.createProject(userId, input);
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "project_created",
+    await this.projectLifecycleNotifier.projectCreated({
       userId,
       projectId: project.id,
     });

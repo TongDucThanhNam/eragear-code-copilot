@@ -1,34 +1,42 @@
 import {
   CreateProjectService,
+  createEventBusProjectLifecycleNotifier,
   DeleteProjectService,
   ListProjectsService,
   SetActiveProjectService,
   UpdateProjectService,
 } from "@/modules/project";
 import type { ProjectUseCases } from "@/modules/use-cases";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type ProjectServiceDependencies = ServiceRegistrySlice<
+  "eventBus" | "projectRepo" | "settingsRepo"
+>;
 
 export function createProjectUseCases(
-  deps: ServiceRegistryDependencies
+  deps: ProjectServiceDependencies
 ): ProjectUseCases {
+  const projectLifecycleNotifier = createEventBusProjectLifecycleNotifier(
+    deps.eventBus
+  );
   const listProjectsService = new ListProjectsService(deps.projectRepo);
   const createProjectService = new CreateProjectService(
     deps.projectRepo,
     deps.settingsRepo,
-    deps.eventBus
+    projectLifecycleNotifier
   );
   const updateProjectService = new UpdateProjectService(
     deps.projectRepo,
     deps.settingsRepo,
-    deps.eventBus
+    projectLifecycleNotifier
   );
   const deleteProjectService = new DeleteProjectService(
     deps.projectRepo,
-    deps.eventBus
+    projectLifecycleNotifier
   );
   const setActiveProjectService = new SetActiveProjectService(
     deps.projectRepo,
-    deps.eventBus
+    projectLifecycleNotifier
   );
 
   return {

@@ -1,10 +1,8 @@
 import type {
   CustomSlashCommandRecord,
-  DeleteSlashCommandInput,
   SlashCommandDescriptor,
   SlashCommandsProjectInput,
   ToggleSlashCommandInput,
-  UpsertSlashCommandInput,
 } from "../contracts/commands.contract";
 
 export interface SlashCommandDiscoveryPort {
@@ -19,21 +17,22 @@ export interface SlashCommandDiscoveryPort {
 }
 
 export interface CustomSlashCommandRepositoryPort {
-  listCustomCommands(userId: string): Promise<CustomSlashCommandRecord[]>;
-  createCustomCommand(
-    userId: string,
-    input: UpsertSlashCommandInput & { name: string }
-  ): Promise<CustomSlashCommandRecord>;
-  updateCustomCommand(
-    userId: string,
-    input: UpsertSlashCommandInput & { id: string }
-  ): Promise<CustomSlashCommandRecord>;
-  setCustomCommandEnabled(
-    userId: string,
-    input: ToggleSlashCommandInput
-  ): Promise<CustomSlashCommandRecord>;
-  deleteCustomCommand(
-    userId: string,
-    input: DeleteSlashCommandInput
-  ): Promise<void>;
+  read<T>(
+    reader: (snapshot: CustomSlashCommandStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
+  mutate<T>(
+    mutator: (
+      snapshot: MutableCustomSlashCommandStoreSnapshot
+    ) => T | Promise<T>
+  ): Promise<T>;
+}
+
+export interface CustomSlashCommandStoreSnapshot {
+  commandsByUserId: Readonly<
+    Record<string, readonly CustomSlashCommandRecord[]>
+  >;
+}
+
+export interface MutableCustomSlashCommandStoreSnapshot {
+  commandsByUserId: Record<string, CustomSlashCommandRecord[]>;
 }

@@ -11,7 +11,11 @@ import {
   type BotRun,
   BotRunSchema,
 } from "../application/contracts/bots.contract";
-import type { BotRepositoryPort } from "../application/ports/bot-repository.port";
+import type {
+  BotQuotaAutomationStateSnapshot,
+  BotRepositoryPort,
+  MutableBotQuotaAutomationStateSnapshot,
+} from "../application/ports/bot-repository.port";
 
 const DOCUMENT_VERSION = 1;
 
@@ -29,6 +33,12 @@ const BotDocumentSchema = z
   .strict();
 
 type BotDocument = z.infer<typeof BotDocumentSchema>;
+
+type MutableQuotaAutomationStateSnapshot =
+  MutableBotQuotaAutomationStateSnapshot & {
+    getNext(): BotQuotaAutomationState;
+    hasChanged(): boolean;
+  };
 
 interface BotFileRepositoryParams {
   filePath: string | (() => string | Promise<string>);
@@ -115,20 +125,35 @@ export class BotFileRepository implements BotRepositoryPort {
     });
   }
 
-  async readQuotaAutomationState(): Promise<BotQuotaAutomationState> {
+  async readQuotaAutomationState<T>(
+    reader: (snapshot: BotQuotaAutomationStateSnapshot) => T | Promise<T>
+  ): Promise<T> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      return document.quotaAutomation;
+      return await reader(
+        createQuotaAutomationSnapshot(document.quotaAutomation)
+      );
     });
   }
 
-  async saveQuotaAutomationState(
-    state: BotQuotaAutomationState
-  ): Promise<void> {
-    await this.enqueue(async () => {
+  async mutateQuotaAutomationState<T>(
+    mutator: (
+      snapshot: MutableBotQuotaAutomationStateSnapshot
+    ) => T | Promise<T>
+  ): Promise<T> {
+    return await this.enqueue(async () => {
       const document = await this.readDocument();
-      document.quotaAutomation = BotQuotaAutomationStateSchema.parse(state);
-      await this.writeDocument(document);
+      const snapshot = createMutableQuotaAutomationSnapshot(
+        document.quotaAutomation
+      );
+      const result = await mutator(snapshot);
+      if (snapshot.hasChanged()) {
+        document.quotaAutomation = BotQuotaAutomationStateSchema.parse(
+          snapshot.getNext()
+        );
+        await this.writeDocument(document);
+      }
+      return result;
     });
   }
 
@@ -175,4 +200,42 @@ export class BotFileRepository implements BotRepositoryPort {
   private async resolveFilePath(): Promise<string> {
     return await this.filePathProvider();
   }
+}
+
+function createQuotaAutomationSnapshot(
+  state: BotQuotaAutomationState
+): BotQuotaAutomationStateSnapshot {
+  return {
+    get() {
+      return cloneQuotaAutomationState(state);
+    },
+  };
+}
+
+function createMutableQuotaAutomationSnapshot(
+  initial: BotQuotaAutomationState
+): MutableQuotaAutomationStateSnapshot {
+  let changed = false;
+  let next = cloneQuotaAutomationState(initial);
+  return {
+    get() {
+      return cloneQuotaAutomationState(next);
+    },
+    set(state) {
+      changed = true;
+      next = cloneQuotaAutomationState(state);
+    },
+    getNext() {
+      return cloneQuotaAutomationState(next);
+    },
+    hasChanged() {
+      return changed;
+    },
+  };
+}
+
+function cloneQuotaAutomationState(
+  state: BotQuotaAutomationState
+): BotQuotaAutomationState {
+  return structuredClone(state);
 }

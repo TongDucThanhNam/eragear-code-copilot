@@ -1,44 +1,33 @@
 import { describe, expect, it } from "bun:test";
-import type {
-  CrashReport,
-  CrashReportingConfig,
-} from "./contracts/crash-reporting.contract";
-import type { CrashReportingRepositoryPort } from "./ports/crash-reporting-repository.port";
+import type { CrashReport } from "./contracts/crash-reporting.contract";
 import {
   buildSentryEnvelope,
   CrashReportingService,
-  sentryEnvelopeEndpoint,
   type SentryEnvelopeTransportInput,
+  sentryEnvelopeEndpoint,
 } from "./crash-reporting.service";
+import type {
+  CrashReportingRepositoryPort,
+  CrashReportingStoreSnapshot,
+  MutableCrashReportingStoreSnapshot,
+} from "./ports/crash-reporting-repository.port";
 
 class MemoryCrashReportingRepository implements CrashReportingRepositoryPort {
-  config: CrashReportingConfig | null = null;
-  reports: CrashReport[] = [];
+  readonly snapshot: MutableCrashReportingStoreSnapshot = {
+    config: null,
+    reports: [],
+  };
 
-  async getConfig(): Promise<CrashReportingConfig | null> {
-    return this.config;
+  async read<T>(
+    reader: (snapshot: CrashReportingStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await reader(cloneSnapshot(this.snapshot));
   }
 
-  async saveConfig(
-    config: CrashReportingConfig
-  ): Promise<CrashReportingConfig> {
-    this.config = config;
-    return config;
-  }
-
-  async listReports(userId: string): Promise<CrashReport[]> {
-    return this.reports.filter(
-      (report) => report.userId === userId || report.userId === null
-    );
-  }
-
-  async saveReport(
-    report: CrashReport,
-    archiveLimit: number
-  ): Promise<CrashReport> {
-    this.reports.unshift(report);
-    this.reports = this.reports.slice(0, archiveLimit);
-    return report;
+  async mutate<T>(
+    mutator: (snapshot: MutableCrashReportingStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await mutator(this.snapshot);
   }
 }
 
@@ -48,7 +37,7 @@ describe("CrashReportingService", () => {
     const repository = new MemoryCrashReportingRepository();
     const service = new CrashReportingService({
       repository,
-      now: () => 1_000,
+      now: () => 1000,
       createId: () => `id-${++ids}`,
     });
 
@@ -67,15 +56,61 @@ describe("CrashReportingService", () => {
     expect(status.reports).toHaveLength(1);
   });
 
+  it("lists visible reports in newest-first order and prunes the archive", async () => {
+    let now = 1000;
+    let ids = 0;
+    const repository = new MemoryCrashReportingRepository();
+    const service = new CrashReportingService({
+      repository,
+      now: () => now,
+      createId: () => `id-${++ids}`,
+    });
+
+    await service.updateConfig({ archiveLimit: 10 });
+    for (let index = 0; index < 10; index++) {
+      now += 100;
+      await service.capture("user-1", {
+        source: "server",
+        level: "error",
+        message: `Crash ${index}`,
+      });
+    }
+    now += 100;
+    await service.capture("user-2", {
+      source: "server",
+      level: "error",
+      message: "Other user crash",
+    });
+    now += 100;
+    const systemReport = await service.captureSystem({
+      source: "server",
+      level: "fatal",
+      message: "System crash",
+    });
+
+    const status = await service.getStatus("user-1");
+
+    expect(repository.snapshot.reports).toHaveLength(10);
+    expect(status.reports[0]?.id).toBe(systemReport.id);
+    expect(status.reports.some((report) => report.userId === "user-2")).toBe(
+      false
+    );
+    expect(status.reports.map((report) => report.createdAt)).toEqual(
+      [...status.reports.map((report) => report.createdAt)].sort(
+        (left, right) => right - left
+      )
+    );
+  });
+
   it("sends a Sentry envelope when DSN is configured", async () => {
     const sentEnvelopes: SentryEnvelopeTransportInput[] = [];
     const service = new CrashReportingService({
       repository: new MemoryCrashReportingRepository(),
-      now: () => 2_000,
+      now: () => 2000,
       createId: () => "event-1",
-      sentryTransport: async (input) => {
+      sentryTransport: (input) => {
         sentEnvelopes.push(input);
-        return { ok: true, status: 200 };
+        return Promise.resolve({ ok: true, status: 200 });
       },
     });
     await service.updateConfig({
@@ -110,9 +145,26 @@ describe("CrashReportingService", () => {
       level: "fatal",
       message: "Crash",
       metadata: {},
-      createdAt: 3_000,
+      createdAt: 3000,
     });
     expect(envelope.split("\n")).toHaveLength(3);
-    expect(envelope).toContain("\"type\":\"event\"");
+    expect(envelope).toContain('"type":"event"');
   });
 });
+
+function cloneSnapshot(
+  snapshot: MutableCrashReportingStoreSnapshot
+): CrashReportingStoreSnapshot {
+  return {
+    config: snapshot.config ? { ...snapshot.config } : null,
+    reports: snapshot.reports.map(cloneReport),
+  };
+}
+
+function cloneReport(report: CrashReport): CrashReport {
+  return {
+    ...report,
+    metadata: { ...report.metadata },
+    sentry: { ...report.sentry },
+  };
+}

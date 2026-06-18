@@ -1,13 +1,13 @@
 import { type FSWatcher, watch } from "node:fs";
 import path from "node:path";
 import type {
+  FileWatcherNotifier,
   FileWatcherPort,
   FileWatcherSessionInput,
   FileWatcherSnapshot,
   FileWatcherStatusInput,
   UnwatchSessionInput,
 } from "@/modules/file-watcher";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 
 const FILE_WATCHER_DEBOUNCE_MS = 150;
@@ -30,13 +30,13 @@ interface WatchedRoot {
 }
 
 export class FsFileWatcherAdapter implements FileWatcherPort {
-  private readonly eventBus: EventBusPort;
+  private readonly notifier: FileWatcherNotifier;
   private readonly logger: LoggerPort;
   private readonly roots = new Map<string, WatchedRoot>();
   private readonly chatRoots = new Map<string, string>();
 
-  constructor(params: { eventBus: EventBusPort; logger: LoggerPort }) {
-    this.eventBus = params.eventBus;
+  constructor(params: { notifier: FileWatcherNotifier; logger: LoggerPort }) {
+    this.notifier = params.notifier;
     this.logger = params.logger;
   }
 
@@ -152,8 +152,8 @@ export class FsFileWatcherAdapter implements FileWatcherPort {
     }
     const timer = setTimeout(() => {
       root.pendingChanges.delete(relativePath);
-      this.publishChange(root, relativePath, eventType).catch((error) => {
-        this.logger.warn("Unhandled file watcher publish failure", {
+      this.notifyChange(root, relativePath, eventType).catch((error) => {
+        this.logger.warn("Unhandled file watcher notification failure", {
           projectRoot: root.projectRoot,
           path: relativePath,
           error: error instanceof Error ? error.message : String(error),
@@ -164,7 +164,7 @@ export class FsFileWatcherAdapter implements FileWatcherPort {
     root.pendingChanges.set(relativePath, timer);
   }
 
-  private async publishChange(
+  private async notifyChange(
     root: WatchedRoot,
     relativePath: string,
     eventType: "rename" | "change"
@@ -174,16 +174,14 @@ export class FsFileWatcherAdapter implements FileWatcherPort {
       return;
     }
     try {
-      await this.eventBus.publish({
-        type: "file_watcher_file_changed",
+      await this.notifier.fileChanged({
         projectRoot: root.projectRoot,
         path: relativePath,
         eventKind: eventType === "rename" ? "renamed" : "changed",
-        occurredAt: new Date().toISOString(),
         sessions,
       });
     } catch (error) {
-      this.logger.warn("Failed to publish file watcher change", {
+      this.logger.warn("Failed to notify file watcher change", {
         projectRoot: root.projectRoot,
         path: relativePath,
         error: error instanceof Error ? error.message : String(error),

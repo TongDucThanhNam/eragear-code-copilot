@@ -12,7 +12,12 @@ import {
   type RepoSnapshotStorageState,
   RepoSnapshotStorageStateSchema,
 } from "../application/contracts/repo-snapshot-indexing.contract";
-import type { RepoSnapshotIndexingRepositoryPort } from "../application/ports/repo-snapshot-indexing-repository.port";
+import type {
+  MutableRepoSnapshotIndexingSettingsSnapshot,
+  RepoSnapshotIndexingRepositoryPort,
+  RepoSnapshotIndexingSettingsScope,
+  RepoSnapshotIndexingSettingsSnapshot,
+} from "../application/ports/repo-snapshot-indexing-repository.port";
 
 const MAX_MANIFESTS_PER_PROJECT = 20;
 const MAX_MANIFEST_FILE_SAMPLE = 200;
@@ -35,6 +40,7 @@ const RepoSnapshotProjectStateFileSchema = z.object({
 });
 
 type RepoSnapshotIndexingFile = z.infer<typeof RepoSnapshotIndexingFileSchema>;
+type SettingsByUserProject = Record<string, RepoSnapshotIndexingSettings>;
 
 export class RepoSnapshotIndexingFileRepository
   implements RepoSnapshotIndexingRepositoryPort
@@ -45,23 +51,30 @@ export class RepoSnapshotIndexingFileRepository
     this.filePath = deps.filePath;
   }
 
-  async getSettings(
-    userId: string,
-    projectRoot: string
-  ): Promise<RepoSnapshotIndexingSettings | null> {
+  async readSettings<T>(
+    reader: (snapshot: RepoSnapshotIndexingSettingsSnapshot) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readSettingsFile();
-    return file.settingsByUserProject[settingsKey(userId, projectRoot)] ?? null;
+    return await reader(createSettingsSnapshot(file.settingsByUserProject));
   }
 
-  async saveSettings(
-    userId: string,
-    projectRoot: string,
-    settings: RepoSnapshotIndexingSettings
-  ): Promise<RepoSnapshotIndexingSettings> {
+  async mutateSettings<T>(
+    mutator: (
+      snapshot: MutableRepoSnapshotIndexingSettingsSnapshot
+    ) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readSettingsFile();
-    file.settingsByUserProject[settingsKey(userId, projectRoot)] = settings;
-    await this.writeSettingsFile(file);
-    return settings;
+    const settingsByUserProject = cloneSettingsByUserProject(
+      file.settingsByUserProject
+    );
+    const result = await mutator(
+      createMutableSettingsSnapshot(settingsByUserProject)
+    );
+    await this.writeSettingsFile({
+      version: 1,
+      settingsByUserProject,
+    });
+    return result;
   }
 
   async getStorageState(
@@ -152,6 +165,46 @@ export class RepoSnapshotIndexingFileRepository
       throw error;
     }
   }
+}
+
+function createSettingsSnapshot(
+  settingsByUserProject: SettingsByUserProject
+): RepoSnapshotIndexingSettingsSnapshot {
+  return {
+    get(scope) {
+      const settings = settingsByUserProject[settingsKey(scope)];
+      return settings ? cloneSettings(settings) : null;
+    },
+  };
+}
+
+function createMutableSettingsSnapshot(
+  settingsByUserProject: SettingsByUserProject
+): MutableRepoSnapshotIndexingSettingsSnapshot {
+  const snapshot = createSettingsSnapshot(settingsByUserProject);
+  return {
+    ...snapshot,
+    set(scope, settings) {
+      settingsByUserProject[settingsKey(scope)] = cloneSettings(settings);
+    },
+  };
+}
+
+function cloneSettingsByUserProject(
+  settingsByUserProject: SettingsByUserProject
+): SettingsByUserProject {
+  return Object.fromEntries(
+    Object.entries(settingsByUserProject).map(([key, settings]) => [
+      key,
+      cloneSettings(settings),
+    ])
+  );
+}
+
+function cloneSettings(
+  settings: RepoSnapshotIndexingSettings
+): RepoSnapshotIndexingSettings {
+  return { ...settings };
 }
 
 function createManifest(input: {
@@ -263,11 +316,11 @@ function projectSnapshotPaths(projectRoot: string): {
   };
 }
 
-function settingsKey(userId: string, projectRoot: string): string {
+function settingsKey(scope: RepoSnapshotIndexingSettingsScope): string {
   const rootHash = createHash("sha256")
-    .update(path.resolve(projectRoot))
+    .update(path.resolve(scope.projectRoot))
     .digest("hex");
-  return `${userId}:${rootHash.slice(0, 24)}`;
+  return `${scope.userId}:${rootHash.slice(0, 24)}`;
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {

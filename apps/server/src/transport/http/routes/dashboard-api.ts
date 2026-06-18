@@ -16,37 +16,13 @@
 
 import type { Context, Hono } from "hono";
 import { matchesLogQuery } from "@/shared/utils/log-query.util";
+import { createManagedSseStream } from "../sse-stream";
+import {
+  parseDashboardSessionPaginationParams,
+  parseLogQueryParams,
+} from "./dashboard-api-route-input";
 import type { HttpRouteDependencies } from "./deps";
-import { parseLogQueryParams, parseSessionPaginationParams } from "./helpers";
-
-function enqueueSseChunk(params: {
-  controller: ReadableStreamDefaultController<Uint8Array>;
-  encoder: TextEncoder;
-  payload: string;
-  closed: boolean;
-  close: () => void;
-  closeOnBackpressure?: boolean;
-}): boolean {
-  if (params.closed) {
-    return false;
-  }
-  if (
-    params.closeOnBackpressure &&
-    params.controller.desiredSize !== null &&
-    params.controller.desiredSize <= 0
-  ) {
-    // Fail fast on slow consumers so SSE buffers cannot grow without bound.
-    params.close();
-    return false;
-  }
-  try {
-    params.controller.enqueue(params.encoder.encode(params.payload));
-    return true;
-  } catch {
-    params.close();
-    return false;
-  }
-}
+import { requireRouteUserId } from "./route-auth";
 
 /**
  * Registers dashboard-related API routes
@@ -60,21 +36,8 @@ export function registerDashboardApiRoutes(
 ): void {
   const { eventBus, logStore, useCases, appConfig, resolveAuthContext } = deps;
 
-  const resolveUserId = async (c: Context): Promise<string | null> => {
-    const auth = await resolveAuthContext({
-      headers: c.req.raw.headers,
-      url: c.req.raw.url,
-      remoteAddress: c.req.header("x-eragear-remote-address"),
-    });
-    return auth?.userId ?? null;
-  };
-  const requireUserId = async (c: Context): Promise<string | Response> => {
-    const userId = await resolveUserId(c);
-    if (!userId) {
-      return c.json({ error: "Unauthorized" }, 401);
-    }
-    return userId;
-  };
+  const requireUserId = (c: Context) =>
+    requireRouteUserId(c, resolveAuthContext);
   const eventVisibilityService = useCases.ops.dashboardEventVisibility;
 
   // =========================================================================
@@ -85,23 +48,23 @@ export function registerDashboardApiRoutes(
    * GET /api/dashboard/projects - Get all projects with session statistics
    */
   api.get("/dashboard/projects", async (c: Context) => {
-    const userId = await requireUserId(c);
-    if (userId instanceof Response) {
-      return userId;
+    const auth = await requireUserId(c);
+    if (!auth.ok) {
+      return auth.response;
     }
     const service = useCases.ops.dashboardProjects;
-    return c.json(await service.execute(userId));
+    return c.json(await service.execute(auth.userId));
   });
 
   /**
    * GET /api/dashboard/sessions - Get all sessions with details
    */
   api.get("/dashboard/sessions", async (c: Context) => {
-    const userId = await requireUserId(c);
-    if (userId instanceof Response) {
-      return userId;
+    const auth = await requireUserId(c);
+    if (!auth.ok) {
+      return auth.response;
     }
-    const parsedPagination = parseSessionPaginationParams(
+    const parsedPagination = parseDashboardSessionPaginationParams(
       c.req.query(),
       appConfig.getConfig().sessionListPageMaxLimit
     );
@@ -111,31 +74,33 @@ export function registerDashboardApiRoutes(
     const { limit, offset } = parsedPagination.pagination;
 
     const service = useCases.ops.dashboardSessions;
-    return c.json(await service.execute({ userId, limit, offset }));
+    return c.json(
+      await service.execute({ userId: auth.userId, limit, offset })
+    );
   });
 
   /**
    * GET /api/dashboard/stats - Get dashboard statistics
    */
   api.get("/dashboard/stats", async (c: Context) => {
-    const userId = await requireUserId(c);
-    if (userId instanceof Response) {
-      return userId;
+    const auth = await requireUserId(c);
+    if (!auth.ok) {
+      return auth.response;
     }
     const service = useCases.ops.dashboardStats;
-    return c.json(await service.execute(userId));
+    return c.json(await service.execute(auth.userId));
   });
 
   /**
    * GET /api/dashboard/observability - Runtime observability snapshot
    */
   api.get("/dashboard/observability", async (c: Context) => {
-    const userId = await requireUserId(c);
-    if (userId instanceof Response) {
-      return userId;
+    const auth = await requireUserId(c);
+    if (!auth.ok) {
+      return auth.response;
     }
     const service = useCases.ops.observabilitySnapshot;
-    return c.json({ observability: await service.execute(userId) });
+    return c.json({ observability: await service.execute(auth.userId) });
   });
 
   // =========================================================================
@@ -146,9 +111,9 @@ export function registerDashboardApiRoutes(
    * GET /api/logs - Query log entries
    */
   api.get("/logs", async (c: Context) => {
-    const userId = await requireUserId(c);
-    if (userId instanceof Response) {
-      return userId;
+    const auth = await requireUserId(c);
+    if (!auth.ok) {
+      return auth.response;
     }
     const parsed = parseLogQueryParams(c.req.query());
     if (!parsed.ok) {
@@ -156,7 +121,7 @@ export function registerDashboardApiRoutes(
     }
     const result = await logStore.query({
       ...parsed.query,
-      userId,
+      userId: auth.userId,
     });
     return c.json({
       ...result,
@@ -168,9 +133,9 @@ export function registerDashboardApiRoutes(
    * GET /api/logs/stream - Real-time log streaming (SSE)
    */
   api.get("/logs/stream", async (c: Context) => {
-    const userId = await requireUserId(c);
-    if (userId instanceof Response) {
-      return userId;
+    const auth = await requireUserId(c);
+    if (!auth.ok) {
+      return auth.response;
     }
     const parsed = parseLogQueryParams(c.req.query());
     if (!parsed.ok) {
@@ -178,100 +143,39 @@ export function registerDashboardApiRoutes(
     }
     const query = {
       ...parsed.query,
-      userId,
-    };
-    const encoder = new TextEncoder();
-    const abortSignal = c.req.raw.signal;
-
-    let unsubscribe: (() => void) | null = null;
-    let heartbeat: ReturnType<typeof setInterval> | null = null;
-    let closed = false;
-    let controllerRef: ReadableStreamDefaultController<Uint8Array> | null =
-      null;
-
-    const close = () => {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      abortSignal?.removeEventListener("abort", close);
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
-      }
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
-      if (controllerRef) {
-        try {
-          controllerRef.close();
-        } catch {
-          // The stream may already be closed or canceled.
-        }
-        controllerRef = null;
-      }
+      userId: auth.userId,
     };
 
     let stream: ReadableStream<Uint8Array>;
     try {
-      stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          controllerRef = controller;
-          if (abortSignal?.aborted) {
-            close();
-            return;
-          }
-          const send = (payload: string) => {
-            return enqueueSseChunk({
-              controller,
-              encoder,
-              payload,
-              closed,
-              close,
-              closeOnBackpressure: !payload.startsWith("event: connected"),
-            });
-          };
-
+      stream = createManagedSseStream({
+        signal: c.req.raw.signal,
+        start(sender) {
           if (
-            !send(
-              `event: connected\ndata: ${JSON.stringify({
+            !sender.sendEvent(
+              "connected",
+              {
                 ok: true,
                 ts: Date.now(),
-              })}\n\n`
+              },
+              { closeOnBackpressure: false }
             )
           ) {
-            return;
+            return undefined;
           }
 
-          unsubscribe = logStore.subscribe((entry) => {
-            if (closed) {
+          return logStore.subscribe((entry) => {
+            if (sender.closed || !matchesLogQuery(entry, query)) {
               return;
             }
-            if (!matchesLogQuery(entry, query)) {
-              return;
-            }
-            send(`data: ${JSON.stringify(entry)}\n\n`);
+            sender.sendRaw(`data: ${JSON.stringify(entry)}\n\n`);
           });
-          if (closed && unsubscribe) {
-            unsubscribe();
-            unsubscribe = null;
-            return;
-          }
-
-          heartbeat = setInterval(() => {
-            send(`: ping ${Date.now()}\n\n`);
-          }, 15_000);
-          heartbeat.unref?.();
-
-          abortSignal?.addEventListener("abort", close, { once: true });
         },
-        cancel() {
-          close();
+        heartbeat(sender) {
+          sender.sendRaw(`: ping ${Date.now()}\n\n`);
         },
       });
     } catch {
-      close();
       return new Response("Failed to initialize event stream", {
         status: 503,
       });
@@ -295,100 +199,46 @@ export function registerDashboardApiRoutes(
    * GET /api/dashboard/stream - Real-time dashboard updates (SSE)
    */
   api.get("/dashboard/stream", async (c: Context) => {
-    const userId = await requireUserId(c);
-    if (userId instanceof Response) {
-      return userId;
+    const auth = await requireUserId(c);
+    if (!auth.ok) {
+      return auth.response;
     }
-    const encoder = new TextEncoder();
-    const abortSignal = c.req.raw.signal;
-
-    let unsubscribe: (() => void) | null = null;
-    let heartbeat: ReturnType<typeof setInterval> | null = null;
-    let closed = false;
-    let controllerRef: ReadableStreamDefaultController<Uint8Array> | null =
-      null;
-
-    const close = () => {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      abortSignal?.removeEventListener("abort", close);
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
-      }
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
-      if (controllerRef) {
-        try {
-          controllerRef.close();
-        } catch {
-          // The stream may already be closed or canceled.
-        }
-        controllerRef = null;
-      }
-    };
 
     let stream: ReadableStream<Uint8Array>;
     try {
-      stream = new ReadableStream({
-        start(controller) {
-          controllerRef = controller;
-          if (abortSignal?.aborted) {
-            close();
-            return;
-          }
-          const send = (event: string, data: unknown) => {
-            return enqueueSseChunk({
-              controller,
-              encoder,
-              payload: `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
-              closed,
-              close,
-              closeOnBackpressure: event !== "connected",
-            });
-          };
-
-          if (!send("connected", { ok: true, ts: Date.now() })) {
-            return;
+      stream = createManagedSseStream({
+        signal: c.req.raw.signal,
+        start(sender) {
+          if (
+            !sender.sendEvent(
+              "connected",
+              { ok: true, ts: Date.now() },
+              { closeOnBackpressure: false }
+            )
+          ) {
+            return undefined;
           }
 
-          unsubscribe = eventBus.subscribe(
+          return eventBus.subscribe(
             (event) => {
-              if (!eventVisibilityService.isVisible(event, userId)) {
+              if (!eventVisibilityService.isVisible(event, auth.userId)) {
                 return;
               }
               if (event && typeof event === "object" && "type" in event) {
                 const eventType = (event as { type: string }).type;
-                send(eventType, { ts: Date.now(), event });
+                sender.sendEvent(eventType, { ts: Date.now(), event });
                 return;
               }
-              send("refresh", { ts: Date.now(), event });
+              sender.sendEvent("refresh", { ts: Date.now(), event });
             },
             { signal: c.req.raw.signal }
           );
-          if (closed && unsubscribe) {
-            unsubscribe();
-            unsubscribe = null;
-            return;
-          }
-
-          heartbeat = setInterval(() => {
-            send("ping", { ts: Date.now() });
-          }, 15_000);
-          heartbeat.unref?.();
-
-          abortSignal?.addEventListener("abort", close, { once: true });
         },
-        cancel() {
-          close();
+        heartbeat(sender) {
+          sender.sendEvent("ping", { ts: Date.now() });
         },
       });
     } catch {
-      close();
       return new Response("Failed to initialize event stream", {
         status: 503,
       });

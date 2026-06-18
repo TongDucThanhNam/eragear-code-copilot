@@ -1,82 +1,148 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  CredentialListInput,
-  CredentialListResult,
-  CredentialRecord,
-  DeleteCredentialInput,
-  DeleteCredentialResult,
-  ResolveCredentialSecretInput,
-  UpsertCredentialInput,
-} from "./contracts/credential.contract";
 import { CredentialService } from "./credential.service";
 import type {
   CredentialStorePort,
-  ResolvedCredentialSecret,
+  StoredCredential,
 } from "./ports/credential-store.port";
 
-class CredentialStoreStub implements CredentialStorePort {
-  readonly calls: string[] = [];
-  record: CredentialRecord = {
-    id: "cred-1",
-    userId: "user-1",
-    name: "OpenAI",
-    kind: "api_key",
-    providerId: "openai",
-    secretPreview: "****1234",
-    createdAt: 1,
-    updatedAt: 1,
-    secretUpdatedAt: 1,
-  };
+class MemoryCredentialStore implements CredentialStorePort {
+  readonly credentials: StoredCredential[] = [];
 
-  list(
-    _userId: string,
-    _input?: CredentialListInput
-  ): Promise<CredentialListResult> {
-    this.calls.push("list");
-    return Promise.resolve({ credentials: [this.record], totalCount: 1 });
+  async read<T>(
+    reader: (credentials: readonly StoredCredential[]) => T | Promise<T>
+  ): Promise<T> {
+    return await reader(this.credentials.map(cloneCredential));
   }
 
-  upsert(
-    _userId: string,
-    _input: UpsertCredentialInput
-  ): Promise<CredentialRecord> {
-    this.calls.push("upsert");
-    return Promise.resolve(this.record);
-  }
-
-  delete(
-    _userId: string,
-    _input: DeleteCredentialInput
-  ): Promise<DeleteCredentialResult> {
-    this.calls.push("delete");
-    return Promise.resolve({ deleted: true });
-  }
-
-  resolveSecret(
-    _userId: string,
-    _input: ResolveCredentialSecretInput
-  ): Promise<ResolvedCredentialSecret | null> {
-    this.calls.push("resolveSecret");
-    return Promise.resolve({ credential: this.record, secret: "secret-value" });
+  async mutate<T>(
+    mutator: (credentials: StoredCredential[]) => T | Promise<T>
+  ): Promise<T> {
+    return await mutator(this.credentials);
   }
 }
 
 describe("CredentialService", () => {
-  test("delegates credential management to the store port", async () => {
-    const store = new CredentialStoreStub();
-    const service = new CredentialService(store);
+  test("normalizes and redacts credentials behind the use-case interface", async () => {
+    const store = new MemoryCredentialStore();
+    let now = 100;
+    let nextId = 1;
+    const service = new CredentialService(store, {
+      createId: () => `cred-${nextId++}`,
+      nowMs: () => now,
+    });
 
-    await service.list("user-1");
-    await service.upsert("user-1", {
+    const openAi = await service.upsert("user-1", {
+      name: " OpenAI ",
+      kind: "api_key",
+      providerId: " openai ",
+      secret: "sk-secret-1234",
+      metadata: { scope: "chat" },
+    });
+    now = 200;
+    const anthropic = await service.upsert("user-1", {
+      name: "Anthropic",
+      kind: "api_key",
+      providerId: "anthropic",
+      secret: "abcd",
+    });
+
+    const all = await service.list("user-1");
+    const filtered = await service.list("user-1", { providerId: "anthropic" });
+
+    expect(openAi).toEqual({
+      id: "cred-1",
+      userId: "user-1",
       name: "OpenAI",
       kind: "api_key",
       providerId: "openai",
-      secret: "sk-test",
+      secretPreview: "****1234",
+      metadata: { scope: "chat" },
+      createdAt: 100,
+      updatedAt: 100,
+      secretUpdatedAt: 100,
     });
-    await service.delete("user-1", { id: "cred-1" });
-    const resolved = await service.resolveSecret("user-1", { id: "cred-1" });
+    expect(anthropic.secretPreview).toBe("****");
+    expect(all.credentials.map((credential) => credential.id)).toEqual([
+      "cred-2",
+      "cred-1",
+    ]);
+    expect(filtered).toEqual({ credentials: [anthropic], totalCount: 1 });
+    expect(store.credentials[0]?.secret).toBe("sk-secret-1234");
+  });
 
-    expect(store.calls).toEqual(["list", "upsert", "delete", "resolveSecret"]);
-    expect(resolved?.secret).toBe("secret-value");
+  test("resolves secrets and records last-used time without exposing secret in records", async () => {
+    const store = new MemoryCredentialStore();
+    let now = 100;
+    const service = new CredentialService(store, {
+      createId: () => "cred-1",
+      nowMs: () => now,
+    });
+
+    const record = await service.upsert("user-1", {
+      name: "MiniMax",
+      kind: "api_key",
+      providerId: "minimax",
+      secret: "minimax-secret",
+    });
+    now = 300;
+    const resolved = await service.resolveSecret("user-1", {
+      providerId: "minimax",
+      kind: "api_key",
+    });
+    const listed = await service.list("user-1");
+
+    expect(resolved?.secret).toBe("minimax-secret");
+    expect(resolved?.credential).toEqual({
+      ...record,
+      lastUsedAt: 300,
+    });
+    expect("secret" in (resolved?.credential ?? {})).toBe(false);
+    expect(listed.credentials[0]?.lastUsedAt).toBe(300);
+  });
+
+  test("enforces credential ownership for updates and deletes", async () => {
+    const store = new MemoryCredentialStore();
+    const service = new CredentialService(store, {
+      createId: () => "cred-1",
+      nowMs: () => 100,
+    });
+
+    const record = await service.upsert("user-1", {
+      name: "Z.ai",
+      kind: "api_key",
+      providerId: "zai",
+      secret: "zai-secret",
+    });
+
+    await expect(
+      service.upsert("user-2", {
+        id: record.id,
+        name: "Z.ai",
+        kind: "api_key",
+        providerId: "zai",
+        secret: "replacement",
+      })
+    ).rejects.toThrow("Credential not found");
+    await expect(service.delete("user-2", { id: record.id })).rejects.toThrow(
+      "Credential not found"
+    );
+    await expect(
+      service.resolveSecret("user-2", { id: record.id })
+    ).resolves.toBeNull();
+
+    await expect(service.delete("user-1", { id: record.id })).resolves.toEqual({
+      deleted: true,
+    });
+    await expect(service.list("user-1")).resolves.toEqual({
+      credentials: [],
+      totalCount: 0,
+    });
   });
 });
+
+function cloneCredential(credential: StoredCredential): StoredCredential {
+  return {
+    ...credential,
+    ...(credential.metadata ? { metadata: { ...credential.metadata } } : {}),
+  };
+}

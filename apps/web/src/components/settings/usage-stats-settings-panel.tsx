@@ -42,6 +42,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   gemini: "#8b5cf6",
   opencode: "#f43f5e",
   pi: "#14b8a6",
+  zcode: "#6366f1",
 };
 
 const HEATMAP_COLORS = [

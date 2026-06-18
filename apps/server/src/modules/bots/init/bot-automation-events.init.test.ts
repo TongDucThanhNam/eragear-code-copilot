@@ -37,20 +37,20 @@ function createLogger(): LoggerPort {
 
 describe("initializeBotAutomationEvents", () => {
   test("routes quota and lifecycle events to bot automation use cases", async () => {
-    const calls: string[] = [];
+    const calls: Array<{ name: string; input: unknown }> = [];
     const { dispatch, eventBus } = createEventBusStub();
     const botsUseCases = {
       bots: {
-        recordQuotaSnapshot: () => {
-          calls.push("quota");
+        recordQuotaSnapshot: (input: unknown) => {
+          calls.push({ name: "quota", input });
           return Promise.resolve();
         },
-        completeRunsForTurn: () => {
-          calls.push("complete");
+        completeRunsForTurn: (input: unknown) => {
+          calls.push({ name: "complete", input });
           return Promise.resolve();
         },
-        stopRunsForSession: () => {
-          calls.push("stop");
+        stopRunsForSession: (input: unknown) => {
+          calls.push({ name: "stop", input });
           return Promise.resolve();
         },
       },
@@ -69,27 +69,75 @@ describe("initializeBotAutomationEvents", () => {
       providerDisplayName: "Z.ai Coding Plan",
       status: "ready",
       fetchedAt: "2026-06-12T12:00:00.000Z",
-      windows: [],
+      windows: [
+        {
+          id: "5h",
+          windowType: "rolling",
+          label: "5h",
+          percentRemaining: 10,
+          used: 90,
+          total: 100,
+          remaining: 10,
+          resetAt: "2026-06-12T17:00:00.000Z",
+          scope: "coding",
+        },
+      ],
       changed: true,
     });
     await dispatch({
-      type: "local_ade_lifecycle",
-      event: "after-agent-turn-complete",
+      type: "prompt_turn_completed",
       userId: "user-1",
       projectRoot: "/repo",
       chatId: "chat-1",
       turnId: "turn-1",
       stopReason: "end_turn",
+      source: "client",
     });
     await dispatch({
-      type: "local_ade_lifecycle",
-      event: "after-agent-session-stop",
+      type: "agent_session_stopped",
       userId: "user-1",
       projectRoot: "/repo",
       chatId: "chat-1",
       stopReason: "manual",
     });
 
-    expect(calls).toEqual(["quota", "complete", "stop"]);
+    expect(calls).toEqual([
+      {
+        name: "quota",
+        input: {
+          userId: "user-1",
+          providerId: "zai",
+          providerDisplayName: "Z.ai Coding Plan",
+          status: "ready",
+          windows: [
+            {
+              id: "5h",
+              windowType: "rolling",
+              label: "5h",
+              percentRemaining: 10,
+              remaining: 10,
+              resetAt: "2026-06-12T17:00:00.000Z",
+            },
+          ],
+        },
+      },
+      {
+        name: "complete",
+        input: {
+          userId: "user-1",
+          chatId: "chat-1",
+          turnId: "turn-1",
+          stopReason: "end_turn",
+        },
+      },
+      {
+        name: "stop",
+        input: {
+          userId: "user-1",
+          chatId: "chat-1",
+          stopReason: "manual",
+        },
+      },
+    ]);
   });
 });

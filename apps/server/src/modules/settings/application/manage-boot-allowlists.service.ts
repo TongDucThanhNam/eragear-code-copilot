@@ -13,9 +13,9 @@ import {
 } from "@/config/environment.parsers";
 import type { AgentRuntimePort } from "@/modules/session";
 import { ValidationError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { CommandPolicy } from "@/shared/utils/allowlist.util";
 import { isRecord } from "@/shared/utils/type-guards.util";
+import type { SettingsChangeNotifier } from "./settings-change.notifier";
 
 const OP_UPDATE = "settings.boot_allowlists.update";
 const BOOT_CONFIG_PATH_ENV_KEY = "ERAGEAR_BOOT_CONFIG_PATH";
@@ -634,11 +634,14 @@ function parseBootEnvKeysWithFallback(params: {
  * invocation policy when supported; some common settings remain restart-bound.
  */
 export class ManageBootAllowlistsService {
-  private readonly eventBus: EventBusPort;
+  private readonly settingsChangeNotifier: SettingsChangeNotifier;
   private readonly agentRuntime: AgentRuntimePort;
 
-  constructor(eventBus: EventBusPort, agentRuntime: AgentRuntimePort) {
-    this.eventBus = eventBus;
+  constructor(
+    settingsChangeNotifier: SettingsChangeNotifier,
+    agentRuntime: AgentRuntimePort
+  ) {
+    this.settingsChangeNotifier = settingsChangeNotifier;
     this.agentRuntime = agentRuntime;
   }
 
@@ -783,14 +786,9 @@ export class ManageBootAllowlistsService {
 
     this.applyRuntimeConfig(next);
 
-    await this.eventBus.publish({
-      type: "settings_updated",
+    await this.settingsChangeNotifier.publishSettingsChanged({
       changedKeys,
       requiresRestart,
-    });
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "settings_updated",
     });
 
     return this.get();

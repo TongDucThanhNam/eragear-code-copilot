@@ -3,7 +3,10 @@ import type {
   TrafficProxyStatus,
   UpdateTrafficProxyConfigInput,
 } from "./contracts/traffic-proxy.contract";
-import type { TrafficProxyRepositoryPort } from "./ports/traffic-proxy-repository.port";
+import type {
+  TrafficProxyConfigSnapshot,
+  TrafficProxyRepositoryPort,
+} from "./ports/traffic-proxy-repository.port";
 
 const DEFAULT_CONFIG: TrafficProxyConfig = {
   enabled: false,
@@ -62,7 +65,10 @@ export class TrafficProxyService {
         : {}),
       updatedAt: this.now(),
     };
-    this.cachedConfig = this.repository.saveConfig(next);
+    this.cachedConfig = this.repository.mutateConfig((snapshot) => {
+      snapshot.set(next);
+      return next;
+    });
     return this.getStatus();
   }
 
@@ -74,11 +80,21 @@ export class TrafficProxyService {
     if (this.cachedConfig) {
       return this.cachedConfig;
     }
-    this.cachedConfig = this.repository.getConfig() ?? {
-      ...DEFAULT_CONFIG,
-      updatedAt: this.now(),
-    };
+    this.cachedConfig = this.repository.readConfig((snapshot) =>
+      this.resolveConfig(snapshot)
+    );
     return this.cachedConfig;
+  }
+
+  private resolveConfig(
+    snapshot: TrafficProxyConfigSnapshot
+  ): TrafficProxyConfig {
+    return (
+      snapshot.get() ?? {
+        ...DEFAULT_CONFIG,
+        updatedAt: this.now(),
+      }
+    );
   }
 }
 

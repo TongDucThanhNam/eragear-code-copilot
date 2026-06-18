@@ -17,18 +17,22 @@ afterEach(async () => {
 });
 
 describe("TerminalSettingsFileRepository", () => {
-  test("persists per-user terminal settings", async () => {
+  test("persists terminal settings snapshots", async () => {
     const filePath = path.join(tempDir, "terminal-settings.json");
     const repository = new TerminalSettingsFileRepository({ filePath });
 
-    expect((await repository.getSettings("user-1")).inheritSystemProfile).toBe(
-      true
-    );
+    await expect(
+      repository.read((snapshot) => snapshot.settingsByUserId)
+    ).resolves.toEqual({});
 
-    const updated = await repository.updateSettings("user-1", {
-      inheritSystemProfile: false,
-      shellCommand: "node",
-      shellArgs: ["-i"],
+    const updated = await repository.mutate((snapshot) => {
+      const next = {
+        inheritSystemProfile: false,
+        shellCommand: "node",
+        shellArgs: ["-i"],
+      };
+      snapshot.settingsByUserId["user-1"] = next;
+      return next;
     });
 
     expect(updated).toEqual({
@@ -36,8 +40,13 @@ describe("TerminalSettingsFileRepository", () => {
       shellCommand: "node",
       shellArgs: ["-i"],
     });
-    expect((await repository.getSettings("user-2")).shellCommand).toBe("");
-    expect(await readFile(filePath, "utf8")).toContain("user-1");
+    await expect(
+      repository.read((snapshot) => snapshot.settingsByUserId["user-2"])
+    ).resolves.toBeUndefined();
+
+    const raw = await readFile(filePath, "utf8");
+    expect(raw).toContain('"version": 1');
+    expect(raw).toContain("user-1");
   });
 });
 

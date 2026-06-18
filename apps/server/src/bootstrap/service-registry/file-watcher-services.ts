@@ -1,17 +1,17 @@
-import { FileWatcherService } from "@/modules/file-watcher";
+import { createEventBusFileWatcherNotifier } from "@/modules/file-watcher";
 import type { FileWatcherUseCases } from "@/modules/use-cases";
 import { FsFileWatcherAdapter } from "@/platform/file-watcher";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type FileWatcherDependencies = ServiceRegistrySlice<"eventBus" | "appLogger">;
 
 export function createFileWatcherUseCases(
-  deps: ServiceRegistryDependencies
+  deps: FileWatcherDependencies
 ): FileWatcherUseCases {
   return {
-    fileWatcher: new FileWatcherService(
-      new FsFileWatcherAdapter({
-        eventBus: deps.eventBus,
-        logger: deps.appLogger,
-      })
-    ),
+    fileWatcher: new FsFileWatcherAdapter({
+      notifier: createEventBusFileWatcherNotifier(deps.eventBus),
+      logger: deps.appLogger,
+    }),
   };
 }

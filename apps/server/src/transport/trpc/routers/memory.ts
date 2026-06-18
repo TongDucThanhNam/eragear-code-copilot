@@ -1,46 +1,12 @@
-import {
-  BuildMemoryContextInputSchema,
-  DeleteMemoryPresetInputSchema,
-  MemoryProjectInputSchema,
-  SetMemorySourceEnabledInputSchema,
-  UpsertMemoryPresetInputSchema,
-} from "@/modules/memory";
-import { getRequiredUserId } from "../auth-helpers";
-import { protectedProcedure, router } from "../base";
+import t from "../base";
+import { memoryContextRouter } from "./memory-context-router";
+import { memoryPresetRouter } from "./memory-preset-router";
+import { memoryQueryRouter } from "./memory-query-router";
+import { memorySourceRouter } from "./memory-source-router";
 
-export const memoryRouter = router({
-  list: protectedProcedure
-    .input(MemoryProjectInputSchema)
-    .query(async ({ input, ctx }) => {
-      const service = ctx.useCases.memory.memory;
-      return await service.list(getRequiredUserId(ctx), input);
-    }),
-
-  setSourceEnabled: protectedProcedure
-    .input(SetMemorySourceEnabledInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const service = ctx.useCases.memory.memory;
-      return await service.setSourceEnabled(getRequiredUserId(ctx), input);
-    }),
-
-  upsertPreset: protectedProcedure
-    .input(UpsertMemoryPresetInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const service = ctx.useCases.memory.memory;
-      return await service.upsertPreset(getRequiredUserId(ctx), input);
-    }),
-
-  deletePreset: protectedProcedure
-    .input(DeleteMemoryPresetInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const service = ctx.useCases.memory.memory;
-      return await service.deletePreset(getRequiredUserId(ctx), input);
-    }),
-
-  buildContext: protectedProcedure
-    .input(BuildMemoryContextInputSchema)
-    .query(async ({ input, ctx }) => {
-      const service = ctx.useCases.memory.memory;
-      return await service.buildContext(getRequiredUserId(ctx), input);
-    }),
-});
+export const memoryRouter = t.mergeRouters(
+  memoryQueryRouter,
+  memorySourceRouter,
+  memoryPresetRouter,
+  memoryContextRouter
+);

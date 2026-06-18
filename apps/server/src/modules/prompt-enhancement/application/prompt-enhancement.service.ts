@@ -6,6 +6,7 @@ import type {
   PromptEnhancementSettingsResult,
   UpdatePromptEnhancementSettingsInput,
 } from "./contracts/prompt-enhancement.contract";
+import { PromptEnhancementSettingsSchema } from "./contracts/prompt-enhancement.contract";
 import type { PromptEnhancementRepositoryPort } from "./ports/prompt-enhancement-repository.port";
 
 export const DEFAULT_PROMPT_ENHANCEMENT_SETTINGS: PromptEnhancementSettings = {
@@ -47,7 +48,7 @@ export class PromptEnhancementService {
   }
 
   async getSettings(userId: string): Promise<PromptEnhancementSettingsResult> {
-    return { settings: await this.repository.getSettings(userId) };
+    return { settings: await this.readSettings(userId) };
   }
 
   async updateSettings(
@@ -55,17 +56,22 @@ export class PromptEnhancementService {
     input: UpdatePromptEnhancementSettingsInput
   ): Promise<PromptEnhancementSettingsResult> {
     return {
-      settings: await this.repository.updateSettings(
-        userId,
-        normalizeUpdate(input)
-      ),
+      settings: await this.repository.mutate((snapshot) => {
+        const next = PromptEnhancementSettingsSchema.parse({
+          ...DEFAULT_PROMPT_ENHANCEMENT_SETTINGS,
+          ...(snapshot.settingsByUserId[userId] ?? {}),
+          ...normalizeUpdate(input),
+        });
+        snapshot.settingsByUserId[userId] = next;
+        return next;
+      }),
     };
   }
 
   async enhance(
     input: PromptEnhancementRequest
   ): Promise<PromptEnhancementResult> {
-    const settings = await this.repository.getSettings(input.userId);
+    const settings = await this.readSettings(input.userId);
     if (
       !settings.enabled ||
       input.source === "supervisor" ||
@@ -86,6 +92,17 @@ export class PromptEnhancementService {
       settings,
       sections,
     };
+  }
+
+  private async readSettings(
+    userId: string
+  ): Promise<PromptEnhancementSettings> {
+    return await this.repository.read(
+      (snapshot) =>
+        snapshot.settingsByUserId[userId] ?? {
+          ...DEFAULT_PROMPT_ENHANCEMENT_SETTINGS,
+        }
+    );
   }
 }
 

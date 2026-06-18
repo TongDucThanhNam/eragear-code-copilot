@@ -15,7 +15,11 @@ export {
   TaskAutoArchiveStatusSchema,
   UpdateTaskAutoArchiveSettingsInputSchema,
 } from "./application/contracts/task-auto-archive.contract";
-export type { TaskAutoArchiveRepositoryPort } from "./application/ports/task-auto-archive-repository.port";
+export type {
+  MutableTaskAutoArchiveStoreSnapshot,
+  TaskAutoArchiveRepositoryPort,
+  TaskAutoArchiveStoreSnapshot,
+} from "./application/ports/task-auto-archive-repository.port";
 export type {
   TaskAutoArchiveSession,
   TaskAutoArchiveSessionPage,

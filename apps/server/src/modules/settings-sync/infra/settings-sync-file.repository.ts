@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -8,7 +9,11 @@ import {
   SettingsSyncStateSchema,
 } from "../application/contracts/settings-sync.contract";
 import type { SettingsSyncCloudPort } from "../application/ports/settings-sync-cloud.port";
-import type { SettingsSyncStateRepositoryPort } from "../application/ports/settings-sync-state-repository.port";
+import type {
+  MutableSettingsSyncStateSnapshot,
+  SettingsSyncStateRepositoryPort,
+  SettingsSyncStateSnapshot,
+} from "../application/ports/settings-sync-state-repository.port";
 
 const StateFileSchema = z.object({
   version: z.literal(1),
@@ -22,6 +27,11 @@ const RemoteFileSchema = z.object({
 
 type StateFile = z.infer<typeof StateFileSchema>;
 type RemoteFile = z.infer<typeof RemoteFileSchema>;
+
+type MutableStateSnapshot = MutableSettingsSyncStateSnapshot & {
+  getNext(): SettingsSyncState | null;
+  hasChanged(): boolean;
+};
 
 interface SettingsSyncFileRepositoryDeps {
   stateFilePath: () => string;
@@ -39,30 +49,44 @@ export class SettingsSyncFileRepository
     this.remoteFilePath = deps.remoteFilePath;
   }
 
-  async getState(userId: string): Promise<SettingsSyncState | null> {
+  async readState<T>(
+    userId: string,
+    reader: (snapshot: SettingsSyncStateSnapshot) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readStateFile();
-    return file.states[userId] ?? null;
+    return await reader(createStateSnapshot(file.states[userId] ?? null));
   }
 
-  async saveState(state: SettingsSyncState): Promise<SettingsSyncState> {
+  async mutateState<T>(
+    userId: string,
+    mutator: (snapshot: MutableSettingsSyncStateSnapshot) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readStateFile();
-    file.states[state.userId] = state;
-    await writeJsonFile(this.stateFilePath(), file);
-    return state;
+    const snapshot = createMutableStateSnapshot(file.states[userId] ?? null);
+    const result = await mutator(snapshot);
+    if (snapshot.hasChanged()) {
+      const next = snapshot.getNext();
+      if (next) {
+        file.states[userId] = next;
+        await writeJsonFile(this.stateFilePath(), file);
+      }
+    }
+    return result;
   }
 
   async readRemoteSnapshot(
     userId: string
   ): Promise<SettingsSyncRemoteSnapshot | null> {
     const file = await this.readRemoteFile();
-    return file.snapshots[userId] ?? null;
+    const snapshot = file.snapshots[userId] ?? null;
+    return snapshot ? cloneJson(snapshot) : null;
   }
 
   async writeRemoteSnapshot(
     snapshot: SettingsSyncRemoteSnapshot
   ): Promise<void> {
     const file = await this.readRemoteFile();
-    file.snapshots[snapshot.userId] = snapshot;
+    file.snapshots[snapshot.userId] = cloneJson(snapshot);
     await writeJsonFile(this.remoteFilePath(), file);
   }
 
@@ -104,5 +128,43 @@ async function readJsonFile<T>(
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(tempPath, filePath);
+}
+
+function createStateSnapshot(
+  state: SettingsSyncState | null
+): SettingsSyncStateSnapshot {
+  return {
+    get() {
+      return state ? cloneJson(state) : null;
+    },
+  };
+}
+
+function createMutableStateSnapshot(
+  initial: SettingsSyncState | null
+): MutableStateSnapshot {
+  let changed = false;
+  let next = initial ? cloneJson(initial) : null;
+  return {
+    get() {
+      return next ? cloneJson(next) : null;
+    },
+    set(state) {
+      changed = true;
+      next = cloneJson(state);
+    },
+    getNext() {
+      return next ? cloneJson(next) : null;
+    },
+    hasChanged() {
+      return changed;
+    },
+  };
+}
+
+function cloneJson<T>(value: T): T {
+  return structuredClone(value);
 }

@@ -1,5 +1,8 @@
 import path from "node:path";
-import type { ProjectRepositoryPort } from "@/modules/project";
+import type {
+  ProjectRepositoryPort,
+  ResolveActiveProjectService,
+} from "@/modules/project";
 import { NotFoundError, ValidationError } from "@/shared/errors";
 import type {
   CreateTerminalInput,
@@ -13,6 +16,7 @@ import type {
   UpdateTerminalSettingsInput,
   WriteTerminalInput,
 } from "./contracts/terminal.contract";
+import { TerminalSettingsSchema } from "./contracts/terminal.contract";
 import type { TerminalRuntimePort } from "./ports/terminal-runtime.port";
 import type { TerminalSettingsRepositoryPort } from "./ports/terminal-settings-repository.port";
 
@@ -30,32 +34,43 @@ export interface TerminalServiceDeps {
   runtime: TerminalRuntimePort;
   settingsRepo: TerminalSettingsRepositoryPort;
   projectRepo: ProjectRepositoryPort;
+  activeProjectResolver: ResolveActiveProjectService;
 }
 
 export class TerminalService {
   private readonly runtime: TerminalRuntimePort;
   private readonly settingsRepo: TerminalSettingsRepositoryPort;
   private readonly projectRepo: ProjectRepositoryPort;
+  private readonly activeProjectResolver: ResolveActiveProjectService;
 
   constructor(deps: TerminalServiceDeps) {
     this.runtime = deps.runtime;
     this.settingsRepo = deps.settingsRepo;
     this.projectRepo = deps.projectRepo;
+    this.activeProjectResolver = deps.activeProjectResolver;
   }
 
   async getSettings(userId: string): Promise<TerminalSettingsResult> {
-    return { settings: await this.settingsRepo.getSettings(userId) };
+    return { settings: await this.readSettings(userId) };
   }
 
   async updateSettings(
     userId: string,
     input?: UpdateTerminalSettingsInput
   ): Promise<TerminalSettingsResult> {
+    const update = normalizeSettingsInput(input);
     return {
-      settings: await this.settingsRepo.updateSettings(
-        userId,
-        normalizeSettingsInput(input)
-      ),
+      settings: await this.settingsRepo.mutate((snapshot) => {
+        const next = cloneSettings(
+          TerminalSettingsSchema.parse({
+            ...DEFAULT_TERMINAL_SETTINGS,
+            ...(snapshot.settingsByUserId[userId] ?? {}),
+            ...update,
+          })
+        );
+        snapshot.settingsByUserId[userId] = next;
+        return next;
+      }),
     };
   }
 
@@ -69,7 +84,7 @@ export class TerminalService {
   ): Promise<TerminalRecord> {
     const project = await this.resolveProject(userId, input?.projectId);
     const cwd = resolveCwdWithinProject(project.path, input?.cwd);
-    const settings = await this.settingsRepo.getSettings(userId);
+    const settings = await this.readSettings(userId);
     return await this.runtime.create({
       userId,
       projectId: project.id,
@@ -115,23 +130,37 @@ export class TerminalService {
   }
 
   private async resolveProject(userId: string, projectId?: string) {
-    const resolvedProjectId =
-      projectId ?? (await this.projectRepo.getActiveId(userId));
-    if (!resolvedProjectId) {
+    if (projectId === "") {
       throw new NotFoundError("Active project is required for terminal", {
         module: MODULE,
         op: "create",
       });
     }
-    const project = await this.projectRepo.findById(resolvedProjectId, userId);
+
+    if (projectId === undefined) {
+      return await this.activeProjectResolver.execute(userId, {
+        module: MODULE,
+        op: "create",
+      });
+    }
+
+    const project = await this.projectRepo.findById(projectId, userId);
     if (!project) {
       throw new NotFoundError("Project not found for terminal", {
         module: MODULE,
         op: "create",
-        details: { projectId: resolvedProjectId },
+        details: { projectId },
       });
     }
     return project;
+  }
+
+  private async readSettings(userId: string): Promise<TerminalSettings> {
+    return await this.settingsRepo.read((snapshot) =>
+      cloneSettings(
+        snapshot.settingsByUserId[userId] ?? DEFAULT_TERMINAL_SETTINGS
+      )
+    );
   }
 }
 
@@ -151,6 +180,13 @@ function normalizeSettingsInput(
     ...(input.shellArgs
       ? { shellArgs: input.shellArgs.map((arg) => arg.trim()).filter(Boolean) }
       : {}),
+  };
+}
+
+function cloneSettings(settings: TerminalSettings): TerminalSettings {
+  return {
+    ...settings,
+    shellArgs: [...settings.shellArgs],
   };
 }
 

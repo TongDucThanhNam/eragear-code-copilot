@@ -135,3 +135,22 @@ export type CompactSessionMessagesInput = z.infer<
 export type ListSubagentInvocationsInput = z.infer<
   typeof ListSubagentInvocationsInputSchema
 >;
+
+export interface StartSubagentInvocationInput {
+  userId: string;
+  chatId: string;
+  agentSessionId?: string;
+  turnId: string;
+  subagent: {
+    name: string;
+    description?: string;
+    sourcePath: string;
+  };
+}
+
+export interface CompleteSubagentInvocationsForTurnInput {
+  userId: string;
+  chatId: string;
+  turnId: string;
+  stopReason?: string;
+}

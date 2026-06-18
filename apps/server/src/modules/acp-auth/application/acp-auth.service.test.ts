@@ -1,7 +1,7 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { CredentialRecord } from "@/modules/credential";
 import { ValidationError } from "@/shared/errors";
 import { AcpAuthFileRepository } from "../di";
@@ -97,15 +97,53 @@ test("startup sync rehydrates auth files for every stored user", async () => {
   const result = await service.syncStartup();
 
   expect(result.totalCount).toBe(2);
-  expect(result.providers.map((provider) => provider.providerId).sort()).toEqual(
-    ["codex", "zai"]
-  );
+  expect(
+    result.providers.map((provider) => provider.providerId).sort()
+  ).toEqual(["codex", "zai"]);
   expect(
     await readFile(path.join(tempDir, "acp-auth", "codex", "auth.json"), "utf8")
   ).toContain("codex-secret");
   expect(
     await readFile(path.join(tempDir, "acp-auth", "zai", "auth.json"), "utf8")
   ).toContain("zai-secret");
+});
+
+test("lists tenant auth records in service-owned visibility order", async () => {
+  const service = createService({});
+  await service.upsert("user-a", {
+    providerId: "zulu",
+    displayName: "Zulu",
+    method: "external_cli",
+  });
+  await service.upsert("user-a", {
+    providerId: "alpha",
+    displayName: "Alpha",
+    method: "external_cli",
+  });
+  await service.upsert("user-a", {
+    providerId: "disabled",
+    displayName: "Disabled",
+    method: "external_cli",
+    enabled: false,
+  });
+  await service.upsert("user-b", {
+    providerId: "bravo",
+    displayName: "Bravo",
+    method: "external_cli",
+  });
+
+  const visible = await service.list("user-a");
+  const all = await service.list("user-a", { includeDisabled: true });
+
+  expect(visible.providers.map((provider) => provider.providerId)).toEqual([
+    "alpha",
+    "zulu",
+  ]);
+  expect(all.providers.map((provider) => provider.providerId)).toEqual([
+    "alpha",
+    "disabled",
+    "zulu",
+  ]);
 });
 
 test("external CLI auth records sync without requiring a credential", async () => {
@@ -119,6 +157,25 @@ test("external CLI auth records sync without requiring a credential", async () =
 
   expect(result.providers[0]?.syncStatus).toBe("synced");
   expect(result.providers[0]?.lastSyncedAt).toBe(nowMs);
+});
+
+test("delete removes the provider record and materialized auth file", async () => {
+  const service = createService({
+    cred_codex: "secret",
+  });
+  await service.upsert("user-a", {
+    providerId: "codex",
+    method: "api_key",
+    credentialId: "cred_codex",
+  });
+  await service.sync("user-a");
+
+  await service.delete("user-a", { providerId: "codex" });
+
+  await expect(
+    readFile(path.join(tempDir, "acp-auth", "codex", "auth.json"), "utf8")
+  ).rejects.toThrow();
+  expect((await service.list("user-a")).providers).toEqual([]);
 });
 
 test("rejects auth file paths outside storage", async () => {
@@ -138,18 +195,18 @@ test("rejects auth file paths outside storage", async () => {
 
 function createService(secretsById: Record<string, string>): AcpAuthService {
   const resolver: CredentialSecretResolverPort = {
-    resolveSecret: async (userId, input) => {
+    resolveSecret: (userId, input) => {
       if (!input.id) {
-        return null;
+        return Promise.resolve(null);
       }
       const secret = secretsById[input.id];
       if (!secret) {
-        return null;
+        return Promise.resolve(null);
       }
-      return {
+      return Promise.resolve({
         credential: credentialRecord(userId, input.id),
         secret,
-      };
+      });
     },
   };
 
@@ -157,7 +214,6 @@ function createService(secretsById: Record<string, string>): AcpAuthService {
     repository: new AcpAuthFileRepository({
       filePath: path.join(tempDir, "acp-auth.json"),
       storageRootPath: tempDir,
-      nowMs: () => nowMs,
     }),
     credentialResolver: resolver,
     nowMs: () => nowMs,

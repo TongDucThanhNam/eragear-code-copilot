@@ -180,6 +180,10 @@ function createProjectRepoStub(): ProjectRepositoryPort {
     findByPath: async () => undefined,
     findAll: async () => [project],
     getActiveId: async () => null,
+    listWithActiveState: async () => ({
+      projects: [project],
+      activeProjectId: null,
+    }),
     create: async (input) => ({
       ...project,
       ...input,
@@ -189,6 +193,7 @@ function createProjectRepoStub(): ProjectRepositoryPort {
       ...input,
     }),
     delete: async () => undefined,
+    deleteAndClearActive: () => Promise.resolve({ activeProjectId: null }),
     setActive: async () => undefined,
   };
 }

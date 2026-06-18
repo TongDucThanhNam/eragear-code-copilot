@@ -2,6 +2,7 @@ import {
   BootstrapSessionConnectionService,
   CleanupProjectSessionsService,
   CreateSessionService,
+  createEventBusSessionLifecycleNotifier,
   DeleteSessionService,
   DiscoverAgentSessionsService,
   ForkSessionService,
@@ -19,6 +20,7 @@ import {
   SessionProcessLifecycleService,
   SessionProjectContextResolverService,
   SessionQueries,
+  SessionRealtimeGate,
   SessionRuntimeBootstrapService,
   SpawnSessionProcessService,
   StopSessionService,
@@ -29,11 +31,41 @@ import {
 import { SessionBindingFileRepository } from "@/modules/session/di";
 import type { SessionUseCases } from "@/modules/use-cases";
 import { getStorageFileSync } from "@/platform/storage/storage-path";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type SessionServiceDependencies = ServiceRegistrySlice<
+  | "eventBus"
+  | "sessionRuntime"
+  | "appLogger"
+  | "projectRepo"
+  | "settingsRepo"
+  | "agentRepo"
+  | "sessionRepo"
+  | "sessionAcpAdapter"
+  | "sessionUiMessageLimit"
+  | "agentRuntimeAdapter"
+  | "appConfigService"
+  | "supervisorPolicy"
+  | "clock"
+>;
+
+interface SessionServiceRegistryOptions {
+  realtimeGate?: SessionRealtimeGate;
+}
 
 export function createSessionUseCases(
-  deps: ServiceRegistryDependencies
+  deps: SessionServiceDependencies,
+  options: SessionServiceRegistryOptions = {}
 ): SessionUseCases {
+  const realtimeGate =
+    options.realtimeGate ??
+    new SessionRealtimeGate({
+      sessionRuntime: deps.sessionRuntime,
+      logger: deps.appLogger,
+    });
+  const sessionLifecycleNotifier = createEventBusSessionLifecycleNotifier(
+    deps.eventBus
+  );
   const projectContextResolver = new SessionProjectContextResolverService(
     deps.projectRepo,
     deps.settingsRepo
@@ -95,7 +127,7 @@ export function createSessionUseCases(
     persistSessionBootstrap,
     deps.appLogger,
     undefined,
-    deps.eventBus
+    sessionLifecycleNotifier
   );
   const discoverAgentSessionsService = new DiscoverAgentSessionsService(
     projectContextResolver,
@@ -110,7 +142,7 @@ export function createSessionUseCases(
   const stopSessionService = new StopSessionService(
     deps.sessionRepo,
     deps.sessionRuntime,
-    deps.eventBus
+    sessionLifecycleNotifier
   );
   const resumeSessionService = new ResumeSessionService(
     deps.sessionRepo,
@@ -120,7 +152,7 @@ export function createSessionUseCases(
   const deleteSessionService = new DeleteSessionService(
     deps.sessionRepo,
     deps.sessionRuntime,
-    deps.eventBus
+    sessionLifecycleNotifier
   );
   const sessionQueries = new SessionQueries(
     deps.sessionRepo,
@@ -133,7 +165,8 @@ export function createSessionUseCases(
   );
   const subscribeSessionEventsService = new SubscribeSessionEventsService(
     deps.sessionRuntime,
-    deps.sessionRepo
+    deps.sessionRepo,
+    realtimeGate
   );
   const cleanupProjectSessionsService = new CleanupProjectSessionsService(
     deps.sessionRepo,

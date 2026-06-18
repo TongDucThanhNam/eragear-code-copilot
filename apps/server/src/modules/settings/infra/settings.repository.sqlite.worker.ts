@@ -7,7 +7,7 @@ export class SettingsSqliteWorkerRepository implements SettingsRepositoryPort {
     return callSqliteWorker("settings", "get", []);
   }
 
-  update(patch: Partial<Settings>): Promise<Settings> {
-    return callSqliteWorker("settings", "update", [patch]);
+  save(settings: Settings): Promise<Settings> {
+    return callSqliteWorker("settings", "save", [settings]);
   }
 }

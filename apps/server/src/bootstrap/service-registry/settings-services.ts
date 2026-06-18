@@ -1,23 +1,40 @@
 import {
+  createEventBusSettingsChangeNotifier,
   GetSettingsService,
   LocalAdeService,
   ManageBootAllowlistsService,
   UpdateSettingsService,
 } from "@/modules/settings";
 import type { SettingsUseCases } from "@/modules/use-cases";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type SettingsServiceDependencies = ServiceRegistrySlice<
+  | "eventBus"
+  | "settingsRepo"
+  | "appConfigService"
+  | "agentRuntimeAdapter"
+  | "projectRepo"
+  | "agentRepo"
+  | "sessionRepo"
+  | "sessionRuntime"
+  | "logStore"
+  | "getBackgroundRunnerState"
+>;
 
 export function createSettingsUseCases(
-  deps: ServiceRegistryDependencies
+  deps: SettingsServiceDependencies
 ): SettingsUseCases {
+  const settingsChangeNotifier = createEventBusSettingsChangeNotifier(
+    deps.eventBus
+  );
   const getSettingsService = new GetSettingsService(deps.settingsRepo);
   const updateSettingsService = new UpdateSettingsService(
     deps.settingsRepo,
-    deps.eventBus,
+    settingsChangeNotifier,
     deps.appConfigService
   );
   const manageBootAllowlistsService = new ManageBootAllowlistsService(
-    deps.eventBus,
+    settingsChangeNotifier,
     deps.agentRuntimeAdapter
   );
   const localAdeService = new LocalAdeService({
@@ -29,9 +46,8 @@ export function createSettingsUseCases(
     settingsRepo: deps.settingsRepo,
     appConfigService: deps.appConfigService,
     getBackgroundRunnerState: deps.getBackgroundRunnerState,
-    eventBus: deps.eventBus,
+    settingsChangeNotifier,
   });
-  localAdeService.subscribeLifecycleEvents(deps.eventBus);
 
   return {
     get: getSettingsService,

@@ -22,7 +22,7 @@ import type { ContextUsageService } from "@/modules/context-usage";
 import type { CrashReportingService } from "@/modules/crash-reporting";
 import type { CredentialService } from "@/modules/credential";
 import type { FeedbackService } from "@/modules/feedback";
-import type { FileWatcherService } from "@/modules/file-watcher";
+import type { FileWatcherPort } from "@/modules/file-watcher";
 import type { GitCheckpointService, GitService } from "@/modules/git";
 import type { HooksService } from "@/modules/hooks";
 import type { MemoryService } from "@/modules/memory";
@@ -73,7 +73,11 @@ import type {
 } from "@/modules/settings";
 import type { SettingsSyncService } from "@/modules/settings-sync";
 import type { SkillsService } from "@/modules/skills";
-import type { SetSupervisorModeService } from "@/modules/supervisor";
+import type {
+  SetSupervisorModeService,
+  SupervisorLoopService,
+  SupervisorPermissionService,
+} from "@/modules/supervisor";
 import type { TaskAutoArchiveService } from "@/modules/task-auto-archive";
 import type { TerminalService } from "@/modules/terminal";
 import type {
@@ -130,7 +134,6 @@ export interface AiUseCases {
   setMode: UseCasePort<SetModeService>;
   setConfigOption: UseCasePort<SetConfigOptionService>;
   cancelPrompt: UseCasePort<CancelPromptService>;
-  setSupervisorMode: UseCasePort<SetSupervisorModeService>;
 }
 
 /**
@@ -226,10 +229,20 @@ export interface GitUseCases {
  * Provider quota use-cases.
  *
  * Caller contract: `list` may use cache, while `refresh` forces provider IO and
- * emits `provider_quota_refreshed` events for queue/scheduler triggers.
+ * reports provider quota refresh notifications for queue/scheduler triggers.
  */
 export interface QuotaUseCases {
   provider: UseCasePort<ProviderQuotaService>;
+}
+
+/**
+ * Supervisor use-cases for completed-turn review, permission auto-resolution,
+ * and persisted autopilot mode.
+ */
+export interface SupervisorUseCases {
+  loop: UseCasePort<SupervisorLoopService>;
+  setMode: UseCasePort<SetSupervisorModeService>;
+  permission: UseCasePort<SupervisorPermissionService>;
 }
 
 /**
@@ -264,7 +277,7 @@ export interface MemoryUseCases {
  * File watcher use-cases for live project file tree refreshes.
  */
 export interface FileWatcherUseCases {
-  fileWatcher: UseCasePort<FileWatcherService>;
+  fileWatcher: UseCasePort<FileWatcherPort>;
 }
 
 /**
@@ -428,6 +441,7 @@ export interface AppUseCases {
   ops: OpsUseCases;
   git: GitUseCases;
   quota: QuotaUseCases;
+  supervisor: SupervisorUseCases;
   commands: CommandsUseCases;
   skills: SkillsUseCases;
   hooks: HooksUseCases;

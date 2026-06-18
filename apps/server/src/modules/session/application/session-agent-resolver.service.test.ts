@@ -36,10 +36,16 @@ function createRepoStub(params: {
       return Promise.resolve(agent);
     },
     getActiveId() {
-      return Promise.resolve(params.activeId ?? null);
+      throw new Error("getActiveId should not be called by session resolver");
     },
     listByProject() {
-      return Promise.resolve(projectList);
+      throw new Error("listByProject should not be called by session resolver");
+    },
+    listByProjectWithActiveState() {
+      return Promise.resolve({
+        agents: projectList,
+        activeAgentId: params.activeId ?? null,
+      });
     },
   } as unknown as AgentRepositoryPort;
 }
@@ -111,7 +117,7 @@ describe("SessionAgentResolverService", () => {
     const service = new SessionAgentResolverService(
       createRepoStub({
         activeId: "agent-active",
-        byId: new Map([[activeAgent.id, activeAgent]]),
+        projectList: [activeAgent],
       })
     );
 
@@ -122,6 +128,30 @@ describe("SessionAgentResolverService", () => {
 
     expect(resolved.agentId).toBe("agent-active");
     expect(resolved.command).toBe("/usr/bin/opencode");
+  });
+
+  test("uses project-compatible fallback when active agent is outside the scoped list", async () => {
+    const candidate = createAgent({
+      id: "agent-candidate",
+      userId: "user-1",
+      name: "Candidate",
+      command: "/usr/bin/gemini",
+      projectId: "project-1",
+    });
+    const service = new SessionAgentResolverService(
+      createRepoStub({
+        activeId: "agent-for-other-project",
+        projectList: [candidate],
+      })
+    );
+
+    const resolved = await service.resolve({
+      userId: "user-1",
+      projectId: "project-1",
+    });
+
+    expect(resolved.agentId).toBe("agent-candidate");
+    expect(resolved.command).toBe("/usr/bin/gemini");
   });
 
   test("falls back to project list when active agent is missing", async () => {

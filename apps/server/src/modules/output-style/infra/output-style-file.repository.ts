@@ -4,9 +4,12 @@ import { z } from "zod";
 import {
   type OutputStyleSettings,
   OutputStyleSettingsSchema,
-  type UpdateOutputStyleSettingsInput,
 } from "../application/contracts/output-style.contract";
-import type { OutputStyleRepositoryPort } from "../application/ports/output-style-repository.port";
+import type {
+  MutableOutputStyleStoreSnapshot,
+  OutputStyleRepositoryPort,
+  OutputStyleStoreSnapshot,
+} from "../application/ports/output-style-repository.port";
 
 const OutputStyleFileSchema = z.object({
   version: z.literal(1),
@@ -17,46 +20,30 @@ type OutputStyleFile = z.infer<typeof OutputStyleFileSchema>;
 
 interface OutputStyleFileRepositoryDeps {
   filePath: () => string;
-  now?: () => number;
 }
 
 export class OutputStyleFileRepository implements OutputStyleRepositoryPort {
   private readonly filePath: () => string;
-  private readonly now: () => number;
 
   constructor(deps: OutputStyleFileRepositoryDeps) {
     this.filePath = deps.filePath;
-    this.now = deps.now ?? Date.now;
   }
 
-  async getSettings(userId: string): Promise<OutputStyleSettings> {
+  async read<T>(
+    reader: (snapshot: OutputStyleStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readFile();
-    return file.settingsByUserId[userId] ?? this.createDefaultSettings();
+    return await reader(toStoreSnapshot(file));
   }
 
-  async updateSettings(
-    userId: string,
-    input: UpdateOutputStyleSettingsInput
-  ): Promise<OutputStyleSettings> {
+  async mutate<T>(
+    mutator: (snapshot: MutableOutputStyleStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readFile();
-    const current =
-      file.settingsByUserId[userId] ?? this.createDefaultSettings();
-    const next: OutputStyleSettings = {
-      ...current,
-      ...input,
-      updatedAt: this.now(),
-    };
-    file.settingsByUserId[userId] = next;
-    await this.writeFile(file);
-    return next;
-  }
-
-  private createDefaultSettings(): OutputStyleSettings {
-    return {
-      enabled: false,
-      activePresetId: "default",
-      updatedAt: this.now(),
-    };
+    const snapshot = toMutableStoreSnapshot(file);
+    const result = await mutator(snapshot);
+    await this.writeFile(fromMutableStoreSnapshot(snapshot));
+    return result;
   }
 
   private async readFile(): Promise<OutputStyleFile> {
@@ -81,4 +68,38 @@ export class OutputStyleFileRepository implements OutputStyleRepositoryPort {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, `${JSON.stringify(file, null, 2)}\n`, "utf8");
   }
+}
+
+function toStoreSnapshot(file: OutputStyleFile): OutputStyleStoreSnapshot {
+  return {
+    settingsByUserId: cloneSettingsByUserId(file.settingsByUserId),
+  };
+}
+
+function toMutableStoreSnapshot(
+  file: OutputStyleFile
+): MutableOutputStyleStoreSnapshot {
+  return {
+    settingsByUserId: cloneSettingsByUserId(file.settingsByUserId),
+  };
+}
+
+function fromMutableStoreSnapshot(
+  snapshot: MutableOutputStyleStoreSnapshot
+): OutputStyleFile {
+  return OutputStyleFileSchema.parse({
+    version: 1,
+    settingsByUserId: cloneSettingsByUserId(snapshot.settingsByUserId),
+  });
+}
+
+function cloneSettingsByUserId(
+  settingsByUserId: Record<string, OutputStyleSettings>
+): Record<string, OutputStyleSettings> {
+  return Object.fromEntries(
+    Object.entries(settingsByUserId).map(([userId, settings]) => [
+      userId,
+      OutputStyleSettingsSchema.parse(settings),
+    ])
+  );
 }

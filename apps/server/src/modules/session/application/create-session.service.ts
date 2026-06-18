@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import { ValidationError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type { ChatSession } from "@/shared/types/session.types";
 import {
@@ -11,6 +10,10 @@ import type { BootstrapSessionConnectionService } from "./bootstrap-session-conn
 import type { CreateSessionParams } from "./create-session.types";
 import type { PersistSessionBootstrapService } from "./persist-session-bootstrap.service";
 import type { SessionAgentResolverService } from "./session-agent-resolver.service";
+import {
+  noopSessionLifecycleNotifier,
+  type SessionLifecycleNotifier,
+} from "./session-lifecycle.notifier";
 import type { SessionProjectContextResolverService } from "./session-project-context-resolver.service";
 import type { SpawnSessionProcessService } from "./spawn-session-process.service";
 
@@ -30,7 +33,7 @@ export class CreateSessionService {
   private readonly bootstrapSessionConnection: BootstrapSessionConnectionService;
   private readonly persistSessionBootstrap: PersistSessionBootstrapService;
   private readonly logger: LoggerPort;
-  private readonly eventBus?: EventBusPort;
+  private readonly sessionLifecycleNotifier: SessionLifecycleNotifier;
   private readonly terminateProcess: (
     proc: ChatSession["proc"],
     policy?: ProcessTerminationPolicy
@@ -47,7 +50,7 @@ export class CreateSessionService {
       proc: ChatSession["proc"],
       policy?: ProcessTerminationPolicy
     ) => Promise<unknown> = terminateProcessGracefully,
-    eventBus?: EventBusPort
+    sessionLifecycleNotifier: SessionLifecycleNotifier = noopSessionLifecycleNotifier
   ) {
     this.projectContextResolver = projectContextResolver;
     this.sessionAgentResolver = sessionAgentResolver;
@@ -55,7 +58,7 @@ export class CreateSessionService {
     this.bootstrapSessionConnection = bootstrapSessionConnection;
     this.persistSessionBootstrap = persistSessionBootstrap;
     this.logger = logger;
-    this.eventBus = eventBus;
+    this.sessionLifecycleNotifier = sessionLifecycleNotifier;
     this.terminateProcess = terminateProcess;
   }
 
@@ -137,10 +140,8 @@ export class CreateSessionService {
         agentEnv,
       });
 
-      await this.eventBus
-        ?.publish({
-          type: "local_ade_lifecycle",
-          event: "after-agent-session-create",
+      await this.sessionLifecycleNotifier
+        .agentSessionCreated({
           userId: params.userId,
           projectRoot,
           ...(projectId ? { projectId } : {}),
@@ -150,7 +151,7 @@ export class CreateSessionService {
             : {}),
         })
         .catch((error) => {
-          this.logger.warn("CreateSession lifecycle event publish failed", {
+          this.logger.warn("CreateSession lifecycle notification failed", {
             chatId,
             error: error instanceof Error ? error.message : String(error),
           });

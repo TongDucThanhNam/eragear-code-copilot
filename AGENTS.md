@@ -462,15 +462,41 @@ export class Container {
 
 ## 10. Chạy Dự Án
 
-```bash
-# Run dev server
-cd apps/server && bun run dev
+```powershell
+# Install deps
+bun install
 
-# Type check
+# Run all dev tasks through Turbo
+bun run dev
+
+# Run a single dev target
+bun run dev:server
+bun run dev:web
+bun run dev:native
+bun run dev:desktop
+
+# Desktop smoke run (auto-exits after the configured timeout)
+$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop
+
+# Type check all packages
 bun run check-types
 
-# Build (includes UI)
+# Build all packages
 bun run build
+
+# Focused blocker checks used by recent repo work
+bun run audit:blockers
+bun run --cwd apps/server check
+bun run --cwd apps/server check:quick
+bun run --cwd apps/server smoke:auth-dashboard
+bun run --cwd apps/web check-types
+bun run --cwd apps/web test:blockers
+
+# Database workflows
+bun run db:generate
+bun run db:migrate
+bun run db:push
+bun run db:studio
 ```
 
 ---
@@ -494,6 +520,9 @@ bun run build
 - [ACP Protocol Overview](apps/server/docs/acp/acp-overview.md)
 - [ACP Session Setup](apps/server/docs/acp/acp-session-setup.md)
 - [ACP Tool Calls](apps/server/docs/acp/acp-tool-call.md)
+- [Server Agent Guide](apps/server/AGENTS.md)
+- [Web Agent Guide](apps/web/AGENTS.md)
+- [Native Agent Guide](apps/native/AGENTS.md)
 - [Server Docs](apps/server/docs/)
 - [Web App Docs](apps/web/docs/)
 - [Mobile App Docs](apps/native/docs/)

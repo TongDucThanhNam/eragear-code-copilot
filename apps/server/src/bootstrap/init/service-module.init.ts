@@ -1,4 +1,5 @@
 import { GetMeService } from "@/modules/auth";
+import { SessionRealtimeGate } from "@/modules/session";
 import type { AppConfigService } from "@/modules/settings";
 import type { AppUseCases, AuthUseCases } from "@/modules/use-cases";
 import { AuthUserReadAdapter } from "@/platform/auth/adapters/auth-user-read.adapter";
@@ -42,6 +43,7 @@ import { createSessionUseCases } from "../service-registry/session-services";
 import { createSettingsUseCases } from "../service-registry/settings-services";
 import { createSettingsSyncUseCases } from "../service-registry/settings-sync-services";
 import { createSkillsUseCases } from "../service-registry/skills-services";
+import { createSupervisorUseCases } from "../service-registry/supervisor-services";
 import { createTaskAutoArchiveUseCases } from "../service-registry/task-auto-archive-services";
 import { createTerminalUseCases } from "../service-registry/terminal-services";
 import { createToolingUseCases } from "../service-registry/tooling-services";
@@ -65,6 +67,7 @@ export interface ServiceModule {
     provider: () => BackgroundRunnerState
   ) => void;
   getBackgroundRunnerState: () => BackgroundRunnerState | null;
+  dispose(): void;
 }
 
 interface ServiceModuleInitParams {
@@ -124,8 +127,23 @@ export function initializeServiceModule({
     getBackgroundRunnerState,
   };
 
-  const sessionUseCases = createSessionUseCases(serviceRegistryDependencies);
-  const aiUseCases = createAiUseCases(serviceRegistryDependencies);
+  const sessionRealtimeGate = new SessionRealtimeGate({
+    sessionRuntime: core.sessionRuntime,
+    logger: core.appLogger,
+  });
+  const sessionUseCases = createSessionUseCases(serviceRegistryDependencies, {
+    realtimeGate: sessionRealtimeGate,
+  });
+  const aiUseCases = createAiUseCases(serviceRegistryDependencies, {
+    sessionRealtimeGate,
+  });
+  const supervisorUseCases = createSupervisorUseCases(
+    serviceRegistryDependencies,
+    aiUseCases
+  );
+  core.sessionAcpAdapter.setPermissionAutoResolver((input) =>
+    supervisorUseCases.permission.handlePermissionRequest(input)
+  );
   const projectUseCases = createProjectUseCases(serviceRegistryDependencies);
   const agentUseCases = createAgentUseCases(serviceRegistryDependencies);
   const settingsUseCases = createSettingsUseCases(serviceRegistryDependencies);
@@ -195,6 +213,7 @@ export function initializeServiceModule({
     ops: opsUseCases,
     git: gitUseCases,
     quota: quotaUseCases,
+    supervisor: supervisorUseCases,
     commands: commandsUseCases,
     skills: skillsUseCases,
     hooks: hooksUseCases,
@@ -233,7 +252,6 @@ export function initializeServiceModule({
     sessionRuntime: core.sessionRuntime,
     sessionRepo: persistence.sessionRepo,
     sessionEventOutbox: core.sessionEventOutbox,
-    eventBus: core.eventBus,
     sessionUseCases,
     localAde: settingsUseCases.localAde,
     bots: botsUseCases.bots,
@@ -258,6 +276,9 @@ export function initializeServiceModule({
     resolveAuthContext,
     setBackgroundRunnerStateProvider,
     getBackgroundRunnerState,
+    dispose() {
+      fileWatcherUseCases.fileWatcher.dispose();
+    },
   };
 }
 

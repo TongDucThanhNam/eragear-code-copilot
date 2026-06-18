@@ -68,12 +68,30 @@ export { ReconcileSessionStatusService } from "./application/reconcile-session-s
 export { ResumeSessionService } from "./application/resume-session.service";
 export { SessionAcpBootstrapService } from "./application/session-acp-bootstrap.service";
 export { SessionAgentResolverService } from "./application/session-agent-resolver.service";
+export {
+  createEventBusSessionBroadcastNotifier,
+  noopSessionBroadcastNotifier,
+  type SessionBroadcastNotification,
+  type SessionBroadcastNotifier,
+} from "./application/session-broadcast.notifier";
 export { SessionHistoryReplayService } from "./application/session-history-replay.service";
+export {
+  type AgentSessionLifecycleContext,
+  type AgentSessionStoppedContext,
+  createEventBusSessionLifecycleNotifier,
+  noopSessionLifecycleNotifier,
+  type SessionDeletedContext,
+  type SessionLifecycleNotifier,
+} from "./application/session-lifecycle.notifier";
 export { SessionMcpConfigService } from "./application/session-mcp-config.service";
 export { SessionMessageMapper } from "./application/session-message.mapper";
 export { SessionMetadataPersistenceService } from "./application/session-metadata-persistence.service";
 export { SessionProcessLifecycleService } from "./application/session-process-lifecycle.service";
 export { SessionProjectContextResolverService } from "./application/session-project-context-resolver.service";
+export {
+  type PromptSubmissionSource,
+  SessionRealtimeGate,
+} from "./application/session-realtime-gate";
 export { SessionRuntimeBootstrapService } from "./application/session-runtime-bootstrap.service";
 export { SpawnSessionProcessService } from "./application/spawn-session-process.service";
 export { StopSessionService } from "./application/stop-session.service";

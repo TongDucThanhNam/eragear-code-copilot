@@ -1,25 +1,40 @@
 import { describe, expect, test } from "bun:test";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
-import type { DomainEvent } from "@/shared/types/domain-events.types";
+import type {
+  CodingPlanSubscriptionNotifier,
+  CodingPlanSubscriptionUpdateNotification,
+} from "./coding-plan-subscription.notifier";
 import { CodingPlanSubscriptionService } from "./coding-plan-subscription.service";
 import type { CodingPlanSubscriptionState } from "./contracts/coding-plan-subscription.contract";
 import type { CodingPlanBillingPort } from "./ports/coding-plan-billing.port";
-import type { CodingPlanSubscriptionRepositoryPort } from "./ports/coding-plan-subscription-repository.port";
+import type {
+  CodingPlanSubscriptionRepositoryPort,
+  CodingPlanSubscriptionStoreSnapshot,
+  MutableCodingPlanSubscriptionStoreSnapshot,
+} from "./ports/coding-plan-subscription-repository.port";
 
 class InMemorySubscriptionRepo implements CodingPlanSubscriptionRepositoryPort {
-  state: CodingPlanSubscriptionState | null = null;
+  snapshot: MutableCodingPlanSubscriptionStoreSnapshot = {
+    subscriptionsByUserId: {},
+  };
 
-  getSubscription(
-    _userId: string
-  ): Promise<CodingPlanSubscriptionState | null> {
-    return Promise.resolve(this.state);
+  constructor(state?: CodingPlanSubscriptionState) {
+    if (state) {
+      this.snapshot.subscriptionsByUserId[state.userId] = state;
+    }
   }
 
-  saveSubscription(
-    subscription: CodingPlanSubscriptionState
-  ): Promise<CodingPlanSubscriptionState> {
-    this.state = subscription;
-    return Promise.resolve(subscription);
+  async read<T>(
+    reader: (snapshot: CodingPlanSubscriptionStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await reader(this.snapshot);
+  }
+
+  async mutate<T>(
+    mutator: (
+      snapshot: MutableCodingPlanSubscriptionStoreSnapshot
+    ) => T | Promise<T>
+  ): Promise<T> {
+    return await mutator(this.snapshot);
   }
 }
 
@@ -39,6 +54,17 @@ class BillingStub implements CodingPlanBillingPort {
       reason: "not configured",
     });
   }
+}
+
+function createCodingPlanSubscriptionNotifierStub(
+  calls: CodingPlanSubscriptionUpdateNotification[] = []
+) {
+  return {
+    subscriptionUpdated(input) {
+      calls.push(input);
+      return Promise.resolve();
+    },
+  } satisfies CodingPlanSubscriptionNotifier;
 }
 
 describe("CodingPlanSubscriptionService", () => {
@@ -62,19 +88,13 @@ describe("CodingPlanSubscriptionService", () => {
     ).toBe(false);
   });
 
-  test("updates subscription and publishes a domain event", async () => {
-    const events: DomainEvent[] = [];
-    const eventBus: EventBusPort = {
-      subscribe: () => () => undefined,
-      publish: (event) => {
-        events.push(event);
-        return Promise.resolve();
-      },
-    };
+  test("updates subscription and reports a subscription-updated notification", async () => {
+    const notifications: CodingPlanSubscriptionUpdateNotification[] = [];
+    const repository = new InMemorySubscriptionRepo();
     const service = new CodingPlanSubscriptionService({
-      repository: new InMemorySubscriptionRepo(),
+      repository,
       billing: new BillingStub(),
-      eventBus,
+      notifier: createCodingPlanSubscriptionNotifierStub(notifications),
       nowMs: () => 2,
     });
 
@@ -88,21 +108,39 @@ describe("CodingPlanSubscriptionService", () => {
       status.featureGates.find((gate) => gate.featureId === "task_queue")
         ?.enabled
     ).toBe(true);
-    expect(events).toContainEqual({
-      type: "coding_plan_subscription_updated",
-      userId: "user-1",
+    expect(notifications).toEqual([
+      {
+        previous: {
+          userId: "user-1",
+          tier: "free",
+          status: "none",
+          billingProvider: "local",
+          planId: "free",
+          updatedAt: 2,
+          entitlements: [],
+        },
+        next: {
+          userId: "user-1",
+          tier: "pro",
+          status: "active",
+          billingProvider: "local",
+          planId: "free",
+          updatedAt: 2,
+          entitlements: [],
+        },
+        source: "local",
+      },
+    ]);
+    expect(repository.snapshot.subscriptionsByUserId["user-1"]).toMatchObject({
       tier: "pro",
-      previousTier: "free",
       status: "active",
-      previousStatus: "none",
-      source: "local",
-      updatedAt: new Date(2).toISOString(),
-      changed: true,
+      updatedAt: 2,
     });
   });
 
   test("syncs external billing snapshots through the billing port", async () => {
     const billing = new BillingStub();
+    const notifications: CodingPlanSubscriptionUpdateNotification[] = [];
     billing.snapshot = {
       tier: "team",
       status: "active",
@@ -115,6 +153,7 @@ describe("CodingPlanSubscriptionService", () => {
     const service = new CodingPlanSubscriptionService({
       repository: new InMemorySubscriptionRepo(),
       billing,
+      notifier: createCodingPlanSubscriptionNotifierStub(notifications),
       nowMs: () => 3,
     });
 
@@ -130,5 +169,18 @@ describe("CodingPlanSubscriptionService", () => {
       result.status.featureGates.find((gate) => gate.featureId === "plugins")
         ?.enabled
     ).toBe(true);
+    expect(notifications).toMatchObject([
+      {
+        source: "billing_sync",
+        previous: {
+          tier: "free",
+          status: "none",
+        },
+        next: {
+          tier: "team",
+          status: "active",
+        },
+      },
+    ]);
   });
 });

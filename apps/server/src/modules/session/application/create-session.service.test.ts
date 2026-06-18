@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { LoggerPort } from "@/shared/ports/logger.port";
-import type { DomainEvent } from "@/shared/types/domain-events.types";
 import type { ChatSession } from "@/shared/types/session.types";
 import { createUiMessageState } from "@/shared/utils/ui-message.util";
 import type { BootstrapSessionConnectionService } from "./bootstrap-session-connection.service";
 import { CreateSessionService } from "./create-session.service";
 import type { PersistSessionBootstrapService } from "./persist-session-bootstrap.service";
 import type { SessionAgentResolverService } from "./session-agent-resolver.service";
+import type {
+  AgentSessionLifecycleContext,
+  AgentSessionStoppedContext,
+  SessionDeletedContext,
+  SessionLifecycleNotifier,
+} from "./session-lifecycle.notifier";
 import type { SessionProjectContextResolverService } from "./session-project-context-resolver.service";
 import type { SpawnSessionProcessService } from "./spawn-session-process.service";
 
@@ -39,6 +44,23 @@ function createChatSession(chatId: string, userId: string): ChatSession {
     uiState: createUiMessageState(),
     chatStatus: "ready",
   } satisfies Partial<ChatSession> as ChatSession;
+}
+
+function createSessionLifecycleNotifierStub(calls: unknown[] = []) {
+  return {
+    agentSessionCreated(input: AgentSessionLifecycleContext) {
+      calls.push(["created", input]);
+      return Promise.resolve();
+    },
+    agentSessionStopped(input: AgentSessionStoppedContext) {
+      calls.push(["stopped", input]);
+      return Promise.resolve();
+    },
+    sessionDeleted(input: SessionDeletedContext) {
+      calls.push(["deleted", input]);
+      return Promise.resolve();
+    },
+  } satisfies SessionLifecycleNotifier;
 }
 
 describe("CreateSessionService", () => {
@@ -221,11 +243,11 @@ describe("CreateSessionService", () => {
     });
   });
 
-  test("publishes local ADE lifecycle event after session creation", async () => {
+  test("reports agent session created notification after session creation", async () => {
     const chatSession = createChatSession("chat-lifecycle", "user-1");
     chatSession.projectId = "project-lifecycle";
     chatSession.sessionId = "agent-session-lifecycle";
-    const events: DomainEvent[] = [];
+    const lifecycleCalls: unknown[] = [];
 
     const service = new CreateSessionService(
       {
@@ -253,12 +275,7 @@ describe("CreateSessionService", () => {
       } as unknown as PersistSessionBootstrapService,
       createLoggerStub(),
       undefined,
-      {
-        subscribe: () => () => undefined,
-        publish: async (event: DomainEvent) => {
-          events.push(event);
-        },
-      }
+      createSessionLifecycleNotifierStub(lifecycleCalls)
     );
 
     await service.execute({
@@ -267,15 +284,18 @@ describe("CreateSessionService", () => {
       projectId: "project-lifecycle",
     });
 
-    expect(events).toContainEqual({
-      type: "local_ade_lifecycle",
-      event: "after-agent-session-create",
-      userId: "user-1",
-      projectRoot: "/repo/lifecycle",
-      projectId: "project-lifecycle",
-      chatId: "chat-lifecycle",
-      agentSessionId: "agent-session-lifecycle",
-    });
+    expect(lifecycleCalls).toEqual([
+      [
+        "created",
+        {
+          userId: "user-1",
+          projectRoot: "/repo/lifecycle",
+          projectId: "project-lifecycle",
+          chatId: "chat-lifecycle",
+          agentSessionId: "agent-session-lifecycle",
+        },
+      ],
+    ]);
   });
 
   test("terminates spawned process when bootstrap fails", async () => {

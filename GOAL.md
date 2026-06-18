@@ -7,272 +7,395 @@
 
 ## Objective
 
-Upgrade Eragear Code Copilot by adopting the best applicable product and architecture patterns from the ZCode and MiniMax Code reverse-engineering notes, without copying proprietary source/assets and without redoing modules that already exist.
+Improve the Electron app's Settings UX/UI so the desktop experience feels calmer, cleaner, faster to scan, and less cognitively overloaded, with Settings as the primary scope.
 
-The target is not "full clone parity". The target is a verified Eragear-native upgrade across six high-value workstreams:
-
-1. Chat/task timeline smoothness and event projection.
-2. Plugin + skills + commands + MCP package boundary.
-3. Model provider catalog + credential/auth/quota boundary.
-4. Change trust: git checkpoints, restore, fork/rewind workflow.
-5. Desktop/local ADE runtime health and long-running job boundaries.
-6. MiniMax-inspired semantic design tokens, density, and interaction-state coverage.
+The work must restructure the Settings information architecture, navigation, and shared settings surfaces in `apps/web` while preserving the existing Electron security/runtime boundary in `apps/desktop`.
 
 ---
 
 ## Context
 
-- Reason: the Obsidian notes identify durable patterns from ZCode and MiniMax Code that fit Eragear's ACP-based coding environment.
-- Priority: correctness > speed.
+- Reason: the current Electron Settings surface exposes too many unrelated features as one flat interface. Users have to scan a long list before they can find the right task.
+- Priority: user workflow clarity > visual polish > implementation speed.
 - Executor: AI agent, no human review at every step.
-- Created: 2026-06-15.
-- Required source notes already read during goal creation:
-  - Obsidian: "ZCode - Bao cao reverse engineering va blueprint"
-  - Obsidian: "Case Study - MiniMax Code UX UI Architecture Reverse Engineering"
+- Created: 2026-06-16, Asia/Saigon.
+- User explicitly requested:
+  - Use the `ui-map` script.
+  - Use the `refactoring-ui` skill.
+  - Use UX/UI laws such as cognitive load reduction.
+  - Use Obsidian Second Brain as a reference source.
 
-Key source findings:
+Key principles that must shape the implementation:
 
-- ZCode is an Electron agentic development environment with separate main/preload/renderer/host/CLI runtime layers, data-driven model providers, declarative plugins with skills/commands/MCP servers, task-scoped chat state, scroll anchoring, tool-call events, goal verification, checkpoints, fork/rewind, and terminal/SSH surfaces.
-- ZCode chat likely favors non-virtualized scroll anchoring for normal chat, while reserving virtualization for heavy file/diff surfaces.
-- MiniMax Code polish comes from semantic design tokens, desktop-density controls, subtle but complete interaction states, product-specific component wrappers, and a renderer/main/daemon boundary where raw secrets stay outside the renderer.
-- MiniMax uses the desktop shell as an architecture boundary for auth, token storage, daemon lifecycle, protocol proxying, updater flow, and privileged native operations.
+- Cognitive Load: reduce information the user must hold in working memory.
+- Choice Overload: avoid presenting many equivalent choices at once.
+- Chunking: group related settings into meaningful modules with clear hierarchy.
+- Default Path Design: make the safest/common first path obvious.
+- Fitts's Law: keep common targets easy to acquire, especially on mobile/narrow windows.
+- Doherty Threshold: give fast feedback for loading/saving/searching.
+- Refactoring UI: group spacing must be larger than within-group spacing, hierarchy must use weight/color/spacing together, and secondary actions should be quieter than primary actions.
+
+---
+
+## Research Summary
+
+### Repo Findings
+
+| Item | Value |
+|------|-------|
+| Repo | Bun monorepo with `apps/*` and `packages/*` |
+| Package manager | Bun 1.3.0 |
+| Web renderer | `apps/web`, Vite, React 19, TanStack Router, Tailwind 4, shadcn/Radix-style components |
+| Desktop shell | `apps/desktop`, Electron 42, renderer hosted from `apps/web` |
+| Desktop dev command | `bun run dev:desktop` |
+| Web entry | `apps/web/src/main.tsx` |
+| Desktop entry | `apps/desktop/src/main.ts` |
+| Settings layout | `apps/web/src/routes/settings.tsx` |
+| Settings route files | 30 files matching `apps/web/src/routes/settings*.tsx` |
+| Settings nav items | 28 flat sidebar items in `SETTINGS_NAV` |
+| Settings panels | 23 files in `apps/web/src/components/settings` |
+| Heavy settings panels by lines | `bots-settings-panel.tsx` 735, `settings-panels.tsx` 683, `usage-stats-settings-panel.tsx` 665, `model-providers-settings-panel.tsx` 640, `remote-control-settings-panel.tsx` 524 |
+| Existing tests | `bun run --cwd apps/web check-types`, `bun run --cwd apps/web test:blockers`, `bun run audit:blockers` |
+| Visual regression setup | Not found. Add manual/screenshot evidence or focused tests as part of this task. |
+
+### Current Settings UX Evidence
+
+`ui-map` was run against the web Settings layout:
+
+```powershell
+bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.tsx --alias '@=../../apps/web/src' --focus SettingsLayout --scope full --layoutOnly
+```
+
+Observed structure:
+
+- Desktop Settings uses one fixed `w-64` sidebar with all settings routes as a single flat vertical list.
+- Mobile Settings uses one horizontal scroll row containing all settings routes.
+- `/settings/` redirects directly to `/settings/agents`, so there is no true Settings overview/default path.
+- `RuntimeSettingsPage` includes multiple dense diagnostic/workbench panels, including `LocalAdeRuntimeSettingsPanel`.
+- Settings panels mostly use `SettingsPageHeader` and `SettingsSection`, but many panels implement their own loading/empty/metric/card patterns.
+
+Native Settings was also mapped for contrast:
+
+```powershell
+bun run --cwd apps/native ui-map --entry 'app/(drawer)/settings.tsx' --layoutOnly
+```
+
+Observed useful reference pattern:
+
+- Native Settings groups rows under a small number of sections such as Account, Preferences, Workspace, Security, and App.
+- Agent management is separate and has a contextual empty state with a direct CTA.
+- This is a useful IA reference, not a source to copy literally.
+
+### Design System Findings
+
+Important files:
+
+- `apps/web/src/index.css`
+- `apps/web/components.json`
+- `apps/web/src/components/ui/button.tsx`
+- `apps/web/src/components/ui/card.tsx`
+- `apps/web/src/components/ui/tabs.tsx`
+- `apps/web/src/components/ui/empty.tsx`
+- `apps/web/src/components/ui/sidebar.tsx`
+- `apps/web/src/components/settings/settings-panels.tsx`
+
+Current tokens and conventions:
+
+- Tailwind v4 plus shadcn CSS variables are already present.
+- `index.css` already defines semantic tokens such as `--bg_default_primary`, `--bg_grouped_primary`, `--text_default_secondary`, `--icon_default_tertiary`, `--border_default`, and `--surface-elevated-shadow`.
+- Existing UI primitives intentionally use compact desktop density: `text-xs`, `h-8`, `rounded-none`, subtle borders, and low elevation.
+- `components.json` says `iconLibrary: "phosphor"`, while the current Settings layout and many panels use `lucide-react`. Do not do a broad icon migration unless the repo convention is verified first.
+
+### Obsidian Second Brain References Read
+
+Read these notes through Obsidian CLI with `vault=StudyWithTerasumi`:
+
+- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Cognitive Load.md`
+- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Choice Overload.md`
+- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Chunking.md`
+- Fitts Law note under `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux` found with `obsidian search:context vault=StudyWithTerasumi query="Fitts" ...`
+- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Doherty Threshold.md`
+- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Aesthetic-Usability Effect.md`
+- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/UI Components/Sidebar UI.md`
+- `30_Resources/Software_Engineering_Mental_Models/20_Mental_Model_Groups/04_Complexity_Cost/Cognitive Load Budget.md`
+- `30_Resources/Software_Engineering_Mental_Models/20_Mental_Model_Groups/04_Complexity_Cost/Complexity Budget.md`
+- `30_Resources/Software_Engineering_Mental_Models/20_Mental_Model_Groups/12_Product_Engineering_Judgment/Default Path Design.md`
+- `30_Resources/Software_Engineering_Mental_Models/60_Case_Studies/Case Study - MiniMax Code UX UI Architecture Reverse Engineering.md`
+
+Reusable conclusions:
+
+- Too many equal choices are mentally expensive unless there is a clear prior category or dominant option.
+- Sidebar helps only when it reduces cognitive load through grouping or disclosure. A long ungrouped sidebar can increase load.
+- Attractive UI helps only when it supports function. Do not hide usability problems behind decorative polish.
+- For AI desktop tools, a good target surface is compact, predictable, keyboard-friendly, state-rich, visually quiet, and clear about runtime/security boundaries.
 
 ---
 
 ## Current State
 
-| Item | Value |
-|------|-------|
-| Repository | Bun monorepo with `apps/*` and `packages/*` |
-| Server | `apps/server`, Hono + tRPC + ACP bridge |
-| Web | `apps/web`, Vite + React 19 + TanStack Router + Tailwind 4 + shadcn/Base UI style components |
-| Desktop | `apps/desktop`, Electron shell |
-| Native | `apps/native`, Expo app |
-| Language | TypeScript |
-| Package manager | Bun 1.3.0 |
-| Storage | Current repo has SQLite platform/worker code plus feature file stores; older docs mention JSON, so verify current storage before editing |
-| Server entry | `apps/server/src/index.ts` |
-| Web entry | `apps/web/src/main.tsx` |
-| Desktop entry | `apps/desktop/src/main.ts` |
-| Primary architecture docs | `AGENTS.md`, `CONTEXT.md` |
-| Test setup | `bun test`, `bun run check-types`, `bun run audit:blockers` |
+| Area | Current behavior |
+|------|------------------|
+| Settings navigation | 28 settings destinations exposed as one flat list |
+| Mobile navigation | Horizontal scroll row with every settings destination |
+| Default settings path | `/settings/` redirects to `/settings/agents` |
+| Settings grouping | Routes are separate, but navigation does not show meaningful categories |
+| Discoverability | No Settings overview, no settings search/filter visible in the layout |
+| Shared settings primitives | `SettingsPageHeader` and `SettingsSection` exist, but empty/loading/error/action patterns are inconsistent |
+| Runtime page | Dense diagnostics and Local ADE cockpit are mixed under one Runtime page |
+| Desktop architecture | Electron main/preload/runtime boundary exists; renderer should remain UI-only |
+| Design tokens | Semantic tokens exist in `index.css`; new work should reuse them |
 
-Current repo evidence:
+Settings destinations currently include:
 
-- Server already exposes routers/modules for many ZCode-style features: `plugins`, `skills`, `hooks`, `memory`, `commands`, `model-provider`, `credential`, `acp-auth`, `quota`, `git`, `repo-snapshot-indexing`, `terminal`, `usage-stats`, `task-auto-archive`, `remote-control`, `traffic-proxy`, `crash-reporting`, `subagents`.
-- Use cases are built once through the composition/service registry pattern described in `CONTEXT.md`.
-- Plugin and skills adapters are wired through `apps/server/src/bootstrap/service-registry/*` and `LocalAdeService`, not through `modules/*/infra`.
-- Web already has settings panels for many features and a large `local-ade` workbench surface.
-- Chat currently uses `react-window` above a threshold with fixed estimated row height and fixed list height in `apps/web/src/components/chat-ui/chat-messages.tsx`; this is a risk for variable-height agent messages and scroll anchoring.
-- `apps/web/src/index.css` mostly has generic shadcn tokens; it does not yet express MiniMax/Mavis-style semantic product tokens such as `bg_default_primary`, `text_default_secondary`, `bg_interaction_tertiary_hover`, etc.
+```text
+Agents, Bots, Connection, Runtime, Capabilities, Credentials,
+Crash Reporting, ACP Auth, OAuth, Plan, Sync, Model Providers,
+Prompt, Output Style, Plugins, Repo Snapshots, Remote Control,
+ACP Proxy, Commands, Usage, Terminal, Skills, Hooks, Automation,
+Archive, Memory, MCP, Activity
+```
 
 ---
 
 ## Target State
 
-| Workstream | Target |
-|------------|--------|
-| Chat/task timeline | Chat renders from stable task/session event projections, keeps stable message anchors, avoids forced auto-follow while the user reads older content, and handles long histories without broken row heights or scroll jumps |
-| Plugin/skills/MCP | Plugin packages can declaratively contribute skills, commands, hooks, and optional MCP server definitions, with manifest validation, trust, permission/risk metadata, and visible run history |
-| Provider/auth/quota | Model/provider catalog is data-driven; provider secrets are referenced through credentials/auth stores, not renderer state; quota/readiness probes cover ZAI, MiniMax, OpenAI/Codex aliases and configured providers |
-| Change trust | Agent turns can produce checkpoints; restore has preview/conflict safety; session fork/rewind is visible and testable from server and UI surfaces |
-| Desktop/local ADE | Electron/local runtime owns health checks, CLI/provider/MCP diagnostics, terminal process lifecycle, stream cancellation/deduplication, and long-running background jobs |
-| UI system | Work surfaces use semantic tokens, compact desktop density, focus-visible/hover/selected/disabled/loading/error/empty states, and avoid marketing-style spacing inside the app |
+| Area | Target behavior |
+|------|-----------------|
+| Settings IA | Settings are grouped into a small number of meaningful categories instead of one flat list |
+| Settings overview | `/settings/` is a useful overview/default path, not a blind redirect |
+| Primary path | New or confused users can find agent setup, provider/auth, and connection/runtime health quickly |
+| Progressive disclosure | Advanced/low-frequency settings remain available but are visually quieter and grouped under clear advanced categories |
+| Search/filter | Users can quickly filter settings by label/description/category from the Settings layout or overview |
+| Mobile/narrow layout | No giant horizontal scroll of 28 equal items; use grouped drawer, select, command-like search, or another compact pattern |
+| Shared settings UI | Common section/header/empty/loading/error/action patterns are consistent across Settings pages |
+| Visual feel | Desktop tool density stays compact, quiet, and scan-friendly; avoid landing-page spacing or decorative cards |
+| Runtime boundary | Renderer UI changes do not weaken Electron main/preload security or move runtime secrets into renderer state |
+| Verification | Completion is proven by type/build/test output, `ui-map` output, and visual evidence at desktop and mobile/narrow widths |
+
+Recommended grouping model. Adjust only if repo evidence shows a better product language:
+
+| Group | Routes |
+|-------|--------|
+| Setup | Agents, Connection, Runtime, Model Providers, Credentials |
+| Account and Access | Plan, OAuth, ACP Auth, Sync |
+| Automation | Bots, Commands, Hooks, Automation, Terminal |
+| Extensions | Plugins, Skills, MCP, Capabilities |
+| Workspace Intelligence | Memory, Repo Snapshots, Prompt, Output Style |
+| Operations | Usage, Activity, Crash Reporting, Archive, Remote Control, ACP Proxy |
+
+The exact labels can change, but the final IA must reduce first-glance choices from 28 equal items to roughly 5-7 understandable groups.
 
 ---
 
 ## Constraints
 
-Executor MUST follow these constraints:
+The executor must follow these constraints.
 
-- Do not copy proprietary ZCode or MiniMax source, assets, trademarks, bundled code, or secrets. Use only the architecture/UX lessons captured in the Obsidian notes.
-- Do not bypass auth, licenses, or local credential protections in third-party apps.
-- Keep Eragear's architecture: transport validates/maps input, application/use-cases orchestrate, domain owns invariants, ports live under `modules/*/application/ports`, infra/platform owns IO/policy.
-- Respect `CONTEXT.md`: use cases are built once; event subscribers should be module-owned; do not reintroduce factory pass-through layers.
-- Do not move orchestration into React components or tRPC routers.
-- Do not expose raw provider secrets to the renderer, logs, transcripts, session files, or local ADE snapshots.
-- Do not upgrade unrelated dependencies. Any dependency change must be justified by one target workstream and covered by tests.
-- Do not rewrite the whole UI. Improve the existing web/desktop surfaces in place.
-- Do not touch `apps/native` unless a shared contract change requires it.
-- If current code already implements a capability, harden/integrate/verify it instead of creating a duplicate module.
-- If a feature conflicts with ACP or security boundaries, stop and document the blocker rather than working around it.
-
----
-
-## Integration Points To Inspect First
-
-Read these before implementing:
-
-- Architecture and vocabulary: `AGENTS.md`, `CONTEXT.md`.
-- Server composition: `apps/server/src/bootstrap/init/service-module.init.ts`, `apps/server/src/modules/use-cases.ts`.
-- Chat event pipeline: `apps/server/src/platform/acp/update.ts`, `apps/server/src/platform/acp/handlers.ts`, `apps/web/src/hooks/use-chat-session-event-handler.ts`, `apps/web/src/hooks/use-chat-message-state.ts`, `apps/web/src/store/chat-stream-store.ts`.
-- Chat rendering: `apps/web/src/components/chat-ui/chat-messages.tsx`, `apps/web/src/components/chat-ui/agentic-message.tsx`, `apps/web/src/components/ai-elements/conversation.tsx`.
-- Local ADE: `apps/server/src/modules/settings/application/local-ade.service.ts`, `apps/web/src/components/local-ade/local-ade-panels.tsx`, `apps/web/src/components/local-ade/local-ade-operations.ts`.
-- Plugins/skills/commands/hooks/MCP: `apps/server/src/bootstrap/service-registry/plugins-services.ts`, `apps/server/src/bootstrap/service-registry/skills-services.ts`, `apps/server/src/modules/plugins`, `apps/server/src/modules/skills`, `apps/server/src/modules/commands`, `apps/server/src/modules/hooks`.
-- Providers/auth/quota: `apps/server/src/modules/model-provider`, `apps/server/src/modules/credential`, `apps/server/src/modules/acp-auth`, `apps/server/src/modules/quota`.
-- Change trust: `apps/server/src/modules/git`, `apps/server/src/modules/session/application/fork-session.service.ts`, `apps/server/src/modules/session/application/list-session-forks.service.ts`.
-- UI tokens/density: `apps/web/src/index.css`, `apps/web/src/components/ui/*`, settings panels, chat surfaces, local ADE panels.
-
----
-
-## Execution Plan
-
-### Phase 1 - Audit And Narrow Existing Surface
-
-1. Create a short implementation inventory in the work notes, not a committed extra file unless needed:
-   - mark each target workstream as `implemented`, `partial`, or `missing`;
-   - identify the existing module/service/router/UI surface to extend;
-   - list tests already present and tests that need to be added.
-2. Confirm no duplicate module is needed for features already present.
-3. Confirm whether existing storage for each feature is SQLite-backed, file-backed, or in-memory.
-
-### Phase 2 - Chat Timeline And Event Projection
-
-1. Fix chat long-history rendering so variable-height agent messages, tool calls, markdown/code blocks, and loaded older messages do not break scroll position.
-2. Prefer ZCode-style scroll anchoring/auto-follow semantics for normal chat. If virtualization remains, it must use measured/dynamic sizing and be proven with tests.
-3. Ensure message parts remain structured: thought/content/tool-call/attachments/feedback should stay separate in state and UI.
-4. Add tests for:
-   - append streaming without rerendering unrelated messages;
-   - loading older messages without jumping the viewport;
-   - user reading older content is not forced to bottom;
-   - tool-call updates preserve status/duration/error/permission context.
-
-### Phase 3 - Plugin, Skills, Commands, Hooks, MCP Package Boundary
-
-1. Extend the existing plugin manifest model to support a ZCode-like declarative bundle:
-   - manifest file: `eragear-plugin.json` or `plugin.json`;
-   - optional skill markdown files;
-   - optional slash command definitions;
-   - optional hook definitions;
-   - optional `.mcp.json` or manifest-embedded MCP server definitions;
-   - permission/risk metadata per command/tool/server.
-2. Validate manifests server-side before installing/enabling.
-3. Route plugin-provided skills/commands/MCP servers through existing services and Local ADE adapters.
-4. Surface trust, permission, risk, enabled/disabled state, and last run result in web UI.
-5. Ensure dangerous process/project/env scopes require explicit trust/permission.
-
-### Phase 4 - Provider Catalog, Credential/Auth, Quota Boundary
-
-1. Harden existing model-provider defaults and CRUD around the ZCode/MiniMax pattern:
-   - provider records are data-driven;
-   - models include supported formats and family mappings;
-   - per-session selected provider/model is recorded and visible.
-2. Ensure credentials are referenced by ID and resolved only server-side.
-3. Ensure ACP auth material is generated/synced only into the configured private server-side storage path.
-4. Verify MiniMax, ZAI, and OpenAI/Codex quota/readiness behavior using existing adapters and tests.
-5. Add diagnostics that distinguish missing CLI, missing auth, missing model config, provider unavailable, and quota unavailable.
-
-### Phase 5 - Change Trust, Checkpoints, Fork/Rewind
-
-1. Verify automatic checkpoint creation around agent turns is wired through module-owned events, not ad hoc calls from transport/UI.
-2. Ensure checkpoint restore has preview, safety checkpoint, blockers, conflict handling, and clear UI affordances.
-3. Ensure session fork/list-forks/resume flows preserve original session history and agent-session metadata without corrupting the source session.
-4. Add visible timeline actions for checkpoint, restore, fork, and rewind where they naturally fit the chat/local ADE surfaces.
-
-### Phase 6 - Desktop/Local ADE Runtime Boundary
-
-1. Treat the desktop/local runtime as a capability boundary, following the MiniMax note:
-   - runtime diagnostics;
-   - CLI/provider readiness;
-   - MCP health;
-   - terminal process lifecycle;
-   - background task fleet;
-   - stream cancellation/deduplication when users switch sessions or stop prompts.
-2. Ensure renderer receives capability state and diagnostics, not raw secrets or privileged handles.
-3. Add restart/shutdown/health-check behavior where long-running local processes are introduced or already present.
-
-### Phase 7 - Semantic Design Tokens And Desktop Density
-
-1. Add Eragear semantic UI tokens mapped onto current theme variables, for example:
-   - background roles: default, grouped, elevated, interaction hover;
-   - text roles: primary, secondary, tertiary, accent, danger;
-   - icon roles;
-   - border roles;
-   - status roles;
-   - motion duration roles.
-2. Apply these tokens to chat, settings, and Local ADE surfaces without a full redesign.
-3. Keep dense desktop defaults:
-   - primary work-surface text around 12-14px;
-   - controls around 32-36px;
-   - compact gaps and predictable panel rhythm.
-4. Cover interaction states consistently:
-   - default, hover, active, selected, focus-visible, disabled, loading, empty, error.
-5. Avoid raw hex/one-off arbitrary colors in app surfaces unless mapped through tokens.
-
-### Phase 8 - Final Verification And Cleanup
-
-1. Run targeted tests for every touched workstream.
-2. Run full type checks and blocker audits.
-3. Remove dead duplicate code introduced during implementation.
-4. Update existing docs only where behavior or contracts changed.
+- [ ] Do not change server/domain behavior unless a UI contract already requires it.
+- [ ] Do not move secrets, credentials, provider tokens, or privileged runtime data into renderer-owned state.
+- [ ] Do not weaken `apps/desktop/src/main.ts` security posture: keep `contextIsolation: true`, `nodeIntegration: false`, preload IPC boundary, and runtime service boundary.
+- [ ] Do not delete or break existing `/settings/*` deep links.
+- [ ] Do not rename tRPC procedures or shared contracts unless absolutely required and fully verified.
+- [ ] Do not introduce a new UI framework or design system.
+- [ ] Do not introduce hardcoded colors when an existing CSS variable or Tailwind token fits.
+- [ ] Do not use decorative gradients/orbs/marketing hero layouts inside Settings.
+- [ ] Do not put page sections inside nested cards. Use cards only for repeated items, modals, or genuinely framed tools.
+- [ ] Do not make a broad icon-library migration. If touching Settings icons, keep a single consistent convention within the changed surface and explain the choice.
+- [ ] Do not rely only on subjective "looks better" judgment. Provide evidence.
+- [ ] If visual verification tooling is missing, create lightweight artifacts or tests rather than claiming completion from typecheck alone.
+- [ ] If a requirement conflicts with existing design-system tokens, stop and document the conflict instead of inventing one-off values.
 
 ---
 
 ## Success Criteria
 
-Completion requires evidence for every row below.
+Each criterion needs authoritative evidence. Do not mark the goal complete until evidence proves completion.
 
-| # | Criterion | Verification Command | Expected Signal |
-|---|-----------|----------------------|-----------------|
-| 1 | Current implementation inventory is reflected in code choices, with no duplicate feature module for an already existing capability | `rg -n "new .*Factory|modules/.*/infra" apps/server/src/modules apps/server/src/bootstrap` | No new pass-through factory layer; any new infra matches an actual port/adapter need |
-| 2 | Chat long-history rendering no longer relies on fixed 600px list height with fixed 120px rows for variable-height agent messages | `rg -n "height: 600|MESSAGE_ESTIMATED_HEIGHT|rowHeight=\\{MESSAGE_ESTIMATED_HEIGHT\\}" apps/web/src/components/chat-ui` | No remaining fixed-height chat virtualization path unless accompanied by dynamic measurement tests and comments explaining the invariant |
-| 3 | Chat event/message state tests cover streaming, older-message loading, and tool-call status updates | `bun test apps/web/src/hooks/use-chat-message-state.test.ts apps/web/src/hooks/use-chat-session-event-handler.test.ts apps/web/src/store/chat-stream-store.test.ts` | Exit code 0 |
-| 4 | Plugin package boundary supports manifest + skills + commands + hooks + MCP with trust/permission/risk metadata | `bun test apps/server/src/modules/plugins/application/plugins.service.test.ts apps/server/src/modules/settings/application/local-ade.service.test.ts apps/web/src/components/local-ade/local-ade-operations.test.ts` | Exit code 0; tests include at least one declarative plugin fixture with skills/commands/MCP/hooks |
-| 5 | Provider catalog and credential/auth boundaries keep raw secrets server-side | `bun test apps/server/src/modules/model-provider/application/model-provider.service.test.ts apps/server/src/modules/credential/application/credential.service.test.ts apps/server/src/modules/credential/infra/encrypted-credential-file-store.test.ts apps/server/src/modules/acp-auth/application/acp-auth.service.test.ts` | Exit code 0; tests prove list/UI records do not include raw secret values |
-| 6 | Quota/readiness adapters cover MiniMax, ZAI, and OpenAI/Codex alias behavior | `bun test apps/server/src/modules/quota/application/provider-quota.service.test.ts apps/server/src/modules/quota/infra/quota-adapters.test.ts` | Exit code 0 |
-| 7 | Checkpoint/fork/restore workflows are wired through application/use-case boundaries and verified | `bun test apps/server/src/modules/git/application/git-checkpoint.service.test.ts apps/server/src/modules/session/application/fork-session.service.test.ts apps/server/src/modules/session/application/list-session-forks.service.test.ts apps/server/src/modules/session/application/resume-session.service.test.ts` | Exit code 0 |
-| 8 | Local ADE diagnostics summarize agent, provider, MCP, checkpoint, context, and subagent readiness without secrets | `bun test apps/server/src/modules/settings/application/local-ade.service.test.ts apps/web/src/components/local-ade/local-ade-operations.test.ts` | Exit code 0; snapshot/operation summaries do not expose raw credential values |
-| 9 | Semantic token layer exists and is used by updated work surfaces | `rg -n -- "--bg_|--text_|--icon_|--border_|--motion-|--surface-|--interaction-" apps/web/src/index.css apps/web/src/components` | Tokens exist in CSS and updated components consume semantic roles instead of raw color/radius one-offs |
-| 10 | Web app type checks after UI and contract changes | `bun run --cwd apps/web check-types` | Exit code 0 |
-| 11 | Server type checks after API/use-case changes | `bun run --cwd apps/server check-types` | Exit code 0 |
-| 12 | Repo blocker audit passes | `bun run audit:blockers` | Exit code 0 |
-| 13 | Full monorepo type check passes | `bun run check-types` | Exit code 0 |
+### Required Evidence per Criterion
+
+| # | Criterion | Verification Command / Evidence | Expected Signal |
+|---|-----------|----------------------------------|-----------------|
+| 1 | Settings IA is no longer a flat list of 28 equal choices | `bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.tsx --alias '@=../../apps/web/src' --focus SettingsLayout --scope full --layoutOnly` | Output shows grouped navigation or a grouped/searchable Settings shell, not only one flat `SETTINGS_NAV.map` list |
+| 2 | `/settings/` is a useful overview/default path | Inspect `apps/web/src/routes/settings.index.tsx` and run `rg -n "redirect\\({ to: \"/settings/agents\"|SettingsOverview|SettingsHome" apps/web/src/routes/settings.index.tsx apps/web/src/components/settings` | No blind redirect remains; an overview/home component exists and links users to major groups/tasks |
+| 3 | First-glance Settings choices are reduced through chunking | Inspect settings nav config and run a focused test if added, for example `bun test apps/web/src/components/settings/settings-navigation.test.ts` | Top-level groups are roughly 5-7, with individual routes nested or filtered beneath them |
+| 4 | Existing deep links still work | `bun run --cwd apps/web check-types` and inspect `apps/web/src/routeTree.gen.ts` after router generation/build | All existing `/settings/*` routes compile and remain addressable |
+| 5 | Mobile/narrow Settings no longer presents 28 horizontal equal items | Visual evidence: screenshot at 390x844 or equivalent, plus `ui-map` for `SettingsLayout` | Mobile uses grouped drawer/select/search/stacked groups; no long single-row nav of every route |
+| 6 | Shared settings primitives are cleaner and consistent | Inspect `SettingsPageHeader`, `SettingsSection`, and any new empty/loading/error helpers | Uses existing tokens, clear hierarchy, consistent spacing, no nested-card page sections |
+| 7 | High-load panels are not worse and at least the top priority panels are cleaner | Visual evidence for Agents, Runtime, Model Providers, Bots or Usage, and Overview | Dense pages remain usable, with clearer grouping, primary actions, empty/loading/error states, and no text overlap |
+| 8 | Desktop shell still compiles | `bun run --cwd apps/desktop check-types` | Exit code 0 |
+| 9 | Web renderer compiles and builds | `bun run --cwd apps/web check-types` and `bun run --cwd apps/web build` | Exit code 0 for both |
+| 10 | Existing blocker tests still pass | `bun run --cwd apps/web test:blockers` and, if time permits, `bun run audit:blockers` | Exit code 0, or any unrelated failures are documented with exact output |
+| 11 | Visual verification exists | Save or reference screenshots for at least desktop width 1440x960 and narrow width around 390x844 | Screenshots show Settings overview, grouped nav, and one dense panel without overlapping text |
+| 12 | UX rationale is documented | Create or update `docs/tasks/settings-ux-audit.md` | Document includes current problems, IA decisions, Obsidian/refactoring-ui principles used, and before/after evidence |
 
 ### Completion Condition
 
-Agent may mark the goal complete only when:
+The executor stops only when:
 
-- every Success Criteria command passes with the expected signal;
-- no raw third-party source/assets/secrets were copied;
-- no duplicate feature module exists for a capability already present;
-- all changed behavior is covered by targeted tests or a documented manual smoke check when automation is not available;
-- `git diff` shows changes scoped to this goal.
-
----
-
-## Out Of Scope
-
-- Full ZCode or MiniMax clone parity.
-- Copying proprietary source code, assets, exact branding, or app-specific secrets.
-- Reverse engineering beyond the two already captured Obsidian notes.
-- Replacing Eragear's ACP architecture.
-- Migrating from Vite/React/Tailwind or Hono/tRPC.
-- Building a new marketplace or cloud billing service unless the existing plugin/subscription surfaces require a minimal local contract.
-- Mobile-native parity work in `apps/native` unless shared contracts break it.
+- [ ] All applicable verification commands pass.
+- [ ] The `ui-map` output confirms the Settings shell is grouped/searchable rather than flat.
+- [ ] Visual evidence exists for desktop and narrow widths.
+- [ ] `docs/tasks/settings-ux-audit.md` explains the decisions and evidence.
+- [ ] No existing `/settings/*` route is broken.
+- [ ] No Electron security/runtime boundary is weakened.
 
 ---
 
-## References
+## Execution Plan
 
-- `AGENTS.md`
-- `CONTEXT.md`
-- Obsidian vault `StudyWithTerasumi`: "ZCode - Bao cao reverse engineering va blueprint"
-- Obsidian vault `StudyWithTerasumi`: "Case Study - MiniMax Code UX UI Architecture Reverse Engineering"
-- `apps/server/src/modules/use-cases.ts`
-- `apps/server/src/bootstrap/service-registry/plugins-services.ts`
-- `apps/server/src/modules/settings/application/local-ade.service.ts`
-- `apps/web/src/components/chat-ui/chat-messages.tsx`
+Follow these steps in order.
+
+1. Re-read the design system:
+   - `apps/web/src/index.css`
+   - `apps/web/components.json`
+   - `apps/web/src/components/ui/button.tsx`
+   - `apps/web/src/components/ui/sidebar.tsx`
+   - `apps/web/src/components/ui/empty.tsx`
+   - `apps/web/src/components/settings/settings-panels.tsx`
+
+2. Capture baseline evidence:
+   - Run `ui-map` for `SettingsLayout`.
+   - Run `ui-map` for representative pages: Agents, Runtime, Connection.
+   - Capture screenshots if dev server tooling is available.
+   - Note the current first-glance choice count and mobile navigation behavior.
+
+3. Write `docs/tasks/settings-ux-audit.md` before implementation:
+   - Current UX problems.
+   - Settings groups and route mapping.
+   - Refactoring UI diagnosis: hierarchy, spacing, typography, action hierarchy, empty/loading/error states.
+   - Obsidian principles used: cognitive load, choice overload, chunking, default path, Fitts, Doherty.
+   - Planned evidence.
+
+4. Extract Settings navigation data:
+   - Move route metadata out of `apps/web/src/routes/settings.tsx` into a small settings navigation module if useful.
+   - Represent groups explicitly.
+   - Keep route paths stable.
+   - Add a focused test for grouping/filtering if the config becomes logic-bearing.
+
+5. Replace the flat Settings shell:
+   - Desktop: grouped sidebar, group labels, active state, optional collapsed group or search.
+   - Mobile/narrow: no flat horizontal list; use a compact grouped pattern.
+   - Add settings search/filter if feasible without broad state complexity.
+   - Preserve compact desktop density.
+
+6. Turn `/settings/` into an overview/default path:
+   - Show major groups and recommended setup/status actions.
+   - Prioritize first-run paths: agents, connection/runtime health, model providers, credentials/auth.
+   - Keep the page operational, not a marketing landing page.
+
+7. Polish shared settings primitives:
+   - Improve `SettingsPageHeader` and `SettingsSection` only within existing tokens.
+   - Add or reuse standard empty/loading/error/action helpers.
+   - Ensure group spacing > within-group spacing.
+   - Keep section headings subdued and content/action hierarchy clear.
+
+8. Polish the highest-load panels:
+   - Agents.
+   - Runtime.
+   - Model Providers.
+   - Bots or Usage, whichever currently creates more visual noise.
+   - Do not try to rewrite every settings panel if shared primitives and nav changes already improve them.
+
+9. Verify:
+   - Run all commands in Success Criteria.
+   - Re-run `ui-map` and compare with baseline.
+   - Capture screenshots at desktop and narrow widths.
+   - Update `docs/tasks/settings-ux-audit.md` with after evidence and any tradeoffs.
+
+10. Final report:
+   - List changed files.
+   - List verification commands and results.
+   - Include any remaining UX debt explicitly.
+
+---
+
+## Out of Scope
+
+- Rebuilding the whole app shell outside Settings.
+- Redesigning chat, file tree, local ADE internals, or server dashboard unless needed for shared Settings primitives.
+- Migrating from Electron to Tauri or changing desktop transport.
+- Changing ACP protocol, agent runtime, provider auth semantics, or persistence behavior.
+- Adding a new component library.
+- Broad icon-system migration across the whole app.
+- Creating a marketing-style landing page.
+
+---
+
+## Reference Commands
+
+Use these during execution.
+
+```powershell
+# Settings layout ui-map
+bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.tsx --alias '@=../../apps/web/src' --focus SettingsLayout --scope full --layoutOnly
+
+# Settings page samples
+bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.agents.tsx --alias '@=../../apps/web/src' --focus AgentsSettingsPage --scope full --layoutOnly
+bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.connection.tsx --alias '@=../../apps/web/src' --focus ConnectionSettingsPage --scope full --layoutOnly
+bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.runtime.tsx --alias '@=../../apps/web/src' --focus RuntimeSettingsPage --scope full --layoutOnly
+
+# Native reference, do not copy literally
+bun run --cwd apps/native ui-map --entry 'app/(drawer)/settings.tsx' --layoutOnly
+
+# Type/build/test
+bun run --cwd apps/web check-types
+bun run --cwd apps/web build
+bun run --cwd apps/web test:blockers
+bun run --cwd apps/desktop check-types
+bun run audit:blockers
+```
+
+---
+
+## Key Files To Inspect First
+
+- `apps/web/src/routes/settings.tsx`
+- `apps/web/src/routes/settings.index.tsx`
+- `apps/web/src/routes/settings.agents.tsx`
+- `apps/web/src/routes/settings.runtime.tsx`
+- `apps/web/src/routes/settings.connection.tsx`
+- `apps/web/src/components/settings/settings-panels.tsx`
+- `apps/web/src/components/settings/bots-settings-panel.tsx`
+- `apps/web/src/components/settings/model-providers-settings-panel.tsx`
+- `apps/web/src/components/settings/usage-stats-settings-panel.tsx`
 - `apps/web/src/components/local-ade/local-ade-panels.tsx`
 - `apps/web/src/index.css`
+- `apps/web/components.json`
+- `apps/web/src/components/ui/sidebar.tsx`
+- `apps/web/src/components/ui/empty.tsx`
+- `apps/desktop/src/main.ts`
+- `apps/desktop/README.md`
 
 ---
 
 ## Agent Instructions
 
-1. Read this whole file before doing any work.
-2. Start by inspecting current code; do not trust stale previous GOAL content or memory.
-3. Implement vertically by workstream, using existing modules and contracts wherever possible.
-4. After each workstream, run the targeted tests from Success Criteria.
-5. Treat uncertainty as incomplete work: inspect code or add tests until evidence proves completion.
-6. Do not redefine done as a smaller subset of this objective.
-7. If a blocker prevents one Success Criteria row from being satisfied, stop and document the blocker with file paths and evidence.
+### Execution
+
+1. Read this whole file before changing anything.
+2. Run baseline `ui-map` before editing Settings.
+3. Use existing tokens and primitives before adding new ones.
+4. Keep every existing `/settings/*` route valid.
+5. Keep Electron main/preload/runtime security boundaries unchanged.
+6. Make changes in small, verifiable slices.
+7. After each major slice, run the smallest relevant verification before continuing.
+8. If a requirement is ambiguous, prefer the lowest-risk change that improves Settings UX without touching server/runtime behavior.
+9. If a blocker appears, document exact evidence and stop. Do not invent a workaround that violates constraints.
+
+### Anti-bias Instructions
+
+Scope shrink guard:
+
+- Do not redefine this as only a color/spacing polish task. The core problem is overloaded Settings information architecture.
+- Do not stop after changing the sidebar if `/settings/` still has no useful default path.
+- Do not leave mobile/narrow Settings with a long horizontal row of all routes.
+
+Uncertainty stop guard:
+
+- If you are unsure whether the UX improved, gather evidence: `ui-map`, screenshots, route count, grouping count, and type/build/test output.
+- Treat uncertain visual evidence as incomplete.
+
+Memory trust guard:
+
+- Do not assume previous outputs are still true. Inspect files and commands in the current worktree before reporting completion.
+- Do not claim a route or panel was preserved without verifying current `routeTree.gen.ts`, typecheck/build, or the relevant source file.

@@ -12,6 +12,8 @@
 
 import type { Context, Hono } from "hono";
 import type { HttpRouteDependencies } from "./deps";
+import { requireRouteUserId } from "./route-auth";
+import { parseSessionActionRouteInput } from "./session-route-input";
 
 /**
  * Registers session-related HTTP routes
@@ -30,23 +32,17 @@ export function registerSessionRoutes(
    * POST /api/sessions/stop - Stop a running session
    */
   api.post("/sessions/stop", async (c: Context) => {
-    const auth = await resolveAuthContext({
-      headers: c.req.raw.headers,
-      url: c.req.raw.url,
-      remoteAddress: c.req.header("x-eragear-remote-address"),
-    });
-    if (!auth) {
-      return c.json({ error: "Unauthorized" }, 401);
+    const auth = await requireRouteUserId(c, resolveAuthContext);
+    if (!auth.ok) {
+      return auth.response;
     }
-    const body = await c.req.parseBody();
-    const chatId = body.chatId as string;
-
-    if (!chatId) {
-      return c.json({ error: "chatId is required" }, 400);
+    const parsedInput = parseSessionActionRouteInput(await c.req.parseBody());
+    if (!parsedInput.ok) {
+      return c.json({ error: parsedInput.error }, 400);
     }
 
     const service = useCases.session.stop;
-    await service.execute(auth.userId, chatId);
+    await service.execute(auth.userId, parsedInput.input.chatId);
 
     return c.json({ ok: true });
   });
@@ -55,23 +51,17 @@ export function registerSessionRoutes(
    * DELETE /api/sessions - Delete a session
    */
   api.delete("/sessions", async (c: Context) => {
-    const auth = await resolveAuthContext({
-      headers: c.req.raw.headers,
-      url: c.req.raw.url,
-      remoteAddress: c.req.header("x-eragear-remote-address"),
-    });
-    if (!auth) {
-      return c.json({ error: "Unauthorized" }, 401);
+    const auth = await requireRouteUserId(c, resolveAuthContext);
+    if (!auth.ok) {
+      return auth.response;
     }
-    const body = await c.req.parseBody();
-    const chatId = body.chatId as string;
-
-    if (!chatId) {
-      return c.json({ error: "chatId is required" }, 400);
+    const parsedInput = parseSessionActionRouteInput(await c.req.parseBody());
+    if (!parsedInput.ok) {
+      return c.json({ error: parsedInput.error }, 400);
     }
 
     const service = useCases.session.delete;
-    await service.execute(auth.userId, chatId);
+    await service.execute(auth.userId, parsedInput.input.chatId);
     return c.json({ ok: true });
   });
 }

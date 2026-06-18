@@ -1,6 +1,6 @@
 import { NotFoundError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { AgentUpdateInput } from "@/shared/types/agent.types";
+import type { AgentLifecycleNotifier } from "./agent-lifecycle.notifier";
 import { normalizeAgentUpdateInput } from "./normalize-agent-input.util";
 import type { AgentRepositoryPort } from "./ports/agent-repository.port";
 
@@ -10,15 +10,18 @@ const OP = "agent.config.update";
  * Updates one user-owned agent configuration.
  *
  * Error mode: missing or cross-user IDs throw `NotFoundError`; accepted input is
- * normalized before persistence and followed by a dashboard refresh event.
+ * normalized before persistence and followed by an agent-updated notification.
  */
 export class UpdateAgentService {
   private readonly agentRepo: AgentRepositoryPort;
-  private readonly eventBus: EventBusPort;
+  private readonly agentLifecycleNotifier: AgentLifecycleNotifier;
 
-  constructor(agentRepo: AgentRepositoryPort, eventBus: EventBusPort) {
+  constructor(
+    agentRepo: AgentRepositoryPort,
+    agentLifecycleNotifier: AgentLifecycleNotifier
+  ) {
     this.agentRepo = agentRepo;
-    this.eventBus = eventBus;
+    this.agentLifecycleNotifier = agentLifecycleNotifier;
   }
 
   async execute(userId: string, input: Omit<AgentUpdateInput, "userId">) {
@@ -32,9 +35,7 @@ export class UpdateAgentService {
     }
     const normalized = normalizeAgentUpdateInput({ ...input, userId }, OP);
     const agent = await this.agentRepo.update(normalized);
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "agent_updated",
+    await this.agentLifecycleNotifier.agentUpdated({
       userId,
       agentId: agent.id,
     });

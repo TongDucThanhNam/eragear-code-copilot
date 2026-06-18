@@ -11,55 +11,14 @@
  */
 
 import type { Context, Hono } from "hono";
-import { isAppError } from "../../../shared/errors";
 import type { HttpRouteDependencies } from "./deps";
-import { isJsonBodyParseError, parseJsonBodyWithLimit } from "./helpers";
-
-interface CreateProjectPayload {
-  name: string;
-  path: string;
-  description?: string;
-  tags?: string[];
-  obsidianProjectPath?: string | null;
-  techStackTags?: string[];
-}
-
-interface CreateProjectRouteInput {
-  name: string;
-  path: string;
-  description: string | null;
-  tags: string[];
-  obsidianProjectPath: string | null;
-  techStackTags: string[];
-  favorite: false;
-}
-
-async function readCreateProjectInput(
-  request: Request,
-  maxBodyBytes: number
-): Promise<CreateProjectRouteInput> {
-  const payload = await parseJsonBodyWithLimit<CreateProjectPayload>(
-    request,
-    maxBodyBytes
-  );
-  return {
-    name: typeof payload.name === "string" ? payload.name : "",
-    path: typeof payload.path === "string" ? payload.path : "",
-    description:
-      typeof payload.description === "string"
-        ? payload.description || null
-        : null,
-    tags: Array.isArray(payload.tags) ? payload.tags : [],
-    obsidianProjectPath:
-      typeof payload.obsidianProjectPath === "string"
-        ? payload.obsidianProjectPath
-        : null,
-    techStackTags: Array.isArray(payload.techStackTags)
-      ? payload.techStackTags
-      : [],
-    favorite: false,
-  };
-}
+import { parseJsonBodyWithLimit } from "./helpers";
+import {
+  parseCreateProjectRouteInput,
+  parseDeleteProjectRouteInput,
+} from "./project-route-input";
+import { requireRouteUserId } from "./route-auth";
+import { respondToRouteError } from "./route-errors";
 
 /**
  * Registers project-related HTTP routes
@@ -82,38 +41,30 @@ export function registerProjectRoutes(
    */
   api.post("/projects", async (c: Context) => {
     try {
-      const auth = await resolveAuthContext({
-        headers: c.req.raw.headers,
-        url: c.req.raw.url,
-        remoteAddress: c.req.header("x-eragear-remote-address"),
-      });
-      if (!auth) {
-        return c.json({ error: "Unauthorized" }, 401);
+      const auth = await requireRouteUserId(c, resolveAuthContext);
+      if (!auth.ok) {
+        return auth.response;
       }
-      const input = await readCreateProjectInput(
+      const payload = await parseJsonBodyWithLimit<unknown>(
         c.req.raw,
         runtime.httpMaxBodyBytes
       );
-
-      if (!(input.name && input.path)) {
-        return c.json({ error: "name and path are required" }, 400);
+      const parsedInput = parseCreateProjectRouteInput(payload);
+      if (!parsedInput.ok) {
+        return c.json({ error: parsedInput.error }, 400);
       }
 
       const service = useCases.project.create;
-      const project = await service.execute(auth.userId, input);
+      const project = await service.execute(auth.userId, parsedInput.input);
 
       return c.json({ ok: true, project });
     } catch (error) {
-      if (isJsonBodyParseError(error)) {
-        return c.json({ error: error.message }, error.statusCode);
-      }
-      if (isAppError(error)) {
-        return c.json({ error: error.message }, error.statusCode as 400 | 404);
-      }
-      logger.error("Failed to create project", {
-        error: error instanceof Error ? error.message : String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to create project",
+        fallbackMessage: "Failed to create project",
+        fallbackStatus: 500,
       });
-      return c.json({ error: "Failed to create project" }, 500);
     }
   });
 
@@ -122,33 +73,26 @@ export function registerProjectRoutes(
    */
   api.delete("/projects", async (c: Context) => {
     try {
-      const auth = await resolveAuthContext({
-        headers: c.req.raw.headers,
-        url: c.req.raw.url,
-        remoteAddress: c.req.header("x-eragear-remote-address"),
-      });
-      if (!auth) {
-        return c.json({ error: "Unauthorized" }, 401);
+      const auth = await requireRouteUserId(c, resolveAuthContext);
+      if (!auth.ok) {
+        return auth.response;
       }
-      const body = await c.req.parseBody();
-      const projectId = body.projectId as string;
-
-      if (!projectId) {
-        return c.json({ error: "projectId is required" }, 400);
+      const parsedInput = parseDeleteProjectRouteInput(await c.req.parseBody());
+      if (!parsedInput.ok) {
+        return c.json({ error: parsedInput.error }, 400);
       }
 
       const service = useCases.project.delete;
-      await service.execute(auth.userId, projectId);
+      await service.execute(auth.userId, parsedInput.input.projectId);
 
       return c.json({ ok: true });
     } catch (error) {
-      if (isAppError(error)) {
-        return c.json({ error: error.message }, error.statusCode as 400 | 404);
-      }
-      logger.error("Failed to delete project", {
-        error: error instanceof Error ? error.message : String(error),
+      return respondToRouteError(c, error, {
+        logger,
+        logMessage: "Failed to delete project",
+        fallbackMessage: "Failed to delete project",
+        fallbackStatus: 500,
       });
-      return c.json({ error: "Failed to delete project" }, 500);
     }
   });
 }

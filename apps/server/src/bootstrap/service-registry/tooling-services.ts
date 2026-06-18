@@ -3,10 +3,14 @@ import {
   RespondPermissionService,
 } from "@/modules/tooling";
 import type { ToolingUseCases } from "@/modules/use-cases";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type ToolingServiceDependencies = ServiceRegistrySlice<
+  "gitAdapter" | "sessionRuntime"
+>;
 
 export function createToolingUseCases(
-  deps: ServiceRegistryDependencies
+  deps: ToolingServiceDependencies
 ): ToolingUseCases {
   const codeContextService = new CodeContextService(
     deps.gitAdapter,

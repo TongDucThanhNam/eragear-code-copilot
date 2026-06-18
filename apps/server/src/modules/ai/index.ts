@@ -29,7 +29,20 @@ export type {
   PromptEnhancerPort,
   PromptEnhancerResult,
 } from "./application/ports/prompt-enhancer.port";
-export { PromptTaskRunner } from "./application/send-message/prompt-task-runner";
+export {
+  createEventBusPromptLifecycleNotifier,
+  noopPromptLifecycleNotifier,
+} from "./application/prompt-lifecycle.notifier";
+export {
+  PromptTaskRunner,
+  type PromptTurnCompleteEvent,
+} from "./application/send-message/prompt-task-runner";
+export type {
+  PromptLifecycleEvents,
+  PromptLifecycleMessageSent,
+  PromptLifecycleSubagentInvocationRequested,
+  PromptSource,
+} from "./application/send-message/send-message.types";
 export type { SendMessagePolicy } from "./application/send-message.service";
 export { SendMessageService } from "./application/send-message.service";
 export { SetConfigOptionService } from "./application/set-config-option.service";

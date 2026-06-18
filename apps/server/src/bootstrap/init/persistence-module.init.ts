@@ -18,12 +18,18 @@ import {
   SettingsSqliteRepository,
   SettingsSqliteWorkerRepository,
 } from "@/modules/settings/di";
+import type { UsageStatsRepositoryPort } from "@/modules/usage-stats";
+import {
+  UsageStatsSqliteRepository,
+  UsageStatsSqliteWorkerRepository,
+} from "@/modules/usage-stats/di";
 
 export interface PersistenceModule {
   sessionRepo: SessionRepositoryPort;
   projectRepo: ProjectRepositoryPort;
   agentRepo: AgentRepositoryPort;
   settingsRepo: SettingsRepositoryPort;
+  usageStatsRepo: UsageStatsRepositoryPort;
 }
 
 export interface PersistenceModuleInitParams {
@@ -67,5 +73,8 @@ export function initializePersistenceModule(
       ? new AgentSqliteWorkerRepository()
       : new AgentSqliteRepository(),
     settingsRepo,
+    usageStatsRepo: sqliteWorkerEnabled
+      ? new UsageStatsSqliteWorkerRepository()
+      : new UsageStatsSqliteRepository(),
   };
 }

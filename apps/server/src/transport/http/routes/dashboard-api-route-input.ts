@@ -1,0 +1,262 @@
+import {
+  DEFAULT_LOG_QUERY_LIMIT,
+  DEFAULT_SESSION_LIST_PAGE_LIMIT,
+  MAX_LOG_QUERY_LIMIT,
+} from "../../../config/constants";
+import type { LogLevel, LogQuery } from "../../../shared/types/log.types";
+import { LOG_LEVELS } from "../../../shared/types/log.types";
+
+export type DashboardApiRouteQuery = Record<string, string | undefined>;
+
+export type LogQueryResult =
+  | { ok: true; query: LogQuery }
+  | { ok: false; error: string };
+
+export type SessionPaginationResult =
+  | { ok: true; pagination: { limit: number; offset: number } }
+  | { ok: false; error: string };
+
+const LOG_LEVEL_SET = new Set(LOG_LEVELS);
+const LOG_BOOLEAN_TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
+const LOG_BOOLEAN_FALSE_VALUES = new Set(["0", "false", "no", "off"]);
+const LOG_RANGE_TO_WINDOW_MS = {
+  "30m": 30 * 60 * 1000,
+  "2h": 2 * 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+} as const;
+
+type LogRange = keyof typeof LOG_RANGE_TO_WINDOW_MS;
+
+type ParseParamResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: string };
+
+function parseLogLevelsParam(
+  raw: string | undefined
+): ParseParamResult<LogLevel[] | undefined> {
+  const levelsRaw = raw?.trim();
+  if (!levelsRaw) {
+    return { ok: true, value: undefined };
+  }
+  const parsed = levelsRaw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const invalid = parsed.filter(
+    (value) => !LOG_LEVEL_SET.has(value as LogLevel)
+  );
+  if (invalid.length > 0) {
+    return {
+      ok: false,
+      error: `Invalid log levels: ${invalid.join(", ")}`,
+    };
+  }
+  return { ok: true, value: parsed as LogLevel[] };
+}
+
+function parseLogLimitParam(raw: string | undefined): ParseParamResult<number> {
+  if (!raw) {
+    return { ok: true, value: DEFAULT_LOG_QUERY_LIMIT };
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return { ok: false, error: "limit must be a positive number" };
+  }
+  return { ok: true, value: Math.min(parsed, MAX_LOG_QUERY_LIMIT) };
+}
+
+function parseTimestampParam(
+  name: "from" | "to",
+  raw: string | undefined
+): ParseParamResult<number | undefined> {
+  if (!raw) {
+    return { ok: true, value: undefined };
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { ok: false, error: `${name} must be a positive timestamp` };
+  }
+  return { ok: true, value: parsed };
+}
+
+function parseOrderParam(
+  raw: string | undefined
+): ParseParamResult<LogQuery["order"] | undefined> {
+  if (!raw) {
+    return { ok: true, value: undefined };
+  }
+  if (raw !== "asc" && raw !== "desc") {
+    return { ok: false, error: "order must be asc or desc" };
+  }
+  return { ok: true, value: raw };
+}
+
+function parseSearchParam(
+  raw: string | undefined
+): ParseParamResult<string | undefined> {
+  const search = raw?.trim();
+  if (!search) {
+    return { ok: true, value: undefined };
+  }
+  if (search.length > 200) {
+    return { ok: false, error: "search is too long" };
+  }
+  return { ok: true, value: search };
+}
+
+function parseSourcesParam(
+  raw: string | undefined
+): ParseParamResult<string[] | undefined> {
+  const sourcesRaw = raw?.trim();
+  if (!sourcesRaw) {
+    return { ok: true, value: undefined };
+  }
+  const parsed = sourcesRaw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!parsed.length) {
+    return { ok: false, error: "sources must contain at least one value" };
+  }
+  return {
+    ok: true,
+    value: [...new Set(parsed.map((value) => value.toLowerCase()))],
+  };
+}
+
+function parseAcpOnlyParam(
+  raw: string | undefined
+): ParseParamResult<boolean | undefined> {
+  const normalized = raw?.trim().toLowerCase();
+  if (!normalized) {
+    return { ok: true, value: undefined };
+  }
+  if (LOG_BOOLEAN_TRUE_VALUES.has(normalized)) {
+    return { ok: true, value: true };
+  }
+  if (LOG_BOOLEAN_FALSE_VALUES.has(normalized)) {
+    return { ok: true, value: false };
+  }
+  return {
+    ok: false,
+    error: "acpOnly must be one of: 1,0,true,false,yes,no,on,off",
+  };
+}
+
+function parseLogRangeParam(
+  raw: string | undefined
+): ParseParamResult<LogRange | undefined> {
+  const normalized = raw?.trim().toLowerCase();
+  if (!normalized) {
+    return { ok: true, value: undefined };
+  }
+  if (normalized in LOG_RANGE_TO_WINDOW_MS) {
+    return { ok: true, value: normalized as LogRange };
+  }
+  return {
+    ok: false,
+    error: `range must be one of: ${Object.keys(LOG_RANGE_TO_WINDOW_MS).join(", ")}`,
+  };
+}
+
+export function parseLogQueryParams(
+  params: DashboardApiRouteQuery
+): LogQueryResult {
+  const levelsResult = parseLogLevelsParam(params.levels);
+  if (!levelsResult.ok) {
+    return levelsResult;
+  }
+  const limitResult = parseLogLimitParam(params.limit);
+  if (!limitResult.ok) {
+    return limitResult;
+  }
+  const fromResult = parseTimestampParam("from", params.from);
+  if (!fromResult.ok) {
+    return fromResult;
+  }
+  const toResult = parseTimestampParam("to", params.to);
+  if (!toResult.ok) {
+    return toResult;
+  }
+  const rangeResult = parseLogRangeParam(params.range);
+  if (!rangeResult.ok) {
+    return rangeResult;
+  }
+  if (
+    rangeResult.value !== undefined &&
+    (fromResult.value !== undefined || toResult.value !== undefined)
+  ) {
+    return {
+      ok: false,
+      error: "range cannot be combined with from/to",
+    };
+  }
+  if (
+    fromResult.value !== undefined &&
+    toResult.value !== undefined &&
+    fromResult.value > toResult.value
+  ) {
+    return { ok: false, error: "from must be <= to" };
+  }
+  const orderResult = parseOrderParam(params.order);
+  if (!orderResult.ok) {
+    return orderResult;
+  }
+  const searchResult = parseSearchParam(params.search);
+  if (!searchResult.ok) {
+    return searchResult;
+  }
+  const sourcesResult = parseSourcesParam(params.sources);
+  if (!sourcesResult.ok) {
+    return sourcesResult;
+  }
+  const acpOnlyResult = parseAcpOnlyParam(params.acpOnly);
+  if (!acpOnlyResult.ok) {
+    return acpOnlyResult;
+  }
+
+  return {
+    ok: true,
+    query: {
+      from:
+        rangeResult.value !== undefined
+          ? Date.now() - LOG_RANGE_TO_WINDOW_MS[rangeResult.value]
+          : fromResult.value,
+      levels: levelsResult.value,
+      sources: sourcesResult.value,
+      acpOnly: acpOnlyResult.value,
+      search: searchResult.value,
+      to: toResult.value,
+      limit: limitResult.value,
+      order: orderResult.value ?? "desc",
+    },
+  };
+}
+
+export function parseDashboardSessionPaginationParams(
+  params: DashboardApiRouteQuery,
+  maxLimit: number
+): SessionPaginationResult {
+  const limitRaw = params.limit;
+  const offsetRaw = params.offset;
+  const normalizedMaxLimit = Math.max(1, Math.trunc(maxLimit));
+
+  let limit = DEFAULT_SESSION_LIST_PAGE_LIMIT;
+  if (limitRaw !== undefined) {
+    const parsedLimit = Number(limitRaw);
+    if (Number.isFinite(parsedLimit) && parsedLimit >= 1) {
+      limit = Math.min(Math.trunc(parsedLimit), normalizedMaxLimit);
+    }
+  }
+
+  let offset = 0;
+  if (offsetRaw !== undefined) {
+    const parsedOffset = Number(offsetRaw);
+    if (Number.isFinite(parsedOffset) && parsedOffset >= 0) {
+      offset = Math.trunc(parsedOffset);
+    }
+  }
+
+  return { ok: true, pagination: { limit, offset } };
+}

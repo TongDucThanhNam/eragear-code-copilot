@@ -6,10 +6,12 @@ import { getNodeErrnoCode } from "@/shared/utils/node-error.util";
 import {
   type PromptEnhancementSettings,
   PromptEnhancementSettingsSchema,
-  type UpdatePromptEnhancementSettingsInput,
 } from "../application/contracts/prompt-enhancement.contract";
-import type { PromptEnhancementRepositoryPort } from "../application/ports/prompt-enhancement-repository.port";
-import { DEFAULT_PROMPT_ENHANCEMENT_SETTINGS } from "../application/prompt-enhancement.service";
+import type {
+  MutablePromptEnhancementStoreSnapshot,
+  PromptEnhancementRepositoryPort,
+  PromptEnhancementStoreSnapshot,
+} from "../application/ports/prompt-enhancement-repository.port";
 
 const DOCUMENT_VERSION = 1;
 
@@ -43,27 +45,24 @@ export class PromptEnhancementFileRepository
     }
   }
 
-  async getSettings(userId: string): Promise<PromptEnhancementSettings> {
+  async read<T>(
+    reader: (snapshot: PromptEnhancementStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      return document.settingsByUserId[userId] ?? defaultSettings();
+      return await reader(toStoreSnapshot(document));
     });
   }
 
-  async updateSettings(
-    userId: string,
-    input: UpdatePromptEnhancementSettingsInput
-  ): Promise<PromptEnhancementSettings> {
+  async mutate<T>(
+    mutator: (snapshot: MutablePromptEnhancementStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      const next = PromptEnhancementSettingsSchema.parse({
-        ...defaultSettings(),
-        ...(document.settingsByUserId[userId] ?? {}),
-        ...input,
-      });
-      document.settingsByUserId[userId] = next;
-      await this.writeDocument(document);
-      return next;
+      const snapshot = toMutableStoreSnapshot(document);
+      const result = await mutator(snapshot);
+      await this.writeDocument(fromMutableStoreSnapshot(snapshot));
+      return result;
     });
   }
 
@@ -109,6 +108,38 @@ export class PromptEnhancementFileRepository
   }
 }
 
-function defaultSettings(): PromptEnhancementSettings {
-  return { ...DEFAULT_PROMPT_ENHANCEMENT_SETTINGS };
+function toStoreSnapshot(
+  document: PromptEnhancementDocument
+): PromptEnhancementStoreSnapshot {
+  return {
+    settingsByUserId: cloneSettingsByUserId(document.settingsByUserId),
+  };
+}
+
+function toMutableStoreSnapshot(
+  document: PromptEnhancementDocument
+): MutablePromptEnhancementStoreSnapshot {
+  return {
+    settingsByUserId: cloneSettingsByUserId(document.settingsByUserId),
+  };
+}
+
+function fromMutableStoreSnapshot(
+  snapshot: MutablePromptEnhancementStoreSnapshot
+): PromptEnhancementDocument {
+  return PromptEnhancementDocumentSchema.parse({
+    version: DOCUMENT_VERSION,
+    settingsByUserId: cloneSettingsByUserId(snapshot.settingsByUserId),
+  });
+}
+
+function cloneSettingsByUserId(
+  settingsByUserId: Record<string, PromptEnhancementSettings>
+): Record<string, PromptEnhancementSettings> {
+  return Object.fromEntries(
+    Object.entries(settingsByUserId).map(([userId, settings]) => [
+      userId,
+      PromptEnhancementSettingsSchema.parse(settings),
+    ])
+  );
 }

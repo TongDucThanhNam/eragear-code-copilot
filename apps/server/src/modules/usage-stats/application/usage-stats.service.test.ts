@@ -3,7 +3,11 @@ import type {
   UsageStatsRecord,
   UsageTelemetrySettings,
 } from "./contracts/usage-stats.contract";
-import type { UsageStatsRepositoryPort } from "./ports/usage-stats-repository.port";
+import type {
+  MutableUsageTelemetrySettingsSnapshot,
+  UsageStatsRepositoryPort,
+  UsageTelemetrySettingsSnapshot,
+} from "./ports/usage-stats-repository.port";
 import { UsageStatsService } from "./usage-stats.service";
 
 class InMemoryUsageStatsRepo implements UsageStatsRepositoryPort {
@@ -30,17 +34,53 @@ class InMemoryUsageStatsRepo implements UsageStatsRepositoryPort {
     );
   }
 
-  getTelemetrySettings(): Promise<UsageTelemetrySettings | null> {
-    return Promise.resolve(this.telemetry);
+  readTelemetrySettings<T>(
+    _userId: string,
+    reader: (snapshot: UsageTelemetrySettingsSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return Promise.resolve(
+      reader(createTelemetrySettingsSnapshot(this.telemetry))
+    );
   }
 
-  saveTelemetrySettings(
+  async mutateTelemetrySettings<T>(
     _userId: string,
-    settings: UsageTelemetrySettings
-  ): Promise<UsageTelemetrySettings> {
-    this.telemetry = settings;
-    return Promise.resolve(settings);
+    mutator: (snapshot: MutableUsageTelemetrySettingsSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    const snapshot = createMutableTelemetrySettingsSnapshot(this.telemetry);
+    const result = await mutator(snapshot);
+    this.telemetry = snapshot.getNext();
+    return result;
   }
+}
+
+function createTelemetrySettingsSnapshot(
+  settings: UsageTelemetrySettings | null
+): UsageTelemetrySettingsSnapshot {
+  return {
+    get() {
+      return settings ? { ...settings } : null;
+    },
+  };
+}
+
+function createMutableTelemetrySettingsSnapshot(
+  settings: UsageTelemetrySettings | null
+): MutableUsageTelemetrySettingsSnapshot & {
+  getNext(): UsageTelemetrySettings | null;
+} {
+  let next = settings ? { ...settings } : null;
+  return {
+    get() {
+      return next ? { ...next } : null;
+    },
+    set(settings) {
+      next = { ...settings };
+    },
+    getNext() {
+      return next ? { ...next } : null;
+    },
+  };
 }
 
 describe("UsageStatsService", () => {
@@ -51,34 +91,27 @@ describe("UsageStatsService", () => {
       nowMs: () => Date.UTC(2026, 5, 12),
     });
 
-    await service.recordLifecycleEvent({
-      type: "local_ade_lifecycle",
-      event: "after-agent-message-send",
+    await service.recordLifecycleUsage({
+      kind: "prompt_sent",
       userId: "user-1",
       projectRoot: "/repo",
       projectId: "project-1",
       chatId: "chat-1",
       turnId: "turn-1",
     });
-    await service.recordLifecycleEvent({
-      type: "local_ade_lifecycle",
-      event: "after-agent-turn-complete",
+    await service.recordLifecycleUsage({
+      kind: "turn_completed",
       userId: "user-1",
       projectRoot: "/repo",
       projectId: "project-1",
       chatId: "chat-1",
       turnId: "turn-1",
-      stopReason: "end_turn",
     });
-    await service.recordQuotaRefreshedEvent({
-      type: "provider_quota_refreshed",
+    await service.recordQuotaRefresh({
       userId: "user-1",
       providerId: "zai",
       providerDisplayName: "Z.ai",
       status: "ready",
-      fetchedAt: new Date(Date.UTC(2026, 5, 12)).toISOString(),
-      windows: [],
-      changed: true,
     });
 
     const summary = await service.getSummary("user-1", { range: "7d" });

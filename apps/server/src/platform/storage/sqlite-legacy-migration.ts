@@ -24,6 +24,7 @@ const LEGACY_JSON_FILES = [
   "sessions.json",
   "agents.json",
   "ui-settings.json",
+  "usage-stats.json",
 ] as const;
 
 const SQLITE_VARIABLE_LIMIT = 999;
@@ -31,6 +32,8 @@ const PROJECT_IMPORT_CHUNK_SIZE = 80;
 const AGENT_IMPORT_CHUNK_SIZE = 80;
 const SESSION_IMPORT_CHUNK_SIZE = 25;
 const MESSAGE_IMPORT_CHUNK_SIZE = 80;
+const USAGE_STATS_RECORD_IMPORT_CHUNK_SIZE = 45;
+const USAGE_STATS_TELEMETRY_IMPORT_CHUNK_SIZE = 200;
 
 interface LegacyProjectsData {
   projects?: Project[];
@@ -49,10 +52,48 @@ interface LegacyJsonData {
   agents: AgentConfig[];
   activeAgentId: string | null;
   settings: Settings | null;
+  usageStats: LegacyUsageStatsFile | null;
 }
 
-type SqlDataTable = "projects" | "sessions" | "agents";
+type UsageStatsRecordKind =
+  | "prompt_sent"
+  | "turn_completed"
+  | "quota_refreshed";
+type SqlDataTable =
+  | "projects"
+  | "sessions"
+  | "agents"
+  | "usage_stats_records"
+  | "usage_telemetry_settings";
 type SqlitePrimitive = string | number | null;
+
+interface LegacyUsageStatsRecord {
+  id?: unknown;
+  userId?: unknown;
+  kind?: unknown;
+  projectId?: unknown;
+  projectRoot?: unknown;
+  chatId?: unknown;
+  agentSessionId?: unknown;
+  turnId?: unknown;
+  providerId?: unknown;
+  providerDisplayName?: unknown;
+  status?: unknown;
+  inputTokens?: unknown;
+  outputTokens?: unknown;
+  createdAt?: unknown;
+}
+
+interface LegacyUsageTelemetrySettings {
+  enabled?: unknown;
+  updatedAt?: unknown;
+}
+
+interface LegacyUsageStatsFile {
+  version?: unknown;
+  recordsByUserId?: Record<string, LegacyUsageStatsRecord[]>;
+  telemetryByUserId?: Record<string, LegacyUsageTelemetrySettings>;
+}
 
 interface BulkInsertParams {
   db: Database;
@@ -489,6 +530,120 @@ function importLegacySettings(params: {
   setSqliteSettingIfMissing(db, settingKeys.appConfig, settings.app ?? null);
 }
 
+function normalizeOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function normalizeNonNegativeInteger(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return Math.trunc(value);
+}
+
+function normalizeUsageRecordKind(value: unknown): UsageStatsRecordKind | null {
+  if (
+    value === "prompt_sent" ||
+    value === "turn_completed" ||
+    value === "quota_refreshed"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function toLegacyUsageRecordRow(
+  userId: string,
+  record: LegacyUsageStatsRecord
+): SqlitePrimitive[] | null {
+  const id = normalizeOptionalString(record.id);
+  const recordUserId = normalizeOptionalString(record.userId) ?? userId;
+  const kind = normalizeUsageRecordKind(record.kind);
+  const createdAt = normalizeNonNegativeInteger(record.createdAt);
+  if (!(id && recordUserId && kind && createdAt !== null)) {
+    return null;
+  }
+
+  return [
+    id,
+    recordUserId,
+    kind,
+    normalizeOptionalString(record.projectId),
+    normalizeOptionalString(record.projectRoot),
+    normalizeOptionalString(record.chatId),
+    normalizeOptionalString(record.agentSessionId),
+    normalizeOptionalString(record.turnId),
+    normalizeOptionalString(record.providerId),
+    normalizeOptionalString(record.providerDisplayName),
+    normalizeOptionalString(record.status),
+    normalizeNonNegativeInteger(record.inputTokens),
+    normalizeNonNegativeInteger(record.outputTokens),
+    createdAt,
+  ];
+}
+
+function importLegacyUsageStats(
+  db: Database,
+  usageStats: LegacyUsageStatsFile | null
+): void {
+  if (!usageStats) {
+    return;
+  }
+
+  const recordRows: SqlitePrimitive[][] = [];
+  const recordsByUserId = usageStats.recordsByUserId ?? {};
+  for (const [userId, records] of Object.entries(recordsByUserId)) {
+    if (!Array.isArray(records)) {
+      continue;
+    }
+    for (const record of records) {
+      const row = toLegacyUsageRecordRow(userId, record);
+      if (row) {
+        recordRows.push(row);
+      }
+    }
+  }
+
+  runBulkInsert({
+    db,
+    prefixSql: `INSERT OR IGNORE INTO usage_stats_records (
+      id, user_id, kind, project_id, project_root, chat_id, agent_session_id,
+      turn_id, provider_id, provider_display_name, status, input_tokens,
+      output_tokens, created_at
+    ) VALUES`,
+    rows: recordRows,
+    columnCount: 14,
+    preferredChunkSize: USAGE_STATS_RECORD_IMPORT_CHUNK_SIZE,
+  });
+
+  const telemetryRows: SqlitePrimitive[][] = [];
+  const telemetryByUserId = usageStats.telemetryByUserId ?? {};
+  for (const [userId, settings] of Object.entries(telemetryByUserId)) {
+    const normalizedUserId = normalizeOptionalString(userId);
+    const updatedAt = normalizeNonNegativeInteger(settings?.updatedAt);
+    if (!(normalizedUserId && updatedAt !== null)) {
+      continue;
+    }
+    telemetryRows.push([
+      normalizedUserId,
+      settings.enabled === true ? 1 : 0,
+      updatedAt,
+    ]);
+  }
+
+  runBulkInsert({
+    db,
+    prefixSql: `INSERT OR IGNORE INTO usage_telemetry_settings (
+      user_id, enabled, updated_at
+    ) VALUES`,
+    rows: telemetryRows,
+    columnCount: 3,
+    preferredChunkSize: USAGE_STATS_TELEMETRY_IMPORT_CHUNK_SIZE,
+  });
+}
+
 function importLegacyData(params: {
   db: Database;
   projects: Project[];
@@ -497,6 +652,7 @@ function importLegacyData(params: {
   activeAgentId: string | null;
   settings: Settings | null;
   sessions: StoredSession[];
+  usageStats: LegacyUsageStatsFile | null;
   settingKeys: LegacyMigrationSettingKeys;
 }) {
   const {
@@ -507,6 +663,7 @@ function importLegacyData(params: {
     activeAgentId,
     settings,
     settingKeys,
+    usageStats,
   } = params;
   const sessions = params.sessions;
   const projectIds = new Set(projects.map((project) => project.id));
@@ -526,6 +683,7 @@ function importLegacyData(params: {
     settings,
     settingKeys,
   });
+  importLegacyUsageStats(db, usageStats);
 }
 
 async function getExistingLegacyFiles(
@@ -562,6 +720,10 @@ async function loadLegacyData(
     (await readLegacyJsonFile<Settings>(
       resolveLegacyFilePath("ui-settings.json")
     )) ?? null;
+  const usageStatsData =
+    (await readLegacyJsonFile<LegacyUsageStatsFile>(
+      resolveLegacyFilePath("usage-stats.json")
+    )) ?? null;
 
   return {
     projects: Array.isArray(projectsData.projects) ? projectsData.projects : [],
@@ -570,6 +732,7 @@ async function loadLegacyData(
     agents: Array.isArray(agentsData.agents) ? agentsData.agents : [],
     activeAgentId: agentsData.activeAgentId ?? null,
     settings: settingsData,
+    usageStats: usageStatsData,
   };
 }
 

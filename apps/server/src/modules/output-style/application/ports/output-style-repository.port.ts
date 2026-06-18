@@ -1,12 +1,18 @@
-import type {
-  OutputStyleSettings,
-  UpdateOutputStyleSettingsInput,
-} from "../contracts/output-style.contract";
+import type { OutputStyleSettings } from "../contracts/output-style.contract";
+
+export interface OutputStyleStoreSnapshot {
+  settingsByUserId: Readonly<Record<string, OutputStyleSettings>>;
+}
+
+export interface MutableOutputStyleStoreSnapshot {
+  settingsByUserId: Record<string, OutputStyleSettings>;
+}
 
 export interface OutputStyleRepositoryPort {
-  getSettings(userId: string): Promise<OutputStyleSettings>;
-  updateSettings(
-    userId: string,
-    input: UpdateOutputStyleSettingsInput
-  ): Promise<OutputStyleSettings>;
+  read<T>(
+    reader: (snapshot: OutputStyleStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
+  mutate<T>(
+    mutator: (snapshot: MutableOutputStyleStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
 }

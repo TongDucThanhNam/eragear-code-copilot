@@ -2,6 +2,7 @@ import type {
   OutputStylePreset,
   OutputStylePresetId,
   OutputStylePromptPrefix,
+  OutputStyleSettings,
   OutputStyleSettingsResult,
   UpdateOutputStyleSettingsInput,
 } from "./contracts/output-style.contract";
@@ -41,14 +42,19 @@ const DEFAULT_PRESETS: OutputStylePreset[] = [
 
 export class OutputStyleService {
   private readonly repository: OutputStyleRepositoryPort;
+  private readonly now: () => number;
 
-  constructor(repository: OutputStyleRepositoryPort) {
+  constructor(
+    repository: OutputStyleRepositoryPort,
+    deps?: { now?: () => number }
+  ) {
     this.repository = repository;
+    this.now = deps?.now ?? Date.now;
   }
 
   async getSettings(userId: string): Promise<OutputStyleSettingsResult> {
     return {
-      settings: await this.repository.getSettings(userId),
+      settings: await this.readSettings(userId),
       presets: DEFAULT_PRESETS,
     };
   }
@@ -58,13 +64,23 @@ export class OutputStyleService {
     input: UpdateOutputStyleSettingsInput
   ): Promise<OutputStyleSettingsResult> {
     return {
-      settings: await this.repository.updateSettings(userId, input),
+      settings: await this.repository.mutate((snapshot) => {
+        const current =
+          snapshot.settingsByUserId[userId] ?? this.createDefaultSettings();
+        const next: OutputStyleSettings = {
+          ...current,
+          ...input,
+          updatedAt: this.now(),
+        };
+        snapshot.settingsByUserId[userId] = next;
+        return next;
+      }),
       presets: DEFAULT_PRESETS,
     };
   }
 
   async resolvePromptPrefix(userId: string): Promise<OutputStylePromptPrefix> {
-    const settings = await this.repository.getSettings(userId);
+    const settings = await this.readSettings(userId);
     const preset = findPreset(settings.activePresetId);
     if (!(settings.enabled && preset.instructions.trim())) {
       return {
@@ -81,6 +97,21 @@ export class OutputStyleService {
         "Style instructions:",
         preset.instructions,
       ].join("\n"),
+    };
+  }
+
+  private async readSettings(userId: string): Promise<OutputStyleSettings> {
+    return await this.repository.read(
+      (snapshot) =>
+        snapshot.settingsByUserId[userId] ?? this.createDefaultSettings()
+    );
+  }
+
+  private createDefaultSettings(): OutputStyleSettings {
+    return {
+      enabled: false,
+      activePresetId: "default",
+      updatedAt: this.now(),
     };
   }
 }

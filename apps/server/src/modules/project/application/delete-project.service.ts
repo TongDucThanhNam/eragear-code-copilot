@@ -1,6 +1,6 @@
 import { NotFoundError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { ProjectRepositoryPort } from "./ports/project-repository.port";
+import type { ProjectLifecycleNotifier } from "./project-lifecycle.notifier";
 
 const OP = "project.lifecycle.delete";
 
@@ -13,11 +13,14 @@ const OP = "project.lifecycle.delete";
  */
 export class DeleteProjectService {
   private readonly projectRepo: ProjectRepositoryPort;
-  private readonly eventBus: EventBusPort;
+  private readonly projectLifecycleNotifier: ProjectLifecycleNotifier;
 
-  constructor(projectRepo: ProjectRepositoryPort, eventBus: EventBusPort) {
+  constructor(
+    projectRepo: ProjectRepositoryPort,
+    projectLifecycleNotifier: ProjectLifecycleNotifier
+  ) {
     this.projectRepo = projectRepo;
-    this.eventBus = eventBus;
+    this.projectLifecycleNotifier = projectLifecycleNotifier;
   }
 
   async execute(userId: string, id: string) {
@@ -29,31 +32,19 @@ export class DeleteProjectService {
         details: { projectId: id },
       });
     }
-    const activeProjectId = await this.projectRepo.getActiveId(userId);
-    if (activeProjectId === id) {
-      await this.projectRepo.setActive(null, userId);
-    }
 
-    await this.eventBus.publish({
-      type: "project_deleting",
+    await this.projectLifecycleNotifier.beforeProjectDelete({
       userId,
       projectId: project.id,
       projectPath: project.path,
     });
 
-    await this.projectRepo.delete(id, userId);
+    await this.projectRepo.deleteAndClearActive(id, userId);
 
-    await this.eventBus.publish({
-      type: "project_deleted",
+    await this.projectLifecycleNotifier.afterProjectDeleted({
       userId,
       projectId: project.id,
       projectPath: project.path,
-    });
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "project_deleted",
-      userId,
-      projectId: project.id,
     });
 
     return { ok: true };

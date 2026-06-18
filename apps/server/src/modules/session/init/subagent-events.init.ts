@@ -1,6 +1,7 @@
 import type { SessionUseCases } from "@/modules/use-cases";
 import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
+import { subscribeDomainEvents } from "@/shared/utils/domain-event-subscription.util";
 
 interface InitializeSubagentEventsParams {
   eventBus: EventBusPort;
@@ -12,23 +13,40 @@ export function initializeSubagentEvents(
   params: InitializeSubagentEventsParams
 ): () => void {
   const { eventBus, sessionUseCases, logger } = params;
-  return eventBus.subscribe(async (event) => {
-    try {
+  return subscribeDomainEvents({
+    eventBus,
+    types: ["subagent_invocation_requested", "prompt_turn_completed"],
+    async handler(event) {
       if (event.type === "subagent_invocation_requested") {
-        await sessionUseCases.subagents.startInvocationFromEvent(event);
+        await sessionUseCases.subagents.startInvocation({
+          userId: event.userId,
+          chatId: event.chatId,
+          ...(event.agentSessionId
+            ? { agentSessionId: event.agentSessionId }
+            : {}),
+          turnId: event.turnId,
+          subagent: {
+            name: event.subagent.name,
+            ...(event.subagent.description
+              ? { description: event.subagent.description }
+              : {}),
+            sourcePath: event.subagent.sourcePath,
+          },
+        });
         return;
       }
-      if (
-        event.type === "local_ade_lifecycle" &&
-        event.event === "after-agent-turn-complete"
-      ) {
-        await sessionUseCases.subagents.completeInvocationsForTurn(event);
-      }
-    } catch (error) {
+      await sessionUseCases.subagents.completeInvocationsForTurn({
+        userId: event.userId,
+        chatId: event.chatId,
+        turnId: event.turnId,
+        ...(event.stopReason ? { stopReason: event.stopReason } : {}),
+      });
+    },
+    onError(error, event) {
       logger.warn("Subagent lifecycle event handling failed", {
         eventType: event.type,
         error: error instanceof Error ? error.message : String(error),
       });
-    }
+    },
   });
 }

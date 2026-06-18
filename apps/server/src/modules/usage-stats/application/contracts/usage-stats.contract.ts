@@ -16,6 +16,10 @@ export const UsageStatsRecordKindSchema = z.enum([
   "quota_refreshed",
 ]);
 export type UsageStatsRecordKind = z.infer<typeof UsageStatsRecordKindSchema>;
+export type UsageStatsLifecycleRecordKind = Extract<
+  UsageStatsRecordKind,
+  "prompt_sent" | "turn_completed"
+>;
 
 export const UsageStatsRecordSchema = z
   .object({
@@ -48,6 +52,7 @@ export const UsageStatsCliProviderIdSchema = z.enum([
   "gemini",
   "opencode",
   "pi",
+  "zcode",
 ]);
 export type UsageStatsCliProviderId = z.infer<
   typeof UsageStatsCliProviderIdSchema
@@ -73,6 +78,23 @@ export const UpdateUsageTelemetryInputSchema = z
 export type UpdateUsageTelemetryInput = z.infer<
   typeof UpdateUsageTelemetryInputSchema
 >;
+
+export interface RecordLifecycleUsageInput {
+  kind: UsageStatsLifecycleRecordKind;
+  userId: string;
+  projectRoot: string;
+  projectId?: string;
+  chatId?: string;
+  agentSessionId?: string;
+  turnId?: string;
+}
+
+export interface RecordQuotaRefreshInput {
+  userId: string;
+  providerId: string;
+  providerDisplayName: string;
+  status: string;
+}
 
 export interface UsageStatsTotals {
   promptCount: number;

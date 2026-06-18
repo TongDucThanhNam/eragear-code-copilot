@@ -48,19 +48,47 @@ export interface SessionBroadcastEvent {
   event: BroadcastEvent;
 }
 
-export interface LocalAdeLifecycleEvent {
-  type: "local_ade_lifecycle";
-  event:
-    | "after-agent-session-create"
-    | "after-agent-message-send"
-    | "after-agent-turn-complete"
-    | "after-agent-session-stop";
+export type PromptSource = "client" | "supervisor" | "automation";
+
+export interface AgentSessionCreatedEvent {
+  type: "agent_session_created";
   userId: string;
   projectRoot: string;
   projectId?: string;
-  chatId?: string;
+  chatId: string;
   agentSessionId?: string;
-  turnId?: string;
+}
+
+export interface PromptMessageSentEvent {
+  type: "prompt_message_sent";
+  userId: string;
+  projectRoot: string;
+  projectId?: string;
+  chatId: string;
+  agentSessionId?: string;
+  turnId: string;
+  source: PromptSource;
+}
+
+export interface PromptTurnCompletedEvent {
+  type: "prompt_turn_completed";
+  userId: string;
+  projectRoot: string;
+  projectId?: string;
+  chatId: string;
+  agentSessionId?: string;
+  turnId: string;
+  stopReason: string;
+  source: PromptSource;
+}
+
+export interface AgentSessionStoppedEvent {
+  type: "agent_session_stopped";
+  userId: string;
+  projectRoot: string;
+  projectId?: string;
+  chatId: string;
+  agentSessionId?: string;
   stopReason?: string;
 }
 
@@ -148,7 +176,10 @@ export type DomainEvent =
   | ProjectDeletedEvent
   | SettingsUpdatedEvent
   | SessionBroadcastEvent
-  | LocalAdeLifecycleEvent
+  | AgentSessionCreatedEvent
+  | PromptMessageSentEvent
+  | PromptTurnCompletedEvent
+  | AgentSessionStoppedEvent
   | SubagentInvocationRequestedEvent
   | ProviderQuotaRefreshedEvent
   | CodingPlanSubscriptionUpdatedEvent

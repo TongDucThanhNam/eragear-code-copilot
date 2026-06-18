@@ -23,7 +23,7 @@ function createOutboxStub(calls: BroadcastEvent[]): SessionEventOutboxPort {
     enqueue: async (input) => {
       await calls.push(input.event);
     },
-    dispatch: async () => ({
+    dispatchDue: async () => ({
       dispatched: 0,
       failed: 0,
       retried: 0,
@@ -37,7 +37,7 @@ function createFailingOutboxStub(): SessionEventOutboxPort {
     enqueue: () => {
       throw new Error("outbox failure");
     },
-    dispatch: async () => ({
+    dispatchDue: async () => ({
       dispatched: 0,
       failed: 0,
       retried: 0,

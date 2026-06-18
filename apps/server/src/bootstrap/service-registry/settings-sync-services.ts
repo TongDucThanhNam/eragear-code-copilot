@@ -5,10 +5,12 @@ import {
 } from "@/modules/settings-sync";
 import type { SettingsSyncUseCases, UseCasePort } from "@/modules/use-cases";
 import { getStorageFileSync } from "@/platform/storage/storage-path";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type SettingsSyncServiceDependencies = ServiceRegistrySlice<"settingsRepo">;
 
 export function createSettingsSyncUseCases(
-  deps: ServiceRegistryDependencies,
+  deps: SettingsSyncServiceDependencies,
   settingsUpdater: UseCasePort<UpdateSettingsService>
 ): SettingsSyncUseCases {
   const repository = new SettingsSyncFileRepository({

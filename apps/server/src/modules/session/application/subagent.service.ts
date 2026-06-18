@@ -1,15 +1,15 @@
 import { NotFoundError, UnauthorizedError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type {
-  LocalAdeLifecycleEvent,
-  SubagentInvocationRequestedEvent,
-} from "@/shared/types/domain-events.types";
-import type {
   ChatSession,
   SubagentInvocation,
 } from "@/shared/types/session.types";
 import { createId } from "@/shared/utils/id.util";
-import type { ListSubagentInvocationsInput } from "./contracts/session.contract";
+import type {
+  CompleteSubagentInvocationsForTurnInput,
+  ListSubagentInvocationsInput,
+  StartSubagentInvocationInput,
+} from "./contracts/session.contract";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
 
 const MODULE = "session";
@@ -34,55 +34,47 @@ export class SubagentService {
     return this.readInvocations(session);
   }
 
-  async startInvocationFromEvent(
-    event: SubagentInvocationRequestedEvent
+  async startInvocation(
+    input: StartSubagentInvocationInput
   ): Promise<SubagentInvocation> {
-    return await this.sessionRuntime.runExclusive(event.chatId, async () => {
+    return await this.sessionRuntime.runExclusive(input.chatId, async () => {
       const session = this.requireOwnedSession(
-        event.userId,
-        event.chatId,
+        input.userId,
+        input.chatId,
         OP_START
       );
       const invocation: SubagentInvocation = {
         id: createId("subagent"),
-        name: event.subagent.name,
-        ...(event.subagent.description
-          ? { description: event.subagent.description }
+        name: input.subagent.name,
+        ...(input.subagent.description
+          ? { description: input.subagent.description }
           : {}),
-        sourcePath: event.subagent.sourcePath,
+        sourcePath: input.subagent.sourcePath,
         status: "running",
-        parentChatId: event.chatId,
-        parentTurnId: event.turnId,
-        ...(event.agentSessionId
-          ? { agentSessionId: event.agentSessionId }
+        parentChatId: input.chatId,
+        parentTurnId: input.turnId,
+        ...(input.agentSessionId
+          ? { agentSessionId: input.agentSessionId }
           : {}),
         startedAt: this.clock.nowMs(),
       };
       this.ensureInvocationMap(session).set(invocation.id, invocation);
-      await this.sessionRuntime.broadcast(event.chatId, {
+      await this.sessionRuntime.broadcast(input.chatId, {
         type: "subagent_status",
         invocation,
-        turnId: event.turnId,
+        turnId: input.turnId,
       });
       return invocation;
     });
   }
 
   async completeInvocationsForTurn(
-    event: LocalAdeLifecycleEvent
+    input: CompleteSubagentInvocationsForTurnInput
   ): Promise<void> {
-    if (
-      event.event !== "after-agent-turn-complete" ||
-      !event.chatId ||
-      !event.turnId
-    ) {
-      return;
-    }
-    const chatId = event.chatId;
-    const turnId = event.turnId;
+    const { chatId, turnId } = input;
     await this.sessionRuntime.runExclusive(chatId, async () => {
       const session = this.requireOwnedSession(
-        event.userId,
+        input.userId,
         chatId,
         OP_COMPLETE
       );
@@ -97,12 +89,12 @@ export class SubagentService {
         }
         const completed: SubagentInvocation = {
           ...invocation,
-          status: event.stopReason === "error" ? "failed" : "completed",
+          status: input.stopReason === "error" ? "failed" : "completed",
           completedAt: now,
           ...(session.uiState.lastAssistantId
             ? { resultMessageId: session.uiState.lastAssistantId }
             : {}),
-          ...(event.stopReason === "error"
+          ...(input.stopReason === "error"
             ? { error: "Parent turn completed with an error." }
             : {}),
         };

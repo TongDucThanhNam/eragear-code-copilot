@@ -14,7 +14,10 @@ import type {
   UpdateSettingsSyncConfigInput,
 } from "./contracts/settings-sync.contract";
 import type { SettingsSyncCloudPort } from "./ports/settings-sync-cloud.port";
-import type { SettingsSyncStateRepositoryPort } from "./ports/settings-sync-state-repository.port";
+import type {
+  SettingsSyncStateRepositoryPort,
+  SettingsSyncStateSnapshot,
+} from "./ports/settings-sync-state-repository.port";
 
 interface SettingsSyncServiceDeps {
   settingsRepo: SettingsRepositoryPort;
@@ -51,14 +54,13 @@ export class SettingsSyncService {
     userId: string,
     input: UpdateSettingsSyncConfigInput
   ): Promise<SettingsSyncStatus> {
-    const state = await this.getOrCreateState(userId);
-    const next = await this.stateRepo.saveState({
+    const next = await this.updateState(userId, (state) => ({
       ...state,
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       ...(input.firstRunPromptHandled !== undefined
         ? { firstRunPromptHandled: input.firstRunPromptHandled }
         : {}),
-    });
+    }));
     return await this.buildStatus(userId, next);
   }
 
@@ -85,7 +87,7 @@ export class SettingsSyncService {
     }
 
     if (remote.settingsHash === localHash) {
-      const synced = await this.stateRepo.saveState({
+      const synced = await this.replaceState(userId, {
         ...state,
         lastSyncAt: this.now(),
         lastSyncedSettingsHash: localHash,
@@ -111,7 +113,7 @@ export class SettingsSyncService {
         localHash,
         remote,
       });
-      const conflicted = await this.stateRepo.saveState({
+      const conflicted = await this.replaceState(userId, {
         ...state,
         pendingConflict: conflict,
       });
@@ -145,7 +147,7 @@ export class SettingsSyncService {
       settings,
     };
     await this.cloud.writeRemoteSnapshot(snapshot);
-    const next = await this.stateRepo.saveState({
+    const next = await this.replaceState(userId, {
       ...state,
       lastSyncAt: now,
       lastPushAt: now,
@@ -164,7 +166,7 @@ export class SettingsSyncService {
     const update = await this.settingsUpdater.execute(remote.settings);
     const pulledHash = hashSettings(update.settings);
     const now = this.now();
-    const next = await this.stateRepo.saveState({
+    const next = await this.replaceState(userId, {
       ...state,
       lastSyncAt: now,
       lastPullAt: now,
@@ -212,11 +214,47 @@ export class SettingsSyncService {
   }
 
   private async getOrCreateState(userId: string): Promise<SettingsSyncState> {
-    const existing = await this.stateRepo.getState(userId);
-    if (existing) {
-      return existing;
-    }
-    return await this.stateRepo.saveState({
+    return await this.stateRepo.mutateState(userId, (snapshot) => {
+      const existing = snapshot.get();
+      if (existing) {
+        return existing;
+      }
+      const initial = this.createInitialState(userId);
+      snapshot.set(initial);
+      return initial;
+    });
+  }
+
+  private async updateState(
+    userId: string,
+    updater: (state: SettingsSyncState) => SettingsSyncState
+  ): Promise<SettingsSyncState> {
+    return await this.stateRepo.mutateState(userId, (snapshot) => {
+      const next = updater(this.resolveState(userId, snapshot));
+      snapshot.set(next);
+      return next;
+    });
+  }
+
+  private async replaceState(
+    userId: string,
+    state: SettingsSyncState
+  ): Promise<SettingsSyncState> {
+    return await this.stateRepo.mutateState(userId, (snapshot) => {
+      snapshot.set(state);
+      return state;
+    });
+  }
+
+  private resolveState(
+    userId: string,
+    snapshot: SettingsSyncStateSnapshot
+  ): SettingsSyncState {
+    return snapshot.get() ?? this.createInitialState(userId);
+  }
+
+  private createInitialState(userId: string): SettingsSyncState {
+    return {
       userId,
       enabled: false,
       firstRunPromptHandled: false,
@@ -227,7 +265,7 @@ export class SettingsSyncService {
       lastSyncedSettingsHash: null,
       lastRemoteRevision: null,
       pendingConflict: null,
-    });
+    };
   }
 }
 

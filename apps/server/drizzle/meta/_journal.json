@@ -78,6 +78,13 @@
       "when": 1781222400000,
       "tag": "0010_sessions_config_state",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1781654400000,
+      "tag": "0011_usage_stats_primary_persistence",
+      "breakpoints": true
     }
   ]
 }

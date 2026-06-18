@@ -67,6 +67,25 @@ class InMemoryAgentRepo implements AgentRepositoryPort {
     );
   }
 
+  async listByProjectWithActiveState(
+    projectId: string | null | undefined,
+    userId: string
+  ): Promise<{ agents: AgentConfig[]; activeAgentId: string | null }> {
+    const agents = await this.listByProject(projectId, userId);
+    const allAgents = this.agents.filter((agent) => agent.userId === userId);
+    const currentActiveId = this.activeByUser.get(userId) ?? null;
+    const hasValidActive =
+      currentActiveId !== null &&
+      allAgents.some((agent) => agent.id === currentActiveId);
+    const nextActiveId = hasValidActive
+      ? currentActiveId
+      : (allAgents[0]?.id ?? null);
+    if (nextActiveId !== currentActiveId) {
+      await this.setActive(nextActiveId, userId);
+    }
+    return { agents, activeAgentId: nextActiveId };
+  }
+
   create(input: AgentInput): Promise<AgentConfig> {
     this.createCalls.push(input);
     const now = Date.now();
@@ -84,6 +103,20 @@ class InMemoryAgentRepo implements AgentRepositoryPort {
     };
     this.agents.push(created);
     return Promise.resolve(created);
+  }
+
+  async createAndEnsureActive(input: AgentInput): Promise<AgentConfig> {
+    const created = await this.create(input);
+    const currentActiveId = this.activeByUser.get(input.userId) ?? null;
+    const hasValidActive =
+      currentActiveId !== null &&
+      this.agents.some(
+        (agent) => agent.id === currentActiveId && agent.userId === input.userId
+      );
+    if (!hasValidActive) {
+      await this.setActive(created.id, input.userId);
+    }
+    return created;
   }
 
   async update(input: AgentUpdateInput): Promise<AgentConfig> {
@@ -107,6 +140,27 @@ class InMemoryAgentRepo implements AgentRepositoryPort {
       (agent) => !(agent.id === id && agent.userId === userId)
     );
     return Promise.resolve();
+  }
+
+  async deleteAndRepairActive(
+    id: string,
+    userId: string
+  ): Promise<{ activeAgentId: string | null }> {
+    const currentActiveId = this.activeByUser.get(userId) ?? null;
+    await this.delete(id, userId);
+    const remainingAgents = this.agents.filter(
+      (agent) => agent.userId === userId
+    );
+    const hasValidActive =
+      currentActiveId !== null &&
+      remainingAgents.some((agent) => agent.id === currentActiveId);
+    const nextActiveId = hasValidActive
+      ? currentActiveId
+      : (remainingAgents[0]?.id ?? null);
+    if (nextActiveId !== currentActiveId) {
+      await this.setActive(nextActiveId, userId);
+    }
+    return { activeAgentId: nextActiveId };
   }
 
   setActive(id: string | null, userId: string): Promise<void> {
@@ -218,13 +272,19 @@ describe("EnsureAgentDefaultsService", () => {
       findAll: async () => [],
       getActiveId: async () => null,
       listByProject: async () => [],
+      listByProjectWithActiveState: () =>
+        Promise.resolve({ agents: [], activeAgentId: null }),
       create: () => {
+        throw new Error("not called");
+      },
+      createAndEnsureActive: () => {
         throw new Error("not called");
       },
       update: () => {
         throw new Error("not called");
       },
       delete: async () => undefined,
+      deleteAndRepairActive: () => Promise.resolve({ activeAgentId: null }),
       setActive: async () => undefined,
       ensureDefaultsSeeded: () => new Promise(() => undefined),
     };

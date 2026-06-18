@@ -17,29 +17,37 @@ afterEach(async () => {
 });
 
 describe("PromptEnhancementFileRepository", () => {
-  test("returns defaults and persists per-user updates", async () => {
+  test("persists prompt-enhancement settings snapshots", async () => {
     const filePath = path.join(tempDir, "prompt-enhancement-settings.json");
     const repository = new PromptEnhancementFileRepository({ filePath });
 
-    const defaults = await repository.getSettings("user-1");
-    expect(defaults.enabled).toBe(false);
-    expect(defaults.instructionMode).toBe("execution");
+    const empty = await repository.read(
+      (snapshot) => snapshot.settingsByUserId
+    );
+    await repository.mutate((snapshot) => {
+      snapshot.settingsByUserId["user-1"] = {
+        enabled: true,
+        includeProjectContext: true,
+        includeDate: false,
+        instructionMode: "concise",
+        customInstruction: "Use compact responses.",
+      };
+    });
+    const settings = await repository.read(
+      (snapshot) => snapshot.settingsByUserId["user-1"]
+    );
 
-    const updated = await repository.updateSettings("user-1", {
+    const raw = await readFile(filePath, "utf8");
+
+    expect(empty).toEqual({});
+    expect(settings).toEqual({
       enabled: true,
+      includeProjectContext: true,
       includeDate: false,
       instructionMode: "concise",
       customInstruction: "Use compact responses.",
     });
-
-    expect(updated.enabled).toBe(true);
-    expect(updated.includeProjectContext).toBe(true);
-    expect(updated.includeDate).toBe(false);
-
-    const otherUser = await repository.getSettings("user-2");
-    expect(otherUser.enabled).toBe(false);
-
-    const raw = await readFile(filePath, "utf8");
+    expect(raw).toContain('"version": 1');
     expect(raw).toContain("user-1");
     expect(raw).toContain("Use compact responses.");
   });

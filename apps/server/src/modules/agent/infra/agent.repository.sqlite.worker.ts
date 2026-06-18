@@ -26,8 +26,22 @@ export class AgentSqliteWorkerRepository implements AgentRepositoryPort {
     return callSqliteWorker("agent", "listByProject", [projectId, userId]);
   }
 
+  listByProjectWithActiveState(
+    projectId: string | null | undefined,
+    userId: string
+  ): Promise<{ agents: AgentConfig[]; activeAgentId: string | null }> {
+    return callSqliteWorker("agent", "listByProjectWithActiveState", [
+      projectId,
+      userId,
+    ]);
+  }
+
   create(input: AgentInput): Promise<AgentConfig> {
     return callSqliteWorker("agent", "create", [input]);
+  }
+
+  createAndEnsureActive(input: AgentInput): Promise<AgentConfig> {
+    return callSqliteWorker("agent", "createAndEnsureActive", [input]);
   }
 
   update(input: AgentUpdateInput): Promise<AgentConfig> {
@@ -36,6 +50,13 @@ export class AgentSqliteWorkerRepository implements AgentRepositoryPort {
 
   delete(id: string, userId: string): Promise<void> {
     return callSqliteWorker("agent", "delete", [id, userId]);
+  }
+
+  deleteAndRepairActive(
+    id: string,
+    userId: string
+  ): Promise<{ activeAgentId: string | null }> {
+    return callSqliteWorker("agent", "deleteAndRepairActive", [id, userId]);
   }
 
   setActive(id: string | null, userId: string): Promise<void> {

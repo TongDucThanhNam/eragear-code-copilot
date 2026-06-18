@@ -9,7 +9,7 @@ import {
 function createSettingsRepoStub(settings: Settings): SettingsRepositoryPort {
   return {
     get: async () => settings,
-    update: async () => settings,
+    save: async () => settings,
   };
 }
 
@@ -45,7 +45,7 @@ describe("AppConfigService", () => {
   test("falls back to env defaults when settings load fails", async () => {
     const service = await AppConfigService.create({
       get: () => Promise.reject(new Error("storage unavailable")),
-      update: (_patch) => Promise.reject(new Error("not implemented")),
+      save: (_settings) => Promise.reject(new Error("not implemented")),
     });
 
     expect(service.getConfig()).toEqual(createDefaultAppConfigFromEnv());

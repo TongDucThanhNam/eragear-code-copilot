@@ -1,4 +1,3 @@
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { BroadcastEvent } from "@/shared/types/session.types";
 
 /**
@@ -40,13 +39,13 @@ export interface SessionEventOutboxDispatchResult {
 /**
  * Durable outbox for session broadcast events.
  *
- * Side effect: `enqueue` persists events for later fan-out; `dispatch` publishes
- * through the supplied event bus and updates retry/failure state.
+ * Side effect: `enqueue` persists events for later fan-out; `dispatchDue`
+ * publishes via the configured broadcast notifier and updates retry/failure
+ * state.
  */
 export interface SessionEventOutboxPort {
   enqueue(input: SessionEventOutboxEnqueueInput): Promise<void>;
-  dispatch(
-    eventBus: EventBusPort,
+  dispatchDue(
     policy: SessionEventOutboxDispatchPolicy
   ): Promise<SessionEventOutboxDispatchResult>;
 }

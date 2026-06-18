@@ -1,4 +1,9 @@
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
+import {
+  type CodingPlanSubscriptionNotifier,
+  type CodingPlanSubscriptionUpdateSource,
+  hasSubscriptionChanged,
+  noopCodingPlanSubscriptionNotifier,
+} from "./coding-plan-subscription.notifier";
 import type {
   CheckCodingPlanFeatureInput,
   CodingPlanBillingPortalResult,
@@ -81,18 +86,18 @@ const PLAN_DEFINITIONS: CodingPlanDefinition[] = [
 export class CodingPlanSubscriptionService {
   private readonly repository: CodingPlanSubscriptionRepositoryPort;
   private readonly billing: CodingPlanBillingPort;
-  private readonly eventBus?: EventBusPort;
+  private readonly notifier: CodingPlanSubscriptionNotifier;
   private readonly nowMs: () => number;
 
   constructor(deps: {
     repository: CodingPlanSubscriptionRepositoryPort;
     billing: CodingPlanBillingPort;
-    eventBus?: EventBusPort;
+    notifier?: CodingPlanSubscriptionNotifier;
     nowMs?: () => number;
   }) {
     this.repository = deps.repository;
     this.billing = deps.billing;
-    this.eventBus = deps.eventBus;
+    this.notifier = deps.notifier ?? noopCodingPlanSubscriptionNotifier;
     this.nowMs = deps.nowMs ?? Date.now;
   }
 
@@ -105,11 +110,16 @@ export class CodingPlanSubscriptionService {
     userId: string,
     input: UpdateCodingPlanSubscriptionInput
   ): Promise<CodingPlanStatusResult> {
-    const current = await this.getOrCreateSubscription(userId);
-    const next = normalizeSubscriptionUpdate(current, input, this.nowMs());
-    const saved = await this.repository.saveSubscription(next);
-    await this.publishSubscriptionUpdated(current, saved, "local");
-    return this.buildStatus(saved);
+    const { previous, next } = await this.repository.mutate((snapshot) => {
+      const current =
+        snapshot.subscriptionsByUserId[userId] ??
+        createDefaultSubscription(userId, this.nowMs());
+      const saved = normalizeSubscriptionUpdate(current, input, this.nowMs());
+      snapshot.subscriptionsByUserId[userId] = saved;
+      return { previous: current, next: saved };
+    });
+    await this.publishSubscriptionUpdated(previous, next, "local");
+    return this.buildStatus(next);
   }
 
   async checkFeature(
@@ -140,9 +150,7 @@ export class CodingPlanSubscriptionService {
 
     const next = normalizeBillingSnapshot(userId, snapshot, this.nowMs());
     const changed = hasSubscriptionChanged(current, next);
-    const saved = changed
-      ? await this.repository.saveSubscription(next)
-      : current;
+    const saved = changed ? await this.saveSubscription(next) : current;
     if (changed) {
       await this.publishSubscriptionUpdated(current, saved, "billing_sync");
     }
@@ -166,10 +174,20 @@ export class CodingPlanSubscriptionService {
   private async getOrCreateSubscription(
     userId: string
   ): Promise<CodingPlanSubscriptionState> {
-    return (
-      (await this.repository.getSubscription(userId)) ??
-      createDefaultSubscription(userId, this.nowMs())
+    return await this.repository.read(
+      (snapshot) =>
+        snapshot.subscriptionsByUserId[userId] ??
+        createDefaultSubscription(userId, this.nowMs())
     );
+  }
+
+  private async saveSubscription(
+    subscription: CodingPlanSubscriptionState
+  ): Promise<CodingPlanSubscriptionState> {
+    return await this.repository.mutate((snapshot) => {
+      snapshot.subscriptionsByUserId[subscription.userId] = subscription;
+      return subscription;
+    });
   }
 
   private buildStatus(
@@ -188,18 +206,12 @@ export class CodingPlanSubscriptionService {
   private async publishSubscriptionUpdated(
     previous: CodingPlanSubscriptionState,
     next: CodingPlanSubscriptionState,
-    source: "local" | "billing_sync"
+    source: CodingPlanSubscriptionUpdateSource
   ): Promise<void> {
-    await this.eventBus?.publish({
-      type: "coding_plan_subscription_updated",
-      userId: next.userId,
-      tier: next.tier,
-      previousTier: previous.tier,
-      status: next.status,
-      previousStatus: previous.status,
+    await this.notifier.subscriptionUpdated({
+      previous,
+      next,
       source,
-      updatedAt: new Date(next.updatedAt).toISOString(),
-      changed: hasSubscriptionChanged(previous, next),
     });
   }
 }
@@ -343,21 +355,4 @@ function findPlan(
   return (
     PLAN_DEFINITIONS.find((plan) => plan.tier === tier) ?? DEFAULT_CODING_PLAN
   );
-}
-
-function hasSubscriptionChanged(
-  previous: CodingPlanSubscriptionState,
-  next: CodingPlanSubscriptionState
-): boolean {
-  return (
-    JSON.stringify(normalizeForComparison(previous)) !==
-    JSON.stringify(normalizeForComparison(next))
-  );
-}
-
-function normalizeForComparison(
-  subscription: CodingPlanSubscriptionState
-): Omit<CodingPlanSubscriptionState, "updatedAt"> {
-  const { updatedAt: _updatedAt, ...rest } = subscription;
-  return rest;
 }

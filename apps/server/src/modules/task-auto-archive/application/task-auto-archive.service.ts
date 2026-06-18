@@ -32,29 +32,37 @@ export class TaskAutoArchiveService {
   }
 
   async getStatus(userId: string): Promise<TaskAutoArchiveStatus> {
-    return {
-      settings: await this.resolveSettings(userId),
-      lastRun: (await this.repository.getLastRun(userId)) ?? undefined,
-    };
+    return await this.repository.read((snapshot) => ({
+      settings: this.resolveSettingsFromSnapshot(
+        snapshot.settingsByUserId,
+        userId
+      ),
+      lastRun: snapshot.lastRunByUserId[userId],
+    }));
   }
 
   async updateSettings(
     userId: string,
     input: UpdateTaskAutoArchiveSettingsInput
   ): Promise<TaskAutoArchiveStatus> {
-    const current = await this.resolveSettings(userId);
-    const next: TaskAutoArchiveSettings = {
-      ...current,
-      enabled: input.enabled ?? current.enabled,
-      olderThanDays: input.olderThanDays ?? current.olderThanDays,
-      userConfigured: true,
-      updatedAt: new Date(this.nowMs()).toISOString(),
-    };
-    await this.repository.saveSettings(userId, next);
-    return {
-      settings: next,
-      lastRun: (await this.repository.getLastRun(userId)) ?? undefined,
-    };
+    return await this.repository.mutate((snapshot) => {
+      const current = this.resolveSettingsFromSnapshot(
+        snapshot.settingsByUserId,
+        userId
+      );
+      const next: TaskAutoArchiveSettings = {
+        ...current,
+        enabled: input.enabled ?? current.enabled,
+        olderThanDays: input.olderThanDays ?? current.olderThanDays,
+        userConfigured: true,
+        updatedAt: new Date(this.nowMs()).toISOString(),
+      };
+      snapshot.settingsByUserId[userId] = next;
+      return {
+        settings: next,
+        lastRun: snapshot.lastRunByUserId[userId],
+      };
+    });
   }
 
   async run(
@@ -123,11 +131,7 @@ export class TaskAutoArchiveService {
     }
     for (const userId of result.userIds) {
       const settings = await this.getCachedSettings(settingsByUserId, userId);
-      await this.repository.saveLastRun(userId, result);
-      await this.repository.saveSettings(userId, {
-        ...settings,
-        lastRunAt: checkedAt,
-      });
+      await this.recordRunForUser(userId, settings, result, checkedAt);
       if (!settings.enabled) {
         result.diagnostics.push(`Task auto-archive is disabled for ${userId}.`);
       }
@@ -234,7 +238,16 @@ export class TaskAutoArchiveService {
   private async resolveSettings(
     userId: string
   ): Promise<TaskAutoArchiveSettings> {
-    const existing = await this.repository.getSettings(userId);
+    return await this.repository.read((snapshot) =>
+      this.resolveSettingsFromSnapshot(snapshot.settingsByUserId, userId)
+    );
+  }
+
+  private resolveSettingsFromSnapshot(
+    settingsByUserId: Readonly<Record<string, TaskAutoArchiveSettings>>,
+    userId: string
+  ): TaskAutoArchiveSettings {
+    const existing = settingsByUserId[userId];
     if (existing) {
       return existing;
     }
@@ -244,6 +257,21 @@ export class TaskAutoArchiveService {
       userConfigured: false,
       updatedAt: new Date(this.nowMs()).toISOString(),
     };
+  }
+
+  private async recordRunForUser(
+    userId: string,
+    settings: TaskAutoArchiveSettings,
+    result: TaskAutoArchiveRunResult,
+    checkedAt: string
+  ): Promise<void> {
+    await this.repository.mutate((snapshot) => {
+      snapshot.lastRunByUserId[userId] = result;
+      snapshot.settingsByUserId[userId] = {
+        ...settings,
+        lastRunAt: checkedAt,
+      };
+    });
   }
 }
 

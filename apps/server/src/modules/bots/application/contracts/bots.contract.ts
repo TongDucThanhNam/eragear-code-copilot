@@ -241,3 +241,39 @@ export type BotQuotaAutomationCooldown = z.infer<
 export type BotQuotaAutomationState = z.infer<
   typeof BotQuotaAutomationStateSchema
 >;
+
+export type BotQuotaSnapshotStatus =
+  | "ready"
+  | "not_configured"
+  | "unavailable"
+  | "error";
+
+export interface CompleteBotRunsForTurnInput {
+  userId: string;
+  chatId: string;
+  turnId: string;
+  stopReason?: string;
+}
+
+export interface StopBotRunsForSessionInput {
+  userId: string;
+  chatId: string;
+  stopReason?: string;
+}
+
+export interface BotQuotaSnapshotWindowInput {
+  id: string;
+  windowType?: string;
+  label: string;
+  percentRemaining?: number;
+  remaining?: number;
+  resetAt?: string;
+}
+
+export interface RecordBotQuotaSnapshotInput {
+  userId: string;
+  providerId: string;
+  providerDisplayName: string;
+  status: BotQuotaSnapshotStatus;
+  windows: BotQuotaSnapshotWindowInput[];
+}

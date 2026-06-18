@@ -21,7 +21,7 @@ import { createPermissionHandler } from "./permission";
 function createOutboxStub(): SessionEventOutboxPort {
   return {
     enqueue: async () => undefined,
-    dispatch: async () => ({
+    dispatchDue: async () => ({
       dispatched: 0,
       failed: 0,
       retried: 0,

@@ -9,7 +9,11 @@ import type {
   UpdateRepoSnapshotIndexingSettingsInput,
 } from "./contracts/repo-snapshot-indexing.contract";
 import type { RepoSnapshotIndexPort } from "./ports/repo-snapshot-index.port";
-import type { RepoSnapshotIndexingRepositoryPort } from "./ports/repo-snapshot-indexing-repository.port";
+import type {
+  RepoSnapshotIndexingRepositoryPort,
+  RepoSnapshotIndexingSettingsScope,
+  RepoSnapshotIndexingSettingsSnapshot,
+} from "./ports/repo-snapshot-indexing-repository.port";
 
 export class RepoSnapshotIndexingService {
   private readonly index: RepoSnapshotIndexPort;
@@ -31,7 +35,10 @@ export class RepoSnapshotIndexingService {
     input?: RepoSnapshotIndexingProjectInput
   ): Promise<RepoSnapshotIndexOverview> {
     const data = await this.index.getIndexSnapshot(userId, input);
-    const settings = await this.resolveSettings(userId, data.projectRoot);
+    const settings = await this.resolveSettings({
+      userId,
+      projectRoot: data.projectRoot,
+    });
     const storage = await this.repository.getStorageState(data.projectRoot);
     return toOverview({ data, settings, storage });
   }
@@ -41,15 +48,20 @@ export class RepoSnapshotIndexingService {
     input: UpdateRepoSnapshotIndexingSettingsInput
   ): Promise<RepoSnapshotIndexOverview> {
     const data = await this.index.getIndexSnapshot(userId, input);
-    const current = await this.resolveSettings(userId, data.projectRoot);
-    const next: RepoSnapshotIndexingSettings = {
-      ...current,
-      enabled: input.enabled,
-      userConfigured: true,
-      updatedAt: this.now(),
-    };
-
-    await this.repository.saveSettings(userId, data.projectRoot, next);
+    const scope = { userId, projectRoot: data.projectRoot };
+    const { current, next } = await this.repository.mutateSettings(
+      (snapshot) => {
+        const current = this.resolveSettingsFromSnapshot(snapshot, scope);
+        const next: RepoSnapshotIndexingSettings = {
+          ...current,
+          enabled: input.enabled,
+          userConfigured: true,
+          updatedAt: this.now(),
+        };
+        snapshot.set(scope, next);
+        return { current, next };
+      }
+    );
 
     if (next.enabled && (input.refreshNow ?? !current.enabled)) {
       return await this.refresh(userId, {
@@ -67,10 +79,10 @@ export class RepoSnapshotIndexingService {
     input: RefreshRepoSnapshotIndexInput = {}
   ): Promise<RepoSnapshotIndexOverview> {
     const currentData = await this.index.getIndexSnapshot(userId, input);
-    const settings = await this.resolveSettings(
+    const settings = await this.resolveSettings({
       userId,
-      currentData.projectRoot
-    );
+      projectRoot: currentData.projectRoot,
+    });
     if (!settings.enabled) {
       const storage = await this.repository.getStorageState(
         currentData.projectRoot
@@ -85,16 +97,19 @@ export class RepoSnapshotIndexingService {
 
     const refreshedData = await this.index.refreshIndex(userId, input);
     const createdAt = this.now();
-    const updatedSettings: RepoSnapshotIndexingSettings = {
-      ...settings,
-      lastRefreshAt: createdAt,
-      updatedAt: settings.updatedAt || createdAt,
-    };
-    await this.repository.saveSettings(
-      userId,
-      refreshedData.projectRoot,
-      updatedSettings
-    );
+    const updatedSettings = await this.repository.mutateSettings((snapshot) => {
+      const targetScope = {
+        userId,
+        projectRoot: refreshedData.projectRoot,
+      };
+      const next: RepoSnapshotIndexingSettings = {
+        ...settings,
+        lastRefreshAt: createdAt,
+        updatedAt: settings.updatedAt || createdAt,
+      };
+      snapshot.set(targetScope, next);
+      return next;
+    });
     const { state } = await this.repository.writeManifest({
       projectRoot: refreshedData.projectRoot,
       index: refreshedData.index,
@@ -114,7 +129,10 @@ export class RepoSnapshotIndexingService {
     input: SearchRepoSnapshotIndexInput
   ): Promise<RepoSnapshotIndexSearchResult> {
     const data = await this.index.getIndexSnapshot(userId, input);
-    const settings = await this.resolveSettings(userId, data.projectRoot);
+    const settings = await this.resolveSettings({
+      userId,
+      projectRoot: data.projectRoot,
+    });
     if (!settings.enabled) {
       return {
         status: "disabled",
@@ -129,10 +147,18 @@ export class RepoSnapshotIndexingService {
   }
 
   private async resolveSettings(
-    userId: string,
-    projectRoot: string
+    scope: RepoSnapshotIndexingSettingsScope
   ): Promise<RepoSnapshotIndexingSettings> {
-    const existing = await this.repository.getSettings(userId, projectRoot);
+    return await this.repository.readSettings((snapshot) =>
+      this.resolveSettingsFromSnapshot(snapshot, scope)
+    );
+  }
+
+  private resolveSettingsFromSnapshot(
+    snapshot: RepoSnapshotIndexingSettingsSnapshot,
+    scope: RepoSnapshotIndexingSettingsScope
+  ): RepoSnapshotIndexingSettings {
+    const existing = snapshot.get(scope);
     if (existing) {
       return existing;
     }

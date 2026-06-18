@@ -391,6 +391,44 @@ function shouldLogSessionUpdateSummary(update: SessionUpdate): boolean {
   }
 }
 
+type SessionUpdateHandler = (context: SessionUpdateContext) => Promise<boolean>;
+
+export class SessionUpdatePipeline {
+  private readonly handlers = new Map<
+    SessionUpdate["sessionUpdate"],
+    SessionUpdateHandler
+  >();
+
+  register(
+    kind: SessionUpdate["sessionUpdate"],
+    handler: SessionUpdateHandler
+  ): this {
+    this.handlers.set(kind, handler);
+    return this;
+  }
+
+  async handle(
+    update: SessionUpdate,
+    context: SessionUpdateContext
+  ): Promise<boolean> {
+    return (await this.handlers.get(update.sessionUpdate)?.(context)) ?? false;
+  }
+}
+
+function createSessionUpdatePipeline(): SessionUpdatePipeline {
+  return new SessionUpdatePipeline()
+    .register("user_message_chunk", handleBufferedMessage)
+    .register("agent_message_chunk", handleBufferedMessage)
+    .register("agent_thought_chunk", handleBufferedMessage)
+    .register("current_mode_update", handleModeUpdate)
+    .register("available_commands_update", handleCommandsUpdate)
+    .register("config_option_update", handleConfigOptionsUpdate)
+    .register("session_info_update", handleSessionInfoUpdate)
+    .register("plan", handlePlanUpdate)
+    .register("tool_call", handleToolCallCreate)
+    .register("tool_call_update", handleToolCallUpdate);
+}
+
 async function handleModeUpdate(
   context: Pick<
     SessionUpdateContext,
@@ -701,6 +739,7 @@ export function createSessionUpdateHandler(
   sessionRepo: SessionRepositoryPort
 ) {
   let updateTail: Promise<void> = Promise.resolve();
+  const pipeline = createSessionUpdatePipeline();
 
   return async function handleSessionUpdate(params: {
     chatId: string;
@@ -745,6 +784,7 @@ export function createSessionUpdateHandler(
           sessionRepo,
           summary,
           isDebugEnabled,
+          pipeline,
         });
         // [DIAG] Log processSessionUpdateUnderLock duration
         if (isDiagnosticsEnabled()) {
@@ -779,6 +819,7 @@ async function processSessionUpdateUnderLock(params: {
   sessionRepo: SessionRepositoryPort;
   summary: ReturnType<typeof summarizeUpdate> | undefined;
   isDebugEnabled: boolean;
+  pipeline: SessionUpdatePipeline;
 }): Promise<void> {
   const {
     chatId,
@@ -791,6 +832,7 @@ async function processSessionUpdateUnderLock(params: {
     sessionRepo,
     summary,
     isDebugEnabled,
+    pipeline,
   } = params;
   if (
     shouldIgnoreStaleTurnScopedUpdate({
@@ -819,9 +861,8 @@ async function processSessionUpdateUnderLock(params: {
     finalizeStreamingForCurrentAssistant,
   };
 
-  const handledByChunkPipeline = await handleBufferedMessage(context);
-  const handled = await dispatchSessionUpdate(context);
-  if (!summary || handledByChunkPipeline || handled) {
+  const handled = await pipeline.handle(update, context);
+  if (!summary || handled) {
     return;
   }
   logIgnoredSessionUpdate({
@@ -844,33 +885,6 @@ function clearCurrentUserStreamPointer(
   // Keep user chunk aggregation bounded to one contiguous user stream.
   activeSession.uiState.currentUserId = undefined;
   activeSession.uiState.currentUserSource = undefined;
-}
-
-async function dispatchSessionUpdate(
-  context: SessionUpdateContext
-): Promise<boolean> {
-  if (await handleModeUpdate(context)) {
-    return true;
-  }
-  if (await handleCommandsUpdate(context)) {
-    return true;
-  }
-  if (await handleConfigOptionsUpdate(context)) {
-    return true;
-  }
-  if (await handleSessionInfoUpdate(context)) {
-    return true;
-  }
-  if (await handlePlanUpdate(context)) {
-    return true;
-  }
-  if (await handleToolCallCreate(context)) {
-    return true;
-  }
-  if (await handleToolCallUpdate(context)) {
-    return true;
-  }
-  return false;
 }
 
 function logIgnoredSessionUpdate(params: {

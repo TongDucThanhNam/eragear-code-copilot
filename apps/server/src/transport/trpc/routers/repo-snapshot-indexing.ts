@@ -1,38 +1,10 @@
-import {
-  RefreshRepoSnapshotIndexInputSchema,
-  RepoSnapshotIndexingProjectInputSchema,
-  SearchRepoSnapshotIndexInputSchema,
-  UpdateRepoSnapshotIndexingSettingsInputSchema,
-} from "@/modules/repo-snapshot-indexing";
-import { getRequiredUserId } from "../auth-helpers";
-import { protectedProcedure, router } from "../base";
+import t from "../base";
+import { repoSnapshotIndexingQueryRouter } from "./repo-snapshot-indexing-query-router";
+import { repoSnapshotIndexingRefreshRouter } from "./repo-snapshot-indexing-refresh-router";
+import { repoSnapshotIndexingSettingsRouter } from "./repo-snapshot-indexing-settings-router";
 
-export const repoSnapshotIndexingRouter = router({
-  getOverview: protectedProcedure
-    .input(RepoSnapshotIndexingProjectInputSchema)
-    .query(async ({ input, ctx }) => {
-      const service = ctx.useCases.repoSnapshotIndexing.repoSnapshotIndexing;
-      return await service.getOverview(getRequiredUserId(ctx), input);
-    }),
-
-  updateSettings: protectedProcedure
-    .input(UpdateRepoSnapshotIndexingSettingsInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const service = ctx.useCases.repoSnapshotIndexing.repoSnapshotIndexing;
-      return await service.updateSettings(getRequiredUserId(ctx), input);
-    }),
-
-  refresh: protectedProcedure
-    .input(RefreshRepoSnapshotIndexInputSchema)
-    .mutation(async ({ input, ctx }) => {
-      const service = ctx.useCases.repoSnapshotIndexing.repoSnapshotIndexing;
-      return await service.refresh(getRequiredUserId(ctx), input ?? {});
-    }),
-
-  search: protectedProcedure
-    .input(SearchRepoSnapshotIndexInputSchema)
-    .query(async ({ input, ctx }) => {
-      const service = ctx.useCases.repoSnapshotIndexing.repoSnapshotIndexing;
-      return await service.search(getRequiredUserId(ctx), input);
-    }),
-});
+export const repoSnapshotIndexingRouter = t.mergeRouters(
+  repoSnapshotIndexingQueryRouter,
+  repoSnapshotIndexingSettingsRouter,
+  repoSnapshotIndexingRefreshRouter
+);

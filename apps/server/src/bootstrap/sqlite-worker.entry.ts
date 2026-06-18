@@ -7,6 +7,7 @@ import {
   normalizeAppConfig,
 } from "@/modules/settings/app-config.service";
 import { SettingsSqliteRepository } from "@/modules/settings/di";
+import { UsageStatsSqliteRepository } from "@/modules/usage-stats/di";
 import {
   closeSqliteDb,
   getSqliteStorageStatsLocal,
@@ -64,6 +65,7 @@ if (!isMainThread && port) {
   const projectRepo = new ProjectSqliteRepository();
   const agentRepo = new AgentSqliteRepository();
   const settingsRepo = new SettingsSqliteRepository();
+  const usageStatsRepo = new UsageStatsSqliteRepository();
   const readyMessage: SqliteWorkerReadyMessage = { type: "ready" };
   port.postMessage(readyMessage);
 
@@ -111,6 +113,11 @@ if (!isMainThread && port) {
       } else if (request.service === "settings") {
         result = await getMethod(
           settingsRepo as unknown as Record<string, unknown>,
+          request.method
+        )(...request.args);
+      } else if (request.service === "usageStats") {
+        result = await getMethod(
+          usageStatsRepo as unknown as Record<string, unknown>,
           request.method
         )(...request.args);
       } else if (request.service === "storage") {

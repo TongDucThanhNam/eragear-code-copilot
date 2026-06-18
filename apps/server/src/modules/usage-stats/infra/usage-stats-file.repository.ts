@@ -7,7 +7,11 @@ import {
   type UsageTelemetrySettings,
   UsageTelemetrySettingsSchema,
 } from "../application/contracts/usage-stats.contract";
-import type { UsageStatsRepositoryPort } from "../application/ports/usage-stats-repository.port";
+import type {
+  MutableUsageTelemetrySettingsSnapshot,
+  UsageStatsRepositoryPort,
+  UsageTelemetrySettingsSnapshot,
+} from "../application/ports/usage-stats-repository.port";
 
 const DEFAULT_MAX_RECORDS_PER_USER = 5000;
 
@@ -18,6 +22,10 @@ const UsageStatsFileSchema = z.object({
 });
 
 type UsageStatsFile = z.infer<typeof UsageStatsFileSchema>;
+type MutableTelemetrySettingsSnapshot =
+  MutableUsageTelemetrySettingsSnapshot & {
+    getNext(): UsageTelemetrySettings | null;
+  };
 
 export class UsageStatsFileRepository implements UsageStatsRepositoryPort {
   private readonly filePath: () => string;
@@ -51,21 +59,31 @@ export class UsageStatsFileRepository implements UsageStatsRepositoryPort {
     return input?.limit === undefined ? records : records.slice(0, input.limit);
   }
 
-  async getTelemetrySettings(
-    userId: string
-  ): Promise<UsageTelemetrySettings | null> {
+  async readTelemetrySettings<T>(
+    userId: string,
+    reader: (snapshot: UsageTelemetrySettingsSnapshot) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readFile();
-    return file.telemetryByUserId[userId] ?? null;
+    return await reader(
+      createTelemetrySettingsSnapshot(file.telemetryByUserId[userId] ?? null)
+    );
   }
 
-  async saveTelemetrySettings(
+  async mutateTelemetrySettings<T>(
     userId: string,
-    settings: UsageTelemetrySettings
-  ): Promise<UsageTelemetrySettings> {
+    mutator: (snapshot: MutableUsageTelemetrySettingsSnapshot) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readFile();
-    file.telemetryByUserId[userId] = settings;
+    const snapshot = createMutableTelemetrySettingsSnapshot(
+      file.telemetryByUserId[userId] ?? null
+    );
+    const result = await mutator(snapshot);
+    const next = snapshot.getNext();
+    if (next) {
+      file.telemetryByUserId[userId] = next;
+    }
     await this.writeFile(file);
-    return settings;
+    return result;
   }
 
   private async readFile(): Promise<UsageStatsFile> {
@@ -94,4 +112,37 @@ export class UsageStatsFileRepository implements UsageStatsRepositoryPort {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, `${JSON.stringify(file, null, 2)}\n`, "utf8");
   }
+}
+
+function createTelemetrySettingsSnapshot(
+  settings: UsageTelemetrySettings | null
+): UsageTelemetrySettingsSnapshot {
+  return {
+    get() {
+      return settings ? cloneTelemetrySettings(settings) : null;
+    },
+  };
+}
+
+function createMutableTelemetrySettingsSnapshot(
+  initial: UsageTelemetrySettings | null
+): MutableTelemetrySettingsSnapshot {
+  let next = initial ? cloneTelemetrySettings(initial) : null;
+  return {
+    get() {
+      return next ? cloneTelemetrySettings(next) : null;
+    },
+    set(settings) {
+      next = cloneTelemetrySettings(settings);
+    },
+    getNext() {
+      return next ? cloneTelemetrySettings(next) : null;
+    },
+  };
+}
+
+function cloneTelemetrySettings(
+  settings: UsageTelemetrySettings
+): UsageTelemetrySettings {
+  return { ...settings };
 }

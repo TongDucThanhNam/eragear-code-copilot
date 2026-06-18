@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ModelProviderSeed } from "../application/contracts/model-provider.contract";
+import { ModelProviderService } from "../application/model-provider.service";
 import { ModelProviderFileRepository } from "./model-provider-file.repository";
 
 let tempDir = "";
@@ -21,10 +21,14 @@ describe("ModelProviderFileRepository", () => {
   test("creates, updates, lists, and deletes provider records", async () => {
     const repository = new ModelProviderFileRepository({
       filePath: path.join(tempDir, "model-providers.json"),
-      nowMs: () => 100,
+    });
+    let now = 100;
+    const service = new ModelProviderService(repository, {
+      createId: () => "provider_file_test",
+      nowMs: () => now,
     });
 
-    const created = await repository.upsert("user-1", {
+    const created = await service.upsert("user-1", {
       name: "OpenAI",
       endpoints: {
         anthropic: "",
@@ -38,10 +42,11 @@ describe("ModelProviderFileRepository", () => {
       enabled: true,
     });
 
-    expect(created.id).toStartWith("provider_");
+    expect(created.id).toBe("provider_file_test");
     expect(created.credentialId).toBe("cred-1");
 
-    const updated = await repository.upsert("user-1", {
+    now = 200;
+    const updated = await service.upsert("user-1", {
       id: created.id,
       name: "OpenAI prod",
       endpoints: created.endpoints,
@@ -55,52 +60,56 @@ describe("ModelProviderFileRepository", () => {
     });
 
     expect(updated.createdAt).toBe(100);
+    expect(updated.updatedAt).toBe(200);
     expect(updated.name).toBe("OpenAI prod");
 
-    const allProviders = await repository.list("user-1", {
+    const allProviders = await service.list("user-1", {
       includeDisabled: true,
     });
-    expect(allProviders.totalCount).toBe(1);
-    expect(allProviders.providers[0]?.enabled).toBe(false);
-
-    const enabledProviders = await repository.list("user-1");
-    expect(enabledProviders.totalCount).toBe(0);
-
-    await repository.delete("user-1", { id: created.id });
+    const listedCustomProvider = allProviders.providers.find(
+      (provider) => provider.id === created.id
+    );
     expect(
-      (await repository.list("user-1", { includeDisabled: true })).totalCount
-    ).toBe(0);
+      allProviders.providers.some((provider) => provider.id === created.id)
+    ).toBe(true);
+    expect(listedCustomProvider?.enabled).toBe(false);
+
+    const enabledProviders = await service.list("user-1");
+    expect(
+      enabledProviders.providers.some((provider) => provider.id === created.id)
+    ).toBe(false);
+
+    await service.delete("user-1", { id: created.id });
+    expect(
+      (
+        await service.list("user-1", {
+          includeDisabled: true,
+        })
+      ).providers.some((provider) => provider.id === created.id)
+    ).toBe(false);
   });
 
   test("seeds defaults only once and can restore missing defaults", async () => {
     const filePath = path.join(tempDir, "model-providers.json");
     const repository = new ModelProviderFileRepository({
       filePath,
-      nowMs: () => 200,
     });
-    const defaults: ModelProviderSeed[] = [
-      {
-        id: "default-a",
-        name: "Default A",
-        endpoints: { anthropic: "", openai: "https://example.com", gemini: "" },
-        models: ["model-a"],
-        modelSupportedFormats: { "model-a": ["openai"] },
-        providerMappings: {},
-        source: "default" as const,
-        enabled: true,
-      },
-    ];
+    const service = new ModelProviderService(repository, { nowMs: () => 200 });
 
-    await repository.ensureDefaults("user-1", defaults);
-    await repository.delete("user-1", { id: "default-a" });
-    await repository.ensureDefaults("user-1", defaults);
-    expect(
-      (await repository.list("user-1", { includeDisabled: true })).totalCount
-    ).toBe(0);
+    const seeded = await service.list("user-1", { includeDisabled: true });
+    const deletedDefault = seeded.providers[0];
+    if (!deletedDefault) {
+      throw new Error("Expected default model providers to be seeded");
+    }
 
-    await repository.restoreDefaults("user-1", defaults);
-    const restored = await repository.list("user-1", { includeDisabled: true });
-    expect(restored.totalCount).toBe(1);
+    await service.delete("user-1", { id: deletedDefault.id });
+    const afterDelete = await service.list("user-1", {
+      includeDisabled: true,
+    });
+    expect(afterDelete.totalCount).toBe(seeded.totalCount - 1);
+
+    const restored = await service.restoreDefaults("user-1");
+    expect(restored.totalCount).toBe(seeded.totalCount);
     expect(restored.providers[0]?.source).toBe("default");
 
     const raw = await readFile(filePath, "utf8");

@@ -1,10 +1,14 @@
 import { ContextUsageService } from "@/modules/context-usage";
 import { LocalContextUsageEstimatorAdapter } from "@/modules/context-usage/di";
 import type { ContextUsageUseCases, UseCasePort } from "@/modules/use-cases";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type ContextUsageServiceDependencies = ServiceRegistrySlice<
+  "sessionRepo" | "sessionRuntime" | "clock"
+>;
 
 export function createContextUsageUseCases(
-  deps: ServiceRegistryDependencies
+  deps: ContextUsageServiceDependencies
 ): ContextUsageUseCases {
   return {
     contextUsage: new ContextUsageService({

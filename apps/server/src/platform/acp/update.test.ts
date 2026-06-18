@@ -10,7 +10,11 @@ import {
   getTurnIdMigrationSnapshot,
   resetTurnIdMigrationSnapshotForTests,
 } from "./turn-id-observability";
-import { createSessionUpdateHandler, SessionBuffering } from "./update";
+import {
+  createSessionUpdateHandler,
+  SessionBuffering,
+  SessionUpdatePipeline,
+} from "./update";
 import { parseSessionUpdatePayload } from "./update-schema";
 
 function createSession(chatId: string): ChatSession {
@@ -152,6 +156,39 @@ describe("createSessionUpdateHandler", () => {
   afterEach(() => {
     ENV.acpTurnIdPolicy = "compat";
     resetTurnIdMigrationSnapshotForTests();
+  });
+
+  test("SessionUpdatePipeline dispatches updates through the registered handler", async () => {
+    const pipeline = new SessionUpdatePipeline();
+    const update = {
+      sessionUpdate: "current_mode_update",
+      currentModeId: "mode-next",
+    } as const;
+    const calls: string[] = [];
+
+    pipeline.register(update.sessionUpdate, (context) => {
+      calls.push(context.update.sessionUpdate);
+      return Promise.resolve(true);
+    });
+
+    await expect(pipeline.handle(update, { update } as never)).resolves.toBe(
+      true
+    );
+    expect(calls).toEqual(["current_mode_update"]);
+    await expect(
+      pipeline.handle(
+        {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [],
+        },
+        {
+          update: {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [],
+          },
+        } as never
+      )
+    ).resolves.toBe(false);
   });
 
   test("applies current_mode_update and persists metadata", async () => {

@@ -83,7 +83,7 @@ export class PromptTaskRunner {
   private readonly clock: ClockPort;
   private readonly policy: PromptTaskRunnerPolicy;
   private readonly runtimePolicyProvider: () => PromptRuntimePolicy;
-  private afterTurnComplete?: (
+  private readonly afterTurnComplete?: (
     event: PromptTurnCompleteEvent
   ) => void | Promise<void>;
 
@@ -105,12 +105,6 @@ export class PromptTaskRunner {
     };
     this.runtimePolicyProvider = deps.runtimePolicyProvider;
     this.afterTurnComplete = deps.afterTurnComplete;
-  }
-
-  setAfterTurnCompleteHook(
-    hook: (event: PromptTurnCompleteEvent) => void | Promise<void>
-  ): void {
-    this.afterTurnComplete = hook;
   }
 
   async cancelActivePrompt(params: {

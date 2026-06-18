@@ -1,5 +1,6 @@
 import {
   CancelPromptService,
+  createEventBusPromptLifecycleNotifier,
   PromptTaskRunner,
   SendMessageService,
   SetConfigOptionService,
@@ -7,28 +8,36 @@ import {
   SetModeService,
 } from "@/modules/ai";
 import { AiSessionRuntimeAdapter } from "@/modules/ai/di";
-import {
-  SetSupervisorModeService,
-  type SupervisorAuditPort,
-  SupervisorLoopService,
-  type SupervisorMemoryPort,
-  SupervisorPermissionService,
-  type SupervisorResearchPort,
-} from "@/modules/supervisor";
-import {
-  AiSdkSupervisorDecisionAdapter,
-  ExaSupervisorResearchAdapter,
-  NoopSupervisorAuditAdapter,
-  NoopSupervisorMemoryAdapter,
-  NoopSupervisorResearchAdapter,
-  ObsidianSupervisorMemoryAdapter,
-} from "@/modules/supervisor/di";
+import { SessionRealtimeGate } from "@/modules/session";
 import type { AiUseCases } from "@/modules/use-cases";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type AiServiceDependencies = ServiceRegistrySlice<
+  | "sessionRuntime"
+  | "appLogger"
+  | "sessionRepo"
+  | "appConfigService"
+  | "eventBus"
+  | "clock"
+  | "sendMessagePolicy"
+  | "promptEnhancer"
+  | "outputStylePrompt"
+>;
+
+interface AiServiceRegistryOptions {
+  sessionRealtimeGate?: SessionRealtimeGate;
+}
 
 export function createAiUseCases(
-  deps: ServiceRegistryDependencies
+  deps: AiServiceDependencies,
+  options: AiServiceRegistryOptions = {}
 ): AiUseCases {
+  const sessionRealtimeGate =
+    options.sessionRealtimeGate ??
+    new SessionRealtimeGate({
+      sessionRuntime: deps.sessionRuntime,
+      logger: deps.appLogger,
+    });
   const sessionGateway = new AiSessionRuntimeAdapter(
     deps.sessionRuntime,
     deps.sessionRepo,
@@ -42,6 +51,10 @@ export function createAiUseCases(
       },
     }
   );
+  const promptLifecycleEvents = createEventBusPromptLifecycleNotifier({
+    eventBus: deps.eventBus,
+    logger: deps.appLogger,
+  });
   const promptTaskRunner = new PromptTaskRunner({
     sessionRepo: deps.sessionRepo,
     sessionRuntime: deps.sessionRuntime,
@@ -55,31 +68,18 @@ export function createAiUseCases(
     runtimePolicyProvider: () => ({
       maxTokens: deps.appConfigService.getConfig().maxTokens,
     }),
-    afterTurnComplete: async (event) => {
-      await deps.eventBus.publish({
-        type: "local_ade_lifecycle",
-        event: "after-agent-turn-complete",
-        userId: event.userId,
-        projectRoot: event.projectRoot,
-        ...(event.projectId ? { projectId: event.projectId } : {}),
-        chatId: event.chatId,
-        ...(event.agentSessionId
-          ? { agentSessionId: event.agentSessionId }
-          : {}),
-        turnId: event.turnId,
-        stopReason: event.stopReason,
-      });
-    },
+    afterTurnComplete: promptLifecycleEvents.afterTurnComplete,
   });
   const sendMessageService = new SendMessageService({
     sessionRepo: deps.sessionRepo,
     sessionRuntime: deps.sessionRuntime,
     sessionGateway,
+    sessionRealtimeGate,
     promptTaskRunner,
+    promptLifecycleEvents,
     logger: deps.appLogger,
     inputPolicy: deps.sendMessagePolicy,
     clock: deps.clock,
-    eventBus: deps.eventBus,
     ...(deps.promptEnhancer ? { promptEnhancer: deps.promptEnhancer } : {}),
     ...(deps.outputStylePrompt
       ? { outputStylePrompt: deps.outputStylePrompt }
@@ -116,94 +116,6 @@ export function createAiUseCases(
     deps.sessionRuntime,
     sessionGateway
   );
-  const supervisorDecisionAdapter = new AiSdkSupervisorDecisionAdapter(
-    deps.supervisorPolicy,
-    deps.appLogger
-  );
-  const supervisorResearchAdapter: SupervisorResearchPort =
-    deps.supervisorPolicy.webSearchProvider === "exa" &&
-    deps.supervisorPolicy.webSearchApiKey
-      ? new ExaSupervisorResearchAdapter(
-          deps.supervisorPolicy.webSearchApiKey,
-          deps.appLogger
-        )
-      : new NoopSupervisorResearchAdapter();
-  const supervisorMemoryAdapter: SupervisorMemoryPort =
-    deps.supervisorPolicy.memoryProvider === "obsidian"
-      ? new ObsidianSupervisorMemoryAdapter(
-          {
-            command: deps.supervisorPolicy.obsidianCommand,
-            ...(deps.supervisorPolicy.obsidianVault
-              ? { vault: deps.supervisorPolicy.obsidianVault }
-              : {}),
-            ...(deps.supervisorPolicy.obsidianBlueprintPath
-              ? { blueprintPath: deps.supervisorPolicy.obsidianBlueprintPath }
-              : {}),
-            ...(deps.supervisorPolicy.obsidianLogPath
-              ? { logPath: deps.supervisorPolicy.obsidianLogPath }
-              : {}),
-            searchPath: deps.supervisorPolicy.obsidianSearchPath,
-            searchLimit: deps.supervisorPolicy.obsidianSearchLimit,
-            timeoutMs: deps.supervisorPolicy.obsidianTimeoutMs,
-          },
-          deps.appLogger
-        )
-      : new NoopSupervisorMemoryAdapter();
-  const supervisorAuditAdapter: SupervisorAuditPort =
-    new NoopSupervisorAuditAdapter();
-  const supervisorLoopService = new SupervisorLoopService({
-    sessionRepo: deps.sessionRepo,
-    sessionRuntime: deps.sessionRuntime,
-    projectRepo: deps.projectRepo,
-    sendMessage: sendMessageService,
-    decisionPort: supervisorDecisionAdapter,
-    researchPort: supervisorResearchAdapter,
-    memoryPort: supervisorMemoryAdapter,
-    auditPort: supervisorAuditAdapter,
-    policy: deps.supervisorPolicy,
-    logger: deps.appLogger,
-    clock: deps.clock,
-  });
-  const setSupervisorModeService = new SetSupervisorModeService({
-    sessionRepo: deps.sessionRepo,
-    sessionRuntime: deps.sessionRuntime,
-    policy: deps.supervisorPolicy,
-    clock: deps.clock,
-  });
-  const supervisorPermissionService = new SupervisorPermissionService({
-    sessionRuntime: deps.sessionRuntime,
-    sessionRepo: deps.sessionRepo,
-    decisionPort: supervisorDecisionAdapter,
-    memoryPort: supervisorMemoryAdapter,
-    policy: deps.supervisorPolicy,
-    logger: deps.appLogger,
-    clock: deps.clock,
-  });
-  promptTaskRunner.setAfterTurnCompleteHook(async (event) => {
-    await deps.eventBus.publish({
-      type: "local_ade_lifecycle",
-      event: "after-agent-turn-complete",
-      userId: event.userId,
-      projectRoot: event.projectRoot,
-      ...(event.projectId ? { projectId: event.projectId } : {}),
-      chatId: event.chatId,
-      ...(event.agentSessionId ? { agentSessionId: event.agentSessionId } : {}),
-      turnId: event.turnId,
-      stopReason: event.stopReason,
-    });
-    if (event.source !== "automation") {
-      supervisorLoopService.scheduleReview({
-        chatId: event.chatId,
-        userId: event.userId,
-        turnId: event.turnId,
-        stopReason: event.stopReason,
-        source: event.source,
-      });
-    }
-  });
-  deps.sessionAcpAdapter.setPermissionAutoResolver((input) =>
-    supervisorPermissionService.handlePermissionRequest(input)
-  );
 
   return {
     sendMessage: sendMessageService,
@@ -211,6 +123,5 @@ export function createAiUseCases(
     setMode: setModeService,
     setConfigOption: setConfigOptionService,
     cancelPrompt: cancelPromptService,
-    setSupervisorMode: setSupervisorModeService,
   };
 }

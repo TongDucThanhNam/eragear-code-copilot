@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
-import type { ProjectRepositoryPort } from "@/modules/project";
+import {
+  type ProjectRepositoryPort,
+  ResolveActiveProjectService,
+} from "@/modules/project";
 import type {
   Project,
   ProjectInput,
@@ -10,14 +13,16 @@ import type {
   ResizeTerminalInput,
   TerminalEvent,
   TerminalRecord,
-  TerminalSettings,
-  UpdateTerminalSettingsInput,
 } from "./contracts/terminal.contract";
 import type {
   TerminalRuntimeCreateInput,
   TerminalRuntimePort,
 } from "./ports/terminal-runtime.port";
-import type { TerminalSettingsRepositoryPort } from "./ports/terminal-settings-repository.port";
+import type {
+  MutableTerminalSettingsStoreSnapshot,
+  TerminalSettingsRepositoryPort,
+  TerminalSettingsStoreSnapshot,
+} from "./ports/terminal-settings-repository.port";
 import { TerminalService } from "./terminal.service";
 
 class ProjectRepositoryStub implements ProjectRepositoryPort {
@@ -35,6 +40,7 @@ class ProjectRepositoryStub implements ProjectRepositoryPort {
     updatedAt: 1,
     lastOpenedAt: null,
   };
+  activeId: string | null = this.project.id;
 
   findById(id: string, userId: string): Promise<Project | undefined> {
     return Promise.resolve(
@@ -53,7 +59,14 @@ class ProjectRepositoryStub implements ProjectRepositoryPort {
   }
 
   getActiveId(_userId: string): Promise<string | null> {
-    return Promise.resolve(this.project.id);
+    return Promise.resolve(this.activeId);
+  }
+
+  listWithActiveState(_userId: string) {
+    return Promise.resolve({
+      projects: [this.project],
+      activeProjectId: this.activeId,
+    });
   }
 
   create(_input: ProjectInput): Promise<Project> {
@@ -66,6 +79,10 @@ class ProjectRepositoryStub implements ProjectRepositoryPort {
 
   delete(_id: string, _userId: string): Promise<void> {
     return Promise.resolve();
+  }
+
+  deleteAndClearActive(): Promise<{ activeProjectId: string | null }> {
+    return Promise.resolve({ activeProjectId: null });
   }
 
   setActive(_id: string | null, _userId: string): Promise<void> {
@@ -130,28 +147,46 @@ class TerminalRuntimeStub implements TerminalRuntimePort {
 }
 
 class TerminalSettingsRepositoryStub implements TerminalSettingsRepositoryPort {
-  settings: TerminalSettings = {
-    inheritSystemProfile: true,
-    shellCommand: "",
-    shellArgs: [],
+  snapshot: MutableTerminalSettingsStoreSnapshot = {
+    settingsByUserId: {},
   };
-  updateInput: UpdateTerminalSettingsInput | undefined;
 
-  getSettings(_userId: string): Promise<TerminalSettings> {
-    return Promise.resolve(this.settings);
+  async read<T>(
+    reader: (snapshot: TerminalSettingsStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await reader(this.snapshot);
   }
 
-  updateSettings(
-    _userId: string,
-    input?: UpdateTerminalSettingsInput
-  ): Promise<TerminalSettings> {
-    this.updateInput = input;
-    this.settings = { ...this.settings, ...(input ?? {}) };
-    return Promise.resolve(this.settings);
+  async mutate<T>(
+    mutator: (snapshot: MutableTerminalSettingsStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await mutator(this.snapshot);
   }
 }
 
+function createActiveProjectResolver(projectRepo: ProjectRepositoryPort) {
+  return new ResolveActiveProjectService(projectRepo);
+}
+
 describe("TerminalService", () => {
+  test("returns default terminal settings through the service interface", async () => {
+    const projectRepo = new ProjectRepositoryStub();
+    const service = new TerminalService({
+      runtime: new TerminalRuntimeStub(),
+      settingsRepo: new TerminalSettingsRepositoryStub(),
+      projectRepo,
+      activeProjectResolver: createActiveProjectResolver(projectRepo),
+    });
+
+    await expect(service.getSettings("user-1")).resolves.toEqual({
+      settings: {
+        inheritSystemProfile: true,
+        shellCommand: "",
+        shellArgs: [],
+      },
+    });
+  });
+
   test("creates a terminal in the active project cwd", async () => {
     const runtime = new TerminalRuntimeStub();
     const settingsRepo = new TerminalSettingsRepositoryStub();
@@ -160,6 +195,7 @@ describe("TerminalService", () => {
       runtime,
       settingsRepo,
       projectRepo,
+      activeProjectResolver: createActiveProjectResolver(projectRepo),
     });
 
     const terminal = await service.create("user-1", { cwd: "packages/web" });
@@ -175,10 +211,12 @@ describe("TerminalService", () => {
 
   test("passes requested terminal dimensions to runtime", async () => {
     const runtime = new TerminalRuntimeStub();
+    const projectRepo = new ProjectRepositoryStub();
     const service = new TerminalService({
       runtime,
       settingsRepo: new TerminalSettingsRepositoryStub(),
-      projectRepo: new ProjectRepositoryStub(),
+      projectRepo,
+      activeProjectResolver: createActiveProjectResolver(projectRepo),
     });
 
     await service.create("user-1", { cols: 120, rows: 40 });
@@ -189,10 +227,12 @@ describe("TerminalService", () => {
 
   test("resizes a terminal through the runtime", async () => {
     const runtime = new TerminalRuntimeStub();
+    const projectRepo = new ProjectRepositoryStub();
     const service = new TerminalService({
       runtime,
       settingsRepo: new TerminalSettingsRepositoryStub(),
-      projectRepo: new ProjectRepositoryStub(),
+      projectRepo,
+      activeProjectResolver: createActiveProjectResolver(projectRepo),
     });
 
     const input: ResizeTerminalInput = {
@@ -207,10 +247,12 @@ describe("TerminalService", () => {
   });
 
   test("rejects cwd outside project root", async () => {
+    const projectRepo = new ProjectRepositoryStub();
     const service = new TerminalService({
       runtime: new TerminalRuntimeStub(),
       settingsRepo: new TerminalSettingsRepositoryStub(),
-      projectRepo: new ProjectRepositoryStub(),
+      projectRepo,
+      activeProjectResolver: createActiveProjectResolver(projectRepo),
     });
 
     await expect(
@@ -220,22 +262,45 @@ describe("TerminalService", () => {
 
   test("normalizes terminal settings updates", async () => {
     const settingsRepo = new TerminalSettingsRepositoryStub();
+    const projectRepo = new ProjectRepositoryStub();
     const service = new TerminalService({
       runtime: new TerminalRuntimeStub(),
       settingsRepo,
-      projectRepo: new ProjectRepositoryStub(),
+      projectRepo,
+      activeProjectResolver: createActiveProjectResolver(projectRepo),
     });
 
-    await service.updateSettings("user-1", {
+    const result = await service.updateSettings("user-1", {
       shellCommand: "  powershell.exe  ",
       shellArgs: [" -NoLogo ", "", " -NoProfile "],
       inheritSystemProfile: false,
     });
 
-    expect(settingsRepo.updateInput).toEqual({
+    expect(result.settings).toEqual({
+      inheritSystemProfile: false,
       shellCommand: "powershell.exe",
       shellArgs: ["-NoLogo", "-NoProfile"],
-      inheritSystemProfile: false,
     });
+    expect(settingsRepo.snapshot.settingsByUserId["user-1"]).toEqual({
+      inheritSystemProfile: false,
+      shellCommand: "powershell.exe",
+      shellArgs: ["-NoLogo", "-NoProfile"],
+    });
+  });
+
+  test("uses requested project id without active project state", async () => {
+    const runtime = new TerminalRuntimeStub();
+    const projectRepo = new ProjectRepositoryStub();
+    projectRepo.activeId = null;
+    const service = new TerminalService({
+      runtime,
+      settingsRepo: new TerminalSettingsRepositoryStub(),
+      projectRepo,
+      activeProjectResolver: createActiveProjectResolver(projectRepo),
+    });
+
+    await service.create("user-1", { projectId: projectRepo.project.id });
+
+    expect(runtime.createInput?.projectId).toBe(projectRepo.project.id);
   });
 });

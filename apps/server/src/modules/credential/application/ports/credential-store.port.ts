@@ -1,33 +1,19 @@
-import type {
-  CredentialListInput,
-  CredentialListResult,
-  CredentialRecord,
-  DeleteCredentialInput,
-  DeleteCredentialResult,
-  ResolveCredentialSecretInput,
-  UpsertCredentialInput,
-} from "../contracts/credential.contract";
+import type { CredentialRecord } from "../contracts/credential.contract";
 
 export interface ResolvedCredentialSecret {
   credential: CredentialRecord;
   secret: string;
 }
 
+export interface StoredCredential extends CredentialRecord {
+  secret: string;
+}
+
 export interface CredentialStorePort {
-  list(
-    userId: string,
-    input?: CredentialListInput
-  ): Promise<CredentialListResult>;
-  upsert(
-    userId: string,
-    input: UpsertCredentialInput
-  ): Promise<CredentialRecord>;
-  delete(
-    userId: string,
-    input: DeleteCredentialInput
-  ): Promise<DeleteCredentialResult>;
-  resolveSecret(
-    userId: string,
-    input: ResolveCredentialSecretInput
-  ): Promise<ResolvedCredentialSecret | null>;
+  read<T>(
+    reader: (credentials: readonly StoredCredential[]) => T | Promise<T>
+  ): Promise<T>;
+  mutate<T>(
+    mutator: (credentials: StoredCredential[]) => T | Promise<T>
+  ): Promise<T>;
 }

@@ -1,20 +1,20 @@
 import {
   LocalCliUsageScannerAdapter,
-  UsageStatsFileRepository,
   UsageStatsService,
 } from "@/modules/usage-stats";
 import type { UsageStatsUseCases } from "@/modules/use-cases";
-import { getStorageFileSync } from "@/platform/storage/storage-path";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type UsageStatsServiceDependencies = ServiceRegistrySlice<
+  "usageStatsRepo" | "clock"
+>;
 
 export function createUsageStatsUseCases(
-  deps: ServiceRegistryDependencies
+  deps: UsageStatsServiceDependencies
 ): UsageStatsUseCases {
   return {
     usageStats: new UsageStatsService({
-      repository: new UsageStatsFileRepository({
-        filePath: () => getStorageFileSync("usage-stats.json"),
-      }),
+      repository: deps.usageStatsRepo,
       scanner: new LocalCliUsageScannerAdapter(),
       nowMs: deps.clock.nowMs,
     }),

@@ -197,3 +197,38 @@ export const sessionEventOutbox = sqliteTable(
     createdAtIdx: index("idx_outbox_created_at").on(table.createdAt),
   })
 );
+
+export const usageStatsRecords = sqliteTable(
+  "usage_stats_records",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    kind: text("kind").notNull(),
+    projectId: text("project_id"),
+    projectRoot: text("project_root"),
+    chatId: text("chat_id"),
+    agentSessionId: text("agent_session_id"),
+    turnId: text("turn_id"),
+    providerId: text("provider_id"),
+    providerDisplayName: text("provider_display_name"),
+    status: text("status"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => ({
+    userIdCreatedAtIdx: index("idx_usage_stats_user_created_at").on(
+      table.userId,
+      table.createdAt
+    ),
+    userIdProjectCreatedAtIdx: index(
+      "idx_usage_stats_user_project_created_at"
+    ).on(table.userId, table.projectId, table.createdAt),
+  })
+);
+
+export const usageTelemetrySettings = sqliteTable("usage_telemetry_settings", {
+  userId: text("user_id").primaryKey(),
+  enabled: integer("enabled").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});

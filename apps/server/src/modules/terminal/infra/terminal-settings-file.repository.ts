@@ -6,10 +6,12 @@ import { getNodeErrnoCode } from "@/shared/utils/node-error.util";
 import {
   type TerminalSettings,
   TerminalSettingsSchema,
-  type UpdateTerminalSettingsInput,
 } from "../application/contracts/terminal.contract";
-import type { TerminalSettingsRepositoryPort } from "../application/ports/terminal-settings-repository.port";
-import { DEFAULT_TERMINAL_SETTINGS } from "../application/terminal.service";
+import type {
+  MutableTerminalSettingsStoreSnapshot,
+  TerminalSettingsRepositoryPort,
+  TerminalSettingsStoreSnapshot,
+} from "../application/ports/terminal-settings-repository.port";
 
 const DOCUMENT_VERSION = 1;
 
@@ -41,27 +43,24 @@ export class TerminalSettingsFileRepository
     }
   }
 
-  async getSettings(userId: string): Promise<TerminalSettings> {
+  async read<T>(
+    reader: (snapshot: TerminalSettingsStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      return document.settingsByUserId[userId] ?? defaultSettings();
+      return await reader(toStoreSnapshot(document));
     });
   }
 
-  async updateSettings(
-    userId: string,
-    input?: UpdateTerminalSettingsInput
-  ): Promise<TerminalSettings> {
+  async mutate<T>(
+    mutator: (snapshot: MutableTerminalSettingsStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     return await this.enqueue(async () => {
       const document = await this.readDocument();
-      const next = TerminalSettingsSchema.parse({
-        ...defaultSettings(),
-        ...(document.settingsByUserId[userId] ?? {}),
-        ...(input ?? {}),
-      });
-      document.settingsByUserId[userId] = next;
-      await this.writeDocument(document);
-      return next;
+      const snapshot = toMutableStoreSnapshot(document);
+      const result = await mutator(snapshot);
+      await this.writeDocument(fromMutableStoreSnapshot(snapshot));
+      return result;
     });
   }
 
@@ -107,6 +106,45 @@ export class TerminalSettingsFileRepository
   }
 }
 
-function defaultSettings(): TerminalSettings {
-  return { ...DEFAULT_TERMINAL_SETTINGS };
+function toStoreSnapshot(
+  document: TerminalSettingsDocument
+): TerminalSettingsStoreSnapshot {
+  return {
+    settingsByUserId: cloneSettingsByUserId(document.settingsByUserId),
+  };
+}
+
+function toMutableStoreSnapshot(
+  document: TerminalSettingsDocument
+): MutableTerminalSettingsStoreSnapshot {
+  return {
+    settingsByUserId: cloneSettingsByUserId(document.settingsByUserId),
+  };
+}
+
+function fromMutableStoreSnapshot(
+  snapshot: MutableTerminalSettingsStoreSnapshot
+): TerminalSettingsDocument {
+  return TerminalSettingsDocumentSchema.parse({
+    version: DOCUMENT_VERSION,
+    settingsByUserId: cloneSettingsByUserId(snapshot.settingsByUserId),
+  });
+}
+
+function cloneSettingsByUserId(
+  settingsByUserId: Readonly<Record<string, TerminalSettings>>
+): Record<string, TerminalSettings> {
+  return Object.fromEntries(
+    Object.entries(settingsByUserId).map(([userId, settings]) => [
+      userId,
+      cloneSettings(settings),
+    ])
+  );
+}
+
+function cloneSettings(settings: TerminalSettings): TerminalSettings {
+  return {
+    ...settings,
+    shellArgs: [...settings.shellArgs],
+  };
 }

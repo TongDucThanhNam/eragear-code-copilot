@@ -16,6 +16,7 @@ import type {
   SettingsRepositoryPort,
 } from "@/modules/settings";
 import type { SupervisorPolicy } from "@/modules/supervisor";
+import type { UsageStatsRepositoryPort } from "@/modules/usage-stats";
 import type { CacheStats } from "@/platform/caching/types";
 import type { GitAdapter } from "@/platform/git";
 import type { ClockPort } from "@/shared/ports/clock.port";
@@ -34,6 +35,7 @@ export interface ServiceRegistryDependencies {
   projectRepo: ProjectRepositoryPort;
   agentRepo: AgentRepositoryPort;
   settingsRepo: SettingsRepositoryPort;
+  usageStatsRepo: UsageStatsRepositoryPort;
   appConfigService: AppConfigService;
   gitAdapter: GitAdapter;
   agentRuntimeAdapter: AgentRuntimePort;
@@ -46,3 +48,7 @@ export interface ServiceRegistryDependencies {
   getCacheStats: () => CacheStats;
   getBackgroundRunnerState: () => BackgroundRunnerState | null;
 }
+
+export type ServiceRegistrySlice<
+  TKeys extends keyof ServiceRegistryDependencies,
+> = Pick<ServiceRegistryDependencies, TKeys>;

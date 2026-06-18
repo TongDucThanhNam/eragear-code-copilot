@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isAppError, NotFoundError, ValidationError } from "@/shared/errors";
 import type { LoggerPort } from "@/shared/ports/logger.port";
-import type {
-  LocalAdeLifecycleEvent,
-  ProviderQuotaRefreshedEvent,
-} from "@/shared/types/domain-events.types";
 import type { ChatSession } from "@/shared/types/session.types";
 import type {
   BotDefinition,
@@ -16,11 +12,17 @@ import type {
   BotRunTriggerContext,
   BotSystemStatus,
   BotTrigger,
+  CompleteBotRunsForTurnInput,
   OrchestrateBotsInput,
+  RecordBotQuotaSnapshotInput,
   StartBotRunInput,
+  StopBotRunsForSessionInput,
   UpsertBotDefinitionInput,
 } from "./contracts/bots.contract";
-import type { BotRepositoryPort } from "./ports/bot-repository.port";
+import type {
+  BotQuotaAutomationStateSnapshot,
+  BotRepositoryPort,
+} from "./ports/bot-repository.port";
 
 const MODULE = "bots";
 const DEFAULT_QUOTA_MIN_PERCENT_REMAINING = 1;
@@ -372,23 +374,16 @@ export class BotsService {
     return executed;
   }
 
-  async completeRunsForTurn(event: LocalAdeLifecycleEvent): Promise<void> {
-    if (
-      event.event !== "after-agent-turn-complete" ||
-      !event.chatId ||
-      !event.turnId
-    ) {
-      return;
-    }
-    const runs = await this.repository.listRuns(event.userId);
-    const status = getCompletedRunStatus(event.stopReason);
+  async completeRunsForTurn(input: CompleteBotRunsForTurnInput): Promise<void> {
+    const runs = await this.repository.listRuns(input.userId);
+    const status = getCompletedRunStatus(input.stopReason);
     await Promise.all(
       runs
         .filter(
           (run) =>
             run.status === "running" &&
-            run.chatId === event.chatId &&
-            run.turnId === event.turnId
+            run.chatId === input.chatId &&
+            run.turnId === input.turnId
         )
         .map((run) =>
           this.repository.saveRun({
@@ -396,74 +391,73 @@ export class BotsService {
             status,
             completedAt: this.now(),
             stoppedAt: status === "stopped" ? this.now() : run.stoppedAt,
-            error: status === "failed" ? event.stopReason : undefined,
+            error: status === "failed" ? input.stopReason : undefined,
           })
         )
     );
   }
 
-  async stopRunsForSession(event: LocalAdeLifecycleEvent): Promise<void> {
-    if (event.event !== "after-agent-session-stop" || !event.chatId) {
-      return;
-    }
-    const runs = await this.repository.listRuns(event.userId);
+  async stopRunsForSession(input: StopBotRunsForSessionInput): Promise<void> {
+    const runs = await this.repository.listRuns(input.userId);
     await Promise.all(
       runs
         .filter(
-          (run) => run.status === "running" && run.chatId === event.chatId
+          (run) => run.status === "running" && run.chatId === input.chatId
         )
         .map((run) =>
           this.repository.saveRun({
             ...run,
             status: "stopped",
             stoppedAt: this.now(),
-            error: event.stopReason,
+            error: input.stopReason,
           })
         )
     );
   }
 
-  async recordQuotaSnapshot(event: ProviderQuotaRefreshedEvent): Promise<void> {
-    if (event.status !== "ready") {
+  async recordQuotaSnapshot(input: RecordBotQuotaSnapshotInput): Promise<void> {
+    if (input.status !== "ready") {
       return;
     }
     const nowMs = this.now();
-    const state = await this.repository.readQuotaAutomationState();
-    let changed = false;
-    for (const window of event.windows) {
-      if (!window.resetAt) {
-        continue;
+    await this.repository.mutateQuotaAutomationState((snapshot) => {
+      const state = snapshot.get();
+      let changed = false;
+      for (const window of input.windows) {
+        if (!window.resetAt) {
+          continue;
+        }
+        const resetMs = Date.parse(window.resetAt);
+        if (!Number.isFinite(resetMs)) {
+          continue;
+        }
+        const key = quotaWindowStateKey(
+          input.userId,
+          input.providerId,
+          window.id,
+          window.resetAt
+        );
+        const existing = state.windows[key];
+        state.windows[key] = {
+          userId: input.userId,
+          providerId: input.providerId,
+          providerDisplayName: input.providerDisplayName,
+          windowId: window.id,
+          windowLabel: window.label,
+          resetAt: window.resetAt,
+          percentRemaining: window.percentRemaining,
+          remaining: window.remaining,
+          observedAt: existing?.observedAt ?? nowMs,
+          nextCheckAt: resetMs,
+          lastCheckedAt: existing?.lastCheckedAt,
+        };
+        changed = true;
       }
-      const resetMs = Date.parse(window.resetAt);
-      if (!Number.isFinite(resetMs)) {
-        continue;
+      if (changed) {
+        pruneQuotaAutomationState(state, nowMs);
+        snapshot.set(state);
       }
-      const key = quotaWindowStateKey(
-        event.userId,
-        event.providerId,
-        window.id,
-        window.resetAt
-      );
-      const existing = state.windows[key];
-      state.windows[key] = {
-        userId: event.userId,
-        providerId: event.providerId,
-        providerDisplayName: event.providerDisplayName,
-        windowId: window.id,
-        windowLabel: window.label,
-        resetAt: window.resetAt,
-        percentRemaining: window.percentRemaining,
-        remaining: window.remaining,
-        observedAt: existing?.observedAt ?? nowMs,
-        nextCheckAt: resetMs,
-        lastCheckedAt: existing?.lastCheckedAt,
-      };
-      changed = true;
-    }
-    if (changed) {
-      pruneQuotaAutomationState(state, nowMs);
-      await this.repository.saveQuotaAutomationState(state);
-    }
+    });
   }
 
   async dispatchDueQuotaResets(input: {
@@ -490,8 +484,11 @@ export class BotsService {
       return result;
     }
 
-    let state = await this.repository.readQuotaAutomationState();
-    pruneQuotaAutomationState(state, nowMs);
+    let state = await this.readQuotaAutomationState((snapshot) => {
+      const current = snapshot.get();
+      pruneQuotaAutomationState(current, nowMs);
+      return current;
+    });
     const dueWindows = Object.values(state.windows)
       .filter(
         (window) =>
@@ -545,7 +542,9 @@ export class BotsService {
       }
 
       for (const bot of candidateBots) {
-        state = await this.repository.readQuotaAutomationState();
+        state = await this.readQuotaAutomationState((snapshot) =>
+          snapshot.get()
+        );
         const dedupeKey = quotaDispatchDedupeKey({
           userId: dueWindow.userId,
           botId: bot.id,
@@ -601,25 +600,27 @@ export class BotsService {
           }
         );
 
-        state = await this.repository.readQuotaAutomationState();
-        state.dispatched[dedupeKey] = {
-          dedupeKey,
-          userId: dueWindow.userId,
-          botId: bot.id,
-          providerId: dueWindow.providerId,
-          windowId: dueWindow.windowId,
-          resetAt: dueWindow.resetAt,
-          dispatchedAt: nowMs,
-          runIds: [run.id],
-        };
-        state.cooldowns[cooldownKey] = {
-          userId: dueWindow.userId,
-          botId: bot.id,
-          providerId: dueWindow.providerId,
-          windowId: dueWindow.windowId,
-          lastDispatchedAt: nowMs,
-        };
-        await this.repository.saveQuotaAutomationState(state);
+        await this.repository.mutateQuotaAutomationState((snapshot) => {
+          const state = snapshot.get();
+          state.dispatched[dedupeKey] = {
+            dedupeKey,
+            userId: dueWindow.userId,
+            botId: bot.id,
+            providerId: dueWindow.providerId,
+            windowId: dueWindow.windowId,
+            resetAt: dueWindow.resetAt,
+            dispatchedAt: nowMs,
+            runIds: [run.id],
+          };
+          state.cooldowns[cooldownKey] = {
+            userId: dueWindow.userId,
+            botId: bot.id,
+            providerId: dueWindow.providerId,
+            windowId: dueWindow.windowId,
+            lastDispatchedAt: nowMs,
+          };
+          snapshot.set(state);
+        });
 
         if (bot.execution.target !== "queue_only") {
           await this.executeRun(dueWindow.userId, run.id);
@@ -727,23 +728,31 @@ export class BotsService {
     window: BotQuotaAutomationWindow,
     nextCheckAt: number
   ): Promise<void> {
-    const state = await this.repository.readQuotaAutomationState();
-    const key = quotaWindowStateKey(
-      window.userId,
-      window.providerId,
-      window.windowId,
-      window.resetAt
-    );
-    const current = state.windows[key];
-    if (!current) {
-      return;
-    }
-    state.windows[key] = {
-      ...current,
-      lastCheckedAt: this.now(),
-      nextCheckAt,
-    };
-    await this.repository.saveQuotaAutomationState(state);
+    await this.repository.mutateQuotaAutomationState((snapshot) => {
+      const state = snapshot.get();
+      const key = quotaWindowStateKey(
+        window.userId,
+        window.providerId,
+        window.windowId,
+        window.resetAt
+      );
+      const current = state.windows[key];
+      if (!current) {
+        return;
+      }
+      state.windows[key] = {
+        ...current,
+        lastCheckedAt: this.now(),
+        nextCheckAt,
+      };
+      snapshot.set(state);
+    });
+  }
+
+  private async readQuotaAutomationState<T>(
+    reader: (snapshot: BotQuotaAutomationStateSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await this.repository.readQuotaAutomationState(reader);
   }
 }
 

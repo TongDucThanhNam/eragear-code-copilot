@@ -56,6 +56,7 @@ const CLI_PROVIDER_ALIASES: Record<string, string> = {
   pi: "openai",
   xai: "xai",
   zai: "zai",
+  "zai-coding-plan": "zai",
 };
 
 const DATE_SUFFIX_PATTERN = /-\d{8}$/;

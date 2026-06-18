@@ -94,11 +94,9 @@ describe("SubagentService", () => {
     runtime.set("chat-1", createChatSession());
     const service = new SubagentService(runtime, createClock());
 
-    const invocation = await service.startInvocationFromEvent({
-      type: "subagent_invocation_requested",
+    const invocation = await service.startInvocation({
       userId: "user-1",
       chatId: "chat-1",
-      projectRoot: "/tmp/project",
       agentSessionId: "acp-session-1",
       turnId: "turn-1",
       subagent: {
@@ -117,10 +115,7 @@ describe("SubagentService", () => {
     ).toEqual([invocation]);
 
     await service.completeInvocationsForTurn({
-      type: "local_ade_lifecycle",
-      event: "after-agent-turn-complete",
       userId: "user-1",
-      projectRoot: "/tmp/project",
       chatId: "chat-1",
       turnId: "turn-1",
       stopReason: "end_turn",

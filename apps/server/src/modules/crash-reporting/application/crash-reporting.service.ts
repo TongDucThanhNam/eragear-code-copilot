@@ -7,7 +7,10 @@ import type {
   SentryDelivery,
   UpdateCrashReportingConfigInput,
 } from "./contracts/crash-reporting.contract";
-import type { CrashReportingRepositoryPort } from "./ports/crash-reporting-repository.port";
+import type {
+  CrashReportingRepositoryPort,
+  MutableCrashReportingStoreSnapshot,
+} from "./ports/crash-reporting-repository.port";
 
 const DEFAULT_CONFIG: CrashReportingConfig = {
   enabled: true,
@@ -55,35 +58,37 @@ export class CrashReportingService {
   }
 
   async getStatus(userId: string): Promise<CrashReportingStatus> {
-    const [config, reports] = await Promise.all([
-      this.getConfig(),
-      this.repository.listReports(userId),
-    ]);
-    return { config, reports };
+    return await this.repository.read((snapshot) => ({
+      config: this.resolveConfig(snapshot.config),
+      reports: listVisibleReports(snapshot.reports, userId),
+    }));
   }
 
   async updateConfig(
     input: UpdateCrashReportingConfigInput
   ): Promise<CrashReportingStatus> {
-    const existing = await this.getConfig();
-    const next = await this.repository.saveConfig({
-      ...existing,
-      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-      ...(input.sentryDsn !== undefined
-        ? { sentryDsn: input.sentryDsn.trim() }
-        : {}),
-      ...(input.captureUnhandled !== undefined
-        ? { captureUnhandled: input.captureUnhandled }
-        : {}),
-      ...(input.includeStack !== undefined
-        ? { includeStack: input.includeStack }
-        : {}),
-      ...(input.archiveLimit !== undefined
-        ? { archiveLimit: input.archiveLimit }
-        : {}),
-      updatedAt: this.now(),
+    return await this.repository.mutate((snapshot) => {
+      const existing = this.resolveConfig(snapshot.config);
+      const next: CrashReportingConfig = {
+        ...existing,
+        ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        ...(input.sentryDsn !== undefined
+          ? { sentryDsn: input.sentryDsn.trim() }
+          : {}),
+        ...(input.captureUnhandled !== undefined
+          ? { captureUnhandled: input.captureUnhandled }
+          : {}),
+        ...(input.includeStack !== undefined
+          ? { includeStack: input.includeStack }
+          : {}),
+        ...(input.archiveLimit !== undefined
+          ? { archiveLimit: input.archiveLimit }
+          : {}),
+        updatedAt: this.now(),
+      };
+      snapshot.config = next;
+      return { config: next, reports: [] };
     });
-    return { config: next, reports: [] };
   }
 
   async capture(
@@ -121,7 +126,11 @@ export class CrashReportingService {
     if (!config.enabled) {
       return report;
     }
-    return await this.repository.saveReport(report, config.archiveLimit);
+    return await this.repository.mutate((snapshot) => {
+      snapshot.reports.push(report);
+      pruneArchive(snapshot, config.archiveLimit);
+      return report;
+    });
   }
 
   private async deliverToSentry(
@@ -156,13 +165,34 @@ export class CrashReportingService {
   }
 
   private async getConfig(): Promise<CrashReportingConfig> {
-    return (
-      (await this.repository.getConfig()) ?? {
-        ...DEFAULT_CONFIG,
-        updatedAt: this.now(),
-      }
+    return await this.repository.read((snapshot) =>
+      this.resolveConfig(snapshot.config)
     );
   }
+
+  private resolveConfig(
+    config: CrashReportingConfig | null
+  ): CrashReportingConfig {
+    return config ?? { ...DEFAULT_CONFIG, updatedAt: this.now() };
+  }
+}
+
+function listVisibleReports(
+  reports: readonly CrashReport[],
+  userId: string
+): CrashReport[] {
+  return [...reports]
+    .filter((report) => report.userId === userId || report.userId === null)
+    .sort((left, right) => right.createdAt - left.createdAt);
+}
+
+function pruneArchive(
+  snapshot: MutableCrashReportingStoreSnapshot,
+  archiveLimit: number
+): void {
+  snapshot.reports = snapshot.reports
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, archiveLimit);
 }
 
 export function buildSentryEnvelope(

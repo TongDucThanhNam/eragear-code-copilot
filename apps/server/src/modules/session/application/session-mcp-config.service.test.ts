@@ -1,9 +1,14 @@
+import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { expect, test } from "bun:test";
 import type { SettingsRepositoryPort } from "@/modules/settings";
 import type { Settings } from "@/shared/types/settings.types";
 import {
@@ -34,10 +39,12 @@ const defaultSettings: Settings = {
   },
 };
 
-function createSettingsRepo(settings: Settings = defaultSettings): SettingsRepositoryPort {
+function createSettingsRepo(
+  settings: Settings = defaultSettings
+): SettingsRepositoryPort {
   return {
     get: async () => settings,
-    update: async (patch) => ({ ...settings, ...patch }),
+    save: async (nextSettings) => nextSettings,
   };
 }
 
@@ -88,7 +95,10 @@ async function closeServer(server: Server): Promise<void> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
-function mcpResponse(message: Record<string, unknown>, authHeader: string | undefined) {
+function mcpResponse(
+  message: Record<string, unknown>,
+  authHeader: string | undefined
+) {
   if (message.method === "initialize") {
     return {
       jsonrpc: "2.0",
@@ -158,7 +168,9 @@ async function withStreamableHttpMcpServer(
   }
 }
 
-async function withSseMcpServer(work: (url: string) => Promise<void>): Promise<void> {
+async function withSseMcpServer(
+  work: (url: string) => Promise<void>
+): Promise<void> {
   let sseResponse: ServerResponse | null = null;
   const server = createServer(async (request, response) => {
     if (request.method === "GET" && request.url === "/sse") {
@@ -332,7 +344,7 @@ test("requires project-local MCP remote control changes in session trust fingerp
 
     expect(resolved).toHaveLength(1);
     const resolvedServer = resolved[0];
-    if (!resolvedServer || !("args" in resolvedServer)) {
+    if (!(resolvedServer && "args" in resolvedServer)) {
       throw new Error("Expected trusted MCP server to resolve as stdio.");
     }
     expect(resolvedServer.args).toContain(
@@ -349,7 +361,7 @@ async function requestJsonRpc(
   method: string,
   params: unknown = {}
 ): Promise<Record<string, unknown>> {
-  if (!child.stdout || !child.stdin) {
+  if (!(child.stdout && child.stdin)) {
     throw new Error("Expected stdio pipes for MCP broker test.");
   }
   const stdout = child.stdout;
@@ -379,9 +391,7 @@ async function requestJsonRpc(
       }
     };
     stdout.on("data", onData);
-    stdin.write(
-      `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`
-    );
+    stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
   });
 }
 

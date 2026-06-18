@@ -1,7 +1,6 @@
 import type { AgentRepositoryPort } from "@/modules/agent";
 import { ValidationError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LoggerPort } from "@/shared/ports/logger.port";
 import type {
   ListProviderQuotasInput,
@@ -17,6 +16,10 @@ import type {
   QuotaProviderAdapter,
   QuotaProviderContext,
 } from "./ports/quota-provider.port";
+import {
+  noopProviderQuotaNotifier,
+  type ProviderQuotaNotifier,
+} from "./provider-quota.notifier";
 
 const DEFAULT_CACHE_TTL_MS = 2 * 60 * 1000;
 
@@ -37,7 +40,7 @@ interface CollectOptions {
 
 export class ProviderQuotaService {
   private readonly agentRepo: AgentRepositoryPort;
-  private readonly eventBus: EventBusPort;
+  private readonly providerQuotaNotifier: ProviderQuotaNotifier;
   private readonly clock: ClockPort;
   private readonly logger: LoggerPort;
   private readonly adapters: QuotaProviderAdapter[];
@@ -49,7 +52,7 @@ export class ProviderQuotaService {
   constructor(
     params: {
       agentRepo: AgentRepositoryPort;
-      eventBus: EventBusPort;
+      providerQuotaNotifier?: ProviderQuotaNotifier;
       clock: ClockPort;
       logger: LoggerPort;
       adapters: QuotaProviderAdapter[];
@@ -58,7 +61,8 @@ export class ProviderQuotaService {
     options: ProviderQuotaServiceOptions = {}
   ) {
     this.agentRepo = params.agentRepo;
-    this.eventBus = params.eventBus;
+    this.providerQuotaNotifier =
+      params.providerQuotaNotifier ?? noopProviderQuotaNotifier;
     this.clock = params.clock;
     this.logger = params.logger;
     this.adapters = [...params.adapters];
@@ -200,7 +204,7 @@ export class ProviderQuotaService {
               : "Provider is not configured on any current agent.",
           },
         });
-        await this.storeAndPublish(userId, snapshot, previous);
+        await this.storeAndNotify(userId, snapshot, previous);
         return snapshot;
       }
 
@@ -215,7 +219,7 @@ export class ProviderQuotaService {
         authSource: auth.source,
         windows: result.windows,
       });
-      await this.storeAndPublish(userId, snapshot, previous);
+      await this.storeAndNotify(userId, snapshot, previous);
       return snapshot;
     } catch (error) {
       const snapshot = this.buildSnapshot(adapter, {
@@ -232,7 +236,7 @@ export class ProviderQuotaService {
         providerId: adapter.id,
         error: snapshot.error?.message,
       });
-      await this.storeAndPublish(userId, snapshot, previous);
+      await this.storeAndNotify(userId, snapshot, previous);
       return snapshot;
     }
   }
@@ -265,7 +269,7 @@ export class ProviderQuotaService {
     };
   }
 
-  private async storeAndPublish(
+  private async storeAndNotify(
     userId: string,
     snapshot: ProviderQuotaSnapshot,
     previous: ProviderQuotaSnapshot | undefined
@@ -276,22 +280,11 @@ export class ProviderQuotaService {
       expiresAtMs: this.clock.nowMs() + this.cacheTtlMs,
     });
 
-    if (snapshot.status === "unavailable") {
-      return;
-    }
-
-    await this.eventBus.publish({
-      type: "provider_quota_refreshed",
+    await this.providerQuotaNotifier.providerQuotaRefreshed({
       userId,
-      providerId: snapshot.providerId,
-      providerDisplayName: snapshot.displayName,
-      status: snapshot.status,
-      previousStatus: previous?.status,
-      fetchedAt: snapshot.fetchedAt ?? snapshot.checkedAt,
-      windows: snapshot.windows,
-      minPercentRemaining: getMinPercentRemaining(snapshot.windows),
-      nextResetAt: getNextResetAt(snapshot.windows, this.clock.nowMs()),
-      changed: didSnapshotChange(previous, snapshot),
+      snapshot,
+      previous,
+      nowMs: this.clock.nowMs(),
     });
   }
 
@@ -308,42 +301,5 @@ function adapterMatchesProviderId(
   return (
     adapter.id.toLowerCase() === normalized ||
     adapter.aliases.some((alias) => alias.toLowerCase() === normalized)
-  );
-}
-
-function getMinPercentRemaining(windows: QuotaWindow[]): number | undefined {
-  const values = windows
-    .map((window) => window.percentRemaining)
-    .filter((value): value is number => typeof value === "number");
-  if (values.length === 0) {
-    return undefined;
-  }
-  return Math.min(...values);
-}
-
-function getNextResetAt(
-  windows: QuotaWindow[],
-  nowMs: number
-): string | undefined {
-  const futureResetTimes = windows
-    .map((window) => (window.resetAt ? Date.parse(window.resetAt) : Number.NaN))
-    .filter((value) => Number.isFinite(value) && value >= nowMs)
-    .sort((left, right) => left - right);
-  const next = futureResetTimes[0];
-  return next === undefined ? undefined : new Date(next).toISOString();
-}
-
-function didSnapshotChange(
-  previous: ProviderQuotaSnapshot | undefined,
-  next: ProviderQuotaSnapshot
-): boolean {
-  if (!previous) {
-    return true;
-  }
-  return (
-    previous.status !== next.status ||
-    previous.error?.code !== next.error?.code ||
-    previous.error?.message !== next.error?.message ||
-    JSON.stringify(previous.windows) !== JSON.stringify(next.windows)
   );
 }

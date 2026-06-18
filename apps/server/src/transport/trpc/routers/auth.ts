@@ -6,30 +6,17 @@
  * @module transport/trpc/routers/auth
  */
 
+import { getRequiredAuthContext } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
+import { createAuthMeResponse } from "./auth-router-data";
 
 export const authRouter = router({
   /** Get the current authenticated user */
   getMe: protectedProcedure.query(({ ctx }) => {
-    if (!ctx.auth) {
-      return {
-        user: null,
-      };
-    }
-
+    const auth = getRequiredAuthContext(ctx);
     const service = ctx.useCases.auth.getMe;
-    return service.execute(ctx.auth.userId).then((user) => ({
-      user:
-        user ??
-        (ctx.auth?.type === "local"
-          ? {
-              id: ctx.auth.userId,
-              email: null,
-              username: "local",
-              name: "Local Desktop",
-              image: null,
-            }
-          : null),
-    }));
+    return service
+      .execute(auth.userId)
+      .then((user) => createAuthMeResponse(auth, user));
   }),
 });

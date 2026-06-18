@@ -1,32 +1,23 @@
 import type {
   AcpAuthRecord,
-  AcpAuthSyncStatus,
   AcpProviderAuthFile,
-  DeleteAcpAuthInput,
-  ListAcpAuthInput,
-  UpsertAcpAuthInput,
 } from "../contracts/acp-auth.contract";
 
-export interface AcpAuthSyncPatch {
-  syncStatus: AcpAuthSyncStatus;
-  lastSyncedAt?: number;
-  syncError?: string;
+export interface AcpAuthStoreSnapshot {
+  providers: readonly AcpAuthRecord[];
+}
+
+export interface MutableAcpAuthStoreSnapshot {
+  providers: AcpAuthRecord[];
 }
 
 export interface AcpAuthRepositoryPort {
-  list(userId: string, input?: ListAcpAuthInput): Promise<AcpAuthRecord[]>;
-  listAll(input?: ListAcpAuthInput): Promise<AcpAuthRecord[]>;
-  get(userId: string, providerId: string): Promise<AcpAuthRecord | null>;
-  upsert(
-    userId: string,
-    input: UpsertAcpAuthInput & { authFilePath: string }
-  ): Promise<AcpAuthRecord>;
-  delete(userId: string, input: DeleteAcpAuthInput): Promise<void>;
-  updateSyncState(
-    userId: string,
-    providerId: string,
-    patch: AcpAuthSyncPatch
-  ): Promise<AcpAuthRecord>;
+  read<T>(
+    reader: (snapshot: AcpAuthStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
+  mutate<T>(
+    mutator: (snapshot: MutableAcpAuthStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
   writeProviderAuthFile(
     record: AcpAuthRecord,
     payload: AcpProviderAuthFile

@@ -1,4 +1,7 @@
-import type { ProjectRepositoryPort } from "@/modules/project";
+import type {
+  ProjectRepositoryPort,
+  ResolveActiveProjectService,
+} from "@/modules/project";
 import { NotFoundError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type {
@@ -9,20 +12,22 @@ import type { GitRepositoryPort } from "./ports/git-repository.port";
 
 const MODULE = "git";
 const OP_RESOLVE_PROJECT = "git.resolve-project";
-const OP_REPOSITORY_SUMMARY = "git.repository-summary";
 
 export class GitService {
   private readonly git: GitRepositoryPort;
   private readonly projectRepo: ProjectRepositoryPort;
+  private readonly activeProjectResolver: ResolveActiveProjectService;
   private readonly clock: ClockPort;
 
   constructor(
     git: GitRepositoryPort,
     projectRepo: ProjectRepositoryPort,
+    activeProjectResolver: ResolveActiveProjectService,
     clock: ClockPort
   ) {
     this.git = git;
     this.projectRepo = projectRepo;
+    this.activeProjectResolver = activeProjectResolver;
     this.clock = clock;
   }
 
@@ -85,22 +90,9 @@ export class GitService {
       return project;
     }
 
-    const activeProjectId = await this.projectRepo.getActiveId(userId);
-    if (!activeProjectId) {
-      throw new NotFoundError("No active project selected", {
-        module: MODULE,
-        op: OP_REPOSITORY_SUMMARY,
-      });
-    }
-
-    const project = await this.projectRepo.findById(activeProjectId, userId);
-    if (!project) {
-      throw new NotFoundError("Active project not found", {
-        module: MODULE,
-        op: OP_RESOLVE_PROJECT,
-        details: { projectId: activeProjectId },
-      });
-    }
-    return project;
+    return await this.activeProjectResolver.execute(userId, {
+      module: MODULE,
+      op: OP_RESOLVE_PROJECT,
+    });
   }
 }

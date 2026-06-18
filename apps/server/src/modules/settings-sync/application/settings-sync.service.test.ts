@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  SettingsPatch,
   SettingsRepositoryPort,
   UpdateSettingsService,
 } from "@/modules/settings";
@@ -9,7 +10,11 @@ import type {
   SettingsSyncState,
 } from "./contracts/settings-sync.contract";
 import type { SettingsSyncCloudPort } from "./ports/settings-sync-cloud.port";
-import type { SettingsSyncStateRepositoryPort } from "./ports/settings-sync-state-repository.port";
+import type {
+  MutableSettingsSyncStateSnapshot,
+  SettingsSyncStateRepositoryPort,
+  SettingsSyncStateSnapshot,
+} from "./ports/settings-sync-state-repository.port";
 import { hashSettings, SettingsSyncService } from "./settings-sync.service";
 
 function createSettings(theme: Settings["ui"]["theme"]): Settings {
@@ -42,8 +47,8 @@ class SettingsRepoStub implements SettingsRepositoryPort {
     return Promise.resolve(this.settings);
   }
 
-  update(patch: Partial<Settings>): Promise<Settings> {
-    this.settings = { ...this.settings, ...patch };
+  save(settings: Settings): Promise<Settings> {
+    this.settings = settings;
     return Promise.resolve(this.settings);
   }
 }
@@ -55,8 +60,21 @@ class SettingsUpdaterStub implements Pick<UpdateSettingsService, "execute"> {
     this.repo = repo;
   }
 
-  async execute(patch: Partial<Settings>) {
-    const settings = await this.repo.update(patch);
+  async execute(patch: SettingsPatch) {
+    const settings = await this.repo.save({
+      ...this.repo.settings,
+      ...patch,
+      ui: { ...this.repo.settings.ui, ...(patch.ui ?? {}) },
+      mcpServers:
+        patch.mcpServers !== undefined
+          ? patch.mcpServers
+          : this.repo.settings.mcpServers,
+      projectRoots:
+        patch.projectRoots !== undefined
+          ? patch.projectRoots
+          : this.repo.settings.projectRoots,
+      app: { ...this.repo.settings.app, ...(patch.app ?? {}) },
+    });
     return { settings, requiresRestart: [], changedKeys: [] };
   }
 }
@@ -64,13 +82,32 @@ class SettingsUpdaterStub implements Pick<UpdateSettingsService, "execute"> {
 class StateRepoStub implements SettingsSyncStateRepositoryPort {
   state: SettingsSyncState | null = null;
 
-  getState(_userId: string): Promise<SettingsSyncState | null> {
-    return Promise.resolve(this.state);
+  async readState<T>(
+    _userId: string,
+    reader: (snapshot: SettingsSyncStateSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await reader({
+      get: () => (this.state ? structuredClone(this.state) : null),
+    });
   }
 
-  saveState(state: SettingsSyncState): Promise<SettingsSyncState> {
-    this.state = state;
-    return Promise.resolve(state);
+  async mutateState<T>(
+    _userId: string,
+    mutator: (snapshot: MutableSettingsSyncStateSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    let changed = false;
+    let next = this.state ? structuredClone(this.state) : null;
+    const result = await mutator({
+      get: () => (next ? structuredClone(next) : null),
+      set: (state) => {
+        changed = true;
+        next = structuredClone(state);
+      },
+    });
+    if (changed) {
+      this.state = next ? structuredClone(next) : null;
+    }
+    return result;
   }
 }
 

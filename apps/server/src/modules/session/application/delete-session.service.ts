@@ -7,12 +7,12 @@
  * @module modules/session/application/delete-session.service
  */
 
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import { NotFoundError } from "../../../shared/errors";
 import { terminateProcessGracefully } from "../../../shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import type { SessionLifecycleNotifier } from "./session-lifecycle.notifier";
 import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const OP = "session.lifecycle.delete";
@@ -24,15 +24,15 @@ const OP = "session.lifecycle.delete";
  *
  * Ordering contract: running terminals are terminated under the lock, the agent
  * process is stopped before runtime deletion, then persisted state is removed
- * and dashboard refresh is published.
+ * and a session-deleted notification is reported.
  */
 export class DeleteSessionService {
   /** Repository for session persistence */
   private readonly sessionRepo: SessionRepositoryPort;
   /** Runtime store for active sessions */
   private readonly sessionRuntime: SessionRuntimePort;
-  /** Event bus for dashboard refresh notifications */
-  private readonly eventBus: EventBusPort;
+  /** Notifier for session lifecycle notifications */
+  private readonly sessionLifecycleNotifier: SessionLifecycleNotifier;
 
   /**
    * Creates a DeleteSessionService with required dependencies
@@ -40,11 +40,11 @@ export class DeleteSessionService {
   constructor(
     sessionRepo: SessionRepositoryPort,
     sessionRuntime: SessionRuntimePort,
-    eventBus: EventBusPort
+    sessionLifecycleNotifier: SessionLifecycleNotifier
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
-    this.eventBus = eventBus;
+    this.sessionLifecycleNotifier = sessionLifecycleNotifier;
   }
 
   /**
@@ -86,13 +86,14 @@ export class DeleteSessionService {
       await terminateProcessGracefully(sessionToDelete.proc, {
         forceWindowsTreeTermination: true,
       });
-      await this.sessionRuntime.runExclusive(chatId, async () => {
+      await this.sessionRuntime.runExclusive(chatId, () => {
         assertSessionMutationLock({
           sessionRuntime: this.sessionRuntime,
           chatId,
           op: OP,
         });
         this.sessionRuntime.deleteIfMatch(chatId, sessionToDelete);
+        return Promise.resolve();
       });
     }
     const stored = await this.sessionRepo.findById(chatId, userId);
@@ -104,9 +105,7 @@ export class DeleteSessionService {
       });
     }
     await this.sessionRepo.delete(chatId, userId);
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "session_deleted",
+    await this.sessionLifecycleNotifier.sessionDeleted({
       userId,
       chatId,
     });

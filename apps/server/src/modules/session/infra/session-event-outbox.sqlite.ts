@@ -2,8 +2,7 @@ import { ENV } from "@/config/environment";
 import { createLogger } from "@/platform/logging/structured-logger";
 import { getSqliteDb } from "@/platform/storage/sqlite-store";
 import { enqueueSqliteWrite } from "@/platform/storage/sqlite-write-queue";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
-import type { DomainEvent } from "@/shared/types/domain-events.types";
+import type { SessionBroadcastEvent } from "@/shared/types/domain-events.types";
 import { createId } from "@/shared/utils/id.util";
 import { withTimeout } from "@/shared/utils/timeout.util";
 import type {
@@ -12,6 +11,10 @@ import type {
   SessionEventOutboxEnqueueInput,
   SessionEventOutboxPort,
 } from "../application/ports/session-event-outbox.port";
+import type {
+  SessionBroadcastNotification,
+  SessionBroadcastNotifier,
+} from "../application/session-broadcast.notifier";
 
 const logger = createLogger("Storage");
 const DEFAULT_DISPATCH_BATCH_SIZE = 100;
@@ -21,6 +24,43 @@ interface SessionOutboxRow {
   id: string;
   eventJson: string;
   attemptCount: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isSessionBroadcastEvent(
+  event: unknown
+): event is SessionBroadcastEvent {
+  if (
+    !isRecord(event) ||
+    event.type !== "session_broadcast" ||
+    typeof event.chatId !== "string" ||
+    typeof event.userId !== "string" ||
+    !("event" in event)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function parseSessionBroadcastEvent(eventJson: string): SessionBroadcastEvent {
+  const event = JSON.parse(eventJson) as unknown;
+  if (!isSessionBroadcastEvent(event)) {
+    throw new Error("expected session_broadcast event");
+  }
+  return event;
+}
+
+function toBroadcastNotification(
+  event: SessionBroadcastEvent
+): SessionBroadcastNotification {
+  return {
+    chatId: event.chatId,
+    userId: event.userId,
+    event: event.event,
+  };
 }
 
 function toPublishTimeoutMs(policy: SessionEventOutboxDispatchPolicy): number {
@@ -48,9 +88,15 @@ function toRetryDelayMs(attempt: number): number {
 }
 
 export class SessionEventOutboxSqliteAdapter implements SessionEventOutboxPort {
+  private readonly broadcastNotifier: SessionBroadcastNotifier;
+
+  constructor(params: { broadcastNotifier: SessionBroadcastNotifier }) {
+    this.broadcastNotifier = params.broadcastNotifier;
+  }
+
   async enqueue(input: SessionEventOutboxEnqueueInput): Promise<void> {
     const createdAt = Date.now();
-    const event: DomainEvent = {
+    const event: SessionBroadcastEvent = {
       type: "session_broadcast",
       chatId: input.chatId,
       userId: input.userId,
@@ -83,8 +129,7 @@ export class SessionEventOutboxSqliteAdapter implements SessionEventOutboxPort {
     });
   }
 
-  async dispatch(
-    eventBus: EventBusPort,
+  async dispatchDue(
     policy: SessionEventOutboxDispatchPolicy
   ): Promise<SessionEventOutboxDispatchResult> {
     const now = Date.now();
@@ -107,9 +152,9 @@ export class SessionEventOutboxSqliteAdapter implements SessionEventOutboxPort {
       .all(now, batchSize) as SessionOutboxRow[];
 
     for (const row of rows) {
-      let event: DomainEvent;
+      let event: SessionBroadcastEvent;
       try {
-        event = JSON.parse(row.eventJson) as DomainEvent;
+        event = parseSessionBroadcastEvent(row.eventJson);
       } catch (error) {
         failed += 1;
         db.query(
@@ -130,7 +175,7 @@ export class SessionEventOutboxSqliteAdapter implements SessionEventOutboxPort {
 
       try {
         await withTimeout(
-          eventBus.publish(event),
+          this.broadcastNotifier.broadcast(toBroadcastNotification(event)),
           publishTimeoutMs,
           `Session outbox publish timed out after ${publishTimeoutMs}ms`
         );

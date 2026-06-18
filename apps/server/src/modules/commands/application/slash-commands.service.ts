@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { ValidationError } from "@/shared/errors";
+import { NotFoundError, ValidationError } from "@/shared/errors";
 import type {
+  CustomSlashCommandRecord,
   DeleteSlashCommandInput,
   SlashCommandDescriptor,
   SlashCommandsListResult,
@@ -20,13 +21,16 @@ const LEADING_SLASH_PATTERN = /^\//;
 export class SlashCommandsService {
   private readonly discovery: SlashCommandDiscoveryPort;
   private readonly customCommands: CustomSlashCommandRepositoryPort;
+  private readonly nowMs: () => number;
 
   constructor(deps: {
     discovery: SlashCommandDiscoveryPort;
     customCommands: CustomSlashCommandRepositoryPort;
+    nowMs?: () => number;
   }) {
     this.discovery = deps.discovery;
     this.customCommands = deps.customCommands;
+    this.nowMs = deps.nowMs ?? (() => Date.now());
   }
 
   async list(
@@ -42,11 +46,11 @@ export class SlashCommandsService {
   ): Promise<SlashCommandsListResult> {
     const name = normalizeSlashCommandName(input.name);
     await this.assertNameAvailable(userId, name);
-    await this.customCommands.createCustomCommand(userId, {
-      ...input,
-      name,
-      id: input.id ?? `command.custom.${randomUUID()}`,
-      enabled: input.enabled ?? true,
+    await this.customCommands.mutate((snapshot) => {
+      const commands = getUserCommands(snapshot.commandsByUserId, userId);
+      const command = this.createCommandRecord(userId, input, name);
+      snapshot.commandsByUserId[userId] = [command, ...commands];
+      return command;
     });
     return await this.list(userId);
   }
@@ -61,12 +65,31 @@ export class SlashCommandsService {
         op: `${OP}.update`,
       });
     }
+    const commandId = input.id;
     const name = normalizeSlashCommandName(input.name);
-    await this.assertNameAvailable(userId, name, input.id);
-    await this.customCommands.updateCustomCommand(userId, {
-      ...input,
-      id: input.id,
-      name,
+    await this.assertNameAvailable(userId, name, commandId);
+    await this.customCommands.mutate((snapshot) => {
+      const commands = getUserCommands(snapshot.commandsByUserId, userId);
+      const index = commands.findIndex((command) => command.id === commandId);
+      if (index < 0) {
+        throw commandNotFound(commandId);
+      }
+      const existing = commands[index];
+      if (!existing) {
+        throw commandNotFound(commandId);
+      }
+      const next: CustomSlashCommandRecord = {
+        ...existing,
+        name,
+        description: input.description,
+        prompt: input.prompt,
+        argumentHint: input.argumentHint,
+        enabled: input.enabled ?? existing.enabled,
+        updatedAt: this.nowMs(),
+      };
+      commands[index] = next;
+      snapshot.commandsByUserId[userId] = commands;
+      return next;
     });
     return await this.list(userId);
   }
@@ -76,14 +99,32 @@ export class SlashCommandsService {
     input: ToggleSlashCommandInput
   ): Promise<SlashCommandsListResult> {
     if (input.id.startsWith("command.custom.")) {
-      await this.customCommands.setCustomCommandEnabled(userId, input);
+      await this.customCommands.mutate((snapshot) => {
+        const commands = getUserCommands(snapshot.commandsByUserId, userId);
+        const index = commands.findIndex((command) => command.id === input.id);
+        if (index < 0) {
+          throw commandNotFound(input.id);
+        }
+        const existing = commands[index];
+        if (!existing) {
+          throw commandNotFound(input.id);
+        }
+        const next: CustomSlashCommandRecord = {
+          ...existing,
+          enabled: input.enabled,
+          updatedAt: this.nowMs(),
+        };
+        commands[index] = next;
+        snapshot.commandsByUserId[userId] = commands;
+        return next;
+      });
       return await this.list(userId);
     }
     const discovered = await this.discovery.setDiscoveredCommandEnabled(
       userId,
       input
     );
-    const custom = await this.customCommands.listCustomCommands(userId);
+    const custom = await this.listCustomCommands(userId);
     return toResult([...discovered, ...custom]);
   }
 
@@ -91,7 +132,14 @@ export class SlashCommandsService {
     userId: string,
     input: DeleteSlashCommandInput
   ): Promise<SlashCommandsListResult> {
-    await this.customCommands.deleteCustomCommand(userId, input);
+    await this.customCommands.mutate((snapshot) => {
+      const commands = getUserCommands(snapshot.commandsByUserId, userId);
+      const next = commands.filter((command) => command.id !== input.id);
+      if (next.length === commands.length) {
+        throw commandNotFound(input.id);
+      }
+      snapshot.commandsByUserId[userId] = next;
+    });
     return await this.list(userId);
   }
 
@@ -101,7 +149,7 @@ export class SlashCommandsService {
   ): Promise<SlashCommandDescriptor[]> {
     const [discovered, custom] = await Promise.all([
       this.discovery.listDiscoveredCommands(userId, input),
-      this.customCommands.listCustomCommands(userId),
+      this.listCustomCommands(userId),
     ]);
     return [...custom, ...discovered].sort(compareCommands);
   }
@@ -128,6 +176,39 @@ export class SlashCommandsService {
         }
       );
     }
+  }
+
+  private async listCustomCommands(
+    userId: string
+  ): Promise<CustomSlashCommandRecord[]> {
+    return await this.customCommands.read((snapshot) =>
+      getUserCommands(snapshot.commandsByUserId, userId)
+    );
+  }
+
+  private createCommandRecord(
+    userId: string,
+    input: UpsertSlashCommandInput,
+    name: string
+  ): CustomSlashCommandRecord {
+    const id = input.id ?? `command.custom.${randomUUID()}`;
+    const now = this.nowMs();
+    return {
+      id,
+      userId,
+      name,
+      ...(input.description ? { description: input.description } : {}),
+      prompt: input.prompt,
+      sourcePath: `eragear://commands/${id}`,
+      enabled: input.enabled ?? true,
+      ...(input.argumentHint ? { argumentHint: input.argumentHint } : {}),
+      scope: "user",
+      storage: "custom",
+      tags: ["user", "custom"],
+      diagnostics: [],
+      createdAt: now,
+      updatedAt: now,
+    };
   }
 }
 
@@ -174,4 +255,31 @@ function toResult(commands: SlashCommandDescriptor[]): SlashCommandsListResult {
     ).length,
     totalCount: commands.length,
   };
+}
+
+function getUserCommands(
+  commandsByUserId: Readonly<
+    Record<string, readonly CustomSlashCommandRecord[]>
+  >,
+  userId: string
+): CustomSlashCommandRecord[] {
+  return [...(commandsByUserId[userId] ?? [])].map(cloneCommand);
+}
+
+function cloneCommand(
+  command: CustomSlashCommandRecord
+): CustomSlashCommandRecord {
+  return {
+    ...command,
+    tags: [...command.tags],
+    diagnostics: [...command.diagnostics],
+  };
+}
+
+function commandNotFound(commandId: string): NotFoundError {
+  return new NotFoundError("Slash command not found", {
+    module: "commands",
+    op: OP,
+    details: { commandId },
+  });
 }

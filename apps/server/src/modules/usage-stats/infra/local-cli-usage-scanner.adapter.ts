@@ -49,6 +49,7 @@ const CLI_PROVIDER_IDS: UsageStatsCliProviderId[] = [
   "gemini",
   "opencode",
   "pi",
+  "zcode",
 ];
 
 const PROVIDER_DISPLAY_NAMES: Record<UsageStatsCliProviderId, string> = {
@@ -59,6 +60,7 @@ const PROVIDER_DISPLAY_NAMES: Record<UsageStatsCliProviderId, string> = {
   gemini: "Gemini CLI",
   opencode: "OpenCode",
   pi: "Pi Coding Agent",
+  zcode: "Zcode Agent",
 };
 
 const FILE_PROCESS_CONCURRENCY_ENV = "SLOPMETER_FILE_PROCESS_CONCURRENCY";
@@ -152,6 +154,22 @@ interface CursorCsvRow {
   "Cache Read"?: string;
   "Output Tokens"?: string;
   "Total Tokens"?: string;
+}
+
+interface ZcodeModelUsageRow {
+  id?: string;
+  provider_id?: string;
+  model_id?: string;
+  status?: string;
+  started_at?: number;
+  completed_at?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  reasoning_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  computed_total_tokens?: number;
+  provider_total_tokens?: number;
 }
 
 export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
@@ -298,6 +316,8 @@ export class LocalCliUsageScannerAdapter implements UsageStatsScannerPort {
           warnings,
           pricingSnapshot
         );
+      case "zcode":
+        return await loadZcodeUsage(start, end, recentStart, pricingSnapshot);
       default: {
         const exhaustive: never = providerId;
         throw new Error(`Unhandled usage provider: ${String(exhaustive)}`);
@@ -1317,6 +1337,61 @@ async function loadPiUsage(
   return usage;
 }
 
+async function loadZcodeUsage(
+  start: Date,
+  end: Date,
+  recentStart: Date,
+  pricingSnapshot: PricingSnapshot
+): Promise<MutableProviderUsage | null> {
+  const databasePath = getZcodeDatabasePath();
+  if (!databasePath) {
+    return null;
+  }
+
+  const usage = createProviderUsage("zcode", pricingSnapshot);
+  await withReadonlySqlite(databasePath, (db) => {
+    const statement = db.query(
+      `SELECT
+        id,
+        provider_id,
+        model_id,
+        status,
+        started_at,
+        completed_at,
+        input_tokens,
+        output_tokens,
+        reasoning_tokens,
+        cache_creation_input_tokens,
+        cache_read_input_tokens,
+        computed_total_tokens,
+        provider_total_tokens
+      FROM model_usage
+      WHERE COALESCE(completed_at, started_at) >= $startMs
+        AND COALESCE(completed_at, started_at) <= $endMs
+      ORDER BY COALESCE(completed_at, started_at) ASC`
+    );
+    for (const row of statement.iterate({
+      $startMs: start.getTime(),
+      $endMs: end.getTime(),
+    }) as Iterable<ZcodeModelUsageRow>) {
+      const date = createZcodeUsageDate(row);
+      const tokens = createZcodeTokenTotals(row);
+      if (!(date && tokens && isInRange(date, start, end))) {
+        continue;
+      }
+      recordUsage({
+        usage,
+        date,
+        tokens,
+        modelName: normalizeZcodeModelName(row.provider_id, row.model_id),
+        recentStart,
+      });
+    }
+  });
+
+  return usage;
+}
+
 function getAmpDataDir(): string {
   const envDir = process.env.AMP_DATA_DIR?.trim();
   if (envDir) {
@@ -1400,6 +1475,33 @@ function getPiAgentDir(): string {
   return process.env.PI_CODING_AGENT_DIR?.trim()
     ? path.resolve(process.env.PI_CODING_AGENT_DIR)
     : path.join(homedir(), ".pi", "agent");
+}
+
+function getZcodeDatabasePath(): string | null {
+  const explicit = process.env.ZCODE_DB_PATH?.trim();
+  if (explicit && existsSync(path.resolve(explicit))) {
+    return path.resolve(explicit);
+  }
+
+  const databasePath = path.join(getZcodeCliDir(), "db", "db.sqlite");
+  return existsSync(databasePath) ? databasePath : null;
+}
+
+function getZcodeCliDir(): string {
+  const explicit = process.env.ZCODE_CLI_DIR?.trim();
+  if (explicit) {
+    return path.resolve(explicit);
+  }
+
+  const zcodeHome = path.join(homedir(), ".zcode");
+  const candidates = [
+    path.join(zcodeHome, "cli"),
+    path.join(zcodeHome, "clil"),
+  ];
+  return (
+    candidates.find((candidate) => existsSync(candidate)) ??
+    path.join(zcodeHome, "cli")
+  );
 }
 
 function getCursorStateDbPath(): string | null {
@@ -1803,6 +1905,74 @@ function createTokens(input: {
     cacheOutputTokens: Math.max(0, Math.round(input.cacheOutput)),
     totalTokens: Math.max(0, Math.round(input.input + input.output)),
   };
+}
+
+function createZcodeUsageDate(row: ZcodeModelUsageRow): Date | null {
+  const timestamp = row.completed_at ?? row.started_at;
+  return typeof timestamp === "number" && Number.isFinite(timestamp)
+    ? new Date(timestamp)
+    : null;
+}
+
+function createZcodeTokenTotals(
+  row: ZcodeModelUsageRow
+): UsageStatsTokenTotals | null {
+  const rawInput = nonNegativeInteger(row.input_tokens);
+  const rawOutput = nonNegativeInteger(row.output_tokens);
+  const reasoning = nonNegativeInteger(row.reasoning_tokens);
+  const cacheInput = nonNegativeInteger(row.cache_read_input_tokens);
+  const cacheOutput = nonNegativeInteger(row.cache_creation_input_tokens);
+  const outputTokens = rawOutput + reasoning + cacheOutput;
+  const fallbackTotal =
+    rawInput + rawOutput + reasoning + cacheInput + cacheOutput;
+  const totalTokens =
+    nonNegativeInteger(row.computed_total_tokens) ||
+    nonNegativeInteger(row.provider_total_tokens) ||
+    fallbackTotal;
+
+  if (totalTokens <= 0) {
+    return null;
+  }
+
+  return {
+    inputTokens: Math.max(0, totalTokens - outputTokens),
+    outputTokens,
+    cacheInputTokens: Math.min(cacheInput, totalTokens),
+    cacheOutputTokens: Math.min(cacheOutput, totalTokens),
+    totalTokens,
+  };
+}
+
+function normalizeZcodeModelName(
+  providerId?: string,
+  modelId?: string
+): string | undefined {
+  const model = normalizeZcodeProviderHint(normalizeModelName(modelId));
+  if (!model) {
+    return undefined;
+  }
+  if (model.includes("/")) {
+    return model;
+  }
+
+  const provider = normalizeZcodeProviderHint(providerId);
+  return provider ? `${provider}/${model}` : model;
+}
+
+function normalizeZcodeProviderHint(value?: string): string | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.startsWith("builtin:")
+    ? normalized.slice("builtin:".length)
+    : normalized;
+}
+
+function nonNegativeInteger(value?: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : 0;
 }
 
 async function listFilesRecursive(

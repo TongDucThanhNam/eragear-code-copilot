@@ -1,5 +1,6 @@
 import {
   CreateAgentService,
+  createEventBusAgentLifecycleNotifier,
   DeleteAgentService,
   EnsureAgentDefaultsService,
   ListAgentsService,
@@ -7,26 +8,31 @@ import {
   UpdateAgentService,
 } from "@/modules/agent";
 import type { AgentUseCases } from "@/modules/use-cases";
-import type { ServiceRegistryDependencies } from "./dependencies";
+import type { ServiceRegistrySlice } from "./dependencies";
+
+type AgentServiceDependencies = ServiceRegistrySlice<"eventBus" | "agentRepo">;
 
 export function createAgentUseCases(
-  deps: ServiceRegistryDependencies
+  deps: AgentServiceDependencies
 ): AgentUseCases {
+  const agentLifecycleNotifier = createEventBusAgentLifecycleNotifier(
+    deps.eventBus
+  );
   const ensureAgentDefaultsService = new EnsureAgentDefaultsService(
     deps.agentRepo
   );
   const listAgentsService = new ListAgentsService(deps.agentRepo);
   const createAgentService = new CreateAgentService(
     deps.agentRepo,
-    deps.eventBus
+    agentLifecycleNotifier
   );
   const updateAgentService = new UpdateAgentService(
     deps.agentRepo,
-    deps.eventBus
+    agentLifecycleNotifier
   );
   const deleteAgentService = new DeleteAgentService(
     deps.agentRepo,
-    deps.eventBus
+    agentLifecycleNotifier
   );
   const setActiveAgentService = new SetActiveAgentService(deps.agentRepo);
 

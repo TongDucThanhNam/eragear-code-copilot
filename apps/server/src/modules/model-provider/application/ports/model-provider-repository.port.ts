@@ -1,34 +1,20 @@
-import type {
-  DeleteModelProviderInput,
-  DeleteModelProviderResult,
-  GetModelProviderInput,
-  ListModelProvidersInput,
-  ModelProviderListResult,
-  ModelProviderRecord,
-  ModelProviderSeed,
-  UpsertModelProviderInput,
-} from "../contracts/model-provider.contract";
+import type { ModelProviderRecord } from "../contracts/model-provider.contract";
+
+export interface ModelProviderStoreSnapshot {
+  seededUserIds: readonly string[];
+  providers: readonly ModelProviderRecord[];
+}
+
+export interface MutableModelProviderStoreSnapshot {
+  seededUserIds: string[];
+  providers: ModelProviderRecord[];
+}
 
 export interface ModelProviderRepositoryPort {
-  list(
-    userId: string,
-    input?: ListModelProvidersInput
-  ): Promise<ModelProviderListResult>;
-  get(
-    userId: string,
-    input: GetModelProviderInput
-  ): Promise<ModelProviderRecord | null>;
-  upsert(
-    userId: string,
-    input: UpsertModelProviderInput
-  ): Promise<ModelProviderRecord>;
-  delete(
-    userId: string,
-    input: DeleteModelProviderInput
-  ): Promise<DeleteModelProviderResult>;
-  ensureDefaults(userId: string, defaults: ModelProviderSeed[]): Promise<void>;
-  restoreDefaults(
-    userId: string,
-    defaults: ModelProviderSeed[]
-  ): Promise<ModelProviderListResult>;
+  read<T>(
+    reader: (snapshot: ModelProviderStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
+  mutate<T>(
+    mutator: (snapshot: MutableModelProviderStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
 }

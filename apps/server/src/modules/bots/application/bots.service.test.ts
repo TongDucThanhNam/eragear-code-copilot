@@ -6,7 +6,11 @@ import type {
   BotQuotaAutomationState,
   BotRun,
 } from "./contracts/bots.contract";
-import type { BotRepositoryPort } from "./ports/bot-repository.port";
+import type {
+  BotQuotaAutomationStateSnapshot,
+  BotRepositoryPort,
+  MutableBotQuotaAutomationStateSnapshot,
+} from "./ports/bot-repository.port";
 
 class MemoryBotRepository implements BotRepositoryPort {
   bots = new Map<string, BotDefinition>();
@@ -62,13 +66,32 @@ class MemoryBotRepository implements BotRepositoryPort {
     return Promise.resolve(run);
   }
 
-  readQuotaAutomationState(): Promise<BotQuotaAutomationState> {
-    return Promise.resolve(structuredClone(this.quotaAutomation));
+  async readQuotaAutomationState<T>(
+    reader: (snapshot: BotQuotaAutomationStateSnapshot) => T | Promise<T>
+  ): Promise<T> {
+    return await reader({
+      get: () => structuredClone(this.quotaAutomation),
+    });
   }
 
-  saveQuotaAutomationState(state: BotQuotaAutomationState): Promise<void> {
-    this.quotaAutomation = structuredClone(state);
-    return Promise.resolve();
+  async mutateQuotaAutomationState<T>(
+    mutator: (
+      snapshot: MutableBotQuotaAutomationStateSnapshot
+    ) => T | Promise<T>
+  ): Promise<T> {
+    let changed = false;
+    let next = structuredClone(this.quotaAutomation);
+    const result = await mutator({
+      get: () => structuredClone(next),
+      set: (state) => {
+        changed = true;
+        next = structuredClone(state);
+      },
+    });
+    if (changed) {
+      this.quotaAutomation = structuredClone(next);
+    }
+    return result;
   }
 }
 
@@ -208,12 +231,10 @@ describe("BotsService", () => {
       },
     });
     await service.recordQuotaSnapshot({
-      type: "provider_quota_refreshed",
       userId: "user-1",
       providerId: "zai",
       providerDisplayName: "Z.ai Coding Plan",
       status: "ready",
-      fetchedAt: new Date(now - 1000).toISOString(),
       windows: [
         {
           id: "5h",
@@ -222,7 +243,6 @@ describe("BotsService", () => {
           percentRemaining: 0,
         },
       ],
-      changed: true,
     });
 
     const first = await service.dispatchDueQuotaResets({
@@ -249,10 +269,7 @@ describe("BotsService", () => {
     });
 
     await service.completeRunsForTurn({
-      type: "local_ade_lifecycle",
-      event: "after-agent-turn-complete",
       userId: "user-1",
-      projectRoot: "/repo",
       chatId: "chat-quota",
       turnId: "turn-quota",
       stopReason: "end_turn",
@@ -295,12 +312,10 @@ describe("BotsService", () => {
       execution: { target: "queue_only" },
     });
     await service.recordQuotaSnapshot({
-      type: "provider_quota_refreshed",
       userId: "user-1",
       providerId: "openai",
       providerDisplayName: "OpenAI / ChatGPT",
       status: "ready",
-      fetchedAt: new Date(now - 1000).toISOString(),
       windows: [
         {
           id: "primary",
@@ -308,7 +323,6 @@ describe("BotsService", () => {
           resetAt: new Date(now).toISOString(),
         },
       ],
-      changed: true,
     });
 
     const result = await service.dispatchDueQuotaResets({

@@ -7,6 +7,7 @@ import type { ClockPort } from "@/shared/ports/clock.port";
 import type { SessionEventOutboxPort } from "./application/ports/session-event-outbox.port";
 import type { SessionRepositoryPort } from "./application/ports/session-repository.port";
 import type { SessionRuntimePort } from "./application/ports/session-runtime.port";
+import type { SessionBroadcastNotifier } from "./application/session-broadcast.notifier";
 import {
   SessionRuntimeStore,
   type SessionRuntimeStorePolicy,
@@ -32,8 +33,12 @@ export function createSessionRuntimeStore(params: {
   return new SessionRuntimeStore(params.outbox, params.policy);
 }
 
-export function createSessionEventOutbox(): SessionEventOutboxPort {
-  return new SessionEventOutboxSqliteAdapter();
+export function createSessionEventOutbox(params: {
+  broadcastNotifier: SessionBroadcastNotifier;
+}): SessionEventOutboxPort {
+  return new SessionEventOutboxSqliteAdapter({
+    broadcastNotifier: params.broadcastNotifier,
+  });
 }
 
 export function createSessionSqliteRepository(params?: {

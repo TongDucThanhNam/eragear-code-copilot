@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import {
   createHash,
   createPublicKey,
@@ -19,7 +19,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { TextDecoder, promisify } from "node:util";
+import { promisify, TextDecoder } from "node:util";
 import {
   type CapabilityDescriptor,
   type CapabilityKind,
@@ -34,12 +34,13 @@ import type {
   StoredMessage,
   StoredSession,
 } from "@/modules/session";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { LogStorePort } from "@/shared/ports/log-store.port";
 import type { BackgroundRunnerState } from "@/shared/types/background.types";
-import type { DomainEvent } from "@/shared/types/domain-events.types";
 import type { LogEntry, LogLevel } from "@/shared/types/log.types";
-import type { ChatSession, SessionModelState } from "@/shared/types/session.types";
+import type {
+  ChatSession,
+  SessionModelState,
+} from "@/shared/types/session.types";
 import {
   findSessionConfigOption,
   getSessionConfigOptionCurrentValue,
@@ -48,6 +49,10 @@ import {
 import { isRecord } from "@/shared/utils/type-guards.util";
 import type { AppConfigService } from "../app-config.service";
 import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
+import {
+  noopSettingsChangeNotifier,
+  type SettingsChangeNotifier,
+} from "./settings-change.notifier";
 
 const execFileAsync = promisify(execFile);
 const STATE_FILE = "capabilities-state.json";
@@ -68,7 +73,7 @@ const MAX_DISCOVERY_FILES = 160;
 const MAX_MARKDOWN_BYTES = 96_000;
 const MAX_MEMORY_PREVIEW_BYTES = 16_000;
 const MAX_PROJECT_MEMORY_CONTEXT_BYTES = 24_000;
-const MAX_PROJECT_MEMORY_CHUNK_BYTES = 2_400;
+const MAX_PROJECT_MEMORY_CHUNK_BYTES = 2400;
 const DEFAULT_PROJECT_MEMORY_SEMANTIC_CHUNKS = 4;
 const MAX_PROJECT_MEMORY_SEMANTIC_CHUNKS = 8;
 const PROJECT_MEMORY_VECTOR_DIMENSIONS = 128;
@@ -78,7 +83,7 @@ const MODEL_EMBEDDING_TIMEOUT_MS = 10_000;
 const MAX_REPO_INDEX_EMBEDDING_FILES = 160;
 const MAX_PROJECT_MEMORY_PRESETS = 24;
 const MAX_PROJECT_MEMORY_PRESET_NAME_CHARS = 80;
-const MAX_REPO_INDEX_FILES = 2_000;
+const MAX_REPO_INDEX_FILES = 2000;
 const MAX_REPO_INDEX_VISIBLE_FILES = 160;
 const MAX_REPO_INDEX_SYMBOLS = 400;
 const MAX_REPO_INDEX_TASKS = 240;
@@ -118,7 +123,7 @@ const PLUGIN_BATCH_CONFIRMATION_TOKEN = "RUN PLUGIN BATCH";
 const DEFAULT_AUTOMATION_MAX_CONCURRENT_RUNS = 1;
 const MAX_AUTOMATION_MAX_CONCURRENT_RUNS = 4;
 const MAX_AUTOMATION_COOLDOWN_MS = 10 * 60 * 1000;
-const MIN_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS = 1_000;
+const MIN_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS = 1000;
 const MAX_PLUGIN_BATCH_SCHEDULE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const RUN_STATUS_VALUES = ["success", "failed", "timeout", "disabled"] as const;
 const GIT_TIMEOUT_MS = 4000;
@@ -127,7 +132,7 @@ const PROVIDER_VERSION_PROBE_TIMEOUT_MS = 10_000;
 const MCP_PROTOCOL_TIMEOUT_MS = 3500;
 const MCP_SSE_RECONNECT_ATTEMPTS = 1;
 const MCP_PROTOCOL_VERSION = "2024-11-05";
-const MIN_MCP_REMOTE_REQUEST_TIMEOUT_MS = 1_000;
+const MIN_MCP_REMOTE_REQUEST_TIMEOUT_MS = 1000;
 const MAX_MCP_REMOTE_REQUEST_TIMEOUT_MS = 15_000;
 const MIN_MCP_REMOTE_RECONNECT_ATTEMPTS = 0;
 const MAX_MCP_REMOTE_RECONNECT_ATTEMPTS = 3;
@@ -137,10 +142,10 @@ const MAX_MCP_AGENT_INVOCATION_HISTORY = 24;
 const MAX_MCP_NOTIFICATION_HISTORY = 24;
 const MAX_MCP_NOTIFICATION_MONITOR_HISTORY = 8;
 const MAX_MCP_INVOCATION_OUTPUT_BYTES = 16_000;
-const MAX_MCP_NOTIFICATION_PAYLOAD_BYTES = 4_000;
-const DEFAULT_MCP_NOTIFICATION_WATCH_MS = 1_000;
+const MAX_MCP_NOTIFICATION_PAYLOAD_BYTES = 4000;
+const DEFAULT_MCP_NOTIFICATION_WATCH_MS = 1000;
 const MIN_MCP_NOTIFICATION_WATCH_MS = 250;
-const MAX_MCP_NOTIFICATION_WATCH_MS = 5_000;
+const MAX_MCP_NOTIFICATION_WATCH_MS = 5000;
 const MAX_CHECKPOINTS = 80;
 const MAX_CHECKPOINT_PREVIEW_BYTES = 32_000;
 const MAX_CHECKPOINT_SESSION_ATTRIBUTIONS = 16;
@@ -157,9 +162,9 @@ const MAX_ACP_ACTIVITY_CAUSALITY_CHAINS = 8;
 const MAX_ACP_ACTIVITY_STREAM_GAPS = 8;
 const ACP_ACTIVITY_STREAM_STALE_AFTER_MS = 60_000;
 const ACP_ACTIVITY_STREAM_HEARTBEAT_WINDOW_MS = 30_000;
-const ACP_ACTIVITY_STREAM_RETRY_DELAY_MS = 1_000;
+const ACP_ACTIVITY_STREAM_RETRY_DELAY_MS = 1000;
 const ACP_ACTIVITY_STREAM_RETRY_MAX_ATTEMPTS = 5;
-const ACP_ACTIVITY_STREAM_GAP_THRESHOLD_MS = 2_000;
+const ACP_ACTIVITY_STREAM_GAP_THRESHOLD_MS = 2000;
 const MAX_CHECKPOINT_DIFF_FILES = 24;
 const MAX_CHECKPOINT_DIFF_ROWS_PER_FILE = 180;
 const MAX_CHECKPOINT_RESTORE_FILES = 24;
@@ -168,7 +173,11 @@ const MAX_DIAGNOSTIC_CHARS = 900;
 const MAX_MCP_DISCOVERY_ITEMS = 80;
 const SECRET_HINT_PATTERN =
   /(api[_-]?key|secret|token|password|private[_-]?key|authorization|cookie)/i;
-const EXECUTION_POLICY_PRESET_VALUES = ["standard", "restricted", "blocked"] as const;
+const EXECUTION_POLICY_PRESET_VALUES = [
+  "standard",
+  "restricted",
+  "blocked",
+] as const;
 const PLUGIN_SCOPE_VALUES = ["process", "project-root", "env"] as const;
 const DEFAULT_PLUGIN_SCOPES = ["process", "project-root"] as const;
 const PLUGIN_BASE_ENV_KEYS = [
@@ -235,7 +244,13 @@ export interface LocalAdeProviderDescriptor {
   cliStatus: "missing" | "ok" | "failed" | "unknown";
   authStatus: "ok" | "unknown" | "failed" | "unsupported";
   modelStatus: "ok" | "unknown" | "failed" | "unsupported";
-  readiness: "missing-config" | "cli-ok" | "auth-unknown" | "model-unknown" | "ready" | "unavailable";
+  readiness:
+    | "missing-config"
+    | "cli-ok"
+    | "auth-unknown"
+    | "model-unknown"
+    | "ready"
+    | "unavailable";
   version?: string;
   lastProbedAt?: string;
   latencyMs?: number;
@@ -449,7 +464,12 @@ export interface LocalAdeMcpServer {
     envKey: string;
     present: boolean;
   }>;
-  health: "not-probed" | "invalid-config" | "available" | "unavailable" | "disabled";
+  health:
+    | "not-probed"
+    | "invalid-config"
+    | "available"
+    | "unavailable"
+    | "disabled";
   protocol: {
     status: "not-run" | "initialized" | "failed" | "unsupported";
     protocolVersion?: string;
@@ -1122,10 +1142,12 @@ interface StoredMcpServer
   invocationHistory?: LocalAdeMcpInvocationResult[];
   notificationHistory?: LocalAdeMcpNotification[];
   notificationMonitorHistory?: LocalAdeMcpNotificationMonitorRun[];
-  remoteControls?: Partial<Pick<
-    LocalAdeMcpRemoteControls,
-    "requestTimeoutMs" | "reconnectAttempts" | "notificationWatchMs"
-  >>;
+  remoteControls?: Partial<
+    Pick<
+      LocalAdeMcpRemoteControls,
+      "requestTimeoutMs" | "reconnectAttempts" | "notificationWatchMs"
+    >
+  >;
 }
 
 interface McpDocument {
@@ -2074,7 +2096,8 @@ export interface DeleteAcpReplayPresetInput {
   id: string;
 }
 
-export interface LocalAdeAcpActivityReplayFrame extends LocalAdeAcpActivityEntry {
+export interface LocalAdeAcpActivityReplayFrame
+  extends LocalAdeAcpActivityEntry {
   sequence: number;
   elapsedMs: number;
   deltaMs: number;
@@ -2221,6 +2244,20 @@ export interface LocalAdeSnapshot {
   blockers: LocalAdeWorkflowParity[];
 }
 
+export interface LocalAdeLifecycleHookInput {
+  event:
+    | "after-agent-session-create"
+    | "after-agent-message-send"
+    | "after-agent-turn-complete"
+    | "after-agent-session-stop";
+  userId: string;
+  projectRoot: string;
+  projectId?: string;
+  chatId?: string;
+  agentSessionId?: string;
+  turnId?: string;
+}
+
 interface ProjectContext {
   rootPath: string;
   activeProjectId: string | null;
@@ -2238,31 +2275,36 @@ const DASHBOARD_PARITY: LocalAdeWorkflowParity[] = [
     workflow: "Projects",
     status: "available",
     electronSurface: "Sidebar project tree and workspace overview",
-    sourceFile: "apps/server/src/presentation/dashboard/components/projects-tab.tsx",
+    sourceFile:
+      "apps/server/src/presentation/dashboard/components/projects-tab.tsx",
   },
   {
     workflow: "Sessions",
     status: "available",
     electronSurface: "Sidebar session tree and workspace overview",
-    sourceFile: "apps/server/src/presentation/dashboard/components/sessions-tab.tsx",
+    sourceFile:
+      "apps/server/src/presentation/dashboard/components/sessions-tab.tsx",
   },
   {
     workflow: "Agents and runtime allowlists",
     status: "available",
     electronSurface: "Settings routes and Local ADE panels",
-    sourceFile: "apps/server/src/presentation/dashboard/components/agents-tab.tsx",
+    sourceFile:
+      "apps/server/src/presentation/dashboard/components/agents-tab.tsx",
   },
   {
     workflow: "Logs and observability",
     status: "available",
     electronSurface: "Settings > Activity route",
-    sourceFile: "apps/server/src/presentation/dashboard/components/logs-tab.tsx",
+    sourceFile:
+      "apps/server/src/presentation/dashboard/components/logs-tab.tsx",
   },
   {
     workflow: "Boot settings",
     status: "partial",
     electronSurface: "Settings connection route runtime allowlist panel",
-    sourceFile: "apps/server/src/presentation/dashboard/components/settings-tab.tsx",
+    sourceFile:
+      "apps/server/src/presentation/dashboard/components/settings-tab.tsx",
     reason:
       "Common boot tuning fields are not all editable in Electron yet; allowlists and ACP toggles are on the desktop path.",
   },
@@ -2270,7 +2312,8 @@ const DASHBOARD_PARITY: LocalAdeWorkflowParity[] = [
     workflow: "Auth admin and device sessions",
     status: "not-applicable",
     electronSurface: "Local ADE policy rail",
-    sourceFile: "apps/server/src/presentation/dashboard/components/auth-tab.tsx",
+    sourceFile:
+      "apps/server/src/presentation/dashboard/components/auth-tab.tsx",
     blockerFile: "apps/server/src/transport/http/routes/admin.ts",
     reason:
       "Remote auth administration is intentionally outside the local desktop ADE surface; local sessions use the desktop-service channel and do not expose remote device-session controls.",
@@ -2304,7 +2347,9 @@ function ensureProjectDataDir(rootPath: string): string {
   return path.join(rootPath, ".eragear");
 }
 
-async function readJsonObject(filePath: string): Promise<Record<string, unknown> | null> {
+async function readJsonObject(
+  filePath: string
+): Promise<Record<string, unknown> | null> {
   if (!existsSync(filePath)) {
     return null;
   }
@@ -2316,10 +2361,12 @@ async function readJsonObject(filePath: string): Promise<Record<string, unknown>
   }
 }
 
-async function readCapabilityState(rootPath: string): Promise<CapabilityStateDocument> {
+async function readCapabilityState(
+  rootPath: string
+): Promise<CapabilityStateDocument> {
   const filePath = path.join(ensureProjectDataDir(rootPath), STATE_FILE);
   const parsed = await readJsonObject(filePath);
-  if (!parsed || !isRecord(parsed.capabilities)) {
+  if (!(parsed && isRecord(parsed.capabilities))) {
     return { version: 1, capabilities: {} };
   }
   const capabilities: CapabilityStateDocument["capabilities"] = {};
@@ -2330,7 +2377,9 @@ async function readCapabilityState(rootPath: string): Promise<CapabilityStateDoc
     capabilities[id] = {
       enabled: value.enabled,
       updatedAt:
-        typeof value.updatedAt === "string" ? value.updatedAt : new Date(0).toISOString(),
+        typeof value.updatedAt === "string"
+          ? value.updatedAt
+          : new Date(0).toISOString(),
     };
   }
 
@@ -2343,7 +2392,9 @@ async function readCapabilityState(rootPath: string): Promise<CapabilityStateDoc
       memory[id] = {
         enabled: value.enabled,
         updatedAt:
-          typeof value.updatedAt === "string" ? value.updatedAt : new Date(0).toISOString(),
+          typeof value.updatedAt === "string"
+            ? value.updatedAt
+            : new Date(0).toISOString(),
       };
     }
   }
@@ -2426,7 +2477,9 @@ function firstString(
   return undefined;
 }
 
-function attributeTags(attributes: Record<string, string | string[] | boolean>): string[] {
+function attributeTags(
+  attributes: Record<string, string | string[] | boolean>
+): string[] {
   const tags = attributes.tags;
   if (Array.isArray(tags)) {
     return tags.filter((item) => item.trim().length > 0);
@@ -2555,7 +2608,9 @@ async function readMarkdownDescriptor(params: {
   }
 
   const parsed = parseFrontmatter(raw);
-  const relative = normalizeSlash(path.relative(params.rootPath, params.filePath));
+  const relative = normalizeSlash(
+    path.relative(params.rootPath, params.filePath)
+  );
   const id = `${params.kind}.${params.scope}.${toHashId(params.rootPath, relative)}`;
   const name =
     firstString(parsed.attributes, ["name", "title", "command"]) ??
@@ -2694,7 +2749,9 @@ async function readSkillDescriptor(params: {
   } catch {
     return null;
   }
-  const relative = normalizeSlash(path.relative(params.rootPath, params.filePath));
+  const relative = normalizeSlash(
+    path.relative(params.rootPath, params.filePath)
+  );
   const id = `skill.${params.scope}.${toHashId(params.rootPath, relative)}`;
   const stateEntry = params.state.capabilities[id];
   if (Buffer.byteLength(raw, "utf8") > MAX_MARKDOWN_BYTES) {
@@ -2797,7 +2854,9 @@ async function readOutputStyleDescriptor(params: {
   } catch {
     return null;
   }
-  const relative = normalizeSlash(path.relative(params.rootPath, params.filePath));
+  const relative = normalizeSlash(
+    path.relative(params.rootPath, params.filePath)
+  );
   const id = `output-style.${params.scope}.${toHashId(params.rootPath, relative)}`;
   const stateEntry = params.state.capabilities[id];
   if (Buffer.byteLength(raw, "utf8") > MAX_MARKDOWN_BYTES) {
@@ -2810,7 +2869,9 @@ async function readOutputStyleDescriptor(params: {
       sourcePath: params.filePath,
       prompt: "",
       tags: [params.scope, "eragear"],
-      diagnostics: [`Skipped output-style files over ${MAX_MARKDOWN_BYTES} bytes.`],
+      diagnostics: [
+        `Skipped output-style files over ${MAX_MARKDOWN_BYTES} bytes.`,
+      ],
     };
   }
 
@@ -2890,7 +2951,9 @@ async function readCommandDescriptor(params: {
   } catch {
     return null;
   }
-  const relative = normalizeSlash(path.relative(params.rootPath, params.filePath));
+  const relative = normalizeSlash(
+    path.relative(params.rootPath, params.filePath)
+  );
   const id = `command.${params.scope}.${toHashId(params.rootPath, relative)}`;
   const stateEntry = params.state.capabilities[id];
   if (Buffer.byteLength(raw, "utf8") > MAX_MARKDOWN_BYTES) {
@@ -3008,7 +3071,9 @@ async function readSubagentDescriptor(params: {
     return null;
   }
   const parsed = parseFrontmatter(raw);
-  const relative = normalizeSlash(path.relative(params.rootPath, params.filePath));
+  const relative = normalizeSlash(
+    path.relative(params.rootPath, params.filePath)
+  );
   const id = `subagent.${params.scope}.${toHashId(params.rootPath, relative)}`;
   const name =
     firstString(parsed.attributes, ["name", "agent", "title"]) ??
@@ -3023,8 +3088,8 @@ async function readSubagentDescriptor(params: {
   return {
     id,
     name,
-    ...(firstString(parsed.attributes, ["description", "summary"]) ??
-    descriptionFromMarkdown(parsed.body)
+    ...((firstString(parsed.attributes, ["description", "summary"]) ??
+    descriptionFromMarkdown(parsed.body))
       ? {
           description:
             firstString(parsed.attributes, ["description", "summary"]) ??
@@ -3126,7 +3191,10 @@ function redactPotentialSecrets(text: string): string {
     .join("\n");
 }
 
-function sanitizeDiagnosticText(text: string, secretValues: string[] = []): string {
+function sanitizeDiagnosticText(
+  text: string,
+  secretValues: string[] = []
+): string {
   let sanitized = redactPotentialSecrets(text);
   for (const value of secretValues) {
     if (value.length < 3) {
@@ -3245,7 +3313,9 @@ function readLocalProcessIsolation(
     return undefined;
   }
   const cwdScope =
-    value.cwdScope === "temporary-sandbox" ? "temporary-sandbox" : "project-root";
+    value.cwdScope === "temporary-sandbox"
+      ? "temporary-sandbox"
+      : "project-root";
   const timeoutMs =
     typeof value.timeoutMs === "number" && Number.isFinite(value.timeoutMs)
       ? Math.max(1, Math.floor(value.timeoutMs))
@@ -3402,7 +3472,7 @@ function localProcessExecutionPolicy(params: {
     isolation: createLocalProcessIsolation({
       cwdScope: params.isolation?.cwdScope ?? "project-root",
       projectRootExposed:
-        params.isolation?.projectRootExposed ?? (params.kind === "hook"),
+        params.isolation?.projectRootExposed ?? params.kind === "hook",
       timeoutMs: params.isolation?.timeoutMs,
       ...(typeof params.isolation?.processTreeTerminated === "boolean"
         ? { processTreeTerminated: params.isolation.processTreeTerminated }
@@ -3440,8 +3510,10 @@ function parseJsonRpcError(error: unknown): string {
     return "Unknown JSON-RPC error.";
   }
   const code = typeof error.code === "number" ? error.code : "unknown";
-  const message = typeof error.message === "string" ? error.message : "Unknown error";
-  const data = error.data === undefined ? "" : ` data=${JSON.stringify(error.data)}`;
+  const message =
+    typeof error.message === "string" ? error.message : "Unknown error";
+  const data =
+    error.data === undefined ? "" : ` data=${JSON.stringify(error.data)}`;
   return `JSON-RPC error ${code}: ${message}${data}`;
 }
 
@@ -3450,7 +3522,7 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function parseMcpTools(result: unknown): LocalAdeMcpTool[] {
-  if (!isRecord(result) || !Array.isArray(result.tools)) {
+  if (!(isRecord(result) && Array.isArray(result.tools))) {
     return [];
   }
   return result.tools
@@ -3465,14 +3537,18 @@ function parseMcpTools(result: unknown): LocalAdeMcpTool[] {
 }
 
 function parseMcpResources(result: unknown): LocalAdeMcpResource[] {
-  if (!isRecord(result) || !Array.isArray(result.resources)) {
+  if (!(isRecord(result) && Array.isArray(result.resources))) {
     return [];
   }
   return result.resources
-    .filter((resource): resource is Record<string, unknown> => isRecord(resource))
+    .filter((resource): resource is Record<string, unknown> =>
+      isRecord(resource)
+    )
     .map((resource) => ({
       uri: optionalString(resource.uri) ?? "unknown-resource",
-      ...(optionalString(resource.name) ? { name: optionalString(resource.name) } : {}),
+      ...(optionalString(resource.name)
+        ? { name: optionalString(resource.name) }
+        : {}),
       ...(optionalString(resource.description)
         ? { description: optionalString(resource.description) }
         : {}),
@@ -3552,7 +3628,9 @@ function parseMcpInvocationContent(
     .map((item) => item.text)
     .filter((item): item is string => Boolean(item));
   const outputText = sanitizeMcpInvocationOutput(
-    textParts.length > 0 ? textParts.join("\n") : JSON.stringify(result, null, 2),
+    textParts.length > 0
+      ? textParts.join("\n")
+      : JSON.stringify(result, null, 2),
     secretValues
   );
   const outputJson = sanitizeMcpInvocationOutput(
@@ -3593,9 +3671,10 @@ function sanitizeMcpNotificationPayload(
   };
 }
 
-function sanitizeMcpStoredNotificationPayload(
-  value: string
-): { value: string; truncated: boolean } {
+function sanitizeMcpStoredNotificationPayload(value: string): {
+  value: string;
+  truncated: boolean;
+} {
   const sanitized = sanitizeMcpInvocationOutput(value).value;
   const bytes = Buffer.byteLength(sanitized, "utf8");
   if (bytes <= MAX_MCP_NOTIFICATION_PAYLOAD_BYTES) {
@@ -3752,7 +3831,10 @@ async function readMemorySource(params: {
   const warnings = SECRET_HINT_PATTERN.test(raw)
     ? ["Potential secret-looking text detected; review before including."]
     : [];
-  const preview = redactPotentialSecrets(raw).slice(0, MAX_MEMORY_PREVIEW_BYTES);
+  const preview = redactPotentialSecrets(raw).slice(
+    0,
+    MAX_MEMORY_PREVIEW_BYTES
+  );
   return {
     id,
     label: params.label,
@@ -3771,8 +3853,18 @@ async function readProjectMemory(
   state: CapabilityStateDocument
 ): Promise<{ sources: LocalAdeMemorySource[]; warnings: string[] }> {
   const sources = await Promise.all([
-    readMemorySource({ rootPath, relativePath: "AGENTS.md", label: "AGENTS.md", state }),
-    readMemorySource({ rootPath, relativePath: "CLAUDE.md", label: "CLAUDE.md", state }),
+    readMemorySource({
+      rootPath,
+      relativePath: "AGENTS.md",
+      label: "AGENTS.md",
+      state,
+    }),
+    readMemorySource({
+      rootPath,
+      relativePath: "CLAUDE.md",
+      label: "CLAUDE.md",
+      state,
+    }),
     readMemorySource({
       rootPath,
       relativePath: path.join(".eragear", "memory.md"),
@@ -3791,7 +3883,9 @@ async function readProjectMemory(
     sources: existing,
     warnings: [
       "Project memory is surfaced for review; avoid storing API keys, tokens, passwords, or private keys in Markdown context.",
-      ...existing.flatMap((source) => source.warnings.map((warning) => `${source.relativePath}: ${warning}`)),
+      ...existing.flatMap((source) =>
+        source.warnings.map((warning) => `${source.relativePath}: ${warning}`)
+      ),
     ],
   };
 }
@@ -3800,14 +3894,20 @@ function clampProjectMemoryContextBytes(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return MAX_PROJECT_MEMORY_CONTEXT_BYTES;
   }
-  return Math.max(1_000, Math.min(Math.floor(value), MAX_PROJECT_MEMORY_CONTEXT_BYTES));
+  return Math.max(
+    1000,
+    Math.min(Math.floor(value), MAX_PROJECT_MEMORY_CONTEXT_BYTES)
+  );
 }
 
 function clampProjectMemorySemanticChunks(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return DEFAULT_PROJECT_MEMORY_SEMANTIC_CHUNKS;
   }
-  return Math.max(1, Math.min(Math.floor(value), MAX_PROJECT_MEMORY_SEMANTIC_CHUNKS));
+  return Math.max(
+    1,
+    Math.min(Math.floor(value), MAX_PROJECT_MEMORY_SEMANTIC_CHUNKS)
+  );
 }
 
 function normalizeProjectMemoryRetrievalMode(
@@ -3851,11 +3951,16 @@ const PROJECT_MEMORY_SEARCH_STOP_WORDS = new Set([
 
 function tokenizeProjectMemorySearchText(text: string): string[] {
   const matches = text.toLowerCase().match(/[a-z0-9][a-z0-9_-]{1,}/g) ?? [];
-  return matches.filter((token) => !PROJECT_MEMORY_SEARCH_STOP_WORDS.has(token));
+  return matches.filter(
+    (token) => !PROJECT_MEMORY_SEARCH_STOP_WORDS.has(token)
+  );
 }
 
 function tokenVector(tokens: string[]): number[] {
-  const vector = Array.from({ length: PROJECT_MEMORY_VECTOR_DIMENSIONS }, () => 0);
+  const vector = Array.from(
+    { length: PROJECT_MEMORY_VECTOR_DIMENSIONS },
+    () => 0
+  );
   for (const token of tokens) {
     const hash = createHash("sha1").update(token).digest();
     const index = (hash[0] ?? 0) % PROJECT_MEMORY_VECTOR_DIMENSIONS;
@@ -3929,7 +4034,9 @@ function resolveModelEmbeddingConfig(): ModelEmbeddingConfig | null {
   const rawEndpoint =
     process.env.ERAGEAR_EMBEDDINGS_ENDPOINT ??
     process.env.ERAGEAR_EMBEDDING_ENDPOINT;
-  const endpoint = rawEndpoint ? normalizeModelEmbeddingEndpoint(rawEndpoint) : "";
+  const endpoint = rawEndpoint
+    ? normalizeModelEmbeddingEndpoint(rawEndpoint)
+    : "";
   if (!endpoint) {
     return null;
   }
@@ -3942,7 +4049,7 @@ function resolveModelEmbeddingConfig(): ModelEmbeddingConfig | null {
       process.env.ERAGEAR_EMBEDDING_TIMEOUT_MS
   );
   const timeoutMs = Number.isFinite(rawTimeout)
-    ? Math.max(1_000, Math.min(30_000, Math.floor(rawTimeout)))
+    ? Math.max(1000, Math.min(30_000, Math.floor(rawTimeout)))
     : MODEL_EMBEDDING_TIMEOUT_MS;
   const apiKey =
     process.env.ERAGEAR_EMBEDDINGS_API_KEY ??
@@ -3961,16 +4068,22 @@ function sanitizeEmbeddingVector(value: unknown): number[] | null {
   }
   const vector = value
     .slice(0, MAX_MODEL_EMBEDDING_DIMENSIONS)
-    .map((item) => (typeof item === "number" && Number.isFinite(item) ? item : 0));
+    .map((item) =>
+      typeof item === "number" && Number.isFinite(item) ? item : 0
+    );
   return vector.some((item) => item !== 0) ? vector : null;
 }
 
 function normalizeEmbeddingVector(vector: number[]): number[] {
-  const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+  const magnitude = Math.sqrt(
+    vector.reduce((sum, value) => sum + value * value, 0)
+  );
   if (magnitude <= 0) {
     return vector;
   }
-  return vector.map((value) => Math.round((value / magnitude) * 1_000_000) / 1_000_000);
+  return vector.map(
+    (value) => Math.round((value / magnitude) * 1_000_000) / 1_000_000
+  );
 }
 
 function embeddingVectorHash(vector: number[]): string {
@@ -4013,21 +4126,28 @@ async function requestModelEmbeddings(params: {
       );
     }
     const parsed = JSON.parse(responseText) as unknown;
-    if (!isRecord(parsed) || !Array.isArray(parsed.data)) {
-      throw new Error("Embedding endpoint response did not include data[].embedding.");
+    if (!(isRecord(parsed) && Array.isArray(parsed.data))) {
+      throw new Error(
+        "Embedding endpoint response did not include data[].embedding."
+      );
     }
     const records = parsed.data;
     const vectors: number[][] = [];
     for (let index = 0; index < params.input.length; index += 1) {
       const record =
         records.find(
-          (item) => isRecord(item) && typeof item.index === "number" && item.index === index
+          (item) =>
+            isRecord(item) &&
+            typeof item.index === "number" &&
+            item.index === index
         ) ?? records[index];
       const vector = isRecord(record)
         ? sanitizeEmbeddingVector(record.embedding)
         : null;
       if (!vector) {
-        throw new Error(`Embedding endpoint returned an empty vector for input ${index}.`);
+        throw new Error(
+          `Embedding endpoint returned an empty vector for input ${index}.`
+        );
       }
       vectors.push(normalizeEmbeddingVector(vector));
     }
@@ -4145,7 +4265,9 @@ async function rankProjectMemoryChunkCandidates(params: {
         const vector = response.vectors[index + 1] ?? [];
         return {
           ...candidate,
-          score: roundedProjectMemoryScore(cosineSimilarity(queryVector, vector)),
+          score: roundedProjectMemoryScore(
+            cosineSimilarity(queryVector, vector)
+          ),
           ranker: "model-embedding" as const,
           embeddingModel: config.model,
           embeddingDimensions: dimensions,
@@ -4273,12 +4395,16 @@ function normalizeProjectMemoryPresetSourcePaths(
 function normalizeProjectMemoryPreset(
   item: unknown
 ): LocalAdeProjectMemoryPreset | null {
-  if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string") {
+  if (
+    !isRecord(item) ||
+    typeof item.id !== "string" ||
+    typeof item.name !== "string"
+  ) {
     return null;
   }
   const id = item.id.trim();
   const rawName = item.name.trim();
-  if (!id || !rawName) {
+  if (!(id && rawName)) {
     return null;
   }
   const sourcePaths = normalizeProjectMemoryPresetSourcePaths(item.sourcePaths);
@@ -4286,8 +4412,11 @@ function normalizeProjectMemoryPreset(
     typeof item.defaultQuery === "string" ? item.defaultQuery : undefined
   );
   const createdAt =
-    typeof item.createdAt === "string" ? item.createdAt : new Date(0).toISOString();
-  const updatedAt = typeof item.updatedAt === "string" ? item.updatedAt : createdAt;
+    typeof item.createdAt === "string"
+      ? item.createdAt
+      : new Date(0).toISOString();
+  const updatedAt =
+    typeof item.updatedAt === "string" ? item.updatedAt : createdAt;
   return {
     id,
     name: rawName.slice(0, MAX_PROJECT_MEMORY_PRESET_NAME_CHARS),
@@ -4302,9 +4431,13 @@ function normalizeProjectMemoryPreset(
     ),
     createdAt,
     updatedAt,
-    ...(typeof item.lastUsedAt === "string" ? { lastUsedAt: item.lastUsedAt } : {}),
+    ...(typeof item.lastUsedAt === "string"
+      ? { lastUsedAt: item.lastUsedAt }
+      : {}),
     diagnostics: Array.isArray(item.diagnostics)
-      ? item.diagnostics.filter((entry): entry is string => typeof entry === "string")
+      ? item.diagnostics.filter(
+          (entry): entry is string => typeof entry === "string"
+        )
       : [],
   };
 }
@@ -4315,7 +4448,7 @@ async function readProjectMemoryPresetDocument(
   const parsed = await readJsonObject(
     path.join(ensureProjectDataDir(rootPath), PROJECT_MEMORY_PRESETS_FILE)
   );
-  if (!parsed || !Array.isArray(parsed.presets)) {
+  if (!(parsed && Array.isArray(parsed.presets))) {
     return { version: 1, presets: [] };
   }
   return {
@@ -4345,7 +4478,9 @@ async function writeProjectMemoryPresetDocument(
             id: preset.id,
             name: preset.name,
             sourcePaths: preset.sourcePaths,
-            ...(preset.defaultQuery ? { defaultQuery: preset.defaultQuery } : {}),
+            ...(preset.defaultQuery
+              ? { defaultQuery: preset.defaultQuery }
+              : {}),
             retrievalMode: normalizeProjectMemoryRetrievalMode(
               preset.retrievalMode
             ),
@@ -4369,17 +4504,24 @@ function createProjectMemoryPresetDiagnostics(
   sources: LocalAdeMemorySource[]
 ): string[] {
   const sourcesByPath = new Map(
-    sources.map((source) => [normalizeMemorySourcePath(source.relativePath), source])
+    sources.map((source) => [
+      normalizeMemorySourcePath(source.relativePath),
+      source,
+    ])
   );
   const diagnostics: string[] = [];
   for (const sourcePath of preset.sourcePaths) {
     const source = sourcesByPath.get(normalizeMemorySourcePath(sourcePath));
     if (!source) {
-      diagnostics.push(`Preset source ${sourcePath} is not available in this project.`);
+      diagnostics.push(
+        `Preset source ${sourcePath} is not available in this project.`
+      );
       continue;
     }
     if (!source.enabled) {
-      diagnostics.push(`Preset source ${source.relativePath} is currently disabled.`);
+      diagnostics.push(
+        `Preset source ${source.relativePath} is currently disabled.`
+      );
     }
     diagnostics.push(
       ...source.warnings.map((warning) => `${source.relativePath}: ${warning}`)
@@ -4400,15 +4542,15 @@ async function buildProjectMemoryContextResult(params: {
   maxChunks?: number;
 }): Promise<LocalAdeProjectMemoryContextResult> {
   const query = params.query.trim();
-  const retrievalMode = normalizeProjectMemoryRetrievalMode(params.retrievalMode);
+  const retrievalMode = normalizeProjectMemoryRetrievalMode(
+    params.retrievalMode
+  );
   const memory = await readProjectMemory(params.rootPath, params.state);
   const sourceIdFilter = new Set(
     (params.sourceIds ?? []).map((id) => id.trim()).filter(Boolean)
   );
   const sourcePathFilter = new Set(
-    (params.sourcePaths ?? [])
-      .map(normalizeMemorySourcePath)
-      .filter(Boolean)
+    (params.sourcePaths ?? []).map(normalizeMemorySourcePath).filter(Boolean)
   );
   const hasSourceFilter = sourceIdFilter.size > 0 || sourcePathFilter.size > 0;
   const enabledSources = memory.sources.filter((source) => {
@@ -4565,7 +4707,9 @@ async function buildProjectMemoryContextResult(params: {
           query,
         ].join("\n"),
         diagnostics: [
-          ...(params.preset ? [`Project memory preset: ${params.preset.name}.`] : []),
+          ...(params.preset
+            ? [`Project memory preset: ${params.preset.name}.`]
+            : []),
           ...semanticRanking.diagnostics,
           "No readable project memory chunks were available for semantic retrieval.",
         ],
@@ -4605,7 +4749,9 @@ async function buildProjectMemoryContextResult(params: {
         query,
       ].join("\n"),
       diagnostics: [
-        ...(params.preset ? [`Project memory preset: ${params.preset.name}.`] : []),
+        ...(params.preset
+          ? [`Project memory preset: ${params.preset.name}.`]
+          : []),
         ...semanticRanking.diagnostics,
         `Included ${selectedChunks.length} ranked project memory chunk(s) from ${includedSources.length} source(s).`,
         `Project memory context budget: ${maxBytes} bytes.`,
@@ -4691,7 +4837,9 @@ async function buildProjectMemoryContextResult(params: {
         query,
       ].join("\n"),
       diagnostics: [
-        ...(params.preset ? [`Project memory preset: ${params.preset.name}.`] : []),
+        ...(params.preset
+          ? [`Project memory preset: ${params.preset.name}.`]
+          : []),
         hasSourceFilter
           ? "No selected project memory sources are enabled."
           : "No project memory sources are enabled.",
@@ -4721,12 +4869,16 @@ async function buildProjectMemoryContextResult(params: {
       query,
     ].join("\n"),
     diagnostics: [
-      ...(params.preset ? [`Project memory preset: ${params.preset.name}.`] : []),
+      ...(params.preset
+        ? [`Project memory preset: ${params.preset.name}.`]
+        : []),
       `Included ${includedSources.length} enabled project memory source(s).`,
       `Project memory context budget: ${maxBytes} bytes.`,
       ...memory.warnings,
       ...(includedSources.some((source) => source.truncated)
-        ? ["One or more project memory sources were truncated to fit the context budget."]
+        ? [
+            "One or more project memory sources were truncated to fit the context budget.",
+          ]
         : []),
     ],
   };
@@ -4786,7 +4938,10 @@ const REPO_INDEX_SCAN_EXTENSIONS = new Set([
 
 const TASK_MARKER_PATTERN = /\b(TODO|FIXME|HACK|BUG|XXX)\b[:\-\s]*(.*)$/i;
 
-function shouldSkipRepoIndexDirectory(rootPath: string, directoryPath: string): boolean {
+function shouldSkipRepoIndexDirectory(
+  rootPath: string,
+  directoryPath: string
+): boolean {
   const relative = normalizeSlash(path.relative(rootPath, directoryPath));
   if (!relative || relative === ".") {
     return false;
@@ -4818,7 +4973,11 @@ function summarizeRepoIndexExtensions(
   }
   return [...counts.entries()]
     .map(([extension, count]) => ({ extension, count }))
-    .sort((left, right) => right.count - left.count || left.extension.localeCompare(right.extension))
+    .sort(
+      (left, right) =>
+        right.count - left.count ||
+        left.extension.localeCompare(right.extension)
+    )
     .slice(0, 12);
 }
 
@@ -4935,7 +5094,10 @@ function parseRepoIndexFiles(input: unknown): RepoIndexFileRecord[] {
       file.embeddingModel = item.embeddingModel.trim().slice(0, 120);
     }
     if (typeof item.embeddingDimensions === "number") {
-      file.embeddingDimensions = Math.max(0, Math.floor(item.embeddingDimensions));
+      file.embeddingDimensions = Math.max(
+        0,
+        Math.floor(item.embeddingDimensions)
+      );
     }
     if (typeof item.embeddingHash === "string" && item.embeddingHash.trim()) {
       file.embeddingHash = item.embeddingHash.trim().slice(0, 80);
@@ -4944,14 +5106,17 @@ function parseRepoIndexFiles(input: unknown): RepoIndexFileRecord[] {
     if (embeddingVector) {
       file.embeddingVector = normalizeEmbeddingVector(embeddingVector);
       file.embeddingDimensions = file.embeddingVector.length;
-      file.embeddingHash = file.embeddingHash ?? embeddingVectorHash(file.embeddingVector);
+      file.embeddingHash =
+        file.embeddingHash ?? embeddingVectorHash(file.embeddingVector);
     }
     files.push(file);
   }
   return files.slice(0, MAX_REPO_INDEX_FILES);
 }
 
-function toVisibleRepoIndexFile(file: RepoIndexFileRecord): LocalAdeRepoIndexFile {
+function toVisibleRepoIndexFile(
+  file: RepoIndexFileRecord
+): LocalAdeRepoIndexFile {
   return {
     path: file.path,
     sizeBytes: file.sizeBytes,
@@ -4981,7 +5146,9 @@ async function readRepoIndexDocument(
   const symbols = parseRepoIndexSymbols(parsed.symbols);
   const tasks = parseRepoIndexTasks(parsed.tasks);
   const diagnostics = Array.isArray(parsed.diagnostics)
-    ? parsed.diagnostics.filter((item): item is string => typeof item === "string")
+    ? parsed.diagnostics.filter(
+        (item): item is string => typeof item === "string"
+      )
     : [];
   return {
     version: 1,
@@ -5002,7 +5169,10 @@ function toRepoIndexSnapshot(
   rootPath: string,
   document: RepoIndexDocument | null
 ): LocalAdeRepoIndexSnapshot {
-  const storagePath = path.join(ensureProjectDataDir(rootPath), REPO_INDEX_FILE);
+  const storagePath = path.join(
+    ensureProjectDataDir(rootPath),
+    REPO_INDEX_FILE
+  );
   if (!document) {
     return {
       storagePath,
@@ -5041,7 +5211,10 @@ function clampRepoIndexSearchLimit(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return DEFAULT_REPO_INDEX_SEARCH_RESULTS;
   }
-  return Math.max(1, Math.min(MAX_REPO_INDEX_SEARCH_RESULTS, Math.floor(value)));
+  return Math.max(
+    1,
+    Math.min(MAX_REPO_INDEX_SEARCH_RESULTS, Math.floor(value))
+  );
 }
 
 function tokenizeRepoIndexQuery(query: string): string[] {
@@ -5164,24 +5337,36 @@ function repoIndexSemanticHash(tags: string[]): string | undefined {
 function repoIndexSemanticSummary(
   files: RepoIndexFileRecord[]
 ): LocalAdeRepoIndexSnapshot["semantic"] {
-  const profiledFiles = files.filter((file) => (file.semanticTags?.length ?? 0) > 0);
-  const embeddedFiles = files.filter((file) => (file.embeddingVector?.length ?? 0) > 0);
+  const profiledFiles = files.filter(
+    (file) => (file.semanticTags?.length ?? 0) > 0
+  );
+  const embeddedFiles = files.filter(
+    (file) => (file.embeddingVector?.length ?? 0) > 0
+  );
   const tokenCount = profiledFiles.reduce(
     (sum, file) => sum + (file.semanticTags?.length ?? 0),
     0
   );
   const firstEmbedded = embeddedFiles[0];
   return {
-    status: embeddedFiles.length > 0 || profiledFiles.length > 0 ? "ready" : "empty",
+    status:
+      embeddedFiles.length > 0 || profiledFiles.length > 0 ? "ready" : "empty",
     profiledFiles: profiledFiles.length,
     tokenCount,
-    source: embeddedFiles.length > 0 ? "model-embedding" : "local-token-profile",
-    ...(embeddedFiles.length > 0 ? { embeddedFiles: embeddedFiles.length } : {}),
-    ...(firstEmbedded?.embeddingModel ? { model: firstEmbedded.embeddingModel } : {}),
+    source:
+      embeddedFiles.length > 0 ? "model-embedding" : "local-token-profile",
+    ...(embeddedFiles.length > 0
+      ? { embeddedFiles: embeddedFiles.length }
+      : {}),
+    ...(firstEmbedded?.embeddingModel
+      ? { model: firstEmbedded.embeddingModel }
+      : {}),
     ...(firstEmbedded?.embeddingDimensions
       ? { dimensions: firstEmbedded.embeddingDimensions }
       : {}),
-    ...(embeddedFiles.length > 0 ? { provider: "openai-compatible" as const } : {}),
+    ...(embeddedFiles.length > 0
+      ? { provider: "openai-compatible" as const }
+      : {}),
   };
 }
 
@@ -5254,7 +5439,8 @@ function searchRepoIndexDocument(params: {
             cosineSimilarity(params.queryEmbedding, file.embeddingVector)
           )
         : 0;
-    const embeddingScore = embeddingSimilarity >= 0.12 ? embeddingSimilarity * 48 : 0;
+    const embeddingScore =
+      embeddingSimilarity >= 0.12 ? embeddingSimilarity * 48 : 0;
     const score = directScore + semanticScore + embeddingScore;
     if (score <= 0) {
       continue;
@@ -5273,7 +5459,11 @@ function searchRepoIndexDocument(params: {
       detail: detailParts.join(" - "),
       score,
       matchKind:
-        directScore > 0 ? "direct" : embeddingScore > 0 ? "embedding" : "semantic",
+        directScore > 0
+          ? "direct"
+          : embeddingScore > 0
+            ? "embedding"
+            : "semantic",
       ...(file.language ? { language: file.language } : {}),
     });
   }
@@ -5283,7 +5473,12 @@ function searchRepoIndexDocument(params: {
       scoreRepoIndexText({ text: symbol.name, phrase, tokens, weight: 4 }) +
       scoreRepoIndexText({ text: symbol.kind, phrase, tokens, weight: 1 }) +
       scoreRepoIndexText({ text: symbol.path, phrase, tokens, weight: 1.2 }) +
-      scoreRepoIndexText({ text: symbol.language, phrase, tokens, weight: 0.8 });
+      scoreRepoIndexText({
+        text: symbol.language,
+        phrase,
+        tokens,
+        weight: 0.8,
+      });
     if (score <= 0) {
       continue;
     }
@@ -5451,7 +5646,9 @@ async function buildRepoIndexSearchResult(params: {
   const status: LocalAdeRepoIndexSearchResult["status"] =
     results.length > 0 ? "ready" : "no-results";
   if (status === "no-results") {
-    diagnostics.push("No indexed file, symbol, or task marker matched the query.");
+    diagnostics.push(
+      "No indexed file, symbol, or task marker matched the query."
+    );
   }
   return {
     status,
@@ -5509,34 +5706,46 @@ function symbolFromLine(params: {
   if (constMatch?.[1]) {
     const name = constMatch[1];
     return {
-      kind: /^[A-Z]/.test(name) && /\.(tsx|jsx)$/.test(params.extension)
-        ? "component"
-        : "export",
+      kind:
+        /^[A-Z]/.test(name) && /\.(tsx|jsx)$/.test(params.extension)
+          ? "component"
+          : "export",
       name,
     };
   }
 
   if (params.extension === ".py") {
-    const pythonMatch = trimmed.match(/^(?:async\s+)?def\s+([A-Za-z_]\w*)|^class\s+([A-Za-z_]\w*)/);
+    const pythonMatch = trimmed.match(
+      /^(?:async\s+)?def\s+([A-Za-z_]\w*)|^class\s+([A-Za-z_]\w*)/
+    );
     const name = pythonMatch?.[1] ?? pythonMatch?.[2];
     if (name) {
-      return { kind: trimmed.startsWith("class ") ? "class" : "function", name };
+      return {
+        kind: trimmed.startsWith("class ") ? "class" : "function",
+        name,
+      };
     }
   }
 
   if (params.extension === ".go") {
-    const goFunc = trimmed.match(/^func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/);
+    const goFunc = trimmed.match(
+      /^func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/
+    );
     if (goFunc?.[1]) {
       return { kind: "function", name: goFunc[1] };
     }
-    const goType = trimmed.match(/^type\s+([A-Za-z_]\w*)\s+(?:struct|interface)/);
+    const goType = trimmed.match(
+      /^type\s+([A-Za-z_]\w*)\s+(?:struct|interface)/
+    );
     if (goType?.[1]) {
       return { kind: "type", name: goType[1] };
     }
   }
 
   if (params.extension === ".rs") {
-    const rustMatch = trimmed.match(/^(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)|^(?:pub\s+)?(?:struct|enum|trait)\s+([A-Za-z_]\w*)/);
+    const rustMatch = trimmed.match(
+      /^(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)|^(?:pub\s+)?(?:struct|enum|trait)\s+([A-Za-z_]\w*)/
+    );
     const name = rustMatch?.[1] ?? rustMatch?.[2];
     if (name) {
       return {
@@ -5695,7 +5904,8 @@ async function applyRepoIndexModelEmbeddings(params: {
   const prioritizedFiles = [...params.files].sort(
     (left, right) =>
       repoIndexPathDepth(left.path) - repoIndexPathDepth(right.path) ||
-      repoIndexEmbeddingSignalCount(right) - repoIndexEmbeddingSignalCount(left) ||
+      repoIndexEmbeddingSignalCount(right) -
+        repoIndexEmbeddingSignalCount(left) ||
       left.path.localeCompare(right.path)
   );
 
@@ -5732,14 +5942,23 @@ async function applyRepoIndexModelEmbeddings(params: {
   }
 
   if (candidates.length === 0) {
-    params.diagnostics.push("No indexable files were eligible for model embeddings.");
+    params.diagnostics.push(
+      "No indexable files were eligible for model embeddings."
+    );
     return;
   }
 
   try {
     let embedded = 0;
-    for (let offset = 0; offset < candidates.length; offset += MODEL_EMBEDDING_BATCH_SIZE) {
-      const batch = candidates.slice(offset, offset + MODEL_EMBEDDING_BATCH_SIZE);
+    for (
+      let offset = 0;
+      offset < candidates.length;
+      offset += MODEL_EMBEDDING_BATCH_SIZE
+    ) {
+      const batch = candidates.slice(
+        offset,
+        offset + MODEL_EMBEDDING_BATCH_SIZE
+      );
       const response = await requestModelEmbeddings({
         config,
         input: batch.map((candidate) => candidate.input),
@@ -5774,7 +5993,9 @@ async function applyRepoIndexModelEmbeddings(params: {
   }
 }
 
-async function createRepoIndexDocument(rootPath: string): Promise<RepoIndexDocument> {
+async function createRepoIndexDocument(
+  rootPath: string
+): Promise<RepoIndexDocument> {
   const files: RepoIndexFileRecord[] = [];
   const symbols: LocalAdeRepoIndexSymbol[] = [];
   const tasks: LocalAdeRepoIndexTask[] = [];
@@ -5790,7 +6011,9 @@ async function createRepoIndexDocument(rootPath: string): Promise<RepoIndexDocum
     try {
       entries = await readdir(directory, { withFileTypes: true });
     } catch (error) {
-      diagnostics.push(`Skipped unreadable directory ${shortPathForDiagnostic(directory)}: ${errorMessage(error)}`);
+      diagnostics.push(
+        `Skipped unreadable directory ${shortPathForDiagnostic(directory)}: ${errorMessage(error)}`
+      );
       return;
     }
 
@@ -5847,32 +6070,49 @@ async function createRepoIndexDocument(rootPath: string): Promise<RepoIndexDocum
           }
           if (symbols.length < MAX_REPO_INDEX_SYMBOLS) {
             symbols.push(
-              ...signals.symbols.slice(0, MAX_REPO_INDEX_SYMBOLS - symbols.length)
+              ...signals.symbols.slice(
+                0,
+                MAX_REPO_INDEX_SYMBOLS - symbols.length
+              )
             );
           }
           if (tasks.length < MAX_REPO_INDEX_TASKS) {
-            tasks.push(...signals.tasks.slice(0, MAX_REPO_INDEX_TASKS - tasks.length));
+            tasks.push(
+              ...signals.tasks.slice(0, MAX_REPO_INDEX_TASKS - tasks.length)
+            );
           }
         }
         files.push(file);
       } catch (error) {
-        diagnostics.push(`Skipped unreadable file ${relative}: ${errorMessage(error)}`);
+        diagnostics.push(
+          `Skipped unreadable file ${relative}: ${errorMessage(error)}`
+        );
       }
     }
   }
 
   await visit(rootPath);
   files.sort((left, right) => left.path.localeCompare(right.path));
-  symbols.sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line);
-  tasks.sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line);
+  symbols.sort(
+    (left, right) =>
+      left.path.localeCompare(right.path) || left.line - right.line
+  );
+  tasks.sort(
+    (left, right) =>
+      left.path.localeCompare(right.path) || left.line - right.line
+  );
   if (files.length >= MAX_REPO_INDEX_FILES) {
     diagnostics.push(`Index reached the ${MAX_REPO_INDEX_FILES} file limit.`);
   }
   if (symbols.length >= MAX_REPO_INDEX_SYMBOLS) {
-    diagnostics.push(`Symbol scan reached the ${MAX_REPO_INDEX_SYMBOLS} item limit.`);
+    diagnostics.push(
+      `Symbol scan reached the ${MAX_REPO_INDEX_SYMBOLS} item limit.`
+    );
   }
   if (tasks.length >= MAX_REPO_INDEX_TASKS) {
-    diagnostics.push(`Task scan reached the ${MAX_REPO_INDEX_TASKS} item limit.`);
+    diagnostics.push(
+      `Task scan reached the ${MAX_REPO_INDEX_TASKS} item limit.`
+    );
   }
   await applyRepoIndexModelEmbeddings({
     rootPath,
@@ -5945,7 +6185,12 @@ function sanitizeHookEnvKeys(input: unknown): string[] {
 function hookExecutionFingerprint(
   hook: Pick<
     StoredHook,
-    "command" | "args" | "workingDirectory" | "event" | "envKeys" | "policyPreset"
+    | "command"
+    | "args"
+    | "workingDirectory"
+    | "event"
+    | "envKeys"
+    | "policyPreset"
   >
 ): string {
   const payload = JSON.stringify({
@@ -6037,7 +6282,9 @@ function hookRunOperationApprovalStatus(
       expiresAt: matching.expiresAt,
     };
   }
-  const latestUnconsumed = hookApprovals.find((approval) => !approval.consumedAt);
+  const latestUnconsumed = hookApprovals.find(
+    (approval) => !approval.consumedAt
+  );
   if (latestUnconsumed) {
     return {
       approvalStatus: "changed",
@@ -6110,10 +6357,15 @@ function assertHookReadyForManualRun(hook: StoredHook): void {
   }
 }
 
-function assertHookRunConfirmation(hook: StoredHook, confirmation: string): void {
+function assertHookRunConfirmation(
+  hook: StoredHook,
+  confirmation: string
+): void {
   const expected = hookRunConfirmationToken(hook);
   if (confirmation.trim() !== expected) {
-    throw new Error(`Hook run confirmation mismatch. Type ${expected} to execute.`);
+    throw new Error(
+      `Hook run confirmation mismatch. Type ${expected} to execute.`
+    );
   }
 }
 
@@ -6159,7 +6411,9 @@ function sanitizeHookLifecycleEvents(input: unknown): string[] {
   }
   const events = new Set<string>();
   for (const item of input) {
-    const event = normalizeHookEvent(typeof item === "string" ? item : String(item));
+    const event = normalizeHookEvent(
+      typeof item === "string" ? item : String(item)
+    );
     if (event && event !== "manual") {
       events.add(event);
     }
@@ -6175,7 +6429,9 @@ function normalizeHookLifecyclePolicy(
     enabled: typeof source.enabled === "boolean" ? source.enabled : true,
     disabledEvents: sanitizeHookLifecycleEvents(source.disabledEvents),
     failureMode: normalizeHookLifecycleFailureMode(source.failureMode),
-    ...(typeof source.updatedAt === "string" ? { updatedAt: source.updatedAt } : {}),
+    ...(typeof source.updatedAt === "string"
+      ? { updatedAt: source.updatedAt }
+      : {}),
   };
 }
 
@@ -6215,10 +6471,7 @@ function clampAutomationCooldownMs(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return 0;
   }
-  return Math.min(
-    MAX_AUTOMATION_COOLDOWN_MS,
-    Math.max(0, Math.trunc(value))
-  );
+  return Math.min(MAX_AUTOMATION_COOLDOWN_MS, Math.max(0, Math.trunc(value)));
 }
 
 function normalizeAutomationSchedulingPolicy(
@@ -6227,9 +6480,13 @@ function normalizeAutomationSchedulingPolicy(
   const source = isRecord(input) ? input : {};
   return {
     enabled: typeof source.enabled === "boolean" ? source.enabled : true,
-    maxConcurrentRuns: clampAutomationMaxConcurrentRuns(source.maxConcurrentRuns),
+    maxConcurrentRuns: clampAutomationMaxConcurrentRuns(
+      source.maxConcurrentRuns
+    ),
     cooldownMs: clampAutomationCooldownMs(source.cooldownMs),
-    ...(typeof source.updatedAt === "string" ? { updatedAt: source.updatedAt } : {}),
+    ...(typeof source.updatedAt === "string"
+      ? { updatedAt: source.updatedAt }
+      : {}),
   };
 }
 
@@ -6323,7 +6580,10 @@ function toVisiblePluginBatchSchedules(
       if (!plugin) {
         return false;
       }
-      return schedule.operationFingerprints[pluginId] !== pluginRunOperationFingerprint(plugin);
+      return (
+        schedule.operationFingerprints[pluginId] !==
+        pluginRunOperationFingerprint(plugin)
+      );
     });
     let status: LocalAdePluginBatchScheduleStatus = "scheduled";
     if (!schedule.enabled) {
@@ -6334,7 +6594,10 @@ function toVisiblePluginBatchSchedules(
       diagnostics.push(
         `Plugin batch schedule references missing preset: ${schedule.presetId}.`
       );
-    } else if (missingFingerprintIds.length > 0 || staleFingerprintIds.length > 0) {
+    } else if (
+      missingFingerprintIds.length > 0 ||
+      staleFingerprintIds.length > 0
+    ) {
       status = "stale-fingerprint";
       if (missingFingerprintIds.length > 0) {
         diagnostics.push(
@@ -6350,7 +6613,9 @@ function toVisiblePluginBatchSchedules(
       status = "due";
       diagnostics.push("Plugin batch schedule is due now.");
     } else {
-      diagnostics.push(`Plugin batch schedule next run: ${schedule.nextRunAt}.`);
+      diagnostics.push(
+        `Plugin batch schedule next run: ${schedule.nextRunAt}.`
+      );
     }
     return {
       id: schedule.id,
@@ -6393,7 +6658,9 @@ function activeAutomationRunCount(
 }
 
 function latestAutomationRunFinishedAt(
-  runs: Array<Pick<LocalAdeHookRun, "hookId" | "finishedAt">> | Array<Pick<LocalAdePluginRun, "pluginId" | "finishedAt">>,
+  runs:
+    | Array<Pick<LocalAdeHookRun, "hookId" | "finishedAt">>
+    | Array<Pick<LocalAdePluginRun, "pluginId" | "finishedAt">>,
   kind: "hook" | "plugin",
   itemId: string
 ): string | undefined {
@@ -6538,8 +6805,10 @@ function acquireAutomationRun(params: {
 }
 
 async function readHookDocument(rootPath: string): Promise<HookDocument> {
-  const parsed = await readJsonObject(path.join(ensureProjectDataDir(rootPath), HOOKS_FILE));
-  if (!parsed || !Array.isArray(parsed.hooks)) {
+  const parsed = await readJsonObject(
+    path.join(ensureProjectDataDir(rootPath), HOOKS_FILE)
+  );
+  if (!(parsed && Array.isArray(parsed.hooks))) {
     return {
       version: 1,
       hooks: [],
@@ -6563,15 +6832,21 @@ async function readHookDocument(rootPath: string): Promise<HookDocument> {
     const hook: StoredHook = {
       id: item.id.trim() || `hook-${toHashId(item.name, item.command)}`,
       name: item.name.trim() || "Local hook",
-      event: normalizeHookEvent(typeof item.event === "string" ? item.event : undefined),
+      event: normalizeHookEvent(
+        typeof item.event === "string" ? item.event : undefined
+      ),
       enabled: typeof item.enabled === "boolean" ? item.enabled : true,
       policyPreset: normalizeExecutionPolicyPreset(item.policyPreset),
-      envKeys: sanitizeHookEnvKeys(Array.isArray(item.envKeys) ? item.envKeys : []),
+      envKeys: sanitizeHookEnvKeys(
+        Array.isArray(item.envKeys) ? item.envKeys : []
+      ),
       ...(typeof item.trustedFingerprint === "string" &&
       item.trustedFingerprint.startsWith("sha256:")
         ? { trustedFingerprint: item.trustedFingerprint }
         : {}),
-      ...(typeof item.trustedAt === "string" ? { trustedAt: item.trustedAt } : {}),
+      ...(typeof item.trustedAt === "string"
+        ? { trustedAt: item.trustedAt }
+        : {}),
       command: item.command.trim(),
       args: Array.isArray(item.args)
         ? item.args.map((arg) => String(arg).trim()).filter(Boolean)
@@ -6580,9 +6855,14 @@ async function readHookDocument(rootPath: string): Promise<HookDocument> {
         typeof item.timeoutMs === "number" ? item.timeoutMs : undefined
       ),
       updatedAt:
-        typeof item.updatedAt === "string" ? item.updatedAt : new Date(0).toISOString(),
+        typeof item.updatedAt === "string"
+          ? item.updatedAt
+          : new Date(0).toISOString(),
     };
-    if (typeof item.workingDirectory === "string" && item.workingDirectory.trim()) {
+    if (
+      typeof item.workingDirectory === "string" &&
+      item.workingDirectory.trim()
+    ) {
       hook.workingDirectory = normalizeSlash(item.workingDirectory.trim());
     }
     hooks.push(hook);
@@ -6623,7 +6903,9 @@ async function readHookDocument(rootPath: string): Promise<HookDocument> {
         finishedAt: item.finishedAt,
         durationMs: Math.max(0, Math.floor(item.durationMs)),
         status,
-        ...(typeof item.exitCode === "number" ? { exitCode: item.exitCode } : {}),
+        ...(typeof item.exitCode === "number"
+          ? { exitCode: item.exitCode }
+          : {}),
         ...(typeof item.signal === "string" ? { signal: item.signal } : {}),
         stdout: sanitizeDiagnosticText(item.stdout),
         stderr: sanitizeDiagnosticText(item.stderr),
@@ -6631,9 +6913,13 @@ async function readHookDocument(rootPath: string): Promise<HookDocument> {
           ? { isolation: readLocalProcessIsolation(item.isolation) }
           : {}),
         diagnostics: Array.isArray(item.diagnostics)
-          ? item.diagnostics.filter((entry): entry is string => typeof entry === "string")
+          ? item.diagnostics.filter(
+              (entry): entry is string => typeof entry === "string"
+            )
           : [],
-        ...(typeof item.reviewedAt === "string" ? { reviewedAt: item.reviewedAt } : {}),
+        ...(typeof item.reviewedAt === "string"
+          ? { reviewedAt: item.reviewedAt }
+          : {}),
       });
     }
   }
@@ -6699,16 +6985,24 @@ async function readHookDocument(rootPath: string): Promise<HookDocument> {
       batches.push({
         id: item.id,
         hookIds: Array.isArray(item.hookIds)
-          ? item.hookIds.filter((value): value is string => typeof value === "string")
+          ? item.hookIds.filter(
+              (value): value is string => typeof value === "string"
+            )
           : [],
         hookNames: Array.isArray(item.hookNames)
-          ? item.hookNames.filter((value): value is string => typeof value === "string")
+          ? item.hookNames.filter(
+              (value): value is string => typeof value === "string"
+            )
           : [],
         runIds: Array.isArray(item.runIds)
-          ? item.runIds.filter((value): value is string => typeof value === "string")
+          ? item.runIds.filter(
+              (value): value is string => typeof value === "string"
+            )
           : [],
         failureMode:
-          item.failureMode === "stop-on-failure" ? "stop-on-failure" : "continue",
+          item.failureMode === "stop-on-failure"
+            ? "stop-on-failure"
+            : "continue",
         startedAt: item.startedAt,
         finishedAt: item.finishedAt,
         durationMs: Math.max(0, Math.floor(item.durationMs)),
@@ -6730,7 +7024,9 @@ async function readHookDocument(rootPath: string): Promise<HookDocument> {
     approvals: pruneHookRunApprovals(approvals),
     batches: batches.slice(0, MAX_HOOK_BATCHES),
     lifecyclePolicy: normalizeHookLifecyclePolicy(parsed.lifecyclePolicy),
-    schedulingPolicy: normalizeAutomationSchedulingPolicy(parsed.schedulingPolicy),
+    schedulingPolicy: normalizeAutomationSchedulingPolicy(
+      parsed.schedulingPolicy
+    ),
   };
 }
 
@@ -6761,7 +7057,10 @@ async function writeHookDocument(
   );
 }
 
-function resolveHookWorkingDirectory(rootPath: string, hook: StoredHook): string {
+function resolveHookWorkingDirectory(
+  rootPath: string,
+  hook: StoredHook
+): string {
   if (!hook.workingDirectory) {
     return rootPath;
   }
@@ -6826,13 +7125,17 @@ function toVisibleHooks(
       ...scheduling.diagnostics
     );
     if (trustStatus === "trusted") {
-      diagnostics.push("Hook trust is approved for the current command fingerprint.");
+      diagnostics.push(
+        "Hook trust is approved for the current command fingerprint."
+      );
     } else if (trustStatus === "changed") {
       diagnostics.push(
         "Hook command, args, event, working directory, or env keys changed after trust approval; review and trust the current fingerprint before running."
       );
     } else {
-      diagnostics.push("Hook is untrusted; review and trust this fingerprint before running.");
+      diagnostics.push(
+        "Hook is untrusted; review and trust this fingerprint before running."
+      );
     }
     if (!hook.command.trim()) {
       diagnostics.push("Hook command is empty.");
@@ -6859,7 +7162,9 @@ function toVisibleHooks(
       command: hook.command,
       args: hook.args ?? [],
       timeoutMs: hook.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
-      ...(hook.workingDirectory ? { workingDirectory: hook.workingDirectory } : {}),
+      ...(hook.workingDirectory
+        ? { workingDirectory: hook.workingDirectory }
+        : {}),
       sourcePath,
       updatedAt: hook.updatedAt,
       runConfirmationToken: hookRunConfirmationToken(hook),
@@ -6872,7 +7177,9 @@ function toVisibleHooks(
   });
 }
 
-function hookCapabilities(hooks: LocalAdeHookDescriptor[]): CapabilityDescriptor[] {
+function hookCapabilities(
+  hooks: LocalAdeHookDescriptor[]
+): CapabilityDescriptor[] {
   return hooks.map((hook) => ({
     id: `hook.project.${hook.id}`,
     kind: "hook",
@@ -6894,7 +7201,9 @@ function hookCapabilities(hooks: LocalAdeHookDescriptor[]): CapabilityDescriptor
       hook.event,
       `policy:${normalizeExecutionPolicyPreset(hook.policyPreset)}`,
       hook.trustStatus === "trusted" ? "trusted" : "requires-trust",
-      hook.executionPolicy.status === "allowed" ? "sandbox:allowed" : "sandbox:blocked",
+      hook.executionPolicy.status === "allowed"
+        ? "sandbox:allowed"
+        : "sandbox:blocked",
       `schedule:${hook.scheduling.status}`,
     ],
     diagnostics: hook.diagnostics,
@@ -6975,10 +7284,12 @@ function createDisabledPluginRun(params: {
     stdout: "",
     stderr: "",
     isolation: createLocalProcessIsolation({
-      cwdScope: pluginWorkspaceAccess(params.plugin) === "project-root"
-        ? "project-root"
-        : "temporary-sandbox",
-      projectRootExposed: pluginWorkspaceAccess(params.plugin) === "project-root",
+      cwdScope:
+        pluginWorkspaceAccess(params.plugin) === "project-root"
+          ? "project-root"
+          : "temporary-sandbox",
+      projectRootExposed:
+        pluginWorkspaceAccess(params.plugin) === "project-root",
       timeoutMs: clampPluginTimeout(params.plugin.timeoutMs),
     }),
     diagnostics: [params.message],
@@ -7003,10 +7314,12 @@ function createFailedPluginRun(params: {
     stdout: "",
     stderr: "",
     isolation: createLocalProcessIsolation({
-      cwdScope: pluginWorkspaceAccess(params.plugin) === "project-root"
-        ? "project-root"
-        : "temporary-sandbox",
-      projectRootExposed: pluginWorkspaceAccess(params.plugin) === "project-root",
+      cwdScope:
+        pluginWorkspaceAccess(params.plugin) === "project-root"
+          ? "project-root"
+          : "temporary-sandbox",
+      projectRootExposed:
+        pluginWorkspaceAccess(params.plugin) === "project-root",
       timeoutMs: clampPluginTimeout(params.plugin.timeoutMs),
     }),
     diagnostics: [params.message],
@@ -7057,7 +7370,11 @@ async function runHookProcess(params: {
   let processTreeTerminated = false;
   const terminationDiagnostics: string[] = [];
 
-  function appendOutput(current: string, chunk: Buffer, stream: "stdout" | "stderr") {
+  function appendOutput(
+    current: string,
+    chunk: Buffer,
+    stream: "stdout" | "stderr"
+  ) {
     if (Buffer.byteLength(current, "utf8") >= MAX_HOOK_OUTPUT_BYTES) {
       if (stream === "stdout") {
         stdoutTruncated = true;
@@ -7090,7 +7407,12 @@ async function runHookProcess(params: {
     let terminationPromise: Promise<void> | undefined;
     const child = spawn(params.hook.command, params.hook.args ?? [], {
       cwd,
-      env: hookExecutionEnv(params.rootPath, params.hook, event, params.context),
+      env: hookExecutionEnv(
+        params.rootPath,
+        params.hook,
+        event,
+        params.context
+      ),
       shell: false,
       windowsHide: true,
       detached: localProcessDetachedProcessGroup(),
@@ -7169,7 +7491,9 @@ async function runHookProcess(params: {
     diagnostics.push(`Hook timed out after ${timeoutMs}ms.`);
   }
   if (stdoutTruncated || stderrTruncated) {
-    diagnostics.push(`Hook output was truncated to ${MAX_HOOK_OUTPUT_BYTES} bytes per stream.`);
+    diagnostics.push(
+      `Hook output was truncated to ${MAX_HOOK_OUTPUT_BYTES} bytes per stream.`
+    );
   }
 
   return {
@@ -7209,9 +7533,9 @@ async function runLifecycleHooks(params: {
   const batchId = `hook-batch-${randomUUID()}`;
   const runs: LocalAdeHookRun[] = [];
   if (!policy.enabled || policy.disabledEvents.includes(event)) {
-    const message = !policy.enabled
-      ? `Lifecycle hook batch ${batchId} skipped because lifecycle dispatch is paused.`
-      : `Lifecycle hook batch ${batchId} skipped because event ${event} is paused by lifecycle governance.`;
+    const message = policy.enabled
+      ? `Lifecycle hook batch ${batchId} skipped because event ${event} is paused by lifecycle governance.`
+      : `Lifecycle hook batch ${batchId} skipped because lifecycle dispatch is paused.`;
     for (const hook of matchingHooks) {
       runs.push(createDisabledHookRun({ hook, event, batchId, message }));
     }
@@ -7247,30 +7571,37 @@ async function runLifecycleHooks(params: {
           hook,
           event,
           batchId,
-          message: automationSchedulingBlockMessage("hook", hook.name, slot.state),
+          message: automationSchedulingBlockMessage(
+            "hook",
+            hook.name,
+            slot.state
+          ),
         })
       );
       continue;
     }
     try {
       const run = await runHookProcess({
-          rootPath: params.rootPath,
-          hook,
-          event,
-          batchId,
-          context: params.context,
-        });
+        rootPath: params.rootPath,
+        hook,
+        event,
+        batchId,
+        context: params.context,
+      });
       runs.push(run);
-      if (policy.failureMode === "stop-on-failure" && run.status !== "success") {
+      if (
+        policy.failureMode === "stop-on-failure" &&
+        run.status !== "success"
+      ) {
         stopAfterFailure = true;
       }
     } catch (error) {
       const run = createFailedHookRun({
-          hook,
-          event,
-          batchId,
-          message: `Lifecycle hook failed before execution: ${errorMessage(error)}`,
-        });
+        hook,
+        event,
+        batchId,
+        message: `Lifecycle hook failed before execution: ${errorMessage(error)}`,
+      });
       runs.push(run);
       if (policy.failureMode === "stop-on-failure") {
         stopAfterFailure = true;
@@ -7320,18 +7651,16 @@ function clampPluginTimeout(value: number | undefined): number {
 
 function sanitizePluginScopes(input: unknown): LocalAdePluginScope[] {
   const scopes = new Set<LocalAdePluginScope>();
-  if (!Array.isArray(input)) {
-    for (const scope of DEFAULT_PLUGIN_SCOPES) {
-      scopes.add(scope);
-    }
-  } else {
+  if (Array.isArray(input)) {
     for (const item of input) {
       const value = String(item).trim();
-      if (
-        PLUGIN_SCOPE_VALUES.includes(value as LocalAdePluginScope)
-      ) {
+      if (PLUGIN_SCOPE_VALUES.includes(value as LocalAdePluginScope)) {
         scopes.add(value as LocalAdePluginScope);
       }
+    }
+  } else {
+    for (const scope of DEFAULT_PLUGIN_SCOPES) {
+      scopes.add(scope);
     }
   }
   scopes.add("process");
@@ -7345,7 +7674,7 @@ function sanitizePluginEnvKeys(input: unknown): string[] {
   const keys = new Set<string>();
   for (const item of input) {
     const value = String(item).trim();
-    if (!value || !isValidMcpHeaderEnvKey(value)) {
+    if (!(value && isValidMcpHeaderEnvKey(value))) {
       continue;
     }
     keys.add(value);
@@ -7386,10 +7715,17 @@ function effectivePluginPolicy(input: {
   };
 }
 
-function pluginExecutionFingerprint(plugin: Pick<
-  StoredPlugin,
-  "command" | "args" | "workingDirectory" | "scopes" | "envKeys" | "policyPreset"
->): string {
+function pluginExecutionFingerprint(
+  plugin: Pick<
+    StoredPlugin,
+    | "command"
+    | "args"
+    | "workingDirectory"
+    | "scopes"
+    | "envKeys"
+    | "policyPreset"
+  >
+): string {
   const policy = effectivePluginPolicy({
     scopes: plugin.scopes,
     envKeys: plugin.envKeys,
@@ -7407,10 +7743,12 @@ function pluginExecutionFingerprint(plugin: Pick<
   return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
 }
 
-function pluginPermissionFingerprint(plugin: Pick<
-  StoredPlugin,
-  "workingDirectory" | "scopes" | "envKeys" | "policyPreset"
->): string {
+function pluginPermissionFingerprint(
+  plugin: Pick<
+    StoredPlugin,
+    "workingDirectory" | "scopes" | "envKeys" | "policyPreset"
+  >
+): string {
   const policy = effectivePluginPolicy({
     scopes: plugin.scopes,
     envKeys: plugin.envKeys,
@@ -7421,10 +7759,9 @@ function pluginPermissionFingerprint(plugin: Pick<
     policyPreset: normalizeExecutionPolicyPreset(plugin.policyPreset),
     scopes: policy.scopes,
     envKeys: policy.envKeys,
-    workspace:
-      policy.scopes.includes("project-root")
-        ? normalizeSlash(plugin.workingDirectory ?? ".")
-        : "sandbox",
+    workspace: policy.scopes.includes("project-root")
+      ? normalizeSlash(plugin.workingDirectory ?? ".")
+      : "sandbox",
   });
   return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
 }
@@ -7511,7 +7848,11 @@ interface PluginRegistryDocument {
 }
 
 function canonicalJson(value: CanonicalJsonValue): string {
-  if (value === null || typeof value === "boolean" || typeof value === "string") {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
     return JSON.stringify(value);
   }
   if (typeof value === "number") {
@@ -7524,10 +7865,15 @@ function canonicalJson(value: CanonicalJsonValue): string {
     return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
   }
   const entries = Object.entries(value)
-    .filter((entry): entry is [string, CanonicalJsonValue] => entry[1] !== undefined)
+    .filter(
+      (entry): entry is [string, CanonicalJsonValue] => entry[1] !== undefined
+    )
     .sort(([left], [right]) => left.localeCompare(right));
   return `{${entries
-    .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalJson(entryValue)}`)
+    .map(
+      ([key, entryValue]) =>
+        `${JSON.stringify(key)}:${canonicalJson(entryValue)}`
+    )
     .join(",")}}`;
 }
 
@@ -7540,13 +7886,17 @@ function resolvePluginPackageManifestPath(
     throw new Error("Plugin package manifest path is required.");
   }
   if (trimmed.includes("\0")) {
-    throw new Error("Plugin package manifest path contains an invalid character.");
+    throw new Error(
+      "Plugin package manifest path contains an invalid character."
+    );
   }
   const resolved = path.isAbsolute(trimmed)
     ? path.resolve(trimmed)
     : path.resolve(rootPath, trimmed);
   if (!isPathInside(rootPath, resolved)) {
-    throw new Error("Plugin package manifest must stay inside the project root.");
+    throw new Error(
+      "Plugin package manifest must stay inside the project root."
+    );
   }
   return resolved;
 }
@@ -7592,7 +7942,9 @@ function normalizeSignedPluginPackagePayload(
     throw new Error("Plugin package plugin.command is required.");
   }
   if (!Array.isArray(plugin.scopes)) {
-    throw new Error("Plugin package plugin.scopes must explicitly declare permissions.");
+    throw new Error(
+      "Plugin package plugin.scopes must explicitly declare permissions."
+    );
   }
   const policy = normalizePluginPolicy({
     scopes: plugin.scopes.filter(
@@ -7609,7 +7961,8 @@ function normalizeSignedPluginPackagePayload(
       ? sanitizeDiagnosticText(plugin.description.trim()).slice(0, 400)
       : undefined;
   const workingDirectory =
-    typeof plugin.workingDirectory === "string" && plugin.workingDirectory.trim()
+    typeof plugin.workingDirectory === "string" &&
+    plugin.workingDirectory.trim()
       ? normalizeSlash(plugin.workingDirectory.trim())
       : undefined;
   const dependencyIds = normalizePluginDependencyIds(plugin.dependencyIds, id);
@@ -7629,7 +7982,9 @@ function normalizeSignedPluginPackagePayload(
       envKeys: policy.envKeys,
       command: plugin.command.trim(),
       args: sanitizeHookArgs(
-        Array.isArray(plugin.args) ? plugin.args.map((arg) => String(arg)) : undefined
+        Array.isArray(plugin.args)
+          ? plugin.args.map((arg) => String(arg))
+          : undefined
       ),
       timeoutMs: clampPluginTimeout(
         typeof plugin.timeoutMs === "number" ? plugin.timeoutMs : undefined
@@ -7650,7 +8005,8 @@ function parsePluginPackageSignature(value: unknown): Buffer {
   const signature = Buffer.from(compact, "base64");
   if (
     signature.length === 0 ||
-    signature.toString("base64").replace(/=+$/, "") !== compact.replace(/=+$/, "")
+    signature.toString("base64").replace(/=+$/, "") !==
+      compact.replace(/=+$/, "")
   ) {
     throw new Error("Plugin package signature must be valid base64.");
   }
@@ -7678,7 +8034,10 @@ function normalizePluginPackagePublisherId(value: unknown): string | undefined {
   return publisherId;
 }
 
-function normalizePluginPackageDate(value: unknown, label: string): string | undefined {
+function normalizePluginPackageDate(
+  value: unknown,
+  label: string
+): string | undefined {
   if (typeof value !== "string" || !value.trim()) {
     return undefined;
   }
@@ -7707,7 +8066,9 @@ function assertPluginPackageTemporalPolicy(
   nowMs = Date.now()
 ): LocalAdePluginPackageExpiryStatus {
   const issuedMs = payload.issuedAt ? Date.parse(payload.issuedAt) : undefined;
-  const expiresMs = payload.expiresAt ? Date.parse(payload.expiresAt) : undefined;
+  const expiresMs = payload.expiresAt
+    ? Date.parse(payload.expiresAt)
+    : undefined;
   if (
     typeof issuedMs === "number" &&
     Number.isFinite(issuedMs) &&
@@ -7736,22 +8097,39 @@ function assertPluginRegistryPackagePinsMatch(
   verified: SignedPluginPackageVerification
 ): void {
   if (verified.payload.plugin.id !== packageRef.id) {
-    throw new Error("Plugin registry package id does not match signed plugin id.");
+    throw new Error(
+      "Plugin registry package id does not match signed plugin id."
+    );
   }
-  if (packageRef.publisher && packageRef.publisher !== verified.payload.publisher) {
+  if (
+    packageRef.publisher &&
+    packageRef.publisher !== verified.payload.publisher
+  ) {
     throw new Error("Plugin registry publisher does not match signed package.");
   }
   if (
     packageRef.publisherId &&
     packageRef.publisherId !== verified.payload.publisherId
   ) {
-    throw new Error("Plugin registry publisherId does not match signed package.");
+    throw new Error(
+      "Plugin registry publisherId does not match signed package."
+    );
   }
-  if (packageRef.issuedAt && packageRef.issuedAt !== verified.payload.issuedAt) {
-    throw new Error("Plugin registry issuedAt pin does not match signed package.");
+  if (
+    packageRef.issuedAt &&
+    packageRef.issuedAt !== verified.payload.issuedAt
+  ) {
+    throw new Error(
+      "Plugin registry issuedAt pin does not match signed package."
+    );
   }
-  if (packageRef.expiresAt && packageRef.expiresAt !== verified.payload.expiresAt) {
-    throw new Error("Plugin registry expiresAt pin does not match signed package.");
+  if (
+    packageRef.expiresAt &&
+    packageRef.expiresAt !== verified.payload.expiresAt
+  ) {
+    throw new Error(
+      "Plugin registry expiresAt pin does not match signed package."
+    );
   }
 }
 
@@ -7822,7 +8200,9 @@ async function fetchTextWithLimit(
     return new TextDecoder().decode(buffer);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`${label} timed out after ${PLUGIN_REGISTRY_FETCH_TIMEOUT_MS}ms.`);
+      throw new Error(
+        `${label} timed out after ${PLUGIN_REGISTRY_FETCH_TIMEOUT_MS}ms.`
+      );
     }
     throw error;
   } finally {
@@ -7837,7 +8217,9 @@ function verifySignedPluginPackageManifest(params: {
   expectedSignatureHash?: string;
   expectedPublicKeyFingerprint?: string;
 }): SignedPluginPackageVerification {
-  if (Buffer.byteLength(params.manifestText, "utf8") > MAX_PLUGIN_PACKAGE_BYTES) {
+  if (
+    Buffer.byteLength(params.manifestText, "utf8") > MAX_PLUGIN_PACKAGE_BYTES
+  ) {
     throw new Error(
       `Plugin package manifest exceeds ${MAX_PLUGIN_PACKAGE_BYTES} bytes.`
     );
@@ -7872,7 +8254,9 @@ function verifySignedPluginPackageManifest(params: {
       }`
     );
   }
-  const canonicalPayload = canonicalJson(payload as unknown as CanonicalJsonValue);
+  const canonicalPayload = canonicalJson(
+    payload as unknown as CanonicalJsonValue
+  );
   if (
     !verifySignature(
       null,
@@ -7923,7 +8307,9 @@ function verifySignedPluginPackageManifest(params: {
       )
     : undefined;
   if (expectedSignatureHash && expectedSignatureHash !== result.signatureHash) {
-    throw new Error("Plugin registry signatureHash pin does not match package.");
+    throw new Error(
+      "Plugin registry signatureHash pin does not match package."
+    );
   }
   if (
     expectedPublicKeyFingerprint &&
@@ -7939,7 +8325,9 @@ function verifySignedPluginPackageManifest(params: {
 async function readSignedPluginPackage(params: {
   rootPath: string;
   manifestPath: string;
-}): Promise<SignedPluginPackageVerification & { manifestRelativePath: string }> {
+}): Promise<
+  SignedPluginPackageVerification & { manifestRelativePath: string }
+> {
   const resolvedManifestPath = resolvePluginPackageManifestPath(
     params.rootPath,
     params.manifestPath
@@ -7981,7 +8369,10 @@ function normalizePluginRegistryDocument(
     if (!isRecord(entry)) {
       continue;
     }
-    if (typeof entry.id !== "string" || !/^[A-Za-z0-9._-]{1,96}$/.test(entry.id)) {
+    if (
+      typeof entry.id !== "string" ||
+      !/^[A-Za-z0-9._-]{1,96}$/.test(entry.id)
+    ) {
       continue;
     }
     if (typeof entry.manifestUrl !== "string" || !entry.manifestUrl.trim()) {
@@ -8015,7 +8406,10 @@ function normalizePluginRegistryDocument(
         : {}),
       ...(typeof entry.publisher === "string" && entry.publisher.trim()
         ? {
-            publisher: sanitizeDiagnosticText(entry.publisher.trim()).slice(0, 160),
+            publisher: sanitizeDiagnosticText(entry.publisher.trim()).slice(
+              0,
+              160
+            ),
           }
         : {}),
       ...(publisherId ? { publisherId } : {}),
@@ -8050,13 +8444,14 @@ function normalizePluginRegistryDocument(
               : new Date().toISOString(),
           ...(typeof entry.reason === "string" && entry.reason.trim()
             ? {
-                reason: sanitizeDiagnosticText(entry.reason.trim()).slice(0, 240),
+                reason: sanitizeDiagnosticText(entry.reason.trim()).slice(
+                  0,
+                  240
+                ),
               }
             : {}),
         });
-      } catch {
-        continue;
-      }
+      } catch {}
     }
   }
   return {
@@ -8113,9 +8508,12 @@ async function readSignedPluginPackageFromRegistry(params: {
     );
   }
   if (
-    pluginPackageExpiryStatus({ packageExpiresAt: entry.expiresAt }) === "expired"
+    pluginPackageExpiryStatus({ packageExpiresAt: entry.expiresAt }) ===
+    "expired"
   ) {
-    throw new Error(`Plugin registry package signature has expired: ${entry.id}`);
+    throw new Error(
+      `Plugin registry package signature has expired: ${entry.id}`
+    );
   }
   const manifestUrl = parsePluginDistributionUrl(
     entry.manifestUrl,
@@ -8145,10 +8543,15 @@ async function readSignedPluginPackageFromRegistry(params: {
   };
 }
 
-function pluginRegistryFingerprint(registry: Pick<StoredPluginRegistry, "url">): string {
+function pluginRegistryFingerprint(
+  registry: Pick<StoredPluginRegistry, "url">
+): string {
   const payload = JSON.stringify({
     version: 1,
-    url: parsePluginDistributionUrl(registry.url, "Plugin registry URL").toString(),
+    url: parsePluginDistributionUrl(
+      registry.url,
+      "Plugin registry URL"
+    ).toString(),
   });
   return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
 }
@@ -8187,7 +8590,9 @@ function registryPackageStatus(
   | "expiryStatus"
   | "diagnostics"
 > {
-  const installed = pluginDocument.plugins.find((plugin) => plugin.id === packageRef.id);
+  const installed = pluginDocument.plugins.find(
+    (plugin) => plugin.id === packageRef.id
+  );
   const expiryStatus = pluginPackageExpiryStatus({
     packageExpiresAt: packageRef.expiresAt,
   });
@@ -8241,7 +8646,9 @@ function registryPackageStatus(
       signingStatus: "trusted",
       expiryStatus,
       installedPluginId: installed.id,
-      diagnostics: ["A plugin with this id is installed, but the registry signature differs."],
+      diagnostics: [
+        "A plugin with this id is installed, but the registry signature differs.",
+      ],
     };
   }
   return {
@@ -8258,7 +8665,7 @@ async function readPluginRegistryStateDocument(
   const parsed = await readJsonObject(
     path.join(ensureProjectDataDir(rootPath), PLUGIN_REGISTRIES_FILE)
   );
-  if (!parsed || !Array.isArray(parsed.registries)) {
+  if (!(parsed && Array.isArray(parsed.registries))) {
     return { version: 1, registries: [] };
   }
   const registries: StoredPluginRegistry[] = [];
@@ -8273,7 +8680,10 @@ async function readPluginRegistryStateDocument(
     }
     let url: string;
     try {
-      url = parsePluginDistributionUrl(item.url, "Plugin registry URL").toString();
+      url = parsePluginDistributionUrl(
+        item.url,
+        "Plugin registry URL"
+      ).toString();
     } catch {
       continue;
     }
@@ -8343,20 +8753,23 @@ async function readPluginRegistryStateDocument(
             ...(Array.isArray(packageItem.diagnostics)
               ? {
                   diagnostics: packageItem.diagnostics
-                    .filter((entry): entry is string => typeof entry === "string")
+                    .filter(
+                      (entry): entry is string => typeof entry === "string"
+                    )
                     .slice(0, 6)
                     .map((entry) => sanitizeDiagnosticText(entry)),
                 }
               : {}),
           });
-        } catch {
-          continue;
-        }
+        } catch {}
       }
     }
     const revokedSigners: StoredPluginRegistryRevocation[] = [];
     if (Array.isArray(item.revokedSigners)) {
-      for (const revokedItem of item.revokedSigners.slice(0, MAX_DISCOVERY_FILES)) {
+      for (const revokedItem of item.revokedSigners.slice(
+        0,
+        MAX_DISCOVERY_FILES
+      )) {
         if (
           !isRecord(revokedItem) ||
           typeof revokedItem.publicKeyFingerprint !== "string"
@@ -8374,18 +8787,16 @@ async function readPluginRegistryStateDocument(
                 ? revokedItem.revokedAt
                 : new Date(0).toISOString(),
             source: revokedItem.source === "registry" ? "registry" : "manual",
-            ...(typeof revokedItem.reason === "string" && revokedItem.reason.trim()
+            ...(typeof revokedItem.reason === "string" &&
+            revokedItem.reason.trim()
               ? {
-                  reason: sanitizeDiagnosticText(revokedItem.reason.trim()).slice(
-                    0,
-                    240
-                  ),
+                  reason: sanitizeDiagnosticText(
+                    revokedItem.reason.trim()
+                  ).slice(0, 240),
                 }
               : {}),
           });
-        } catch {
-          continue;
-        }
+        } catch {}
       }
     }
     registries.push({
@@ -8400,7 +8811,9 @@ async function readPluginRegistryStateDocument(
       item.trustedFingerprint.startsWith("sha256:")
         ? { trustedFingerprint: item.trustedFingerprint }
         : {}),
-      ...(typeof item.trustedAt === "string" ? { trustedAt: item.trustedAt } : {}),
+      ...(typeof item.trustedAt === "string"
+        ? { trustedAt: item.trustedAt }
+        : {}),
       ...(typeof item.lastRefreshAt === "string"
         ? { lastRefreshAt: item.lastRefreshAt }
         : {}),
@@ -8415,7 +8828,9 @@ async function readPluginRegistryStateDocument(
           }
         : {}),
       updatedAt:
-        typeof item.updatedAt === "string" ? item.updatedAt : new Date(0).toISOString(),
+        typeof item.updatedAt === "string"
+          ? item.updatedAt
+          : new Date(0).toISOString(),
     });
   }
   return { version: 1, registries };
@@ -8462,7 +8877,10 @@ async function fetchPluginRegistryPackages(
   packages: StoredPluginRegistryPackage[];
   revokedSigners: StoredPluginRegistryRevocation[];
 }> {
-  const registryUrl = parsePluginDistributionUrl(registry.url, "Plugin registry URL");
+  const registryUrl = parsePluginDistributionUrl(
+    registry.url,
+    "Plugin registry URL"
+  );
   const registryText = await fetchTextWithLimit(
     registryUrl,
     MAX_PLUGIN_REGISTRY_BYTES,
@@ -8493,7 +8911,9 @@ async function fetchPluginRegistryPackages(
       publicKeyFingerprint: item.publicKeyFingerprint,
       diagnostics: [
         "Registry package pins signature and public key fingerprint.",
-        ...(item.publisherId ? ["Registry package pins publisher identity."] : []),
+        ...(item.publisherId
+          ? ["Registry package pins publisher identity."]
+          : []),
         ...(item.expiresAt ? ["Registry package pins signature expiry."] : []),
       ],
     })),
@@ -8514,13 +8934,21 @@ function toVisiblePluginRegistries(
     const fingerprint = pluginRegistryFingerprint(registry);
     const trustStatus = pluginRegistryTrustStatus(registry, fingerprint);
     const packages = (registry.packages ?? []).map((packageRef) => {
-      const status = registryPackageStatus(packageRef, pluginDocument, registry);
+      const status = registryPackageStatus(
+        packageRef,
+        pluginDocument,
+        registry
+      );
       return {
         id: packageRef.id,
         ...(packageRef.name ? { name: packageRef.name } : {}),
-        ...(packageRef.description ? { description: packageRef.description } : {}),
+        ...(packageRef.description
+          ? { description: packageRef.description }
+          : {}),
         ...(packageRef.publisher ? { publisher: packageRef.publisher } : {}),
-        ...(packageRef.publisherId ? { publisherId: packageRef.publisherId } : {}),
+        ...(packageRef.publisherId
+          ? { publisherId: packageRef.publisherId }
+          : {}),
         ...(packageRef.issuedAt ? { issuedAt: packageRef.issuedAt } : {}),
         ...(packageRef.expiresAt ? { expiresAt: packageRef.expiresAt } : {}),
         manifestUrl: packageRef.manifestUrl,
@@ -8540,7 +8968,9 @@ function toVisiblePluginRegistries(
       diagnostics.push("Registry is disabled.");
     } else if (trustStatus !== "trusted") {
       status = "untrusted";
-      diagnostics.push("Registry URL must be trusted before refresh or package install.");
+      diagnostics.push(
+        "Registry URL must be trusted before refresh or package install."
+      );
     } else if ((registry.diagnostics ?? []).length > 0) {
       status = "failed";
     } else if (packages.length === 0) {
@@ -8558,7 +8988,9 @@ function toVisiblePluginRegistries(
         ? { trustedFingerprint: registry.trustedFingerprint }
         : {}),
       ...(registry.trustedAt ? { trustedAt: registry.trustedAt } : {}),
-      ...(registry.lastRefreshAt ? { lastRefreshAt: registry.lastRefreshAt } : {}),
+      ...(registry.lastRefreshAt
+        ? { lastRefreshAt: registry.lastRefreshAt }
+        : {}),
       status,
       revokedSigners: (registry.revokedSigners ?? []).map((entry) => ({
         publicKeyFingerprint: entry.publicKeyFingerprint,
@@ -8573,7 +9005,9 @@ function toVisiblePluginRegistries(
   });
 }
 
-async function listPluginPackageManifestPaths(rootPath: string): Promise<string[]> {
+async function listPluginPackageManifestPaths(
+  rootPath: string
+): Promise<string[]> {
   const packageDir = path.join(
     ensureProjectDataDir(rootPath),
     PLUGIN_PACKAGE_CATALOG_DIR
@@ -8709,7 +9143,9 @@ function pluginRunConfirmationToken(plugin: Pick<StoredPlugin, "id">): string {
   return `RUN PLUGIN ${plugin.id}`;
 }
 
-function pluginWorkspaceAccess(plugin: StoredPlugin): "project-root" | "sandbox" {
+function pluginWorkspaceAccess(
+  plugin: StoredPlugin
+): "project-root" | "sandbox" {
   return effectivePluginPolicy({
     scopes: plugin.scopes,
     envKeys: plugin.envKeys,
@@ -8744,7 +9180,10 @@ function pluginRunOperationFingerprint(plugin: StoredPlugin): string {
     packageSignatureHash: plugin.packageSignatureHash ?? null,
     packagePublicKeyFingerprint: plugin.packagePublicKeyFingerprint ?? null,
     packageExpiresAt: plugin.packageExpiresAt ?? null,
-    dependencyIds: normalizePluginDependencyIds(plugin.dependencyIds, plugin.id),
+    dependencyIds: normalizePluginDependencyIds(
+      plugin.dependencyIds,
+      plugin.id
+    ),
   });
   return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
 }
@@ -8796,7 +9235,9 @@ function pluginRunOperationApprovalStatus(
       expiresAt: matching.expiresAt,
     };
   }
-  const latestUnconsumed = pluginApprovals.find((approval) => !approval.consumedAt);
+  const latestUnconsumed = pluginApprovals.find(
+    (approval) => !approval.consumedAt
+  );
   if (latestUnconsumed) {
     return {
       approvalStatus: "changed",
@@ -8820,17 +9261,25 @@ function pluginRunOperationPreview(
   });
   const workspaceAccess = pluginWorkspaceAccess(plugin);
   const fingerprint = pluginRunOperationFingerprint(plugin);
-  const status = pluginRunOperationApprovalStatus(plugin, approvals, fingerprint);
+  const status = pluginRunOperationApprovalStatus(
+    plugin,
+    approvals,
+    fingerprint
+  );
   const cwd =
     workspaceAccess === "project-root"
       ? normalizeSlash(
           plugin.workingDirectory
-            ? path.relative(rootPath, resolvePluginWorkingDirectory(rootPath, plugin))
+            ? path.relative(
+                rootPath,
+                resolvePluginWorkingDirectory(rootPath, plugin)
+              )
             : "."
         )
       : "[temporary sandbox cwd]";
   const isolation = createLocalProcessIsolation({
-    cwdScope: workspaceAccess === "project-root" ? "project-root" : "temporary-sandbox",
+    cwdScope:
+      workspaceAccess === "project-root" ? "project-root" : "temporary-sandbox",
     projectRootExposed: workspaceAccess === "project-root",
     timeoutMs: clampPluginTimeout(plugin.timeoutMs),
   });
@@ -8903,10 +9352,15 @@ function assertPluginReadyForManualRun(plugin: StoredPlugin): void {
   }
 }
 
-function assertPluginRunConfirmation(plugin: StoredPlugin, confirmation: string): void {
+function assertPluginRunConfirmation(
+  plugin: StoredPlugin,
+  confirmation: string
+): void {
   const expected = pluginRunConfirmationToken(plugin);
   if (confirmation.trim() !== expected) {
-    throw new Error(`Plugin run confirmation mismatch. Type ${expected} to execute.`);
+    throw new Error(
+      `Plugin run confirmation mismatch. Type ${expected} to execute.`
+    );
   }
 }
 
@@ -8933,11 +9387,7 @@ function normalizePluginDependencyIds(
       continue;
     }
     const dependencyId = item.trim();
-    if (
-      !dependencyId ||
-      dependencyId === self ||
-      seen.has(dependencyId)
-    ) {
+    if (!dependencyId || dependencyId === self || seen.has(dependencyId)) {
       continue;
     }
     seen.add(dependencyId);
@@ -8950,8 +9400,10 @@ function normalizePluginDependencyIds(
 }
 
 async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
-  const parsed = await readJsonObject(path.join(ensureProjectDataDir(rootPath), PLUGINS_FILE));
-  if (!parsed || !Array.isArray(parsed.plugins)) {
+  const parsed = await readJsonObject(
+    path.join(ensureProjectDataDir(rootPath), PLUGINS_FILE)
+  );
+  if (!(parsed && Array.isArray(parsed.plugins))) {
     return {
       version: 1,
       plugins: [],
@@ -8994,7 +9446,8 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
         ? item.envKeys.filter((key): key is string => typeof key === "string")
         : undefined,
     });
-    const pluginId = item.id.trim() || `plugin-${toHashId(item.name, item.command)}`;
+    const pluginId =
+      item.id.trim() || `plugin-${toHashId(item.name, item.command)}`;
     const dependencyIds = normalizePluginDependencyIds(
       item.dependencyIds,
       pluginId
@@ -9022,7 +9475,12 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
           ? { installSource: "manual" as const }
           : {}),
       ...(typeof item.publisher === "string" && item.publisher.trim()
-        ? { publisher: sanitizeDiagnosticText(item.publisher.trim()).slice(0, 160) }
+        ? {
+            publisher: sanitizeDiagnosticText(item.publisher.trim()).slice(
+              0,
+              160
+            ),
+          }
         : {}),
       ...(packagePublisherId ? { packagePublisherId } : {}),
       ...(typeof item.packageManifestPath === "string" &&
@@ -9090,7 +9548,9 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
       item.trustedFingerprint.startsWith("sha256:")
         ? { trustedFingerprint: item.trustedFingerprint }
         : {}),
-      ...(typeof item.trustedAt === "string" ? { trustedAt: item.trustedAt } : {}),
+      ...(typeof item.trustedAt === "string"
+        ? { trustedAt: item.trustedAt }
+        : {}),
       ...(typeof item.grantedPermissionFingerprint === "string" &&
       item.grantedPermissionFingerprint.startsWith("sha256:")
         ? { grantedPermissionFingerprint: item.grantedPermissionFingerprint }
@@ -9107,7 +9567,9 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
       ),
       ...(workingDirectory ? { workingDirectory } : {}),
       updatedAt:
-        typeof item.updatedAt === "string" ? item.updatedAt : new Date(0).toISOString(),
+        typeof item.updatedAt === "string"
+          ? item.updatedAt
+          : new Date(0).toISOString(),
     });
   }
 
@@ -9144,7 +9606,9 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
         finishedAt: item.finishedAt,
         durationMs: Math.max(0, Math.floor(item.durationMs)),
         status,
-        ...(typeof item.exitCode === "number" ? { exitCode: item.exitCode } : {}),
+        ...(typeof item.exitCode === "number"
+          ? { exitCode: item.exitCode }
+          : {}),
         ...(typeof item.signal === "string" ? { signal: item.signal } : {}),
         stdout: sanitizeDiagnosticText(item.stdout),
         stderr: sanitizeDiagnosticText(item.stderr),
@@ -9152,7 +9616,9 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
           ? { isolation: readLocalProcessIsolation(item.isolation) }
           : {}),
         diagnostics: Array.isArray(item.diagnostics)
-          ? item.diagnostics.filter((entry): entry is string => typeof entry === "string")
+          ? item.diagnostics.filter(
+              (entry): entry is string => typeof entry === "string"
+            )
           : [],
         ...(typeof item.preRunCheckpointId === "string"
           ? { preRunCheckpointId: item.preRunCheckpointId }
@@ -9181,7 +9647,9 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
                 .slice(0, MAX_PLUGIN_WORKSPACE_CHANGED_FILES),
             }
           : {}),
-        ...(typeof item.reviewedAt === "string" ? { reviewedAt: item.reviewedAt } : {}),
+        ...(typeof item.reviewedAt === "string"
+          ? { reviewedAt: item.reviewedAt }
+          : {}),
       });
     }
   }
@@ -9252,13 +9720,19 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
       batches.push({
         id: item.id,
         pluginIds: Array.isArray(item.pluginIds)
-          ? item.pluginIds.filter((value): value is string => typeof value === "string")
+          ? item.pluginIds.filter(
+              (value): value is string => typeof value === "string"
+            )
           : [],
         pluginNames: Array.isArray(item.pluginNames)
-          ? item.pluginNames.filter((value): value is string => typeof value === "string")
+          ? item.pluginNames.filter(
+              (value): value is string => typeof value === "string"
+            )
           : [],
         runIds: Array.isArray(item.runIds)
-          ? item.runIds.filter((value): value is string => typeof value === "string")
+          ? item.runIds.filter(
+              (value): value is string => typeof value === "string"
+            )
           : [],
         failureMode,
         startedAt: item.startedAt,
@@ -9267,7 +9741,9 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
         status,
         counts,
         diagnostics: Array.isArray(item.diagnostics)
-          ? item.diagnostics.filter((entry): entry is string => typeof entry === "string")
+          ? item.diagnostics.filter(
+              (entry): entry is string => typeof entry === "string"
+            )
           : [],
       });
     }
@@ -9302,7 +9778,9 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
         item.failureMode === "stop-on-failure" ? "stop-on-failure" : "continue";
       const diagnostics: string[] = [];
       const pluginNames = pluginIds.map((pluginId) => {
-        const plugin = plugins.find((storedPlugin) => storedPlugin.id === pluginId);
+        const plugin = plugins.find(
+          (storedPlugin) => storedPlugin.id === pluginId
+        );
         if (!plugin) {
           diagnostics.push(`Preset references missing plugin: ${pluginId}.`);
           return pluginId;
@@ -9323,7 +9801,9 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
         diagnostics: [
           ...diagnostics,
           ...(Array.isArray(item.diagnostics)
-            ? item.diagnostics.filter((entry): entry is string => typeof entry === "string")
+            ? item.diagnostics.filter(
+                (entry): entry is string => typeof entry === "string"
+              )
             : []),
         ].map((diagnostic) => sanitizeDiagnosticText(diagnostic)),
       });
@@ -9353,11 +9833,16 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
           : undefined;
       batchSchedules.push({
         id: item.id.trim() || `plugin-batch-schedule-${randomUUID()}`,
-        name: sanitizeDiagnosticText(item.name.trim() || "Plugin batch schedule").slice(0, 120),
+        name: sanitizeDiagnosticText(
+          item.name.trim() || "Plugin batch schedule"
+        ).slice(0, 120),
         presetId: item.presetId.trim(),
         enabled: typeof item.enabled === "boolean" ? item.enabled : true,
         intervalMs: clampPluginBatchScheduleIntervalMs(item.intervalMs),
-        nextRunAt: normalizePluginBatchScheduleNextRunAt(item.nextRunAt, nowIso),
+        nextRunAt: normalizePluginBatchScheduleNextRunAt(
+          item.nextRunAt,
+          nowIso
+        ),
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         ...(typeof item.lastRunAt === "string"
@@ -9388,7 +9873,9 @@ async function readPluginDocument(rootPath: string): Promise<PluginDocument> {
     batches: batches.slice(0, MAX_PLUGIN_BATCHES),
     batchPresets: batchPresets.slice(0, MAX_PLUGIN_BATCH_PRESETS),
     batchSchedules: batchSchedules.slice(0, MAX_PLUGIN_BATCH_SCHEDULES),
-    schedulingPolicy: normalizeAutomationSchedulingPolicy(parsed.schedulingPolicy),
+    schedulingPolicy: normalizeAutomationSchedulingPolicy(
+      parsed.schedulingPolicy
+    ),
   };
 }
 
@@ -9408,7 +9895,10 @@ async function writePluginDocument(
         approvals: prunePluginRunApprovals(document.approvals),
         batches: document.batches.slice(0, MAX_PLUGIN_BATCHES),
         batchPresets: document.batchPresets.slice(0, MAX_PLUGIN_BATCH_PRESETS),
-        batchSchedules: document.batchSchedules.slice(0, MAX_PLUGIN_BATCH_SCHEDULES),
+        batchSchedules: document.batchSchedules.slice(
+          0,
+          MAX_PLUGIN_BATCH_SCHEDULES
+        ),
         schedulingPolicy: normalizeAutomationSchedulingPolicy(
           document.schedulingPolicy
         ),
@@ -9509,7 +9999,9 @@ function assertStoredPluginPackageMatchesVerification(
   if (plugin.packageSignatureHash !== signedPackage.signatureHash) {
     mismatches.push("signatureHash pin changed");
   }
-  if (plugin.packagePublicKeyFingerprint !== signedPackage.publicKeyFingerprint) {
+  if (
+    plugin.packagePublicKeyFingerprint !== signedPackage.publicKeyFingerprint
+  ) {
     mismatches.push("publicKeyFingerprint pin changed");
   }
   if (
@@ -9518,10 +10010,14 @@ function assertStoredPluginPackageMatchesVerification(
   ) {
     mismatches.push("publisherId pin changed");
   }
-  if ((plugin.packageIssuedAt ?? "") !== (signedPackage.payload.issuedAt ?? "")) {
+  if (
+    (plugin.packageIssuedAt ?? "") !== (signedPackage.payload.issuedAt ?? "")
+  ) {
     mismatches.push("issuedAt pin changed");
   }
-  if ((plugin.packageExpiresAt ?? "") !== (signedPackage.payload.expiresAt ?? "")) {
+  if (
+    (plugin.packageExpiresAt ?? "") !== (signedPackage.payload.expiresAt ?? "")
+  ) {
     mismatches.push("expiresAt pin changed");
   }
   if (mismatches.length > 0) {
@@ -9537,9 +10033,14 @@ async function readInstalledSignedPluginPackage(params: {
   registryDocument: PluginRegistryStateDocument;
 }): Promise<SignedPluginPackageVerification> {
   if (!params.plugin.packageManifestPath) {
-    throw new Error("Installed signed plugin is missing package manifest path.");
+    throw new Error(
+      "Installed signed plugin is missing package manifest path."
+    );
   }
-  if (params.plugin.packageRegistryUrl && params.plugin.packageRegistryPackageId) {
+  if (
+    params.plugin.packageRegistryUrl &&
+    params.plugin.packageRegistryPackageId
+  ) {
     const savedRegistry = params.registryDocument.registries.find(
       (registry) => registry.url === params.plugin.packageRegistryUrl
     );
@@ -9590,7 +10091,10 @@ async function readInstalledSignedPluginPackage(params: {
   });
 }
 
-function resolvePluginWorkingDirectory(rootPath: string, plugin: StoredPlugin): string {
+function resolvePluginWorkingDirectory(
+  rootPath: string,
+  plugin: StoredPlugin
+): string {
   if (!plugin.workingDirectory) {
     return rootPath;
   }
@@ -9657,7 +10161,10 @@ function toVisiblePlugins(
     const fingerprint = pluginExecutionFingerprint(plugin);
     const trustStatus = pluginTrustStatus(plugin, fingerprint);
     const permissionFingerprint = pluginPermissionFingerprint(plugin);
-    const permissionStatus = pluginPermissionStatus(plugin, permissionFingerprint);
+    const permissionStatus = pluginPermissionStatus(
+      plugin,
+      permissionFingerprint
+    );
     const executionPolicy = localProcessExecutionPolicy({
       kind: "plugin",
       command: plugin.command,
@@ -9715,7 +10222,9 @@ function toVisiblePlugins(
         `Plugin package signature was verified for publisher ${plugin.publisher ?? "unknown"}.`
       );
       if (plugin.packageSignatureHash) {
-        diagnostics.push(`Plugin package signature hash: ${plugin.packageSignatureHash}.`);
+        diagnostics.push(
+          `Plugin package signature hash: ${plugin.packageSignatureHash}.`
+        );
       }
       if (plugin.packagePublicKeyFingerprint) {
         diagnostics.push(
@@ -9723,13 +10232,19 @@ function toVisiblePlugins(
         );
       }
       if (plugin.packagePublisherId) {
-        diagnostics.push(`Plugin package publisher identity: ${plugin.packagePublisherId}.`);
+        diagnostics.push(
+          `Plugin package publisher identity: ${plugin.packagePublisherId}.`
+        );
       }
       if (plugin.packageIssuedAt) {
-        diagnostics.push(`Plugin package issued at: ${plugin.packageIssuedAt}.`);
+        diagnostics.push(
+          `Plugin package issued at: ${plugin.packageIssuedAt}.`
+        );
       }
       if (plugin.packageExpiresAt) {
-        diagnostics.push(`Plugin package expires at: ${plugin.packageExpiresAt}.`);
+        diagnostics.push(
+          `Plugin package expires at: ${plugin.packageExpiresAt}.`
+        );
       }
       diagnostics.push(
         `Plugin package governance status: ${plugin.packageGovernanceStatus ?? "verified"}.`
@@ -9757,22 +10272,30 @@ function toVisiblePlugins(
       );
     }
     if (trustStatus === "trusted") {
-      diagnostics.push("Plugin trust is approved for the current command fingerprint.");
+      diagnostics.push(
+        "Plugin trust is approved for the current command fingerprint."
+      );
     } else if (trustStatus === "changed") {
       diagnostics.push(
         "Plugin command, args, or working directory changed after trust approval; review and trust the current fingerprint before running."
       );
     } else {
-      diagnostics.push("Plugin is untrusted; review and trust this fingerprint before running.");
+      diagnostics.push(
+        "Plugin is untrusted; review and trust this fingerprint before running."
+      );
     }
     if (permissionStatus === "granted") {
-      diagnostics.push("Plugin permissions are granted for the current scope/env/workspace fingerprint.");
+      diagnostics.push(
+        "Plugin permissions are granted for the current scope/env/workspace fingerprint."
+      );
     } else if (permissionStatus === "changed") {
       diagnostics.push(
         "Plugin scopes, env allowlist, or workspace access changed after permission approval; review and grant the current permission fingerprint before running."
       );
     } else {
-      diagnostics.push("Plugin permissions are not granted for the current scope/env/workspace fingerprint.");
+      diagnostics.push(
+        "Plugin permissions are not granted for the current scope/env/workspace fingerprint."
+      );
     }
     if (!plugin.command.trim()) {
       diagnostics.push("Plugin command is empty.");
@@ -9789,9 +10312,10 @@ function toVisiblePlugins(
     }
     if (
       normalizeExecutionPolicyPreset(plugin.policyPreset) === "restricted" &&
-      normalizePluginPolicy({ scopes: plugin.scopes, envKeys: plugin.envKeys }).scopes.includes(
-        "project-root"
-      )
+      normalizePluginPolicy({
+        scopes: plugin.scopes,
+        envKeys: plugin.envKeys,
+      }).scopes.includes("project-root")
     ) {
       diagnostics.push(
         "Restricted plugin policy ignores requested project-root scope and forces sandbox workspace access."
@@ -9826,12 +10350,16 @@ function toVisiblePlugins(
       ...(plugin.packagePublicKeyFingerprint
         ? { packagePublicKeyFingerprint: plugin.packagePublicKeyFingerprint }
         : {}),
-      ...(plugin.packageIssuedAt ? { packageIssuedAt: plugin.packageIssuedAt } : {}),
+      ...(plugin.packageIssuedAt
+        ? { packageIssuedAt: plugin.packageIssuedAt }
+        : {}),
       ...(plugin.packageExpiresAt
         ? { packageExpiresAt: plugin.packageExpiresAt }
         : {}),
       ...(packageExpiryStatus ? { packageExpiryStatus } : {}),
-      ...(plugin.packageVerifiedAt ? { packageVerifiedAt: plugin.packageVerifiedAt } : {}),
+      ...(plugin.packageVerifiedAt
+        ? { packageVerifiedAt: plugin.packageVerifiedAt }
+        : {}),
       ...(plugin.packageGovernanceStatus
         ? { packageGovernanceStatus: plugin.packageGovernanceStatus }
         : plugin.installSource === "signed-package"
@@ -9860,7 +10388,9 @@ function toVisiblePlugins(
       command: plugin.command,
       args: plugin.args ?? [],
       timeoutMs: plugin.timeoutMs ?? DEFAULT_PLUGIN_TIMEOUT_MS,
-      ...(plugin.workingDirectory ? { workingDirectory: plugin.workingDirectory } : {}),
+      ...(plugin.workingDirectory
+        ? { workingDirectory: plugin.workingDirectory }
+        : {}),
       sourcePath,
       updatedAt: plugin.updatedAt,
       runConfirmationToken: pluginRunConfirmationToken(plugin),
@@ -9898,7 +10428,9 @@ function pluginCapabilities(
       "project-plugin",
       "manual-plugin",
       `policy:${plugin.policyPreset}`,
-      plugin.installSource === "signed-package" ? "signed-package" : "manual-package",
+      plugin.installSource === "signed-package"
+        ? "signed-package"
+        : "manual-package",
       plugin.trustStatus === "trusted" ? "trusted" : "requires-trust",
       plugin.permissionStatus === "granted"
         ? "permissions:granted"
@@ -9951,7 +10483,9 @@ async function runPluginProcess(params: {
     );
   }
   const permissionFingerprint = pluginPermissionFingerprint(params.plugin);
-  if (pluginPermissionStatus(params.plugin, permissionFingerprint) !== "granted") {
+  if (
+    pluginPermissionStatus(params.plugin, permissionFingerprint) !== "granted"
+  ) {
     throw new Error(
       `Plugin permissions must be granted before execution: ${params.plugin.name} (${permissionFingerprint})`
     );
@@ -9960,7 +10494,9 @@ async function runPluginProcess(params: {
     params.plugin.installSource === "signed-package" &&
     pluginPackageExpiryStatus(params.plugin) === "expired"
   ) {
-    throw new Error(`Plugin package signature has expired: ${params.plugin.name}`);
+    throw new Error(
+      `Plugin package signature has expired: ${params.plugin.name}`
+    );
   }
 
   const policy = effectivePluginPolicy({
@@ -9990,7 +10526,11 @@ async function runPluginProcess(params: {
   let processTreeTerminated = false;
   const terminationDiagnostics: string[] = [];
 
-  function appendOutput(current: string, chunk: Buffer, stream: "stdout" | "stderr") {
+  function appendOutput(
+    current: string,
+    chunk: Buffer,
+    stream: "stdout" | "stderr"
+  ) {
     if (Buffer.byteLength(current, "utf8") >= MAX_HOOK_OUTPUT_BYTES) {
       if (stream === "stdout") {
         stdoutTruncated = true;
@@ -10087,7 +10627,8 @@ async function runPluginProcess(params: {
     `Trusted plugin fingerprint: ${fingerprint}.`,
   ];
   const isolation = createLocalProcessIsolation({
-    cwdScope: workspaceAccess === "project-root" ? "project-root" : "temporary-sandbox",
+    cwdScope:
+      workspaceAccess === "project-root" ? "project-root" : "temporary-sandbox",
     projectRootExposed: workspaceAccess === "project-root",
     timeoutMs,
     processTreeTerminated,
@@ -10100,7 +10641,9 @@ async function runPluginProcess(params: {
     diagnostics.push(`Plugin timed out after ${timeoutMs}ms.`);
   }
   if (stdoutTruncated || stderrTruncated) {
-    diagnostics.push(`Plugin output was truncated to ${MAX_HOOK_OUTPUT_BYTES} bytes per stream.`);
+    diagnostics.push(
+      `Plugin output was truncated to ${MAX_HOOK_OUTPUT_BYTES} bytes per stream.`
+    );
   }
   if (workspaceAccess === "sandbox") {
     diagnostics.push(
@@ -10114,9 +10657,7 @@ async function runPluginProcess(params: {
       await rm(sandboxDir, { recursive: true, force: true });
       diagnostics.push("Plugin sandbox cwd was removed after execution.");
     } catch (error) {
-      diagnostics.push(
-        `Plugin sandbox cleanup failed: ${errorMessage(error)}`
-      );
+      diagnostics.push(`Plugin sandbox cleanup failed: ${errorMessage(error)}`);
     }
   }
 
@@ -10160,7 +10701,9 @@ function isValidMcpHeaderEnvKey(value: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 }
 
-function sanitizeMcpHeaderEnvRecord(input: unknown): Record<string, string> | undefined {
+function sanitizeMcpHeaderEnvRecord(
+  input: unknown
+): Record<string, string> | undefined {
   if (!isRecord(input)) {
     return undefined;
   }
@@ -10168,7 +10711,7 @@ function sanitizeMcpHeaderEnvRecord(input: unknown): Record<string, string> | un
   for (const [rawHeader, rawEnvKey] of Object.entries(input)) {
     const header = rawHeader.trim();
     const envKey = String(rawEnvKey).trim();
-    if (!header || !envKey) {
+    if (!(header && envKey)) {
       continue;
     }
     if (!isValidMcpHeaderName(header)) {
@@ -10182,7 +10725,9 @@ function sanitizeMcpHeaderEnvRecord(input: unknown): Record<string, string> | un
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function sanitizeMcpHeaderRecord(input: unknown): Record<string, string> | undefined {
+function sanitizeMcpHeaderRecord(
+  input: unknown
+): Record<string, string> | undefined {
   if (!isRecord(input)) {
     return undefined;
   }
@@ -10200,8 +10745,12 @@ function sanitizeMcpHeaderRecord(input: unknown): Record<string, string> | undef
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function unsafeLiteralMcpHeaderNames(headers: Record<string, string> | undefined): string[] {
-  return Object.keys(headers ?? {}).filter((header) => SECRET_HINT_PATTERN.test(header));
+function unsafeLiteralMcpHeaderNames(
+  headers: Record<string, string> | undefined
+): string[] {
+  return Object.keys(headers ?? {}).filter((header) =>
+    SECRET_HINT_PATTERN.test(header)
+  );
 }
 
 function resolveMcpRuntimeHeaders(server: StoredMcpServer): {
@@ -10271,7 +10820,12 @@ function visibleMcpHeaderEnv(
 
 type StoredMcpRemoteControls = NonNullable<StoredMcpServer["remoteControls"]>;
 
-function clampMcpInteger(value: unknown, fallback: number, min: number, max: number): number {
+function clampMcpInteger(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number
+): number {
   const parsed =
     typeof value === "number" && Number.isFinite(value)
       ? Math.round(value)
@@ -10315,7 +10869,8 @@ function visibleMcpRemoteControls(
   const controls = normalizeMcpRemoteControls(server.remoteControls);
   return {
     requestTimeoutMs: controls?.requestTimeoutMs ?? MCP_PROTOCOL_TIMEOUT_MS,
-    reconnectAttempts: controls?.reconnectAttempts ?? MCP_SSE_RECONNECT_ATTEMPTS,
+    reconnectAttempts:
+      controls?.reconnectAttempts ?? MCP_SSE_RECONNECT_ATTEMPTS,
     notificationWatchMs:
       controls?.notificationWatchMs ?? DEFAULT_MCP_NOTIFICATION_WATCH_MS,
     mode: controls ? "custom" : "default",
@@ -10325,15 +10880,21 @@ function visibleMcpRemoteControls(
   };
 }
 
-function mcpRequestTimeoutMs(server: Pick<StoredMcpServer, "remoteControls">): number {
+function mcpRequestTimeoutMs(
+  server: Pick<StoredMcpServer, "remoteControls">
+): number {
   return visibleMcpRemoteControls(server).requestTimeoutMs;
 }
 
-function mcpReconnectAttempts(server: Pick<StoredMcpServer, "remoteControls">): number {
+function mcpReconnectAttempts(
+  server: Pick<StoredMcpServer, "remoteControls">
+): number {
   return visibleMcpRemoteControls(server).reconnectAttempts;
 }
 
-function mcpNotificationWatchMs(server: Pick<StoredMcpServer, "remoteControls">): number {
+function mcpNotificationWatchMs(
+  server: Pick<StoredMcpServer, "remoteControls">
+): number {
   return visibleMcpRemoteControls(server).notificationWatchMs;
 }
 
@@ -10360,18 +10921,20 @@ function sortedMcpHeaderEnv(
     .sort((left, right) => left.header.localeCompare(right.header));
 }
 
-function mcpInvocationFingerprint(server: Pick<
-  StoredMcpServer,
-  | "transport"
-  | "command"
-  | "args"
-  | "url"
-  | "messageEndpoint"
-  | "env"
-  | "headers"
-  | "headerEnv"
-  | "remoteControls"
->): string {
+function mcpInvocationFingerprint(
+  server: Pick<
+    StoredMcpServer,
+    | "transport"
+    | "command"
+    | "args"
+    | "url"
+    | "messageEndpoint"
+    | "env"
+    | "headers"
+    | "headerEnv"
+    | "remoteControls"
+  >
+): string {
   const payload = JSON.stringify({
     version: 1,
     transport: server.transport,
@@ -10410,7 +10973,10 @@ const MCP_PROBE_STEP_NAMES = new Set<LocalAdeMcpProbeStepName>([
   "resources/list",
 ]);
 
-function sanitizeMcpHistoryText(value: unknown, maxLength = 500): string | undefined {
+function sanitizeMcpHistoryText(
+  value: unknown,
+  maxLength = 500
+): string | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
@@ -10436,20 +11002,29 @@ function parseMcpProbeStep(
   value: unknown,
   fallbackTransport: McpTransport
 ): LocalAdeMcpProbeStep | null {
-  if (!isRecord(value) || !MCP_PROBE_STEP_NAMES.has(value.step as LocalAdeMcpProbeStepName)) {
+  if (
+    !(
+      isRecord(value) &&
+      MCP_PROBE_STEP_NAMES.has(value.step as LocalAdeMcpProbeStepName)
+    )
+  ) {
     return null;
   }
   const status =
-    value.status === "success" || value.status === "failed" || value.status === "skipped"
+    value.status === "success" ||
+    value.status === "failed" ||
+    value.status === "skipped"
       ? value.status
       : undefined;
   const startedAt = parseIsoTimestamp(value.startedAt);
   const completedAt = parseIsoTimestamp(value.completedAt);
-  if (!status || !startedAt || !completedAt) {
+  if (!(status && startedAt && completedAt)) {
     return null;
   }
   const transport =
-    value.transport === "sse" || value.transport === "streamable-http" || value.transport === "stdio"
+    value.transport === "sse" ||
+    value.transport === "streamable-http" ||
+    value.transport === "stdio"
       ? value.transport
       : fallbackTransport;
   return {
@@ -10462,8 +11037,12 @@ function parseMcpProbeStep(
       typeof value.latencyMs === "number" && Number.isFinite(value.latencyMs)
         ? Math.max(0, Math.round(value.latencyMs))
         : 0,
-    ...(sanitizeMcpHistoryText(value.detail) ? { detail: sanitizeMcpHistoryText(value.detail) } : {}),
-    ...(sanitizeMcpHistoryText(value.error) ? { error: sanitizeMcpHistoryText(value.error) } : {}),
+    ...(sanitizeMcpHistoryText(value.detail)
+      ? { detail: sanitizeMcpHistoryText(value.detail) }
+      : {}),
+    ...(sanitizeMcpHistoryText(value.error)
+      ? { error: sanitizeMcpHistoryText(value.error) }
+      : {}),
   };
 }
 
@@ -10503,11 +11082,13 @@ function parseMcpProbeHistory(
       item.protocolStatus === "not-run"
         ? item.protocolStatus
         : undefined;
-    if (!startedAt || !finishedAt || !status || !health || !protocolStatus) {
+    if (!(startedAt && finishedAt && status && health && protocolStatus)) {
       continue;
     }
     const transport =
-      item.transport === "sse" || item.transport === "streamable-http" || item.transport === "stdio"
+      item.transport === "sse" ||
+      item.transport === "streamable-http" ||
+      item.transport === "stdio"
         ? item.transport
         : fallbackServer.transport;
     const steps = Array.isArray(item.steps)
@@ -10519,7 +11100,8 @@ function parseMcpProbeHistory(
     runs.push({
       id: sanitizeMcpHistoryText(item.id, 120) ?? `mcp-probe-${randomUUID()}`,
       serverId: sanitizeMcpHistoryText(item.serverId, 120) ?? fallbackServer.id,
-      serverName: sanitizeMcpHistoryText(item.serverName, 160) ?? fallbackServer.name,
+      serverName:
+        sanitizeMcpHistoryText(item.serverName, 160) ?? fallbackServer.name,
       transport,
       status,
       health,
@@ -10529,17 +11111,22 @@ function parseMcpProbeHistory(
       durationMs:
         typeof item.durationMs === "number" && Number.isFinite(item.durationMs)
           ? Math.max(0, Math.round(item.durationMs))
-          : Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime()),
+          : Math.max(
+              0,
+              new Date(finishedAt).getTime() - new Date(startedAt).getTime()
+            ),
       stepCount:
         typeof item.stepCount === "number" && Number.isFinite(item.stepCount)
           ? Math.max(0, Math.round(item.stepCount))
           : steps.length,
       failedStepCount:
-        typeof item.failedStepCount === "number" && Number.isFinite(item.failedStepCount)
+        typeof item.failedStepCount === "number" &&
+        Number.isFinite(item.failedStepCount)
           ? Math.max(0, Math.round(item.failedStepCount))
           : steps.filter((step) => step.status === "failed").length,
       toolsDiscovered:
-        typeof item.toolsDiscovered === "number" && Number.isFinite(item.toolsDiscovered)
+        typeof item.toolsDiscovered === "number" &&
+        Number.isFinite(item.toolsDiscovered)
           ? Math.max(0, Math.round(item.toolsDiscovered))
           : 0,
       resourcesDiscovered:
@@ -10607,7 +11194,7 @@ function parseMcpInvocationHistory(
       item.status === "success" || item.status === "failed"
         ? item.status
         : undefined;
-    if (!startedAt || !finishedAt || !method || !status) {
+    if (!(startedAt && finishedAt && method && status)) {
       continue;
     }
     const transport =
@@ -10637,7 +11224,10 @@ function parseMcpInvocationHistory(
       durationMs:
         typeof item.durationMs === "number" && Number.isFinite(item.durationMs)
           ? Math.max(0, Math.round(item.durationMs))
-          : Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime()),
+          : Math.max(
+              0,
+              new Date(finishedAt).getTime() - new Date(startedAt).getTime()
+            ),
       isError: item.isError === true,
       resultText,
       resultJson,
@@ -10662,7 +11252,9 @@ function parseMcpInvocationHistory(
   return runs;
 }
 
-function parseMcpAgentInvocation(value: unknown): LocalAdeMcpAgentInvocation | null {
+function parseMcpAgentInvocation(
+  value: unknown
+): LocalAdeMcpAgentInvocation | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -10676,7 +11268,7 @@ function parseMcpAgentInvocation(value: unknown): LocalAdeMcpAgentInvocation | n
     value.status === "success" || value.status === "failed"
       ? value.status
       : undefined;
-  if (!startedAt || !finishedAt || !method || !status) {
+  if (!(startedAt && finishedAt && method && status)) {
     return null;
   }
   return {
@@ -10691,7 +11283,10 @@ function parseMcpAgentInvocation(value: unknown): LocalAdeMcpAgentInvocation | n
     durationMs:
       typeof value.durationMs === "number" && Number.isFinite(value.durationMs)
         ? Math.max(0, Math.round(value.durationMs))
-        : Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime()),
+        : Math.max(
+            0,
+            new Date(finishedAt).getTime() - new Date(startedAt).getTime()
+          ),
     ...(typeof value.resultText === "string"
       ? { resultText: sanitizeMcpInvocationOutput(value.resultText).value }
       : {}),
@@ -10749,7 +11344,7 @@ function parseMcpNotificationHistory(
         ? item.source
         : undefined;
     const method = sanitizeMcpHistoryText(item.method, 180);
-    if (!receivedAt || !source || !method) {
+    if (!(receivedAt && source && method)) {
       continue;
     }
     const transport =
@@ -10800,7 +11395,7 @@ function parseMcpNotificationMonitorHistory(
         : undefined;
     const startedAt = parseIsoTimestamp(item.startedAt);
     const finishedAt = parseIsoTimestamp(item.finishedAt);
-    if (!status || !startedAt || !finishedAt) {
+    if (!(status && startedAt && finishedAt)) {
       continue;
     }
     const transport =
@@ -10826,14 +11421,23 @@ function parseMcpNotificationMonitorHistory(
             0,
             new Date(finishedAt).getTime() - new Date(startedAt).getTime()
           );
-    const requestedDurationMs = parseNonNegativeInteger(item.requestedDurationMs, DEFAULT_MCP_NOTIFICATION_WATCH_MS);
+    const requestedDurationMs = parseNonNegativeInteger(
+      item.requestedDurationMs,
+      DEFAULT_MCP_NOTIFICATION_WATCH_MS
+    );
     const reconnectCount = parseNonNegativeInteger(item.reconnectCount);
     const streamOpenCount = parseNonNegativeInteger(item.streamOpenCount);
-    const notificationCount = parseNonNegativeInteger(item.notificationCount, notifications.length);
+    const notificationCount = parseNonNegativeInteger(
+      item.notificationCount,
+      notifications.length
+    );
     runs.push({
-      id: sanitizeMcpHistoryText(item.id, 140) ?? `mcp-notification-monitor-${toHashId(fallbackServer.id, finishedAt)}`,
+      id:
+        sanitizeMcpHistoryText(item.id, 140) ??
+        `mcp-notification-monitor-${toHashId(fallbackServer.id, finishedAt)}`,
       serverId: sanitizeMcpHistoryText(item.serverId, 120) ?? fallbackServer.id,
-      serverName: sanitizeMcpHistoryText(item.serverName, 160) ?? fallbackServer.name,
+      serverName:
+        sanitizeMcpHistoryText(item.serverName, 160) ?? fallbackServer.name,
       transport,
       status,
       startedAt,
@@ -10851,13 +11455,19 @@ function parseMcpNotificationMonitorHistory(
 }
 
 async function readMcpDocument(rootPath: string): Promise<McpDocument> {
-  const parsed = await readJsonObject(path.join(ensureProjectDataDir(rootPath), MCP_FILE));
-  if (!parsed || !Array.isArray(parsed.servers)) {
+  const parsed = await readJsonObject(
+    path.join(ensureProjectDataDir(rootPath), MCP_FILE)
+  );
+  if (!(parsed && Array.isArray(parsed.servers))) {
     return { version: 1, servers: [] };
   }
   const servers: StoredMcpServer[] = [];
   for (const item of parsed.servers) {
-    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string") {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      typeof item.name !== "string"
+    ) {
       continue;
     }
     const transport =
@@ -10879,7 +11489,11 @@ async function readMcpDocument(rootPath: string): Promise<McpDocument> {
       enabled: typeof item.enabled === "boolean" ? item.enabled : false,
       ...(typeof item.command === "string" ? { command: item.command } : {}),
       ...(Array.isArray(item.args)
-        ? { args: item.args.filter((arg): arg is string => typeof arg === "string") }
+        ? {
+            args: item.args.filter(
+              (arg): arg is string => typeof arg === "string"
+            ),
+          }
         : {}),
       ...(typeof item.url === "string" ? { url: item.url } : {}),
       ...(typeof item.messageEndpoint === "string"
@@ -10895,11 +11509,14 @@ async function readMcpDocument(rootPath: string): Promise<McpDocument> {
       item.trustedFingerprint.startsWith("sha256:")
         ? { trustedFingerprint: item.trustedFingerprint }
         : {}),
-      ...(typeof item.trustedAt === "string" && parseIsoTimestamp(item.trustedAt)
+      ...(typeof item.trustedAt === "string" &&
+      parseIsoTimestamp(item.trustedAt)
         ? { trustedAt: item.trustedAt }
         : {}),
       updatedAt:
-        typeof item.updatedAt === "string" ? item.updatedAt : new Date(0).toISOString(),
+        typeof item.updatedAt === "string"
+          ? item.updatedAt
+          : new Date(0).toISOString(),
     };
     const probeHistory = parseMcpProbeHistory(item.probeHistory, stored);
     if (probeHistory.length > 0) {
@@ -10931,7 +11548,10 @@ async function readMcpDocument(rootPath: string): Promise<McpDocument> {
   return { version: 1, servers };
 }
 
-async function writeMcpDocument(rootPath: string, document: McpDocument): Promise<void> {
+async function writeMcpDocument(
+  rootPath: string,
+  document: McpDocument
+): Promise<void> {
   const dir = ensureProjectDataDir(rootPath);
   await mkdir(dir, { recursive: true });
   await writeFile(
@@ -11045,7 +11665,8 @@ function createMcpProbeRecorder(transport: McpTransport): {
   };
   return {
     steps,
-    record: (step, status, params) => pushStep(step, status, Date.now(), params),
+    record: (step, status, params) =>
+      pushStep(step, status, Date.now(), params),
     start: (step, detail) => {
       const startedAtMs = Date.now();
       let settled = false;
@@ -11067,7 +11688,9 @@ function createMcpProbeSummary(
   status: LocalAdeMcpServer["probe"]["status"],
   steps: LocalAdeMcpProbeStep[]
 ): LocalAdeMcpServer["probe"] {
-  const failedStepCount = steps.filter((step) => step.status === "failed").length;
+  const failedStepCount = steps.filter(
+    (step) => step.status === "failed"
+  ).length;
   return {
     status,
     retryable: status === "success" || status === "failed",
@@ -11111,7 +11734,9 @@ function initializedMcpDiscovery(params: {
   probeSteps: LocalAdeMcpProbeStep[];
   notifications?: LocalAdeMcpNotification[];
 }): McpDiscoveryResult {
-  const result = isRecord(params.initializeResult) ? params.initializeResult : {};
+  const result = isRecord(params.initializeResult)
+    ? params.initializeResult
+    : {};
   const serverInfo = isRecord(result.serverInfo) ? result.serverInfo : {};
   return {
     available: true,
@@ -11205,7 +11830,9 @@ async function discoverStdioMcpProtocol(
       diagnostics,
     });
   }
-  finishResolve("success", { detail: resolved.executablePath ?? server.command });
+  finishResolve("success", {
+    detail: resolved.executablePath ?? server.command,
+  });
 
   let nextId = 1;
   const pending = new Map<
@@ -11273,7 +11900,9 @@ async function discoverStdioMcpProtocol(
         });
         if (notification) {
           notifications.push(notification);
-          diagnostics.push(`MCP notification received: ${notification.method}.`);
+          diagnostics.push(
+            `MCP notification received: ${notification.method}.`
+          );
         }
         continue;
       }
@@ -11381,11 +12010,15 @@ async function discoverStdioMcpProtocol(
       tools = parseMcpTools(await request("tools/list", {}));
       diagnostics.push(`MCP tools/list returned ${tools.length} tools.`);
     } catch (error) {
-      diagnostics.push(`MCP tools/list failed: ${errorMessage(error, secretValues)}`);
+      diagnostics.push(
+        `MCP tools/list failed: ${errorMessage(error, secretValues)}`
+      );
     }
     try {
       resources = parseMcpResources(await request("resources/list", {}));
-      diagnostics.push(`MCP resources/list returned ${resources.length} resources.`);
+      diagnostics.push(
+        `MCP resources/list returned ${resources.length} resources.`
+      );
     } catch (error) {
       diagnostics.push(
         `MCP resources/list failed: ${errorMessage(error, secretValues)}`
@@ -11463,7 +12096,11 @@ async function mcpHttpRequest(params: {
   sessionId?: string;
   secretValues?: string[];
   timeoutMs?: number;
-}): Promise<{ result: unknown; sessionId?: string; notificationMessages: unknown[] }> {
+}): Promise<{
+  result: unknown;
+  sessionId?: string;
+  notificationMessages: unknown[];
+}> {
   const controller = new AbortController();
   const timeoutMs = params.timeoutMs ?? MCP_PROTOCOL_TIMEOUT_MS;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -11482,7 +12119,9 @@ async function mcpHttpRequest(params: {
     });
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error(`Timed out after ${timeoutMs}ms waiting for MCP HTTP response.`);
+      throw new Error(
+        `Timed out after ${timeoutMs}ms waiting for MCP HTTP response.`
+      );
     }
     throw error;
   } finally {
@@ -11507,9 +12146,7 @@ async function mcpHttpRequest(params: {
   const messages = normalizeJsonRpcMessages(message);
   const notificationMessages = messages.filter(
     (item) =>
-      isRecord(item) &&
-      item.id === undefined &&
-      typeof item.method === "string"
+      isRecord(item) && item.id === undefined && typeof item.method === "string"
   );
   const expectedId = params.body.id;
   const responseMessage = messages.find(
@@ -11539,7 +12176,9 @@ async function mcpHttpRequest(params: {
   };
 }
 
-async function discoverHttpMcpProtocol(server: StoredMcpServer): Promise<McpDiscoveryResult> {
+async function discoverHttpMcpProtocol(
+  server: StoredMcpServer
+): Promise<McpDiscoveryResult> {
   const startedAt = Date.now();
   const diagnostics: string[] = [];
   const notifications: LocalAdeMcpNotification[] = [];
@@ -11639,14 +12278,18 @@ async function discoverHttpMcpProtocol(server: StoredMcpServer): Promise<McpDisc
         method: "notifications/initialized",
         params: {},
       },
-    }).then((result) => {
-      collectNotifications(result.notificationMessages);
-    }).catch((error) => {
-      finishInitialized("failed", { error: errorMessage(error, secretValues) });
-      diagnostics.push(
-        `MCP initialized notification failed: ${errorMessage(error, secretValues)}`
-      );
-    });
+    })
+      .then((result) => {
+        collectNotifications(result.notificationMessages);
+      })
+      .catch((error) => {
+        finishInitialized("failed", {
+          error: errorMessage(error, secretValues),
+        });
+        diagnostics.push(
+          `MCP initialized notification failed: ${errorMessage(error, secretValues)}`
+        );
+      });
     finishInitialized("success");
 
     let tools: LocalAdeMcpTool[] = [];
@@ -11655,11 +12298,15 @@ async function discoverHttpMcpProtocol(server: StoredMcpServer): Promise<McpDisc
       tools = parseMcpTools(await request("tools/list", {}));
       diagnostics.push(`MCP tools/list returned ${tools.length} tools.`);
     } catch (error) {
-      diagnostics.push(`MCP tools/list failed: ${errorMessage(error, secretValues)}`);
+      diagnostics.push(
+        `MCP tools/list failed: ${errorMessage(error, secretValues)}`
+      );
     }
     try {
       resources = parseMcpResources(await request("resources/list", {}));
-      diagnostics.push(`MCP resources/list returned ${resources.length} resources.`);
+      diagnostics.push(
+        `MCP resources/list returned ${resources.length} resources.`
+      );
     } catch (error) {
       diagnostics.push(
         `MCP resources/list failed: ${errorMessage(error, secretValues)}`
@@ -11692,7 +12339,10 @@ function resolveMcpEndpoint(baseUrl: string, endpoint: string): string {
   return new URL(endpoint, baseUrl).toString();
 }
 
-function parseSseFrames(input: string): { frames: string[]; remainder: string } {
+function parseSseFrames(input: string): {
+  frames: string[];
+  remainder: string;
+} {
   const normalized = input.replace(/\r\n/g, "\n");
   const parts = normalized.split(/\n\n/);
   return {
@@ -11797,7 +12447,9 @@ async function watchSseMcpNotifications(
         });
         if (notification) {
           notifications.push(notification);
-          diagnostics.push(`MCP monitor notification received: ${notification.method}.`);
+          diagnostics.push(
+            `MCP monitor notification received: ${notification.method}.`
+          );
         }
         continue;
       }
@@ -11817,7 +12469,10 @@ async function watchSseMcpNotifications(
   };
   const openStream = async (mode: "open" | "reconnect") => {
     const controller = new AbortController();
-    const headerTimeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+    const headerTimeout = setTimeout(
+      () => controller.abort(),
+      requestTimeoutMs
+    );
     let response: Response;
     try {
       response = await fetch(streamUrl, {
@@ -11855,10 +12510,9 @@ async function watchSseMcpNotifications(
     const decoder = new TextDecoder();
     let buffer = "";
     let closedByClient = false;
-    let endpointUrl =
-      server.messageEndpoint?.trim()
-        ? resolveMcpEndpoint(streamUrl, server.messageEndpoint.trim())
-        : undefined;
+    let endpointUrl = server.messageEndpoint?.trim()
+      ? resolveMcpEndpoint(streamUrl, server.messageEndpoint.trim())
+      : undefined;
     let resolveEndpoint: (value: string) => void = () => undefined;
     let rejectEndpoint: (error: Error) => void = () => undefined;
     const endpointPromise = new Promise<string>((resolve, reject) => {
@@ -11898,7 +12552,9 @@ async function watchSseMcpNotifications(
           try {
             settleJsonRpcMessage(JSON.parse(event.data));
           } catch (error) {
-            diagnostics.push(`MCP SSE monitor event parse error: ${errorMessage(error, secretValues)}`);
+            diagnostics.push(
+              `MCP SSE monitor event parse error: ${errorMessage(error, secretValues)}`
+            );
           }
         }
       }
@@ -12064,10 +12720,14 @@ async function watchSseMcpNotifications(
         await stream.close();
       } catch (error) {
         lastCloseMessage = errorMessage(error, secretValues);
-        diagnostics.push(`MCP SSE notification monitor failed: ${lastCloseMessage}`);
+        diagnostics.push(
+          `MCP SSE notification monitor failed: ${lastCloseMessage}`
+        );
         await stream.close();
       }
-      rejectPending(lastCloseMessage || "MCP SSE notification monitor stream closed.");
+      rejectPending(
+        lastCloseMessage || "MCP SSE notification monitor stream closed."
+      );
       if (Date.now() >= endAtMs) {
         break;
       }
@@ -12100,7 +12760,9 @@ async function watchSseMcpNotifications(
   });
 }
 
-async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDiscoveryResult> {
+async function discoverSseMcpProtocol(
+  server: StoredMcpServer
+): Promise<McpDiscoveryResult> {
   const startedAt = Date.now();
   const diagnostics: string[] = [];
   const notifications: LocalAdeMcpNotification[] = [];
@@ -12140,10 +12802,9 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
   let reconnectAttempts = 0;
   let reconnecting = false;
   let endpointSettled = false;
-  let endpointUrl =
-    server.messageEndpoint?.trim()
-      ? resolveMcpEndpoint(streamUrl, server.messageEndpoint.trim())
-      : undefined;
+  let endpointUrl = server.messageEndpoint?.trim()
+    ? resolveMcpEndpoint(streamUrl, server.messageEndpoint.trim())
+    : undefined;
   const operationController = new AbortController();
   const streamControllers: AbortController[] = [];
   const streamReaders: ReadableStreamDefaultReader<Uint8Array>[] = [];
@@ -12203,7 +12864,9 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
         });
         if (notification) {
           notifications.push(notification);
-          diagnostics.push(`MCP notification received: ${notification.method}.`);
+          diagnostics.push(
+            `MCP notification received: ${notification.method}.`
+          );
         }
         continue;
       }
@@ -12223,7 +12886,10 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
   };
 
   let postRequest:
-    | ((body: Record<string, unknown>, expectResponse: boolean) => Promise<unknown>)
+    | ((
+        body: Record<string, unknown>,
+        expectResponse: boolean
+      ) => Promise<unknown>)
     | null = null;
 
   const replayPendingRequests = () => {
@@ -12260,7 +12926,9 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
         .catch((error) => {
           reconnecting = false;
           const reconnectMessage = errorMessage(error, secretValues);
-          diagnostics.push(`MCP SSE stream reconnect failed: ${reconnectMessage}`);
+          diagnostics.push(
+            `MCP SSE stream reconnect failed: ${reconnectMessage}`
+          );
           rejectPending(reconnectMessage);
           rejectEndpoint(new Error(reconnectMessage));
         });
@@ -12276,7 +12944,10 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
     const controller = new AbortController();
     streamControllers.push(controller);
     const finishStreamOpen = recorder.start(step, streamUrl);
-    const headerTimeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+    const headerTimeout = setTimeout(
+      () => controller.abort(),
+      requestTimeoutMs
+    );
     let streamResponse: Response;
     try {
       streamResponse = await fetch(streamUrl, {
@@ -12386,19 +13057,16 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
       const finishEndpoint = recorder.start("endpoint", "event");
       let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
       const timeout = new Promise<never>((_, reject) => {
-        timeoutHandle = setTimeout(
-          () => {
-            finishEndpoint("failed", {
-              error: `Timed out after ${requestTimeoutMs}ms waiting for SSE endpoint event.`,
-            });
-            reject(
-              new Error(
-                `Timed out after ${requestTimeoutMs}ms waiting for SSE endpoint event.`
-              )
-            );
-          },
-          requestTimeoutMs
-        );
+        timeoutHandle = setTimeout(() => {
+          finishEndpoint("failed", {
+            error: `Timed out after ${requestTimeoutMs}ms waiting for SSE endpoint event.`,
+          });
+          reject(
+            new Error(
+              `Timed out after ${requestTimeoutMs}ms waiting for SSE endpoint event.`
+            )
+          );
+        }, requestTimeoutMs);
       });
       try {
         const target = await Promise.race([endpointPromise, timeout]);
@@ -12414,11 +13082,17 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
       }
     };
 
-    const post = async (body: Record<string, unknown>, expectResponse: boolean) => {
+    const post = async (
+      body: Record<string, unknown>,
+      expectResponse: boolean
+    ) => {
       const target = await getEndpoint();
       const postController = new AbortController();
       const abortPost = () => postController.abort();
-      const postTimeout = setTimeout(() => postController.abort(), requestTimeoutMs);
+      const postTimeout = setTimeout(
+        () => postController.abort(),
+        requestTimeoutMs
+      );
       operationController.signal.addEventListener("abort", abortPost, {
         once: true,
       });
@@ -12435,7 +13109,10 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
           body: JSON.stringify(body),
         });
       } catch (error) {
-        if (postController.signal.aborted && !operationController.signal.aborted) {
+        if (
+          postController.signal.aborted &&
+          !operationController.signal.aborted
+        ) {
           throw new Error(
             `Timed out after ${requestTimeoutMs}ms waiting for ${String(
               body.method ?? "MCP request"
@@ -12541,11 +13218,15 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
       tools = parseMcpTools(await request("tools/list", {}));
       diagnostics.push(`MCP tools/list returned ${tools.length} tools.`);
     } catch (error) {
-      diagnostics.push(`MCP tools/list failed: ${errorMessage(error, secretValues)}`);
+      diagnostics.push(
+        `MCP tools/list failed: ${errorMessage(error, secretValues)}`
+      );
     }
     try {
       resources = parseMcpResources(await request("resources/list", {}));
-      diagnostics.push(`MCP resources/list returned ${resources.length} resources.`);
+      diagnostics.push(
+        `MCP resources/list returned ${resources.length} resources.`
+      );
     } catch (error) {
       diagnostics.push(
         `MCP resources/list failed: ${errorMessage(error, secretValues)}`
@@ -12562,7 +13243,9 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
         streamReader.cancel().catch(() => undefined)
       )
     );
-    await Promise.all(readLoops.map((readLoop) => readLoop.catch(() => undefined)));
+    await Promise.all(
+      readLoops.map((readLoop) => readLoop.catch(() => undefined))
+    );
     return initializedMcpDiscovery({
       latencyMs: Date.now() - startedAt,
       diagnostics,
@@ -12598,7 +13281,9 @@ async function discoverSseMcpProtocol(server: StoredMcpServer): Promise<McpDisco
         streamReader.cancel().catch(() => undefined)
       )
     );
-    await Promise.all(readLoops.map((readLoop) => readLoop.catch(() => undefined)));
+    await Promise.all(
+      readLoops.map((readLoop) => readLoop.catch(() => undefined))
+    );
   }
 }
 
@@ -12645,7 +13330,9 @@ async function invokeStdioMcpMethod(params: {
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
-  diagnostics.push(`MCP stdio invocation spawned pid ${child.pid ?? "unknown"}.`);
+  diagnostics.push(
+    `MCP stdio invocation spawned pid ${child.pid ?? "unknown"}.`
+  );
   let stdoutBuffer = "";
   let processExited = false;
   let processClosed = false;
@@ -12688,7 +13375,9 @@ async function invokeStdioMcpMethod(params: {
         });
         if (notification) {
           notifications.push(notification);
-          diagnostics.push(`MCP notification received: ${notification.method}.`);
+          diagnostics.push(
+            `MCP notification received: ${notification.method}.`
+          );
         }
         continue;
       }
@@ -12726,7 +13415,10 @@ async function invokeStdioMcpMethod(params: {
     processClosed = true;
   });
 
-  const request = (method: string, methodParams?: unknown): Promise<unknown> => {
+  const request = (
+    method: string,
+    methodParams?: unknown
+  ): Promise<unknown> => {
     if (processExited || !child.stdin.writable) {
       return Promise.reject(new Error("MCP process stdin is not writable."));
     }
@@ -12907,13 +13599,15 @@ async function invokeHttpMcpMethod(params: {
         method: "notifications/initialized",
         params: {},
       },
-    }).then((response) => {
-      collectNotifications(response.notificationMessages);
-    }).catch((error) => {
-      diagnostics.push(
-        `MCP initialized notification failed: ${errorMessage(error, secretValues)}`
-      );
-    });
+    })
+      .then((response) => {
+        collectNotifications(response.notificationMessages);
+      })
+      .catch((error) => {
+        diagnostics.push(
+          `MCP initialized notification failed: ${errorMessage(error, secretValues)}`
+        );
+      });
     const result = await request(params.method, params.methodParams);
     diagnostics.push(`MCP ${params.method} succeeded for ${params.target}.`);
     return mcpInvocationSuccess({
@@ -12982,10 +13676,9 @@ async function invokeSseMcpMethod(params: {
   let reconnectAttempts = 0;
   let reconnecting = false;
   let endpointSettled = false;
-  let endpointUrl =
-    params.server.messageEndpoint?.trim()
-      ? resolveMcpEndpoint(streamUrl, params.server.messageEndpoint.trim())
-      : undefined;
+  let endpointUrl = params.server.messageEndpoint?.trim()
+    ? resolveMcpEndpoint(streamUrl, params.server.messageEndpoint.trim())
+    : undefined;
   const operationController = new AbortController();
   const streamControllers: AbortController[] = [];
   const streamReaders: ReadableStreamDefaultReader<Uint8Array>[] = [];
@@ -13032,7 +13725,10 @@ async function invokeSseMcpMethod(params: {
   };
 
   let postRequest:
-    | ((body: Record<string, unknown>, expectResponse: boolean) => Promise<unknown>)
+    | ((
+        body: Record<string, unknown>,
+        expectResponse: boolean
+      ) => Promise<unknown>)
     | null = null;
 
   const replayPendingRequests = () => {
@@ -13108,7 +13804,9 @@ async function invokeSseMcpMethod(params: {
         });
         if (notification) {
           notifications.push(notification);
-          diagnostics.push(`MCP notification received: ${notification.method}.`);
+          diagnostics.push(
+            `MCP notification received: ${notification.method}.`
+          );
         }
         continue;
       }
@@ -13130,7 +13828,10 @@ async function invokeSseMcpMethod(params: {
   const openStream = async (mode: "open" | "reconnect"): Promise<void> => {
     const controller = new AbortController();
     streamControllers.push(controller);
-    const headerTimeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+    const headerTimeout = setTimeout(
+      () => controller.abort(),
+      requestTimeoutMs
+    );
     let streamResponse: Response;
     try {
       streamResponse = await fetch(streamUrl, {
@@ -13191,7 +13892,9 @@ async function invokeSseMcpMethod(params: {
               diagnostics.push("MCP SSE endpoint event received.");
             } catch (error) {
               rejectEndpoint(
-                new Error(`Invalid SSE endpoint event: ${errorMessage(error, secretValues)}`)
+                new Error(
+                  `Invalid SSE endpoint event: ${errorMessage(error, secretValues)}`
+                )
               );
             }
             continue;
@@ -13246,11 +13949,17 @@ async function invokeSseMcpMethod(params: {
       }
     };
 
-    const post = async (body: Record<string, unknown>, expectResponse: boolean) => {
+    const post = async (
+      body: Record<string, unknown>,
+      expectResponse: boolean
+    ) => {
       const target = await getEndpoint();
       const postController = new AbortController();
       const abortPost = () => postController.abort();
-      const postTimeout = setTimeout(() => postController.abort(), requestTimeoutMs);
+      const postTimeout = setTimeout(
+        () => postController.abort(),
+        requestTimeoutMs
+      );
       operationController.signal.addEventListener("abort", abortPost, {
         once: true,
       });
@@ -13267,7 +13976,10 @@ async function invokeSseMcpMethod(params: {
           body: JSON.stringify(body),
         });
       } catch (error) {
-        if (postController.signal.aborted && !operationController.signal.aborted) {
+        if (
+          postController.signal.aborted &&
+          !operationController.signal.aborted
+        ) {
           throw new Error(
             `Timed out after ${requestTimeoutMs}ms waiting for ${String(
               body.method ?? "MCP request"
@@ -13325,7 +14037,14 @@ async function invokeSseMcpMethod(params: {
             )
           );
         }, requestTimeoutMs);
-        pending.set(id, { method, body, replayPolicy, resolve, reject, timeout });
+        pending.set(id, {
+          method,
+          body,
+          replayPolicy,
+          resolve,
+          reject,
+          timeout,
+        });
         post(body, true).catch((error) => {
           clearTimeout(timeout);
           pending.delete(id);
@@ -13370,7 +14089,9 @@ async function invokeSseMcpMethod(params: {
         streamReader.cancel().catch(() => undefined)
       )
     );
-    await Promise.all(readLoops.map((readLoop) => readLoop.catch(() => undefined)));
+    await Promise.all(
+      readLoops.map((readLoop) => readLoop.catch(() => undefined))
+    );
     return mcpInvocationSuccess({
       server: params.server,
       method: params.method,
@@ -13407,7 +14128,9 @@ async function invokeSseMcpMethod(params: {
         streamReader.cancel().catch(() => undefined)
       )
     );
-    await Promise.all(readLoops.map((readLoop) => readLoop.catch(() => undefined)));
+    await Promise.all(
+      readLoops.map((readLoop) => readLoop.catch(() => undefined))
+    );
   }
 }
 
@@ -13533,10 +14256,7 @@ async function toVisibleMcpServer(
   rootPath: string,
   server: StoredMcpServer
 ): Promise<LocalAdeMcpServer> {
-  const invalid =
-    server.transport === "stdio"
-      ? !server.command
-      : !server.url;
+  const invalid = server.transport === "stdio" ? !server.command : !server.url;
   const fingerprint = mcpInvocationFingerprint(server);
   const trustStatus = mcpTrustStatus(server, fingerprint);
   const trustDiagnostics = [
@@ -13553,24 +14273,26 @@ async function toVisibleMcpServer(
     transport: server.transport,
     enabled: server.enabled,
     ...(server.command ? { command: server.command } : {}),
-      ...(server.args ? { args: server.args } : {}),
-      ...(server.url ? { url: server.url } : {}),
-      ...(server.messageEndpoint ? { messageEndpoint: server.messageEndpoint } : {}),
-      envKeys: Object.keys(server.env ?? {}),
-      headerKeys: Object.keys(server.headers ?? {}),
-      headerEnv: visibleMcpHeaderEnv(server.headerEnv),
-      probeHistory: server.probeHistory ?? [],
-      fingerprint,
-      trustStatus,
-      ...(server.trustedFingerprint
-        ? { trustedFingerprint: server.trustedFingerprint }
-        : {}),
-      ...(server.trustedAt ? { trustedAt: server.trustedAt } : {}),
-      invocationHistory: server.invocationHistory ?? [],
-      notificationHistory: server.notificationHistory ?? [],
-      notificationMonitorHistory: server.notificationMonitorHistory ?? [],
-      remoteControls: visibleMcpRemoteControls(server),
-      updatedAt: server.updatedAt,
+    ...(server.args ? { args: server.args } : {}),
+    ...(server.url ? { url: server.url } : {}),
+    ...(server.messageEndpoint
+      ? { messageEndpoint: server.messageEndpoint }
+      : {}),
+    envKeys: Object.keys(server.env ?? {}),
+    headerKeys: Object.keys(server.headers ?? {}),
+    headerEnv: visibleMcpHeaderEnv(server.headerEnv),
+    probeHistory: server.probeHistory ?? [],
+    fingerprint,
+    trustStatus,
+    ...(server.trustedFingerprint
+      ? { trustedFingerprint: server.trustedFingerprint }
+      : {}),
+    ...(server.trustedAt ? { trustedAt: server.trustedAt } : {}),
+    invocationHistory: server.invocationHistory ?? [],
+    notificationHistory: server.notificationHistory ?? [],
+    notificationMonitorHistory: server.notificationMonitorHistory ?? [],
+    remoteControls: visibleMcpRemoteControls(server),
+    updatedAt: server.updatedAt,
   };
   const emptyProtocol = {
     status: "not-run" as const,
@@ -13771,13 +14493,11 @@ function createMcpAgentRouting(
   visibleServers: LocalAdeMcpServer[],
   agentInvocations: LocalAdeMcpAgentInvocation[]
 ): LocalAdeMcpAgentRouting {
-  const visibleById = new Map(visibleServers.map((server) => [server.id, server]));
+  const visibleById = new Map(
+    visibleServers.map((server) => [server.id, server])
+  );
   const routes = servers.map((server) =>
-    createMcpAgentRoute(
-      server,
-      visibleById.get(server.id),
-      agentInvocations
-    )
+    createMcpAgentRoute(server, visibleById.get(server.id), agentInvocations)
   );
   const injectableCount = routes.filter(
     (route) => route.status === "injectable"
@@ -13785,11 +14505,17 @@ function createMcpAgentRouting(
   const conditionalCount = routes.filter(
     (route) => route.status === "conditional"
   ).length;
-  const blockedCount = routes.filter((route) => route.status === "blocked").length;
-  const skippedCount = routes.filter((route) => route.status === "skipped").length;
+  const blockedCount = routes.filter(
+    (route) => route.status === "blocked"
+  ).length;
+  const skippedCount = routes.filter(
+    (route) => route.status === "skipped"
+  ).length;
   const diagnostics: string[] = [];
   if (routes.length === 0) {
-    diagnostics.push("No project-local MCP servers are configured for agent routing.");
+    diagnostics.push(
+      "No project-local MCP servers are configured for agent routing."
+    );
   }
   if (conditionalCount > 0) {
     diagnostics.push(
@@ -13809,11 +14535,7 @@ function createMcpAgentRouting(
 
   return {
     status:
-      routes.length === 0
-        ? "empty"
-        : blockedCount > 0
-          ? "attention"
-          : "ready",
+      routes.length === 0 ? "empty" : blockedCount > 0 ? "attention" : "ready",
     injectableCount,
     conditionalCount,
     blockedCount,
@@ -13827,7 +14549,8 @@ function createMcpAgentRouting(
 function createMcpProbeRun(server: LocalAdeMcpServer): LocalAdeMcpProbeRun {
   const firstStep = server.probe.steps[0];
   const lastStep = server.probe.steps.at(-1);
-  const startedAt = firstStep?.startedAt ?? server.lastProbedAt ?? new Date().toISOString();
+  const startedAt =
+    firstStep?.startedAt ?? server.lastProbedAt ?? new Date().toISOString();
   const finishedAt = lastStep?.completedAt ?? new Date().toISOString();
   return {
     id: `mcp-probe-${randomUUID()}`,
@@ -13841,7 +14564,10 @@ function createMcpProbeRun(server: LocalAdeMcpServer): LocalAdeMcpProbeRun {
     finishedAt,
     durationMs:
       server.latencyMs ??
-      Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime()),
+      Math.max(
+        0,
+        new Date(finishedAt).getTime() - new Date(startedAt).getTime()
+      ),
     stepCount: server.probe.stepCount,
     failedStepCount: server.probe.failedStepCount,
     toolsDiscovered: server.protocol.toolsDiscovered,
@@ -13876,11 +14602,13 @@ function createMcpCapabilities(
   }));
 }
 
-async function readProviderHealthDocument(rootPath: string): Promise<ProviderHealthDocument> {
+async function readProviderHealthDocument(
+  rootPath: string
+): Promise<ProviderHealthDocument> {
   const parsed = await readJsonObject(
     path.join(ensureProjectDataDir(rootPath), PROVIDER_HEALTH_FILE)
   );
-  if (!parsed || !isRecord(parsed.providers)) {
+  if (!(parsed && isRecord(parsed.providers))) {
     return { version: 1, providers: {} };
   }
   const providers: ProviderHealthDocument["providers"] = {};
@@ -13952,16 +14680,26 @@ async function readProviderHealthDocument(rootPath: string): Promise<ProviderHea
       readiness,
       checkedAt: value.checkedAt,
       diagnostics: Array.isArray(value.diagnostics)
-        ? value.diagnostics.filter((item): item is string => typeof item === "string")
+        ? value.diagnostics.filter(
+            (item): item is string => typeof item === "string"
+          )
         : [],
       remediation: Array.isArray(value.remediation)
-        ? value.remediation.filter((item): item is string => typeof item === "string")
+        ? value.remediation.filter(
+            (item): item is string => typeof item === "string"
+          )
         : [],
       ...(typeof value.version === "string" ? { version: value.version } : {}),
       ...(Array.isArray(value.modelList)
-        ? { modelList: value.modelList.filter((item): item is string => typeof item === "string") }
+        ? {
+            modelList: value.modelList.filter(
+              (item): item is string => typeof item === "string"
+            ),
+          }
         : {}),
-      ...(typeof value.latencyMs === "number" ? { latencyMs: value.latencyMs } : {}),
+      ...(typeof value.latencyMs === "number"
+        ? { latencyMs: value.latencyMs }
+        : {}),
     };
   }
   return { version: 1, providers };
@@ -14012,21 +14750,23 @@ const PROVIDER_PROBE_PLANS: Record<
   ProviderProbePlan
 > = {
   opencode: {
-    auth: [["auth", "list"], ["auth", "status"]],
+    auth: [
+      ["auth", "list"],
+      ["auth", "status"],
+    ],
     models: [["models"], ["models", "list"]],
   },
   codex: {
     doctor: { args: ["doctor", "--json"], timeoutMs: 20_000 },
-    auth: [["auth", "status"], ["login", "status"]],
+    auth: [
+      ["auth", "status"],
+      ["login", "status"],
+    ],
     models: [["models"], ["models", "list"]],
   },
   claude: {
     doctor: { args: ["doctor", "--json"], timeoutMs: 20_000 },
-    auth: [
-      ["auth", "status"],
-      ["auth", "whoami"],
-      ["doctor"],
-    ],
+    auth: [["auth", "status"], ["auth", "whoami"], ["doctor"]],
     models: [["models"], ["models", "list"], ["model", "list"]],
   },
   gemini: {
@@ -14040,7 +14780,9 @@ const PROVIDER_PROBE_PLANS: Record<
   },
 };
 
-function providerProbePrefixArgs(agent: Awaited<ReturnType<AgentRepositoryPort["findAll"]>>[number]): string[] {
+function providerProbePrefixArgs(
+  agent: Awaited<ReturnType<AgentRepositoryPort["findAll"]>>[number]
+): string[] {
   const args = agent.args ?? [];
   if (args.length === 0) {
     return [];
@@ -14130,10 +14872,16 @@ function providerStatusFromText(
 ): "ok" | "unknown" | "failed" {
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
-    if (["ok", "ready", "success", "passed", "authenticated"].includes(normalized)) {
+    if (
+      ["ok", "ready", "success", "passed", "authenticated"].includes(normalized)
+    ) {
       return "ok";
     }
-    if (["fail", "failed", "error", "missing", "unauthenticated"].includes(normalized)) {
+    if (
+      ["fail", "failed", "error", "missing", "unauthenticated"].includes(
+        normalized
+      )
+    ) {
       return "failed";
     }
     if (["warn", "warning", "skipped", "unknown"].includes(normalized)) {
@@ -14190,7 +14938,7 @@ function parseProviderModelList(output: string): string[] {
       .replace(/\s+\(.+\)$/, "")
       .trim();
     const candidate = cleaned.includes(" ")
-      ? cleaned.split(/\s+[-:]\s+|\s+/)[0]?.trim() ?? ""
+      ? (cleaned.split(/\s+[-:]\s+|\s+/)[0]?.trim() ?? "")
       : cleaned;
     if (
       candidate &&
@@ -14205,7 +14953,9 @@ function parseProviderModelList(output: string): string[] {
   return [...models].slice(0, 80);
 }
 
-function parseJsonObjectFromOutput(output: string): Record<string, unknown> | null {
+function parseJsonObjectFromOutput(
+  output: string
+): Record<string, unknown> | null {
   const trimmed = output.trim();
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
@@ -14225,7 +14975,8 @@ function doctorCheckStatus(
   checkId: string
 ): string | undefined {
   const checks = isRecord(report.checks) ? report.checks : undefined;
-  const check = checks && isRecord(checks[checkId]) ? checks[checkId] : undefined;
+  const check =
+    checks && isRecord(checks[checkId]) ? checks[checkId] : undefined;
   return typeof check?.status === "string" ? check.status : undefined;
 }
 
@@ -14234,7 +14985,8 @@ function doctorCheckDetails(
   checkId: string
 ): Record<string, unknown> | undefined {
   const checks = isRecord(report.checks) ? report.checks : undefined;
-  const check = checks && isRecord(checks[checkId]) ? checks[checkId] : undefined;
+  const check =
+    checks && isRecord(checks[checkId]) ? checks[checkId] : undefined;
   return isRecord(check?.details) ? check.details : undefined;
 }
 
@@ -14374,7 +15126,9 @@ function parseGenericProviderDoctorReadiness(
   const modelList = parseProviderModelList(JSON.stringify(report));
   const modelStatus: LocalAdeProviderDescriptor["modelStatus"] =
     modelList.length > 0 ? "ok" : overall === "failed" ? "failed" : "unknown";
-  diagnostics.push(`${providerKind} doctor model identifiers: ${modelList.length}.`);
+  diagnostics.push(
+    `${providerKind} doctor model identifiers: ${modelList.length}.`
+  );
 
   return {
     authStatus,
@@ -14434,7 +15188,10 @@ function readinessFromStatuses(params: {
   if (params.authStatus === "unknown" || params.authStatus === "unsupported") {
     return "auth-unknown";
   }
-  if (params.modelStatus === "unknown" || params.modelStatus === "unsupported") {
+  if (
+    params.modelStatus === "unknown" ||
+    params.modelStatus === "unsupported"
+  ) {
     return "model-unknown";
   }
   return "ready";
@@ -14451,23 +15208,37 @@ function providerReadinessRemediation(params: {
   const command = params.command || params.providerKind;
   const items: string[] = [];
   if (params.cliStatus === "missing") {
-    items.push(`Install ${params.providerKind} CLI and ensure \`${command}\` is on PATH.`);
+    items.push(
+      `Install ${params.providerKind} CLI and ensure \`${command}\` is on PATH.`
+    );
   } else if (params.cliStatus === "failed") {
-    items.push(`Run \`${command} --version\` outside Eragear and fix the CLI startup error.`);
+    items.push(
+      `Run \`${command} --version\` outside Eragear and fix the CLI startup error.`
+    );
   }
   if (params.cliStatus === "ok") {
     if (params.authStatus === "failed" || params.authStatus === "unknown") {
-      items.push(`Authenticate ${params.providerKind} CLI, then rerun the provider probe.`);
+      items.push(
+        `Authenticate ${params.providerKind} CLI, then rerun the provider probe.`
+      );
     } else if (params.authStatus === "unsupported") {
-      items.push(`No safe auth status command is known for ${params.providerKind}; verify authentication in the CLI.`);
+      items.push(
+        `No safe auth status command is known for ${params.providerKind}; verify authentication in the CLI.`
+      );
     }
     if (params.modelStatus === "failed" || params.modelStatus === "unknown") {
-      items.push(`List or configure a ${params.providerKind} model, then rerun the provider probe.`);
+      items.push(
+        `List or configure a ${params.providerKind} model, then rerun the provider probe.`
+      );
     } else if (params.modelStatus === "unsupported") {
-      items.push(`No safe model list command is known for ${params.providerKind}; configure a model in the agent descriptor.`);
+      items.push(
+        `No safe model list command is known for ${params.providerKind}; configure a model in the agent descriptor.`
+      );
     }
     if (params.modelStatus === "ok" && params.modelList.length === 0) {
-      items.push("Model probe succeeded but returned no identifiers; configure a default model manually.");
+      items.push(
+        "Model probe succeeded but returned no identifiers; configure a default model manually."
+      );
     }
   }
   if (items.length === 0) {
@@ -14582,7 +15353,9 @@ async function probeProviderReadiness(
       modelStatus = doctor.modelStatus ?? modelStatus;
       modelList = doctor.modelList;
     } else if (!doctorProbe.ok) {
-      diagnostics.push("Provider doctor probe failed; falling back to CLI probes.");
+      diagnostics.push(
+        "Provider doctor probe failed; falling back to CLI probes."
+      );
     }
   }
 
@@ -14596,19 +15369,25 @@ async function probeProviderReadiness(
         secretValues,
       });
       if (authProbe?.ok) {
-        authStatus = outputLooksUnauthenticated(authProbe.output) ? "failed" : "ok";
+        authStatus = outputLooksUnauthenticated(authProbe.output)
+          ? "failed"
+          : "ok";
         diagnostics.push(...authProbe.diagnostics);
         diagnostics.push(`Provider auth probe classified as ${authStatus}.`);
       } else {
         authStatus = "unknown";
         diagnostics.push(
-          ...(authProbe?.diagnostics ?? ["No provider auth probe is configured."])
+          ...(authProbe?.diagnostics ?? [
+            "No provider auth probe is configured.",
+          ])
         );
         diagnostics.push("Provider auth probe is unknown for this CLI.");
       }
     }
   } else {
-    diagnostics.push("No safe provider auth probe is configured for this agent type.");
+    diagnostics.push(
+      "No safe provider auth probe is configured for this agent type."
+    );
   }
 
   if (plan) {
@@ -14630,13 +15409,17 @@ async function probeProviderReadiness(
       } else {
         modelStatus = "unknown";
         diagnostics.push(
-          ...(modelProbe?.diagnostics ?? ["No provider model probe is configured."])
+          ...(modelProbe?.diagnostics ?? [
+            "No provider model probe is configured.",
+          ])
         );
         diagnostics.push("Provider model probe is unknown for this CLI.");
       }
     }
   } else {
-    diagnostics.push("No safe provider model probe is configured for this agent type.");
+    diagnostics.push(
+      "No safe provider model probe is configured for this agent type."
+    );
   }
 
   const readiness = readinessFromStatuses({
@@ -14670,76 +15453,85 @@ async function providerDescriptorsFromAgents(
   healthDocument: ProviderHealthDocument,
   defaultModel: string
 ): Promise<LocalAdeProviderDescriptor[]> {
-  return await Promise.all(agents.map(async (agent) => {
-    const envKeys = Object.keys(agent.env ?? {});
-    const fallbackModelList = [
-      ...(agent.type === "opencode" ? ["agent-configured"] : []),
-      ...(agent.type === "codex" ? ["codex-default"] : []),
-      ...(agent.type === "claude" ? ["claude-default"] : []),
-      ...(agent.type === "gemini" ? ["gemini-default"] : []),
-    ];
-    const providerId = `provider.agent.${agent.id}`;
-    const health = healthDocument.providers[providerId];
-    const executable = await resolveExecutable(agent.command.trim());
-    const status =
-      health?.status ?? (executable.available ? "configured" : "missing-config");
-    const readiness =
-      health?.readiness ?? (executable.available ? "cli-ok" : "missing-config");
-    const probedModelList = health?.modelList?.length ? health.modelList : [];
-    const modelListSource =
-      probedModelList.length > 0 ? "readiness-probe" : "fallback";
-    const modelList =
-      modelListSource === "readiness-probe" ? probedModelList : fallbackModelList;
-    const cliStatus = health?.cliStatus ?? (executable.available ? "ok" : "missing");
-    const authStatus = health?.authStatus ?? "unknown";
-    const modelStatus = health?.modelStatus ?? "unknown";
-    return {
-      id: providerId,
-      displayName: agent.name,
-      providerKind: agent.type,
-      authMode: envKeys.length > 0 ? "env" : "none",
-      modelList,
-      aliases: [agent.type, agent.name],
-      compatibleAgents: [agent.id],
-      redactedEnvKeys: envKeys,
-      status,
-      cliStatus,
-      authStatus,
-      modelStatus,
-      readiness,
-      ...(health?.version ? { version: health.version } : {}),
-      ...(health?.checkedAt ? { lastProbedAt: health.checkedAt } : {}),
-      ...(typeof health?.latencyMs === "number" ? { latencyMs: health.latencyMs } : {}),
-      modelListSource,
-      ...(defaultModel &&
-      modelListSource === "readiness-probe" &&
-      modelList.includes(defaultModel)
-        ? { selectedModel: defaultModel }
-        : {}),
-      diagnostics: [
-        "Provider state is derived from safe agent config metadata and redacted readiness probes.",
-        ...executable.diagnostics,
-        envKeys.length > 0
-          ? "Secrets are present only as redacted ENV key names."
-          : "No agent-specific ENV keys configured.",
-        ...(health?.diagnostics ?? []),
-        `Provider health is stored at ${path.join(
-          ensureProjectDataDir(rootPath),
-          PROVIDER_HEALTH_FILE
-        )}.`,
-      ],
-      remediation: health?.remediation?.length
-        ? health.remediation.slice(0, 6)
-        : providerReadinessRemediation({
-            providerKind: agent.type,
-            command: agent.command.trim(),
-            cliStatus,
-            authStatus,
-            modelStatus,
-            modelList,
-          }),
-    };
-  }));
+  return await Promise.all(
+    agents.map(async (agent) => {
+      const envKeys = Object.keys(agent.env ?? {});
+      const fallbackModelList = [
+        ...(agent.type === "opencode" ? ["agent-configured"] : []),
+        ...(agent.type === "codex" ? ["codex-default"] : []),
+        ...(agent.type === "claude" ? ["claude-default"] : []),
+        ...(agent.type === "gemini" ? ["gemini-default"] : []),
+      ];
+      const providerId = `provider.agent.${agent.id}`;
+      const health = healthDocument.providers[providerId];
+      const executable = await resolveExecutable(agent.command.trim());
+      const status =
+        health?.status ??
+        (executable.available ? "configured" : "missing-config");
+      const readiness =
+        health?.readiness ??
+        (executable.available ? "cli-ok" : "missing-config");
+      const probedModelList = health?.modelList?.length ? health.modelList : [];
+      const modelListSource =
+        probedModelList.length > 0 ? "readiness-probe" : "fallback";
+      const modelList =
+        modelListSource === "readiness-probe"
+          ? probedModelList
+          : fallbackModelList;
+      const cliStatus =
+        health?.cliStatus ?? (executable.available ? "ok" : "missing");
+      const authStatus = health?.authStatus ?? "unknown";
+      const modelStatus = health?.modelStatus ?? "unknown";
+      return {
+        id: providerId,
+        displayName: agent.name,
+        providerKind: agent.type,
+        authMode: envKeys.length > 0 ? "env" : "none",
+        modelList,
+        aliases: [agent.type, agent.name],
+        compatibleAgents: [agent.id],
+        redactedEnvKeys: envKeys,
+        status,
+        cliStatus,
+        authStatus,
+        modelStatus,
+        readiness,
+        ...(health?.version ? { version: health.version } : {}),
+        ...(health?.checkedAt ? { lastProbedAt: health.checkedAt } : {}),
+        ...(typeof health?.latencyMs === "number"
+          ? { latencyMs: health.latencyMs }
+          : {}),
+        modelListSource,
+        ...(defaultModel &&
+        modelListSource === "readiness-probe" &&
+        modelList.includes(defaultModel)
+          ? { selectedModel: defaultModel }
+          : {}),
+        diagnostics: [
+          "Provider state is derived from safe agent config metadata and redacted readiness probes.",
+          ...executable.diagnostics,
+          envKeys.length > 0
+            ? "Secrets are present only as redacted ENV key names."
+            : "No agent-specific ENV keys configured.",
+          ...(health?.diagnostics ?? []),
+          `Provider health is stored at ${path.join(
+            ensureProjectDataDir(rootPath),
+            PROVIDER_HEALTH_FILE
+          )}.`,
+        ],
+        remediation: health?.remediation?.length
+          ? health.remediation.slice(0, 6)
+          : providerReadinessRemediation({
+              providerKind: agent.type,
+              command: agent.command.trim(),
+              cliStatus,
+              authStatus,
+              modelStatus,
+              modelList,
+            }),
+      };
+    })
+  );
 }
 
 function providerCapabilities(
@@ -14789,7 +15581,9 @@ function createActiveSessionModelSnapshot(session: ChatSession): {
   const availableModels =
     source === "config-option" ? optionModels : modelStateModels;
   const diagnostics: string[] = [];
-  const supportsSwitching = Boolean(session.supportsModelSwitching || modelOption);
+  const supportsSwitching = Boolean(
+    session.supportsModelSwitching || modelOption
+  );
   if (!supportsSwitching) {
     diagnostics.push("Agent did not advertise runtime model switching.");
   }
@@ -14812,19 +15606,27 @@ function createActiveSessionModelSnapshot(session: ChatSession): {
   };
 }
 
-async function readGitSnapshot(rootPath: string): Promise<LocalAdeChangeTrustSnapshot> {
+async function readGitSnapshot(
+  rootPath: string
+): Promise<LocalAdeChangeTrustSnapshot> {
   try {
-    await execFileAsync("git", ["-C", rootPath, "rev-parse", "--is-inside-work-tree"], {
-      timeout: GIT_TIMEOUT_MS,
-      windowsHide: true,
-    });
+    await execFileAsync(
+      "git",
+      ["-C", rootPath, "rev-parse", "--is-inside-work-tree"],
+      {
+        timeout: GIT_TIMEOUT_MS,
+        windowsHide: true,
+      }
+    );
   } catch {
     return {
       rootPath,
       isGitRepo: false,
       changedFiles: [],
       statusLines: [],
-      diagnostics: ["Project root is not a Git repository or Git is unavailable."],
+      diagnostics: [
+        "Project root is not a Git repository or Git is unavailable.",
+      ],
     };
   }
 
@@ -14894,7 +15696,9 @@ function cleanCheckpointString(value: unknown): string | undefined {
 }
 
 function cleanCheckpointNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function cleanCheckpointMessagePreview(value: unknown): string | undefined {
@@ -14930,7 +15734,11 @@ function normalizeCheckpointSessionAttributions(
   }
   const attributions: LocalAdeCheckpointSessionAttribution[] = [];
   for (const item of value) {
-    if (!isRecord(item) || typeof item.chatId !== "string" || !item.chatId.trim()) {
+    if (
+      !isRecord(item) ||
+      typeof item.chatId !== "string" ||
+      !item.chatId.trim()
+    ) {
       continue;
     }
     const source = checkpointAttributionSource(item.source);
@@ -14941,13 +15749,17 @@ function normalizeCheckpointSessionAttributions(
       source,
       status,
       messageCount:
-        typeof messageCount === "number" ? Math.max(0, Math.floor(messageCount)) : 0,
+        typeof messageCount === "number"
+          ? Math.max(0, Math.floor(messageCount))
+          : 0,
     };
     const projectId = cleanCheckpointString(item.projectId);
     const sessionId = cleanCheckpointString(item.sessionId);
     const agentName = cleanCheckpointString(item.agentName);
     const lastMessageRole = checkpointMessageRole(item.lastMessageRole);
-    const lastMessagePreview = cleanCheckpointMessagePreview(item.lastMessagePreview);
+    const lastMessagePreview = cleanCheckpointMessagePreview(
+      item.lastMessagePreview
+    );
     const lastMessageAt = cleanCheckpointNumber(item.lastMessageAt);
     const activeTurnId = cleanCheckpointString(item.activeTurnId);
     const lastCompletedTurnId = cleanCheckpointString(item.lastCompletedTurnId);
@@ -14982,7 +15794,10 @@ function normalizeCheckpointSessionAttributions(
       attribution.subscriberCount = Math.max(0, Math.floor(subscriberCount));
     }
     if (typeof pendingPermissions === "number") {
-      attribution.pendingPermissions = Math.max(0, Math.floor(pendingPermissions));
+      attribution.pendingPermissions = Math.max(
+        0,
+        Math.floor(pendingPermissions)
+      );
     }
     if (typeof activeToolCalls === "number") {
       attribution.activeToolCalls = Math.max(0, Math.floor(activeToolCalls));
@@ -14999,7 +15814,10 @@ function messageTimestamp(message: unknown): number | undefined {
   if (!isRecord(message)) {
     return undefined;
   }
-  return cleanCheckpointNumber(message.createdAt) ?? cleanCheckpointNumber(message.timestamp);
+  return (
+    cleanCheckpointNumber(message.createdAt) ??
+    cleanCheckpointNumber(message.timestamp)
+  );
 }
 
 function messagePreview(message: unknown): string | undefined {
@@ -15035,7 +15853,9 @@ function messagePreview(message: unknown): string | undefined {
     contentBlocks
       .map((block) =>
         isRecord(block)
-          ? cleanCheckpointString(block.text) ?? cleanCheckpointString(block.content) ?? ""
+          ? (cleanCheckpointString(block.text) ??
+            cleanCheckpointString(block.content) ??
+            "")
           : ""
       )
       .filter(Boolean)
@@ -15043,7 +15863,9 @@ function messagePreview(message: unknown): string | undefined {
   );
 }
 
-function messageSummary(messages: unknown[]): Pick<
+function messageSummary(
+  messages: unknown[]
+): Pick<
   LocalAdeCheckpointSessionAttribution,
   "lastMessageRole" | "lastMessagePreview" | "lastMessageAt"
 > {
@@ -15057,7 +15879,7 @@ function messageSummary(messages: unknown[]): Pick<
       latestScore = score;
     }
   });
-  if (!latest || !isRecord(latest)) {
+  if (!(latest && isRecord(latest))) {
     return {};
   }
   const role = checkpointMessageRole(latest.role);
@@ -15085,7 +15907,9 @@ function runtimeCheckpointAttribution(
     messageCount: messages.length,
     ...(session.projectId ? { projectId: session.projectId } : {}),
     ...(session.sessionId ? { sessionId: session.sessionId } : {}),
-    ...(session.agentInfo?.title || session.agentInfo?.name || session.sessionInfo?.title
+    ...(session.agentInfo?.title ||
+    session.agentInfo?.name ||
+    session.sessionInfo?.title
       ? {
           agentName:
             session.agentInfo?.title ??
@@ -15157,53 +15981,61 @@ function mergeCheckpointAttribution(
   if (!merged.lastMessagePreview && stored.lastMessagePreview) {
     merged.lastMessagePreview = stored.lastMessagePreview;
   }
-  if (typeof merged.lastMessageAt !== "number" && typeof stored.lastMessageAt === "number") {
+  if (
+    typeof merged.lastMessageAt !== "number" &&
+    typeof stored.lastMessageAt === "number"
+  ) {
     merged.lastMessageAt = stored.lastMessageAt;
   }
   return merged;
 }
 
-async function readCheckpointDocument(rootPath: string): Promise<CheckpointDocument> {
+async function readCheckpointDocument(
+  rootPath: string
+): Promise<CheckpointDocument> {
   const parsed = await readJsonObject(
     path.join(ensureProjectDataDir(rootPath), CHECKPOINTS_FILE)
   );
-  if (!parsed || !Array.isArray(parsed.checkpoints)) {
+  if (!(parsed && Array.isArray(parsed.checkpoints))) {
     return { version: 1, checkpoints: [] };
   }
-  const checkpoints = parsed.checkpoints.filter((item): item is LocalAdeCheckpoint => {
-    if (!isRecord(item)) {
-      return false;
+  const checkpoints = parsed.checkpoints.filter(
+    (item): item is LocalAdeCheckpoint => {
+      if (!isRecord(item)) {
+        return false;
+      }
+      return (
+        typeof item.id === "string" &&
+        typeof item.name === "string" &&
+        typeof item.createdAt === "string" &&
+        typeof item.projectRoot === "string" &&
+        Array.isArray(item.sessionIds) &&
+        (item.sessionAttributions === undefined ||
+          Array.isArray(item.sessionAttributions)) &&
+        Array.isArray(item.changedFiles) &&
+        Array.isArray(item.statusLines) &&
+        (item.restoreMode === undefined ||
+          item.restoreMode === "reverse-patch" ||
+          item.restoreMode === "apply-patch") &&
+        (item.restoreStatusLines === undefined ||
+          Array.isArray(item.restoreStatusLines)) &&
+        (item.safetyForCheckpointId === undefined ||
+          typeof item.safetyForCheckpointId === "string") &&
+        (item.preRestoreSafetyCheckpointId === undefined ||
+          typeof item.preRestoreSafetyCheckpointId === "string") &&
+        (item.partialRestores === undefined ||
+          Array.isArray(item.partialRestores)) &&
+        (item.conflictShelves === undefined ||
+          Array.isArray(item.conflictShelves)) &&
+        typeof item.patchPath === "string" &&
+        typeof item.patchBytes === "number" &&
+        typeof item.canRestore === "boolean" &&
+        (item.restoredAt === undefined ||
+          typeof item.restoredAt === "string") &&
+        Array.isArray(item.diagnostics)
+      );
     }
-    return (
-      typeof item.id === "string" &&
-      typeof item.name === "string" &&
-      typeof item.createdAt === "string" &&
-      typeof item.projectRoot === "string" &&
-      Array.isArray(item.sessionIds) &&
-      (item.sessionAttributions === undefined ||
-        Array.isArray(item.sessionAttributions)) &&
-      Array.isArray(item.changedFiles) &&
-      Array.isArray(item.statusLines) &&
-      (item.restoreMode === undefined ||
-        item.restoreMode === "reverse-patch" ||
-        item.restoreMode === "apply-patch") &&
-      (item.restoreStatusLines === undefined ||
-        Array.isArray(item.restoreStatusLines)) &&
-      (item.safetyForCheckpointId === undefined ||
-        typeof item.safetyForCheckpointId === "string") &&
-      (item.preRestoreSafetyCheckpointId === undefined ||
-        typeof item.preRestoreSafetyCheckpointId === "string") &&
-      (item.partialRestores === undefined ||
-        Array.isArray(item.partialRestores)) &&
-      (item.conflictShelves === undefined ||
-        Array.isArray(item.conflictShelves)) &&
-      typeof item.patchPath === "string" &&
-      typeof item.patchBytes === "number" &&
-      typeof item.canRestore === "boolean" &&
-      (item.restoredAt === undefined || typeof item.restoredAt === "string") &&
-      Array.isArray(item.diagnostics)
-    );
-  });
+  );
   return {
     version: 1,
     checkpoints: checkpoints.slice(0, MAX_CHECKPOINTS).map((checkpoint) => ({
@@ -15217,7 +16049,11 @@ async function readCheckpointDocument(rootPath: string): Promise<CheckpointDocum
       partialRestores: Array.isArray(checkpoint.partialRestores)
         ? checkpoint.partialRestores
             .filter(
-              (restore): restore is NonNullable<LocalAdeCheckpoint["partialRestores"]>[number] =>
+              (
+                restore
+              ): restore is NonNullable<
+                LocalAdeCheckpoint["partialRestores"]
+              >[number] =>
                 isRecord(restore) &&
                 typeof restore.restoredAt === "string" &&
                 Array.isArray(restore.files) &&
@@ -15241,7 +16077,9 @@ async function readCheckpointDocument(rootPath: string): Promise<CheckpointDocum
                         (
                           hunk
                         ): hunk is NonNullable<
-                          NonNullable<LocalAdeCheckpoint["partialRestores"]>[number]["hunks"]
+                          NonNullable<
+                            LocalAdeCheckpoint["partialRestores"]
+                          >[number]["hunks"]
                         >[number] =>
                           isRecord(hunk) &&
                           typeof hunk.file === "string" &&
@@ -15295,7 +16133,9 @@ async function readCheckpointDocument(rootPath: string): Promise<CheckpointDocum
             .filter(
               (
                 shelf
-              ): shelf is NonNullable<LocalAdeCheckpoint["conflictShelves"]>[number] =>
+              ): shelf is NonNullable<
+                LocalAdeCheckpoint["conflictShelves"]
+              >[number] =>
                 isRecord(shelf) &&
                 typeof shelf.shelvedAt === "string" &&
                 Array.isArray(shelf.files) &&
@@ -15347,7 +16187,10 @@ async function createGitCheckpoint(params: {
   const rootPath = params.rootPath;
   const id = `checkpoint-${randomUUID()}`;
   const createdAt = new Date().toISOString();
-  const patchDir = path.join(ensureProjectDataDir(rootPath), CHECKPOINT_PATCH_DIR);
+  const patchDir = path.join(
+    ensureProjectDataDir(rootPath),
+    CHECKPOINT_PATCH_DIR
+  );
   await mkdir(patchDir, { recursive: true });
   const patchPath = path.join(patchDir, `${id}.patch`);
 
@@ -15370,7 +16213,9 @@ async function createGitCheckpoint(params: {
     if (selectedFiles) {
       statusLines = filterStatusLinesByFiles(statusLines, selectedFiles);
     }
-    const trackedChanged = (await runGit(rootPath, ["diff", "--name-only"])).stdout
+    const trackedChanged = (
+      await runGit(rootPath, ["diff", "--name-only"])
+    ).stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
@@ -15381,7 +16226,9 @@ async function createGitCheckpoint(params: {
     changedFiles = Array.from(new Set([...trackedChanged, ...untracked]));
     if (selectedFiles) {
       const selected = new Set(selectedFiles);
-      changedFiles = changedFiles.filter((file) => selected.has(normalizeSlash(file)));
+      changedFiles = changedFiles.filter((file) =>
+        selected.has(normalizeSlash(file))
+      );
     }
     patch = (await runGit(rootPath, ["diff", "--binary"])).stdout;
     if (selectedFiles) {
@@ -15393,7 +16240,9 @@ async function createGitCheckpoint(params: {
       );
     }
     if (!patch.trim()) {
-      diagnostics.push("No tracked-file diff was present when the checkpoint was created.");
+      diagnostics.push(
+        "No tracked-file diff was present when the checkpoint was created."
+      );
     }
   } catch (error) {
     diagnostics.push(
@@ -15450,7 +16299,10 @@ async function createPatchBackedCheckpoint(params: {
   const rootPath = params.rootPath;
   const id = `checkpoint-${randomUUID()}`;
   const createdAt = new Date().toISOString();
-  const patchDir = path.join(ensureProjectDataDir(rootPath), CHECKPOINT_PATCH_DIR);
+  const patchDir = path.join(
+    ensureProjectDataDir(rootPath),
+    CHECKPOINT_PATCH_DIR
+  );
   await mkdir(patchDir, { recursive: true });
   const patchPath = path.join(patchDir, `${id}.patch`);
   let gitHead: string | undefined;
@@ -15493,7 +16345,9 @@ function isPathInside(parentPath: string, childPath: string): boolean {
   const parent = path.resolve(parentPath);
   const child = path.resolve(childPath);
   const relative = path.relative(parent, child);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return (
+    relative === "" || !(relative.startsWith("..") || path.isAbsolute(relative))
+  );
 }
 
 function checkpointRestoreToken(checkpoint: LocalAdeCheckpoint): string {
@@ -15564,15 +16418,23 @@ async function readPluginWorkspaceStatus(rootPath: string): Promise<{
   } catch (error) {
     return {
       statusLines: [],
-      diagnostics: [`Plugin workspace git status failed: ${errorMessage(error)}`],
+      diagnostics: [
+        `Plugin workspace git status failed: ${errorMessage(error)}`,
+      ],
     };
   }
 }
 
-function pluginWorkspaceChangedFiles(before: string[], after: string[]): string[] {
+function pluginWorkspaceChangedFiles(
+  before: string[],
+  after: string[]
+): string[] {
   const beforeByFile = statusLinesByFile(before);
   const afterByFile = statusLinesByFile(after);
-  const files = new Set<string>([...beforeByFile.keys(), ...afterByFile.keys()]);
+  const files = new Set<string>([
+    ...beforeByFile.keys(),
+    ...afterByFile.keys(),
+  ]);
   return [...files]
     .filter((file) => {
       const beforeStatus = statusListText(beforeByFile.get(file)) ?? "";
@@ -15646,7 +16508,9 @@ function isResolvableTrackedCheckpointConflictRisk(
     .map((line) => line.trimEnd())
     .filter((line) => line.trim());
   return (
-    risk.reason.includes("Tracked checkpoint patch no longer applies cleanly") &&
+    risk.reason.includes(
+      "Tracked checkpoint patch no longer applies cleanly"
+    ) &&
     currentStatusLines.length > 0 &&
     currentStatusLines.every((line) => line.startsWith(" M "))
   );
@@ -15678,7 +16542,9 @@ async function shelveCheckpointConflictFiles(params: {
       file === ".eragear" ||
       file.startsWith(".eragear/")
     ) {
-      throw new Error(`Checkpoint conflict shelf cannot move internal path: ${file}`);
+      throw new Error(
+        `Checkpoint conflict shelf cannot move internal path: ${file}`
+      );
     }
   }
 
@@ -15693,12 +16559,14 @@ async function shelveCheckpointConflictFiles(params: {
   try {
     for (const file of files) {
       const from = path.resolve(params.rootPath, file);
-      if (!isPathInside(params.rootPath, from) || !existsSync(from)) {
+      if (!(isPathInside(params.rootPath, from) && existsSync(from))) {
         throw new Error(`Checkpoint blocker is no longer present: ${file}`);
       }
       const to = path.resolve(shelfRoot, file);
       if (!isPathInside(shelfRoot, to) || existsSync(to)) {
-        throw new Error(`Checkpoint shelf destination is not safe for: ${file}`);
+        throw new Error(
+          `Checkpoint shelf destination is not safe for: ${file}`
+        );
       }
       await mkdir(path.dirname(to), { recursive: true });
       await rename(from, to);
@@ -15715,7 +16583,9 @@ async function shelveCheckpointConflictFiles(params: {
         // Best-effort rollback; the original error is more useful to surface.
       }
     }
-    throw new Error(`Checkpoint conflict shelve failed: ${errorMessage(error)}`);
+    throw new Error(
+      `Checkpoint conflict shelve failed: ${errorMessage(error)}`
+    );
   }
 
   await writeFile(
@@ -15757,7 +16627,9 @@ interface SelectedCheckpointHunkPatch {
   }>;
 }
 
-function checkpointRestoreHunkKey(selection: NormalizedCheckpointHunkSelection): string {
+function checkpointRestoreHunkKey(
+  selection: NormalizedCheckpointHunkSelection
+): string {
   return `${selection.file}:${selection.hunkIndex}`;
 }
 
@@ -15771,13 +16643,16 @@ function normalizeCheckpointRestoreHunks(
       throw new Error(`Invalid checkpoint restore file path: ${hunk.file}`);
     }
     if (!Number.isInteger(hunk.hunkIndex) || hunk.hunkIndex < 0) {
-      throw new Error(`Invalid checkpoint hunk index for ${hunk.file}: ${hunk.hunkIndex}`);
+      throw new Error(
+        `Invalid checkpoint hunk index for ${hunk.file}: ${hunk.hunkIndex}`
+      );
     }
     const selection = { file, hunkIndex: hunk.hunkIndex };
     normalized.set(checkpointRestoreHunkKey(selection), selection);
   }
   const result = [...normalized.values()].sort(
-    (left, right) => left.file.localeCompare(right.file) || left.hunkIndex - right.hunkIndex
+    (left, right) =>
+      left.file.localeCompare(right.file) || left.hunkIndex - right.hunkIndex
   );
   if (result.length === 0) {
     throw new Error("Select at least one checkpoint hunk to restore.");
@@ -15795,7 +16670,10 @@ function filterStatusLinesByFiles(lines: string[], files: string[]): string[] {
   return lines.filter((line) => selected.has(checkpointStatusPath(line)));
 }
 
-function filterStatusLinesExcludingFiles(lines: string[], files: string[]): string[] {
+function filterStatusLinesExcludingFiles(
+  lines: string[],
+  files: string[]
+): string[] {
   const excluded = new Set(files.map(normalizeSlash));
   if (excluded.size === 0) {
     return lines;
@@ -15803,7 +16681,9 @@ function filterStatusLinesExcludingFiles(lines: string[], files: string[]): stri
   return lines.filter((line) => !excluded.has(checkpointStatusPath(line)));
 }
 
-function checkpointCurrentResolutionFiles(checkpoint: LocalAdeCheckpoint): string[] {
+function checkpointCurrentResolutionFiles(
+  checkpoint: LocalAdeCheckpoint
+): string[] {
   const files = new Set<string>();
   for (const restore of checkpoint.partialRestores ?? []) {
     if (restore.resolution !== "current" && restore.resolution !== "mixed") {
@@ -15844,7 +16724,10 @@ function checkpointPatchAction(
   return "revert tracked changes";
 }
 
-function compareStatusLists(left: string[] | undefined, right: string[] | undefined): boolean {
+function compareStatusLists(
+  left: string[] | undefined,
+  right: string[] | undefined
+): boolean {
   const normalizedLeft = [...(left ?? [])].sort();
   const normalizedRight = [...(right ?? [])].sort();
   return (
@@ -15898,8 +16781,10 @@ async function collectCheckpointRestoreRisks(params: {
   let currentByFile = new Map<string, string[]>();
   let currentStatusError: string | null = null;
   try {
-    const currentStatusLines = (await runGit(params.rootPath, ["status", "--short"]))
-      .stdout.split(/\r?\n/)
+    const currentStatusLines = (
+      await runGit(params.rootPath, ["status", "--short"])
+    ).stdout
+      .split(/\r?\n/)
       .map((line) => line.trimEnd())
       .filter(Boolean);
     currentByFile = statusLinesByFile(currentStatusLines);
@@ -15932,8 +16817,12 @@ async function collectCheckpointRestoreRisks(params: {
         file,
         level: "warning",
         patchAction: "keep current content",
-        ...(statusListText(expected) ? { checkpointStatus: statusListText(expected) } : {}),
-        ...(statusListText(current) ? { currentStatus: statusListText(current) } : {}),
+        ...(statusListText(expected)
+          ? { checkpointStatus: statusListText(expected) }
+          : {}),
+        ...(statusListText(current)
+          ? { currentStatus: statusListText(current) }
+          : {}),
         reason:
           "This tracked checkpoint conflict was resolved by keeping the current workspace content; full restore will omit this file.",
       });
@@ -15944,7 +16833,9 @@ async function collectCheckpointRestoreRisks(params: {
         file,
         level: "blocked",
         patchAction,
-        ...(statusListText(expected) ? { checkpointStatus: statusListText(expected) } : {}),
+        ...(statusListText(expected)
+          ? { checkpointStatus: statusListText(expected) }
+          : {}),
         reason: `Could not read current Git status: ${currentStatusError}`,
       });
       continue;
@@ -15955,7 +16846,9 @@ async function collectCheckpointRestoreRisks(params: {
         level: "warning",
         patchAction,
         checkpointStatus: statusListText(expected),
-        ...(statusListText(current) ? { currentStatus: statusListText(current) } : {}),
+        ...(statusListText(current)
+          ? { currentStatus: statusListText(current) }
+          : {}),
         reason:
           "This file was untracked metadata at checkpoint time; checkpoint patches do not contain untracked file contents.",
       });
@@ -16011,7 +16904,9 @@ async function collectCheckpointRestoreRisks(params: {
           ...(statusListText(expected)
             ? { checkpointStatus: statusListText(expected) }
             : {}),
-          ...(statusListText(current) ? { currentStatus: statusListText(current) } : {}),
+          ...(statusListText(current)
+            ? { currentStatus: statusListText(current) }
+            : {}),
           reason: `Tracked checkpoint patch no longer applies cleanly for this file: ${patchError}`,
         });
         continue;
@@ -16022,8 +16917,12 @@ async function collectCheckpointRestoreRisks(params: {
       file,
       level: "safe",
       patchAction,
-      ...(statusListText(expected) ? { checkpointStatus: statusListText(expected) } : {}),
-      ...(statusListText(current) ? { currentStatus: statusListText(current) } : {}),
+      ...(statusListText(expected)
+        ? { checkpointStatus: statusListText(expected) }
+        : {}),
+      ...(statusListText(current)
+        ? { currentStatus: statusListText(current) }
+        : {}),
       reason: "Current status matches the checkpoint restore precondition.",
     });
   }
@@ -16036,8 +16935,11 @@ async function collectCheckpointRestoreBlockers(params: {
   patchPath: string;
 }): Promise<Array<{ file: string; reason: string }>> {
   const blockers: Array<{ file: string; reason: string }> = [];
-  const serviceFile = "apps/server/src/modules/settings/application/local-ade.service.ts";
-  const currentResolutionFiles = checkpointCurrentResolutionFiles(params.checkpoint);
+  const serviceFile =
+    "apps/server/src/modules/settings/application/local-ade.service.ts";
+  const currentResolutionFiles = checkpointCurrentResolutionFiles(
+    params.checkpoint
+  );
 
   if (!params.checkpoint.canRestore || params.checkpoint.patchBytes <= 0) {
     blockers.push({
@@ -16053,8 +16955,13 @@ async function collectCheckpointRestoreBlockers(params: {
   }
 
   try {
-    const currentHead = (await runGit(params.rootPath, ["rev-parse", "HEAD"])).stdout.trim();
-    if (params.checkpoint.gitHead && currentHead !== params.checkpoint.gitHead) {
+    const currentHead = (
+      await runGit(params.rootPath, ["rev-parse", "HEAD"])
+    ).stdout.trim();
+    if (
+      params.checkpoint.gitHead &&
+      currentHead !== params.checkpoint.gitHead
+    ) {
       blockers.push({
         file: serviceFile,
         reason:
@@ -16071,7 +16978,9 @@ async function collectCheckpointRestoreBlockers(params: {
   }
 
   try {
-    const statusLines = (await runGit(params.rootPath, ["status", "--short"])).stdout
+    const statusLines = (
+      await runGit(params.rootPath, ["status", "--short"])
+    ).stdout
       .split(/\r?\n/)
       .map((line) => line.trimEnd())
       .filter(Boolean);
@@ -16156,7 +17065,8 @@ async function collectSelectedCheckpointRestoreBlockers(params: {
   files: string[];
 }): Promise<Array<{ file: string; reason: string }>> {
   const blockers: Array<{ file: string; reason: string }> = [];
-  const serviceFile = "apps/server/src/modules/settings/application/local-ade.service.ts";
+  const serviceFile =
+    "apps/server/src/modules/settings/application/local-ade.service.ts";
   const restoreMode = params.checkpoint.restoreMode ?? "reverse-patch";
 
   if (!params.checkpoint.canRestore || params.checkpoint.patchBytes <= 0) {
@@ -16173,8 +17083,13 @@ async function collectSelectedCheckpointRestoreBlockers(params: {
   }
 
   try {
-    const currentHead = (await runGit(params.rootPath, ["rev-parse", "HEAD"])).stdout.trim();
-    if (params.checkpoint.gitHead && currentHead !== params.checkpoint.gitHead) {
+    const currentHead = (
+      await runGit(params.rootPath, ["rev-parse", "HEAD"])
+    ).stdout.trim();
+    if (
+      params.checkpoint.gitHead &&
+      currentHead !== params.checkpoint.gitHead
+    ) {
       blockers.push({
         file: serviceFile,
         reason:
@@ -16270,7 +17185,9 @@ function stripDiffPathPrefix(value: string): string {
   return normalizeSlash(trimmed);
 }
 
-function diffFileStatus(file: LocalAdeCheckpointDiffFile): LocalAdeCheckpointDiffFile["status"] {
+function diffFileStatus(
+  file: LocalAdeCheckpointDiffFile
+): LocalAdeCheckpointDiffFile["status"] {
   if (file.isBinary) {
     return "binary";
   }
@@ -16351,7 +17268,10 @@ function filterCheckpointPatchByFiles(patch: string, files: string[]): string {
   return `${filtered}\n`;
 }
 
-function filterCheckpointPatchExcludingFiles(patch: string, files: string[]): string {
+function filterCheckpointPatchExcludingFiles(
+  patch: string,
+  files: string[]
+): string {
   const excluded = new Set(files.map(normalizeSlash));
   if (excluded.size === 0) {
     return patch;
@@ -16371,7 +17291,10 @@ function selectCheckpointPatchHunks(
   patch: string,
   selections: NormalizedCheckpointHunkSelection[]
 ): SelectedCheckpointHunkPatch {
-  const selectionsByFile = new Map<string, NormalizedCheckpointHunkSelection[]>();
+  const selectionsByFile = new Map<
+    string,
+    NormalizedCheckpointHunkSelection[]
+  >();
   for (const selection of selections) {
     const list = selectionsByFile.get(selection.file) ?? [];
     list.push(selection);
@@ -16388,7 +17311,8 @@ function selectCheckpointPatchHunks(
       .flatMap((file) => selectionsByFile.get(file) ?? [])
       .sort(
         (left, right) =>
-          left.hunkIndex - right.hunkIndex || left.file.localeCompare(right.file)
+          left.hunkIndex - right.hunkIndex ||
+          left.file.localeCompare(right.file)
       );
     if (sectionSelections.length === 0) {
       continue;
@@ -16455,14 +17379,17 @@ function selectCheckpointPatchHunks(
 
   const filteredPatch = selectedSections.filter(Boolean).join("\n");
   if (!filteredPatch) {
-    throw new Error("Selected checkpoint hunks did not produce a restorable patch.");
+    throw new Error(
+      "Selected checkpoint hunks did not produce a restorable patch."
+    );
   }
 
   return {
     files: [...new Set(selectedHunks.map((hunk) => hunk.file))].sort(),
     patch: `${filteredPatch}\n`,
     hunks: selectedHunks.sort(
-      (left, right) => left.file.localeCompare(right.file) || left.hunkIndex - right.hunkIndex
+      (left, right) =>
+        left.file.localeCompare(right.file) || left.hunkIndex - right.hunkIndex
     ),
   };
 }
@@ -16548,7 +17475,10 @@ function parseCheckpointDiff(patch: string): LocalAdeCheckpointDiffFile[] {
       file.newPath = stripDiffPathPrefix(line.slice(4));
       continue;
     }
-    if (line.startsWith("Binary files ") || line.startsWith("GIT binary patch")) {
+    if (
+      line.startsWith("Binary files ") ||
+      line.startsWith("GIT binary patch")
+    ) {
       file.isBinary = true;
       continue;
     }
@@ -16639,7 +17569,10 @@ async function readCheckpointPreview(params: {
   rootPath: string;
   checkpoint: LocalAdeCheckpoint;
 }): Promise<LocalAdeCheckpointPreview> {
-  const patchDir = path.join(ensureProjectDataDir(params.rootPath), CHECKPOINT_PATCH_DIR);
+  const patchDir = path.join(
+    ensureProjectDataDir(params.rootPath),
+    CHECKPOINT_PATCH_DIR
+  );
   const resolvedPatchPath = path.resolve(params.checkpoint.patchPath);
   if (!isPathInside(patchDir, resolvedPatchPath)) {
     throw new Error(
@@ -16693,7 +17626,10 @@ async function buildSelectedCheckpointHunkPatch(params: {
   checkpoint: LocalAdeCheckpoint;
   hunks: RestoreCheckpointHunkInput[];
 }): Promise<SelectedCheckpointHunkPatch> {
-  const patchDir = path.join(ensureProjectDataDir(params.rootPath), CHECKPOINT_PATCH_DIR);
+  const patchDir = path.join(
+    ensureProjectDataDir(params.rootPath),
+    CHECKPOINT_PATCH_DIR
+  );
   const resolvedPatchPath = path.resolve(params.checkpoint.patchPath);
   if (!isPathInside(patchDir, resolvedPatchPath)) {
     throw new Error(
@@ -16766,7 +17702,10 @@ async function restoreGitCheckpoint(params: {
   checkpoint: LocalAdeCheckpoint;
   confirmation: string;
 }): Promise<LocalAdeCheckpoint> {
-  const patchDir = path.join(ensureProjectDataDir(params.rootPath), CHECKPOINT_PATCH_DIR);
+  const patchDir = path.join(
+    ensureProjectDataDir(params.rootPath),
+    CHECKPOINT_PATCH_DIR
+  );
   const resolvedPatchPath = path.resolve(params.checkpoint.patchPath);
   if (!isPathInside(patchDir, resolvedPatchPath)) {
     throw new Error(
@@ -16775,7 +17714,9 @@ async function restoreGitCheckpoint(params: {
   }
   const expectedConfirmation = checkpointRestoreToken(params.checkpoint);
   if (params.confirmation.trim() !== expectedConfirmation) {
-    throw new Error(`Type '${expectedConfirmation}' to restore this checkpoint.`);
+    throw new Error(
+      `Type '${expectedConfirmation}' to restore this checkpoint.`
+    );
   }
   const blockers = await collectCheckpointRestoreBlockers({
     rootPath: params.rootPath,
@@ -16786,7 +17727,9 @@ async function restoreGitCheckpoint(params: {
     throw new Error(blockers.map((blocker) => blocker.reason).join(" "));
   }
 
-  const currentResolutionFiles = checkpointCurrentResolutionFiles(params.checkpoint);
+  const currentResolutionFiles = checkpointCurrentResolutionFiles(
+    params.checkpoint
+  );
   let applyPatchPath = resolvedPatchPath;
   let tempPatchPath: string | null = null;
   try {
@@ -16840,8 +17783,14 @@ async function restoreGitCheckpointFiles(params: {
   checkpoint: LocalAdeCheckpoint;
   confirmation: string;
   files: string[];
-}): Promise<{ checkpoint: LocalAdeCheckpoint; safetyCheckpoint?: LocalAdeCheckpoint }> {
-  const patchDir = path.join(ensureProjectDataDir(params.rootPath), CHECKPOINT_PATCH_DIR);
+}): Promise<{
+  checkpoint: LocalAdeCheckpoint;
+  safetyCheckpoint?: LocalAdeCheckpoint;
+}> {
+  const patchDir = path.join(
+    ensureProjectDataDir(params.rootPath),
+    CHECKPOINT_PATCH_DIR
+  );
   const resolvedPatchPath = path.resolve(params.checkpoint.patchPath);
   if (!isPathInside(patchDir, resolvedPatchPath)) {
     throw new Error(
@@ -16850,7 +17799,9 @@ async function restoreGitCheckpointFiles(params: {
   }
   const expectedConfirmation = checkpointRestoreToken(params.checkpoint);
   if (params.confirmation.trim() !== expectedConfirmation) {
-    throw new Error(`Type '${expectedConfirmation}' to restore selected files.`);
+    throw new Error(
+      `Type '${expectedConfirmation}' to restore selected files.`
+    );
   }
 
   const files = normalizeCheckpointRestoreFiles(params.files);
@@ -16935,10 +17886,15 @@ async function restoreGitCheckpointHunks(params: {
   };
   diagnosticLabel?: string;
 }): Promise<{ checkpoint: LocalAdeCheckpoint }> {
-  const patchDir = path.join(ensureProjectDataDir(params.rootPath), CHECKPOINT_PATCH_DIR);
+  const patchDir = path.join(
+    ensureProjectDataDir(params.rootPath),
+    CHECKPOINT_PATCH_DIR
+  );
   const expectedConfirmation = checkpointRestoreToken(params.checkpoint);
   if (params.confirmation.trim() !== expectedConfirmation) {
-    throw new Error(`Type '${expectedConfirmation}' to restore selected hunks.`);
+    throw new Error(
+      `Type '${expectedConfirmation}' to restore selected hunks.`
+    );
   }
 
   const selectedPatchPath = path.join(
@@ -16966,7 +17922,8 @@ async function restoreGitCheckpointHunks(params: {
     );
 
     const restoredAt = new Date().toISOString();
-    const diagnosticLabel = params.diagnosticLabel ?? "Selected checkpoint hunks";
+    const diagnosticLabel =
+      params.diagnosticLabel ?? "Selected checkpoint hunks";
     return {
       checkpoint: {
         ...params.checkpoint,
@@ -17084,10 +18041,7 @@ function normalizeAcpTraceExportLimit(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return 200;
   }
-  return Math.min(
-    MAX_ACP_TRACE_EXPORT_ENTRIES,
-    Math.max(1, Math.trunc(value))
-  );
+  return Math.min(MAX_ACP_TRACE_EXPORT_ENTRIES, Math.max(1, Math.trunc(value)));
 }
 
 function normalizeAcpReplayPresetName(value: string): string {
@@ -17098,26 +18052,37 @@ function normalizeAcpReplayPresetName(value: string): string {
   return name.slice(0, MAX_ACP_REPLAY_PRESET_NAME_CHARS);
 }
 
-function normalizeOptionalReplayFilter(value: string | undefined): string | undefined {
+function normalizeOptionalReplayFilter(
+  value: string | undefined
+): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 }
 
-function normalizeAcpReplayPreset(item: unknown): LocalAdeAcpReplayPreset | null {
-  if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string") {
+function normalizeAcpReplayPreset(
+  item: unknown
+): LocalAdeAcpReplayPreset | null {
+  if (
+    !isRecord(item) ||
+    typeof item.id !== "string" ||
+    typeof item.name !== "string"
+  ) {
     return null;
   }
   const id = item.id.trim();
   const name = item.name.trim();
-  if (!id || !name) {
+  if (!(id && name)) {
     return null;
   }
   const limit = normalizeAcpTraceExportLimit(
     typeof item.limit === "number" ? item.limit : undefined
   );
   const createdAt =
-    typeof item.createdAt === "string" ? item.createdAt : new Date(0).toISOString();
-  const updatedAt = typeof item.updatedAt === "string" ? item.updatedAt : createdAt;
+    typeof item.createdAt === "string"
+      ? item.createdAt
+      : new Date(0).toISOString();
+  const updatedAt =
+    typeof item.updatedAt === "string" ? item.updatedAt : createdAt;
   return {
     id,
     name: name.slice(0, MAX_ACP_REPLAY_PRESET_NAME_CHARS),
@@ -17145,7 +18110,7 @@ async function readAcpReplayPresetDocument(
   const parsed = await readJsonObject(
     path.join(ensureProjectDataDir(rootPath), ACP_REPLAY_PRESETS_FILE)
   );
-  if (!parsed || !Array.isArray(parsed.presets)) {
+  if (!(parsed && Array.isArray(parsed.presets))) {
     return { version: 1, presets: [] };
   }
   const presets = parsed.presets
@@ -17283,7 +18248,10 @@ function createAcpActivityCorrelations(
       continue;
     }
     existing.eventCount += 1;
-    existing.firstTimestamp = Math.min(existing.firstTimestamp, entry.timestamp);
+    existing.firstTimestamp = Math.min(
+      existing.firstTimestamp,
+      entry.timestamp
+    );
     if (entry.timestamp >= existing.lastTimestamp) {
       existing.lastTimestamp = entry.timestamp;
       existing.latestMessage = entry.message;
@@ -17370,7 +18338,9 @@ function createAcpActivityTimeline(
 ): LocalAdeAcpActivityTimeline {
   const chronologicalEntries = [...entries].sort((left, right) => {
     const timestampDelta = left.timestamp - right.timestamp;
-    return timestampDelta === 0 ? left.id.localeCompare(right.id) : timestampDelta;
+    return timestampDelta === 0
+      ? left.id.localeCompare(right.id)
+      : timestampDelta;
   });
   const lanes = new Map<string, LocalAdeAcpActivityTimelineLane>();
   for (const entry of chronologicalEntries) {
@@ -17416,13 +18386,17 @@ function createAcpActivityTimeline(
       ...visible,
       sequence: index + 1,
       offsetMs: Math.max(0, entry.timestamp - firstFrameTimestamp),
-      deltaMs: index === 0 ? 0 : Math.max(0, entry.timestamp - previousTimestamp),
+      deltaMs:
+        index === 0 ? 0 : Math.max(0, entry.timestamp - previousTimestamp),
       laneKey: identity.key,
       laneLabel: identity.label,
       correlationKey: correlation.key,
       correlationLabel: correlation.label,
     };
-    if (previousFrame && transitions.length < MAX_ACP_ACTIVITY_TIMELINE_TRANSITIONS) {
+    if (
+      previousFrame &&
+      transitions.length < MAX_ACP_ACTIVITY_TIMELINE_TRANSITIONS
+    ) {
       const previousIdentity = acpTimelineLaneIdentity(previousFrame);
       if (previousIdentity.key !== identity.key) {
         const previousKind = acpActivityKind(previousFrame);
@@ -17437,7 +18411,9 @@ function createAcpActivityTimeline(
           toLaneLabel: identity.label,
           ...(previousKind ? { fromKind: previousKind } : {}),
           ...(currentKind ? { toKind: currentKind } : {}),
-          ...(previousIdentity.chatId ? { fromChatId: previousIdentity.chatId } : {}),
+          ...(previousIdentity.chatId
+            ? { fromChatId: previousIdentity.chatId }
+            : {}),
           ...(identity.chatId ? { toChatId: identity.chatId } : {}),
         });
       }
@@ -17456,7 +18432,10 @@ function createAcpActivityTimeline(
       0,
       (frameEntries.at(-1)?.timestamp ?? 0) - firstFrameTimestamp
     ),
-    omittedFrames: Math.max(0, chronologicalEntries.length - frameEntries.length),
+    omittedFrames: Math.max(
+      0,
+      chronologicalEntries.length - frameEntries.length
+    ),
   };
 }
 
@@ -17465,7 +18444,9 @@ function createAcpActivityStreamDiagnostics(
 ): LocalAdeAcpActivityStreamDiagnostics {
   const chronologicalEntries = [...entries].sort((left, right) => {
     const timestampDelta = left.timestamp - right.timestamp;
-    return timestampDelta === 0 ? left.id.localeCompare(right.id) : timestampDelta;
+    return timestampDelta === 0
+      ? left.id.localeCompare(right.id)
+      : timestampDelta;
   });
   const now = Date.now();
   const latestEntry = chronologicalEntries.at(-1);
@@ -17667,7 +18648,8 @@ function createAcpReplayFrames(
       ...visible,
       sequence: index + 1,
       elapsedMs: Math.max(0, entry.timestamp - firstTimestamp),
-      deltaMs: index === 0 ? 0 : Math.max(0, entry.timestamp - previousTimestamp),
+      deltaMs:
+        index === 0 ? 0 : Math.max(0, entry.timestamp - previousTimestamp),
       correlationKey: identity.key,
       correlationLabel: identity.label,
     };
@@ -17787,9 +18769,9 @@ function analyzePluginDependencies(plugins: StoredPlugin[]): {
   const visit = (pluginId: string): void => {
     if (visiting.has(pluginId)) {
       const cycleStart = stack.indexOf(pluginId);
-      const cycle = (cycleStart >= 0 ? stack.slice(cycleStart) : [pluginId]).concat(
-        pluginId
-      );
+      const cycle = (
+        cycleStart >= 0 ? stack.slice(cycleStart) : [pluginId]
+      ).concat(pluginId);
       for (const id of cycle) {
         cyclePluginIds.add(id);
       }
@@ -17894,7 +18876,9 @@ function createPluginBatchExecutionPlan(
   cyclePluginIds: Set<string>;
   diagnostics: string[];
 } {
-  const pluginById = new Map(document.plugins.map((plugin) => [plugin.id, plugin]));
+  const pluginById = new Map(
+    document.plugins.map((plugin) => [plugin.id, plugin])
+  );
   const requestedSet = new Set(pluginIds);
   const analysis = analyzePluginDependencies(document.plugins);
   const orderedPluginIds: string[] = [];
@@ -17938,7 +18922,8 @@ function createPluginBatchExecutionPlan(
       plugin.dependencyIds,
       plugin.id
     ).filter(
-      (dependencyId) => !requestedSet.has(dependencyId) || !pluginById.has(dependencyId)
+      (dependencyId) =>
+        !(requestedSet.has(dependencyId) && pluginById.has(dependencyId))
     );
     if (missingDependencyIds.length > 0) {
       missingDependenciesByPluginId.set(plugin.id, missingDependencyIds);
@@ -17948,7 +18933,9 @@ function createPluginBatchExecutionPlan(
     }
   }
   const cyclePluginIds = new Set(
-    [...analysis.cyclePluginIds].filter((pluginId) => requestedSet.has(pluginId))
+    [...analysis.cyclePluginIds].filter((pluginId) =>
+      requestedSet.has(pluginId)
+    )
   );
   if (cyclePluginIds.size > 0) {
     diagnostics.push(
@@ -17965,7 +18952,9 @@ function createPluginBatchExecutionPlan(
     requestedSet,
     missingDependenciesByPluginId,
     cyclePluginIds,
-    diagnostics: diagnostics.map((diagnostic) => sanitizeDiagnosticText(diagnostic)),
+    diagnostics: diagnostics.map((diagnostic) =>
+      sanitizeDiagnosticText(diagnostic)
+    ),
   };
 }
 function createPluginBatchSummary(params: {
@@ -18083,7 +19072,7 @@ export class LocalAdeService {
   private readonly settingsRepo: SettingsRepositoryPort;
   private readonly appConfigService: AppConfigService;
   private readonly getBackgroundRunnerState: () => BackgroundRunnerState | null;
-  private readonly eventBus?: EventBusPort;
+  private readonly settingsChangeNotifier: SettingsChangeNotifier;
 
   constructor(params: {
     projectRepo: ProjectRepositoryPort;
@@ -18094,7 +19083,7 @@ export class LocalAdeService {
     settingsRepo: SettingsRepositoryPort;
     appConfigService: AppConfigService;
     getBackgroundRunnerState?: () => BackgroundRunnerState | null;
-    eventBus?: EventBusPort;
+    settingsChangeNotifier?: SettingsChangeNotifier;
   }) {
     this.projectRepo = params.projectRepo;
     this.agentRepo = params.agentRepo;
@@ -18103,29 +19092,19 @@ export class LocalAdeService {
     this.logStore = params.logStore;
     this.settingsRepo = params.settingsRepo;
     this.appConfigService = params.appConfigService;
-    this.getBackgroundRunnerState = params.getBackgroundRunnerState ?? (() => null);
-    this.eventBus = params.eventBus;
+    this.getBackgroundRunnerState =
+      params.getBackgroundRunnerState ?? (() => null);
+    this.settingsChangeNotifier =
+      params.settingsChangeNotifier ?? noopSettingsChangeNotifier;
   }
 
-  subscribeLifecycleEvents(eventBus: EventBusPort): () => void {
-    return eventBus.subscribe((event, context) => {
-      if (context.signal.aborted || event.type !== "local_ade_lifecycle") {
-        return;
-      }
-      void this.handleLifecycleEvent(event).catch(() => undefined);
-    });
-  }
-
-  async handleLifecycleEvent(event: DomainEvent): Promise<void> {
-    if (event.type !== "local_ade_lifecycle") {
-      return;
-    }
-    await this.runLifecycleHooksForProject(event.projectRoot, event.event, {
-      userId: event.userId,
-      projectId: event.projectId,
-      chatId: event.chatId,
-      agentSessionId: event.agentSessionId,
-      turnId: event.turnId,
+  async runLifecycleHooks(input: LocalAdeLifecycleHookInput): Promise<void> {
+    await this.runLifecycleHooksForProject(input.projectRoot, input.event, {
+      userId: input.userId,
+      projectId: input.projectId,
+      chatId: input.chatId,
+      agentSessionId: input.agentSessionId,
+      turnId: input.turnId,
     });
   }
 
@@ -18133,8 +19112,7 @@ export class LocalAdeService {
     const projectContext = await this.resolveProjectContext(userId);
     const state = await readCapabilityState(projectContext.rootPath);
     const [
-      agents,
-      activeAgentId,
+      agentList,
       markdownCapabilities,
       commands,
       skills,
@@ -18156,52 +19134,51 @@ export class LocalAdeService {
       acpReplayPresetDocument,
       recentStoredSessions,
       storage,
-    ] =
-      await Promise.all([
-        this.agentRepo.findAll(userId),
-        this.agentRepo.getActiveId(userId),
-        discoverCapabilityFiles({
-          rootPath: projectContext.rootPath,
-          state,
-          homePath: os.homedir(),
-        }),
-        discoverCommandFiles({
-          rootPath: projectContext.rootPath,
-          state,
-          homePath: os.homedir(),
-        }),
-        discoverSkillFiles({
-          rootPath: projectContext.rootPath,
-          state,
-          homePath: os.homedir(),
-        }),
-        discoverOutputStyleFiles({
-          rootPath: projectContext.rootPath,
-          state,
-          homePath: os.homedir(),
-        }),
-        discoverSubagentFiles({
-          rootPath: projectContext.rootPath,
-          state,
-          homePath: os.homedir(),
-        }),
-        readProjectMemory(projectContext.rootPath, state),
-        readProjectMemoryPresetDocument(projectContext.rootPath),
-        readRepoIndexDocument(projectContext.rootPath),
-        readHookDocument(projectContext.rootPath),
-        readPluginDocument(projectContext.rootPath),
-        readPluginRegistryStateDocument(projectContext.rootPath),
-        readMcpDocument(projectContext.rootPath),
-        readMcpAgentInvocations(projectContext.rootPath),
-        readProviderHealthDocument(projectContext.rootPath),
-        readCheckpointDocument(projectContext.rootPath),
-        readGitSnapshot(projectContext.rootPath),
-        this.logStore.query({ userId, order: "desc", limit: 20 }),
-        this.logStore.query({ acpOnly: true, order: "desc", limit: 200 }),
-        readAcpReplayPresetDocument(projectContext.rootPath),
-        this.sessionRepo.findAll(userId, { limit: 100 }).catch(() => []),
-        this.sessionRepo.getStorageStats().catch(() => null),
-      ]);
+    ] = await Promise.all([
+      this.agentRepo.listByProjectWithActiveState(undefined, userId),
+      discoverCapabilityFiles({
+        rootPath: projectContext.rootPath,
+        state,
+        homePath: os.homedir(),
+      }),
+      discoverCommandFiles({
+        rootPath: projectContext.rootPath,
+        state,
+        homePath: os.homedir(),
+      }),
+      discoverSkillFiles({
+        rootPath: projectContext.rootPath,
+        state,
+        homePath: os.homedir(),
+      }),
+      discoverOutputStyleFiles({
+        rootPath: projectContext.rootPath,
+        state,
+        homePath: os.homedir(),
+      }),
+      discoverSubagentFiles({
+        rootPath: projectContext.rootPath,
+        state,
+        homePath: os.homedir(),
+      }),
+      readProjectMemory(projectContext.rootPath, state),
+      readProjectMemoryPresetDocument(projectContext.rootPath),
+      readRepoIndexDocument(projectContext.rootPath),
+      readHookDocument(projectContext.rootPath),
+      readPluginDocument(projectContext.rootPath),
+      readPluginRegistryStateDocument(projectContext.rootPath),
+      readMcpDocument(projectContext.rootPath),
+      readMcpAgentInvocations(projectContext.rootPath),
+      readProviderHealthDocument(projectContext.rootPath),
+      readCheckpointDocument(projectContext.rootPath),
+      readGitSnapshot(projectContext.rootPath),
+      this.logStore.query({ userId, order: "desc", limit: 20 }),
+      this.logStore.query({ acpOnly: true, order: "desc", limit: 200 }),
+      readAcpReplayPresetDocument(projectContext.rootPath),
+      this.sessionRepo.findAll(userId, { limit: 100 }).catch(() => []),
+      this.sessionRepo.getStorageStats().catch(() => null),
+    ]);
+    const { agents, activeAgentId } = agentList;
 
     const defaultModel = this.appConfigService.getConfig().defaultModel.trim();
     const providers = await providerDescriptorsFromAgents(
@@ -18217,11 +19194,11 @@ export class LocalAdeService {
             provider.modelList.includes(defaultModel)
         )
       : undefined;
-    const defaultModelStatus = !defaultModel
-      ? "not-set"
-      : defaultModelProvider
+    const defaultModelStatus = defaultModel
+      ? defaultModelProvider
         ? "selected"
-        : "unverified";
+        : "unverified"
+      : "not-set";
     const hooks = toVisibleHooks(projectContext.rootPath, hookDocument);
     const plugins = toVisiblePlugins(projectContext.rootPath, pluginDocument);
     const pluginRegistries = toVisiblePluginRegistries(
@@ -18250,18 +19227,20 @@ export class LocalAdeService {
         ...pluginCapabilities(plugins),
         ...providerCapabilities(providers),
         ...createMcpCapabilities(projectContext.rootPath, mcpServers),
-        ...projectMemory.sources.map((source): CapabilityDescriptor => ({
-          id: source.id,
-          kind: "skill",
-          name: source.label,
-          description: `Project memory source: ${source.relativePath}`,
-          scope: "project",
-          enabled: source.enabled,
-          sourcePath: source.sourcePath,
-          storage: "filesystem-discovery",
-          tags: ["project-memory"],
-          diagnostics: source.warnings,
-        })),
+        ...projectMemory.sources.map(
+          (source): CapabilityDescriptor => ({
+            id: source.id,
+            kind: "skill",
+            name: source.label,
+            description: `Project memory source: ${source.relativePath}`,
+            scope: "project",
+            enabled: source.enabled,
+            sourcePath: source.sourcePath,
+            storage: "filesystem-discovery",
+            tags: ["project-memory"],
+            diagnostics: source.warnings,
+          })
+        ),
       ],
       [
         "Filesystem discovery is active for skills, commands, output styles, memory, and MCP descriptors.",
@@ -18299,7 +19278,9 @@ export class LocalAdeService {
       replayPresets: acpReplayPresetDocument.presets,
     });
 
-    const totalStored = await this.sessionRepo.countAll(userId).catch(() => null);
+    const totalStored = await this.sessionRepo
+      .countAll(userId)
+      .catch(() => null);
     const background = this.getBackgroundRunnerState();
 
     return {
@@ -18351,9 +19332,15 @@ export class LocalAdeService {
           ),
         })),
       },
-      projectIndex: toRepoIndexSnapshot(projectContext.rootPath, repoIndexDocument),
+      projectIndex: toRepoIndexSnapshot(
+        projectContext.rootPath,
+        repoIndexDocument
+      ),
       hooks: {
-        configPath: path.join(ensureProjectDataDir(projectContext.rootPath), HOOKS_FILE),
+        configPath: path.join(
+          ensureProjectDataDir(projectContext.rootPath),
+          HOOKS_FILE
+        ),
         lifecyclePolicy: visibleHookLifecyclePolicy(
           hookDocument.lifecyclePolicy
         ),
@@ -18365,7 +19352,10 @@ export class LocalAdeService {
         recentBatches: hookDocument.batches,
       },
       plugins: {
-        configPath: path.join(ensureProjectDataDir(projectContext.rootPath), PLUGINS_FILE),
+        configPath: path.join(
+          ensureProjectDataDir(projectContext.rootPath),
+          PLUGINS_FILE
+        ),
         schedulingPolicy: visibleAutomationSchedulingPolicy(
           pluginDocument.schedulingPolicy
         ),
@@ -18376,10 +19366,14 @@ export class LocalAdeService {
         recentBatches: pluginDocument.batches,
         batchPresets: pluginDocument.batchPresets,
         batchSchedules: toVisiblePluginBatchSchedules(pluginDocument),
-        dependencyGraph: analyzePluginDependencies(pluginDocument.plugins).graph,
+        dependencyGraph: analyzePluginDependencies(pluginDocument.plugins)
+          .graph,
       },
       mcp: {
-        configPath: path.join(ensureProjectDataDir(projectContext.rootPath), MCP_FILE),
+        configPath: path.join(
+          ensureProjectDataDir(projectContext.rootPath),
+          MCP_FILE
+        ),
         servers: mcpServers,
         agentRouting: mcpAgentRouting,
       },
@@ -18444,7 +19438,10 @@ export class LocalAdeService {
     userId: string,
     input: ExportAcpActivityInput = {}
   ): Promise<LocalAdeAcpActivityExport> {
-    const projectContext = await this.resolveProjectContext(userId, input.projectId);
+    const projectContext = await this.resolveProjectContext(
+      userId,
+      input.projectId
+    );
     const limit = normalizeAcpTraceExportLimit(input.limit);
     const activeSessions = this.sessionRuntime
       .getAll()
@@ -18473,7 +19470,9 @@ export class LocalAdeService {
       : ownedEntries;
     const snapshot = createAcpActivitySnapshot({
       entries: filteredEntries,
-      totalCandidateEntries: input.chatId ? filteredEntries.length : acpLogs.entries.length,
+      totalCandidateEntries: input.chatId
+        ? filteredEntries.length
+        : acpLogs.entries.length,
       maxEntries: limit,
     });
 
@@ -18520,7 +19519,10 @@ export class LocalAdeService {
     userId: string,
     input: ReplayAcpActivityInput = {}
   ): Promise<LocalAdeAcpActivityReplay> {
-    const projectContext = await this.resolveProjectContext(userId, input.projectId);
+    const projectContext = await this.resolveProjectContext(
+      userId,
+      input.projectId
+    );
     const limit = normalizeAcpTraceExportLimit(input.limit);
     const activeSessions = this.sessionRuntime
       .getAll()
@@ -18567,7 +19569,9 @@ export class LocalAdeService {
         : chronologicalEntries;
     const snapshot = createAcpActivitySnapshot({
       entries: filteredEntries,
-      totalCandidateEntries: input.chatId ? filteredEntries.length : acpLogs.entries.length,
+      totalCandidateEntries: input.chatId
+        ? filteredEntries.length
+        : acpLogs.entries.length,
       maxEntries: limit,
     });
     const diagnostics = [...snapshot.diagnostics];
@@ -18583,7 +19587,9 @@ export class LocalAdeService {
       projectRoot: projectContext.rootPath,
       filters: {
         ...(input.chatId ? { chatId: input.chatId } : {}),
-        ...(input.correlationKey ? { correlationKey: input.correlationKey } : {}),
+        ...(input.correlationKey
+          ? { correlationKey: input.correlationKey }
+          : {}),
         ...(normalizedKind ? { kind: normalizedKind } : {}),
         limit,
       },
@@ -18618,7 +19624,9 @@ export class LocalAdeService {
       limit: normalizeAcpTraceExportLimit(input.limit),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      ...(existing?.lastReplayedAt ? { lastReplayedAt: existing.lastReplayedAt } : {}),
+      ...(existing?.lastReplayedAt
+        ? { lastReplayedAt: existing.lastReplayedAt }
+        : {}),
     };
     const nextPresets = [
       preset,
@@ -18875,7 +19883,9 @@ export class LocalAdeService {
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readHookDocument(context.rootPath);
-    const current = visibleAutomationSchedulingPolicy(document.schedulingPolicy);
+    const current = visibleAutomationSchedulingPolicy(
+      document.schedulingPolicy
+    );
     document.schedulingPolicy = {
       enabled: input.enabled ?? current.enabled,
       maxConcurrentRuns:
@@ -18916,7 +19926,9 @@ export class LocalAdeService {
       operation: "manual-run",
       fingerprint: operationFingerprint,
       approvedAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + HOOK_RUN_APPROVAL_TTL_MS).toISOString(),
+      expiresAt: new Date(
+        now.getTime() + HOOK_RUN_APPROVAL_TTL_MS
+      ).toISOString(),
     };
     document.approvals = pruneHookRunApprovals([
       ...document.approvals.filter(
@@ -18928,7 +19940,10 @@ export class LocalAdeService {
     return await this.snapshot(userId);
   }
 
-  async runHook(userId: string, input: RunHookInput): Promise<LocalAdeSnapshot> {
+  async runHook(
+    userId: string,
+    input: RunHookInput
+  ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readHookDocument(context.rootPath);
     const hook = document.hooks.find((item) => item.id === input.hookId);
@@ -18951,7 +19966,10 @@ export class LocalAdeService {
       );
     }
     const approvalExpiresMs = Date.parse(approval.expiresAt);
-    if (!Number.isFinite(approvalExpiresMs) || approvalExpiresMs <= Date.now()) {
+    if (
+      !Number.isFinite(approvalExpiresMs) ||
+      approvalExpiresMs <= Date.now()
+    ) {
       throw new Error(
         `Hook run operation approval expired before execution: ${hook.name}`
       );
@@ -18969,7 +19987,11 @@ export class LocalAdeService {
         hook,
         event: normalizeHookEvent(hook.event),
         batchId: `hook-manual-${randomUUID()}`,
-        message: automationSchedulingBlockMessage("hook", hook.name, slot.state),
+        message: automationSchedulingBlockMessage(
+          "hook",
+          hook.name,
+          slot.state
+        ),
       });
     } else {
       try {
@@ -18994,7 +20016,9 @@ export class LocalAdeService {
     assertHookBatchConfirmation(input.confirmation);
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readHookDocument(context.rootPath);
-    const hookIds = [...new Set(input.hookIds.map((id) => id.trim()).filter(Boolean))];
+    const hookIds = [
+      ...new Set(input.hookIds.map((id) => id.trim()).filter(Boolean)),
+    ];
     if (hookIds.length === 0) {
       throw new Error("Hook batch requires at least one hook id.");
     }
@@ -19126,7 +20150,10 @@ export class LocalAdeService {
       startedMs,
       diagnostics,
     });
-    document.runs = [...batchRuns].reverse().concat(document.runs).slice(0, MAX_HOOK_RUNS);
+    document.runs = [...batchRuns]
+      .reverse()
+      .concat(document.runs)
+      .slice(0, MAX_HOOK_RUNS);
     document.batches = [batch, ...document.batches].slice(0, MAX_HOOK_BATCHES);
     await writeHookDocument(context.rootPath, document);
     return await this.snapshot(userId);
@@ -19204,11 +20231,13 @@ export class LocalAdeService {
       envKeys: input.envKeys,
     });
     const policyPreset = normalizeExecutionPolicyPreset(input.policyPreset);
-    const dependencyIds = input.dependencyIds === undefined
-      ? previous?.dependencyIds ?? []
-      : normalizePluginDependencyIds(input.dependencyIds, id);
+    const dependencyIds =
+      input.dependencyIds === undefined
+        ? (previous?.dependencyIds ?? [])
+        : normalizePluginDependencyIds(input.dependencyIds, id);
     const missingDependencyIds = dependencyIds.filter(
-      (dependencyId) => !document.plugins.some((plugin) => plugin.id === dependencyId)
+      (dependencyId) =>
+        !document.plugins.some((plugin) => plugin.id === dependencyId)
     );
     if (missingDependencyIds.length > 0) {
       throw new Error(
@@ -19229,7 +20258,9 @@ export class LocalAdeService {
         : {}),
       ...(previous?.trustedAt ? { trustedAt: previous.trustedAt } : {}),
       ...(previous?.grantedPermissionFingerprint
-        ? { grantedPermissionFingerprint: previous.grantedPermissionFingerprint }
+        ? {
+            grantedPermissionFingerprint: previous.grantedPermissionFingerprint,
+          }
         : {}),
       ...(previous?.permissionGrantedAt
         ? { permissionGrantedAt: previous.permissionGrantedAt }
@@ -19297,9 +20328,13 @@ export class LocalAdeService {
       throw new Error(`Plugin not found: ${input.pluginId}`);
     }
     if (plugin.installSource !== "signed-package") {
-      throw new Error(`Plugin is not installed from a signed package: ${plugin.name}`);
+      throw new Error(
+        `Plugin is not installed from a signed package: ${plugin.name}`
+      );
     }
-    const registryDocument = await readPluginRegistryStateDocument(context.rootPath);
+    const registryDocument = await readPluginRegistryStateDocument(
+      context.rootPath
+    );
     const now = new Date().toISOString();
     try {
       const signedPackage = await readInstalledSignedPluginPackage({
@@ -19332,7 +20367,10 @@ export class LocalAdeService {
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readPluginRegistryStateDocument(context.rootPath);
-    const url = parsePluginDistributionUrl(input.url, "Plugin registry URL").toString();
+    const url = parsePluginDistributionUrl(
+      input.url,
+      "Plugin registry URL"
+    ).toString();
     const id = input.id?.trim() || `registry-${toHashId(input.name, url)}`;
     const previous = document.registries.find((registry) => registry.id === id);
     const now = new Date().toISOString();
@@ -19345,16 +20383,20 @@ export class LocalAdeService {
       ...(sameUrl && previous?.trustedFingerprint
         ? { trustedFingerprint: previous.trustedFingerprint }
         : {}),
-      ...(sameUrl && previous?.trustedAt ? { trustedAt: previous.trustedAt } : {}),
+      ...(sameUrl && previous?.trustedAt
+        ? { trustedAt: previous.trustedAt }
+        : {}),
       ...(sameUrl && previous?.lastRefreshAt
         ? { lastRefreshAt: previous.lastRefreshAt }
         : {}),
-      packages: sameUrl ? previous?.packages ?? [] : [],
+      packages: sameUrl ? (previous?.packages ?? []) : [],
       revokedSigners: previous?.revokedSigners ?? [],
-      diagnostics: sameUrl ? previous?.diagnostics ?? [] : [],
+      diagnostics: sameUrl ? (previous?.diagnostics ?? []) : [],
       updatedAt: now,
     };
-    const index = document.registries.findIndex((registry) => registry.id === id);
+    const index = document.registries.findIndex(
+      (registry) => registry.id === id
+    );
     if (index >= 0) {
       document.registries[index] = next;
     } else {
@@ -19370,7 +20412,9 @@ export class LocalAdeService {
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readPluginRegistryStateDocument(context.rootPath);
-    const registry = document.registries.find((item) => item.id === input.registryId);
+    const registry = document.registries.find(
+      (item) => item.id === input.registryId
+    );
     if (!registry) {
       throw new Error(`Plugin registry not found: ${input.registryId}`);
     }
@@ -19394,7 +20438,9 @@ export class LocalAdeService {
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readPluginRegistryStateDocument(context.rootPath);
-    const registry = document.registries.find((item) => item.id === input.registryId);
+    const registry = document.registries.find(
+      (item) => item.id === input.registryId
+    );
     if (!registry) {
       throw new Error(`Plugin registry not found: ${input.registryId}`);
     }
@@ -19411,7 +20457,9 @@ export class LocalAdeService {
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readPluginRegistryStateDocument(context.rootPath);
-    const registry = document.registries.find((item) => item.id === input.registryId);
+    const registry = document.registries.find(
+      (item) => item.id === input.registryId
+    );
     if (!registry) {
       throw new Error(`Plugin registry not found: ${input.registryId}`);
     }
@@ -19457,7 +20505,9 @@ export class LocalAdeService {
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readPluginRegistryStateDocument(context.rootPath);
-    const registry = document.registries.find((item) => item.id === input.registryId);
+    const registry = document.registries.find(
+      (item) => item.id === input.registryId
+    );
     if (!registry) {
       throw new Error(`Plugin registry not found: ${input.registryId}`);
     }
@@ -19487,7 +20537,9 @@ export class LocalAdeService {
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readPluginRegistryStateDocument(context.rootPath);
-    const registry = document.registries.find((item) => item.id === input.registryId);
+    const registry = document.registries.find(
+      (item) => item.id === input.registryId
+    );
     if (!registry) {
       throw new Error(`Plugin registry not found: ${input.registryId}`);
     }
@@ -19527,7 +20579,9 @@ export class LocalAdeService {
     input: InstallPluginRegistryPackageInput
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
-    const registryDocument = await readPluginRegistryStateDocument(context.rootPath);
+    const registryDocument = await readPluginRegistryStateDocument(
+      context.rootPath
+    );
     const registry = registryDocument.registries.find(
       (item) => item.id === input.registryId
     );
@@ -19576,7 +20630,9 @@ export class LocalAdeService {
     });
     const now = new Date().toISOString();
     const next = createStoredPluginFromSignedPackage(signedPackage, now);
-    const index = pluginDocument.plugins.findIndex((plugin) => plugin.id === next.id);
+    const index = pluginDocument.plugins.findIndex(
+      (plugin) => plugin.id === next.id
+    );
     if (index >= 0) {
       pluginDocument.plugins[index] = next;
     } else {
@@ -19662,7 +20718,9 @@ export class LocalAdeService {
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readPluginDocument(context.rootPath);
-    const current = visibleAutomationSchedulingPolicy(document.schedulingPolicy);
+    const current = visibleAutomationSchedulingPolicy(
+      document.schedulingPolicy
+    );
     document.schedulingPolicy = {
       enabled: input.enabled ?? current.enabled,
       maxConcurrentRuns:
@@ -19703,7 +20761,9 @@ export class LocalAdeService {
       operation: "manual-run",
       fingerprint: operationFingerprint,
       approvedAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + PLUGIN_RUN_APPROVAL_TTL_MS).toISOString(),
+      expiresAt: new Date(
+        now.getTime() + PLUGIN_RUN_APPROVAL_TTL_MS
+      ).toISOString(),
     };
     document.approvals = prunePluginRunApprovals([
       ...document.approvals.filter(
@@ -19731,110 +20791,115 @@ export class LocalAdeService {
       params.slot.release();
     };
     try {
-    const policy = effectivePluginPolicy({
-      scopes: params.plugin.scopes,
-      envKeys: params.plugin.envKeys,
-      policyPreset: params.plugin.policyPreset,
-    });
-    const auditsWorkspace = policy.scopes.includes("project-root");
-    const activeSessions = auditsWorkspace
-      ? this.sessionRuntime
-          .getAll()
-          .filter(
-            (session) =>
-              session.userId === params.userId &&
-              path.resolve(session.projectRoot) === path.resolve(params.rootPath)
-          )
-      : [];
-    const sessionAttributions = auditsWorkspace
-      ? await this.collectCheckpointSessionAttributions(
-          params.userId,
-          activeSessions
-        )
-      : [];
-    const checkpointDocument = auditsWorkspace
-      ? await readCheckpointDocument(params.rootPath)
-      : undefined;
-    const beforeStatus = auditsWorkspace
-      ? await readPluginWorkspaceStatus(params.rootPath)
-      : { statusLines: [], diagnostics: [] };
-    const preRunCheckpoint =
-      auditsWorkspace && beforeStatus.statusLines.length > 0
-        ? await createGitCheckpoint({
-            rootPath: params.rootPath,
-            name: `Safety before plugin: ${params.plugin.name}`,
-            sessionIds: activeSessions.map((session) => session.id),
-            sessionAttributions,
-            restoreMode: "apply-patch",
-          })
-        : undefined;
-    let run: LocalAdePluginRun;
-    try {
-      run = await runPluginProcess({
-        rootPath: params.rootPath,
-        plugin: params.plugin,
-        ...(params.batchId ? { batchId: params.batchId } : {}),
+      const policy = effectivePluginPolicy({
+        scopes: params.plugin.scopes,
+        envKeys: params.plugin.envKeys,
+        policyPreset: params.plugin.policyPreset,
       });
-    } finally {
-      releaseSlot();
-    }
-    const afterStatus = auditsWorkspace
-      ? await readPluginWorkspaceStatus(params.rootPath)
-      : { statusLines: [], diagnostics: [] };
-    const workspaceChangedFiles = auditsWorkspace
-      ? pluginWorkspaceChangedFiles(
-          beforeStatus.statusLines,
-          afterStatus.statusLines
-        )
-      : [];
-    const postRunCheckpoint =
-      auditsWorkspace && afterStatus.statusLines.length > 0
-        ? await createGitCheckpoint({
-            rootPath: params.rootPath,
-            name: `Plugin changes after: ${params.plugin.name}`,
-            sessionIds: activeSessions.map((session) => session.id),
-            sessionAttributions,
-          })
+      const auditsWorkspace = policy.scopes.includes("project-root");
+      const activeSessions = auditsWorkspace
+        ? this.sessionRuntime
+            .getAll()
+            .filter(
+              (session) =>
+                session.userId === params.userId &&
+                path.resolve(session.projectRoot) ===
+                  path.resolve(params.rootPath)
+            )
+        : [];
+      const sessionAttributions = auditsWorkspace
+        ? await this.collectCheckpointSessionAttributions(
+            params.userId,
+            activeSessions
+          )
+        : [];
+      const checkpointDocument = auditsWorkspace
+        ? await readCheckpointDocument(params.rootPath)
         : undefined;
-    if (auditsWorkspace) {
-      run = {
-        ...run,
-        ...(preRunCheckpoint ? { preRunCheckpointId: preRunCheckpoint.id } : {}),
-        ...(postRunCheckpoint ? { postRunCheckpointId: postRunCheckpoint.id } : {}),
-        workspaceStatusBefore: beforeStatus.statusLines,
-        workspaceStatusAfter: afterStatus.statusLines,
-        workspaceChangedFiles,
-        diagnostics: [
-          ...run.diagnostics,
-          beforeStatus.statusLines.length > 0
-            ? `Pre-run workspace status lines: ${beforeStatus.statusLines.length}.`
-            : "Pre-run workspace status was clean.",
-          afterStatus.statusLines.length > 0
-            ? `Post-run workspace status lines: ${afterStatus.statusLines.length}.`
-            : "Post-run workspace status is clean.",
-          preRunCheckpoint
-            ? `Plugin pre-run safety checkpoint created: ${preRunCheckpoint.id}.`
-            : "Plugin pre-run safety checkpoint was not needed.",
-          postRunCheckpoint
-            ? `Plugin post-run change checkpoint created: ${postRunCheckpoint.id}.`
-            : "Plugin post-run change checkpoint was not needed.",
-          workspaceChangedFiles.length > 0
-            ? `Plugin workspace changed files: ${workspaceChangedFiles.join(", ")}.`
-            : "Plugin did not change tracked workspace status.",
-          ...beforeStatus.diagnostics,
-          ...afterStatus.diagnostics,
-        ],
-      };
-    }
-    if (checkpointDocument && (preRunCheckpoint || postRunCheckpoint)) {
-      checkpointDocument.checkpoints = [
-        ...(postRunCheckpoint ? [postRunCheckpoint] : []),
-        ...(preRunCheckpoint ? [preRunCheckpoint] : []),
-        ...checkpointDocument.checkpoints,
-      ].slice(0, MAX_CHECKPOINTS);
-      await writeCheckpointDocument(params.rootPath, checkpointDocument);
-    }
-    return run;
+      const beforeStatus = auditsWorkspace
+        ? await readPluginWorkspaceStatus(params.rootPath)
+        : { statusLines: [], diagnostics: [] };
+      const preRunCheckpoint =
+        auditsWorkspace && beforeStatus.statusLines.length > 0
+          ? await createGitCheckpoint({
+              rootPath: params.rootPath,
+              name: `Safety before plugin: ${params.plugin.name}`,
+              sessionIds: activeSessions.map((session) => session.id),
+              sessionAttributions,
+              restoreMode: "apply-patch",
+            })
+          : undefined;
+      let run: LocalAdePluginRun;
+      try {
+        run = await runPluginProcess({
+          rootPath: params.rootPath,
+          plugin: params.plugin,
+          ...(params.batchId ? { batchId: params.batchId } : {}),
+        });
+      } finally {
+        releaseSlot();
+      }
+      const afterStatus = auditsWorkspace
+        ? await readPluginWorkspaceStatus(params.rootPath)
+        : { statusLines: [], diagnostics: [] };
+      const workspaceChangedFiles = auditsWorkspace
+        ? pluginWorkspaceChangedFiles(
+            beforeStatus.statusLines,
+            afterStatus.statusLines
+          )
+        : [];
+      const postRunCheckpoint =
+        auditsWorkspace && afterStatus.statusLines.length > 0
+          ? await createGitCheckpoint({
+              rootPath: params.rootPath,
+              name: `Plugin changes after: ${params.plugin.name}`,
+              sessionIds: activeSessions.map((session) => session.id),
+              sessionAttributions,
+            })
+          : undefined;
+      if (auditsWorkspace) {
+        run = {
+          ...run,
+          ...(preRunCheckpoint
+            ? { preRunCheckpointId: preRunCheckpoint.id }
+            : {}),
+          ...(postRunCheckpoint
+            ? { postRunCheckpointId: postRunCheckpoint.id }
+            : {}),
+          workspaceStatusBefore: beforeStatus.statusLines,
+          workspaceStatusAfter: afterStatus.statusLines,
+          workspaceChangedFiles,
+          diagnostics: [
+            ...run.diagnostics,
+            beforeStatus.statusLines.length > 0
+              ? `Pre-run workspace status lines: ${beforeStatus.statusLines.length}.`
+              : "Pre-run workspace status was clean.",
+            afterStatus.statusLines.length > 0
+              ? `Post-run workspace status lines: ${afterStatus.statusLines.length}.`
+              : "Post-run workspace status is clean.",
+            preRunCheckpoint
+              ? `Plugin pre-run safety checkpoint created: ${preRunCheckpoint.id}.`
+              : "Plugin pre-run safety checkpoint was not needed.",
+            postRunCheckpoint
+              ? `Plugin post-run change checkpoint created: ${postRunCheckpoint.id}.`
+              : "Plugin post-run change checkpoint was not needed.",
+            workspaceChangedFiles.length > 0
+              ? `Plugin workspace changed files: ${workspaceChangedFiles.join(", ")}.`
+              : "Plugin did not change tracked workspace status.",
+            ...beforeStatus.diagnostics,
+            ...afterStatus.diagnostics,
+          ],
+        };
+      }
+      if (checkpointDocument && (preRunCheckpoint || postRunCheckpoint)) {
+        checkpointDocument.checkpoints = [
+          ...(postRunCheckpoint ? [postRunCheckpoint] : []),
+          ...(preRunCheckpoint ? [preRunCheckpoint] : []),
+          ...checkpointDocument.checkpoints,
+        ].slice(0, MAX_CHECKPOINTS);
+        await writeCheckpointDocument(params.rootPath, checkpointDocument);
+      }
+      return run;
     } catch (error) {
       releaseSlot();
       throw error;
@@ -19867,7 +20932,10 @@ export class LocalAdeService {
       );
     }
     const approvalExpiresMs = Date.parse(approval.expiresAt);
-    if (!Number.isFinite(approvalExpiresMs) || approvalExpiresMs <= Date.now()) {
+    if (
+      !Number.isFinite(approvalExpiresMs) ||
+      approvalExpiresMs <= Date.now()
+    ) {
       throw new Error(
         `Plugin run operation approval expired before execution: ${plugin.name}`
       );
@@ -19882,7 +20950,11 @@ export class LocalAdeService {
     if (slot.state.status !== "ready" || !slot.release) {
       const run = createDisabledPluginRun({
         plugin,
-        message: automationSchedulingBlockMessage("plugin", plugin.name, slot.state),
+        message: automationSchedulingBlockMessage(
+          "plugin",
+          plugin.name,
+          slot.state
+        ),
       });
       approval.consumedAt = new Date().toISOString();
       document.runs = [run, ...document.runs].slice(0, MAX_PLUGIN_RUNS);
@@ -19908,7 +20980,9 @@ export class LocalAdeService {
     assertPluginBatchConfirmation(input.confirmation);
     const context = await this.resolveProjectContext(userId, input.projectId);
     const document = await readPluginDocument(context.rootPath);
-    const pluginIds = [...new Set(input.pluginIds.map((id) => id.trim()).filter(Boolean))];
+    const pluginIds = [
+      ...new Set(input.pluginIds.map((id) => id.trim()).filter(Boolean)),
+    ];
     if (pluginIds.length === 0) {
       throw new Error("Plugin batch requires at least one plugin id.");
     }
@@ -19962,11 +21036,13 @@ export class LocalAdeService {
         run = createDisabledPluginRun({
           plugin,
           batchId,
-          message: "Plugin batch skipped this item because its dependency graph contains a cycle.",
+          message:
+            "Plugin batch skipped this item because its dependency graph contains a cycle.",
         });
       }
 
-      const missingDependencyIds = batchPlan.missingDependenciesByPluginId.get(plugin.id) ?? [];
+      const missingDependencyIds =
+        batchPlan.missingDependenciesByPluginId.get(plugin.id) ?? [];
       if (!run && missingDependencyIds.length > 0) {
         run = createDisabledPluginRun({
           plugin,
@@ -20072,8 +21148,14 @@ export class LocalAdeService {
       startedMs,
       diagnostics,
     });
-    document.runs = [...batchRuns].reverse().concat(document.runs).slice(0, MAX_PLUGIN_RUNS);
-    document.batches = [batch, ...document.batches].slice(0, MAX_PLUGIN_BATCHES);
+    document.runs = [...batchRuns]
+      .reverse()
+      .concat(document.runs)
+      .slice(0, MAX_PLUGIN_RUNS);
+    document.batches = [batch, ...document.batches].slice(
+      0,
+      MAX_PLUGIN_BATCHES
+    );
     await writePluginDocument(context.rootPath, document);
     return await this.snapshot(userId);
   }
@@ -20109,12 +21191,15 @@ export class LocalAdeService {
     }
     const presetId = input.id?.trim() || `plugin-batch-preset-${randomUUID()}`;
     const now = new Date().toISOString();
-    const existing = document.batchPresets.find((preset) => preset.id === presetId);
+    const existing = document.batchPresets.find(
+      (preset) => preset.id === presetId
+    );
     const failureMode: LocalAdePluginBatchFailureMode =
       input.failureMode === "stop-on-failure" ? "stop-on-failure" : "continue";
     const pluginNames = pluginIds.map(
       (pluginId) =>
-        document.plugins.find((plugin) => plugin.id === pluginId)?.name ?? pluginId
+        document.plugins.find((plugin) => plugin.id === pluginId)?.name ??
+        pluginId
     );
     const preset: LocalAdePluginBatchPreset = {
       id: presetId,
@@ -20124,7 +21209,9 @@ export class LocalAdeService {
       failureMode,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      ...(existing?.lastRunBatchId ? { lastRunBatchId: existing.lastRunBatchId } : {}),
+      ...(existing?.lastRunBatchId
+        ? { lastRunBatchId: existing.lastRunBatchId }
+        : {}),
       diagnostics: [
         `Preset contains ${pluginIds.length} plugin(s).`,
         `Failure mode: ${failureMode}.`,
@@ -20286,7 +21373,10 @@ export class LocalAdeService {
     );
     let document = await readPluginDocument(context.rootPath);
     const dueSchedules = document.batchSchedules.filter((schedule) => {
-      if (selectedScheduleIds.size > 0 && !selectedScheduleIds.has(schedule.id)) {
+      if (
+        selectedScheduleIds.size > 0 &&
+        !selectedScheduleIds.has(schedule.id)
+      ) {
         return false;
       }
       if (!schedule.enabled) {
@@ -20379,7 +21469,9 @@ export class LocalAdeService {
     userIds: string[];
     now?: string;
   }): Promise<LocalAdePluginBatchScheduleDispatchResult> {
-    const userIds = [...new Set(input.userIds.map((id) => id.trim()).filter(Boolean))];
+    const userIds = [
+      ...new Set(input.userIds.map((id) => id.trim()).filter(Boolean)),
+    ];
     const nowIso = Number.isFinite(Date.parse(input.now ?? ""))
       ? new Date(Date.parse(input.now ?? "")).toISOString()
       : new Date().toISOString();
@@ -20736,7 +21828,9 @@ export class LocalAdeService {
         reconnectCount: 0,
         streamOpenCount: 0,
         notifications: [],
-        diagnostics: ["MCP notification monitor blocked because the server is disabled."],
+        diagnostics: [
+          "MCP notification monitor blocked because the server is disabled.",
+        ],
       });
     } else if (trustStatus !== "trusted") {
       run = createMcpNotificationMonitorRun({
@@ -20766,7 +21860,9 @@ export class LocalAdeService {
           `MCP notification monitor currently supports SSE servers; ${server.transport} notifications are captured during probe and invocation.`,
         ],
       });
-    } else if (!server.url) {
+    } else if (server.url) {
+      run = await watchSseMcpNotifications(server, requestedDurationMs);
+    } else {
       run = createMcpNotificationMonitorRun({
         server,
         status: "failed",
@@ -20777,8 +21873,6 @@ export class LocalAdeService {
         notifications: [],
         diagnostics: ["MCP SSE server is missing URL."],
       });
-    } else {
-      run = await watchSseMcpNotifications(server, requestedDurationMs);
     }
     recordMcpNotificationMonitor(document, server.id, run);
     await writeMcpDocument(context.rootPath, document);
@@ -20842,7 +21936,9 @@ export class LocalAdeService {
         modelStatus: "unknown",
         readiness: "unavailable",
         modelList: [],
-        diagnostics: [`Provider readiness probe failed: ${errorMessage(error)}`],
+        diagnostics: [
+          `Provider readiness probe failed: ${errorMessage(error)}`,
+        ],
         remediation: providerReadinessRemediation({
           providerKind: agent.type,
           command: agent.command.trim(),
@@ -20854,7 +21950,10 @@ export class LocalAdeService {
       })
     );
     const record: ProviderHealthRecord = {
-      status: readiness.readiness === "unavailable" ? "unavailable" : readiness.readiness,
+      status:
+        readiness.readiness === "unavailable"
+          ? "unavailable"
+          : readiness.readiness,
       cliStatus: readiness.cliStatus,
       authStatus: readiness.authStatus,
       modelStatus: readiness.modelStatus,
@@ -20862,7 +21961,9 @@ export class LocalAdeService {
       checkedAt: new Date().toISOString(),
       latencyMs: Date.now() - startedAt,
       ...(readiness.version ? { version: readiness.version } : {}),
-      ...(readiness.modelList.length > 0 ? { modelList: readiness.modelList } : {}),
+      ...(readiness.modelList.length > 0
+        ? { modelList: readiness.modelList }
+        : {}),
       diagnostics: [
         ...readiness.diagnostics,
         `Readiness summary: CLI ${readiness.cliStatus}, auth ${readiness.authStatus}, model ${readiness.modelStatus}.`,
@@ -20913,17 +22014,15 @@ export class LocalAdeService {
     const nextApp = this.appConfigService.validatePatch({
       defaultModel: modelId,
     });
-    const settings = await this.settingsRepo.update({ app: nextApp });
+    const settings = await this.settingsRepo.save({
+      ...current,
+      app: nextApp,
+    });
     this.appConfigService.reloadFromSettings(settings);
     if (current.app.defaultModel !== settings.app.defaultModel) {
-      await this.eventBus?.publish({
-        type: "settings_updated",
+      await this.settingsChangeNotifier.publishSettingsChanged({
         changedKeys: ["app.defaultModel"],
         requiresRestart: [],
-      });
-      await this.eventBus?.publish({
-        type: "dashboard_refresh",
-        reason: "settings_updated",
       });
     }
 
@@ -20937,17 +22036,15 @@ export class LocalAdeService {
     await this.resolveProjectContext(userId, input.projectId);
     const current = await this.settingsRepo.get();
     const nextApp = this.appConfigService.validatePatch({ defaultModel: "" });
-    const settings = await this.settingsRepo.update({ app: nextApp });
+    const settings = await this.settingsRepo.save({
+      ...current,
+      app: nextApp,
+    });
     this.appConfigService.reloadFromSettings(settings);
     if (current.app.defaultModel !== settings.app.defaultModel) {
-      await this.eventBus?.publish({
-        type: "settings_updated",
+      await this.settingsChangeNotifier.publishSettingsChanged({
         changedKeys: ["app.defaultModel"],
         requiresRestart: [],
-      });
-      await this.eventBus?.publish({
-        type: "dashboard_refresh",
-        reason: "settings_updated",
       });
     }
     return await this.snapshot(userId);
@@ -21025,7 +22122,9 @@ export class LocalAdeService {
     }
     const expectedConfirmation = checkpointRestoreToken(checkpoint);
     if (input.confirmation.trim() !== expectedConfirmation) {
-      throw new Error(`Type '${expectedConfirmation}' to restore this checkpoint.`);
+      throw new Error(
+        `Type '${expectedConfirmation}' to restore this checkpoint.`
+      );
     }
     const preview = await readCheckpointPreview({
       rootPath: context.rootPath,
@@ -21119,7 +22218,9 @@ export class LocalAdeService {
     }
     const expectedConfirmation = checkpointRestoreToken(checkpoint);
     if (input.confirmation.trim() !== expectedConfirmation) {
-      throw new Error(`Type '${expectedConfirmation}' to shelve checkpoint blockers.`);
+      throw new Error(
+        `Type '${expectedConfirmation}' to shelve checkpoint blockers.`
+      );
     }
     const preview = await readCheckpointPreview({
       rootPath: context.rootPath,
@@ -21134,7 +22235,10 @@ export class LocalAdeService {
 
     const updatedCheckpoint: LocalAdeCheckpoint = {
       ...checkpoint,
-      conflictShelves: [shelf, ...(checkpoint.conflictShelves ?? [])].slice(0, 12),
+      conflictShelves: [shelf, ...(checkpoint.conflictShelves ?? [])].slice(
+        0,
+        12
+      ),
       diagnostics: [
         `Checkpoint conflict blockers shelved at ${shelf.shelfPath}.`,
         ...checkpoint.diagnostics,
@@ -21174,7 +22278,9 @@ export class LocalAdeService {
       throw new Error(`Checkpoint not found: ${input.checkpointId}`);
     }
     if (input.resolution !== "restore" && input.resolution !== "current") {
-      throw new Error(`Unsupported tracked checkpoint resolution: ${input.resolution}`);
+      throw new Error(
+        `Unsupported tracked checkpoint resolution: ${input.resolution}`
+      );
     }
     const selectedFiles = normalizeCheckpointRestoreFiles(input.files);
     const expectedConfirmation = checkpointRestoreToken(checkpoint);
@@ -21187,9 +22293,12 @@ export class LocalAdeService {
       rootPath: context.rootPath,
       checkpoint,
     });
-    const risksByFile = new Map(preview.restoreRisks.map((risk) => [risk.file, risk]));
+    const risksByFile = new Map(
+      preview.restoreRisks.map((risk) => [risk.file, risk])
+    );
     const unsupported = selectedFiles.filter(
-      (file) => !isResolvableTrackedCheckpointConflictRisk(risksByFile.get(file))
+      (file) =>
+        !isResolvableTrackedCheckpointConflictRisk(risksByFile.get(file))
     );
     if (unsupported.length > 0) {
       throw new Error(
@@ -21334,9 +22443,12 @@ export class LocalAdeService {
       rootPath: context.rootPath,
       checkpoint,
     });
-    const risksByFile = new Map(preview.restoreRisks.map((risk) => [risk.file, risk]));
+    const risksByFile = new Map(
+      preview.restoreRisks.map((risk) => [risk.file, risk])
+    );
     const unsupported = selectedPatch.files.filter(
-      (file) => !isResolvableTrackedCheckpointConflictRisk(risksByFile.get(file))
+      (file) =>
+        !isResolvableTrackedCheckpointConflictRisk(risksByFile.get(file))
     );
     if (unsupported.length > 0) {
       throw new Error(
@@ -21424,7 +22536,9 @@ export class LocalAdeService {
       partialRestores: partialRestoresWithSafety,
       diagnostics: [
         ...(safetyToStore
-          ? [`Tracked-conflict hunk safety checkpoint created: ${safetyToStore.id}.`]
+          ? [
+              `Tracked-conflict hunk safety checkpoint created: ${safetyToStore.id}.`,
+            ]
           : [
               "Tracked-conflict hunk safety checkpoint was empty and was not retained.",
             ]),
@@ -21465,7 +22579,9 @@ export class LocalAdeService {
     const selectedFiles = normalizeCheckpointRestoreFiles(input.files);
     const expectedConfirmation = checkpointRestoreToken(checkpoint);
     if (input.confirmation.trim() !== expectedConfirmation) {
-      throw new Error(`Type '${expectedConfirmation}' to restore selected files.`);
+      throw new Error(
+        `Type '${expectedConfirmation}' to restore selected files.`
+      );
     }
 
     const activeSessions = this.sessionRuntime
@@ -21530,7 +22646,9 @@ export class LocalAdeService {
       diagnostics: [
         ...(safetyToStore
           ? [`Selected-file safety checkpoint created: ${safetyToStore.id}.`]
-          : ["Selected-file safety checkpoint was empty and was not retained."]),
+          : [
+              "Selected-file safety checkpoint was empty and was not retained.",
+            ]),
         ...restored.checkpoint.diagnostics,
       ],
     };
@@ -21567,7 +22685,9 @@ export class LocalAdeService {
     }
     const expectedConfirmation = checkpointRestoreToken(checkpoint);
     if (input.confirmation.trim() !== expectedConfirmation) {
-      throw new Error(`Type '${expectedConfirmation}' to restore selected hunks.`);
+      throw new Error(
+        `Type '${expectedConfirmation}' to restore selected hunks.`
+      );
     }
 
     const selectedPatch = await buildSelectedCheckpointHunkPatch({
@@ -21646,7 +22766,9 @@ export class LocalAdeService {
       diagnostics: [
         ...(safetyToStore
           ? [`Selected-hunk safety checkpoint created: ${safetyToStore.id}.`]
-          : ["Selected-hunk safety checkpoint was empty and was not retained."]),
+          : [
+              "Selected-hunk safety checkpoint was empty and was not retained.",
+            ]),
         ...restored.checkpoint.diagnostics,
       ],
     };
@@ -21669,7 +22791,10 @@ export class LocalAdeService {
     userId: string,
     activeSessions: RuntimeSession[]
   ): Promise<LocalAdeCheckpointSessionAttribution[]> {
-    const limited = activeSessions.slice(0, MAX_CHECKPOINT_SESSION_ATTRIBUTIONS);
+    const limited = activeSessions.slice(
+      0,
+      MAX_CHECKPOINT_SESSION_ATTRIBUTIONS
+    );
     const attributions = await Promise.all(
       limited.map(async (session) => {
         const active = runtimeCheckpointAttribution(session);
@@ -21721,10 +22846,8 @@ export class LocalAdeService {
     userId: string,
     projectId?: string
   ): Promise<ProjectContext> {
-    const [projects, activeProjectId] = await Promise.all([
-      this.projectRepo.findAll(userId),
-      this.projectRepo.getActiveId(userId),
-    ]);
+    const { projects, activeProjectId } =
+      await this.projectRepo.listWithActiveState(userId);
     const targetProjectId = projectId ?? activeProjectId ?? undefined;
     const activeProject =
       (targetProjectId

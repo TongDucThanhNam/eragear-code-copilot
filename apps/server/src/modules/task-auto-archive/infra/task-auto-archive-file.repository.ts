@@ -7,10 +7,16 @@ import {
   type TaskAutoArchiveSettings,
   TaskAutoArchiveSettingsSchema,
 } from "../application/contracts/task-auto-archive.contract";
-import type { TaskAutoArchiveRepositoryPort } from "../application/ports/task-auto-archive-repository.port";
+import type {
+  MutableTaskAutoArchiveStoreSnapshot,
+  TaskAutoArchiveRepositoryPort,
+  TaskAutoArchiveStoreSnapshot,
+} from "../application/ports/task-auto-archive-repository.port";
+
+const DOCUMENT_VERSION = 1;
 
 const TaskAutoArchiveFileSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(DOCUMENT_VERSION),
   settingsByUserId: z.record(z.string(), TaskAutoArchiveSettingsSchema),
   lastRunByUserId: z.record(z.string(), TaskAutoArchiveRunResultSchema),
 });
@@ -26,33 +32,21 @@ export class TaskAutoArchiveFileRepository
     this.filePath = deps.filePath;
   }
 
-  async getSettings(userId: string): Promise<TaskAutoArchiveSettings | null> {
+  async read<T>(
+    reader: (snapshot: TaskAutoArchiveStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readFile();
-    return file.settingsByUserId[userId] ?? null;
+    return await reader(toStoreSnapshot(file));
   }
 
-  async saveSettings(
-    userId: string,
-    settings: TaskAutoArchiveSettings
-  ): Promise<TaskAutoArchiveSettings> {
+  async mutate<T>(
+    mutator: (snapshot: MutableTaskAutoArchiveStoreSnapshot) => T | Promise<T>
+  ): Promise<T> {
     const file = await this.readFile();
-    file.settingsByUserId[userId] = settings;
-    await this.writeFile(file);
-    return settings;
-  }
-
-  async getLastRun(userId: string): Promise<TaskAutoArchiveRunResult | null> {
-    const file = await this.readFile();
-    return file.lastRunByUserId[userId] ?? null;
-  }
-
-  async saveLastRun(
-    userId: string,
-    result: TaskAutoArchiveRunResult
-  ): Promise<void> {
-    const file = await this.readFile();
-    file.lastRunByUserId[userId] = result;
-    await this.writeFile(file);
+    const snapshot = toMutableStoreSnapshot(file);
+    const result = await mutator(snapshot);
+    await this.writeFile(fromMutableStoreSnapshot(snapshot));
+    return result;
   }
 
   private async readFile(): Promise<TaskAutoArchiveFile> {
@@ -62,7 +56,7 @@ export class TaskAutoArchiveFileRepository
     } catch (error) {
       if (isFileNotFound(error)) {
         return {
-          version: 1,
+          version: DOCUMENT_VERSION,
           settingsByUserId: {},
           lastRunByUserId: {},
         };
@@ -76,6 +70,67 @@ export class TaskAutoArchiveFileRepository
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, `${JSON.stringify(file, null, 2)}\n`, "utf8");
   }
+}
+
+function toStoreSnapshot(
+  file: TaskAutoArchiveFile
+): TaskAutoArchiveStoreSnapshot {
+  return {
+    settingsByUserId: cloneSettingsByUserId(file.settingsByUserId),
+    lastRunByUserId: cloneLastRunsByUserId(file.lastRunByUserId),
+  };
+}
+
+function toMutableStoreSnapshot(
+  file: TaskAutoArchiveFile
+): MutableTaskAutoArchiveStoreSnapshot {
+  return {
+    settingsByUserId: cloneSettingsByUserId(file.settingsByUserId),
+    lastRunByUserId: cloneLastRunsByUserId(file.lastRunByUserId),
+  };
+}
+
+function fromMutableStoreSnapshot(
+  snapshot: MutableTaskAutoArchiveStoreSnapshot
+): TaskAutoArchiveFile {
+  return TaskAutoArchiveFileSchema.parse({
+    version: DOCUMENT_VERSION,
+    settingsByUserId: cloneSettingsByUserId(snapshot.settingsByUserId),
+    lastRunByUserId: cloneLastRunsByUserId(snapshot.lastRunByUserId),
+  });
+}
+
+function cloneSettingsByUserId(
+  settingsByUserId: Readonly<Record<string, TaskAutoArchiveSettings>>
+): Record<string, TaskAutoArchiveSettings> {
+  return Object.fromEntries(
+    Object.entries(settingsByUserId).map(([userId, settings]) => [
+      userId,
+      { ...settings },
+    ])
+  );
+}
+
+function cloneLastRunsByUserId(
+  lastRunByUserId: Readonly<Record<string, TaskAutoArchiveRunResult>>
+): Record<string, TaskAutoArchiveRunResult> {
+  return Object.fromEntries(
+    Object.entries(lastRunByUserId).map(([userId, result]) => [
+      userId,
+      cloneRunResult(result),
+    ])
+  );
+}
+
+function cloneRunResult(
+  result: TaskAutoArchiveRunResult
+): TaskAutoArchiveRunResult {
+  return {
+    ...result,
+    userIds: [...result.userIds],
+    archivedSessionIds: [...result.archivedSessionIds],
+    diagnostics: [...result.diagnostics],
+  };
 }
 
 function isFileNotFound(error: unknown): boolean {

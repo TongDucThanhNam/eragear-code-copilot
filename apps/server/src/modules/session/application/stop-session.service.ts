@@ -1,10 +1,10 @@
 import { NotFoundError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import { terminateProcessGracefully } from "../../../shared/utils/process-termination.util";
 import { terminateSessionTerminals } from "../../../shared/utils/session-cleanup.util";
 import { SessionRuntimeEntity } from "../domain/session-runtime.entity";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import type { SessionLifecycleNotifier } from "./session-lifecycle.notifier";
 import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const OP = "session.lifecycle.stop";
@@ -19,16 +19,16 @@ const OP = "session.lifecycle.stop";
 export class StopSessionService {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort;
-  private readonly eventBus: EventBusPort;
+  private readonly sessionLifecycleNotifier: SessionLifecycleNotifier;
 
   constructor(
     sessionRepo: SessionRepositoryPort,
     sessionRuntime: SessionRuntimePort,
-    eventBus: EventBusPort
+    sessionLifecycleNotifier: SessionLifecycleNotifier
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
-    this.eventBus = eventBus;
+    this.sessionLifecycleNotifier = sessionLifecycleNotifier;
   }
 
   async execute(userId: string, chatId: string): Promise<{ ok: true }> {
@@ -58,13 +58,14 @@ export class StopSessionService {
       await terminateProcessGracefully(sessionToDelete.proc, {
         forceWindowsTreeTermination: true,
       });
-      await this.sessionRuntime.runExclusive(chatId, async () => {
+      await this.sessionRuntime.runExclusive(chatId, () => {
         assertSessionMutationLock({
           sessionRuntime: this.sessionRuntime,
           chatId,
           op: OP,
         });
         this.sessionRuntime.deleteIfMatch(chatId, sessionToDelete);
+        return Promise.resolve();
       });
     }
 
@@ -77,24 +78,16 @@ export class StopSessionService {
       });
     }
     await this.sessionRepo.updateStatus(chatId, userId, "stopped");
-    await this.eventBus.publish({
-      type: "local_ade_lifecycle",
-      event: "after-agent-session-stop",
+    await this.sessionLifecycleNotifier.agentSessionStopped({
       userId,
       projectRoot: runtimeSession?.projectRoot ?? stored.projectRoot,
-      ...(runtimeSession?.projectId ?? stored.projectId
+      ...((runtimeSession?.projectId ?? stored.projectId)
         ? { projectId: runtimeSession?.projectId ?? stored.projectId }
         : {}),
       chatId,
-      ...(runtimeSession?.sessionId ?? stored.sessionId
+      ...((runtimeSession?.sessionId ?? stored.sessionId)
         ? { agentSessionId: runtimeSession?.sessionId ?? stored.sessionId }
         : {}),
-    });
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "session_stopped",
-      userId,
-      chatId,
     });
     return { ok: true };
   }

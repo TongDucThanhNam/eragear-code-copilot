@@ -12,5 +12,12 @@ export {
   FileWatcherStatusInputSchema,
   UnwatchSessionInputSchema,
 } from "./application/contracts/file-watcher.contract";
-export { FileWatcherService } from "./application/file-watcher.service";
+export {
+  createEventBusFileWatcherNotifier,
+  type EventBusFileWatcherNotifierOptions,
+  type FileWatcherChangedSession,
+  type FileWatcherFileChangedNotification,
+  type FileWatcherNotifier,
+  noopFileWatcherNotifier,
+} from "./application/file-watcher.notifier";
 export type { FileWatcherPort } from "./application/ports/file-watcher.port";

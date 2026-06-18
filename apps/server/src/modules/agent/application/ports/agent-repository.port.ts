@@ -4,6 +4,11 @@ import type {
   AgentUpdateInput,
 } from "@/shared/types/agent.types";
 
+export interface AgentListWithActiveState {
+  agents: AgentConfig[];
+  activeAgentId: string | null;
+}
+
 /**
  * Agent configuration persistence port scoped by user.
  *
@@ -23,12 +28,24 @@ export interface AgentRepositoryPort {
     projectId: string | null | undefined,
     userId: string
   ): Promise<AgentConfig[]>;
+  /** List agents by project and repair missing/dangling active state */
+  listByProjectWithActiveState(
+    projectId: string | null | undefined,
+    userId: string
+  ): Promise<AgentListWithActiveState>;
   /** Create a new agent */
   create(input: AgentInput): Promise<AgentConfig>;
+  /** Create a new agent and set it active when active state is missing/invalid */
+  createAndEnsureActive(input: AgentInput): Promise<AgentConfig>;
   /** Update an existing agent */
   update(input: AgentUpdateInput): Promise<AgentConfig>;
   /** Delete an agent */
   delete(id: string, userId: string): Promise<void>;
+  /** Delete an agent and repair missing/dangling active state */
+  deleteAndRepairActive(
+    id: string,
+    userId: string
+  ): Promise<{ activeAgentId: string | null }>;
   /** Set the active agent */
   setActive(id: string | null, userId: string): Promise<void>;
   /** Ensure default agents exist atomically and return active agent state */

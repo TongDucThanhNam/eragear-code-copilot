@@ -1,5 +1,8 @@
 import path from "node:path";
-import type { ProjectRepositoryPort } from "@/modules/project";
+import type {
+  ProjectRepositoryPort,
+  ResolveActiveProjectService,
+} from "@/modules/project";
 import { NotFoundError, ValidationError } from "@/shared/errors";
 import type { ClockPort } from "@/shared/ports/clock.port";
 import type {
@@ -28,15 +31,18 @@ export interface CreateAutomaticGitCheckpointInput {
 export class GitCheckpointService {
   private readonly checkpoints: GitCheckpointPort;
   private readonly projectRepo: ProjectRepositoryPort;
+  private readonly activeProjectResolver: ResolveActiveProjectService;
   private readonly clock: ClockPort;
 
   constructor(
     checkpoints: GitCheckpointPort,
     projectRepo: ProjectRepositoryPort,
+    activeProjectResolver: ResolveActiveProjectService,
     clock: ClockPort
   ) {
     this.checkpoints = checkpoints;
     this.projectRepo = projectRepo;
+    this.activeProjectResolver = activeProjectResolver;
     this.clock = clock;
   }
 
@@ -129,23 +135,10 @@ export class GitCheckpointService {
       return project;
     }
 
-    const activeProjectId = await this.projectRepo.getActiveId(userId);
-    if (!activeProjectId) {
-      throw new NotFoundError("No active project selected", {
-        module: MODULE,
-        op: OP_LIST_CHECKPOINTS,
-      });
-    }
-
-    const project = await this.projectRepo.findById(activeProjectId, userId);
-    if (!project) {
-      throw new NotFoundError("Active project not found", {
-        module: MODULE,
-        op: OP_RESOLVE_PROJECT,
-        details: { projectId: activeProjectId },
-      });
-    }
-    return project;
+    return await this.activeProjectResolver.execute(userId, {
+      module: MODULE,
+      op: OP_LIST_CHECKPOINTS,
+    });
   }
 
   private async resolveLifecycleProject(

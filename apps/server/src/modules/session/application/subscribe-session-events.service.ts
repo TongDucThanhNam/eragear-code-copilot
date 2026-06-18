@@ -1,11 +1,9 @@
-import { ENV } from "@/config/environment";
 // biome-ignore lint/style/noRestrictedImports: Platform logging utilities needed for session event runtime
 import { shouldEmitRuntimeLog } from "@/platform/logging/runtime-log-level";
 // biome-ignore lint/style/noRestrictedImports: Platform logging utilities needed for session event runtime
 import { createLogger } from "@/platform/logging/structured-logger";
 import { NotFoundError } from "@/shared/errors";
 import type {
-  ActivePromptTask,
   BroadcastEvent,
   ChatSession,
   ChatStatus,
@@ -14,13 +12,11 @@ import {
   cloneBroadcastEvent,
   cloneBroadcastEvents,
 } from "@/shared/utils/broadcast-event.util";
-import {
-  RECONNECT_CHAT_FINISH_TTL_MS,
-  reconcileChatStatusForSubscription,
-} from "@/shared/utils/chat-events.util";
+import { RECONNECT_CHAT_FINISH_TTL_MS } from "@/shared/utils/chat-events.util";
 import { ensureUiMessagePartEventPartId } from "@/shared/utils/ui-message-part-event.util";
 import type { SessionRepositoryPort } from "./ports/session-repository.port";
 import type { SessionRuntimePort } from "./ports/session-runtime.port";
+import { SessionRealtimeGate } from "./session-realtime-gate";
 import { assertSessionMutationLock } from "./session-runtime-lock.assert";
 
 const OP = "session.events.subscribe";
@@ -59,13 +55,17 @@ export interface SessionEventSubscription {
 export class SubscribeSessionEventsService {
   private readonly sessionRuntime: SessionRuntimePort;
   private readonly sessionRepo: SessionRepositoryPort;
+  private readonly realtimeGate: SessionRealtimeGate;
 
   constructor(
     sessionRuntime: SessionRuntimePort,
-    sessionRepo: SessionRepositoryPort
+    sessionRepo: SessionRepositoryPort,
+    realtimeGate?: SessionRealtimeGate
   ) {
     this.sessionRuntime = sessionRuntime;
     this.sessionRepo = sessionRepo;
+    this.realtimeGate =
+      realtimeGate ?? new SessionRealtimeGate({ sessionRuntime, logger });
   }
 
   async execute(
@@ -132,12 +132,7 @@ export class SubscribeSessionEventsService {
           });
         }
 
-        session.idleSinceAt = undefined;
-        clearNoSubscriberAbortTimer(session.activePromptTask);
-        const nextChatStatus = reconcileChatStatusForSubscription(session);
-        if (nextChatStatus !== session.chatStatus) {
-          session.chatStatus = nextChatStatus;
-        }
+        const nextChatStatus = this.realtimeGate.prepareSubscription(session);
 
         const bufferedState = buildBufferedEvents(session);
         const bufferedEvents = bufferedState.events;
@@ -166,7 +161,7 @@ export class SubscribeSessionEventsService {
         session.emitter.on("data", internalListener);
         // Keep subscriberCount synchronized with the actual live listener
         // cardinality to avoid drift under rapid subscribe/release churn.
-        session.subscriberCount = session.emitter.listenerCount("data");
+        this.realtimeGate.recordSubscriptionAttached(session);
         snapshot = {
           session,
           chatStatus: nextChatStatus,
@@ -233,6 +228,7 @@ export class SubscribeSessionEventsService {
 
     const session = snapshot.session;
     const internalListener = snapshot.internalListener;
+    const realtimeGate = this.realtimeGate;
     return {
       source: "runtime" as const,
       chatStatus: snapshot.chatStatus,
@@ -269,91 +265,14 @@ export class SubscribeSessionEventsService {
         pendingLiveEvents.length = 0;
         pendingLiveEventIndexByKey.clear();
         session.emitter.off("data", internalListener);
-        await sessionRuntime.runExclusive(chatId, async () => {
-          assertSessionMutationLock({
-            sessionRuntime,
-            chatId,
-            op: OP,
-          });
-          const current = sessionRuntime.get(chatId);
-          if (!current || current.userId !== session.userId) {
-            return;
-          }
-          // Only decrement when the runtime still points to the same live
-          // emitter channel that this subscription incremented. This prevents
-          // stale release calls from dropping subscriberCount on a newer,
-          // unrelated runtime channel.
-          const sameChannel =
-            current === session || current.emitter === session.emitter;
-          if (!sameChannel) {
-            return;
-          }
-          current.subscriberCount = current.emitter.listenerCount("data");
-          if (current.subscriberCount <= 0) {
-            current.idleSinceAt = Date.now();
-            scheduleNoSubscriberPromptAbort(chatId, sessionRuntime, current);
-          } else {
-            clearNoSubscriberAbortTimer(current.activePromptTask);
-          }
+        await realtimeGate.releaseSubscription({
+          chatId,
+          session,
+          op: OP,
         });
       },
     };
   }
-}
-
-function clearNoSubscriberAbortTimer(task: ActivePromptTask | undefined): void {
-  if (!task) {
-    return;
-  }
-  if (task.noSubscriberAbortTimer) {
-    clearTimeout(task.noSubscriberAbortTimer);
-    task.noSubscriberAbortTimer = undefined;
-  }
-  task.orphanedSinceAt = undefined;
-  task.noSubscriberAbortReason = undefined;
-}
-
-function scheduleNoSubscriberPromptAbort(
-  chatId: string,
-  sessionRuntime: SessionRuntimePort,
-  session: ChatSession
-): void {
-  const task = session.activePromptTask;
-  if (!task) {
-    return;
-  }
-  clearNoSubscriberAbortTimer(task);
-  task.orphanedSinceAt = Date.now();
-  task.noSubscriberAbortReason =
-    "Prompt aborted after realtime subscribers disconnected";
-  task.noSubscriberAbortTimer = setTimeout(() => {
-    void sessionRuntime.runExclusive(chatId, async () => {
-      const current = sessionRuntime.get(chatId);
-      if (!current || current !== session) {
-        return;
-      }
-      const currentTask = current.activePromptTask;
-      if (!currentTask || currentTask.turnId !== task.turnId) {
-        return;
-      }
-      current.subscriberCount = current.emitter.listenerCount("data");
-      if (current.subscriberCount > 0) {
-        clearNoSubscriberAbortTimer(currentTask);
-        return;
-      }
-      const reason =
-        currentTask.noSubscriberAbortReason ??
-        "Prompt aborted after realtime subscribers disconnected";
-      clearNoSubscriberAbortTimer(currentTask);
-      currentTask.abortController?.abort(reason);
-      logger.warn("Aborted orphaned prompt after subscriber grace period", {
-        chatId,
-        turnId: currentTask.turnId,
-        graceMs: ENV.promptNoSubscriberAbortGraceMs,
-      });
-    });
-  }, ENV.promptNoSubscriberAbortGraceMs);
-  task.noSubscriberAbortTimer.unref?.();
 }
 
 function deliverLiveEvent(
@@ -499,10 +418,16 @@ function buildBufferedEvents(session: ChatSession): {
           const activeMsg = effectiveSnapshots[activeIndex];
           limitedSnapshots = activeMsg ? [...tail, activeMsg] : tail;
         } else {
-          limitedSnapshots = effectiveSnapshots.slice(0, INITIAL_SNAPSHOT_MESSAGE_LIMIT);
+          limitedSnapshots = effectiveSnapshots.slice(
+            0,
+            INITIAL_SNAPSHOT_MESSAGE_LIMIT
+          );
         }
       } else {
-        limitedSnapshots = effectiveSnapshots.slice(0, INITIAL_SNAPSHOT_MESSAGE_LIMIT);
+        limitedSnapshots = effectiveSnapshots.slice(
+          0,
+          INITIAL_SNAPSHOT_MESSAGE_LIMIT
+        );
       }
     }
 

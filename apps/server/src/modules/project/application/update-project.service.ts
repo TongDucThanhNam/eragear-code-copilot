@@ -1,9 +1,9 @@
 import type { SettingsRepositoryPort } from "@/modules/settings";
 import { NotFoundError, ValidationError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
 import type { Project, ProjectUpdateInput } from "@/shared/types/project.types";
 import { resolveProjectPath } from "@/shared/utils/project-roots.util";
 import type { ProjectRepositoryPort } from "./ports/project-repository.port";
+import type { ProjectLifecycleNotifier } from "./project-lifecycle.notifier";
 
 /**
  * Updates a user-owned project with normalized name/path data.
@@ -14,23 +14,21 @@ import type { ProjectRepositoryPort } from "./ports/project-repository.port";
 export class UpdateProjectService {
   private readonly projectRepo: ProjectRepositoryPort;
   private readonly settingsRepo: SettingsRepositoryPort;
-  private readonly eventBus: EventBusPort;
+  private readonly projectLifecycleNotifier: ProjectLifecycleNotifier;
 
   constructor(
     projectRepo: ProjectRepositoryPort,
     settingsRepo: SettingsRepositoryPort,
-    eventBus: EventBusPort
+    projectLifecycleNotifier: ProjectLifecycleNotifier
   ) {
     this.projectRepo = projectRepo;
     this.settingsRepo = settingsRepo;
-    this.eventBus = eventBus;
+    this.projectLifecycleNotifier = projectLifecycleNotifier;
   }
 
   async execute(userId: string, input: Omit<ProjectUpdateInput, "userId">) {
     const updated = await this.updateProject(userId, input);
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "project_updated",
+    await this.projectLifecycleNotifier.projectUpdated({
       userId,
       projectId: updated.id,
     });

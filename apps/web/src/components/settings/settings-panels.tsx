@@ -22,6 +22,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -134,11 +142,11 @@ export function SettingsPageHeader({
   action,
 }: SettingsPageHeaderProps) {
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b pb-4">
       <div className="min-w-0">
-        <h1 className="font-semibold text-2xl tracking-tight">{title}</h1>
+        <h1 className="font-semibold text-xl">{title}</h1>
         {description ? (
-          <p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
+          <p className="mt-1 max-w-3xl text-muted-foreground text-xs leading-5">
             {description}
           </p>
         ) : null}
@@ -156,8 +164,8 @@ export function SettingsSection({
   children,
 }: SettingsSectionProps) {
   return (
-    <section className="rounded-md border bg-background">
-      <div className="flex min-h-12 items-start justify-between gap-3 border-b px-4 py-3">
+    <section className="border bg-background">
+      <div className="flex min-h-11 items-start justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 font-medium text-sm">
             <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -171,7 +179,7 @@ export function SettingsSection({
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
 }
@@ -493,9 +501,14 @@ export function AgentSettingsPanel() {
       >
         <div className="grid gap-3 xl:grid-cols-2">
           {isLoading ? (
-            <div className="col-span-full rounded-md border border-dashed p-8 text-center text-muted-foreground">
-              Loading agents...
-            </div>
+            <Empty className="col-span-full min-h-40 border">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <RefreshCw className="animate-spin" />
+                </EmptyMedia>
+                <EmptyTitle>Loading agents</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : null}
 
           {!isLoading
@@ -505,14 +518,14 @@ export function AgentSettingsPanel() {
                 return (
                   <div
                     className={cn(
-                      "flex min-w-0 flex-col gap-4 rounded-md border bg-background p-3 transition-colors",
-                      isActive ? "border-primary ring-1 ring-primary" : ""
+                      "flex min-w-0 flex-col gap-4 border bg-background p-3 transition-colors",
+                      isActive ? "border-primary bg-accent/30" : ""
                     )}
                     key={agent.id}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-2">
-                        <div className="shrink-0 rounded-md bg-muted p-2">
+                        <div className="shrink-0 bg-muted p-2">
                           {getAgentIcon(agent.type, agent.name)}
                         </div>
                         <div className="min-w-0">
@@ -568,7 +581,7 @@ export function AgentSettingsPanel() {
                       </div>
                     </div>
 
-                    <code className="flex min-w-0 items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-muted p-2 text-xs">
+                    <code className="flex min-w-0 items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap bg-muted p-2 text-xs">
                       <Terminal className="inline h-3 w-3 shrink-0" />
                       {agent.command} {args.join(" ")}
                     </code>
@@ -592,9 +605,23 @@ export function AgentSettingsPanel() {
             : null}
 
           {!isLoading && agents.length === 0 ? (
-            <div className="col-span-full rounded-md border border-dashed p-8 text-center text-muted-foreground">
-              No agents configured.
-            </div>
+            <Empty className="col-span-full min-h-48 border">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Terminal />
+                </EmptyMedia>
+                <EmptyTitle>No agents configured</EmptyTitle>
+                <EmptyDescription>
+                  Add an ACP agent before starting a session.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button onClick={handleAddNew} size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Agent
+                </Button>
+              </EmptyContent>
+            </Empty>
           ) : null}
         </div>
       </SettingsSection>

@@ -3,12 +3,21 @@ import type {
   RemoteSession,
 } from "../contracts/remote-control.contract";
 
+export interface RemoteControlStoreSnapshot {
+  devices: readonly RemoteRelayDevice[];
+  sessions: readonly RemoteSession[];
+}
+
+export interface MutableRemoteControlStoreSnapshot {
+  devices: RemoteRelayDevice[];
+  sessions: RemoteSession[];
+}
+
 export interface RemoteControlRepositoryPort {
-  listDevices(userId: string): Promise<RemoteRelayDevice[]>;
-  getDevice(userId: string, deviceId: string): Promise<RemoteRelayDevice | null>;
-  saveDevice(device: RemoteRelayDevice): Promise<RemoteRelayDevice>;
-  deleteDevice(userId: string, deviceId: string): Promise<void>;
-  listSessions(userId: string): Promise<RemoteSession[]>;
-  getSession(userId: string, sessionId: string): Promise<RemoteSession | null>;
-  saveSession(session: RemoteSession): Promise<RemoteSession>;
+  read<T>(
+    reader: (snapshot: RemoteControlStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
+  mutate<T>(
+    mutator: (snapshot: MutableRemoteControlStoreSnapshot) => T | Promise<T>
+  ): Promise<T>;
 }

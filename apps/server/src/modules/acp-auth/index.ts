@@ -1,15 +1,4 @@
 export { AcpAuthService } from "./application/acp-auth.service";
-export {
-  AcpAuthListResultSchema,
-  AcpAuthMethodSchema,
-  AcpAuthRecordSchema,
-  AcpAuthSyncResultSchema,
-  AcpAuthSyncStatusSchema,
-  DeleteAcpAuthInputSchema,
-  ListAcpAuthInputSchema,
-  SyncAcpAuthInputSchema,
-  UpsertAcpAuthInputSchema,
-} from "./application/contracts/acp-auth.contract";
 export type {
   AcpAuthListResult,
   AcpAuthMethod,
@@ -22,9 +11,21 @@ export type {
   SyncAcpAuthInput,
   UpsertAcpAuthInput,
 } from "./application/contracts/acp-auth.contract";
+export {
+  AcpAuthListResultSchema,
+  AcpAuthMethodSchema,
+  AcpAuthRecordSchema,
+  AcpAuthSyncResultSchema,
+  AcpAuthSyncStatusSchema,
+  DeleteAcpAuthInputSchema,
+  ListAcpAuthInputSchema,
+  SyncAcpAuthInputSchema,
+  UpsertAcpAuthInputSchema,
+} from "./application/contracts/acp-auth.contract";
 export type {
   AcpAuthRepositoryPort,
-  AcpAuthSyncPatch,
+  AcpAuthStoreSnapshot,
+  MutableAcpAuthStoreSnapshot,
 } from "./application/ports/acp-auth-repository.port";
 export type {
   CredentialSecretResolverPort,

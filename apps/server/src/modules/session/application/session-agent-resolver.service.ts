@@ -61,25 +61,14 @@ export class SessionAgentResolverService {
       return this.toRuntimeConfig(requestedAgent);
     }
 
-    const activeAgentId = await this.agentRepo.getActiveId(input.userId);
-    if (activeAgentId) {
-      const activeAgent = await this.agentRepo.findById(
-        activeAgentId,
+    const { agents, activeAgentId } =
+      await this.agentRepo.listByProjectWithActiveState(
+        input.projectId,
         input.userId
       );
-      if (
-        activeAgent &&
-        this.isProjectCompatible(activeAgent, input.projectId)
-      ) {
-        return this.toRuntimeConfig(activeAgent);
-      }
-    }
-
-    const fallbackAgents = await this.agentRepo.listByProject(
-      input.projectId,
-      input.userId
-    );
-    const selectedAgent = fallbackAgents[0];
+    const selectedAgent = activeAgentId
+      ? (agents.find((agent) => agent.id === activeAgentId) ?? agents[0])
+      : agents[0];
     if (!selectedAgent) {
       throw new NotFoundError("No agent available for session", {
         module: "session",
@@ -90,19 +79,6 @@ export class SessionAgentResolverService {
       });
     }
     return this.toRuntimeConfig(selectedAgent);
-  }
-
-  private isProjectCompatible(
-    agent: AgentConfig,
-    projectId: string | undefined
-  ): boolean {
-    if (!projectId) {
-      return true;
-    }
-    if (!agent.projectId) {
-      return true;
-    }
-    return agent.projectId === projectId;
   }
 
   private toRuntimeConfig(agent: AgentConfig): SessionAgentRuntimeConfig {

@@ -1,9 +1,13 @@
 import { ValidationError } from "@/shared/errors";
-import type { EventBusPort } from "@/shared/ports/event-bus.port";
-import type { Settings } from "@/shared/types/settings.types";
+import type {
+  AppConfig,
+  Settings,
+  UiSettings,
+} from "@/shared/types/settings.types";
 import { APP_CONFIG_KEYS, type AppConfigService } from "../app-config.service";
 import { SettingsAggregate } from "../domain/settings.entity";
 import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
+import type { SettingsChangeNotifier } from "./settings-change.notifier";
 
 /**
  * Result of one persisted settings update.
@@ -17,28 +21,35 @@ export interface UpdateSettingsResult {
   changedKeys: string[];
 }
 
+export interface SettingsPatch {
+  ui?: Partial<UiSettings>;
+  projectRoots?: string[];
+  mcpServers?: Settings["mcpServers"];
+  app?: Partial<AppConfig>;
+}
+
 /**
- * Applies a validated settings patch and broadcasts the change.
+ * Applies a validated settings patch and reports the settings change.
  *
  * Side effects: app config is reloaded live after persistence, then
- * `settings_updated` and dashboard refresh events are published.
+ * the settings change notifier fans out update notifications.
  */
 export class UpdateSettingsService {
   private readonly settingsRepo: SettingsRepositoryPort;
-  private readonly eventBus: EventBusPort;
+  private readonly settingsChangeNotifier: SettingsChangeNotifier;
   private readonly appConfigService: AppConfigService;
 
   constructor(
     settingsRepo: SettingsRepositoryPort,
-    eventBus: EventBusPort,
+    settingsChangeNotifier: SettingsChangeNotifier,
     appConfigService: AppConfigService
   ) {
     this.settingsRepo = settingsRepo;
-    this.eventBus = eventBus;
+    this.settingsChangeNotifier = settingsChangeNotifier;
     this.appConfigService = appConfigService;
   }
 
-  async execute(patch: Partial<Settings>): Promise<UpdateSettingsResult> {
+  async execute(patch: SettingsPatch): Promise<UpdateSettingsResult> {
     const current = await this.settingsRepo.get();
     const aggregate = new SettingsAggregate(current);
     const normalizedPatch: Partial<Settings> = {};
@@ -77,7 +88,9 @@ export class UpdateSettingsService {
       }
     }
 
-    const settings = await this.settingsRepo.update(normalizedPatch);
+    const settings = await this.settingsRepo.save(
+      mergeSettingsPatch(current, normalizedPatch)
+    );
     this.appConfigService.reloadFromSettings(settings);
     const changedKeys: string[] = [];
     const requiresRestart: string[] = [];
@@ -108,14 +121,9 @@ export class UpdateSettingsService {
       }
     }
 
-    await this.eventBus.publish({
-      type: "settings_updated",
+    await this.settingsChangeNotifier.publishSettingsChanged({
       changedKeys,
       requiresRestart,
-    });
-    await this.eventBus.publish({
-      type: "dashboard_refresh",
-      reason: "settings_updated",
     });
 
     return {
@@ -124,4 +132,22 @@ export class UpdateSettingsService {
       changedKeys,
     };
   }
+}
+
+function mergeSettingsPatch(
+  current: Settings,
+  patch: Partial<Settings>
+): Settings {
+  return {
+    ...current,
+    ...patch,
+    ui: { ...current.ui, ...(patch.ui ?? {}) },
+    mcpServers:
+      patch.mcpServers !== undefined ? patch.mcpServers : current.mcpServers,
+    projectRoots:
+      patch.projectRoots !== undefined
+        ? patch.projectRoots
+        : current.projectRoots,
+    app: { ...current.app, ...(patch.app ?? {}) },
+  };
 }

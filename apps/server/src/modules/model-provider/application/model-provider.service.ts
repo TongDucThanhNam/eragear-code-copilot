@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NotFoundError, ValidationError } from "@/shared/errors";
 import type {
   DeleteModelProviderInput,
@@ -10,11 +11,16 @@ import type {
   ModelProviderMapping,
   ModelProviderMappings,
   ModelProviderRecord,
+  ModelProviderSeed,
   ModelSupportedFormats,
   UpsertModelProviderInput,
 } from "./contracts/model-provider.contract";
+import { ModelProviderRecordSchema } from "./contracts/model-provider.contract";
 import { DEFAULT_MODEL_PROVIDERS } from "./default-model-providers";
-import type { ModelProviderRepositoryPort } from "./ports/model-provider-repository.port";
+import type {
+  ModelProviderRepositoryPort,
+  MutableModelProviderStoreSnapshot,
+} from "./ports/model-provider-repository.port";
 
 const MODULE = "model-provider";
 const FORMAT_ORDER: ModelProviderFormat[] = ["anthropic", "openai", "gemini"];
@@ -27,25 +33,40 @@ const MAPPING_KEYS: Array<keyof ModelProviderMapping> = [
 
 export class ModelProviderService {
   private readonly repository: ModelProviderRepositoryPort;
+  private readonly createId: () => string;
+  private readonly nowMs: () => number;
 
-  constructor(repository: ModelProviderRepositoryPort) {
+  constructor(
+    repository: ModelProviderRepositoryPort,
+    params: { createId?: () => string; nowMs?: () => number } = {}
+  ) {
     this.repository = repository;
+    this.createId = params.createId ?? (() => `provider_${randomUUID()}`);
+    this.nowMs = params.nowMs ?? (() => Date.now());
   }
 
   async list(
     userId: string,
     input?: ListModelProvidersInput
   ): Promise<ModelProviderListResult> {
-    await this.repository.ensureDefaults(userId, DEFAULT_MODEL_PROVIDERS);
-    return await this.repository.list(userId, input);
+    await this.ensureDefaults(userId);
+    return await this.repository.read((snapshot) =>
+      listFromProviders(snapshot.providers, userId, input)
+    );
   }
 
   async get(
     userId: string,
     input: GetModelProviderInput
   ): Promise<ModelProviderRecord> {
-    await this.repository.ensureDefaults(userId, DEFAULT_MODEL_PROVIDERS);
-    const provider = await this.repository.get(userId, input);
+    await this.ensureDefaults(userId);
+    const provider = await this.repository.read(
+      (snapshot) =>
+        snapshot.providers.find(
+          (candidate) =>
+            candidate.userId === userId && candidate.id === input.id
+        ) ?? null
+    );
     if (!provider) {
       throw new NotFoundError("Model provider not found", {
         module: MODULE,
@@ -60,22 +81,139 @@ export class ModelProviderService {
     userId: string,
     input: UpsertModelProviderInput
   ): Promise<ModelProviderRecord> {
-    return await this.repository.upsert(userId, normalizeUpsertInput(input));
+    const normalizedInput = normalizeUpsertInput(input);
+    return await this.repository.mutate((snapshot) => {
+      const now = this.nowMs();
+      const existingIndex = normalizedInput.id
+        ? snapshot.providers.findIndex(
+            (provider) =>
+              provider.userId === userId && provider.id === normalizedInput.id
+          )
+        : -1;
+      const previous =
+        existingIndex >= 0 ? snapshot.providers[existingIndex] : undefined;
+      const provider = ModelProviderRecordSchema.parse({
+        id: previous?.id ?? normalizedInput.id ?? this.createId(),
+        userId,
+        name: normalizedInput.name,
+        endpoints: normalizedInput.endpoints,
+        ...(normalizedInput.credentialId
+          ? { credentialId: normalizedInput.credentialId }
+          : {}),
+        ...(normalizedInput.apiKeyUrl
+          ? { apiKeyUrl: normalizedInput.apiKeyUrl }
+          : {}),
+        models: normalizedInput.models,
+        modelSupportedFormats: normalizedInput.modelSupportedFormats ?? {},
+        providerMappings: normalizedInput.providerMappings ?? {},
+        source: previous?.source ?? "custom",
+        enabled: normalizedInput.enabled ?? previous?.enabled ?? true,
+        createdAt: previous?.createdAt ?? now,
+        updatedAt: now,
+      });
+
+      if (existingIndex >= 0) {
+        snapshot.providers[existingIndex] = provider;
+      } else {
+        snapshot.providers.push(provider);
+      }
+      return provider;
+    });
   }
 
   async delete(
     userId: string,
     input: DeleteModelProviderInput
   ): Promise<DeleteModelProviderResult> {
-    return await this.repository.delete(userId, input);
+    return await this.repository.mutate((snapshot) => {
+      const index = snapshot.providers.findIndex(
+        (provider) => provider.userId === userId && provider.id === input.id
+      );
+      if (index === -1) {
+        throw new NotFoundError("Model provider not found", {
+          module: MODULE,
+          op: "delete",
+          details: { providerId: input.id },
+        });
+      }
+      snapshot.providers.splice(index, 1);
+      return { deleted: true as const };
+    });
   }
 
   async restoreDefaults(userId: string): Promise<ModelProviderListResult> {
-    return await this.repository.restoreDefaults(
-      userId,
-      DEFAULT_MODEL_PROVIDERS
-    );
+    return await this.repository.mutate((snapshot) => {
+      addMissingDefaults(
+        snapshot,
+        userId,
+        DEFAULT_MODEL_PROVIDERS,
+        this.nowMs()
+      );
+      if (!snapshot.seededUserIds.includes(userId)) {
+        snapshot.seededUserIds.push(userId);
+      }
+      return listFromProviders(snapshot.providers, userId, {
+        includeDisabled: true,
+      });
+    });
   }
+
+  private async ensureDefaults(userId: string): Promise<void> {
+    await this.repository.mutate((snapshot) => {
+      if (snapshot.seededUserIds.includes(userId)) {
+        return;
+      }
+      addMissingDefaults(
+        snapshot,
+        userId,
+        DEFAULT_MODEL_PROVIDERS,
+        this.nowMs()
+      );
+      snapshot.seededUserIds.push(userId);
+    });
+  }
+}
+
+function addMissingDefaults(
+  snapshot: MutableModelProviderStoreSnapshot,
+  userId: string,
+  defaults: readonly ModelProviderSeed[],
+  now: number
+): void {
+  const existingIds = new Set(
+    snapshot.providers
+      .filter((provider) => provider.userId === userId)
+      .map((provider) => provider.id)
+  );
+  for (const seed of defaults) {
+    if (existingIds.has(seed.id)) {
+      continue;
+    }
+    snapshot.providers.push(
+      ModelProviderRecordSchema.parse({
+        ...seed,
+        userId,
+        createdAt: now,
+        updatedAt: now,
+      })
+    );
+    existingIds.add(seed.id);
+  }
+}
+
+function listFromProviders(
+  providers: readonly ModelProviderRecord[],
+  userId: string,
+  input?: ListModelProvidersInput
+): ModelProviderListResult {
+  const filteredProviders = providers
+    .filter((provider) => provider.userId === userId)
+    .filter((provider) => input?.includeDisabled || provider.enabled)
+    .sort((left, right) => left.name.localeCompare(right.name));
+  return {
+    providers: filteredProviders,
+    totalCount: filteredProviders.length,
+  };
 }
 
 function normalizeUpsertInput(
