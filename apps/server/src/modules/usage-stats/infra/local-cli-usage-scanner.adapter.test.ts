@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { LocalCliUsageScannerAdapter } from "./local-cli-usage-scanner.adapter";
+import type { PricingSnapshot } from "./usage-pricing";
 import { calculateUsageCost } from "./usage-pricing";
 
 const ORIGINAL_CODEX_HOME = process.env.CODEX_HOME;
@@ -59,7 +60,7 @@ describe("LocalCliUsageScannerAdapter", () => {
     expect(cost.unpricedTokens).toBe(0);
   });
 
-  test("leaves unreleased ZAI coding plan models unpriced at zero cost", () => {
+  test("prices ZAI coding plan GLM 5.2 usage from the bundled snapshot", () => {
     const cost = calculateUsageCost({
       providerId: "zcode",
       modelName: "zai-coding-plan/glm-5.2",
@@ -72,12 +73,74 @@ describe("LocalCliUsageScannerAdapter", () => {
       },
     });
 
-    expect(cost.totalUsd).toBe(0);
-    expect(cost.pricedTokens).toBe(0);
-    expect(cost.unpricedTokens).toBe(170);
+    expect(cost.totalUsd).toBeCloseTo(0.000_365_2, 8);
+    expect(cost.pricedTokens).toBe(170);
+    expect(cost.unpricedTokens).toBe(0);
   });
 
-  test("scans Zcode SQLite usage and normalizes builtin provider hints", async () => {
+  test("prices Zcode Anthropic GLM 5.2 usage through ZAI model inference", () => {
+    const cost = calculateUsageCost({
+      providerId: "zcode",
+      modelName: "zcode-anthropic/glm-5.2",
+      tokens: {
+        inputTokens: 120,
+        outputTokens: 50,
+        cacheInputTokens: 20,
+        cacheOutputTokens: 0,
+        totalTokens: 170,
+      },
+    });
+
+    expect(cost.totalUsd).toBeCloseTo(0.000_365_2, 8);
+    expect(cost.pricedTokens).toBe(170);
+    expect(cost.unpricedTokens).toBe(0);
+  });
+
+  test("prefers canonical ZAI GLM 5.2 pricing over stale zero-cost plan buckets", () => {
+    const staleSnapshot: PricingSnapshot = {
+      _meta: {
+        source: "test",
+        generatedAt: 0,
+        units: "USD per 1M tokens",
+      },
+      providers: {
+        "zai-coding-plan": {
+          "glm-5.2": {
+            input: 0,
+            output: 0,
+            cache_read: 0,
+            cache_write: 0,
+          },
+        },
+        zai: {
+          "glm-5.2": {
+            input: 1.4,
+            output: 4.4,
+            cache_read: 0.26,
+            cache_write: 0,
+          },
+        },
+      },
+    };
+    const cost = calculateUsageCost({
+      providerId: "zcode",
+      modelName: "zai-coding-plan/glm-5.2",
+      pricingSnapshot: staleSnapshot,
+      tokens: {
+        inputTokens: 120,
+        outputTokens: 50,
+        cacheInputTokens: 20,
+        cacheOutputTokens: 0,
+        totalTokens: 170,
+      },
+    });
+
+    expect(cost.totalUsd).toBeCloseTo(0.000_365_2, 8);
+    expect(cost.pricedTokens).toBe(170);
+    expect(cost.unpricedTokens).toBe(0);
+  });
+
+  test("scans Zcode SQLite usage and aggregates provider-prefixed model hints", async () => {
     const tempDir = await mkdtemp(path.join(tmpdir(), "eragear-zcode-usage-"));
     try {
       process.env.ZCODE_CLI_DIR = tempDir;
@@ -103,7 +166,7 @@ describe("LocalCliUsageScannerAdapter", () => {
             provider_total_tokens INTEGER
           );
         `);
-        db.query(
+        const insertUsage = db.query(
           `INSERT INTO model_usage (
             id,
             provider_id,
@@ -119,7 +182,8 @@ describe("LocalCliUsageScannerAdapter", () => {
             computed_total_tokens,
             provider_total_tokens
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
+        );
+        insertUsage.run(
           "usage_1",
           "builtin:zai-coding-plan",
           "GLM-5.2",
@@ -133,6 +197,21 @@ describe("LocalCliUsageScannerAdapter", () => {
           20,
           170,
           170
+        );
+        insertUsage.run(
+          "usage_2",
+          "zcode-anthropic",
+          "glm-5.2",
+          "completed",
+          Date.UTC(2026, 5, 10, 9, 1),
+          Date.UTC(2026, 5, 10, 9, 1, 5),
+          200,
+          100,
+          0,
+          0,
+          40,
+          340,
+          340
         );
       } finally {
         db.close();
@@ -148,15 +227,19 @@ describe("LocalCliUsageScannerAdapter", () => {
       expect(result.providers).toHaveLength(1);
       expect(result.providers[0]?.providerDisplayName).toBe("Zcode Agent");
       expect(result.providers[0]?.status).toBe("ready");
-      expect(result.totals.totalTokens).toBe(170);
-      expect(result.totals.inputTokens).toBe(120);
-      expect(result.totals.outputTokens).toBe(50);
-      expect(result.totals.cacheInputTokens).toBe(20);
-      expect(result.modelUsage[0]?.name).toBe("zai-coding-plan/glm-5.2");
-      expect(result.modelUsage[0]?.cost.totalUsd).toBe(0);
-      expect(result.pricing.pricedTokens + result.pricing.unpricedTokens).toBe(
-        170
-      );
+      expect(result.totals.totalTokens).toBe(510);
+      expect(result.totals.inputTokens).toBe(360);
+      expect(result.totals.outputTokens).toBe(150);
+      expect(result.totals.cacheInputTokens).toBe(60);
+      expect(result.modelUsage).toHaveLength(1);
+      expect(result.modelUsage[0]?.name).toBe("glm-5.2");
+      expect(result.modelUsage[0]?.cost.totalUsd).toBeCloseTo(0.001_095_6, 8);
+      expect(result.providers[0]?.modelUsage).toHaveLength(1);
+      expect(result.providers[0]?.modelUsage[0]?.name).toBe("glm-5.2");
+      expect(result.daily[0]?.breakdown).toHaveLength(1);
+      expect(result.daily[0]?.breakdown[0]?.name).toBe("glm-5.2");
+      expect(result.pricing.pricedTokens).toBe(510);
+      expect(result.pricing.unpricedTokens).toBe(0);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

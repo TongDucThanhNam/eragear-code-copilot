@@ -492,6 +492,10 @@ bun run --cwd apps/server smoke:auth-dashboard
 bun run --cwd apps/web check-types
 bun run --cwd apps/web test:blockers
 
+# Settings navigation / overview workflow checks
+bun test apps/web/src/components/settings/settings-navigation.test.ts
+bun run --cwd apps/web build
+
 # Database workflows
 bun run db:generate
 bun run db:migrate

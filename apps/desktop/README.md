@@ -46,10 +46,25 @@ apps/web renderer
 `apps/server` remains the server/remote/compat host. It can still expose Hono,
 tRPC, and WebSocket transports for non-desktop or remote use.
 
+Desktop-first Remote Connect is owned by `apps/desktop`, not by the legacy
+server host. Electron main can expose a loopback-only Remote Connect bridge and
+optionally run `cloudflared` in front of it. The bridge forwards authenticated
+runtime operations into the private `desktop-service` stdio/IPC channel, so the
+canonical local runtime remains Electron-owned.
+
+Full setup and security details: [`docs/remote-connect.md`](docs/remote-connect.md).
+
 `client-only` desktop mode is reserved for connecting to another Eragear host:
 
 ```bash
 ERAGEAR_DESKTOP_MODE=client-only ERAGEAR_REMOTE_SERVER_URL=wss://host.example.com ERAGEAR_REMOTE_API_KEY=... bun run dev:desktop
+```
+
+For the desktop-only Remote Connect bridge, use `ERAGEAR_REMOTE_CONNECT_TOKEN`
+instead of the legacy remote API key:
+
+```bash
+ERAGEAR_DESKTOP_MODE=client-only ERAGEAR_REMOTE_SERVER_URL=https://host.example.com ERAGEAR_REMOTE_CONNECT_TOKEN=... bun run dev:desktop
 ```
 
 Remote/server mode keeps normal auth/API-key boundaries. The local desktop auth

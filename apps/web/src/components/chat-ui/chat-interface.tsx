@@ -10,11 +10,11 @@ import {
   normalizeInteractionConnStatus,
   resolveDisplayConnStatus,
 } from "@/components/chat-ui/chat-connection-display";
+import { ChatContextRail } from "@/components/chat-ui/chat-context-rail";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
 import { ChatMessagesPane } from "@/components/chat-ui/chat-interface/chat-messages-pane";
 import { ChatPlanDockPane } from "@/components/chat-ui/chat-interface/chat-plan-dock-pane";
 import { ChatInput } from "@/components/chat-ui/chat-input";
-import { TerminalDock } from "@/components/chat-ui/terminal-dock";
 import { prepareSubmitImages } from "@/components/chat-ui/chat-submit-images";
 import {
   resolveLocalCommand,
@@ -216,6 +216,7 @@ export function ChatInterface({
   onChatIdChange,
 }: ChatInterfaceProps) {
   const rightSidebar = useRightSidebarControls();
+  const [isEnvironmentOpen, setIsEnvironmentOpen] = useState(false);
   const utils = trpc.useUtils();
   const { data: agentsData, isLoading: isAgentsLoading } =
     trpc.agents.list.useQuery();
@@ -301,6 +302,21 @@ export function ChatInterface({
   const handleChatError = useCallback((err: string) => {
     toast.error(err);
   }, []);
+  const handleToggleEnvironment = useCallback(() => {
+    if (isEnvironmentOpen) {
+      setIsEnvironmentOpen(false);
+      return;
+    }
+    rightSidebar.close();
+    setIsEnvironmentOpen(true);
+  }, [isEnvironmentOpen, rightSidebar.close]);
+  const handleCloseEnvironment = useCallback(() => {
+    setIsEnvironmentOpen(false);
+  }, []);
+  const handleToggleSidePanel = useCallback(() => {
+    setIsEnvironmentOpen(false);
+    rightSidebar.toggle();
+  }, [rightSidebar.toggle]);
   // Use the unified useChat hook
   const {
     status,
@@ -1718,6 +1734,9 @@ export function ChatInterface({
         onForkChat={chatId ? handleForkChat : undefined}
         onResumeChat={resolvedLoadSessionSupported ? handleResume : undefined}
         onStopChat={handleStopChat}
+        onToggleEnvironment={handleToggleEnvironment}
+        onToggleSidePanel={handleToggleSidePanel}
+        isEnvironmentOpen={isEnvironmentOpen}
         projectName={headerProjectName}
       />
       <WorkspaceSessionTabs
@@ -1787,11 +1806,6 @@ export function ChatInterface({
           <div className="relative border-t bg-background/95 pb-[max(env(safe-area-inset-bottom),0px)] backdrop-blur supports-[backdrop-filter]:bg-background/80">
             <ChatPlanDockPane chatId={chatId} />
             <SubagentStatusStrip invocations={subagents} />
-            <TerminalDock
-              projectId={activeProjectId}
-              projectName={activeProject?.name ?? null}
-              projectPath={activeProject?.path ?? null}
-            />
             <ChatInput
               activeTabs={projectContext?.activeTabs}
               availableCommands={availableCommands}
@@ -1822,6 +1836,15 @@ export function ChatInterface({
             />
           </div>
         </div>
+
+        <ChatContextRail
+          agentName={agentDisplay.name}
+          connStatus={displayConnStatus}
+          isOpen={isEnvironmentOpen}
+          onClose={handleCloseEnvironment}
+          projectName={headerProjectName}
+          projectPath={activeProject?.path ?? null}
+        />
 
         {rightSidebar.isOpen && rightSidebar.render
           ? rightSidebar.render({ onClose: rightSidebar.close })

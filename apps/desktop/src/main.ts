@@ -2,14 +2,32 @@ import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import type {
+  DesktopRemoteConnectStatus,
   DesktopRuntimeMode,
   RuntimeServiceAuth,
   RuntimeServiceOperation,
   RuntimeSecurityPosture,
 } from "@repo/shared";
-import { app, BrowserWindow, ipcMain, Menu, Notification, session } from "electron";
-import type { BrowserWindowConstructorOptions, IpcMainInvokeEvent, WebContents } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  Notification,
+  session,
+} from "electron";
+import type {
+  BrowserWindowConstructorOptions,
+  IpcMainInvokeEvent,
+  OpenDialogOptions,
+  WebContents,
+} from "electron";
 import { DesktopAutoUpdateController } from "./auto-update.js";
+import {
+  DesktopRemoteConnectHost,
+  resolveRemoteConnectConfig,
+} from "./remote-connect.js";
 import { DesktopRuntimeHost } from "./runtime-host.js";
 import {
   createRendererContentSecurityPolicy,
@@ -37,6 +55,8 @@ configureDevelopmentUserDataPath(rendererUrl);
 const remoteRuntimeUrl = normalizeRemoteRuntimeUrl(
   process.env.ERAGEAR_REMOTE_SERVER_URL
 );
+const remoteConnectToken = process.env.ERAGEAR_REMOTE_CONNECT_TOKEN?.trim();
+const remoteConnectCloudflareAccess = resolveRemoteConnectCloudflareAccess();
 const webPreferences: NonNullable<BrowserWindowConstructorOptions["webPreferences"]> = {
   contextIsolation: true,
   nodeIntegration: false,
@@ -58,6 +78,19 @@ const runtimeHost = new DesktopRuntimeHost({
   ...(process.env.ERAGEAR_REMOTE_API_KEY
     ? { remoteApiKey: process.env.ERAGEAR_REMOTE_API_KEY }
     : {}),
+  ...(remoteConnectToken ? { remoteConnectToken } : {}),
+  ...(remoteConnectCloudflareAccess
+    ? { remoteConnectCloudflareAccess }
+    : {}),
+});
+const remoteConnectConfig =
+  desktopMode === "main-thread"
+    ? resolveRemoteConnectConfig(process.env)
+    : { ...resolveRemoteConnectConfig(process.env), enabled: false };
+const remoteConnectHost = new DesktopRemoteConnectHost({
+  config: remoteConnectConfig,
+  runtime: runtimeHost,
+  trustedRuntimeAuth: { localAuthToken },
 });
 const autoUpdateController = new DesktopAutoUpdateController({
   currentVersion: app.getVersion(),
@@ -101,6 +134,19 @@ function normalizeRemoteRuntimeUrl(rawValue: string | undefined): string {
     console.warn(`[desktop] Remote runtime URL is invalid: ${value}`);
     return "";
   }
+}
+
+function resolveRemoteConnectCloudflareAccess():
+  | { clientId: string; clientSecret: string }
+  | undefined {
+  const clientId =
+    process.env.ERAGEAR_REMOTE_CONNECT_CF_ACCESS_CLIENT_ID?.trim();
+  const clientSecret =
+    process.env.ERAGEAR_REMOTE_CONNECT_CF_ACCESS_CLIENT_SECRET?.trim();
+  if (!(clientId && clientSecret)) {
+    return undefined;
+  }
+  return { clientId, clientSecret };
 }
 
 function configureDevelopmentUserDataPath(currentRendererUrl: string): void {
@@ -201,16 +247,26 @@ function createMainWindow(): void {
     minHeight: 640,
     title: "Eragear Copilot",
     autoHideMenuBar: true,
-    titleBarStyle: "hidden",
-    titleBarOverlay: {
-      color: "#111827",
-      symbolColor: "#f9fafb",
-      height: 40,
-    },
+    frame: false,
     webPreferences,
   });
 
   mainWindow.setMenuBarVisibility(false);
+
+  const notifyWindowState = () => {
+    if (!mainWindow || mainWindow.webContents.isDestroyed()) {
+      return;
+    }
+    mainWindow.webContents.send(
+      "eragear:windowStateChanged",
+      getWindowState(mainWindow)
+    );
+  };
+
+  mainWindow.on("maximize", notifyWindowState);
+  mainWindow.on("unmaximize", notifyWindowState);
+  mainWindow.on("enter-full-screen", notifyWindowState);
+  mainWindow.on("leave-full-screen", notifyWindowState);
 
   mainWindow.webContents.on("console-message", (_event, level, message) => {
     const label = level >= 2 ? "renderer:err" : "renderer";
@@ -229,15 +285,31 @@ function createMainWindow(): void {
 }
 
 function getDesktopBootstrap() {
+  const remoteConnect = remoteConnectHost.status();
   return {
     ...runtimeHost.getBootstrap(),
+    ...(remoteConnect.enabled || remoteConnectToken ? { remoteConnect } : {}),
     autoUpdate: autoUpdateController.status(),
+  };
+}
+
+function getWindowFromSender(event: IpcMainInvokeEvent): BrowserWindow | null {
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
+function getWindowState(window: BrowserWindow) {
+  return {
+    isFullScreen: window.isFullScreen(),
+    isMaximized: window.isMaximized(),
   };
 }
 
 ipcMain.handle("eragear:getBootstrap", () => getDesktopBootstrap());
 ipcMain.handle("eragear:getRuntimeDiagnostics", () =>
   runtimeHost.diagnostics()
+);
+ipcMain.handle("eragear:getRemoteConnectStatus", () =>
+  remoteConnectHost.status()
 );
 ipcMain.handle("eragear:checkForUpdates", () =>
   autoUpdateController.checkForUpdates({ notify: true })
@@ -280,6 +352,50 @@ ipcMain.handle(
     await runtimeHost.unsubscribeOperation(input.subscriptionId);
   }
 );
+ipcMain.handle("eragear:window:getState", (event) => {
+  const window = getWindowFromSender(event);
+  return window ? getWindowState(window) : null;
+});
+ipcMain.handle("eragear:window:minimize", (event) => {
+  const window = getWindowFromSender(event);
+  window?.minimize();
+});
+ipcMain.handle("eragear:window:toggleMaximize", (event) => {
+  const window = getWindowFromSender(event);
+  if (!window) {
+    return null;
+  }
+  if (window.isMaximized()) {
+    window.unmaximize();
+  } else {
+    window.maximize();
+  }
+  return getWindowState(window);
+});
+ipcMain.handle("eragear:window:close", (event) => {
+  const window = getWindowFromSender(event);
+  window?.close();
+});
+ipcMain.handle(
+  "eragear:dialog:openProjectFolder",
+  async (event, input?: { defaultPath?: string }) => {
+    const window = getWindowFromSender(event);
+    const defaultPath = input?.defaultPath?.trim();
+    const options: OpenDialogOptions = {
+      ...(defaultPath ? { defaultPath } : {}),
+      properties: ["openDirectory", "createDirectory"],
+      title: "Open Project Folder",
+    };
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options);
+
+    if (result.canceled) {
+      return null;
+    }
+    return result.filePaths[0] ?? null;
+  }
+);
 
 const subscriptionsByWebContents = new WeakMap<WebContents, Set<string>>();
 
@@ -317,8 +433,7 @@ app.on("before-quit", (event) => {
   }
   event.preventDefault();
   quitAfterRuntimeStop = true;
-  runtimeHost
-    .stop()
+  Promise.allSettled([remoteConnectHost.stop(), runtimeHost.stop()])
     .catch((error) => {
       console.warn(
         `[desktop] Local runtime cleanup failed: ${
@@ -336,12 +451,25 @@ app
     Menu.setApplicationMenu(null);
     configureRendererSecurityHeaders();
     const diagnostics = await runtimeHost.start();
+    let remoteConnectStatus: DesktopRemoteConnectStatus | null = null;
+    try {
+      remoteConnectStatus = await remoteConnectHost.start();
+    } catch (error) {
+      console.warn(
+        `[desktop] Remote Connect startup failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      remoteConnectStatus = remoteConnectHost.status();
+    }
     console.log("[desktop] Runtime diagnostics", {
       mode: diagnostics.mode,
       channel: diagnostics.endpoint.kind,
       ready: diagnostics.health.ready,
       processState: diagnostics.childProcess.status,
       securityPosture: diagnostics.securityPosture?.status,
+      remoteConnect: remoteConnectStatus?.bridge.state,
+      remoteTunnel: remoteConnectStatus?.tunnel.state,
     });
     createMainWindow();
     if (process.env.ERAGEAR_DESKTOP_UPDATE_CHECK_ON_STARTUP !== "0") {

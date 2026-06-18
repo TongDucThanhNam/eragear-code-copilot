@@ -42,6 +42,21 @@ import {
   UNKNOWN_PROJECT_ID,
 } from "./nav-project-tree/utils";
 
+const getDesktopProjectFolderPicker = () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return window.eragearDesktop?.openProjectFolder ?? null;
+};
+
+const getProjectNameFromPath = (projectPath: string) => {
+  const normalized = projectPath.trim().replace(/[\\/]+$/, "");
+  if (!normalized) {
+    return "";
+  }
+  return normalized.split(/[\\/]/).pop() ?? "";
+};
+
 export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const navigate = useNavigate();
   const {
@@ -86,6 +101,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
   const [pendingCreateSessionKey, setPendingCreateSessionKey] = useState<
     string | null
   >(null);
+  const [isOpeningProjectFolder, setIsOpeningProjectFolder] = useState(false);
 
   const {
     discoverContext,
@@ -281,6 +297,38 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
       obsidianProjectPath: form.obsidianProjectPath.trim() || undefined,
       techStackTags,
     });
+  };
+
+  const handleOpenProjectFolder = async () => {
+    const openProjectFolder = getDesktopProjectFolderPicker();
+    if (!openProjectFolder) {
+      toast.error("Folder picker is available in the desktop app.");
+      return;
+    }
+
+    setIsOpeningProjectFolder(true);
+    try {
+      const selectedPath = await openProjectFolder({
+        defaultPath: form.path.trim() || undefined,
+      });
+      if (!selectedPath) {
+        return;
+      }
+      setForm((prev) => {
+        const inferredName = getProjectNameFromPath(selectedPath);
+        return {
+          ...prev,
+          name: prev.name.trim() ? prev.name : inferredName,
+          path: selectedPath,
+        };
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to open project folder"
+      );
+    } finally {
+      setIsOpeningProjectFolder(false);
+    }
   };
 
   const handleEditProject = (projectId: string) => {
@@ -728,6 +776,8 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
         isDialogOpen={isDialogOpen}
         isDiscoverDialogOpen={isDiscoverDialogOpen}
         isEditProjectOpen={isEditProjectOpen}
+        isOpenProjectFolderAvailable={Boolean(getDesktopProjectFolderPicker())}
+        isOpenProjectFolderPending={isOpeningProjectFolder}
         isRenameOpen={isRenameOpen}
         isSessionBootstrapPending={isSessionBootstrapPending}
         isUpdateProjectPending={updateProjectMutation.isPending}
@@ -735,6 +785,7 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
         onConfirmDeleteSession={handleConfirmDeleteSession}
         onCreateProjectSubmit={handleSubmit}
         onEditProjectSubmit={handleEditProjectSubmit}
+        onOpenProjectFolder={handleOpenProjectFolder}
         onLoadDiscoveredSession={handleLoadDiscoveredSession}
         onLoadMoreDiscoveredSessions={() => {
           handleLoadMoreDiscoveredSessions();

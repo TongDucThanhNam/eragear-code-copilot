@@ -23,7 +23,7 @@ export type ToolProps = ComponentProps<typeof Collapsible>;
 
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
-    className={cn("not-prose mb-4 w-full rounded-none border", className)}
+    className={cn("not-prose mb-4 w-full rounded-none", className)}
     {...props}
   />
 );
@@ -65,7 +65,6 @@ export const getStatusBadge = (state: ToolHeaderProps["state"]) => {
   return (
     <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
       {icons[state]}
-      {labels[state]}
     </Badge>
   );
 };
@@ -80,7 +79,7 @@ export const ToolHeader = ({
   <CollapsibleTrigger
     className={cn(
       "flex w-full items-center justify-between gap-4 p-3",
-      className
+      className,
     )}
     {...props}
   >
@@ -89,7 +88,6 @@ export const ToolHeader = ({
       <span className="font-medium text-sm">
         {title ?? type.split("-").slice(1).join("-")}
       </span>
-      {getStatusBadge(state)}
     </div>
     <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
   </CollapsibleTrigger>
@@ -101,7 +99,7 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
       "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
-      className
+      className,
     )}
     {...props}
   />
@@ -157,7 +155,7 @@ export const ToolOutput = ({
           "overflow-x-auto rounded-none text-xs [&_table]:w-full",
           errorText
             ? "bg-destructive/10 text-destructive"
-            : "bg-muted/50 text-foreground"
+            : "bg-muted/50 text-foreground",
         )}
       >
         {errorText && (

@@ -406,22 +406,23 @@ function recordUsage(params: {
   addTokens(daily.tokens, params.tokens);
   addCost(daily.cost, cost);
 
-  if (!params.modelName) {
+  const modelUsageName = normalizeModelUsageName(params.modelName);
+  if (!modelUsageName) {
     return;
   }
 
-  addModelTokens(daily.models, params.modelName, params.tokens);
-  addModelCost(daily.modelCosts, params.modelName, cost);
-  addModelTokens(params.usage.modelTotals, params.modelName, params.tokens);
-  addModelCost(params.usage.modelCosts, params.modelName, cost);
+  addModelTokens(daily.models, modelUsageName, params.tokens);
+  addModelCost(daily.modelCosts, modelUsageName, cost);
+  addModelTokens(params.usage.modelTotals, modelUsageName, params.tokens);
+  addModelCost(params.usage.modelCosts, modelUsageName, cost);
 
   if (params.date >= params.recentStart) {
     addModelTokens(
       params.usage.recentModelTotals,
-      params.modelName,
+      modelUsageName,
       params.tokens
     );
-    addModelCost(params.usage.recentModelCosts, params.modelName, cost);
+    addModelCost(params.usage.recentModelCosts, modelUsageName, cost);
   }
 }
 
@@ -551,12 +552,7 @@ function buildCliSummary(params: {
     }
 
     for (const model of provider.modelUsage) {
-      const key = modelKey(provider.providerId, model.name);
-      modelTotals.set(key, {
-        ...model,
-        tokens: cloneTokens(model.tokens),
-        cost: cloneCost(model.cost),
-      });
+      addModelUsageSummary(modelTotals, model.name, model);
     }
 
     for (const model of provider.modelUsage) {
@@ -568,11 +564,7 @@ function buildCliSummary(params: {
       }
       const recentModel = provider.recentFavoriteModel;
       if (recentModel && recentModel.name === model.name) {
-        recentModelTotals.set(modelKey(provider.providerId, model.name), {
-          ...recentModel,
-          tokens: cloneTokens(recentModel.tokens),
-          cost: cloneCost(recentModel.cost),
-        });
+        addModelUsageSummary(recentModelTotals, recentModel.name, recentModel);
       }
     }
   }
@@ -691,6 +683,31 @@ function buildModelUsageRows(
       cost: cloneCost(costMap.get(name) ?? createEmptyCost()),
       share: totalTokens > 0 ? tokens.totalTokens / totalTokens : 0,
     }));
+}
+
+function addModelUsageSummary(
+  map: Map<string, UsageStatsModelUsage>,
+  name: string,
+  model: UsageStatsModelUsage
+): void {
+  const existing = map.get(name);
+  if (!existing) {
+    map.set(name, {
+      name,
+      providerId: model.providerId,
+      providerDisplayName: model.providerDisplayName,
+      tokens: cloneTokens(model.tokens),
+      cost: cloneCost(model.cost),
+      share: 0,
+    });
+    return;
+  }
+
+  addTokens(existing.tokens, model.tokens);
+  addCost(existing.cost, model.cost);
+  if (existing.providerId !== model.providerId) {
+    existing.providerDisplayName = "Multiple providers";
+  }
 }
 
 function sumTokenMap(
@@ -2183,6 +2200,18 @@ function isInRange(date: Date, start: Date, end: Date): boolean {
 function normalizeModelName(value?: string): string | undefined {
   const normalized = value?.trim().replace(MODEL_DATE_SUFFIX_RE, "");
   return normalized || undefined;
+}
+
+function normalizeModelUsageName(value?: string): string | undefined {
+  const normalized = normalizeModelName(value);
+  if (!normalized) {
+    return undefined;
+  }
+  const lastSlash = normalized.lastIndexOf("/");
+  const modelName =
+    lastSlash === -1 ? normalized : normalized.slice(lastSlash + 1);
+  const displayName = modelName.trim().replace(MODEL_DATE_SUFFIX_RE, "");
+  return displayName ? displayName.toLowerCase() : undefined;
 }
 
 function asNonEmptyString(value?: string): string | undefined {

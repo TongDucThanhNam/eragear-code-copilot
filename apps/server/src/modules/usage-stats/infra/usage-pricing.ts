@@ -29,6 +29,8 @@ interface PricingResolution {
 }
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
+const OPENROUTER_MODELS_API_URL =
+  "https://openrouter.ai/api/v1/models?output_modalities=all";
 const PRICING_FETCH_TIMEOUT_MS_ENV = "SLOPMETER_PRICING_FETCH_TIMEOUT_MS";
 const PRICING_CACHE_TTL_MS_ENV = "SLOPMETER_PRICING_CACHE_TTL_MS";
 const DEFAULT_PRICING_FETCH_TIMEOUT_MS = 2500;
@@ -56,6 +58,7 @@ const CLI_PROVIDER_ALIASES: Record<string, string> = {
   pi: "openai",
   xai: "xai",
   zai: "zai",
+  "z-ai": "zai",
   "zai-coding-plan": "zai",
 };
 
@@ -539,12 +542,12 @@ function normalizeProviderId(
     if (!part) {
       continue;
     }
-    if (pricingSnapshot.providers[part]) {
-      return part;
-    }
     const alias = CLI_PROVIDER_ALIASES[part];
     if (alias) {
       return alias;
+    }
+    if (pricingSnapshot.providers[part]) {
+      return part;
     }
   }
 
@@ -575,11 +578,32 @@ function inferProviderFromModel(modelId: string): string | null {
 
 async function fetchRuntimePricingSnapshot(): Promise<PricingSnapshot> {
   if (!pendingPricingFetch) {
-    pendingPricingFetch = fetchModelsDevPricingSnapshot().finally(() => {
+    pendingPricingFetch = fetchMergedRuntimePricingSnapshot().finally(() => {
       pendingPricingFetch = null;
     });
   }
   return await pendingPricingFetch;
+}
+
+async function fetchMergedRuntimePricingSnapshot(): Promise<PricingSnapshot> {
+  const results = await Promise.allSettled([
+    fetchModelsDevPricingSnapshot(),
+    fetchOpenRouterPricingSnapshot(),
+  ]);
+  const snapshots = results.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : []
+  );
+  if (snapshots.length === 0) {
+    throw new Error(
+      results
+        .map((result) =>
+          result.status === "rejected" ? formatErrorMessage(result.reason) : ""
+        )
+        .filter(Boolean)
+        .join("; ") || "pricing sources did not return model pricing"
+    );
+  }
+  return mergePricingSnapshots(snapshots);
 }
 
 async function fetchModelsDevPricingSnapshot(): Promise<PricingSnapshot> {
@@ -598,6 +622,27 @@ async function fetchModelsDevPricingSnapshot(): Promise<PricingSnapshot> {
       throw new Error(`models.dev returned HTTP ${response.status}`);
     }
     return createPricingSnapshotFromModelsDev(await response.json());
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchOpenRouterPricingSnapshot(): Promise<PricingSnapshot> {
+  const timeoutMs = readNonNegativeIntegerEnv(
+    PRICING_FETCH_TIMEOUT_MS_ENV,
+    DEFAULT_PRICING_FETCH_TIMEOUT_MS
+  );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(OPENROUTER_MODELS_API_URL, {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`OpenRouter returned HTTP ${response.status}`);
+    }
+    return createPricingSnapshotFromOpenRouter(await response.json());
   } finally {
     clearTimeout(timeout);
   }
@@ -668,6 +713,108 @@ function createPricingSnapshotFromModelsDev(catalog: unknown): PricingSnapshot {
   };
 }
 
+function createPricingSnapshotFromOpenRouter(
+  catalog: unknown
+): PricingSnapshot {
+  if (!(catalog && typeof catalog === "object")) {
+    throw new Error("OpenRouter response is not an object");
+  }
+
+  const models = (catalog as { data?: unknown }).data;
+  if (!Array.isArray(models)) {
+    throw new Error("OpenRouter response did not include model data");
+  }
+
+  const providers: PricingSnapshot["providers"] = {};
+  for (const model of models) {
+    if (!(model && typeof model === "object")) {
+      continue;
+    }
+
+    const id = (model as { id?: unknown }).id;
+    if (typeof id !== "string") {
+      continue;
+    }
+    const lastSlash = id.lastIndexOf("/");
+    if (lastSlash <= 0 || lastSlash === id.length - 1) {
+      continue;
+    }
+
+    const buckets = readOpenRouterCostBuckets(
+      (model as { pricing?: unknown }).pricing
+    );
+    if (!buckets) {
+      continue;
+    }
+
+    const providerId = normalizeProviderSnapshotId(id.slice(0, lastSlash));
+    const modelId = normalizeModelSnapshotId(id.slice(lastSlash + 1));
+    const providerPricing = providers[providerId] ?? {};
+    providerPricing[modelId] = buckets;
+    providers[providerId] = providerPricing;
+  }
+
+  const providerIds = Object.keys(providers).sort();
+  if (providerIds.length === 0) {
+    throw new Error("OpenRouter response did not include model pricing");
+  }
+
+  return {
+    _meta: {
+      source: OPENROUTER_MODELS_API_URL,
+      generatedAt: Date.now(),
+      units: "USD per 1M tokens",
+      providers: providerIds,
+    },
+    providers: sortPricingProviders(providers),
+  };
+}
+
+function mergePricingSnapshots(snapshots: PricingSnapshot[]): PricingSnapshot {
+  const providers: PricingSnapshot["providers"] = {};
+  for (const snapshot of snapshots) {
+    for (const [providerId, models] of Object.entries(snapshot.providers)) {
+      const normalizedProvider = normalizeProviderSnapshotId(providerId);
+      const providerPricing = providers[normalizedProvider] ?? {};
+      for (const [modelId, buckets] of Object.entries(models)) {
+        providerPricing[normalizeModelSnapshotId(modelId)] = { ...buckets };
+      }
+      providers[normalizedProvider] = providerPricing;
+    }
+  }
+
+  const providerIds = Object.keys(providers).sort();
+  return {
+    _meta: {
+      source: snapshots.map((snapshot) => snapshot._meta.source).join(" + "),
+      generatedAt: Math.max(
+        ...snapshots.map((snapshot) => snapshot._meta.generatedAt)
+      ),
+      units: "USD per 1M tokens",
+      providers: providerIds,
+    },
+    providers: sortPricingProviders(providers),
+  };
+}
+
+function sortPricingProviders(
+  providers: PricingSnapshot["providers"]
+): PricingSnapshot["providers"] {
+  const sortedProviders: PricingSnapshot["providers"] = {};
+  for (const providerId of Object.keys(providers).sort()) {
+    const models = providers[providerId];
+    if (!models) {
+      continue;
+    }
+    sortedProviders[providerId] = Object.fromEntries(
+      Object.entries(models).sort(([left], [right]) =>
+        left.localeCompare(right)
+      )
+    );
+  }
+  return sortedProviders;
+}
+
 function readCostBuckets(value: unknown): CostBuckets | null {
   if (!(value && typeof value === "object")) {
     return null;
@@ -685,6 +832,41 @@ function readCostBuckets(value: unknown): CostBuckets | null {
   return Object.keys(buckets).length > 0 ? buckets : null;
 }
 
+function readOpenRouterCostBuckets(value: unknown): CostBuckets | null {
+  if (!(value && typeof value === "object")) {
+    return null;
+  }
+
+  const pricing = value as Record<string, unknown>;
+  const buckets: CostBuckets = {};
+  const assign = (target: keyof CostBuckets, source: string) => {
+    const perMillion = readOpenRouterUsdPerMillion(pricing[source]);
+    if (perMillion !== null) {
+      buckets[target] = perMillion;
+    }
+  };
+
+  assign("input", "prompt");
+  assign("output", "completion");
+  assign("cache_read", "input_cache_read");
+  assign("cache_write", "input_cache_write");
+  if (buckets.cache_read !== undefined && buckets.cache_write === undefined) {
+    buckets.cache_write = 0;
+  }
+
+  return Object.keys(buckets).length > 0 ? buckets : null;
+}
+
+function readOpenRouterUsdPerMillion(value: unknown): number | null {
+  let numeric = Number.NaN;
+  if (typeof value === "number") {
+    numeric = value;
+  } else if (typeof value === "string") {
+    numeric = Number.parseFloat(value);
+  }
+  return Number.isFinite(numeric) ? numeric * 1_000_000 : null;
+}
+
 function readNonNegativeIntegerEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) {
@@ -696,7 +878,8 @@ function readNonNegativeIntegerEnv(name: string, fallback: number): number {
 }
 
 function normalizeProviderSnapshotId(value: string): string {
-  return value.trim().toLowerCase();
+  const normalized = value.trim().toLowerCase();
+  return CLI_PROVIDER_ALIASES[normalized] ?? normalized;
 }
 
 function normalizeModelSnapshotId(value: string): string {

@@ -66,8 +66,14 @@ function toOperation(op: {
   };
 }
 
-function toTrpcClientError(error: unknown): TRPCClientError<AppRouter> {
+export function toTrpcClientError(error: unknown): TRPCClientError<AppRouter> {
   if (isRuntimeServiceErrorPayload(error)) {
+    if (typeof error.code !== "number") {
+      const runtimeError = new Error(error.message);
+      runtimeError.name = error.name ?? "RuntimeServiceError";
+      runtimeError.stack = error.stack;
+      return TRPCClientError.from<AppRouter>(runtimeError);
+    }
     return TRPCClientError.from<AppRouter>({
       error,
     });

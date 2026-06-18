@@ -25,6 +25,7 @@ import {
 } from "./lib/desktop-bootstrap";
 import { installEragearDeepLinkHandlers } from "./lib/deep-link";
 import { electronTrpcLink } from "./lib/electron-trpc-link";
+import { remoteConnectTrpcLink } from "./lib/remote-connect-trpc-link";
 import { buildTrpcWsUrl, DEFAULT_SERVER_URL } from "./lib/server-url";
 import { trpc } from "./lib/trpc";
 import { routeTree } from "./routeTree.gen";
@@ -179,6 +180,10 @@ function ConfiguredApp({
   const isDesktopLocalMode = isDesktopLocalBootstrap(desktopBootstrap);
   const usesElectronIpc =
     isDesktopLocalMode && desktopBootstrap?.transport.kind === "electron-ipc";
+  const usesRemoteConnect =
+    desktopBootstrap?.mode === "client-only" &&
+    desktopBootstrap.transport.kind === "desktop-remote-connect" &&
+    Boolean(desktopBootstrap.remoteConnectToken);
   const queryClient = useMemo(() => {
     const handleAuthFailure = (error: unknown) => {
       if (isDesktopLocalMode) {
@@ -201,15 +206,17 @@ function ConfiguredApp({
   }, [isDesktopLocalMode, setConfigured]);
   const wsUrl = useMemo(
     () =>
-      usesElectronIpc ? null : buildTrpcWsUrl(serverUrl || DEFAULT_SERVER_URL),
-    [serverUrl, usesElectronIpc]
+      usesElectronIpc || usesRemoteConnect
+        ? null
+        : buildTrpcWsUrl(serverUrl || DEFAULT_SERVER_URL),
+    [serverUrl, usesElectronIpc, usesRemoteConnect]
   );
   const connectionParams = useMemo(
     () =>
-      usesElectronIpc
+      usesElectronIpc || usesRemoteConnect
         ? undefined
         : buildDesktopConnectionParams(desktopBootstrap),
-    [desktopBootstrap, usesElectronIpc]
+    [desktopBootstrap, usesElectronIpc, usesRemoteConnect]
   );
 
   const wsClient = useMemo(() => {
@@ -254,6 +261,22 @@ function ConfiguredApp({
         links: [electronTrpcLink(desktopBootstrap)],
       });
     }
+    if (usesRemoteConnect && desktopBootstrap?.remoteConnectToken) {
+      return trpc.createClient({
+        links: [
+          remoteConnectTrpcLink({
+            serverUrl,
+            token: desktopBootstrap.remoteConnectToken,
+            ...(desktopBootstrap.remoteConnectCloudflareAccess
+              ? {
+                  cloudflareAccess:
+                    desktopBootstrap.remoteConnectCloudflareAccess,
+                }
+              : {}),
+          }),
+        ],
+      });
+    }
     if (!wsClient) {
       throw new Error("No runtime transport is configured.");
     }
@@ -264,7 +287,7 @@ function ConfiguredApp({
         }),
       ],
     });
-  }, [desktopBootstrap, usesElectronIpc, wsClient]);
+  }, [desktopBootstrap, serverUrl, usesElectronIpc, usesRemoteConnect, wsClient]);
 
   return (
     <trpc.Provider
@@ -272,6 +295,8 @@ function ConfiguredApp({
       key={
         usesElectronIpc
           ? (desktopBootstrap?.transport.channelName ?? "electron-ipc")
+          : usesRemoteConnect
+            ? "desktop-remote-connect"
           : (wsUrl ?? "runtime")
       }
       queryClient={queryClient}

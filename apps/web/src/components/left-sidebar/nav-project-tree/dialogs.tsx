@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, RefreshCw } from "lucide-react";
+import { FolderOpen, Loader2, RefreshCw } from "lucide-react";
 import type { FormEvent } from "react";
 import {
   AlertDialog,
@@ -50,6 +50,9 @@ interface NavProjectTreeDialogsProps {
   setForm: (updater: (prev: ProjectFormState) => ProjectFormState) => void;
   onCreateProjectSubmit: (event: FormEvent) => void;
   isCreateProjectPending: boolean;
+  isOpenProjectFolderAvailable: boolean;
+  isOpenProjectFolderPending: boolean;
+  onOpenProjectFolder: () => void;
 
   isEditProjectOpen: boolean;
   setIsEditProjectOpen: (open: boolean) => void;
@@ -104,6 +107,9 @@ export function NavProjectTreeDialogs({
   setForm,
   onCreateProjectSubmit,
   isCreateProjectPending,
+  isOpenProjectFolderAvailable,
+  isOpenProjectFolderPending,
+  onOpenProjectFolder,
   isEditProjectOpen,
   setIsEditProjectOpen,
   editProjectForm,
@@ -164,15 +170,36 @@ export function NavProjectTreeDialogs({
             </div>
             <div className="space-y-1">
               <Label htmlFor="project-path">Path</Label>
-              <Input
-                id="project-path"
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, path: event.target.value }))
-                }
-                placeholder="/absolute/path/to/project"
-                required
-                value={form.path}
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="project-path"
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, path: event.target.value }))
+                  }
+                  placeholder="/absolute/path/to/project"
+                  required
+                  value={form.path}
+                />
+                {isOpenProjectFolderAvailable ? (
+                  <Button
+                    aria-label="Open project folder"
+                    className="shrink-0"
+                    disabled={
+                      isCreateProjectPending || isOpenProjectFolderPending
+                    }
+                    onClick={onOpenProjectFolder}
+                    type="button"
+                    variant="outline"
+                  >
+                    {isOpenProjectFolderPending ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <FolderOpen className="size-3.5" />
+                    )}
+                    Open
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <div className="space-y-1">
               <Label htmlFor="project-description">Description</Label>

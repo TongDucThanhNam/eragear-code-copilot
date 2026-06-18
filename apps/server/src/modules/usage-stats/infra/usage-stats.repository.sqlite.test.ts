@@ -109,6 +109,27 @@ describe("UsageStatsSqliteRepository", () => {
       updatedAt: 20,
     });
   });
+
+  test("exposes telemetry settings methods used by the SQLite worker", async () => {
+    const repo = new UsageStatsSqliteRepository();
+
+    expect(await repo.getTelemetrySettings("user-1")).toBeNull();
+
+    await expect(
+      repo.saveTelemetrySettings("user-1", {
+        enabled: true,
+        updatedAt: 30,
+      })
+    ).resolves.toEqual({
+      enabled: true,
+      updatedAt: 30,
+    });
+
+    expect(await repo.getTelemetrySettings("user-1")).toEqual({
+      enabled: true,
+      updatedAt: 30,
+    });
+  });
 });
 
 async function removeTempDirWithRetry(dir: string): Promise<void> {

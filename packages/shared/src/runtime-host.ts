@@ -5,6 +5,7 @@ export type RuntimeHostMode = DesktopRuntimeMode | "server";
 export type RuntimeTransportKind =
   | "electron-ipc"
   | "desktop-service"
+  | "desktop-remote-connect"
   | "local-http-fallback"
   | "ssh"
   | "relay"
@@ -114,6 +115,52 @@ export interface DesktopAutoUpdateStatus {
   notificationShown?: boolean;
 }
 
+export type DesktopRemoteConnectState =
+  | "disabled"
+  | "starting"
+  | "ready"
+  | "stopping"
+  | "stopped"
+  | "error";
+
+export type DesktopRemoteConnectTunnelMode = "off" | "quick" | "named";
+
+export interface DesktopRemoteConnectBridgeStatus {
+  state: DesktopRemoteConnectState;
+  host: string;
+  port?: number;
+  localUrl?: string;
+  authRequired: boolean;
+  cloudflareAccessRequired: boolean;
+  corsAllowedOrigins: string[];
+  startedAt?: string;
+  stoppedAt?: string;
+  error?: string;
+}
+
+export interface DesktopRemoteConnectTunnelStatus {
+  mode: DesktopRemoteConnectTunnelMode;
+  state: DesktopRemoteConnectState;
+  publicUrl?: string;
+  pid?: number;
+  startedAt?: string;
+  stoppedAt?: string;
+  error?: string;
+}
+
+export interface DesktopRemoteConnectStatus {
+  enabled: boolean;
+  bridge: DesktopRemoteConnectBridgeStatus;
+  tunnel: DesktopRemoteConnectTunnelStatus;
+  messages: string[];
+  updatedAt: string;
+}
+
+export interface DesktopRemoteConnectCloudflareAccessCredentials {
+  clientId: string;
+  clientSecret: string;
+}
+
 export interface DesktopRuntimeBootstrap {
   platform: "electron";
   mode: DesktopRuntimeMode;
@@ -121,6 +168,9 @@ export interface DesktopRuntimeBootstrap {
   serverUrl?: string;
   localAuthToken?: string;
   apiKey?: string;
+  remoteConnectToken?: string;
+  remoteConnectCloudflareAccess?: DesktopRemoteConnectCloudflareAccessCredentials;
+  remoteConnect?: DesktopRemoteConnectStatus;
   runtimeReady: boolean;
   diagnostics: string[];
   runtimeDiagnostics?: RuntimeDiagnostics;

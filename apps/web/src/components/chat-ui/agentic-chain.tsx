@@ -39,11 +39,11 @@ const getChainIcon = (part: UIMessagePart, isActive: boolean) => {
         ? "text-destructive"
         : viewState === "cancelled"
           ? "text-muted-foreground"
-        : viewState === "completed"
-          ? "text-emerald-500"
-          : viewState === "approval-requested"
-            ? "text-yellow-600"
-            : "text-muted-foreground";
+          : viewState === "completed"
+            ? "text-emerald-500"
+            : viewState === "approval-requested"
+              ? "text-yellow-600"
+              : "text-muted-foreground";
 
     if (viewState === "running" && isActive) {
       return <Loader2Icon className="size-3.5 animate-spin text-blue-500" />;
@@ -94,7 +94,7 @@ const renderChainStep = ({
       <div
         className={cn(
           "flex size-6 items-center justify-center rounded-full border bg-background",
-          isActive && "border-primary/60 bg-primary/10"
+          isActive && "border-primary/60 bg-primary/10",
         )}
       >
         {getChainIcon(part, isActive)}
@@ -160,15 +160,15 @@ export const ChainOfThought = ({
   const activeIndex = useMemo(() => getActiveIndex(items), [items]);
   const toolCount = useMemo(
     () => items.filter((item) => item.type.startsWith("tool-")).length,
-    [items]
+    [items],
   );
   const reasoningCount = useMemo(
     () => items.filter((item) => item.type === "reasoning").length,
-    [items]
+    [items],
   );
   const textCount = useMemo(
     () => items.filter((item) => item.type === "text").length,
-    [items]
+    [items],
   );
 
   if (items.length === 0) {
@@ -190,11 +190,11 @@ export const ChainOfThought = ({
 
   return (
     <Collapsible
-      className="relative w-full border bg-muted/30"
+      className="relative w-full"
       onOpenChange={setIsOpen}
       open={isOpen}
     >
-      <CollapsibleTrigger className="sticky top-0 z-10 flex w-full items-center justify-between gap-3 bg-background/95 px-3 py-2 text-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <CollapsibleTrigger className="sticky top-0 z-10 flex w-full items-center justify-between gap-3 py-2 text-sm ">
         <div className="flex items-center gap-2">
           {isStreaming ? (
             <Loader className="text-muted-foreground" size={14} />
@@ -207,11 +207,11 @@ export const ChainOfThought = ({
         <ChevronDownIcon
           className={cn(
             "size-4 text-muted-foreground transition-transform",
-            isOpen ? "rotate-180" : "rotate-0"
+            isOpen ? "rotate-180" : "rotate-0",
           )}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="border-t px-3 py-3">
+      <CollapsibleContent className="py-3">
         <div className="space-y-3">
           {deduplicateKeys(items).map((key, index) => {
             const item = items[index];

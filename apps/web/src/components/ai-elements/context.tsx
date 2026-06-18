@@ -39,6 +39,9 @@ const useContextValue = () => {
   return context;
 };
 
+const getBoundedUsedPercent = (usedTokens: number, maxTokens: number) =>
+  Math.max(0, Math.min(1, usedTokens / maxTokens));
+
 export type ContextProps = ComponentProps<typeof HoverCard> & ContextSchema;
 
 export const Context = ({
@@ -63,7 +66,7 @@ export const Context = ({
 const ContextIcon = () => {
   const { usedTokens, maxTokens } = useContextValue();
   const circumference = 2 * Math.PI * ICON_RADIUS;
-  const usedPercent = usedTokens / maxTokens;
+  const usedPercent = getBoundedUsedPercent(usedTokens, maxTokens);
   const dashOffset = circumference * (1 - usedPercent);
 
   return (
@@ -112,12 +115,10 @@ export const ContextTrigger = ({ children, ...props }: ContextTriggerProps) => {
   }).format(usedPercent);
 
   return (
-    <HoverCardTrigger>
+    <HoverCardTrigger asChild>
       {children ?? (
         <Button type="button" variant="ghost" {...props}>
-          <span className="font-medium text-muted-foreground">
-            {renderedPercent}
-          </span>
+          <span className="font-medium text-current">{renderedPercent}</span>
           <ContextIcon />
         </Button>
       )}
@@ -146,6 +147,7 @@ export const ContextContentHeader = ({
 }: ContextContentHeaderProps) => {
   const { usedTokens, maxTokens } = useContextValue();
   const usedPercent = usedTokens / maxTokens;
+  const boundedPercent = getBoundedUsedPercent(usedTokens, maxTokens);
   const displayPct = new Intl.NumberFormat("en-US", {
     style: "percent",
     maximumFractionDigits: 1,
@@ -168,7 +170,10 @@ export const ContextContentHeader = ({
             </p>
           </div>
           <div className="space-y-2">
-            <Progress className="bg-muted" value={usedPercent * PERCENT_MAX} />
+            <Progress
+              className="bg-muted"
+              value={boundedPercent * PERCENT_MAX}
+            />
           </div>
         </>
       )}

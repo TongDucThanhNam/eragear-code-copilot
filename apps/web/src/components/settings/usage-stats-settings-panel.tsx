@@ -480,12 +480,11 @@ function ModelUsageList({ models }: { models: CliModel[] }) {
       ) : (
         <div className="grid gap-2">
           {visibleModels.map((model) => (
-            <div className="grid gap-2 border-b py-2 last:border-b-0" key={`${model.providerId}:${model.name}`}>
+            <div className="grid gap-2 border-b py-2 last:border-b-0" key={model.name}>
               <div className="flex min-w-0 items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate font-mono text-sm">{model.name}</div>
-                  <div className="mt-1 text-muted-foreground text-xs">
-                    {model.providerDisplayName}
+                  <div className="truncate font-mono text-sm" title={model.name}>
+                    {model.name}
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
@@ -499,10 +498,8 @@ function ModelUsageList({ models }: { models: CliModel[] }) {
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full"
+                  className="h-full rounded-full bg-primary"
                   style={{
-                    backgroundColor:
-                      PROVIDER_COLORS[model.providerId] ?? "#64748b",
                     width: `${Math.max(2, model.share * 100)}%`,
                   }}
                 />

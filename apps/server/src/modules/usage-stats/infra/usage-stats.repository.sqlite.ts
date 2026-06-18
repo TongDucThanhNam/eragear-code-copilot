@@ -13,6 +13,7 @@ import {
   type UsageStatsRecord,
   UsageStatsRecordSchema,
   type UsageTelemetrySettings,
+  UsageTelemetrySettingsSchema,
 } from "../application/contracts/usage-stats.contract";
 import type {
   MutableUsageTelemetrySettingsSnapshot,
@@ -154,6 +155,19 @@ export class UsageStatsSqliteRepository implements UsageStatsRepositoryPort {
       }
     }
     return result;
+  }
+
+  getTelemetrySettings(userId: string): Promise<UsageTelemetrySettings | null> {
+    return this.findTelemetrySettings(userId);
+  }
+
+  async saveTelemetrySettings(
+    userId: string,
+    settings: UsageTelemetrySettings
+  ): Promise<UsageTelemetrySettings> {
+    const parsedSettings = UsageTelemetrySettingsSchema.parse(settings);
+    await this.saveTelemetrySettingsForUser(userId, parsedSettings);
+    return cloneTelemetrySettings(parsedSettings);
   }
 
   private async findTelemetrySettings(

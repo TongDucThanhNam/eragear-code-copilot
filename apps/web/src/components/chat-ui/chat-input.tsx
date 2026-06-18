@@ -8,7 +8,6 @@ import type {
 import {
   CheckIcon,
   ChevronDown,
-  CircleGaugeIcon,
   FileTextIcon,
   SearchIcon,
   XIcon,
@@ -26,6 +25,13 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import {
+  Context,
+  ContextContent,
+  ContextContentBody,
+  ContextContentHeader,
+  ContextTrigger,
+} from "@/components/ai-elements/context";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -74,7 +80,6 @@ import { Button } from "@/components/ui/button";
 import { CommandDialog } from "@/components/ui/command";
 import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { MovingBorder } from "@/components/ui/moving-border";
-import { Progress } from "@/components/ui/progress";
 import { ATTACHMENT_HARD_LIMIT_BYTES } from "@/config/attachments";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -160,21 +165,19 @@ export interface ChatInputProps {
 }
 
 const CONTEXT_USAGE_DEBOUNCE_MS = 350;
-const PERCENT_MAX = 100;
-
-interface ContextUsageBarProps {
+interface ContextUsageIndicatorProps {
   chatId: string;
   currentModelId: string | null;
   mentionCount: number;
   revision: number;
 }
 
-function ContextUsageBar({
+function ContextUsageIndicator({
   chatId,
   currentModelId,
   mentionCount,
   revision,
-}: ContextUsageBarProps) {
+}: ContextUsageIndicatorProps) {
   const controller = usePromptInputController();
   const attachments = usePromptInputAttachments();
   const draftValue = controller.textInput.value;
@@ -236,44 +239,86 @@ function ContextUsageBar({
     return null;
   }
 
-  const boundedPercent = Math.max(
-    0,
-    Math.min(PERCENT_MAX, estimate.percentUsed)
-  );
-  const percentLabel = `${Math.round(estimate.percentUsed)}%`;
+  const contextModelId = currentModelId ?? estimate.modelId;
 
   return (
-    <div className="w-full px-2 pb-1">
-      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <CircleGaugeIcon className="size-3 shrink-0" />
-          <span className="truncate">Context</span>
-        </div>
-        <span
-          className={cn(
-            "shrink-0 font-mono",
-            estimate.status === "warn" && "text-amber-600 dark:text-amber-400",
-            (estimate.status === "compact" || estimate.status === "overflow") &&
-              "text-destructive"
-          )}
-        >
-          {formatCompactTokens(estimate.usedTokens)} /{" "}
-          {formatCompactTokens(estimate.maxTokens)} ({percentLabel})
-        </span>
-      </div>
-      <Progress
-        aria-label="Context usage"
+    <Context
+      maxTokens={estimate.maxTokens}
+      modelId={contextModelId ?? undefined}
+      usedTokens={estimate.usedTokens}
+    >
+      <ContextTrigger
+        aria-label="Show context usage"
         className={cn(
-          "h-1 rounded-sm",
-          estimate.status === "warn" &&
-            "[&_[data-slot=progress-indicator]]:bg-amber-500",
+          "h-8 gap-1.5 px-2 text-muted-foreground text-xs",
+          estimate.status === "warn" && "text-amber-600 dark:text-amber-400",
           estimate.status === "compact" &&
-            "[&_[data-slot=progress-indicator]]:bg-orange-600",
-          estimate.status === "overflow" &&
-            "[&_[data-slot=progress-indicator]]:bg-destructive"
+            "text-orange-600 dark:text-orange-400",
+          estimate.status === "overflow" && "text-destructive"
         )}
-        value={boundedPercent}
       />
+      <ContextContent align="end" className="w-72" side="top">
+        <ContextContentHeader />
+        <ContextContentBody className="space-y-2">
+          <ContextUsageRow
+            label="History"
+            value={formatCompactTokens(estimate.breakdown.historyTokens)}
+          />
+          <ContextUsageRow
+            label="Draft"
+            value={formatCompactTokens(estimate.breakdown.draftTokens)}
+          />
+          <ContextUsageRow
+            label="Attachments"
+            value={formatCompactTokens(estimate.breakdown.attachmentTokens)}
+          />
+          <ContextUsageRow
+            label="Mentions"
+            value={formatCompactTokens(estimate.breakdown.mentionTokens)}
+          />
+          <ContextUsageRow
+            className="pt-1"
+            label="Remaining"
+            value={formatCompactTokens(Math.max(0, estimate.remainingTokens))}
+          />
+          <div
+            className={cn(
+              "pt-1 text-muted-foreground text-xs",
+              estimate.status === "warn" &&
+                "text-amber-600 dark:text-amber-400",
+              estimate.status === "compact" &&
+                "text-orange-600 dark:text-orange-400",
+              estimate.status === "overflow" && "text-destructive"
+            )}
+          >
+            {estimate.truncatedHistory
+              ? "History is already compacted for this model window."
+              : "Local estimate includes history, draft, files, and mentions."}
+          </div>
+        </ContextContentBody>
+      </ContextContent>
+    </Context>
+  );
+}
+
+function ContextUsageRow({
+  className,
+  label,
+  value,
+}: {
+  className?: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 text-xs",
+        className
+      )}
+    >
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono">{value}</span>
     </div>
   );
 }
@@ -805,12 +850,6 @@ console.debug(
         <PromptInputAttachments>
           {(attachment) => <PromptInputAttachment data={attachment} />}
         </PromptInputAttachments>
-        <ContextUsageBar
-          chatId={chatId}
-          currentModelId={currentModelId}
-          mentionCount={mentions.length}
-          revision={contextUsageRevision}
-        />
       </PromptInputHeader>
       <PromptInputBody>
         <PromptInputTextarea
@@ -1033,11 +1072,19 @@ console.debug(
               </ModelSelector>
             )}
         </PromptInputTools>
-        <PromptInputSubmit
-          disabled={submitDisabled}
-          onStop={onCancel}
-          status={submitStatus}
-        />
+        <div className="flex items-center gap-1">
+          <ContextUsageIndicator
+            chatId={chatId}
+            currentModelId={currentModelId}
+            mentionCount={mentions.length}
+            revision={contextUsageRevision}
+          />
+          <PromptInputSubmit
+            disabled={submitDisabled}
+            onStop={onCancel}
+            status={submitStatus}
+          />
+        </div>
       </PromptInputFooter>
       {slashCommands.length > 0 && (
         <SlashCommandInlinePopup

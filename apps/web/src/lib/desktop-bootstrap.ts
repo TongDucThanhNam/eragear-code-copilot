@@ -1,6 +1,8 @@
 import { normalizeServerUrl } from "@/lib/server-url";
 import type {
   DesktopAutoUpdateStatus,
+  DesktopRemoteConnectCloudflareAccessCredentials,
+  DesktopRemoteConnectStatus,
   DesktopRuntimeBootstrap,
   DesktopRuntimeMode,
   RuntimeDiagnostics,
@@ -13,10 +15,28 @@ import type {
 
 export type EragearDesktopBootstrap = DesktopRuntimeBootstrap;
 
+export interface DesktopWindowState {
+  isFullScreen: boolean;
+  isMaximized: boolean;
+}
+
+interface DesktopWindowControlsBridge {
+  close: () => Promise<void>;
+  getState: () => Promise<DesktopWindowState | null>;
+  minimize: () => Promise<void>;
+  toggleMaximize: () => Promise<DesktopWindowState | null>;
+  onStateChange: (callback: (state: DesktopWindowState) => void) => () => void;
+}
+
 interface EragearDesktopBridge {
   getBootstrap: () => Promise<unknown>;
   getRuntimeDiagnostics?: () => Promise<unknown>;
+  getRemoteConnectStatus?: () => Promise<unknown>;
   checkForUpdates?: () => Promise<unknown>;
+  openProjectFolder?: (input?: {
+    defaultPath?: string;
+  }) => Promise<string | null>;
+  windowControls?: DesktopWindowControlsBridge;
   requestRuntime?: (input: {
     auth?: RuntimeServiceAuth;
     operation: RuntimeServiceOperation;
@@ -88,6 +108,21 @@ function toDesktopBootstrap(
     ...(typeof candidate.apiKey === "string" && candidate.apiKey.length > 0
       ? { apiKey: candidate.apiKey }
       : {}),
+    ...(typeof candidate.remoteConnectToken === "string" &&
+    candidate.remoteConnectToken.length > 0
+      ? { remoteConnectToken: candidate.remoteConnectToken }
+      : {}),
+    ...(isCloudflareAccessCredentials(
+      candidate.remoteConnectCloudflareAccess
+    )
+      ? {
+          remoteConnectCloudflareAccess:
+            candidate.remoteConnectCloudflareAccess,
+        }
+      : {}),
+    ...(isDesktopRemoteConnectStatus(candidate.remoteConnect)
+      ? { remoteConnect: candidate.remoteConnect }
+      : {}),
     ...(isRuntimeDiagnostics(candidate.runtimeDiagnostics)
       ? { runtimeDiagnostics: candidate.runtimeDiagnostics }
       : {}),
@@ -118,6 +153,37 @@ function isRuntimeDiagnostics(value: unknown): value is RuntimeDiagnostics {
     typeof candidate.endpoint?.kind === "string" &&
     typeof candidate.health?.ready === "boolean" &&
     Array.isArray(candidate.cliAvailability)
+  );
+}
+
+function isDesktopRemoteConnectStatus(
+  value: unknown
+): value is DesktopRemoteConnectStatus {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<DesktopRemoteConnectStatus>;
+  return (
+    typeof candidate.enabled === "boolean" &&
+    typeof candidate.updatedAt === "string" &&
+    typeof candidate.bridge?.state === "string" &&
+    typeof candidate.tunnel?.state === "string"
+  );
+}
+
+function isCloudflareAccessCredentials(
+  value: unknown
+): value is DesktopRemoteConnectCloudflareAccessCredentials {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate =
+    value as Partial<DesktopRemoteConnectCloudflareAccessCredentials>;
+  return (
+    typeof candidate.clientId === "string" &&
+    candidate.clientId.length > 0 &&
+    typeof candidate.clientSecret === "string" &&
+    candidate.clientSecret.length > 0
   );
 }
 
@@ -213,5 +279,5 @@ export function hasDesktopTransportCredential(
   if (bootstrap.mode === "main-thread") {
     return Boolean(bootstrap.localAuthToken);
   }
-  return Boolean(bootstrap.apiKey);
+  return Boolean(bootstrap.apiKey || bootstrap.remoteConnectToken);
 }

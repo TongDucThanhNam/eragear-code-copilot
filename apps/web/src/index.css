@@ -231,10 +231,22 @@
 }
 
 @layer utilities {
+  :root[data-eragear-platform="electron"] [data-eragear-window-drag="true"] {
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
   :root[data-eragear-platform="electron"]
-    [data-eragear-window-controls-safe="right"] {
-    padding-inline-end: calc(
-      var(--spacing) * 4 + var(--eragear-window-controls-width)
-    );
+    [data-eragear-window-drag="true"]
+    :is(
+      a,
+      button,
+      input,
+      select,
+      textarea,
+      [role="button"],
+      [data-eragear-window-no-drag="true"]
+    ) {
+    -webkit-app-region: no-drag;
   }
 }

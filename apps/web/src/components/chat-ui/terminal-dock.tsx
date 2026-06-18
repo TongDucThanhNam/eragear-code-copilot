@@ -147,6 +147,22 @@ export function TerminalDock({
     []
   );
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey) {
+        return;
+      }
+      if (event.key.toLowerCase() !== "j") {
+        return;
+      }
+      event.preventDefault();
+      setIsOpen((value) => !value);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   trpc.terminal.onTerminalEvents.useSubscription(
     { terminalId: selectedTerminalId ?? "" },
     {
@@ -238,10 +254,15 @@ export function TerminalDock({
     killTerminal.mutate({ terminalId: activeTerminal.id });
   };
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <div className="border-b bg-background">
-      <div className="flex min-h-9 items-center gap-2 px-3 py-1.5">
+    <div className="shrink-0 border-t bg-background">
+      <div className="flex min-h-9 items-center gap-2 border-b px-3 py-1.5">
         <button
+          aria-keyshortcuts="Control+J"
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
           onClick={() => setIsOpen((value) => !value)}
           type="button"
@@ -303,6 +324,7 @@ export function TerminalDock({
           </Button>
           <Button
             aria-expanded={isOpen}
+            aria-keyshortcuts="Control+J"
             onClick={() => setIsOpen((value) => !value)}
             size="icon-xs"
             type="button"
@@ -320,37 +342,35 @@ export function TerminalDock({
         </div>
       </div>
 
-      {isOpen ? (
-        <div className="grid h-[min(34vh,320px)] min-h-[220px] grid-rows-[auto_minmax(0,1fr)] border-t bg-zinc-950">
-          <div className="flex min-h-9 items-center gap-2 overflow-hidden border-zinc-800 border-b bg-background px-3 py-1.5">
-            <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-              {visibleTerminals.length === 0 ? (
-                <span className="text-muted-foreground text-xs">
-                  Start a terminal from the active project.
-                </span>
-              ) : null}
-              {visibleTerminals.map((terminal) => (
-                <TerminalTab
-                  isActive={terminal.id === selectedTerminalId}
-                  key={terminal.id}
-                  onClick={() => setActiveTerminalId(terminal.id)}
-                  terminal={terminal}
-                />
-              ))}
-            </div>
-            <div className="max-w-[42%] truncate text-muted-foreground text-xs">
-              {projectName ?? "No active project"}
-            </div>
+      <div className="grid h-[min(34vh,320px)] min-h-[220px] grid-rows-[auto_minmax(0,1fr)] bg-zinc-950">
+        <div className="flex min-h-9 items-center gap-2 overflow-hidden border-zinc-800 border-b bg-background px-3 py-1.5">
+          <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+            {visibleTerminals.length === 0 ? (
+              <span className="text-muted-foreground text-xs">
+                Start a terminal from the active project.
+              </span>
+            ) : null}
+            {visibleTerminals.map((terminal) => (
+              <TerminalTab
+                isActive={terminal.id === selectedTerminalId}
+                key={terminal.id}
+                onClick={() => setActiveTerminalId(terminal.id)}
+                terminal={terminal}
+              />
+            ))}
           </div>
-          <WtermTerminalSurface
-            className="rounded-none border-0"
-            disabled={!isRunning}
-            onData={handleTerminalData}
-            onResize={handleTerminalResize}
-            output={selectedOutput}
-          />
+          <div className="max-w-[42%] truncate text-muted-foreground text-xs">
+            {projectName ?? "No active project"}
+          </div>
         </div>
-      ) : null}
+        <WtermTerminalSurface
+          className="rounded-none border-0"
+          disabled={!isRunning}
+          onData={handleTerminalData}
+          onResize={handleTerminalResize}
+          output={selectedOutput}
+        />
+      </div>
     </div>
   );
 }

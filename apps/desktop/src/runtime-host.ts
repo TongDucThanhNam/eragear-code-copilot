@@ -11,6 +11,7 @@ import type {
   DesktopRuntimeBootstrap,
   DesktopRuntimeMode,
   RuntimeChildProcessDiagnostics,
+  DesktopRemoteConnectCloudflareAccessCredentials,
   RuntimeChildProcessState,
   RuntimeDiagnostics,
   RuntimeEndpoint,
@@ -112,6 +113,8 @@ export interface DesktopRuntimeHostOptions {
   localAuthToken: string;
   remoteRuntimeUrl: string;
   remoteApiKey?: string;
+  remoteConnectToken?: string;
+  remoteConnectCloudflareAccess?: DesktopRemoteConnectCloudflareAccessCredentials;
   securityPosture?: RuntimeSecurityPosture;
 }
 
@@ -734,6 +737,16 @@ export class DesktopRuntimeHost
       ...(this.options.mode === "client-only" && this.options.remoteApiKey
         ? { apiKey: this.options.remoteApiKey }
         : {}),
+      ...(this.options.mode === "client-only" && this.options.remoteConnectToken
+        ? { remoteConnectToken: this.options.remoteConnectToken }
+        : {}),
+      ...(this.options.mode === "client-only" &&
+      this.options.remoteConnectCloudflareAccess
+        ? {
+            remoteConnectCloudflareAccess:
+              this.options.remoteConnectCloudflareAccess,
+          }
+        : {}),
       ...(this.options.mode === "main-thread"
         ? { localAuthToken: this.options.localAuthToken }
         : {}),
@@ -794,7 +807,9 @@ export class DesktopRuntimeHost
       return endpointFromUrl(
         this.options.remoteRuntimeUrl,
         this.options.runtimePort,
-        "remote-http"
+        this.options.remoteConnectToken
+          ? "desktop-remote-connect"
+          : "remote-http"
       );
     }
     return desktopServiceEndpoint;
