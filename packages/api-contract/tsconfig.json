@@ -1,0 +1,13 @@
+{
+  "extends": "@eragear-code-copilot/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "paths": {
+      "#runtime/*": ["../runtime/src/*"]
+    },
+    "types": ["bun", "react", "react-dom"]
+  },
+  "include": ["src", "../runtime/src/types/**/*.d.ts"]
+}

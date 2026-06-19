@@ -1,4 +1,4 @@
-import type { ChatStatus } from "@repo/shared";
+import type { ChatStatus } from "@eragear-code-copilot/shared";
 import type { Attachment } from "@/lib/attachments";
 
 export interface Mode {

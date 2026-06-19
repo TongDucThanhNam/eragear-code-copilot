@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { UIMessage } from "@repo/shared";
+import type { UIMessage } from "@eragear-code-copilot/shared";
 import {
   applyPartUpdateToMessage,
   shouldDeferStreamingPartUpdate,

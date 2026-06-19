@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { BroadcastEvent } from "@repo/shared";
+import type { BroadcastEvent } from "@eragear-code-copilot/shared";
 import {
   isLiveSubscriptionReady,
   nextLifecycleOnChatIdChange,

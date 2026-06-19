@@ -1,0 +1,861 @@
+/**
+ * ACP Tool Call Handlers
+ *
+ * Implements handlers for agent tool calls including file operations and terminal management.
+ * Provides secure file access constrained to project roots and manages terminal lifecycle.
+ *
+ * @module infra/acp/tool-calls
+ */
+
+import { type ChildProcess, spawn } from "node:child_process";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+import type * as acp from "@agentclientprotocol/sdk";
+import { RequestError } from "@agentclientprotocol/sdk";
+import type { SessionRuntimePort } from "#runtime/modules/session";
+import { createLogger } from "#runtime/platform/logging/structured-logger";
+import {
+  spawnTerminalPty,
+  type TerminalPtyProcess,
+} from "#runtime/shared/terminal/pty-process";
+import {
+  compileCommandPolicies,
+  filterEnvAllowlist,
+  isCommandInvocationAllowed,
+} from "#runtime/shared/utils/allowlist.util";
+import { pruneEditorTextBuffers } from "#runtime/shared/utils/editor-buffer.util";
+import { createId } from "#runtime/shared/utils/id.util";
+import { isNodeErrno } from "#runtime/shared/utils/node-error.util";
+import { toPortableRelativePath } from "#runtime/shared/utils/path-within-root.util";
+import {
+  pauseTerminalProcessOutput,
+  resumeTerminalProcessOutput,
+} from "#runtime/shared/utils/terminal-process.util";
+import { normalizeTimeoutMs } from "#runtime/shared/utils/timeout.util";
+import { ENV } from "../../config/environment";
+import type { TerminalState } from "../../shared/types/session.types";
+import { flushThrottledBroadcasts } from "./broadcast-throttle";
+import {
+  clearTerminalKillTimer,
+  envArrayToRecord,
+  getSessionOrThrow,
+  getTerminalOrThrow,
+  isPosixRuntime,
+  readTextFileLineWindow,
+  requireString,
+  resolveOutputLimit,
+  resolvePathInSession,
+  resolveSessionRootPath,
+  shouldSkipTimedTermination,
+  sliceTextByLineWindow,
+  terminateTerminalProcess,
+} from "./tool-calls.helpers";
+
+const logger = createLogger("Debug");
+const TERMINAL_OUTPUT_EVENT_MAX_CHARS = 8 * 1024;
+const TERMINAL_OUTPUT_QUEUE_HIGH_WATER_BYTES = 256 * 1024;
+const TERMINAL_OUTPUT_QUEUE_LOW_WATER_BYTES = 64 * 1024;
+const ACP_TERMINAL_DEFAULT_COLS = 80;
+const ACP_TERMINAL_DEFAULT_ROWS = 24;
+
+function assertAcpToolEnabled(params: {
+  enabled: boolean;
+  method: "fs/write_text_file" | "terminal/create";
+}): void {
+  if (params.enabled) {
+    return;
+  }
+  throw new Error(
+    `${params.method} is disabled by server ACP capability policy.`
+  );
+}
+
+function splitTerminalOutputForBroadcast(text: string): string[] {
+  if (text.length <= TERMINAL_OUTPUT_EVENT_MAX_CHARS) {
+    return [text];
+  }
+  const segments: string[] = [];
+  for (
+    let start = 0;
+    start < text.length;
+    start += TERMINAL_OUTPUT_EVENT_MAX_CHARS
+  ) {
+    segments.push(text.slice(start, start + TERMINAL_OUTPUT_EVENT_MAX_CHARS));
+  }
+  return segments;
+}
+
+function pauseTerminalStreams(termState: TerminalState): void {
+  if (termState.outputStreamsPaused) {
+    return;
+  }
+  pauseTerminalProcessOutput(termState);
+  termState.outputStreamsPaused = true;
+}
+
+function resumeTerminalStreams(termState: TerminalState): void {
+  if (!termState.outputStreamsPaused) {
+    return;
+  }
+  resumeTerminalProcessOutput(termState);
+  termState.outputStreamsPaused = false;
+}
+
+function enqueueTerminalOutput(termState: TerminalState, text: string): void {
+  const segments = splitTerminalOutputForBroadcast(text);
+  const queue = termState.pendingOutputChunks ?? [];
+  let queuedBytes = termState.pendingOutputBytes ?? 0;
+  for (const segment of segments) {
+    queue.push(segment);
+    queuedBytes += Buffer.byteLength(segment, "utf8");
+  }
+  termState.pendingOutputChunks = queue;
+  termState.pendingOutputBytes = queuedBytes;
+  if (queuedBytes >= TERMINAL_OUTPUT_QUEUE_HIGH_WATER_BYTES) {
+    pauseTerminalStreams(termState);
+  }
+}
+
+function maybeResumeTerminalStreams(termState: TerminalState): void {
+  const queuedBytes = termState.pendingOutputBytes ?? 0;
+  if (queuedBytes <= TERMINAL_OUTPUT_QUEUE_LOW_WATER_BYTES) {
+    resumeTerminalStreams(termState);
+  }
+}
+
+function scheduleTerminalOutputFlush(params: {
+  flush: () => Promise<void>;
+  logger: typeof logger;
+  chatId: string;
+  terminalId: string;
+  reason: string;
+}): undefined {
+  params.flush().catch((error) => {
+    params.logger.error(params.reason, error as Error, {
+      chatId: params.chatId,
+      terminalId: params.terminalId,
+    });
+  });
+  return undefined;
+}
+
+function createFailedTerminalPtyProcess(): TerminalPtyProcess {
+  const disposable = { dispose: () => undefined };
+  return {
+    pid: undefined,
+    cols: ACP_TERMINAL_DEFAULT_COLS,
+    rows: ACP_TERMINAL_DEFAULT_ROWS,
+    onData: () => disposable,
+    onExit: () => disposable,
+    write: () => undefined,
+    resize: () => undefined,
+    kill: () => undefined,
+    pause: () => undefined,
+    resume: () => undefined,
+  };
+}
+
+function isRunningUnderBun(): boolean {
+  return typeof (process.versions as { bun?: string }).bun === "string";
+}
+
+function isSamePath(left: string, right: string): boolean {
+  const normalizedLeft = path.resolve(left);
+  const normalizedRight = path.resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
+}
+
+function shouldUseChildProcessForAcpCommand(command: string): boolean {
+  return isRunningUnderBun() && isSamePath(command, process.execPath);
+}
+
+function spawnChildProcessTerminal(params: {
+  command: string;
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+}): { process: ChildProcess; processGroupId?: number } {
+  const child = spawn(params.command, params.args, {
+    cwd: params.cwd,
+    env: params.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: isPosixRuntime(),
+  });
+  const processGroupId =
+    isPosixRuntime() && typeof child.pid === "number" && child.pid > 0
+      ? child.pid
+      : undefined;
+  return {
+    process: child,
+    ...(processGroupId ? { processGroupId } : {}),
+  };
+}
+
+interface AcpTerminalProcessSpawnResult {
+  process: ChildProcess | TerminalPtyProcess;
+  processKind: "child_process" | "pty";
+  processGroupId?: number;
+  spawnError?: unknown;
+}
+
+async function spawnAcpTerminalProcess(params: {
+  chatId: string;
+  terminalId: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+}): Promise<AcpTerminalProcessSpawnResult> {
+  if (shouldUseChildProcessForAcpCommand(params.command)) {
+    const childProcess = spawnChildProcessTerminal(params);
+    return {
+      process: childProcess.process,
+      processKind: "child_process",
+      ...(childProcess.processGroupId
+        ? { processGroupId: childProcess.processGroupId }
+        : {}),
+    };
+  }
+
+  try {
+    return {
+      process: await spawnTerminalPty({
+        command: params.command,
+        args: params.args,
+        cwd: params.cwd,
+        env: params.env,
+        cols: ACP_TERMINAL_DEFAULT_COLS,
+        rows: ACP_TERMINAL_DEFAULT_ROWS,
+      }),
+      processKind: "pty",
+    };
+  } catch (error) {
+    logger.warn("Terminal PTY start failed; falling back to child process", {
+      chatId: params.chatId,
+      terminalId: params.terminalId,
+      command: params.command,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    try {
+      const childProcess = spawnChildProcessTerminal(params);
+      return {
+        process: childProcess.process,
+        processKind: "child_process",
+        ...(childProcess.processGroupId
+          ? { processGroupId: childProcess.processGroupId }
+          : {}),
+      };
+    } catch (fallbackError) {
+      return {
+        process: createFailedTerminalPtyProcess(),
+        processKind: "pty",
+        spawnError: fallbackError,
+      };
+    }
+  }
+}
+
+function attachTerminalProcessHandlers(params: {
+  chatId: string;
+  terminalId: string;
+  termState: TerminalState;
+  process: ChildProcess | TerminalPtyProcess;
+  processKind: "child_process" | "pty";
+  handleOutput: (text: string) => void;
+  flushPendingTerminalOutput: () => Promise<void>;
+  finalizeTerminal: (status: acp.WaitForTerminalExitResponse) => void;
+}): void {
+  if (params.processKind === "pty") {
+    attachPtyTerminalHandlers({
+      ...params,
+      process: params.process as TerminalPtyProcess,
+    });
+    return;
+  }
+
+  attachChildProcessTerminalHandlers({
+    ...params,
+    process: params.process as ChildProcess,
+  });
+}
+
+function attachPtyTerminalHandlers(params: {
+  chatId: string;
+  terminalId: string;
+  termState: TerminalState;
+  process: TerminalPtyProcess;
+  handleOutput: (text: string) => void;
+  flushPendingTerminalOutput: () => Promise<void>;
+  finalizeTerminal: (status: acp.WaitForTerminalExitResponse) => void;
+}): void {
+  params.termState.processDisposables = [
+    params.process.onData(params.handleOutput),
+    params.process.onExit((event) => {
+      const signal =
+        event.signal === undefined || event.signal === null
+          ? null
+          : String(event.signal);
+      params
+        .flushPendingTerminalOutput()
+        .catch((error) => {
+          logger.error(
+            "Failed to flush terminal output during process exit",
+            error as Error,
+            {
+              chatId: params.chatId,
+              terminalId: params.terminalId,
+            }
+          );
+        })
+        .finally(() => {
+          params.finalizeTerminal({ exitCode: event.exitCode, signal });
+        });
+    }),
+  ];
+
+  if (params.process.pid === undefined) {
+    logger.warn("Terminal PTY started without process id", {
+      chatId: params.chatId,
+      terminalId: params.terminalId,
+    });
+  }
+
+  // Prime the PTY dimensions for command-runner terminals.
+  params.process.resize(ACP_TERMINAL_DEFAULT_COLS, ACP_TERMINAL_DEFAULT_ROWS);
+}
+
+function attachChildProcessTerminalHandlers(params: {
+  chatId: string;
+  terminalId: string;
+  process: ChildProcess;
+  handleOutput: (text: string) => void;
+  flushPendingTerminalOutput: () => Promise<void>;
+  finalizeTerminal: (status: acp.WaitForTerminalExitResponse) => void;
+}): void {
+  params.process.stdout?.on("data", (chunk: Buffer) => {
+    params.handleOutput(chunk.toString("utf8"));
+  });
+  params.process.stderr?.on("data", (chunk: Buffer) => {
+    params.handleOutput(chunk.toString("utf8"));
+  });
+  params.process.on("exit", (code, signal) => {
+    params
+      .flushPendingTerminalOutput()
+      .catch((error) => {
+        logger.error(
+          "Failed to flush terminal output during process exit",
+          error as Error,
+          {
+            chatId: params.chatId,
+            terminalId: params.terminalId,
+          }
+        );
+      })
+      .finally(() => {
+        params.finalizeTerminal({ exitCode: code, signal });
+      });
+  });
+  params.process.on("error", (error) => {
+    logger.error("Terminal process emitted runtime error", error as Error, {
+      chatId: params.chatId,
+      terminalId: params.terminalId,
+    });
+    params
+      .flushPendingTerminalOutput()
+      .catch((flushError) => {
+        logger.error(
+          "Failed to flush terminal output after runtime error",
+          flushError as Error,
+          {
+            chatId: params.chatId,
+            terminalId: params.terminalId,
+          }
+        );
+      })
+      .finally(() => {
+        params.finalizeTerminal({ exitCode: null, signal: null });
+      });
+  });
+}
+
+/**
+ * Creates tool call handlers for a session runtime
+ *
+ * @param sessionRuntime - The session runtime port for session access
+ * @returns Object containing all tool call handler functions
+ *
+ * @example
+ * ```typescript
+ * const handlers = createToolCallHandlers(sessionRuntime);
+ * await handlers.readTextFileForChat("session-123", { path: "README.md" });
+ * ```
+ */
+export function createToolCallHandlers(sessionRuntime: SessionRuntimePort) {
+  /**
+   * Reads a text file within a chat session
+   */
+  async function readTextFileForChat(
+    chatId: string,
+    params: acp.ReadTextFileRequest
+  ): Promise<acp.ReadTextFileResponse> {
+    const session = getSessionOrThrow(sessionRuntime, chatId);
+    pruneEditorTextBuffers(session);
+    const requestPath = requireString(params.path, "path");
+    const filePath = await resolvePathInSession(session, requestPath);
+    const line = params.line ?? undefined;
+    const limit = params.limit ?? undefined;
+    const fullReadLimitBytes = ENV.messageContentMaxBytes;
+    try {
+      const dirtyBufferContent =
+        session.editorTextBuffers?.get(filePath)?.content;
+      if (dirtyBufferContent !== undefined) {
+        if (
+          line === undefined &&
+          limit === undefined &&
+          Buffer.byteLength(dirtyBufferContent, "utf8") > fullReadLimitBytes
+        ) {
+          throw RequestError.invalidParams(
+            {
+              path: requestPath,
+              maxBytes: fullReadLimitBytes,
+            },
+            "File content exceeds full-read limit; provide line/limit."
+          );
+        }
+        const slicedContent = sliceTextByLineWindow({
+          text: dirtyBufferContent,
+          line,
+          limit,
+        });
+        if (Buffer.byteLength(slicedContent, "utf8") > fullReadLimitBytes) {
+          throw RequestError.invalidParams(
+            {
+              path: requestPath,
+              maxBytes: fullReadLimitBytes,
+            },
+            "Requested line window exceeds maximum response size."
+          );
+        }
+        return {
+          content: slicedContent,
+        };
+      }
+
+      if (line !== undefined || limit !== undefined) {
+        return {
+          content: await readTextFileLineWindow({
+            filePath,
+            line,
+            limit,
+            maxBytes: fullReadLimitBytes,
+          }),
+        };
+      }
+
+      const fileStats = await stat(filePath);
+      if (fileStats.size > fullReadLimitBytes) {
+        throw RequestError.invalidParams(
+          {
+            path: requestPath,
+            size: fileStats.size,
+            maxBytes: fullReadLimitBytes,
+          },
+          "File too large for full read; provide line/limit."
+        );
+      }
+      const text = await readFile(filePath, "utf8");
+      return { content: text };
+    } catch (error) {
+      if (isNodeErrno(error, "ENOENT")) {
+        throw RequestError.invalidParams(
+          { path: requestPath },
+          "File not found"
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Writes a text file within a chat session
+   */
+  async function writeTextFileForChat(
+    chatId: string,
+    params: acp.WriteTextFileRequest
+  ): Promise<acp.WriteTextFileResponse> {
+    assertAcpToolEnabled({
+      enabled: ENV.acpFsWriteEnabled,
+      method: "fs/write_text_file",
+    });
+    const session = getSessionOrThrow(sessionRuntime, chatId);
+    pruneEditorTextBuffers(session);
+    const requestPath = requireString(params.path, "path");
+    const content = requireString(params.content, "content", {
+      allowEmpty: true,
+    });
+    const filePath = await resolvePathInSession(session, requestPath);
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, content, "utf8");
+    session.editorTextBuffers?.delete(filePath);
+    try {
+      const canonicalRootPath = await resolveSessionRootPath(session);
+      const relativePath = toPortableRelativePath({
+        canonicalRootPath,
+        canonicalTargetPath: filePath,
+      });
+      await flushThrottledBroadcasts(chatId);
+      await sessionRuntime.broadcast(chatId, {
+        type: "file_modified",
+        path: relativePath || requestPath.replace(/\\/g, "/"),
+      });
+    } catch (error) {
+      logger.error(
+        "Failed to publish file_modified event after ACP write_text_file",
+        error as Error,
+        { chatId, path: requestPath }
+      );
+    }
+    return {};
+  }
+
+  /**
+   * Creates a new terminal process
+   */
+  async function createTerminal(
+    chatId: string,
+    params: acp.CreateTerminalRequest
+  ): Promise<acp.CreateTerminalResponse> {
+    assertAcpToolEnabled({
+      enabled: ENV.acpTerminalEnabled,
+      method: "terminal/create",
+    });
+    const termId = createId("term");
+    logger.debug("Creating terminal for ACP tool call", {
+      chatId,
+      terminalId: termId,
+      command: params.command,
+      argsCount: params.args?.length ?? 0,
+      hasCwd: Boolean(params.cwd),
+    });
+
+    const session = getSessionOrThrow(sessionRuntime, chatId);
+    const sessionCwd = session.projectRoot;
+    const targetCwd = params.cwd
+      ? path.resolve(sessionCwd, params.cwd)
+      : sessionCwd;
+    const allowedCwd = await resolvePathInSession(session, targetCwd);
+    const outputByteLimit = resolveOutputLimit(params.outputByteLimit ?? null);
+    const commandPolicies = compileCommandPolicies(
+      ENV.allowedTerminalCommandPolicies
+    );
+    const commandArgs = params.args ?? [];
+
+    if (
+      !isCommandInvocationAllowed(params.command, commandArgs, commandPolicies)
+    ) {
+      throw RequestError.invalidParams(
+        { command: params.command, args: commandArgs },
+        `Command invocation blocked by server policy: ${params.command}. Update ALLOWED_TERMINAL_COMMAND_POLICIES if this command should be permitted.`
+      );
+    }
+
+    const mergedEnv = {
+      ...process.env,
+      ...envArrayToRecord(params.env ?? null),
+    } as Record<string, string>;
+    const filteredEnv = filterEnvAllowlist(mergedEnv, ENV.allowedEnvKeys);
+
+    const spawnedTerminal = await spawnAcpTerminalProcess({
+      chatId,
+      terminalId: termId,
+      command: params.command,
+      args: commandArgs,
+      cwd: allowedCwd,
+      env: filteredEnv,
+    });
+
+    // Store terminal state
+    let resolveExit:
+      | ((status: acp.WaitForTerminalExitResponse) => void)
+      | undefined;
+    const exitPromise = new Promise<acp.WaitForTerminalExitResponse>(
+      (resolve) => {
+        resolveExit = resolve;
+      }
+    );
+
+    const termState: TerminalState = {
+      id: termId,
+      process: spawnedTerminal.process,
+      processKind: spawnedTerminal.processKind,
+      ...(spawnedTerminal.processGroupId
+        ? { processGroupId: spawnedTerminal.processGroupId }
+        : {}),
+      lifecycleState: "running",
+      outputBuffer: "",
+      turnId: session.activeTurnId,
+      outputBufferBytes: Buffer.alloc(0),
+      outputByteLimit,
+      truncated: false,
+      pendingOutputChunks: [],
+      pendingOutputBytes: 0,
+      outputStreamsPaused: false,
+      exitPromise,
+      resolveExit,
+    };
+
+    session.terminals.set(termId, termState);
+
+    const flushPendingTerminalOutput = (): Promise<void> => {
+      if (termState.outputFlushPromise) {
+        return termState.outputFlushPromise;
+      }
+      termState.outputFlushPromise = (async () => {
+        while ((termState.pendingOutputChunks?.length ?? 0) > 0) {
+          const data = termState.pendingOutputChunks?.shift();
+          if (!data) {
+            continue;
+          }
+          termState.pendingOutputBytes = Math.max(
+            0,
+            (termState.pendingOutputBytes ?? 0) -
+              Buffer.byteLength(data, "utf8")
+          );
+          try {
+            await sessionRuntime.broadcast(
+              chatId,
+              {
+                type: "terminal_output",
+                terminalId: termId,
+                data,
+                ...(termState.turnId ? { turnId: termState.turnId } : {}),
+              },
+              {
+                durable: false,
+                retainInBuffer: false,
+              }
+            );
+          } catch (error) {
+            logger.error(
+              "Failed to publish terminal output event",
+              error as Error,
+              {
+                chatId,
+                terminalId: termId,
+              }
+            );
+          } finally {
+            maybeResumeTerminalStreams(termState);
+          }
+        }
+      })().finally(() => {
+        termState.outputFlushPromise = undefined;
+        maybeResumeTerminalStreams(termState);
+        if ((termState.pendingOutputChunks?.length ?? 0) > 0) {
+          flushPendingTerminalOutput().catch((error) => {
+            logger.error(
+              "Failed to flush queued terminal output after drain",
+              error as Error,
+              {
+                chatId,
+                terminalId: termId,
+              }
+            );
+          });
+        }
+      });
+      return termState.outputFlushPromise;
+    };
+
+    const finalizeTerminal = (status: acp.WaitForTerminalExitResponse) => {
+      if (termState.exitStatus) {
+        return;
+      }
+      termState.pendingOutputChunks = [];
+      termState.pendingOutputBytes = 0;
+      resumeTerminalStreams(termState);
+      termState.exitStatus = status;
+      termState.lifecycleState = "exited";
+      for (const disposable of termState.processDisposables ?? []) {
+        disposable.dispose();
+      }
+      termState.processDisposables = [];
+      termState.resolveExit?.(status);
+      termState.resolveExit = undefined;
+      clearTerminalKillTimer(termState);
+    };
+
+    // Handle output streaming
+    const handleOutput = (text: string) => {
+      const chunk = Buffer.from(text, "utf8");
+      const current = termState.outputBufferBytes ?? Buffer.alloc(0);
+      let next = current.length === 0 ? chunk : Buffer.concat([current, chunk]);
+      if (next.length > outputByteLimit) {
+        next = next.subarray(next.length - outputByteLimit);
+        termState.truncated = true;
+      }
+      termState.outputBufferBytes = next;
+      termState.outputBuffer = next.toString("utf8");
+      enqueueTerminalOutput(termState, text);
+      scheduleTerminalOutputFlush({
+        flush: flushPendingTerminalOutput,
+        logger,
+        chatId,
+        terminalId: termId,
+        reason: "Failed to flush live terminal output",
+      });
+    };
+
+    if (spawnedTerminal.spawnError) {
+      logger.error(
+        "Terminal process failed to start",
+        spawnedTerminal.spawnError as Error,
+        {
+          chatId,
+          terminalId: termId,
+        }
+      );
+      flushPendingTerminalOutput()
+        .catch((error) => {
+          logger.error(
+            "Failed to flush terminal output after PTY start failure",
+            error as Error,
+            {
+              chatId,
+              terminalId: termId,
+            }
+          );
+        })
+        .finally(() => {
+          finalizeTerminal({ exitCode: null, signal: null });
+        });
+      return { terminalId: termId };
+    }
+
+    attachTerminalProcessHandlers({
+      chatId,
+      terminalId: termId,
+      termState,
+      process: spawnedTerminal.process,
+      processKind: spawnedTerminal.processKind,
+      handleOutput,
+      flushPendingTerminalOutput,
+      finalizeTerminal,
+    });
+
+    const terminalTimeoutMs = ENV.terminalTimeoutMs;
+    if (terminalTimeoutMs !== undefined) {
+      const normalizedTimeout = normalizeTimeoutMs(terminalTimeoutMs);
+      if (normalizedTimeout.clamped) {
+        logger.warn(
+          "Configured terminal timeout exceeded runtime timer limit",
+          {
+            chatId,
+            terminalId: termId,
+            configuredTimeoutMs: terminalTimeoutMs,
+            clampedTimeoutMs: normalizedTimeout.timeoutMs,
+          }
+        );
+      }
+      termState.killTimer = setTimeout(() => {
+        if (shouldSkipTimedTermination(termState)) {
+          return;
+        }
+        terminateTerminalProcess(termState).catch((error) => {
+          logger.warn("Failed to terminate timed-out terminal process", {
+            chatId,
+            terminalId: termId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }, normalizedTimeout.timeoutMs);
+    }
+
+    return { terminalId: termId };
+  }
+
+  /**
+   * Waits for a terminal to exit
+   */
+  function waitForTerminalExit(
+    chatId: string,
+    params: acp.WaitForTerminalExitRequest
+  ): Promise<acp.WaitForTerminalExitResponse> {
+    const session = getSessionOrThrow(sessionRuntime, chatId);
+    const term = getTerminalOrThrow(session, params.terminalId);
+    return term.exitPromise;
+  }
+
+  /**
+   * Retrieves terminal output
+   */
+  function terminalOutput(
+    chatId: string,
+    params: acp.TerminalOutputRequest
+  ): Promise<acp.TerminalOutputResponse> {
+    const session = getSessionOrThrow(sessionRuntime, chatId);
+    const term = getTerminalOrThrow(session, params.terminalId);
+
+    return Promise.resolve({
+      output: term.outputBuffer,
+      truncated: term.truncated ?? false,
+      exitStatus: term.exitStatus ?? null,
+    });
+  }
+
+  /**
+   * Kills a terminal process
+   */
+  async function killTerminal(
+    chatId: string,
+    params: acp.KillTerminalRequest
+  ): Promise<acp.KillTerminalResponse> {
+    const session = getSessionOrThrow(sessionRuntime, chatId);
+    const term = getTerminalOrThrow(session, params.terminalId);
+
+    await terminateTerminalProcess(term);
+    return {};
+  }
+
+  /**
+   * Releases (terminates and removes) a terminal
+   */
+  async function releaseTerminal(
+    chatId: string,
+    params: acp.ReleaseTerminalRequest
+  ): Promise<acp.ReleaseTerminalResponse | undefined> {
+    const session = getSessionOrThrow(sessionRuntime, chatId);
+    const term = session.terminals.get(params.terminalId);
+    if (!term) {
+      return undefined;
+    }
+
+    const typedTerm = term as TerminalState;
+    clearTerminalKillTimer(typedTerm);
+    if (!typedTerm.exitStatus) {
+      try {
+        await terminateTerminalProcess(typedTerm);
+      } catch (error) {
+        logger.warn("Failed to kill terminal during release", {
+          chatId,
+          terminalId: params.terminalId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    session.terminals.delete(params.terminalId);
+    return undefined;
+  }
+
+  return {
+    readTextFileForChat,
+    writeTextFileForChat,
+    createTerminal,
+    waitForTerminalExit,
+    terminalOutput,
+    killTerminal,
+    releaseTerminal,
+  };
+}

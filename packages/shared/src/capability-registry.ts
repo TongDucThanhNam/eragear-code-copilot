@@ -17,7 +17,7 @@ export type CapabilityRegistryStorageKind =
 export interface CapabilityPersistencePlan {
   primaryStore: "sqlite";
   tableName: "capabilities";
-  migrationOwner: "apps/server/drizzle";
+  migrationOwner: "packages/runtime/drizzle";
   notes: string[];
 }
 
@@ -53,7 +53,7 @@ export interface CapabilityRegistrySnapshot {
 export const SQLITE_CAPABILITY_PERSISTENCE_PLAN: CapabilityPersistencePlan = {
   primaryStore: "sqlite",
   tableName: "capabilities",
-  migrationOwner: "apps/server/drizzle",
+  migrationOwner: "packages/runtime/drizzle",
   notes: [
     "Runtime diagnostics may discover capabilities before a durable row exists.",
     "Future migrations should store user/project/plugin capability records in SQLite, not JSON.",

@@ -1,4 +1,4 @@
-import type { UIMessagePart } from "@repo/shared";
+import type { UIMessagePart } from "@eragear-code-copilot/shared";
 import { cn, useThemeColor } from "heroui-native";
 import { useMemo } from "react";
 import { View } from "react-native";

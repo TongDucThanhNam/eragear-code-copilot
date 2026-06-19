@@ -4,10 +4,16 @@ import path from "node:path";
 import type {
   DesktopRemoteConnectStatus,
   DesktopRuntimeMode,
+  RuntimeSecurityPosture,
   RuntimeServiceAuth,
   RuntimeServiceOperation,
-  RuntimeSecurityPosture,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
+import type {
+  BrowserWindowConstructorOptions,
+  IpcMainInvokeEvent,
+  OpenDialogOptions,
+  WebContents,
+} from "electron";
 import {
   app,
   BrowserWindow,
@@ -17,13 +23,12 @@ import {
   Notification,
   session,
 } from "electron";
-import type {
-  BrowserWindowConstructorOptions,
-  IpcMainInvokeEvent,
-  OpenDialogOptions,
-  WebContents,
-} from "electron";
 import { DesktopAutoUpdateController } from "./auto-update.js";
+import {
+  IntegratedBrowserController,
+  type IntegratedBrowserHtmlFileInput,
+  type IntegratedBrowserOpenInput,
+} from "./browser-integration.js";
 import {
   DesktopRemoteConnectHost,
   resolveRemoteConnectConfig,
@@ -37,6 +42,9 @@ import {
 const DEFAULT_REMOTE_RUNTIME_PORT = 443;
 const DEFAULT_RENDERER_URL_PORT = 3001;
 const DEFAULT_RENDERER_URL = "http://127.0.0.1:3001";
+const TRAILING_SLASH_PATTERN = /\/$/;
+const DEVELOPMENT_RENDERER_URL_PATTERN =
+  /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?/i;
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -57,7 +65,10 @@ const remoteRuntimeUrl = normalizeRemoteRuntimeUrl(
 );
 const remoteConnectToken = process.env.ERAGEAR_REMOTE_CONNECT_TOKEN?.trim();
 const remoteConnectCloudflareAccess = resolveRemoteConnectCloudflareAccess();
-const webPreferences: NonNullable<BrowserWindowConstructorOptions["webPreferences"]> = {
+const repoRoot = resolveRepoRoot();
+const webPreferences: NonNullable<
+  BrowserWindowConstructorOptions["webPreferences"]
+> = {
   contextIsolation: true,
   nodeIntegration: false,
   preload: path.join(app.getAppPath(), "dist", "preload.cjs"),
@@ -69,7 +80,7 @@ const securityPosture = createSecurityPosture({
 });
 const runtimeHost = new DesktopRuntimeHost({
   mode: desktopMode,
-  repoRoot: resolveRepoRoot(),
+  repoRoot,
   rendererUrl,
   runtimePort,
   localAuthToken,
@@ -79,9 +90,7 @@ const runtimeHost = new DesktopRuntimeHost({
     ? { remoteApiKey: process.env.ERAGEAR_REMOTE_API_KEY }
     : {}),
   ...(remoteConnectToken ? { remoteConnectToken } : {}),
-  ...(remoteConnectCloudflareAccess
-    ? { remoteConnectCloudflareAccess }
-    : {}),
+  ...(remoteConnectCloudflareAccess ? { remoteConnectCloudflareAccess } : {}),
 });
 const remoteConnectConfig =
   desktopMode === "main-thread"
@@ -91,6 +100,15 @@ const remoteConnectHost = new DesktopRemoteConnectHost({
   config: remoteConnectConfig,
   runtime: runtimeHost,
   trustedRuntimeAuth: { localAuthToken },
+});
+const integratedBrowser = new IntegratedBrowserController({
+  repoRoot,
+  notifyStateChange: (state) => {
+    if (!mainWindow || mainWindow.webContents.isDestroyed()) {
+      return;
+    }
+    mainWindow.webContents.send("eragear:browserStateChanged", state);
+  },
 });
 const autoUpdateController = new DesktopAutoUpdateController({
   currentVersion: app.getVersion(),
@@ -129,7 +147,7 @@ function normalizeRemoteRuntimeUrl(rawValue: string | undefined): string {
     }
     url.search = "";
     url.hash = "";
-    return url.toString().replace(/\/$/, "");
+    return url.toString().replace(TRAILING_SLASH_PATTERN, "");
   } catch {
     console.warn(`[desktop] Remote runtime URL is invalid: ${value}`);
     return "";
@@ -202,13 +220,14 @@ function configureRendererSecurityHeaders(): void {
 
 function createSecurityPosture(params: {
   rendererUrl: string;
-  webPreferences: NonNullable<BrowserWindowConstructorOptions["webPreferences"]>;
+  webPreferences: NonNullable<
+    BrowserWindowConstructorOptions["webPreferences"]
+  >;
 }): RuntimeSecurityPosture {
   const isDevelopmentRenderer =
-    !app.isPackaged || /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?/i.test(params.rendererUrl);
-  const cspStatus = isDevelopmentRenderer
-    ? "development-warning"
-    : "enforced";
+    !app.isPackaged ||
+    DEVELOPMENT_RENDERER_URL_PATTERN.test(params.rendererUrl);
+  const cspStatus = isDevelopmentRenderer ? "development-warning" : "enforced";
   const diagnostics = [
     "Renderer uses Electron preload IPC instead of direct Node integration.",
     "Runtime service uses a private desktop-service channel and is not network exposed.",
@@ -281,7 +300,9 @@ function createMainWindow(): void {
     }
   });
 
-  void mainWindow.loadURL(rendererUrl);
+  mainWindow.loadURL(rendererUrl).catch((error) => {
+    console.error("[desktop] Failed to load renderer", error);
+  });
 }
 
 function getDesktopBootstrap() {
@@ -396,6 +417,34 @@ ipcMain.handle(
     return result.filePaths[0] ?? null;
   }
 );
+ipcMain.handle(
+  "eragear:browser:openHtmlFile",
+  async (event, input?: IntegratedBrowserHtmlFileInput) =>
+    integratedBrowser.pickHtmlFile(getWindowFromSender(event), input)
+);
+ipcMain.handle(
+  "eragear:browser:open",
+  async (_event, input: IntegratedBrowserOpenInput) =>
+    integratedBrowser.open(input)
+);
+ipcMain.handle("eragear:browser:getState", () => integratedBrowser.state());
+ipcMain.handle("eragear:browser:reload", () => integratedBrowser.reload());
+ipcMain.handle("eragear:browser:goBack", () => integratedBrowser.goBack());
+ipcMain.handle("eragear:browser:goForward", () =>
+  integratedBrowser.goForward()
+);
+ipcMain.handle(
+  "eragear:browser:setFullScreen",
+  (_event, input?: { fullScreen?: boolean }) =>
+    integratedBrowser.setFullScreen(input?.fullScreen === true)
+);
+ipcMain.handle("eragear:browser:openDevTools", () =>
+  integratedBrowser.openDevTools()
+);
+ipcMain.handle("eragear:browser:captureContext", () =>
+  integratedBrowser.captureContext()
+);
+ipcMain.handle("eragear:browser:close", () => integratedBrowser.close());
 
 const subscriptionsByWebContents = new WeakMap<WebContents, Set<string>>();
 
@@ -473,7 +522,7 @@ app
     });
     createMainWindow();
     if (process.env.ERAGEAR_DESKTOP_UPDATE_CHECK_ON_STARTUP !== "0") {
-      void autoUpdateController.checkForUpdates({ notify: true }).catch((error) => {
+      autoUpdateController.checkForUpdates({ notify: true }).catch((error) => {
         console.warn(
           `[desktop] Update check failed: ${
             error instanceof Error ? error.message : String(error)

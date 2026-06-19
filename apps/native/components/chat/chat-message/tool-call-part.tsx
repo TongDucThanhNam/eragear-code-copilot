@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import type { ToolUIPart } from "@repo/shared";
+import type { ToolUIPart } from "@eragear-code-copilot/shared";
 import {
   BottomSheet,
   PressableFeedback,

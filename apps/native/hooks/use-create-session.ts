@@ -1,4 +1,4 @@
-import type { AgentInfo, ChatStatus } from "@repo/shared";
+import type { AgentInfo, ChatStatus } from "@eragear-code-copilot/shared";
 import { useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import type {

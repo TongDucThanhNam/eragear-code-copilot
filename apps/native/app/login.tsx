@@ -57,7 +57,7 @@ function normalizeErrorMessage(
     lowered.includes("refused");
 
   if (isNetworkError) {
-    return `Cannot reach server at ${normalizedTarget}. Start apps/server and retry.`;
+    return `Cannot reach runtime host at ${normalizedTarget}. Start desktop Remote Connect or the configured runtime host and retry.`;
   }
 
   return message || "Authentication failed.";

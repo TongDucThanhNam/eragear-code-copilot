@@ -1,4 +1,4 @@
-import type { ToolUIPart } from "@repo/shared";
+import type { ToolUIPart } from "@eragear-code-copilot/shared";
 
 const FILE_PATH_KEYS = new Set([
   "file",

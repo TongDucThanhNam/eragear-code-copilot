@@ -1,5 +1,6 @@
 process.stdin.setEncoding("utf8");
 
+const LINE_SPLIT_PATTERN = /\r?\n/;
 let buffer = "";
 
 function send(message) {
@@ -8,7 +9,7 @@ function send(message) {
 
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
-  const lines = buffer.split(/\r?\n/);
+  const lines = buffer.split(LINE_SPLIT_PATTERN);
   buffer = lines.pop() ?? "";
   for (const line of lines) {
     if (!line.trim()) {

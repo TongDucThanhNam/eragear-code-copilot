@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { BroadcastEvent, UIMessage } from "@repo/shared";
+import type { BroadcastEvent, UIMessage } from "@eragear-code-copilot/shared";
 import {
   deriveResumeSessionSyncPlan,
   finalizeMessagesAfterReady,

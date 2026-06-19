@@ -1,4 +1,4 @@
-import type { ToolUIPart } from "@repo/shared";
+import type { ToolUIPart } from "@eragear-code-copilot/shared";
 import { Accordion } from "heroui-native";
 import { useState } from "react";
 import { Text, View } from "react-native";

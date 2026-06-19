@@ -29,6 +29,7 @@ export function createRendererContentSecurityPolicy(input: {
     "default-src 'self'",
     `script-src ${scriptPolicy} ${origin}`,
     `connect-src 'self' ${origin} ${wsOrigin}`,
+    "frame-src 'self' http: https: file: data: blob:",
     "img-src 'self' data: blob:",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",

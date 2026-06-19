@@ -1,4 +1,4 @@
-import type { UIMessagePart } from "@repo/shared";
+import type { UIMessagePart } from "@eragear-code-copilot/shared";
 import { useState } from "react";
 import { PartRenderers } from "./part-renderers";
 import { getPartKey } from "./utils";

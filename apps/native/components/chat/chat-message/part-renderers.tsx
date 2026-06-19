@@ -1,4 +1,4 @@
-import type { ToolUIPart, UIMessagePart } from "@repo/shared";
+import type { ToolUIPart, UIMessagePart } from "@eragear-code-copilot/shared";
 import { Linking, Text, View } from "react-native";
 import { AttachmentBadge } from "./attachment-badge";
 import { PlanPart } from "./plan-part";

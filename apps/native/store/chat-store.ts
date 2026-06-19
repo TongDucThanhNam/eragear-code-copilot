@@ -11,7 +11,7 @@ import {
   type SessionModelState,
   type SessionModeState,
   type UIMessage,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -22,7 +22,7 @@ export type {
   SessionInfo,
   SessionModelState,
   SessionModeState,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
 
 export interface StoredSessionInfo {
   id: string;

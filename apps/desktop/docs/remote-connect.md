@@ -15,8 +15,8 @@ Remote client
   -> AppUseCases / local Agent CLI
 ```
 
-`apps/server` remains migration/reference code. Do not use it as the product
-runtime for this flow.
+The package runtime is the product runtime for this flow; legacy app-hosted
+runtime code must not be used as the product path.
 
 ## Security Model
 

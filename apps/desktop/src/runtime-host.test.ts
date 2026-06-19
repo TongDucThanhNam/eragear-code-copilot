@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
-import type { RuntimeSecurityPosture } from "@repo/shared";
+import type { RuntimeSecurityPosture } from "@eragear-code-copilot/shared";
 import { DesktopRuntimeHost } from "./runtime-host.js";
 
 const posture: RuntimeSecurityPosture = {

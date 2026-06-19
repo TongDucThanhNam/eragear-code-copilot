@@ -1,4 +1,4 @@
-import type { UIMessagePart } from "@repo/shared";
+import type { UIMessagePart } from "@eragear-code-copilot/shared";
 
 export interface ChainSummary {
   activeIndex: number;

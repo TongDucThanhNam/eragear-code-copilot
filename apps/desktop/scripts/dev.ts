@@ -4,7 +4,6 @@ import path from "node:path";
 
 const desktopRoot = path.resolve(import.meta.dir, "..");
 const repoRoot = path.resolve(desktopRoot, "..", "..");
-const webRoot = path.join(repoRoot, "apps", "web");
 
 const requestedRendererPort = parsePort(
   process.env.ERAGEAR_DESKTOP_RENDERER_PORT,
@@ -52,7 +51,7 @@ async function findAvailablePort(startPort: number) {
     if (await canBindPort(port)) {
       if (port !== startPort) {
         console.log(
-          `[desktop:dev] Port ${startPort} is busy; using ${port} instead.`
+          `[desktop-dev] Port ${startPort} is busy; using ${port} instead.`
         );
       }
       return port;
@@ -69,7 +68,7 @@ function runRequiredCommand(name: string, args: string[], cwd: string) {
   });
 
   if (result.error) {
-    console.error(`[desktop:dev] ${name} failed to start`, result.error);
+    console.error(`[desktop-dev] ${name} failed to start`, result.error);
     process.exit(1);
   }
 
@@ -100,7 +99,7 @@ function startChild(name: string, args: string[], cwd: string, env = {}) {
   });
 
   child.on("error", (error) => {
-    console.error(`[desktop:dev] ${name} failed`, error);
+    console.error(`[desktop-dev] ${name} failed`, error);
   });
 
   return child;
@@ -157,15 +156,23 @@ process.on("SIGTERM", () => {
 
 runRequiredCommand("desktop main build", ["run", "build:main"], desktopRoot);
 
-console.log(`[desktop:dev] Renderer URL: ${rendererUrl}`);
+console.log(`[desktop-dev] Renderer URL: ${rendererUrl}`);
 console.log(
-  "[desktop:dev] Runtime channel: electron-ipc renderer bridge -> desktop-service runtime core"
+  "[desktop-dev] Runtime channel: electron-ipc renderer bridge -> desktop-service runtime core"
 );
 
 startChild(
-  "web renderer",
-  ["run", "dev", "--host", "127.0.0.1", "--port", rendererPort, "--strictPort"],
-  webRoot,
+  "desktop renderer",
+  [
+    "run",
+    "dev:renderer",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    rendererPort,
+    "--strictPort",
+  ],
+  desktopRoot,
   { ERAGEAR_DESKTOP_RENDERER: "true" }
 );
 
@@ -178,7 +185,7 @@ try {
   process.exit(1);
 }
 
-console.log("[desktop:dev] Launching Electron.");
+console.log("[desktop-dev] Launching Electron.");
 startChild("electron", ["run", "electron:start"], desktopRoot, {
   ERAGEAR_DESKTOP_RENDERER_URL: rendererUrl,
   ERAGEAR_REPO_ROOT: repoRoot,
@@ -192,7 +199,7 @@ if (smokeExitMs > 0) {
     }
     shuttingDown = true;
     console.log(
-      `[desktop:dev] Smoke exit fallback reached after ${fallbackMs}ms; stopping dev children.`
+      `[desktop-dev] Smoke exit fallback reached after ${fallbackMs}ms; stopping dev children.`
     );
     stopChildren();
     process.exit(0);

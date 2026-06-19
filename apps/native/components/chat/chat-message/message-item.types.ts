@@ -1,4 +1,4 @@
-import type { UIMessage, UIMessagePart } from "@repo/shared";
+import type { UIMessage, UIMessagePart } from "@eragear-code-copilot/shared";
 import type { FilePart, SourcePart } from "./agentic-message-utils";
 
 export interface AssistantRenderData {

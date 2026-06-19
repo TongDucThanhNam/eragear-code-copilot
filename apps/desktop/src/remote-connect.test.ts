@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { RuntimeServiceAuth, RuntimeServiceOperation } from "@repo/shared";
+import type {
+  RuntimeServiceAuth,
+  RuntimeServiceOperation,
+} from "@eragear-code-copilot/shared";
 import {
   buildCloudflaredArgs,
   DesktopRemoteConnectHost,

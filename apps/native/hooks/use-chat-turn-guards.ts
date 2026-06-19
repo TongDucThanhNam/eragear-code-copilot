@@ -3,8 +3,8 @@ import type {
   ChatStatus,
   ToolUIPart,
   UIMessagePart,
-} from "@repo/shared";
-import { isChatBusyStatus, isMessageStreaming } from "@repo/shared";
+} from "@eragear-code-copilot/shared";
+import { isChatBusyStatus, isMessageStreaming } from "@eragear-code-copilot/shared";
 
 const BLOCKED_TURN_ID_MAX = 16;
 const COMPLETED_TURN_ID_MAX = 16;

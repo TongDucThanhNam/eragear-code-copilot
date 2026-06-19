@@ -1,4 +1,4 @@
-import type { UIMessage } from "@repo/shared";
+import type { UIMessage } from "@eragear-code-copilot/shared";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColor } from "heroui-native";
 import { Text, View } from "react-native";

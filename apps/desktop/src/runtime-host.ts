@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { access } from "node:fs/promises";
 import path from "node:path";
@@ -8,32 +8,33 @@ import { promisify } from "node:util";
 import type {
   AgentCliAvailability,
   AgentCliId,
+  DesktopRemoteConnectCloudflareAccessCredentials,
   DesktopRuntimeBootstrap,
   DesktopRuntimeMode,
   RuntimeChildProcessDiagnostics,
-  DesktopRemoteConnectCloudflareAccessCredentials,
   RuntimeChildProcessState,
   RuntimeDiagnostics,
   RuntimeEndpoint,
   RuntimeHealth,
   RuntimeHealthState,
   RuntimeHost,
+  RuntimeSecurityPosture,
   RuntimeServiceAuth,
   RuntimeServiceClientMessage,
   RuntimeServiceOperation,
   RuntimeServiceResponseMessage,
   RuntimeServiceServerMessage,
   RuntimeServiceSubscriptionEventMessage,
-  RuntimeSecurityPosture,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
 
 const execFileAsync = promisify(execFile);
 const LOOPBACK_HOST = "127.0.0.1";
 const DESKTOP_SERVICE_CHANNEL = "eragear-desktop-runtime-service";
 const ELECTRON_IPC_CHANNEL = "eragear-desktop-ipc";
-const VERSION_TIMEOUT_MS = 2_000;
+const VERSION_TIMEOUT_MS = 2000;
 const SERVICE_READY_TIMEOUT_MS = 60_000;
 const SERVICE_REQUEST_TIMEOUT_MS = 120_000;
+const LINE_SPLIT_PATTERN = /\r?\n/;
 
 interface AgentCliDefinition {
   id: AgentCliId;
@@ -154,6 +155,13 @@ function isLoopbackHost(host: string): boolean {
   );
 }
 
+function defaultPortForProtocol(protocol: string): number {
+  if (protocol === "wss:") {
+    return 443;
+  }
+  return 80;
+}
+
 function endpointFromUrl(
   runtimeUrl: string,
   fallbackPort: number,
@@ -163,9 +171,7 @@ function endpointFromUrl(
     const parsed = new URL(runtimeUrl);
     const port = parsed.port
       ? Number(parsed.port)
-      : parsed.protocol === "wss:"
-        ? 443
-        : 80;
+      : defaultPortForProtocol(parsed.protocol);
     const httpProtocol = parsed.protocol === "wss:" ? "https:" : "http:";
     return {
       kind,
@@ -215,7 +221,7 @@ function resolveExecutable(command: string): string | null {
 
 function firstOutputLine(stdout: string, stderr: string): string | undefined {
   return `${stdout}\n${stderr}`
-    .split(/\r?\n/)
+    .split(LINE_SPLIT_PATTERN)
     .map((line) => line.trim())
     .find((line) => line.length > 0);
 }
@@ -277,9 +283,7 @@ function normalizePolicyCommand(command: string): string {
   return process.platform === "win32" ? command.toLowerCase() : command;
 }
 
-function parseCommandPolicies(
-  raw: unknown
-): DesktopCommandPolicy[] {
+function parseCommandPolicies(raw: unknown): DesktopCommandPolicy[] {
   let value = raw;
   if (typeof raw === "string" && raw.trim().length > 0) {
     try {
@@ -340,7 +344,11 @@ function readBootObject(filePath: string): Record<string, unknown> | null {
 function getBootConfigCandidates(serverRoot: string): string[] {
   const explicit = process.env.ERAGEAR_BOOT_CONFIG_PATH?.trim();
   const candidates = explicit
-    ? [path.isAbsolute(explicit) ? explicit : path.resolve(serverRoot, explicit)]
+    ? [
+        path.isAbsolute(explicit)
+          ? explicit
+          : path.resolve(serverRoot, explicit),
+      ]
     : [
         path.resolve(serverRoot, "settings.json"),
         path.resolve(serverRoot, ".eragear", "settings.json"),
@@ -500,7 +508,10 @@ export class DesktopRuntimeHost
   private readonly options: DesktopRuntimeHostOptions;
   private readonly messages: string[] = [];
   private readonly pendingResponses = new Map<string, PendingResponse>();
-  private readonly subscriptionHandlers = new Map<string, SubscriptionHandler>();
+  private readonly subscriptionHandlers = new Map<
+    string,
+    SubscriptionHandler
+  >();
   private runtimeProcess: ChildProcess | null = null;
   private childStatus: RuntimeChildProcessState = "not-started";
   private healthState: RuntimeHealthState = "not-started";
@@ -510,9 +521,7 @@ export class DesktopRuntimeHost
   private exitSignal: string | null | undefined;
   private cliAvailability: AgentCliAvailability[] = [];
   private stdoutBuffer = "";
-  private readyResolve:
-    | ((diagnostics: RuntimeDiagnostics) => void)
-    | undefined;
+  private readyResolve: ((diagnostics: RuntimeDiagnostics) => void) | undefined;
   private readyReject: ((error: Error) => void) | undefined;
   private lastServiceDiagnostics: RuntimeDiagnostics | null = null;
 
@@ -542,9 +551,9 @@ export class DesktopRuntimeHost
     this.cliAvailability = await resolveAgentCliAvailability();
     this.logCliAvailability();
 
-    const serverRoot = path.join(this.options.repoRoot, "apps", "server");
+    const runtimeRoot = path.join(this.options.repoRoot, "packages", "runtime");
     const serviceEntrypoint = path.join(
-      serverRoot,
+      runtimeRoot,
       "src",
       "runtime",
       "desktop-service.ts"
@@ -572,18 +581,18 @@ export class DesktopRuntimeHost
         ERAGEAR_RUNTIME_TRANSPORT: "desktop-service",
         ERAGEAR_DESKTOP_SERVICE_TOKEN: this.options.localAuthToken,
         ERAGEAR_REPO_ROOT: this.options.repoRoot,
-        ALLOWED_ENV_KEYS: buildDesktopAllowedEnvKeysEnv(serverRoot),
+        ALLOWED_ENV_KEYS: buildDesktopAllowedEnvKeysEnv(runtimeRoot),
       };
       const agentCommandPoliciesEnv = buildDesktopAgentCommandPoliciesEnv({
         cliAvailability: this.cliAvailability,
-        serverRoot,
+        serverRoot: runtimeRoot,
       });
       if (agentCommandPoliciesEnv) {
         serviceEnv.ALLOWED_AGENT_COMMAND_POLICIES = agentCommandPoliciesEnv;
       }
 
       const proc = spawn("bun", ["run", "src/runtime/desktop-service.ts"], {
-        cwd: serverRoot,
+        cwd: runtimeRoot,
         stdio: ["pipe", "pipe", "pipe"],
         env: serviceEnv,
       });
@@ -598,7 +607,8 @@ export class DesktopRuntimeHost
         this.exitCode = code;
         this.exitSignal = signal;
         this.stoppedAt = new Date().toISOString();
-        this.childStatus = this.childStatus === "stopping" ? "stopped" : "exited";
+        this.childStatus =
+          this.childStatus === "stopping" ? "stopped" : "exited";
         this.healthState = "stopped";
         const suffix = signal ? `signal ${signal}` : `code ${code ?? 0}`;
         this.addMessage(`Desktop runtime service exited with ${suffix}.`);
@@ -609,7 +619,9 @@ export class DesktopRuntimeHost
       proc.once("error", (error) => {
         this.childStatus = "error";
         this.healthState = "error";
-        this.addMessage(`Desktop runtime service failed to start: ${error.message}`);
+        this.addMessage(
+          `Desktop runtime service failed to start: ${error.message}`
+        );
         this.readyReject?.(error);
         this.rejectPendingResponses(error);
       });
@@ -730,7 +742,9 @@ export class DesktopRuntimeHost
       platform: "electron",
       mode: this.options.mode,
       transport:
-        this.options.mode === "main-thread" ? electronIpcEndpoint : this.endpoint(),
+        this.options.mode === "main-thread"
+          ? electronIpcEndpoint
+          : this.endpoint(),
       ...(this.options.mode === "client-only" && diagnostics.endpoint.runtimeUrl
         ? { serverUrl: diagnostics.endpoint.runtimeUrl }
         : {}),
@@ -784,6 +798,7 @@ export class DesktopRuntimeHost
         auth: input.auth,
         operation: input.operation,
       });
+      await Promise.resolve();
       return { subscriptionId };
     } catch (error) {
       this.subscriptionHandlers.delete(subscriptionId);
@@ -794,12 +809,14 @@ export class DesktopRuntimeHost
   async unsubscribeOperation(subscriptionId: string): Promise<void> {
     this.subscriptionHandlers.delete(subscriptionId);
     if (!this.runtimeProcess) {
+      await Promise.resolve();
       return;
     }
     this.sendMessage({
       kind: "unsubscribe",
       id: subscriptionId,
     });
+    await Promise.resolve();
   }
 
   private endpoint(): RuntimeEndpoint {
@@ -879,7 +896,7 @@ export class DesktopRuntimeHost
 
   private appendRuntimeLog(prefix: string, chunk: Buffer): void {
     const text = chunk.toString();
-    for (const line of text.split(/\r?\n/)) {
+    for (const line of text.split(LINE_SPLIT_PATTERN)) {
       if (line.trim().length > 0) {
         console.log(`${prefix} ${line}`);
       }
@@ -888,7 +905,7 @@ export class DesktopRuntimeHost
 
   private appendServiceStdout(chunk: Buffer): void {
     this.stdoutBuffer += chunk.toString();
-    const lines = this.stdoutBuffer.split(/\r?\n/);
+    const lines = this.stdoutBuffer.split(LINE_SPLIT_PATTERN);
     this.stdoutBuffer = lines.pop() ?? "";
     for (const line of lines) {
       this.handleServiceLine(line);
@@ -922,7 +939,9 @@ export class DesktopRuntimeHost
         const error = new Error(message.error.message);
         this.healthState = "error";
         this.childStatus = "error";
-        this.addMessage(`Desktop runtime service fatal error: ${error.message}`);
+        this.addMessage(
+          `Desktop runtime service fatal error: ${error.message}`
+        );
         this.readyReject?.(error);
         this.readyResolve = undefined;
         this.readyReject = undefined;
@@ -933,6 +952,9 @@ export class DesktopRuntimeHost
         return;
       case "subscription-event":
         this.subscriptionHandlers.get(message.id)?.(message.event);
+        return;
+      default:
+        this.addMessage("Ignoring unknown desktop runtime service message.");
         return;
     }
   }
@@ -969,7 +991,9 @@ export class DesktopRuntimeHost
     timeoutMs = SERVICE_REQUEST_TIMEOUT_MS
   ): Promise<RuntimeServiceResponseMessage> {
     if (!("id" in message)) {
-      return Promise.reject(new Error("Runtime service message requires an id."));
+      return Promise.reject(
+        new Error("Runtime service message requires an id.")
+      );
     }
 
     return new Promise((resolve, reject) => {

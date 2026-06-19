@@ -1,4 +1,4 @@
-import type { TextUIPart, ToolUIPart, UIMessagePart } from "@repo/shared";
+import type { TextUIPart, ToolUIPart, UIMessagePart } from "@eragear-code-copilot/shared";
 
 const FINAL_PART_TYPES = new Set([
   "text",

@@ -7,364 +7,303 @@
 
 ## Objective
 
-Improve the Electron app's Settings UX/UI so the desktop experience feels calmer, cleaner, faster to scan, and less cognitively overloaded, with Settings as the primary scope.
+Migrate Eragear Code Copilot to a desktop-first Electron architecture by removing the legacy `apps/web` and `apps/server` product folders, while preserving `apps/native` as the mobile client and keeping the runtime/API code cleanly separated in shared packages.
 
-The work must restructure the Settings information architecture, navigation, and shared settings surfaces in `apps/web` while preserving the existing Electron security/runtime boundary in `apps/desktop`.
+The final product shape must make `apps/desktop` the primary desktop app. Server/runtime behavior currently inside `apps/server` must be extracted before deletion, not copied ad hoc into Electron files.
+
+---
+
+## Feasibility Decision
+
+This migration is feasible, but it is a medium-hard architecture migration and must be staged.
+
+Why it is feasible:
+
+- `apps/desktop` already exists and uses Electron 42 with `main.ts`, `preload.ts`, IPC handlers, runtime diagnostics, window controls, auto-update, and Remote Connect foundations.
+- The Electron renderer already talks through `window.eragearDesktop` and `electronTrpcLink`, so the default local desktop path is no longer browser-accessible HTTP.
+- `apps/server` already has a transport-independent runtime seam: `src/runtime/core.ts` creates `RuntimeCore` from `createAppCompositionFromSettings()`.
+- `apps/server/src/modules/use-cases.ts` exposes a transport-facing use-case graph, which is a good extraction boundary.
+- `apps/web` already supports Electron IPC mode through `apps/web/src/main.tsx`, `apps/web/src/lib/desktop-bootstrap.ts`, and `apps/web/src/lib/electron-trpc-link.ts`.
+
+Why it is risky:
+
+- `apps/server` is not just legacy HTTP. It owns ACP, process spawning, permissions, persistence, runtime modules, tRPC router contracts, auth, terminal, git, settings, plugins, MCP, and background tasks.
+- `apps/web` is not just a browser app. It is currently the Electron renderer source.
+- `apps/native` imports `AppRouter` directly from `../../server/src/transport/trpc/router`; deleting `apps/server` before extracting API contracts will break mobile.
+- `packages/trpc-contract` is only a thin re-export from `apps/server`, so it is not yet a real contract package.
+- Current `apps/server check:quick` fails on Biome formatter diagnostics before this migration begins.
+
+Recommended approach: extract first, delete last. Do not attempt a one-shot deletion of `apps/web` and `apps/server`.
 
 ---
 
 ## Context
 
-- Reason: the current Electron Settings surface exposes too many unrelated features as one flat interface. Users have to scan a long list before they can find the right task.
-- Priority: user workflow clarity > visual polish > implementation speed.
+- Reason: the project is ready to stop treating web/server as product modes and move to a cleaner Electron-owned runtime, while keeping mobile.
+- Priority: clean architecture > correctness > user-visible speed of deletion.
 - Executor: AI agent, no human review at every step.
-- Created: 2026-06-16, Asia/Saigon.
-- User explicitly requested:
-  - Use the `ui-map` script.
-  - Use the `refactoring-ui` skill.
-  - Use UX/UI laws such as cognitive load reduction.
-  - Use Obsidian Second Brain as a reference source.
-
-Key principles that must shape the implementation:
-
-- Cognitive Load: reduce information the user must hold in working memory.
-- Choice Overload: avoid presenting many equivalent choices at once.
-- Chunking: group related settings into meaningful modules with clear hierarchy.
-- Default Path Design: make the safest/common first path obvious.
-- Fitts's Law: keep common targets easy to acquire, especially on mobile/narrow windows.
-- Doherty Threshold: give fast feedback for loading/saving/searching.
-- Refactoring UI: group spacing must be larger than within-group spacing, hierarchy must use weight/color/spacing together, and secondary actions should be quieter than primary actions.
-
----
-
-## Research Summary
-
-### Repo Findings
-
-| Item | Value |
-|------|-------|
-| Repo | Bun monorepo with `apps/*` and `packages/*` |
-| Package manager | Bun 1.3.0 |
-| Web renderer | `apps/web`, Vite, React 19, TanStack Router, Tailwind 4, shadcn/Radix-style components |
-| Desktop shell | `apps/desktop`, Electron 42, renderer hosted from `apps/web` |
-| Desktop dev command | `bun run dev:desktop` |
-| Web entry | `apps/web/src/main.tsx` |
-| Desktop entry | `apps/desktop/src/main.ts` |
-| Settings layout | `apps/web/src/routes/settings.tsx` |
-| Settings route files | 30 files matching `apps/web/src/routes/settings*.tsx` |
-| Settings nav items | 28 flat sidebar items in `SETTINGS_NAV` |
-| Settings panels | 23 files in `apps/web/src/components/settings` |
-| Heavy settings panels by lines | `bots-settings-panel.tsx` 735, `settings-panels.tsx` 683, `usage-stats-settings-panel.tsx` 665, `model-providers-settings-panel.tsx` 640, `remote-control-settings-panel.tsx` 524 |
-| Existing tests | `bun run --cwd apps/web check-types`, `bun run --cwd apps/web test:blockers`, `bun run audit:blockers` |
-| Visual regression setup | Not found. Add manual/screenshot evidence or focused tests as part of this task. |
-
-### Current Settings UX Evidence
-
-`ui-map` was run against the web Settings layout:
-
-```powershell
-bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.tsx --alias '@=../../apps/web/src' --focus SettingsLayout --scope full --layoutOnly
-```
-
-Observed structure:
-
-- Desktop Settings uses one fixed `w-64` sidebar with all settings routes as a single flat vertical list.
-- Mobile Settings uses one horizontal scroll row containing all settings routes.
-- `/settings/` redirects directly to `/settings/agents`, so there is no true Settings overview/default path.
-- `RuntimeSettingsPage` includes multiple dense diagnostic/workbench panels, including `LocalAdeRuntimeSettingsPanel`.
-- Settings panels mostly use `SettingsPageHeader` and `SettingsSection`, but many panels implement their own loading/empty/metric/card patterns.
-
-Native Settings was also mapped for contrast:
-
-```powershell
-bun run --cwd apps/native ui-map --entry 'app/(drawer)/settings.tsx' --layoutOnly
-```
-
-Observed useful reference pattern:
-
-- Native Settings groups rows under a small number of sections such as Account, Preferences, Workspace, Security, and App.
-- Agent management is separate and has a contextual empty state with a direct CTA.
-- This is a useful IA reference, not a source to copy literally.
-
-### Design System Findings
-
-Important files:
-
-- `apps/web/src/index.css`
-- `apps/web/components.json`
-- `apps/web/src/components/ui/button.tsx`
-- `apps/web/src/components/ui/card.tsx`
-- `apps/web/src/components/ui/tabs.tsx`
-- `apps/web/src/components/ui/empty.tsx`
-- `apps/web/src/components/ui/sidebar.tsx`
-- `apps/web/src/components/settings/settings-panels.tsx`
-
-Current tokens and conventions:
-
-- Tailwind v4 plus shadcn CSS variables are already present.
-- `index.css` already defines semantic tokens such as `--bg_default_primary`, `--bg_grouped_primary`, `--text_default_secondary`, `--icon_default_tertiary`, `--border_default`, and `--surface-elevated-shadow`.
-- Existing UI primitives intentionally use compact desktop density: `text-xs`, `h-8`, `rounded-none`, subtle borders, and low elevation.
-- `components.json` says `iconLibrary: "phosphor"`, while the current Settings layout and many panels use `lucide-react`. Do not do a broad icon migration unless the repo convention is verified first.
-
-### Obsidian Second Brain References Read
-
-Read these notes through Obsidian CLI with `vault=StudyWithTerasumi`:
-
-- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Cognitive Load.md`
-- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Choice Overload.md`
-- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Chunking.md`
-- Fitts Law note under `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux` found with `obsidian search:context vault=StudyWithTerasumi query="Fitts" ...`
-- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Doherty Threshold.md`
-- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/lab-of-ux/Aesthetic-Usability Effect.md`
-- `30_Resources/Software_Engineering_Mental_Models/40_Domain_Maps/01_Web_App_Engineering/design/UI Components/Sidebar UI.md`
-- `30_Resources/Software_Engineering_Mental_Models/20_Mental_Model_Groups/04_Complexity_Cost/Cognitive Load Budget.md`
-- `30_Resources/Software_Engineering_Mental_Models/20_Mental_Model_Groups/04_Complexity_Cost/Complexity Budget.md`
-- `30_Resources/Software_Engineering_Mental_Models/20_Mental_Model_Groups/12_Product_Engineering_Judgment/Default Path Design.md`
-- `30_Resources/Software_Engineering_Mental_Models/60_Case_Studies/Case Study - MiniMax Code UX UI Architecture Reverse Engineering.md`
-
-Reusable conclusions:
-
-- Too many equal choices are mentally expensive unless there is a clear prior category or dominant option.
-- Sidebar helps only when it reduces cognitive load through grouping or disclosure. A long ungrouped sidebar can increase load.
-- Attractive UI helps only when it supports function. Do not hide usability problems behind decorative polish.
-- For AI desktop tools, a good target surface is compact, predictable, keyboard-friendly, state-rich, visually quiet, and clear about runtime/security boundaries.
+- Created: 2026-06-19, Asia/Saigon.
+- User wording: "apps/mobile"; current repo folder is `apps/native`. Treat this as "preserve mobile", and do not rename it unless explicitly requested later.
 
 ---
 
 ## Current State
 
-| Area | Current behavior |
-|------|------------------|
-| Settings navigation | 28 settings destinations exposed as one flat list |
-| Mobile navigation | Horizontal scroll row with every settings destination |
-| Default settings path | `/settings/` redirects to `/settings/agents` |
-| Settings grouping | Routes are separate, but navigation does not show meaningful categories |
-| Discoverability | No Settings overview, no settings search/filter visible in the layout |
-| Shared settings primitives | `SettingsPageHeader` and `SettingsSection` exist, but empty/loading/error/action patterns are inconsistent |
-| Runtime page | Dense diagnostics and Local ADE cockpit are mixed under one Runtime page |
-| Desktop architecture | Electron main/preload/runtime boundary exists; renderer should remain UI-only |
-| Design tokens | Semantic tokens exist in `index.css`; new work should reuse them |
+| Item | Value |
+|------|-------|
+| Monorepo | Bun workspaces, `apps/*` and `packages/*` |
+| Package manager | Bun 1.3.0 |
+| Desktop shell | `apps/desktop`, Electron `^42.4.0` |
+| Desktop entry | `apps/desktop/src/main.ts` |
+| Desktop preload | `apps/desktop/src/preload.ts` |
+| Desktop runtime host | `apps/desktop/src/runtime-host.ts` |
+| Current renderer | `apps/web`, Vite, React 19, TanStack Router |
+| Current server/runtime | `apps/server`, Bun + Hono + tRPC + WS + ACP runtime |
+| Mobile app | `apps/native`, Expo Router / React Native |
+| Shared package | `packages/shared` as `@eragear-code-copilot/shared` |
+| Current tRPC type source | `apps/server/src/transport/trpc/router.ts` |
+| Thin tRPC contract package | `packages/trpc-contract/src/index.ts` re-exports from `apps/server` |
+| Web source files | 322 files under `apps/web/src` |
+| Web route files | 32 files under `apps/web/src/routes` |
+| Server source files | 984 files under `apps/server/src` |
+| Server module files | 476 files under `apps/server/src/modules` |
+| Server tRPC router files | 150 files under `apps/server/src/transport/trpc/routers` |
+| Desktop source files | 10 files under `apps/desktop/src` |
+| Native files | 133 files under `apps/native` |
+| Tauri residue | `apps/web/src-tauri`, Tauri scripts/deps in `apps/web/package.json` |
 
-Settings destinations currently include:
+### Existing Desktop Flow
 
 ```text
-Agents, Bots, Connection, Runtime, Capabilities, Credentials,
-Crash Reporting, ACP Auth, OAuth, Plan, Sync, Model Providers,
-Prompt, Output Style, Plugins, Repo Snapshots, Remote Control,
-ACP Proxy, Commands, Usage, Terminal, Skills, Hooks, Automation,
-Archive, Memory, MCP, Activity
+apps/web renderer
+  -> preload eragearDesktop bridge
+  -> Electron IPC
+  -> apps/desktop/src/runtime-host.ts
+  -> apps/server/src/runtime/desktop-service.ts
+  -> apps/server/src/runtime/core.ts
+  -> AppUseCases/runtime rules
 ```
+
+### Checks Run During Research
+
+| Command | Result |
+|---------|--------|
+| `bun run --cwd apps/desktop check-types` | Pass |
+| `bun run --cwd apps/web check-types` | Pass |
+| `bun run --cwd apps/server check:quick` | Fail: `tsc -b --noEmit` ran, then Biome emitted 579 formatter diagnostics |
+| `bun run --cwd apps/native ui-map` | Pass |
+
+The server check failure is pre-existing evidence for migration planning. Do not hide it by lowering quality gates.
 
 ---
 
 ## Target State
 
-| Area | Target behavior |
-|------|-----------------|
-| Settings IA | Settings are grouped into a small number of meaningful categories instead of one flat list |
-| Settings overview | `/settings/` is a useful overview/default path, not a blind redirect |
-| Primary path | New or confused users can find agent setup, provider/auth, and connection/runtime health quickly |
-| Progressive disclosure | Advanced/low-frequency settings remain available but are visually quieter and grouped under clear advanced categories |
-| Search/filter | Users can quickly filter settings by label/description/category from the Settings layout or overview |
-| Mobile/narrow layout | No giant horizontal scroll of 28 equal items; use grouped drawer, select, command-like search, or another compact pattern |
-| Shared settings UI | Common section/header/empty/loading/error/action patterns are consistent across Settings pages |
-| Visual feel | Desktop tool density stays compact, quiet, and scan-friendly; avoid landing-page spacing or decorative cards |
-| Runtime boundary | Renderer UI changes do not weaken Electron main/preload security or move runtime secrets into renderer state |
-| Verification | Completion is proven by type/build/test output, `ui-map` output, and visual evidence at desktop and mobile/narrow widths |
+| Item | Target |
+|------|--------|
+| Desktop app | `apps/desktop` is the only desktop/browser-like product app |
+| Renderer ownership | Renderer source moved from `apps/web/src` into `apps/desktop` or a clearly named renderer package owned by desktop |
+| Runtime ownership | Runtime/application modules extracted from `apps/server` into one or more shared packages, preferably `packages/runtime` plus `packages/api-contract` |
+| API contract | `AppRouter` or replacement procedure contract exported from a package, not from `apps/server` |
+| Mobile | `apps/native` remains and imports contracts from packages only |
+| Local desktop transport | Electron IPC/preload remains the default; no browser-accessible localhost server in main-thread mode |
+| Remote/mobile transport | Remote Connect is owned by `apps/desktop`; mobile connects to an Electron-hosted remote bridge or explicitly documented remote host mode |
+| Legacy server | `apps/server` removed from active product tree after runtime/API extraction and parity verification |
+| Legacy web | `apps/web` removed after renderer migration and parity verification |
+| Tauri | `apps/web/src-tauri`, Tauri scripts, Tauri deps, and Tauri docs removed unless intentionally archived outside active product paths |
 
-Recommended grouping model. Adjust only if repo evidence shows a better product language:
+Recommended package shape:
 
-| Group | Routes |
-|-------|--------|
-| Setup | Agents, Connection, Runtime, Model Providers, Credentials |
-| Account and Access | Plan, OAuth, ACP Auth, Sync |
-| Automation | Bots, Commands, Hooks, Automation, Terminal |
-| Extensions | Plugins, Skills, MCP, Capabilities |
-| Workspace Intelligence | Memory, Repo Snapshots, Prompt, Output Style |
-| Operations | Usage, Activity, Crash Reporting, Archive, Remote Control, ACP Proxy |
+```text
+apps/
+  desktop/
+    src/main/
+    src/preload/
+    src/renderer/
+    src/remote-connect/
+  native/
 
-The exact labels can change, but the final IA must reduce first-glance choices from 28 equal items to roughly 5-7 understandable groups.
+packages/
+  shared/
+  api-contract/
+  runtime/
+  db/
+  env/
+  config/
+```
+
+Alternative acceptable shape:
+
+```text
+apps/
+  desktop/
+  native/
+
+packages/
+  desktop-renderer/
+  api-contract/
+  runtime/
+  shared/
+```
+
+Do not leave a product folder named `apps/web` if the stated goal is to remove it.
 
 ---
 
 ## Constraints
 
-The executor must follow these constraints.
+The executor agent must obey these constraints.
 
-- [ ] Do not change server/domain behavior unless a UI contract already requires it.
-- [ ] Do not move secrets, credentials, provider tokens, or privileged runtime data into renderer-owned state.
-- [ ] Do not weaken `apps/desktop/src/main.ts` security posture: keep `contextIsolation: true`, `nodeIntegration: false`, preload IPC boundary, and runtime service boundary.
-- [ ] Do not delete or break existing `/settings/*` deep links.
-- [ ] Do not rename tRPC procedures or shared contracts unless absolutely required and fully verified.
-- [ ] Do not introduce a new UI framework or design system.
-- [ ] Do not introduce hardcoded colors when an existing CSS variable or Tailwind token fits.
-- [ ] Do not use decorative gradients/orbs/marketing hero layouts inside Settings.
-- [ ] Do not put page sections inside nested cards. Use cards only for repeated items, modals, or genuinely framed tools.
-- [ ] Do not make a broad icon-library migration. If touching Settings icons, keep a single consistent convention within the changed surface and explain the choice.
-- [ ] Do not rely only on subjective "looks better" judgment. Provide evidence.
-- [ ] If visual verification tooling is missing, create lightweight artifacts or tests rather than claiming completion from typecheck alone.
-- [ ] If a requirement conflicts with existing design-system tokens, stop and document the conflict instead of inventing one-off values.
+- [ ] Do not delete `apps/server` until all runtime code needed by desktop and mobile has been extracted into package(s) and verification commands pass.
+- [ ] Do not delete `apps/web` until the Electron renderer source builds and runs from its new home.
+- [ ] Do not delete or rename `apps/native`.
+- [ ] Do not make `apps/native` import from `apps/server`, `apps/web`, or `apps/desktop` internals.
+- [ ] Do not reintroduce `nodeIntegration: true` in Electron renderer.
+- [ ] Keep Electron renderer access to privileged APIs behind preload/contextBridge IPC.
+- [ ] Keep `contextIsolation: true` for Electron renderer windows.
+- [ ] Do not add a browser-accessible local HTTP runtime for default desktop main-thread mode.
+- [ ] If a temporary compatibility HTTP bridge is required, it must bind only to loopback, be explicitly named temporary, have per-launch auth, and have a removal task in this GOAL's execution plan.
+- [ ] Do not keep Tauri as an active desktop target.
+- [ ] Do not move business rules into Electron main/preload. Electron main owns lifecycle/native integration; runtime/application rules belong in packages.
+- [ ] Do not upgrade unrelated dependencies as part of the migration.
+- [ ] Preserve existing data schemas and migrations unless a migration is explicitly required and covered by tests.
+- [ ] Preserve ACP/tool-call permission boundaries and project-root sandbox checks.
+- [ ] If a blocker prevents clean extraction, stop and document the blocker instead of flattening everything into `apps/desktop/src`.
 
 ---
 
 ## Success Criteria
 
-Each criterion needs authoritative evidence. Do not mark the goal complete until evidence proves completion.
+Every criterion requires authoritative evidence. Do not mark complete based on memory.
 
 ### Required Evidence per Criterion
 
-| # | Criterion | Verification Command / Evidence | Expected Signal |
-|---|-----------|----------------------------------|-----------------|
-| 1 | Settings IA is no longer a flat list of 28 equal choices | `bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.tsx --alias '@=../../apps/web/src' --focus SettingsLayout --scope full --layoutOnly` | Output shows grouped navigation or a grouped/searchable Settings shell, not only one flat `SETTINGS_NAV.map` list |
-| 2 | `/settings/` is a useful overview/default path | Inspect `apps/web/src/routes/settings.index.tsx` and run `rg -n "redirect\\({ to: \"/settings/agents\"|SettingsOverview|SettingsHome" apps/web/src/routes/settings.index.tsx apps/web/src/components/settings` | No blind redirect remains; an overview/home component exists and links users to major groups/tasks |
-| 3 | First-glance Settings choices are reduced through chunking | Inspect settings nav config and run a focused test if added, for example `bun test apps/web/src/components/settings/settings-navigation.test.ts` | Top-level groups are roughly 5-7, with individual routes nested or filtered beneath them |
-| 4 | Existing deep links still work | `bun run --cwd apps/web check-types` and inspect `apps/web/src/routeTree.gen.ts` after router generation/build | All existing `/settings/*` routes compile and remain addressable |
-| 5 | Mobile/narrow Settings no longer presents 28 horizontal equal items | Visual evidence: screenshot at 390x844 or equivalent, plus `ui-map` for `SettingsLayout` | Mobile uses grouped drawer/select/search/stacked groups; no long single-row nav of every route |
-| 6 | Shared settings primitives are cleaner and consistent | Inspect `SettingsPageHeader`, `SettingsSection`, and any new empty/loading/error helpers | Uses existing tokens, clear hierarchy, consistent spacing, no nested-card page sections |
-| 7 | High-load panels are not worse and at least the top priority panels are cleaner | Visual evidence for Agents, Runtime, Model Providers, Bots or Usage, and Overview | Dense pages remain usable, with clearer grouping, primary actions, empty/loading/error states, and no text overlap |
-| 8 | Desktop shell still compiles | `bun run --cwd apps/desktop check-types` | Exit code 0 |
-| 9 | Web renderer compiles and builds | `bun run --cwd apps/web check-types` and `bun run --cwd apps/web build` | Exit code 0 for both |
-| 10 | Existing blocker tests still pass | `bun run --cwd apps/web test:blockers` and, if time permits, `bun run audit:blockers` | Exit code 0, or any unrelated failures are documented with exact output |
-| 11 | Visual verification exists | Save or reference screenshots for at least desktop width 1440x960 and narrow width around 390x844 | Screenshots show Settings overview, grouped nav, and one dense panel without overlapping text |
-| 12 | UX rationale is documented | Create or update `docs/tasks/settings-ux-audit.md` | Document includes current problems, IA decisions, Obsidian/refactoring-ui principles used, and before/after evidence |
+| # | Criterion | Verification Command | Expected Output / Signal |
+|---|-----------|----------------------|--------------------------|
+| 1 | Legacy product folders removed only after extraction | `Test-Path apps/web; Test-Path apps/server; Test-Path apps/native` | First two print `False`; third prints `True` |
+| 2 | No active source imports server internals | `rg -n "server/src|\\.\\./\\.\\./server|\\.\\./\\.\\./\\.\\./server|apps/server/src" apps packages -g "*.ts" -g "*.tsx" -g "package.json"` | Exit code 1, no matches |
+| 3 | No active Tauri product code remains | `rg -n "src-tauri|@tauri-apps|tauri dev|tauri build|\"tauri\"" apps packages package.json turbo.json bun.lock` | Exit code 1, no matches except intentionally archived docs if any |
+| 4 | Desktop typecheck passes from new structure | `bun run --cwd apps/desktop check-types` | Exit code 0 |
+| 5 | Native/mobile still has its expected structure | `bun run --cwd apps/native ui-map` | Exit code 0 |
+| 6 | Runtime package typecheck passes | `bun run --cwd packages/runtime check-types` | Exit code 0 |
+| 7 | API contract package typecheck passes | `bun run --cwd packages/api-contract check-types` | Exit code 0 |
+| 8 | Repo build passes with new workspace graph | `bun run build` | Exit code 0 |
+| 9 | Desktop smoke opens and exits cleanly | `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop` | Exit code 0; no orphan runtime process |
+| 10 | Server formatting blocker resolved, not bypassed | `bunx biome check packages apps/desktop apps/native --error-on-warnings` | Exit code 0, or a narrower repo-approved replacement command passes |
+| 11 | Mobile no longer depends on server path for `AppRouter` | `rg -n "from \"\\.\\./\\.\\./server|from \"\\.\\./\\.\\./\\.\\./server|server/src/transport/trpc/router" apps/native apps/desktop packages` | Exit code 1, no matches |
+| 12 | Product scripts no longer advertise web/server modes | `rg -n "dev:web|dev:server|desktop:dev|desktop:build|apps/web|apps/server" package.json turbo.json README.md AGENTS.md apps packages -g "!**/docs/archive/**"` | No active product instructions remain; allowed references must be migration/archive notes only |
+
+### Reference Artifacts
+
+- `apps/desktop/README.md` - current Electron runtime shape.
+- `apps/desktop/docs/remote-connect.md` - current Remote Connect contract and security stance.
+- `apps/server/docs/desktop-integrated-runtime.md` - existing reverse design and migration rationale.
+- `apps/server/src/runtime/core.ts` - current runtime core seam.
+- `apps/server/src/runtime/desktop-service.ts` - current stdio desktop service bridge.
+- `apps/server/src/modules/use-cases.ts` - current application use-case graph.
+- `apps/server/src/bootstrap/composition.ts` - current composition root.
+- `apps/web/src/main.tsx` - current renderer transport selection.
+- `apps/web/src/lib/electron-trpc-link.ts` - current Electron IPC tRPC link.
+- `apps/web/src/lib/desktop-bootstrap.ts` - current desktop bootstrap bridge.
+- `packages/trpc-contract/src/index.ts` - current anti-pattern: package re-exporting from `apps/server`.
 
 ### Completion Condition
 
-The executor stops only when:
+The migration is complete only when:
 
-- [ ] All applicable verification commands pass.
-- [ ] The `ui-map` output confirms the Settings shell is grouped/searchable rather than flat.
-- [ ] Visual evidence exists for desktop and narrow widths.
-- [ ] `docs/tasks/settings-ux-audit.md` explains the decisions and evidence.
-- [ ] No existing `/settings/*` route is broken.
-- [ ] No Electron security/runtime boundary is weakened.
+- [ ] All verification commands above pass or have an updated, documented equivalent in this file.
+- [ ] `apps/web` and `apps/server` are absent from the active workspace.
+- [ ] `apps/native` remains functional and contract imports point to packages.
+- [ ] Desktop main-thread mode uses Electron IPC/preload to reach the runtime.
+- [ ] No runtime/application business logic lives directly in Electron main/preload.
+- [ ] No Tauri active code or scripts remain.
 
 ---
 
 ## Execution Plan
 
-Follow these steps in order.
+Execute in order. Report after each step before continuing.
 
-1. Re-read the design system:
-   - `apps/web/src/index.css`
-   - `apps/web/components.json`
-   - `apps/web/src/components/ui/button.tsx`
-   - `apps/web/src/components/ui/sidebar.tsx`
-   - `apps/web/src/components/ui/empty.tsx`
-   - `apps/web/src/components/settings/settings-panels.tsx`
+1. Baseline and freeze current behavior.
+   - Run and record: `git status --short`, `bun run --cwd apps/desktop check-types`, `bun run --cwd apps/web check-types`, `bun run --cwd apps/native ui-map`, and the current server quick check.
+   - Confirm the existing `apps/server check:quick` formatter blocker and decide whether to normalize formatting before extraction or adjust the exact quality gate with repo owner approval.
 
-2. Capture baseline evidence:
-   - Run `ui-map` for `SettingsLayout`.
-   - Run `ui-map` for representative pages: Agents, Runtime, Connection.
-   - Capture screenshots if dev server tooling is available.
-   - Note the current first-glance choice count and mobile navigation behavior.
+2. Create real shared contract package.
+   - Replace `packages/trpc-contract` with a real `packages/api-contract` or convert it in place.
+   - Move/export `AppRouter` or the replacement runtime procedure contract from the package.
+   - Ensure `apps/web`, `apps/native`, and `apps/desktop` do not import router types from `apps/server`.
 
-3. Write `docs/tasks/settings-ux-audit.md` before implementation:
-   - Current UX problems.
-   - Settings groups and route mapping.
-   - Refactoring UI diagnosis: hierarchy, spacing, typography, action hierarchy, empty/loading/error states.
-   - Obsidian principles used: cognitive load, choice overload, chunking, default path, Fitts, Doherty.
-   - Planned evidence.
+3. Extract runtime/application core from `apps/server`.
+   - Move transport-independent modules, platform adapters, runtime core, composition, use cases, persistence, ACP, process, git, terminal, settings, and background task code into `packages/runtime` or smaller cohesive packages.
+   - Keep Hono/tRPC HTTP server code out of the runtime package unless it is explicitly a compatibility adapter.
+   - Preserve application boundaries: domain/application depend on ports; adapters implement ports.
 
-4. Extract Settings navigation data:
-   - Move route metadata out of `apps/web/src/routes/settings.tsx` into a small settings navigation module if useful.
-   - Represent groups explicitly.
-   - Keep route paths stable.
-   - Add a focused test for grouping/filtering if the config becomes logic-bearing.
+4. Re-home the Electron renderer.
+   - Move `apps/web/src` into `apps/desktop/src/renderer` or `packages/desktop-renderer`.
+   - Move Vite/Tailwind/router config needed by renderer into the new owner.
+   - Remove Tauri-specific scripts and imports during this move.
+   - Keep `electronTrpcLink`, `desktop-bootstrap`, and Remote Connect client code working from the new location.
 
-5. Replace the flat Settings shell:
-   - Desktop: grouped sidebar, group labels, active state, optional collapsed group or search.
-   - Mobile/narrow: no flat horizontal list; use a compact grouped pattern.
-   - Add settings search/filter if feasible without broad state complexity.
-   - Preserve compact desktop density.
+5. Rewire `apps/desktop` to extracted packages.
+   - Change `apps/desktop/src/runtime-host.ts` so it starts the extracted runtime service/package, not `apps/server/src/runtime/desktop-service.ts`.
+   - Keep main-thread local auth token, diagnostics, CLI discovery, shutdown, and process-tree cleanup behavior.
+   - Keep Electron security posture: preload bridge, `contextIsolation: true`, `nodeIntegration: false`, CSP, no direct renderer Node access.
 
-6. Turn `/settings/` into an overview/default path:
-   - Show major groups and recommended setup/status actions.
-   - Prioritize first-run paths: agents, connection/runtime health, model providers, credentials/auth.
-   - Keep the page operational, not a marketing landing page.
+6. Rewire `apps/native`.
+   - Import API contracts from the new package.
+   - Preserve current tRPC/mobile UX unless a separate explicit Remote Connect protocol replaces it.
+   - If mobile requires a desktop-hosted remote bridge, document the required host mode and update mobile connection docs.
 
-7. Polish shared settings primitives:
-   - Improve `SettingsPageHeader` and `SettingsSection` only within existing tokens.
-   - Add or reuse standard empty/loading/error/action helpers.
-   - Ensure group spacing > within-group spacing.
-   - Keep section headings subdued and content/action hierarchy clear.
+7. Remove legacy `apps/web`.
+   - Delete the old folder only after desktop renderer builds from its new home.
+   - Remove `dev:web`, web-only docs/scripts, and Tauri residue from root scripts, lockfile, and docs.
 
-8. Polish the highest-load panels:
-   - Agents.
-   - Runtime.
-   - Model Providers.
-   - Bots or Usage, whichever currently creates more visual noise.
-   - Do not try to rewrite every settings panel if shared primitives and nav changes already improve them.
+8. Remove legacy `apps/server`.
+   - Delete the old folder only after runtime package and desktop smoke pass.
+   - Move essential docs into `docs/archive/server/` or rewrite them as package docs before deletion.
+   - Remove `dev:server`, server-only docs/scripts, and workspace references.
 
-9. Verify:
-   - Run all commands in Success Criteria.
-   - Re-run `ui-map` and compare with baseline.
-   - Capture screenshots at desktop and narrow widths.
-   - Update `docs/tasks/settings-ux-audit.md` with after evidence and any tradeoffs.
+9. Update workspace scripts and documentation.
+   - Root `dev` should run the product-relevant targets, likely desktop and native.
+   - Keep explicit `dev:desktop` and `dev:native`.
+   - Remove obsolete web/server instructions from `README.md`, `AGENTS.md`, and package scripts.
 
-10. Final report:
-   - List changed files.
-   - List verification commands and results.
-   - Include any remaining UX debt explicitly.
+10. Verify full migration.
+   - Run all Success Criteria commands.
+   - Start desktop smoke with `ERAGEAR_DESKTOP_SMOKE_EXIT_MS`.
+   - Confirm no orphan child processes after smoke.
+   - Record remaining known risks, if any.
 
 ---
 
 ## Out of Scope
 
-- Rebuilding the whole app shell outside Settings.
-- Redesigning chat, file tree, local ADE internals, or server dashboard unless needed for shared Settings primitives.
-- Migrating from Electron to Tauri or changing desktop transport.
-- Changing ACP protocol, agent runtime, provider auth semantics, or persistence behavior.
-- Adding a new component library.
-- Broad icon-system migration across the whole app.
-- Creating a marketing-style landing page.
+- Do not redesign the desktop UI/Settings IA during this migration.
+- Do not rename `apps/native` to `apps/mobile` unless explicitly requested.
+- Do not bundle third-party Agent CLIs by default.
+- Do not replace ACP behavior.
+- Do not introduce a new auth product model for local desktop mode.
+- Do not add cloud sync or billing changes.
+- Do not optimize performance except where needed to preserve startup/runtime behavior after extraction.
 
 ---
 
-## Reference Commands
+## References
 
-Use these during execution.
-
-```powershell
-# Settings layout ui-map
-bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.tsx --alias '@=../../apps/web/src' --focus SettingsLayout --scope full --layoutOnly
-
-# Settings page samples
-bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.agents.tsx --alias '@=../../apps/web/src' --focus AgentsSettingsPage --scope full --layoutOnly
-bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.connection.tsx --alias '@=../../apps/web/src' --focus ConnectionSettingsPage --scope full --layoutOnly
-bun run --cwd apps/native ui-map --src ../../apps/web/src --entry ../../apps/web/src/routes/settings.runtime.tsx --alias '@=../../apps/web/src' --focus RuntimeSettingsPage --scope full --layoutOnly
-
-# Native reference, do not copy literally
-bun run --cwd apps/native ui-map --entry 'app/(drawer)/settings.tsx' --layoutOnly
-
-# Type/build/test
-bun run --cwd apps/web check-types
-bun run --cwd apps/web build
-bun run --cwd apps/web test:blockers
-bun run --cwd apps/desktop check-types
-bun run audit:blockers
-```
-
----
-
-## Key Files To Inspect First
-
-- `apps/web/src/routes/settings.tsx`
-- `apps/web/src/routes/settings.index.tsx`
-- `apps/web/src/routes/settings.agents.tsx`
-- `apps/web/src/routes/settings.runtime.tsx`
-- `apps/web/src/routes/settings.connection.tsx`
-- `apps/web/src/components/settings/settings-panels.tsx`
-- `apps/web/src/components/settings/bots-settings-panel.tsx`
-- `apps/web/src/components/settings/model-providers-settings-panel.tsx`
-- `apps/web/src/components/settings/usage-stats-settings-panel.tsx`
-- `apps/web/src/components/local-ade/local-ade-panels.tsx`
-- `apps/web/src/index.css`
-- `apps/web/components.json`
-- `apps/web/src/components/ui/sidebar.tsx`
-- `apps/web/src/components/ui/empty.tsx`
-- `apps/desktop/src/main.ts`
-- `apps/desktop/README.md`
+- Electron Security: https://www.electronjs.org/docs/latest/tutorial/security
+- Electron IPC: https://www.electronjs.org/docs/latest/tutorial/ipc
+- Electron Forge distribution overview: https://www.electronjs.org/docs/latest/tutorial/forge-overview
+- Local: `apps/desktop/README.md`
+- Local: `apps/desktop/docs/remote-connect.md`
+- Local: `apps/server/docs/desktop-integrated-runtime.md`
+- Local: `apps/server/src/runtime/core.ts`
+- Local: `apps/server/src/runtime/desktop-service.ts`
+- Local: `apps/server/src/modules/use-cases.ts`
+- Local: `apps/server/src/bootstrap/composition.ts`
+- Local: `apps/web/src/main.tsx`
+- Local: `apps/web/src/lib/electron-trpc-link.ts`
+- Local: `apps/web/src/lib/desktop-bootstrap.ts`
+- Local: `packages/trpc-contract/src/index.ts`
 
 ---
 
@@ -372,30 +311,28 @@ bun run audit:blockers
 
 ### Execution
 
-1. Read this whole file before changing anything.
-2. Run baseline `ui-map` before editing Settings.
-3. Use existing tokens and primitives before adding new ones.
-4. Keep every existing `/settings/*` route valid.
-5. Keep Electron main/preload/runtime security boundaries unchanged.
-6. Make changes in small, verifiable slices.
-7. After each major slice, run the smallest relevant verification before continuing.
-8. If a requirement is ambiguous, prefer the lowest-risk change that improves Settings UX without touching server/runtime behavior.
-9. If a blocker appears, document exact evidence and stop. Do not invent a workaround that violates constraints.
+1. Read this entire file before making changes.
+2. Obey Constraints before Execution Plan.
+3. Execute the plan in order.
+4. After each step, report concise evidence before continuing.
+5. If a constraint conflicts with a plan step, stop and update the plan instead of forcing the step.
+6. If a blocker appears, document the blocker and ask for direction; do not flatten architecture to make deletion easier.
+7. Do not mark complete until the Success Criteria evidence proves completion.
 
-### Anti-bias Instructions
+### Anti-Bias Instructions
 
-Scope shrink guard:
+Scope shrink:
 
-- Do not redefine this as only a color/spacing polish task. The core problem is overloaded Settings information architecture.
-- Do not stop after changing the sidebar if `/settings/` still has no useful default path.
-- Do not leave mobile/narrow Settings with a long horizontal row of all routes.
+- Do not redefine "remove apps/web and apps/server" as "make desktop use Electron while folders remain".
+- Do not leave `apps/server` as a hidden active dependency through package re-exports.
+- Do not leave `apps/web` as the renderer source under a different script name.
 
-Uncertainty stop guard:
+Uncertainty stop:
 
-- If you are unsure whether the UX improved, gather evidence: `ui-map`, screenshots, route count, grouping count, and type/build/test output.
-- Treat uncertain visual evidence as incomplete.
+- Treat uncertain evidence as incomplete.
+- If a command cannot run, document why and provide an equivalent command before claiming progress.
 
-Memory trust guard:
+Memory trust:
 
-- Do not assume previous outputs are still true. Inspect files and commands in the current worktree before reporting completion.
-- Do not claim a route or panel was preserved without verifying current `routeTree.gen.ts`, typecheck/build, or the relevant source file.
+- Inspect current files and command output before claiming a folder, import, or script is gone.
+- Previous conversation context is only a hint; the worktree is authoritative.

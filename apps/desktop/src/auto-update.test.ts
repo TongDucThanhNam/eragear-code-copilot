@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { DesktopAutoUpdateStatus } from "@repo/shared";
+import type { DesktopAutoUpdateStatus } from "@eragear-code-copilot/shared";
 import {
   compareVersions,
   DesktopAutoUpdateController,

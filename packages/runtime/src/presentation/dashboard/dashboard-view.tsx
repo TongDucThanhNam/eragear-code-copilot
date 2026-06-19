@@ -1,0 +1,135 @@
+import { useEffect, useRef, useState } from "react";
+import type { TabKey } from "#runtime/presentation/dashboard/dashboard-data";
+import { DashboardViewProvider } from "#runtime/presentation/dashboard/dashboard-view.context";
+import type {
+  DashboardViewActions,
+  DashboardViewState,
+} from "#runtime/presentation/dashboard/dashboard-view.contract";
+import { AddAgentModal } from "./components/add-agent-modal";
+import { AddProjectModal } from "./components/add-project-modal";
+import { AgentsTab } from "./components/agents-tab";
+import { AuthTab } from "./components/auth-tab";
+import { DashboardAlerts } from "./components/dashboard-alerts";
+import { DashboardHeader } from "./components/dashboard-header";
+import { DashboardLoading } from "./components/dashboard-loading";
+import { EditAgentModals } from "./components/edit-agent-modals";
+import { LogsTab } from "./components/logs-tab";
+import { MarqueeTicker } from "./components/marquee-ticker";
+import { OverviewStats } from "./components/overview-stats";
+import { ProjectsTab } from "./components/projects-tab";
+import { SessionsTab } from "./components/sessions-tab";
+import { SettingsTab } from "./components/settings-tab";
+
+interface DashboardViewProps {
+  state: DashboardViewState;
+  actions: DashboardViewActions;
+}
+
+export function DashboardView({ state, actions }: DashboardViewProps) {
+  const { activeTab, isLoading } = state;
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const prevActiveTabRef = useRef<TabKey | null>(null);
+  const [mountedTabs, setMountedTabs] = useState<Set<TabKey>>(
+    () => new Set([activeTab])
+  );
+
+  useEffect(() => {
+    // Reposition when tab changes so each section starts at the top
+    if (!(activeTab && prevActiveTabRef.current)) {
+      prevActiveTabRef.current = activeTab;
+      return;
+    }
+
+    // Only scroll if tab actually changed
+    if (activeTab !== prevActiveTabRef.current) {
+      scrollContainerRef.current
+        ?.querySelector<HTMLElement>(`[data-tab-panel="${activeTab}"]`)
+        ?.scrollTo({ top: 0, behavior: "smooth" });
+      prevActiveTabRef.current = activeTab;
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    setMountedTabs((previous) => {
+      if (previous.has(activeTab)) {
+        return previous;
+      }
+      const next = new Set(previous);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
+  return (
+    <DashboardViewProvider actions={actions} state={state}>
+      <div
+        className={`newsprint-dots pointer-events-none fixed inset-0 z-0 opacity-10 transition-opacity duration-300 ${
+          isLoading ? "opacity-5" : "opacity-10"
+        }`}
+      />
+
+      <div
+        className="dashboard-scroll-root fixed inset-0 z-10 h-dvh overflow-hidden scroll-smooth"
+        ref={scrollContainerRef}
+      >
+        <div
+          className={`dashboard-shell relative mx-auto flex h-dvh w-full flex-col bg-paper px-3 shadow-[0_0_50px_rgba(0,0,0,0.1)] transition-all duration-300 sm:px-5 lg:px-6 ${
+            isLoading ? "opacity-90" : "opacity-100"
+          }`}
+          id="main-content"
+        >
+          <DashboardHeader />
+
+          {!isLoading && (
+            <div className="dashboard-ticker mt-2 sm:mt-3">
+              <MarqueeTicker />
+            </div>
+          )}
+
+          <DashboardAlerts />
+
+          <main
+            aria-busy={isLoading}
+            className="dashboard-workspace relative mt-3 flex min-h-0 flex-1 flex-col sm:mt-3 lg:mt-4"
+          >
+            <DashboardLoading />
+
+            <div
+              className={`dashboard-grid grid min-h-0 flex-1 overflow-hidden border-ink border-t-4 bg-paper transition-all duration-300 ${
+                activeTab === "logs" ? "lg:grid-cols-1" : "lg:grid-cols-12"
+              } ${isLoading ? "pointer-events-none opacity-50" : "opacity-100"}`}
+              data-active-tab={activeTab}
+            >
+              <section
+                className={`dashboard-main flex min-h-0 min-w-0 flex-col overflow-hidden border-ink border-b-2 bg-paper p-3 transition-all duration-300 sm:p-4 lg:p-5 ${
+                  activeTab === "logs"
+                    ? "lg:col-span-1 lg:border-r-0"
+                    : "lg:col-span-8 lg:border-r-4 lg:border-b-0"
+                }`}
+              >
+                {mountedTabs.has("sessions") && <SessionsTab />}
+                {mountedTabs.has("projects") && <ProjectsTab />}
+                {mountedTabs.has("agents") && <AgentsTab />}
+                {mountedTabs.has("auth") && <AuthTab />}
+                {mountedTabs.has("settings") && <SettingsTab />}
+                {mountedTabs.has("logs") && <LogsTab />}
+              </section>
+
+              {activeTab !== "logs" && (
+                <aside className="dashboard-side flex min-h-0 flex-col overflow-y-auto border-ink bg-[#f3f3ef] p-3 transition-all duration-300 sm:p-4 lg:col-span-4 lg:border-b-0 lg:p-5">
+                  <div className="w-full">
+                    <OverviewStats />
+                  </div>
+                </aside>
+              )}
+            </div>
+          </main>
+        </div>
+      </div>
+
+      <AddProjectModal />
+      <AddAgentModal />
+      <EditAgentModals />
+    </DashboardViewProvider>
+  );
+}

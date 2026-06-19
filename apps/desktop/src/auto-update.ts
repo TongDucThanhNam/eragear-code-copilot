@@ -1,4 +1,6 @@
-import type { DesktopAutoUpdateStatus } from "@repo/shared";
+import type { DesktopAutoUpdateStatus } from "@eragear-code-copilot/shared";
+
+const VERSION_PREFIX_PATTERN = /^v/i;
 
 export interface DesktopUpdateManifest {
   version: string;
@@ -154,7 +156,8 @@ function normalizeVersion(value: string): {
   numbers: number[];
   prerelease: string;
 } {
-  const cleaned = value.trim().replace(/^v/i, "").split("+")[0] ?? "";
+  const cleaned =
+    value.trim().replace(VERSION_PREFIX_PATTERN, "").split("+")[0] ?? "";
   const [version = "", prerelease = ""] = cleaned.split("-", 2);
   return {
     numbers: version

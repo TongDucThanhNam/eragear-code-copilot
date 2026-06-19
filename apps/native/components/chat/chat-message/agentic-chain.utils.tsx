@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { ToolUIPart, UIMessagePart } from "@repo/shared";
+import type { ToolUIPart, UIMessagePart } from "@eragear-code-copilot/shared";
 import { Spinner } from "heroui-native";
 import type { ChainSummary } from "./agentic-chain.types";
 import { getActiveIndex, toToolViewState } from "./agentic-message-utils";

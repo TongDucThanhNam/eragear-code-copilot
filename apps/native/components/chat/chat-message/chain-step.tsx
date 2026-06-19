@@ -1,4 +1,4 @@
-import type { UIMessagePart } from "@repo/shared";
+import type { UIMessagePart } from "@eragear-code-copilot/shared";
 import { cn } from "heroui-native";
 import type React from "react";
 import { View } from "react-native";

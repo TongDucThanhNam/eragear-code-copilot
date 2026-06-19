@@ -1,4 +1,4 @@
-import type { UIMessage } from "@repo/shared";
+import type { UIMessage } from "@eragear-code-copilot/shared";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import {

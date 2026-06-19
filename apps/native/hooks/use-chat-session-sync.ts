@@ -6,11 +6,11 @@ import type {
   SessionStateData,
   ToolUIPart,
   UIMessage,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
 import {
   finalizeToolPartAsCancelled,
   finalizeToolPartAsPreliminaryOutput,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
 import { hasObservedTurnCompletion } from "@/hooks/use-chat-turn-guards";
 
 const RUNTIME_AUTHORITATIVE_LOAD_METHODS = new Set([

@@ -13,7 +13,7 @@ import type {
   RuntimeServiceOperation,
   RuntimeServiceResponseMessage,
   RuntimeServiceSubscriptionEventMessage,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
 
 const DEFAULT_REMOTE_CONNECT_HOST = "127.0.0.1";
 const DEFAULT_REMOTE_CONNECT_BODY_LIMIT_BYTES = 512 * 1024;

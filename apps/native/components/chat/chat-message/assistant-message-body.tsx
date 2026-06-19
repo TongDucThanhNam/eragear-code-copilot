@@ -1,4 +1,4 @@
-import type { UIMessage } from "@repo/shared";
+import type { UIMessage } from "@eragear-code-copilot/shared";
 import { cn } from "heroui-native";
 import { startTransition, useEffect, useRef, useState } from "react";
 import { InteractionManager, View } from "react-native";

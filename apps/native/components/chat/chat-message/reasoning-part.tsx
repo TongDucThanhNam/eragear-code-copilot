@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { ReasoningUIPart } from "@repo/shared";
+import type { ReasoningUIPart } from "@eragear-code-copilot/shared";
 import { Pressable, Text, View } from "react-native";
 
 interface ReasoningPartProps {

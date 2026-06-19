@@ -1,5 +1,10 @@
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
+import { type BuildConfig, build, write } from "bun";
+
+type InMemoryBuildConfig = BuildConfig & {
+  write: false;
+};
 
 const desktopRoot = path.resolve(import.meta.dir, "..");
 const distDir = path.join(desktopRoot, "dist");
@@ -25,9 +30,9 @@ for (const entry of entries) {
     format: "cjs",
     external: ["electron"],
     write: false,
-  } as unknown as Parameters<typeof Bun.build>[0];
+  } satisfies InMemoryBuildConfig;
 
-  const result = await Bun.build(buildConfig);
+  const result = await build(buildConfig);
 
   if (!result.success) {
     for (const log of result.logs) {
@@ -45,5 +50,5 @@ for (const entry of entries) {
     process.exit(1);
   }
 
-  await Bun.write(entry.outfile, output);
+  await write(entry.outfile, output);
 }

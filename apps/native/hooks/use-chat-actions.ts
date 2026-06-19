@@ -1,5 +1,5 @@
-import type { ChatStatus, UseChatOptions } from "@repo/shared";
-import { isChatBusyStatus } from "@repo/shared";
+import type { ChatStatus, UseChatOptions } from "@eragear-code-copilot/shared";
+import { isChatBusyStatus } from "@eragear-code-copilot/shared";
 import {
   type Dispatch,
   type MutableRefObject,

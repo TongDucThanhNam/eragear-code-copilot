@@ -2,12 +2,12 @@ import type {
   ConnectionStatus,
   SessionStateData,
   UIMessage,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
 import {
   applySessionState,
   findPendingPermission,
   parseUiMessageArrayStrict,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
 import { type MutableRefObject, useCallback, useEffect } from "react";
 import {
   finalizeMessagesAfterReady,

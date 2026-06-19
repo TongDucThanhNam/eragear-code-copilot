@@ -1,10 +1,10 @@
-import type { BroadcastEvent, UseChatOptions } from "@repo/shared";
+import type { BroadcastEvent, UseChatOptions } from "@eragear-code-copilot/shared";
 import {
   type ChatStatus,
   isChatBusyStatus,
   parseBroadcastEventClientSafe,
   processSessionEvent,
-} from "@repo/shared";
+} from "@eragear-code-copilot/shared";
 import { NotificationFeedbackType, notificationAsync } from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";

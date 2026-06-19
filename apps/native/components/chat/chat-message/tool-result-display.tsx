@@ -1,5 +1,5 @@
 import type { ContentBlock, ToolCallContent } from "@agentclientprotocol/sdk";
-import type { ToolUIPart } from "@repo/shared";
+import type { ToolUIPart } from "@eragear-code-copilot/shared";
 import { useThemeColor } from "heroui-native";
 import { useMemo } from "react";
 import { Linking, Pressable, Text, View } from "react-native";

@@ -1,4 +1,4 @@
-import type { ToolUIPart, UIMessagePart } from "@repo/shared";
+import type { ToolUIPart, UIMessagePart } from "@eragear-code-copilot/shared";
 
 // Terminal output detection patterns (defined at module level for performance)
 const TERMINAL_PATTERNS = [

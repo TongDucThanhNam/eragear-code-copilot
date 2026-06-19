@@ -1,0 +1,245 @@
+/**
+ * Settings Repository (SQLite-backed via Drizzle ORM)
+ */
+
+import { homedir } from "node:os";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import {
+  getSqliteOrm,
+  sqliteSchema,
+} from "#runtime/platform/storage/sqlite-db";
+import {
+  fromSqliteJsonWithSchema,
+  SQLITE_SETTING_KEYS,
+  toSqliteJson,
+} from "#runtime/platform/storage/sqlite-store";
+import { enqueueSqliteWrite } from "#runtime/platform/storage/sqlite-write-queue";
+import {
+  AppConfigSchema,
+  UiSettingsSchema,
+} from "#runtime/shared/contracts/settings.contract";
+import type {
+  AppConfig,
+  McpServerConfig,
+  Settings,
+} from "#runtime/shared/types/settings.types";
+import { normalizeProjectRootsForSettings } from "#runtime/shared/utils/project-roots.util";
+import {
+  createDefaultAppConfigFromEnv,
+  normalizeAppConfig,
+} from "../app-config.service";
+import type { SettingsRepositoryPort } from "../application/ports/settings-repository.port";
+
+const McpEnvSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+});
+
+const McpHeaderSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+});
+
+const McpStdioSchema = z.object({
+  name: z.string(),
+  command: z.string(),
+  args: z.array(z.string()),
+  env: z.array(McpEnvSchema).optional(),
+});
+
+const McpHttpSchema = z.object({
+  type: z.literal("http"),
+  name: z.string(),
+  url: z.string(),
+  headers: z.array(McpHeaderSchema),
+});
+
+const McpSseSchema = z.object({
+  type: z.literal("sse"),
+  name: z.string(),
+  url: z.string(),
+  headers: z.array(McpHeaderSchema),
+});
+
+const McpServerSchema = z.union([McpStdioSchema, McpHttpSchema, McpSseSchema]);
+
+function resolveDefaultProjectRoot(): string {
+  const home = homedir().trim();
+  if (home.length === 0) {
+    throw new Error(
+      "[Settings] Unable to derive a safe default project root. Configure settings.projectRoots explicitly."
+    );
+  }
+  const [defaultRoot] = normalizeProjectRootsForSettings([home]);
+  if (!defaultRoot) {
+    throw new Error(
+      "[Settings] Unable to derive a safe default project root. Configure settings.projectRoots explicitly."
+    );
+  }
+  return defaultRoot;
+}
+
+const DEFAULT_PROJECT_ROOT = resolveDefaultProjectRoot();
+
+const SettingsSchema = z.object({
+  ui: UiSettingsSchema,
+  projectRoots: z.array(z.string()).min(1).default([DEFAULT_PROJECT_ROOT]),
+  mcpServers: z.array(McpServerSchema).optional(),
+  app: AppConfigSchema,
+});
+
+const DEFAULT_SETTINGS: Settings = {
+  ui: {
+    theme: "system",
+    accentColor: "#2563eb",
+    density: "comfortable",
+    fontScale: 1,
+  },
+  projectRoots: [DEFAULT_PROJECT_ROOT],
+  mcpServers: [],
+  app: createDefaultAppConfigFromEnv(),
+};
+
+export class SettingsSqliteRepository implements SettingsRepositoryPort {
+  private getRawSetting<T>(
+    db: Awaited<ReturnType<typeof getSqliteOrm>>,
+    key: string,
+    fallback: T,
+    schema: z.ZodType<T>
+  ): T {
+    const row = db
+      .select({ valueJson: sqliteSchema.appSettings.valueJson })
+      .from(sqliteSchema.appSettings)
+      .where(eq(sqliteSchema.appSettings.key, key))
+      .get();
+    return fromSqliteJsonWithSchema(row?.valueJson, fallback, schema, {
+      table: "app_settings",
+      column: "value_json",
+    });
+  }
+
+  private upsertSetting(
+    db: Awaited<ReturnType<typeof getSqliteOrm>>,
+    key: string,
+    value: unknown
+  ): void {
+    db.insert(sqliteSchema.appSettings)
+      .values({
+        key,
+        valueJson: toSqliteJson(value) ?? "null",
+      })
+      .onConflictDoUpdate({
+        target: sqliteSchema.appSettings.key,
+        set: {
+          valueJson: toSqliteJson(value) ?? "null",
+        },
+      })
+      .run();
+  }
+
+  private async writeSettings(settings: Settings): Promise<void> {
+    await enqueueSqliteWrite("settings.save", async () => {
+      const db = await getSqliteOrm();
+      this.upsertSetting(db, SQLITE_SETTING_KEYS.uiSettings, settings.ui);
+      this.upsertSetting(
+        db,
+        SQLITE_SETTING_KEYS.projectRoots,
+        settings.projectRoots
+      );
+      this.upsertSetting(
+        db,
+        SQLITE_SETTING_KEYS.mcpServers,
+        settings.mcpServers ?? []
+      );
+      this.upsertSetting(db, SQLITE_SETTING_KEYS.appConfig, settings.app);
+    });
+  }
+
+  async get(): Promise<Settings> {
+    const db = await getSqliteOrm();
+    const raw = {
+      ui: this.getRawSetting(
+        db,
+        SQLITE_SETTING_KEYS.uiSettings,
+        DEFAULT_SETTINGS.ui,
+        UiSettingsSchema
+      ),
+      projectRoots: this.getRawSetting(
+        db,
+        SQLITE_SETTING_KEYS.projectRoots,
+        DEFAULT_SETTINGS.projectRoots,
+        z.array(z.string()).min(1)
+      ),
+      mcpServers: this.getRawSetting(
+        db,
+        SQLITE_SETTING_KEYS.mcpServers,
+        DEFAULT_SETTINGS.mcpServers ?? [],
+        z.array(McpServerSchema)
+      ),
+      app: this.getRawSetting(
+        db,
+        SQLITE_SETTING_KEYS.appConfig,
+        DEFAULT_SETTINGS.app,
+        AppConfigSchema
+      ),
+    };
+
+    try {
+      const parsed = SettingsSchema.parse(raw);
+      const normalizedProjectRoots = normalizeProjectRootsForSettings(
+        parsed.projectRoots
+      );
+      const normalized: Settings = {
+        ui: parsed.ui,
+        projectRoots: normalizedProjectRoots,
+        mcpServers: parsed.mcpServers ?? [],
+        app: parsed.app,
+      };
+      await this.writeSettings(normalized);
+      return normalized;
+    } catch {
+      const partial = raw as Partial<Settings>;
+      const uiResult = UiSettingsSchema.safeParse(partial.ui);
+      const projectRoots = Array.isArray(partial.projectRoots)
+        ? partial.projectRoots
+        : DEFAULT_SETTINGS.projectRoots;
+      const mcpServersResult = Array.isArray(partial.mcpServers)
+        ? z.array(McpServerSchema).safeParse(partial.mcpServers)
+        : { success: false as const, data: [] as McpServerConfig[] };
+      const appFallback: AppConfig = DEFAULT_SETTINGS.app;
+      let normalizedProjectRoots = DEFAULT_SETTINGS.projectRoots;
+      try {
+        normalizedProjectRoots = normalizeProjectRootsForSettings(projectRoots);
+      } catch {
+        normalizedProjectRoots = DEFAULT_SETTINGS.projectRoots;
+      }
+
+      const normalized: Settings = {
+        ui: uiResult.success ? uiResult.data : DEFAULT_SETTINGS.ui,
+        projectRoots: normalizedProjectRoots,
+        mcpServers: mcpServersResult.success
+          ? mcpServersResult.data
+          : (DEFAULT_SETTINGS.mcpServers ?? []),
+        app: normalizeAppConfig(partial.app, appFallback),
+      };
+      await this.writeSettings(normalized);
+      return normalized;
+    }
+  }
+
+  async save(settings: Settings): Promise<Settings> {
+    const parsed = SettingsSchema.parse(settings);
+    const normalizedProjectRoots = normalizeProjectRootsForSettings(
+      parsed.projectRoots
+    );
+    const normalized: Settings = {
+      ui: parsed.ui,
+      projectRoots: normalizedProjectRoots,
+      mcpServers: parsed.mcpServers ?? [],
+      app: parsed.app,
+    };
+    await this.writeSettings(normalized);
+    return normalized;
+  }
+}

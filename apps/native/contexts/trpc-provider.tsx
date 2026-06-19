@@ -5,6 +5,7 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import { createWSClient, type TRPCClient, wsLink } from "@trpc/client";
+import type { AppRouter } from "@eragear-code-copilot/api-contract";
 import { useToast } from "heroui-native";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -17,7 +18,6 @@ import { getHttpUrl, getWsUrl } from "@/lib/env";
 import { trpc } from "@/lib/trpc";
 import { useAuthStore } from "@/store/auth-store";
 import { useConnectionStore } from "@/store/connection-store";
-import type { AppRouter } from "../../server/src/transport/trpc/router";
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 

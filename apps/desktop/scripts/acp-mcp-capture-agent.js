@@ -1,6 +1,7 @@
 const { writeFileSync } = require("node:fs");
 
 const capturePath = process.argv[2];
+const LINE_SPLIT_PATTERN = /\r?\n/;
 let buffer = "";
 
 function send(message) {
@@ -17,7 +18,7 @@ function capture(payload) {
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
-  const lines = buffer.split(/\r?\n/);
+  const lines = buffer.split(LINE_SPLIT_PATTERN);
   buffer = lines.pop() ?? "";
   for (const line of lines) {
     if (!line.trim()) {

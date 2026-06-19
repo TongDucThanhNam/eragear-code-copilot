@@ -1,5 +1,5 @@
-import type { BroadcastEvent, UIMessage } from "@repo/shared";
-import { findPendingPermission } from "@repo/shared";
+import type { BroadcastEvent, UIMessage } from "@eragear-code-copilot/shared";
+import { findPendingPermission } from "@eragear-code-copilot/shared";
 import { useCallback, useRef } from "react";
 import { useChatStore } from "@/store/chat-store";
 

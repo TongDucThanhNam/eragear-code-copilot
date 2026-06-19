@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { isChatBusyStatus, type UIMessage } from "@repo/shared";
+import { isChatBusyStatus, type UIMessage } from "@eragear-code-copilot/shared";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Button, Spinner, Surface, Text, useThemeColor } from "heroui-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

@@ -1,13 +1,17 @@
+// biome-ignore-all lint: Desktop smoke is a large end-to-end verifier preserved during Electron-first migration; split into focused helpers separately.
 import { execFile, spawn } from "node:child_process";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { RuntimeSecurityPosture, RuntimeServiceOperation } from "@repo/shared";
+import type {
+  RuntimeSecurityPosture,
+  RuntimeServiceOperation,
+} from "@eragear-code-copilot/shared";
 import { DesktopRuntimeHost } from "../src/runtime-host.js";
 
 interface ProjectSummary {
@@ -131,7 +135,10 @@ interface LocalAdeSnapshot {
         successCount: number;
         failureCount: number;
         lastError?: string;
-        lastResult?: Record<string, string | number | boolean | null | undefined>;
+        lastResult?: Record<
+          string,
+          string | number | boolean | null | undefined
+        >;
       }>;
     } | null;
   };
@@ -514,7 +521,12 @@ interface LocalAdeSnapshot {
       runOperation: {
         operation: "manual-run";
         fingerprint: string;
-        approvalStatus: "missing" | "approved" | "expired" | "consumed" | "changed";
+        approvalStatus:
+          | "missing"
+          | "approved"
+          | "expired"
+          | "consumed"
+          | "changed";
         approvalId?: string;
         approvedAt?: string;
         expiresAt?: string;
@@ -624,7 +636,12 @@ interface LocalAdeSnapshot {
       runOperation: {
         operation: "manual-run";
         fingerprint: string;
-        approvalStatus: "missing" | "approved" | "expired" | "consumed" | "changed";
+        approvalStatus:
+          | "missing"
+          | "approved"
+          | "expired"
+          | "consumed"
+          | "changed";
         approvalId?: string;
         approvedAt?: string;
         expiresAt?: string;
@@ -933,7 +950,14 @@ function mockEmbeddingVector(text: string): number[] {
   const includesAny = (tokens: string[]) =>
     tokens.some((token) => lower.includes(token));
   return [
-    includesAny(["checkpoint", "restore", "rollback", "safety", "snapshot", "recovery"])
+    includesAny([
+      "checkpoint",
+      "restore",
+      "rollback",
+      "safety",
+      "snapshot",
+      "recovery",
+    ])
       ? 1
       : 0,
     includesAny(["provider", "auth", "login", "credential"]) ? 1 : 0,
@@ -994,17 +1018,17 @@ async function startMockEmbeddingServer(): Promise<MockEmbeddingServerHandle> {
         server.close((error) => (error ? reject(error) : resolve()));
       });
       if (previousEndpoint === undefined) {
-        delete process.env.ERAGEAR_EMBEDDINGS_ENDPOINT;
+        process.env.ERAGEAR_EMBEDDINGS_ENDPOINT = undefined;
       } else {
         process.env.ERAGEAR_EMBEDDINGS_ENDPOINT = previousEndpoint;
       }
       if (previousModel === undefined) {
-        delete process.env.ERAGEAR_EMBEDDINGS_MODEL;
+        process.env.ERAGEAR_EMBEDDINGS_MODEL = undefined;
       } else {
         process.env.ERAGEAR_EMBEDDINGS_MODEL = previousModel;
       }
       if (previousApiKey === undefined) {
-        delete process.env.ERAGEAR_EMBEDDINGS_API_KEY;
+        process.env.ERAGEAR_EMBEDDINGS_API_KEY = undefined;
       } else {
         process.env.ERAGEAR_EMBEDDINGS_API_KEY = previousApiKey;
       }
@@ -1164,10 +1188,18 @@ const capabilitiesStatePath = path.join(
   ".eragear",
   "capabilities-state.json"
 );
-const providerHealthPath = path.join(repoRoot, ".eragear", "provider-health.json");
+const providerHealthPath = path.join(
+  repoRoot,
+  ".eragear",
+  "provider-health.json"
+);
 const hooksPath = path.join(repoRoot, ".eragear", "hooks.json");
 const pluginsPath = path.join(repoRoot, ".eragear", "plugins.json");
-const pluginRegistriesPath = path.join(repoRoot, ".eragear", "plugin-registries.json");
+const pluginRegistriesPath = path.join(
+  repoRoot,
+  ".eragear",
+  "plugin-registries.json"
+);
 const signedPluginManifestPath = path.join(
   repoRoot,
   ".eragear",
@@ -1175,7 +1207,9 @@ const signedPluginManifestPath = path.join(
   "desktop-signed-plugin.json"
 );
 const token = `smoke-${Date.now()}`;
-const promptWaitMs = Number(process.env.ERAGEAR_DESKTOP_SMOKE_PROMPT_WAIT_MS ?? 20_000);
+const promptWaitMs = Number(
+  process.env.ERAGEAR_DESKTOP_SMOKE_PROMPT_WAIT_MS ?? 20_000
+);
 const execFileAsync = promisify(execFile);
 const smokeSecurityPosture: RuntimeSecurityPosture = {
   status: "development-warning",
@@ -1227,7 +1261,11 @@ function operation(
 }
 
 function canonicalSmokeJson(value: SmokeCanonicalJsonValue): string {
-  if (value === null || typeof value === "boolean" || typeof value === "string") {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
     return JSON.stringify(value);
   }
   if (typeof value === "number") {
@@ -1237,9 +1275,15 @@ function canonicalSmokeJson(value: SmokeCanonicalJsonValue): string {
     return `[${value.map((item) => canonicalSmokeJson(item)).join(",")}]`;
   }
   return `{${Object.entries(value)
-    .filter((entry): entry is [string, SmokeCanonicalJsonValue] => entry[1] !== undefined)
+    .filter(
+      (entry): entry is [string, SmokeCanonicalJsonValue] =>
+        entry[1] !== undefined
+    )
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalSmokeJson(entryValue)}`)
+    .map(
+      ([key, entryValue]) =>
+        `${JSON.stringify(key)}:${canonicalSmokeJson(entryValue)}`
+    )
     .join(",")}}`;
 }
 
@@ -1256,7 +1300,9 @@ function resolveSmokeSubagentCommand(params: {
   text: string;
   subagents: LocalAdeSnapshot["subagents"];
 }): { command: string; prompt: string; sourcePath: string } | null {
-  const leadingCommand = params.text.match(/^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/);
+  const leadingCommand = params.text.match(
+    /^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/
+  );
   if (!leadingCommand) {
     return null;
   }
@@ -1281,7 +1327,9 @@ function resolveSmokeSubagentCommand(params: {
     sourcePath: subagent.sourcePath,
     prompt: [
       `Delegate this task to the "${subagent.name}" subagent profile.`,
-      subagent.description ? `Subagent description: ${subagent.description}` : "",
+      subagent.description
+        ? `Subagent description: ${subagent.description}`
+        : "",
       `Subagent source: ${subagent.sourcePath}`,
       "",
       "Subagent instructions:",
@@ -1295,7 +1343,9 @@ function resolveSmokeSubagentCommand(params: {
   };
 }
 
-async function request<T>(runtimeOperation: RuntimeServiceOperation): Promise<T> {
+async function request<T>(
+  runtimeOperation: RuntimeServiceOperation
+): Promise<T> {
   const response = await host.requestOperation({
     auth: { localAuthToken: token },
     operation: runtimeOperation,
@@ -1328,7 +1378,9 @@ async function approveHookRunOperation(hookId: string): Promise<{
     approvedHook?.runOperation.approvalStatus !== "approved" ||
     !approvedHook.runOperation.approvalId
   ) {
-    throw new Error(`Hook run operation approval did not persist for ${hookId}.`);
+    throw new Error(
+      `Hook run operation approval did not persist for ${hookId}.`
+    );
   }
   return {
     approvalId: approvedHook.runOperation.approvalId,
@@ -1345,7 +1397,9 @@ async function approvePluginRunOperation(pluginId: string): Promise<{
   );
   const plugin = snapshot.plugins.items.find((item) => item.id === pluginId);
   if (!plugin?.runOperation.fingerprint?.startsWith("sha256:")) {
-    throw new Error(`Plugin run operation fingerprint missing for ${pluginId}.`);
+    throw new Error(
+      `Plugin run operation fingerprint missing for ${pluginId}.`
+    );
   }
   const approved = await request<LocalAdeSnapshot>(
     operation("mutation", "settings.approvePluginRun", {
@@ -1353,12 +1407,16 @@ async function approvePluginRunOperation(pluginId: string): Promise<{
       operationFingerprint: plugin.runOperation.fingerprint,
     })
   );
-  const approvedPlugin = approved.plugins.items.find((item) => item.id === pluginId);
+  const approvedPlugin = approved.plugins.items.find(
+    (item) => item.id === pluginId
+  );
   if (
     approvedPlugin?.runOperation.approvalStatus !== "approved" ||
     !approvedPlugin.runOperation.approvalId
   ) {
-    throw new Error(`Plugin run operation approval did not persist for ${pluginId}.`);
+    throw new Error(
+      `Plugin run operation approval did not persist for ${pluginId}.`
+    );
   }
   return {
     approvalId: approvedPlugin.runOperation.approvalId,
@@ -1435,7 +1493,9 @@ async function requestStdioJsonRpc(params: {
           jsonrpc: "2.0",
           id,
           method: params.method,
-          ...(params.rpcParams === undefined ? {} : { params: params.rpcParams }),
+          ...(params.rpcParams === undefined
+            ? {}
+            : { params: params.rpcParams }),
         })}\n`
       );
     });
@@ -1478,7 +1538,10 @@ async function waitForHookRun(
       operation("query", "settings.getLocalAdeSnapshot")
     );
     lastRun = snapshot.hooks.items.find((hook) => hook.id === hookId)?.lastRun;
-    if (lastRun?.status === "success" && lastRun.stdout.includes(stdoutNeedle)) {
+    if (
+      lastRun?.status === "success" &&
+      lastRun.stdout.includes(stdoutNeedle)
+    ) {
       return lastRun;
     }
     await wait(250);
@@ -1490,7 +1553,7 @@ async function waitForHookRun(
 
 async function waitForPluginBatchSchedule(
   scheduleId: string,
-  timeoutMs = 10000
+  timeoutMs = 10_000
 ): Promise<LocalAdeSnapshot> {
   const deadline = Date.now() + timeoutMs;
   let lastStatus = "missing";
@@ -1518,10 +1581,12 @@ async function waitForPluginBatchSchedule(
   );
 }
 
-async function startSseMcpFixture(options: {
-  closeFirstStreamOnFirstRequest?: boolean;
-  closeOnceOnMethod?: string;
-} = {}): Promise<{
+async function startSseMcpFixture(
+  options: {
+    closeFirstStreamOnFirstRequest?: boolean;
+    closeOnceOnMethod?: string;
+  } = {}
+): Promise<{
   streamUrl: string;
   messageEndpoint: string;
   requestCounts: Record<string, number>;
@@ -1575,7 +1640,8 @@ async function startSseMcpFixture(options: {
       request.on("end", () => {
         response.writeHead(202).end();
         const message = JSON.parse(body);
-        requestCounts[message.method] = (requestCounts[message.method] ?? 0) + 1;
+        requestCounts[message.method] =
+          (requestCounts[message.method] ?? 0) + 1;
         if (
           options.closeFirstStreamOnFirstRequest &&
           !firstRequestStreamClosed
@@ -1625,7 +1691,10 @@ async function startSseMcpFixture(options: {
         } else if (message.method === "resources/list") {
           result = {
             resources: [
-              { uri: "memory://desktop-smoke-sse", name: "desktop-sse-resource" },
+              {
+                uri: "memory://desktop-smoke-sse",
+                name: "desktop-sse-resource",
+              },
             ],
           };
         } else if (message.method === "tools/call") {
@@ -1845,7 +1914,9 @@ async function testCodexProviderDoctor(): Promise<void> {
       })
     );
     if (!provider) {
-      throw new Error("Codex provider descriptor was missing after readiness probe.");
+      throw new Error(
+        "Codex provider descriptor was missing after readiness probe."
+      );
     }
     if (provider.cliStatus !== "ok") {
       throw new Error("Codex provider CLI probe did not report ok.");
@@ -1858,25 +1929,21 @@ async function testCodexProviderDoctor(): Promise<void> {
         provider.modelStatus !== "ok" ||
         (provider.modelList?.length ?? 0) === 0)
     ) {
-      throw new Error("Codex provider doctor probe did not classify model readiness.");
+      throw new Error(
+        "Codex provider doctor probe did not classify model readiness."
+      );
     }
-    if (provider.modelStatus === "ok" && (provider.modelList?.length ?? 0) > 0) {
+    if (
+      provider.modelStatus === "ok" &&
+      (provider.modelList?.length ?? 0) > 0
+    ) {
       const originalDefaultModel = providerSnapshot.runtime.defaultModel;
       const modelId = provider.modelList?.[0] ?? "";
       const canRestoreOriginal =
         originalDefaultModel.length === 0 ||
         originalDefaultModel === modelId ||
         (provider.modelList ?? []).includes(originalDefaultModel);
-      if (!canRestoreOriginal) {
-        console.log(
-          "PROVIDER_MODEL_SELECTION",
-          JSON.stringify({
-            skipped: "original default model is not restorable through this provider",
-            originalDefaultModel,
-            candidate: modelId,
-          })
-        );
-      } else {
+      if (canRestoreOriginal) {
         const selectedSnapshot = await request<LocalAdeSnapshot>(
           operation("mutation", "settings.selectProviderModel", {
             providerId: provider.id,
@@ -1892,7 +1959,8 @@ async function testCodexProviderDoctor(): Promise<void> {
             providerId: provider.id,
             modelId,
             defaultModel: selectedSnapshot.runtime.defaultModel,
-            defaultModelProviderId: selectedSnapshot.runtime.defaultModelProviderId,
+            defaultModelProviderId:
+              selectedSnapshot.runtime.defaultModelProviderId,
             selectedModel: selectedProvider?.selectedModel ?? null,
             modelListSource: selectedProvider?.modelListSource ?? null,
           })
@@ -1903,7 +1971,9 @@ async function testCodexProviderDoctor(): Promise<void> {
           selectedProvider?.selectedModel !== modelId ||
           selectedProvider?.modelListSource !== "readiness-probe"
         ) {
-          throw new Error("Provider model selection did not update runtime default model.");
+          throw new Error(
+            "Provider model selection did not update runtime default model."
+          );
         }
         if (originalDefaultModel.length === 0) {
           await request<LocalAdeSnapshot>(
@@ -1917,6 +1987,16 @@ async function testCodexProviderDoctor(): Promise<void> {
             })
           );
         }
+      } else {
+        console.log(
+          "PROVIDER_MODEL_SELECTION",
+          JSON.stringify({
+            skipped:
+              "original default model is not restorable through this provider",
+            originalDefaultModel,
+            candidate: modelId,
+          })
+        );
       }
     }
   });
@@ -1965,31 +2045,46 @@ async function runCheckpointRiskSmoke(
       cwd: tempProjectRoot,
       windowsHide: true,
     });
-    await execFileAsync("git", ["config", "user.email", "desktop-smoke@example.test"], {
-      cwd: tempProjectRoot,
-      windowsHide: true,
-    });
+    await execFileAsync(
+      "git",
+      ["config", "user.email", "desktop-smoke@example.test"],
+      {
+        cwd: tempProjectRoot,
+        windowsHide: true,
+      }
+    );
     await execFileAsync("git", ["config", "user.name", "Desktop Smoke"], {
       cwd: tempProjectRoot,
       windowsHide: true,
     });
-    await writeFile(path.join(tempProjectRoot, "README.md"), "initial\n", "utf8");
+    await writeFile(
+      path.join(tempProjectRoot, "README.md"),
+      "initial\n",
+      "utf8"
+    );
     await writeFile(path.join(tempProjectRoot, "NOTES.md"), "notes\n", "utf8");
     await writeFile(
       path.join(tempProjectRoot, "PLUGIN_AUDIT.md"),
       "plugin audit\n",
       "utf8"
     );
-    const hunkBaseLines = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`);
+    const hunkBaseLines = Array.from(
+      { length: 20 },
+      (_, index) => `line ${index + 1}`
+    );
     await writeFile(
       path.join(tempProjectRoot, "HUNKS.md"),
       `${hunkBaseLines.join("\n")}\n`,
       "utf8"
     );
-    await execFileAsync("git", ["add", "README.md", "NOTES.md", "HUNKS.md", "PLUGIN_AUDIT.md"], {
-      cwd: tempProjectRoot,
-      windowsHide: true,
-    });
+    await execFileAsync(
+      "git",
+      ["add", "README.md", "NOTES.md", "HUNKS.md", "PLUGIN_AUDIT.md"],
+      {
+        cwd: tempProjectRoot,
+        windowsHide: true,
+      }
+    );
     await execFileAsync("git", ["commit", "-m", "initial"], {
       cwd: tempProjectRoot,
       windowsHide: true,
@@ -2050,18 +2145,22 @@ async function runCheckpointRiskSmoke(
     const previewAttribution = preview.sessionAttributions.find(
       (item) => item.chatId === checkpointChatId
     );
-    const readmeDiff = preview.diffFiles.find((file) => file.path === "README.md");
+    const readmeDiff = preview.diffFiles.find(
+      (file) => file.path === "README.md"
+    );
     const hasChangedAddition =
       readmeDiff?.hunks.some((hunk) =>
-        hunk.rows.some(
-          (row) => row.kind === "add" && row.newText === "changed"
-        )
+        hunk.rows.some((row) => row.kind === "add" && row.newText === "changed")
       ) ?? false;
     const hunkDiff = preview.diffFiles.find((file) => file.path === "HUNKS.md");
     const safeRisk = preview.restoreRisks.find(
       (risk) => risk.file === "README.md"
     );
-    await writeFile(path.join(tempProjectRoot, "EXTRA.md"), "conflict\n", "utf8");
+    await writeFile(
+      path.join(tempProjectRoot, "EXTRA.md"),
+      "conflict\n",
+      "utf8"
+    );
     const conflictPreview = await request<CheckpointPreviewResult>(
       operation("mutation", "settings.previewCheckpoint", {
         checkpointId: checkpoint.id,
@@ -2083,9 +2182,13 @@ async function runCheckpointRiskSmoke(
       ),
     ].sort((left, right) => left.localeCompare(right));
     const visualMergeCurrentLabel =
-      preview.restoreMode === "apply-patch" ? "Current baseline" : "Current workspace";
+      preview.restoreMode === "apply-patch"
+        ? "Current baseline"
+        : "Current workspace";
     const visualMergeRestoreLabel =
-      preview.restoreMode === "apply-patch" ? "Restore target" : "Checkpoint side";
+      preview.restoreMode === "apply-patch"
+        ? "Restore target"
+        : "Checkpoint side";
     const readmeRows = readmeDiff?.hunks.flatMap((hunk) => hunk.rows) ?? [];
     const readmeCurrentRows = readmeRows.filter((row) =>
       preview.restoreMode === "apply-patch"
@@ -2159,7 +2262,8 @@ async function runCheckpointRiskSmoke(
     );
     const conflictShelf = shelvedCheckpoint?.conflictShelves?.[0];
     const shelvedExtra =
-      conflictShelf?.shelfPath && existsSync(path.join(conflictShelf.shelfPath, "EXTRA.md"))
+      conflictShelf?.shelfPath &&
+      existsSync(path.join(conflictShelf.shelfPath, "EXTRA.md"))
         ? await readFile(path.join(conflictShelf.shelfPath, "EXTRA.md"), "utf8")
         : "";
     const rootExtraExistsAfterShelve = existsSync(
@@ -2179,7 +2283,11 @@ async function runCheckpointRiskSmoke(
         shelfPath: conflictShelf?.shelfPath ?? "missing",
       })
     );
-    await writeFile(path.join(tempProjectRoot, "EXTRA.md"), "conflict\n", "utf8");
+    await writeFile(
+      path.join(tempProjectRoot, "EXTRA.md"),
+      "conflict\n",
+      "utf8"
+    );
     const hunkRestore = await request<LocalAdeSnapshot>(
       operation("mutation", "settings.restoreCheckpointHunks", {
         checkpointId: checkpoint.id,
@@ -2191,7 +2299,8 @@ async function runCheckpointRiskSmoke(
       (item) => item.id === checkpoint.id
     );
     const hunkSafetyCheckpoint = hunkRestore.checkpoints.items.find(
-      (item) => item.id === hunkCheckpoint?.partialRestores?.[0]?.safetyCheckpointId
+      (item) =>
+        item.id === hunkCheckpoint?.partialRestores?.[0]?.safetyCheckpointId
     );
     const afterHunkRestore = (
       await readFile(path.join(tempProjectRoot, "HUNKS.md"), "utf8")
@@ -2209,7 +2318,8 @@ async function runCheckpointRiskSmoke(
       (item) => item.id === checkpoint.id
     );
     const selectedSafetyCheckpoint = selectedRestore.checkpoints.items.find(
-      (item) => item.id === selectedCheckpoint?.partialRestores?.[0]?.safetyCheckpointId
+      (item) =>
+        item.id === selectedCheckpoint?.partialRestores?.[0]?.safetyCheckpointId
     );
     const restoredReadme = await readFile(
       path.join(tempProjectRoot, "README.md"),
@@ -2249,12 +2359,14 @@ async function runCheckpointRiskSmoke(
         conflictShelveReady: postShelvePreview.canRestore,
         selectedHunkRestores:
           hunkCheckpoint?.partialRestores?.[0]?.hunks?.length ?? -1,
-        selectedHunkSafetyFiles: hunkSafetyCheckpoint?.changedFiles.length ?? -1,
+        selectedHunkSafetyFiles:
+          hunkSafetyCheckpoint?.changedFiles.length ?? -1,
         selectedHunkFirstRestored: afterHunkRestore[1] === "line 2",
         selectedHunkSecondPreserved: afterHunkRestore[17] === "line 18 changed",
         selectedRestoreFiles:
           selectedCheckpoint?.partialRestores?.[0]?.files.length ?? -1,
-        selectedSafetyFiles: selectedSafetyCheckpoint?.changedFiles.length ?? -1,
+        selectedSafetyFiles:
+          selectedSafetyCheckpoint?.changedFiles.length ?? -1,
         selectedReadmeRestored:
           restoredReadme.replace(/\r\n/g, "\n") === "initial\n",
         selectedNotesPreserved:
@@ -2410,10 +2522,14 @@ async function runTrackedCheckpointConflictSmoke(
       cwd: tempProjectRoot,
       windowsHide: true,
     });
-    await execFileAsync("git", ["config", "user.email", "desktop-smoke@example.test"], {
-      cwd: tempProjectRoot,
-      windowsHide: true,
-    });
+    await execFileAsync(
+      "git",
+      ["config", "user.email", "desktop-smoke@example.test"],
+      {
+        cwd: tempProjectRoot,
+        windowsHide: true,
+      }
+    );
     await execFileAsync("git", ["config", "user.name", "Desktop Smoke"], {
       cwd: tempProjectRoot,
       windowsHide: true,
@@ -2485,7 +2601,8 @@ async function runTrackedCheckpointConflictSmoke(
       (item) => item.id === checkpoint.id
     );
     const safetyCheckpoint = resolved.checkpoints.items.find(
-      (item) => item.id === resolvedCheckpoint?.partialRestores?.[0]?.safetyCheckpointId
+      (item) =>
+        item.id === resolvedCheckpoint?.partialRestores?.[0]?.safetyCheckpointId
     );
     const afterResolve = await readFile(
       path.join(tempProjectRoot, "TRACKED.md"),
@@ -2524,14 +2641,17 @@ async function runTrackedCheckpointConflictSmoke(
       !initialPreview.canRestore ||
       conflictPreview.canRestore ||
       trackedRisk?.level !== "blocked" ||
-      !trackedRisk.reason.includes("Tracked checkpoint patch no longer applies") ||
+      !trackedRisk.reason.includes(
+        "Tracked checkpoint patch no longer applies"
+      ) ||
       safetyCheckpoint?.restoreMode !== "apply-patch" ||
       resolvedCheckpoint?.partialRestores?.[0]?.files[0] !== "TRACKED.md" ||
       afterResolve.replace(/\r\n/g, "\n") !== "line 1\nline 2\n" ||
-      afterSafetyRestore.replace(/\r\n/g, "\n") !==
-        "line 1\nline 2 user edit\n"
+      afterSafetyRestore.replace(/\r\n/g, "\n") !== "line 1\nline 2 user edit\n"
     ) {
-      throw new Error("Desktop smoke tracked checkpoint conflict resolve failed.");
+      throw new Error(
+        "Desktop smoke tracked checkpoint conflict resolve failed."
+      );
     }
   } finally {
     await request<unknown>(
@@ -2570,15 +2690,23 @@ async function runTrackedCheckpointConflictChoiceSmoke(
       cwd: tempProjectRoot,
       windowsHide: true,
     });
-    await execFileAsync("git", ["config", "user.email", "desktop-smoke@example.test"], {
-      cwd: tempProjectRoot,
-      windowsHide: true,
-    });
+    await execFileAsync(
+      "git",
+      ["config", "user.email", "desktop-smoke@example.test"],
+      {
+        cwd: tempProjectRoot,
+        windowsHide: true,
+      }
+    );
     await execFileAsync("git", ["config", "user.name", "Desktop Smoke"], {
       cwd: tempProjectRoot,
       windowsHide: true,
     });
-    await writeFile(path.join(tempProjectRoot, "KEEP.md"), "keep base\n", "utf8");
+    await writeFile(
+      path.join(tempProjectRoot, "KEEP.md"),
+      "keep base\n",
+      "utf8"
+    );
     await writeFile(
       path.join(tempProjectRoot, "RESTORE.md"),
       "restore base\n",
@@ -2620,7 +2748,9 @@ async function runTrackedCheckpointConflictChoiceSmoke(
     );
     const checkpoint = checkpointSnapshot.checkpoints.items[0];
     if (!checkpoint) {
-      throw new Error("Desktop smoke tracked choice checkpoint was not created.");
+      throw new Error(
+        "Desktop smoke tracked choice checkpoint was not created."
+      );
     }
     await writeFile(
       path.join(tempProjectRoot, "KEEP.md"),
@@ -2675,12 +2805,16 @@ async function runTrackedCheckpointConflictChoiceSmoke(
         confirmation: readyPreview.restoreToken,
       })
     );
-    const keepContent = await readFile(path.join(tempProjectRoot, "KEEP.md"), "utf8");
+    const keepContent = await readFile(
+      path.join(tempProjectRoot, "KEEP.md"),
+      "utf8"
+    );
     const restoreContent = await readFile(
       path.join(tempProjectRoot, "RESTORE.md"),
       "utf8"
     );
-    const keptCurrent = keepContent.replace(/\r\n/g, "\n") === "keep user edit\n";
+    const keptCurrent =
+      keepContent.replace(/\r\n/g, "\n") === "keep user edit\n";
     const restoredOther =
       restoreContent.replace(/\r\n/g, "\n") === "restore base\n";
     const mixedEditor =
@@ -2694,8 +2828,10 @@ async function runTrackedCheckpointConflictChoiceSmoke(
       JSON.stringify({
         trackedChoices: editorTrackedChoices,
         safeFiles: editorSafeFiles,
-        selectedChoiceFiles: choiceCheckpoint?.partialRestores?.[0]?.files ?? [],
-        selectedChoice: choiceCheckpoint?.partialRestores?.[0]?.resolution ?? null,
+        selectedChoiceFiles:
+          choiceCheckpoint?.partialRestores?.[0]?.files ?? [],
+        selectedChoice:
+          choiceCheckpoint?.partialRestores?.[0]?.resolution ?? null,
         mixedEditor,
       })
     );
@@ -2725,7 +2861,9 @@ async function runTrackedCheckpointConflictChoiceSmoke(
       !keptCurrent ||
       !restoredOther
     ) {
-      throw new Error("Desktop smoke tracked checkpoint conflict choice failed.");
+      throw new Error(
+        "Desktop smoke tracked checkpoint conflict choice failed."
+      );
     }
   } finally {
     await request<unknown>(
@@ -2764,15 +2902,22 @@ async function runTrackedCheckpointConflictHunkChoiceSmoke(
       cwd: tempProjectRoot,
       windowsHide: true,
     });
-    await execFileAsync("git", ["config", "user.email", "desktop-smoke@example.test"], {
-      cwd: tempProjectRoot,
-      windowsHide: true,
-    });
+    await execFileAsync(
+      "git",
+      ["config", "user.email", "desktop-smoke@example.test"],
+      {
+        cwd: tempProjectRoot,
+        windowsHide: true,
+      }
+    );
     await execFileAsync("git", ["config", "user.name", "Desktop Smoke"], {
       cwd: tempProjectRoot,
       windowsHide: true,
     });
-    const baseLines = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`);
+    const baseLines = Array.from(
+      { length: 20 },
+      (_, index) => `line ${index + 1}`
+    );
     await writeFile(
       path.join(tempProjectRoot, "MIXED.md"),
       `${baseLines.join("\n")}\n`,
@@ -2849,15 +2994,19 @@ async function runTrackedCheckpointConflictHunkChoiceSmoke(
     const safetyCheckpoint = mixedSnapshot.checkpoints.items.find(
       (item) => item.id === latestRestore?.safetyCheckpointId
     );
-    const afterMixed = (await readFile(path.join(tempProjectRoot, "MIXED.md"), "utf8"))
+    const afterMixed = (
+      await readFile(path.join(tempProjectRoot, "MIXED.md"), "utf8")
+    )
       .replace(/\r\n/g, "\n")
       .split("\n");
     const restoreChoices =
-      latestRestore?.hunkChoices?.filter((choice) => choice.resolution === "restore") ??
-      [];
+      latestRestore?.hunkChoices?.filter(
+        (choice) => choice.resolution === "restore"
+      ) ?? [];
     const currentChoices =
-      latestRestore?.hunkChoices?.filter((choice) => choice.resolution === "current") ??
-      [];
+      latestRestore?.hunkChoices?.filter(
+        (choice) => choice.resolution === "current"
+      ) ?? [];
     console.log(
       "CHECKPOINT_CONFLICT_HUNK_CHOICES",
       JSON.stringify({
@@ -2908,7 +3057,9 @@ async function runTrackedCheckpointConflictHunkChoiceSmoke(
   }
 }
 
-async function runMcpSessionInjectionSmoke(repoProjectId: string): Promise<void> {
+async function runMcpSessionInjectionSmoke(
+  repoProjectId: string
+): Promise<void> {
   const tempProjectRoot = await mkdtemp(
     path.join(os.tmpdir(), "eragear-mcp-session-smoke-")
   );
@@ -2916,11 +3067,16 @@ async function runMcpSessionInjectionSmoke(repoProjectId: string): Promise<void>
   let tempProject: ProjectSummary | null = null;
   let tempAgent: AgentSummary | null = null;
   let mcpChatId: string | null = null;
-  let injectedSseMcp: Awaited<ReturnType<typeof startSseMcpFixture>> | null = null;
+  let injectedSseMcp: Awaited<ReturnType<typeof startSseMcpFixture>> | null =
+    null;
   const previousSessionMcpAuth = process.env.ERAGEAR_DESKTOP_MCP_AUTH;
   let sessionMcpAuthChanged = false;
   try {
-    await writeFile(path.join(tempProjectRoot, "README.md"), "mcp session\n", "utf8");
+    await writeFile(
+      path.join(tempProjectRoot, "README.md"),
+      "mcp session\n",
+      "utf8"
+    );
     tempProject = await request<ProjectSummary>(
       operation("mutation", "createProject", {
         name: "Desktop Smoke MCP Session",
@@ -3029,7 +3185,9 @@ async function runMcpSessionInjectionSmoke(repoProjectId: string): Promise<void>
       capture.method !== "session/new" ||
       capture.cwd !== tempProjectRoot ||
       capture.mcpServers.length !== 2 ||
-      capture.mcpServers.some((server) => server.command !== process.execPath) ||
+      capture.mcpServers.some(
+        (server) => server.command !== process.execPath
+      ) ||
       !capture.mcpServers.every((server) =>
         server.args?.some((arg) => arg.includes("mcp-agent-broker.js"))
       ) ||
@@ -3041,7 +3199,9 @@ async function runMcpSessionInjectionSmoke(repoProjectId: string): Promise<void>
       ) ||
       JSON.stringify(capture.mcpServers).includes("desktop-session-mcp-secret")
     ) {
-      throw new Error("Desktop smoke MCP server was not injected into ACP newSession.");
+      throw new Error(
+        "Desktop smoke MCP server was not injected into ACP newSession."
+      );
     }
     const stdioInjectedServer = capture.mcpServers.find(
       (server) => server.name === "Desktop Session Injected MCP"
@@ -3049,11 +3209,10 @@ async function runMcpSessionInjectionSmoke(repoProjectId: string): Promise<void>
     const sseInjectedServer = capture.mcpServers.find(
       (server) => server.name === "Desktop Session Injected SSE MCP"
     );
-    if (
-      !stdioInjectedServer?.command ||
-      !sseInjectedServer?.command
-    ) {
-      throw new Error("Desktop smoke MCP session injection missed broker routes.");
+    if (!(stdioInjectedServer?.command && sseInjectedServer?.command)) {
+      throw new Error(
+        "Desktop smoke MCP session injection missed broker routes."
+      );
     }
     const brokerCall = await requestStdioJsonRpc({
       command: stdioInjectedServer.command,
@@ -3110,9 +3269,13 @@ async function runMcpSessionInjectionSmoke(repoProjectId: string): Promise<void>
       })
     );
     if (
-      !JSON.stringify(brokerCall).includes("desktop tool call desktop_smoke_tool") ||
-      !JSON.stringify(sseBrokerCall).includes(
-        "desktop sse tool desktop_smoke_sse_tool"
+      !(
+        JSON.stringify(brokerCall).includes(
+          "desktop tool call desktop_smoke_tool"
+        ) &&
+        JSON.stringify(sseBrokerCall).includes(
+          "desktop sse tool desktop_smoke_sse_tool"
+        )
       ) ||
       JSON.stringify(sseBrokerCall).includes("desktop-session-mcp-secret") ||
       !JSON.stringify(sseBrokerCall).includes("[redacted]") ||
@@ -3127,12 +3290,14 @@ async function runMcpSessionInjectionSmoke(repoProjectId: string): Promise<void>
       sseBrokerRoute.lastAgentInvocation?.status !== "success" ||
       sseBrokerRoute.lastAgentInvocation?.target !== "desktop_smoke_sse_tool"
     ) {
-      throw new Error("Desktop smoke MCP broker did not execute and audit agent call.");
+      throw new Error(
+        "Desktop smoke MCP broker did not execute and audit agent call."
+      );
     }
   } finally {
     if (sessionMcpAuthChanged) {
       if (previousSessionMcpAuth === undefined) {
-        delete process.env.ERAGEAR_DESKTOP_MCP_AUTH;
+        process.env.ERAGEAR_DESKTOP_MCP_AUTH = undefined;
       } else {
         process.env.ERAGEAR_DESKTOP_MCP_AUTH = previousSessionMcpAuth;
       }
@@ -3227,7 +3392,8 @@ async function main(): Promise<void> {
   let sessionLifecycleHooksBackup: string | null | undefined;
   let embeddingServer: MockEmbeddingServerHandle | undefined;
   const previousMcpAuth = process.env.ERAGEAR_DESKTOP_MCP_AUTH;
-  const previousAllowedAgentPolicies = process.env.ALLOWED_AGENT_COMMAND_POLICIES;
+  const previousAllowedAgentPolicies =
+    process.env.ALLOWED_AGENT_COMMAND_POLICIES;
   const smokeAgentPolicies: Array<{ command: string; allowAnyArgs: true }> = [
     { command: process.execPath, allowAnyArgs: true },
   ];
@@ -3237,7 +3403,8 @@ async function main(): Promise<void> {
       smokeAgentPolicies.push({ command: resolved, allowAnyArgs: true });
     }
   }
-  process.env.ALLOWED_AGENT_COMMAND_POLICIES = JSON.stringify(smokeAgentPolicies);
+  process.env.ALLOWED_AGENT_COMMAND_POLICIES =
+    JSON.stringify(smokeAgentPolicies);
   process.env.ERAGEAR_DESKTOP_MCP_AUTH = "Bearer desktop-mcp-secret";
 
   try {
@@ -3260,7 +3427,8 @@ async function main(): Promise<void> {
       JSON.stringify({
         status: diagnostics.securityPosture?.status ?? "missing",
         csp: diagnostics.securityPosture?.contentSecurityPolicy ?? "missing",
-        contextIsolation: diagnostics.securityPosture?.contextIsolation ?? false,
+        contextIsolation:
+          diagnostics.securityPosture?.contextIsolation ?? false,
         nodeIntegration: diagnostics.securityPosture?.nodeIntegration ?? true,
         sandbox: diagnostics.securityPosture?.sandbox ?? false,
         endpointNetworkExposed:
@@ -3268,18 +3436,21 @@ async function main(): Promise<void> {
           diagnostics.endpoint.networkExposed,
         localAuthTokenRedacted:
           diagnostics.securityPosture?.localAuthTokenRedacted ?? false,
-        messagesLeakToken: diagnostics.messages.some((message) => message.includes(token)),
+        messagesLeakToken: diagnostics.messages.some((message) =>
+          message.includes(token)
+        ),
       })
     );
     if (
-      !diagnostics.securityPosture ||
-      !diagnostics.securityPosture.contextIsolation ||
+      !diagnostics.securityPosture?.contextIsolation ||
       diagnostics.securityPosture.nodeIntegration ||
       diagnostics.securityPosture.endpointNetworkExposed ||
       !diagnostics.securityPosture.localAuthTokenRedacted ||
       diagnostics.messages.some((message) => message.includes(token))
     ) {
-      throw new Error("Desktop runtime security posture diagnostics are not hardened enough.");
+      throw new Error(
+        "Desktop runtime security posture diagnostics are not hardened enough."
+      );
     }
 
     const project = await ensureRepoProject();
@@ -3362,7 +3533,9 @@ async function main(): Promise<void> {
     const readyProviderCount = ade.providers.filter(
       (provider) => provider.status === "ready"
     ).length;
-    const enabledMcpServers = ade.mcp.servers.filter((server) => server.enabled);
+    const enabledMcpServers = ade.mcp.servers.filter(
+      (server) => server.enabled
+    );
     const initializedMcpServers = enabledMcpServers.filter(
       (server) => server.protocol.status === "initialized"
     );
@@ -3395,7 +3568,9 @@ async function main(): Promise<void> {
         commands: [
           ade.projectIndex.indexedAt ? "/index <query>" : null,
           enabledMemorySources > 0 ? "/memory <request>" : null,
-          ade.subagents.some((item) => item.name === "code-reviewer" && item.enabled)
+          ade.subagents.some(
+            (item) => item.name === "code-reviewer" && item.enabled
+          )
             ? "/agent-code-reviewer"
             : null,
         ].filter((item): item is string => typeof item === "string"),
@@ -3429,7 +3604,8 @@ async function main(): Promise<void> {
       const cli = diagnostics.cliAvailability.find(
         (item) =>
           item.id === agent.type ||
-          smokeCommandToken(item.command) === smokeCommandToken(agent.command) ||
+          smokeCommandToken(item.command) ===
+            smokeCommandToken(agent.command) ||
           smokeCommandToken(item.executablePath) ===
             smokeCommandToken(agent.command)
       );
@@ -3439,13 +3615,13 @@ async function main(): Promise<void> {
         provider?.status === "unavailable" ||
         provider?.cliStatus === "missing" ||
         provider?.cliStatus === "failed";
-      const status = !cliAvailable
-        ? "missing-cli"
-        : providerBlocked
+      const status = cliAvailable
+        ? providerBlocked
           ? "unavailable"
           : provider?.status === "ready"
             ? "ready"
-            : "needs-probe";
+            : "needs-probe"
+        : "missing-cli";
       return {
         id: agent.id,
         type: agent.type,
@@ -3468,7 +3644,9 @@ async function main(): Promise<void> {
       agentLaunchMatrix.length === 0 ||
       !agentLaunchMatrix.some((agent) => agent.canStart)
     ) {
-      throw new Error("No startable agent launch target was visible in Local ADE.");
+      throw new Error(
+        "No startable agent launch target was visible in Local ADE."
+      );
     }
     const authAdminPolicy = ade.dashboardParity.find(
       (item) => item.workflow === "Auth admin and device sessions"
@@ -3494,17 +3672,29 @@ async function main(): Promise<void> {
         (blocker) => blocker.workflow === "Auth admin and device sessions"
       )
     ) {
-      throw new Error("Dashboard auth admin policy is not classified as local N/A.");
+      throw new Error(
+        "Dashboard auth admin policy is not classified as local N/A."
+      );
     }
-    if (!ade.subagents.some((item) => item.name === "code-reviewer" && item.enabled)) {
-      throw new Error("Expected enabled code-reviewer subagent in Local ADE snapshot.");
+    if (
+      !ade.subagents.some(
+        (item) => item.name === "code-reviewer" && item.enabled
+      )
+    ) {
+      throw new Error(
+        "Expected enabled code-reviewer subagent in Local ADE snapshot."
+      );
     }
     const subagentCommand = ade.capabilities.capabilities.find(
       (item) =>
-        item.kind === "subagent" && item.name === "code-reviewer" && item.enabled
+        item.kind === "subagent" &&
+        item.name === "code-reviewer" &&
+        item.enabled
     );
     if (!subagentCommand) {
-      throw new Error("Expected code-reviewer subagent command in Local ADE capabilities.");
+      throw new Error(
+        "Expected code-reviewer subagent command in Local ADE capabilities."
+      );
     }
     console.log(
       "SUBAGENT_COMMAND_READY",
@@ -3548,7 +3738,8 @@ async function main(): Promise<void> {
         "COMMAND_DISCOVERY",
         JSON.stringify({
           present: Boolean(smokeCommand),
-          promptHasPlaceholder: smokeCommand?.prompt.includes("$ARGUMENTS") ?? false,
+          promptHasPlaceholder:
+            smokeCommand?.prompt.includes("$ARGUMENTS") ?? false,
           argumentHint: smokeCommand?.argumentHint ?? null,
           capabilityPresent: commandSnapshot.capabilities.capabilities.some(
             (item) =>
@@ -3563,464 +3754,499 @@ async function main(): Promise<void> {
         smokeCommand.argumentHint !== "<smoke request>" ||
         !smokeCommand.prompt.includes("$ARGUMENTS")
       ) {
-        throw new Error("Desktop smoke local slash command discovery did not complete.");
+        throw new Error(
+          "Desktop smoke local slash command discovery did not complete."
+        );
       }
     });
 
     await withFileBackup(capabilitiesStatePath, async () => {
-    await withFileBackup(smokeMemoryPath, async () => {
-      await withFileBackup(smokeMemoryPresetPath, async () => {
-        await mkdir(path.dirname(smokeMemoryPath), { recursive: true });
-        await writeFile(
-          smokeMemoryPath,
-          [
-            "# Desktop smoke provider notes",
-            "Use provider-only setup notes for unrelated auth work.",
-            "",
-            "# Desktop smoke project context",
-            "Prefer runtime-backed Local ADE actions.",
-            "api_key=desktop-memory-secret",
-            "",
-          ].join("\n"),
-          "utf8"
-        );
-        let memorySnapshot = await request<LocalAdeSnapshot>(
-          operation("query", "settings.getLocalAdeSnapshot")
-        );
-        const memorySource = memorySnapshot.projectMemory.sources.find(
-          (source) => source.relativePath === ".eragear/context.md"
-        );
-        if (!memorySource) {
-          throw new Error("Desktop smoke project memory source was not discovered.");
-        }
-        if (!memorySource.enabled) {
-          await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.updateCapabilityState", {
-              capabilityId: memorySource.id,
-              enabled: true,
+      await withFileBackup(smokeMemoryPath, async () => {
+        await withFileBackup(smokeMemoryPresetPath, async () => {
+          await mkdir(path.dirname(smokeMemoryPath), { recursive: true });
+          await writeFile(
+            smokeMemoryPath,
+            [
+              "# Desktop smoke provider notes",
+              "Use provider-only setup notes for unrelated auth work.",
+              "",
+              "# Desktop smoke project context",
+              "Prefer runtime-backed Local ADE actions.",
+              "api_key=desktop-memory-secret",
+              "",
+            ].join("\n"),
+            "utf8"
+          );
+          const memorySnapshot = await request<LocalAdeSnapshot>(
+            operation("query", "settings.getLocalAdeSnapshot")
+          );
+          const memorySource = memorySnapshot.projectMemory.sources.find(
+            (source) => source.relativePath === ".eragear/context.md"
+          );
+          if (!memorySource) {
+            throw new Error(
+              "Desktop smoke project memory source was not discovered."
+            );
+          }
+          if (!memorySource.enabled) {
+            await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.updateCapabilityState", {
+                capabilityId: memorySource.id,
+                enabled: true,
+              })
+            );
+          }
+          const memoryContext = await request<ProjectMemoryContextResult>(
+            operation("query", "settings.buildProjectMemoryContext", {
+              query: "desktop smoke memory policy",
+              sourcePaths: [memorySource.relativePath],
+              maxBytes: 4000,
             })
           );
-        }
-        const memoryContext = await request<ProjectMemoryContextResult>(
-          operation("query", "settings.buildProjectMemoryContext", {
-            query: "desktop smoke memory policy",
-            sourcePaths: [memorySource.relativePath],
-            maxBytes: 4000,
-          })
-        );
-        console.log(
-          "PROJECT_MEMORY_CONTEXT",
-          JSON.stringify({
-            status: memoryContext.status,
-            sourceCount: memoryContext.sources.length,
-            sources: memoryContext.sources.map((source) => [
-              source.relativePath,
-              source.includedBytes,
-              source.truncated,
-            ]),
-            promptHasMemory: memoryContext.prompt.includes(
+          console.log(
+            "PROJECT_MEMORY_CONTEXT",
+            JSON.stringify({
+              status: memoryContext.status,
+              sourceCount: memoryContext.sources.length,
+              sources: memoryContext.sources.map((source) => [
+                source.relativePath,
+                source.includedBytes,
+                source.truncated,
+              ]),
+              promptHasMemory: memoryContext.prompt.includes(
+                "Prefer runtime-backed Local ADE actions."
+              ),
+              promptRedacted:
+                memoryContext.prompt.includes("api_key= [redacted]") &&
+                !memoryContext.prompt.includes("desktop-memory-secret"),
+            })
+          );
+          if (
+            memoryContext.status !== "ready" ||
+            memoryContext.sources.length <= 0 ||
+            !memoryContext.prompt.includes(
               "Prefer runtime-backed Local ADE actions."
-            ),
-            promptRedacted:
-              memoryContext.prompt.includes("api_key= [redacted]") &&
-              !memoryContext.prompt.includes("desktop-memory-secret"),
-          })
-        );
-        if (
-          memoryContext.status !== "ready" ||
-          memoryContext.sources.length <= 0 ||
-          !memoryContext.prompt.includes("Prefer runtime-backed Local ADE actions.") ||
-          !memoryContext.prompt.includes("api_key= [redacted]") ||
-          memoryContext.prompt.includes("desktop-memory-secret")
-        ) {
-          throw new Error("Desktop smoke project memory context did not complete.");
-        }
-        const semanticMemoryContext = await request<ProjectMemoryContextResult>(
-          operation("query", "settings.buildProjectMemoryContext", {
-            query: "runtime-backed Local ADE actions",
-            sourcePaths: [memorySource.relativePath],
-            retrievalMode: "semantic",
-            maxChunks: 1,
-            maxBytes: 4000,
-          })
-        );
-        console.log(
-          "PROJECT_MEMORY_SEMANTIC",
-          JSON.stringify({
-            status: semanticMemoryContext.status,
-            retrievalMode: semanticMemoryContext.retrievalMode,
-            ranker: semanticMemoryContext.semantic?.ranker ?? null,
-            model: semanticMemoryContext.semantic?.model ?? null,
-            dimensions: semanticMemoryContext.semantic?.dimensions ?? null,
-            sourceCount: semanticMemoryContext.sources.length,
-            chunkCount: semanticMemoryContext.chunks.length,
-            chunk: semanticMemoryContext.chunks[0]
-              ? [
-                  semanticMemoryContext.chunks[0].relativePath,
-                  semanticMemoryContext.chunks[0].startLine,
-                  semanticMemoryContext.chunks[0].endLine,
-                  semanticMemoryContext.chunks[0].score,
-                  semanticMemoryContext.chunks[0].ranker ?? null,
-                ]
-              : null,
-            promptHasRelevant: semanticMemoryContext.prompt.includes(
-              "Prefer runtime-backed Local ADE actions."
-            ),
-            promptSkippedUnrelated: !semanticMemoryContext.prompt.includes(
-              "Use provider-only setup notes"
-            ),
-            promptRedacted:
-              semanticMemoryContext.prompt.includes("api_key= [redacted]") &&
-              !semanticMemoryContext.prompt.includes("desktop-memory-secret"),
-          })
-        );
-        console.log(
-          "PROJECT_MEMORY_MODEL_EMBEDDING",
-          JSON.stringify({
-            ranker: semanticMemoryContext.semantic?.ranker ?? null,
-            model: semanticMemoryContext.semantic?.model ?? null,
-            dimensions: semanticMemoryContext.semantic?.dimensions ?? null,
-            embeddingCalls: embeddingServer?.calls.length ?? 0,
-            promptHasModelBacked: semanticMemoryContext.prompt.includes(
+            ) ||
+            !memoryContext.prompt.includes("api_key= [redacted]") ||
+            memoryContext.prompt.includes("desktop-memory-secret")
+          ) {
+            throw new Error(
+              "Desktop smoke project memory context did not complete."
+            );
+          }
+          const semanticMemoryContext =
+            await request<ProjectMemoryContextResult>(
+              operation("query", "settings.buildProjectMemoryContext", {
+                query: "runtime-backed Local ADE actions",
+                sourcePaths: [memorySource.relativePath],
+                retrievalMode: "semantic",
+                maxChunks: 1,
+                maxBytes: 4000,
+              })
+            );
+          console.log(
+            "PROJECT_MEMORY_SEMANTIC",
+            JSON.stringify({
+              status: semanticMemoryContext.status,
+              retrievalMode: semanticMemoryContext.retrievalMode,
+              ranker: semanticMemoryContext.semantic?.ranker ?? null,
+              model: semanticMemoryContext.semantic?.model ?? null,
+              dimensions: semanticMemoryContext.semantic?.dimensions ?? null,
+              sourceCount: semanticMemoryContext.sources.length,
+              chunkCount: semanticMemoryContext.chunks.length,
+              chunk: semanticMemoryContext.chunks[0]
+                ? [
+                    semanticMemoryContext.chunks[0].relativePath,
+                    semanticMemoryContext.chunks[0].startLine,
+                    semanticMemoryContext.chunks[0].endLine,
+                    semanticMemoryContext.chunks[0].score,
+                    semanticMemoryContext.chunks[0].ranker ?? null,
+                  ]
+                : null,
+              promptHasRelevant: semanticMemoryContext.prompt.includes(
+                "Prefer runtime-backed Local ADE actions."
+              ),
+              promptSkippedUnrelated: !semanticMemoryContext.prompt.includes(
+                "Use provider-only setup notes"
+              ),
+              promptRedacted:
+                semanticMemoryContext.prompt.includes("api_key= [redacted]") &&
+                !semanticMemoryContext.prompt.includes("desktop-memory-secret"),
+            })
+          );
+          console.log(
+            "PROJECT_MEMORY_MODEL_EMBEDDING",
+            JSON.stringify({
+              ranker: semanticMemoryContext.semantic?.ranker ?? null,
+              model: semanticMemoryContext.semantic?.model ?? null,
+              dimensions: semanticMemoryContext.semantic?.dimensions ?? null,
+              embeddingCalls: embeddingServer?.calls.length ?? 0,
+              promptHasModelBacked: semanticMemoryContext.prompt.includes(
+                "model-backed embedding chunk ranking"
+              ),
+              diagnosticsRedacted: !semanticMemoryContext.diagnostics
+                .join("\n")
+                .includes("smoke-embedding-secret"),
+            })
+          );
+          if (
+            semanticMemoryContext.status !== "ready" ||
+            semanticMemoryContext.retrievalMode !== "semantic" ||
+            semanticMemoryContext.semantic?.ranker !== "model-embedding" ||
+            semanticMemoryContext.semantic?.model !== "smoke-embedding" ||
+            semanticMemoryContext.chunks.length !== 1 ||
+            semanticMemoryContext.chunks[0]?.ranker !== "model-embedding" ||
+            (semanticMemoryContext.chunks[0]?.score ?? 0) <= 0 ||
+            !semanticMemoryContext.prompt.includes(
               "model-backed embedding chunk ranking"
-            ),
-            diagnosticsRedacted: !semanticMemoryContext.diagnostics
-              .join("\n")
-              .includes("smoke-embedding-secret"),
-          })
-        );
-        if (
-          semanticMemoryContext.status !== "ready" ||
-          semanticMemoryContext.retrievalMode !== "semantic" ||
-          semanticMemoryContext.semantic?.ranker !== "model-embedding" ||
-          semanticMemoryContext.semantic?.model !== "smoke-embedding" ||
-          semanticMemoryContext.chunks.length !== 1 ||
-          semanticMemoryContext.chunks[0]?.ranker !== "model-embedding" ||
-          (semanticMemoryContext.chunks[0]?.score ?? 0) <= 0 ||
-          !semanticMemoryContext.prompt.includes(
-            "model-backed embedding chunk ranking"
-          ) ||
-          !semanticMemoryContext.prompt.includes(
-            "Prefer runtime-backed Local ADE actions."
-          ) ||
-          semanticMemoryContext.prompt.includes("Use provider-only setup notes") ||
-          !semanticMemoryContext.prompt.includes("api_key= [redacted]") ||
-          semanticMemoryContext.prompt.includes("desktop-memory-secret")
-        ) {
-          throw new Error("Desktop smoke semantic project memory did not complete.");
-        }
-        const memoryPresetSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.upsertProjectMemoryPreset", {
-            id: "desktop-smoke-memory-preset",
-            name: "Desktop Smoke Memory Preset",
-            sourcePaths: [memorySource.relativePath],
-            defaultQuery: "desktop smoke preset policy",
-            maxBytes: 4000,
-          })
-        );
-        const memoryPreset = memoryPresetSnapshot.projectMemory.presets.find(
-          (preset) => preset.id === "desktop-smoke-memory-preset"
-        );
-        const presetContext = await request<ProjectMemoryContextResult>(
-          operation("query", "settings.buildProjectMemoryContext", {
-            presetId: "desktop-smoke-memory-preset",
-          })
-        );
-        console.log(
-          "PROJECT_MEMORY_PRESET",
-          JSON.stringify({
-            saved: Boolean(memoryPreset),
-            presetName: memoryPreset?.name ?? "",
-            sourcePaths: memoryPreset?.sourcePaths ?? [],
-            contextStatus: presetContext.status,
-            presetId: presetContext.presetId ?? "",
-            presetNameFromContext: presetContext.presetName ?? "",
-            query: presetContext.query,
-            promptHasPreset: presetContext.prompt.includes(
-              'Use project memory preset "Desktop Smoke Memory Preset"'
-            ),
-            promptHasMemory: presetContext.prompt.includes(
+            ) ||
+            !semanticMemoryContext.prompt.includes(
               "Prefer runtime-backed Local ADE actions."
-            ),
-            promptRedacted:
-              presetContext.prompt.includes("api_key= [redacted]") &&
-              !presetContext.prompt.includes("desktop-memory-secret"),
-          })
-        );
-        if (
-          !memoryPreset ||
-          presetContext.status !== "ready" ||
-          presetContext.presetId !== "desktop-smoke-memory-preset" ||
-          presetContext.presetName !== "Desktop Smoke Memory Preset" ||
-          presetContext.query !== "desktop smoke preset policy" ||
-          !presetContext.prompt.includes(
-            'Use project memory preset "Desktop Smoke Memory Preset"'
-          ) ||
-          !presetContext.prompt.includes("Prefer runtime-backed Local ADE actions.") ||
-          !presetContext.prompt.includes("api_key= [redacted]") ||
-          presetContext.prompt.includes("desktop-memory-secret")
-        ) {
-          throw new Error("Desktop smoke project memory preset did not complete.");
-        }
-        const deletedPresetSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.deleteProjectMemoryPreset", {
-            id: "desktop-smoke-memory-preset",
-          })
-        );
-        if (
-          deletedPresetSnapshot.projectMemory.presets.some(
+            ) ||
+            semanticMemoryContext.prompt.includes(
+              "Use provider-only setup notes"
+            ) ||
+            !semanticMemoryContext.prompt.includes("api_key= [redacted]") ||
+            semanticMemoryContext.prompt.includes("desktop-memory-secret")
+          ) {
+            throw new Error(
+              "Desktop smoke semantic project memory did not complete."
+            );
+          }
+          const memoryPresetSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.upsertProjectMemoryPreset", {
+              id: "desktop-smoke-memory-preset",
+              name: "Desktop Smoke Memory Preset",
+              sourcePaths: [memorySource.relativePath],
+              defaultQuery: "desktop smoke preset policy",
+              maxBytes: 4000,
+            })
+          );
+          const memoryPreset = memoryPresetSnapshot.projectMemory.presets.find(
             (preset) => preset.id === "desktop-smoke-memory-preset"
-          )
-        ) {
-          throw new Error("Desktop smoke project memory preset was not deleted.");
-        }
-      });
-    });
-
-    await withFileBackup(smokeSkillPath, async () => {
-      await withFileBackup(smokeOutputStylePath, async () => {
-        await mkdir(path.dirname(smokeSkillPath), { recursive: true });
-        await mkdir(path.dirname(smokeOutputStylePath), { recursive: true });
-        await writeFile(
-          smokeSkillPath,
-          [
-            "---",
-            "name: Desktop Smoke Skill",
-            "description: Verify skill invocation descriptors",
-            "---",
-            "Use the desktop smoke skill instructions.",
-            "",
-          ].join("\n"),
-          "utf8"
-        );
-        await writeFile(
-          smokeOutputStylePath,
-          [
-            "---",
-            "name: Desktop Smoke Style",
-            "description: Verify output style descriptors",
-            "---",
-            "Answer in the desktop smoke output style.",
-            "",
-          ].join("\n"),
-          "utf8"
-        );
-        const instructionSnapshot = await request<LocalAdeSnapshot>(
-          operation("query", "settings.getLocalAdeSnapshot")
-        );
-        const smokeSkill = instructionSnapshot.skills.find(
-          (skill) => skill.name === "Desktop Smoke Skill" && skill.enabled
-        );
-        const smokeStyle = instructionSnapshot.outputStyles.find(
-          (style) => style.name === "Desktop Smoke Style" && style.enabled
-        );
-        console.log(
-          "INSTRUCTION_DISCOVERY",
-          JSON.stringify({
-            skillPresent: Boolean(smokeSkill),
-            skillPrompt: smokeSkill?.prompt.includes("desktop smoke skill") ?? false,
-            stylePresent: Boolean(smokeStyle),
-            stylePrompt:
-              smokeStyle?.prompt.includes("desktop smoke output style") ?? false,
-            skillCapability: instructionSnapshot.capabilities.capabilities.some(
-              (item) =>
-                item.kind === "skill" &&
-                item.name === "Desktop Smoke Skill" &&
-                item.enabled
-            ),
-            styleCapability: instructionSnapshot.capabilities.capabilities.some(
-              (item) =>
-                item.kind === "output-style" &&
-                item.name === "Desktop Smoke Style" &&
-                item.enabled
-            ),
-          })
-        );
-        if (
-          !smokeSkill ||
-          !smokeSkill.prompt.includes("desktop smoke skill") ||
-          !smokeStyle ||
-          !smokeStyle.prompt.includes("desktop smoke output style")
-        ) {
-          throw new Error(
-            "Desktop smoke local skill/output-style discovery did not complete."
           );
-        }
+          const presetContext = await request<ProjectMemoryContextResult>(
+            operation("query", "settings.buildProjectMemoryContext", {
+              presetId: "desktop-smoke-memory-preset",
+            })
+          );
+          console.log(
+            "PROJECT_MEMORY_PRESET",
+            JSON.stringify({
+              saved: Boolean(memoryPreset),
+              presetName: memoryPreset?.name ?? "",
+              sourcePaths: memoryPreset?.sourcePaths ?? [],
+              contextStatus: presetContext.status,
+              presetId: presetContext.presetId ?? "",
+              presetNameFromContext: presetContext.presetName ?? "",
+              query: presetContext.query,
+              promptHasPreset: presetContext.prompt.includes(
+                'Use project memory preset "Desktop Smoke Memory Preset"'
+              ),
+              promptHasMemory: presetContext.prompt.includes(
+                "Prefer runtime-backed Local ADE actions."
+              ),
+              promptRedacted:
+                presetContext.prompt.includes("api_key= [redacted]") &&
+                !presetContext.prompt.includes("desktop-memory-secret"),
+            })
+          );
+          if (
+            !memoryPreset ||
+            presetContext.status !== "ready" ||
+            presetContext.presetId !== "desktop-smoke-memory-preset" ||
+            presetContext.presetName !== "Desktop Smoke Memory Preset" ||
+            presetContext.query !== "desktop smoke preset policy" ||
+            !presetContext.prompt.includes(
+              'Use project memory preset "Desktop Smoke Memory Preset"'
+            ) ||
+            !presetContext.prompt.includes(
+              "Prefer runtime-backed Local ADE actions."
+            ) ||
+            !presetContext.prompt.includes("api_key= [redacted]") ||
+            presetContext.prompt.includes("desktop-memory-secret")
+          ) {
+            throw new Error(
+              "Desktop smoke project memory preset did not complete."
+            );
+          }
+          const deletedPresetSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.deleteProjectMemoryPreset", {
+              id: "desktop-smoke-memory-preset",
+            })
+          );
+          if (
+            deletedPresetSnapshot.projectMemory.presets.some(
+              (preset) => preset.id === "desktop-smoke-memory-preset"
+            )
+          ) {
+            throw new Error(
+              "Desktop smoke project memory preset was not deleted."
+            );
+          }
+        });
       });
-    });
 
-    await withFileBackup(repoIndexPath, async () => {
-      await withFileBackup(smokeSemanticIndexPath, async () => {
-        await writeFile(
-          smokeSemanticIndexPath,
-          [
-            "# Desktop semantic smoke",
-            "",
-            "Checkpoint restore safety planning handles snapshot recovery.",
-            "The rollback query should find this file through the local semantic profile.",
-            "",
-          ].join("\n"),
-          "utf8"
-        );
-        const indexSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.refreshProjectIndex", {})
-        );
-        const persisted = JSON.parse(await readFile(repoIndexPath, "utf8")) as {
-          files?: Array<{
-            path?: string;
-            embeddingVector?: unknown;
-            embeddingModel?: string;
-            embeddingHash?: string;
-          }>;
-          symbols?: Array<{ name?: string }>;
-          tasks?: Array<{ marker?: string }>;
-        };
-        const hasGoal =
-          persisted.files?.some((file) => file.path === "GOAL.md") ?? false;
-        const persistedSemanticSmoke = persisted.files?.find(
-          (file) => file.path === "desktop-semantic-smoke.md"
-        );
-        const hasSymbols = (persisted.symbols?.length ?? 0) > 0;
-        const hasTasks = (persisted.tasks?.length ?? 0) > 0;
-        console.log(
-          "PROJECT_INDEX",
-          JSON.stringify({
-            indexedFiles: indexSnapshot.projectIndex.indexedFiles,
-            totalBytes: indexSnapshot.projectIndex.totalBytes,
-            extensions: indexSnapshot.projectIndex.extensions.slice(0, 5),
-            symbolCount: indexSnapshot.projectIndex.symbols.length,
-            taskCount: indexSnapshot.projectIndex.tasks.length,
-            symbolSample: indexSnapshot.projectIndex.symbols
-              .slice(0, 3)
-              .map((symbol) => `${symbol.kind}:${symbol.name}`),
-            taskSample: indexSnapshot.projectIndex.tasks
-              .slice(0, 3)
-              .map((task) => `${task.marker}:${task.path}:${task.line}`),
-            semantic: indexSnapshot.projectIndex.semantic,
-            visibleSample: indexSnapshot.projectIndex.files
-              .slice(0, 5)
-              .map((file) => file.path),
-            persistedHasGoal: hasGoal,
-            persistedHasSymbols: hasSymbols,
-            persistedHasTasks: hasTasks,
-            persistedSemanticEmbedding: Array.isArray(
-              persistedSemanticSmoke?.embeddingVector
-            ),
-            visibleLeaksVector: indexSnapshot.projectIndex.files.some((file) =>
-              "embeddingVector" in file
-            ),
-          })
-        );
-        if (
-          indexSnapshot.projectIndex.indexedFiles <= 0 ||
-          indexSnapshot.projectIndex.semantic.status !== "ready" ||
-          indexSnapshot.projectIndex.semantic.source !== "model-embedding" ||
-          indexSnapshot.projectIndex.semantic.model !== "smoke-embedding" ||
-          indexSnapshot.projectIndex.symbols.length <= 0 ||
-          indexSnapshot.projectIndex.tasks.length <= 0 ||
-          !Array.isArray(persistedSemanticSmoke?.embeddingVector) ||
-          indexSnapshot.projectIndex.files.some((file) =>
-            "embeddingVector" in file
-          ) ||
-          !hasGoal ||
-          !hasSymbols ||
-          !hasTasks
-        ) {
-          throw new Error("Desktop smoke project index refresh did not complete.");
-        }
-        const searchQuery =
-          indexSnapshot.projectIndex.tasks[0]?.marker ??
-          indexSnapshot.projectIndex.symbols[0]?.name ??
-          "GOAL.md";
-        const indexSearch = await request<ProjectIndexSearchResult>(
-          operation("query", "settings.searchProjectIndex", {
-            query: searchQuery,
-            limit: 6,
-          })
-        );
-        console.log(
-          "PROJECT_INDEX_SEARCH",
-          JSON.stringify({
-            status: indexSearch.status,
-            query: indexSearch.query,
-            resultCount: indexSearch.results.length,
-            sample: indexSearch.results.slice(0, 3).map((item) => [
-              item.type,
-              item.title,
-              item.path,
-            ]),
-            promptHasContext:
-              indexSearch.prompt.includes("Matched project index entries") &&
-              indexSearch.prompt.includes("Before editing, read the referenced files directly."),
-          })
-        );
-        if (
-          indexSearch.status !== "ready" ||
-          indexSearch.results.length <= 0 ||
-          !indexSearch.prompt.includes("Matched project index entries") ||
-          !indexSearch.prompt.includes(
-            "Before editing, read the referenced files directly."
-          )
-        ) {
-          throw new Error("Desktop smoke project index search did not complete.");
-        }
-        const semanticSearch = await request<ProjectIndexSearchResult>(
-          operation("query", "settings.searchProjectIndex", {
-            query: "rollback safety",
-            limit: 6,
-          })
-        );
-        const semanticHit = semanticSearch.results.find(
-          (item) => item.path === "desktop-semantic-smoke.md"
-        );
-        console.log(
-          "PROJECT_INDEX_SEMANTIC_SEARCH",
-          JSON.stringify({
-            status: semanticSearch.status,
-            resultCount: semanticSearch.results.length,
-            semanticStatus: indexSnapshot.projectIndex.semantic.status,
-            semanticSource: indexSnapshot.projectIndex.semantic.source,
-            model: indexSnapshot.projectIndex.semantic.model ?? null,
-            embeddedFiles: indexSnapshot.projectIndex.semantic.embeddedFiles ?? 0,
-            semanticProfiledFiles:
-              indexSnapshot.projectIndex.semantic.profiledFiles,
-            hitPath: semanticHit?.path ?? null,
-            matchKind: semanticHit?.matchKind ?? null,
-            promptHasSemantic: semanticSearch.prompt.includes("semantic"),
-            promptHasEmbedding: semanticSearch.prompt.includes(
-              "model-backed embedding vectors"
-            ),
-          })
-        );
-        console.log(
-          "PROJECT_INDEX_MODEL_EMBEDDING",
-          JSON.stringify({
-            source: indexSnapshot.projectIndex.semantic.source,
-            model: indexSnapshot.projectIndex.semantic.model ?? null,
-            dimensions: indexSnapshot.projectIndex.semantic.dimensions ?? null,
-            embeddedFiles: indexSnapshot.projectIndex.semantic.embeddedFiles ?? 0,
-            hitPath: semanticHit?.path ?? null,
-            matchKind: semanticHit?.matchKind ?? null,
-            diagnosticsRedacted: !semanticSearch.diagnostics
+      await withFileBackup(smokeSkillPath, async () => {
+        await withFileBackup(smokeOutputStylePath, async () => {
+          await mkdir(path.dirname(smokeSkillPath), { recursive: true });
+          await mkdir(path.dirname(smokeOutputStylePath), { recursive: true });
+          await writeFile(
+            smokeSkillPath,
+            [
+              "---",
+              "name: Desktop Smoke Skill",
+              "description: Verify skill invocation descriptors",
+              "---",
+              "Use the desktop smoke skill instructions.",
+              "",
+            ].join("\n"),
+            "utf8"
+          );
+          await writeFile(
+            smokeOutputStylePath,
+            [
+              "---",
+              "name: Desktop Smoke Style",
+              "description: Verify output style descriptors",
+              "---",
+              "Answer in the desktop smoke output style.",
+              "",
+            ].join("\n"),
+            "utf8"
+          );
+          const instructionSnapshot = await request<LocalAdeSnapshot>(
+            operation("query", "settings.getLocalAdeSnapshot")
+          );
+          const smokeSkill = instructionSnapshot.skills.find(
+            (skill) => skill.name === "Desktop Smoke Skill" && skill.enabled
+          );
+          const smokeStyle = instructionSnapshot.outputStyles.find(
+            (style) => style.name === "Desktop Smoke Style" && style.enabled
+          );
+          console.log(
+            "INSTRUCTION_DISCOVERY",
+            JSON.stringify({
+              skillPresent: Boolean(smokeSkill),
+              skillPrompt:
+                smokeSkill?.prompt.includes("desktop smoke skill") ?? false,
+              stylePresent: Boolean(smokeStyle),
+              stylePrompt:
+                smokeStyle?.prompt.includes("desktop smoke output style") ??
+                false,
+              skillCapability:
+                instructionSnapshot.capabilities.capabilities.some(
+                  (item) =>
+                    item.kind === "skill" &&
+                    item.name === "Desktop Smoke Skill" &&
+                    item.enabled
+                ),
+              styleCapability:
+                instructionSnapshot.capabilities.capabilities.some(
+                  (item) =>
+                    item.kind === "output-style" &&
+                    item.name === "Desktop Smoke Style" &&
+                    item.enabled
+                ),
+            })
+          );
+          if (
+            !(
+              smokeSkill?.prompt.includes("desktop smoke skill") &&
+              smokeStyle &&
+              smokeStyle.prompt.includes("desktop smoke output style")
+            )
+          ) {
+            throw new Error(
+              "Desktop smoke local skill/output-style discovery did not complete."
+            );
+          }
+        });
+      });
+
+      await withFileBackup(repoIndexPath, async () => {
+        await withFileBackup(smokeSemanticIndexPath, async () => {
+          await writeFile(
+            smokeSemanticIndexPath,
+            [
+              "# Desktop semantic smoke",
+              "",
+              "Checkpoint restore safety planning handles snapshot recovery.",
+              "The rollback query should find this file through the local semantic profile.",
+              "",
+            ].join("\n"),
+            "utf8"
+          );
+          const indexSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.refreshProjectIndex", {})
+          );
+          const persisted = JSON.parse(
+            await readFile(repoIndexPath, "utf8")
+          ) as {
+            files?: Array<{
+              path?: string;
+              embeddingVector?: unknown;
+              embeddingModel?: string;
+              embeddingHash?: string;
+            }>;
+            symbols?: Array<{ name?: string }>;
+            tasks?: Array<{ marker?: string }>;
+          };
+          const hasGoal =
+            persisted.files?.some((file) => file.path === "GOAL.md") ?? false;
+          const persistedSemanticSmoke = persisted.files?.find(
+            (file) => file.path === "desktop-semantic-smoke.md"
+          );
+          const hasSymbols = (persisted.symbols?.length ?? 0) > 0;
+          const hasTasks = (persisted.tasks?.length ?? 0) > 0;
+          console.log(
+            "PROJECT_INDEX",
+            JSON.stringify({
+              indexedFiles: indexSnapshot.projectIndex.indexedFiles,
+              totalBytes: indexSnapshot.projectIndex.totalBytes,
+              extensions: indexSnapshot.projectIndex.extensions.slice(0, 5),
+              symbolCount: indexSnapshot.projectIndex.symbols.length,
+              taskCount: indexSnapshot.projectIndex.tasks.length,
+              symbolSample: indexSnapshot.projectIndex.symbols
+                .slice(0, 3)
+                .map((symbol) => `${symbol.kind}:${symbol.name}`),
+              taskSample: indexSnapshot.projectIndex.tasks
+                .slice(0, 3)
+                .map((task) => `${task.marker}:${task.path}:${task.line}`),
+              semantic: indexSnapshot.projectIndex.semantic,
+              visibleSample: indexSnapshot.projectIndex.files
+                .slice(0, 5)
+                .map((file) => file.path),
+              persistedHasGoal: hasGoal,
+              persistedHasSymbols: hasSymbols,
+              persistedHasTasks: hasTasks,
+              persistedSemanticEmbedding: Array.isArray(
+                persistedSemanticSmoke?.embeddingVector
+              ),
+              visibleLeaksVector: indexSnapshot.projectIndex.files.some(
+                (file) => "embeddingVector" in file
+              ),
+            })
+          );
+          if (
+            indexSnapshot.projectIndex.indexedFiles <= 0 ||
+            indexSnapshot.projectIndex.semantic.status !== "ready" ||
+            indexSnapshot.projectIndex.semantic.source !== "model-embedding" ||
+            indexSnapshot.projectIndex.semantic.model !== "smoke-embedding" ||
+            indexSnapshot.projectIndex.symbols.length <= 0 ||
+            indexSnapshot.projectIndex.tasks.length <= 0 ||
+            !Array.isArray(persistedSemanticSmoke?.embeddingVector) ||
+            indexSnapshot.projectIndex.files.some(
+              (file) => "embeddingVector" in file
+            ) ||
+            !hasGoal ||
+            !hasSymbols ||
+            !hasTasks
+          ) {
+            throw new Error(
+              "Desktop smoke project index refresh did not complete."
+            );
+          }
+          const searchQuery =
+            indexSnapshot.projectIndex.tasks[0]?.marker ??
+            indexSnapshot.projectIndex.symbols[0]?.name ??
+            "GOAL.md";
+          const indexSearch = await request<ProjectIndexSearchResult>(
+            operation("query", "settings.searchProjectIndex", {
+              query: searchQuery,
+              limit: 6,
+            })
+          );
+          console.log(
+            "PROJECT_INDEX_SEARCH",
+            JSON.stringify({
+              status: indexSearch.status,
+              query: indexSearch.query,
+              resultCount: indexSearch.results.length,
+              sample: indexSearch.results
+                .slice(0, 3)
+                .map((item) => [item.type, item.title, item.path]),
+              promptHasContext:
+                indexSearch.prompt.includes("Matched project index entries") &&
+                indexSearch.prompt.includes(
+                  "Before editing, read the referenced files directly."
+                ),
+            })
+          );
+          if (
+            indexSearch.status !== "ready" ||
+            indexSearch.results.length <= 0 ||
+            !indexSearch.prompt.includes("Matched project index entries") ||
+            !indexSearch.prompt.includes(
+              "Before editing, read the referenced files directly."
+            )
+          ) {
+            throw new Error(
+              "Desktop smoke project index search did not complete."
+            );
+          }
+          const semanticSearch = await request<ProjectIndexSearchResult>(
+            operation("query", "settings.searchProjectIndex", {
+              query: "rollback safety",
+              limit: 6,
+            })
+          );
+          const semanticHit = semanticSearch.results.find(
+            (item) => item.path === "desktop-semantic-smoke.md"
+          );
+          console.log(
+            "PROJECT_INDEX_SEMANTIC_SEARCH",
+            JSON.stringify({
+              status: semanticSearch.status,
+              resultCount: semanticSearch.results.length,
+              semanticStatus: indexSnapshot.projectIndex.semantic.status,
+              semanticSource: indexSnapshot.projectIndex.semantic.source,
+              model: indexSnapshot.projectIndex.semantic.model ?? null,
+              embeddedFiles:
+                indexSnapshot.projectIndex.semantic.embeddedFiles ?? 0,
+              semanticProfiledFiles:
+                indexSnapshot.projectIndex.semantic.profiledFiles,
+              hitPath: semanticHit?.path ?? null,
+              matchKind: semanticHit?.matchKind ?? null,
+              promptHasSemantic: semanticSearch.prompt.includes("semantic"),
+              promptHasEmbedding: semanticSearch.prompt.includes(
+                "model-backed embedding vectors"
+              ),
+            })
+          );
+          console.log(
+            "PROJECT_INDEX_MODEL_EMBEDDING",
+            JSON.stringify({
+              source: indexSnapshot.projectIndex.semantic.source,
+              model: indexSnapshot.projectIndex.semantic.model ?? null,
+              dimensions:
+                indexSnapshot.projectIndex.semantic.dimensions ?? null,
+              embeddedFiles:
+                indexSnapshot.projectIndex.semantic.embeddedFiles ?? 0,
+              hitPath: semanticHit?.path ?? null,
+              matchKind: semanticHit?.matchKind ?? null,
+              diagnosticsRedacted: !semanticSearch.diagnostics
+                .join("\n")
+                .includes("smoke-embedding-secret"),
+            })
+          );
+          if (
+            semanticSearch.status !== "ready" ||
+            !semanticHit ||
+            semanticHit.matchKind !== "embedding" ||
+            indexSnapshot.projectIndex.semantic.source !== "model-embedding" ||
+            indexSnapshot.projectIndex.semantic.model !== "smoke-embedding" ||
+            !semanticSearch.prompt.includes("model-backed embedding vectors") ||
+            semanticSearch.diagnostics
               .join("\n")
-              .includes("smoke-embedding-secret"),
-          })
-        );
-        if (
-          semanticSearch.status !== "ready" ||
-          !semanticHit ||
-          semanticHit.matchKind !== "embedding" ||
-          indexSnapshot.projectIndex.semantic.source !== "model-embedding" ||
-          indexSnapshot.projectIndex.semantic.model !== "smoke-embedding" ||
-          !semanticSearch.prompt.includes("model-backed embedding vectors") ||
-          semanticSearch.diagnostics.join("\n").includes("smoke-embedding-secret")
-        ) {
-          throw new Error(
-            "Desktop smoke model-backed project index search did not complete."
-          );
-        }
+              .includes("smoke-embedding-secret")
+          ) {
+            throw new Error(
+              "Desktop smoke model-backed project index search did not complete."
+            );
+          }
+        });
       });
-    });
     });
 
     await withFileBackup(hooksPath, async () => {
@@ -4055,11 +4281,10 @@ async function main(): Promise<void> {
       const smokeHookBeforeTrust = hookSnapshot.hooks.items.find(
         (hook) => hook.id === "desktop-smoke-hook"
       );
-      const untrustedHookCapability = hookSnapshot.capabilities.capabilities.find(
-        (item) =>
-          item.kind === "hook" &&
-          item.name === "Desktop Smoke Hook"
-      );
+      const untrustedHookCapability =
+        hookSnapshot.capabilities.capabilities.find(
+          (item) => item.kind === "hook" && item.name === "Desktop Smoke Hook"
+        );
       let untrustedRunBlocked = false;
       try {
         await request<LocalAdeSnapshot>(
@@ -4128,9 +4353,10 @@ async function main(): Promise<void> {
           })
         );
       } catch (error) {
-        hookConfirmationBlocked = error instanceof Error
-          ? error.message.includes("confirmation")
-          : String(error).includes("confirmation");
+        hookConfirmationBlocked =
+          error instanceof Error
+            ? error.message.includes("confirmation")
+            : String(error).includes("confirmation");
       }
       console.log(
         "HOOK_RUN_CONFIRMATION",
@@ -4139,10 +4365,13 @@ async function main(): Promise<void> {
           token: trustedHook?.runConfirmationToken ?? "",
         })
       );
-      if (!hookConfirmationBlocked || !trustedHook?.runConfirmationToken) {
-        throw new Error("Desktop smoke hook run confirmation gate did not complete.");
+      if (!(hookConfirmationBlocked && trustedHook?.runConfirmationToken)) {
+        throw new Error(
+          "Desktop smoke hook run confirmation gate did not complete."
+        );
       }
-      const hookRunApproval = await approveHookRunOperation("desktop-smoke-hook");
+      const hookRunApproval =
+        await approveHookRunOperation("desktop-smoke-hook");
       console.log(
         "HOOK_RUN_APPROVAL",
         JSON.stringify({
@@ -4183,23 +4412,27 @@ async function main(): Promise<void> {
       console.log(
         "HOOK_PROCESS_ISOLATION",
         JSON.stringify({
-          policyMode: smokeHook!.executionPolicy.isolation.mode,
+          policyMode: smokeHook?.executionPolicy.isolation.mode,
           runMode: smokeHookLastRun.isolation?.mode ?? "missing",
-          cwdScope: smokeHook!.runOperation.isolation.cwdScope,
+          cwdScope: smokeHook?.runOperation.isolation.cwdScope,
           processTreeKill:
             smokeHookLastRun.isolation?.processTreeKill ?? "missing",
-          shellFree: smokeHookLastRun.diagnostics.some((entry) =>
-            entry.includes("shell:false") || entry.includes("without shell expansion")
+          shellFree: smokeHookLastRun.diagnostics.some(
+            (entry) =>
+              entry.includes("shell:false") ||
+              entry.includes("without shell expansion")
           ),
         })
       );
       if (
-        smokeHook!.executionPolicy.isolation.mode !== "job-process-tree" ||
+        smokeHook?.executionPolicy.isolation.mode !== "job-process-tree" ||
         smokeHookLastRun.isolation?.mode !== "job-process-tree" ||
-        smokeHook!.runOperation.isolation.cwdScope !== "project-root" ||
+        smokeHook?.runOperation.isolation.cwdScope !== "project-root" ||
         smokeHookLastRun.isolation.processTreeKill !== "available"
       ) {
-        throw new Error("Desktop smoke hook process isolation metadata missing.");
+        throw new Error(
+          "Desktop smoke hook process isolation metadata missing."
+        );
       }
       const reviewedHookSnapshot = await request<LocalAdeSnapshot>(
         operation("mutation", "settings.reviewHookRun", {
@@ -4229,7 +4462,12 @@ async function main(): Promise<void> {
         redacted: true;
         filters: { reviewState: string; limit: number };
         stats: { matching: number; included: number; reviewed: number };
-        runs: Array<{ id: string; reviewedAt?: string; stdout: string; stderr: string }>;
+        runs: Array<{
+          id: string;
+          reviewedAt?: string;
+          stdout: string;
+          stderr: string;
+        }>;
       }>(
         operation("mutation", "settings.exportHookRuns", {
           reviewState: "reviewed",
@@ -4254,13 +4492,15 @@ async function main(): Promise<void> {
           (run) => run.id === smokeHookLastRun.id && Boolean(run.reviewedAt)
         )
       ) {
-        throw new Error("Desktop smoke hook audit export did not include reviewed run.");
+        throw new Error(
+          "Desktop smoke hook audit export did not include reviewed run."
+        );
       }
       const cooldownHookPolicy = await request<LocalAdeSnapshot>(
         operation("mutation", "settings.updateHookSchedulingPolicy", {
           enabled: true,
           maxConcurrentRuns: 1,
-          cooldownMs: 600000,
+          cooldownMs: 600_000,
         })
       );
       const cooldownHook = cooldownHookPolicy.hooks.items.find(
@@ -4307,13 +4547,14 @@ async function main(): Promise<void> {
             cooldownRunHook?.lastRun?.diagnostics.some((entry) =>
               entry.includes("cooldown")
             ) ?? false,
-          resetCooldownMs: resetHookScheduling.hooks.schedulingPolicy.cooldownMs,
+          resetCooldownMs:
+            resetHookScheduling.hooks.schedulingPolicy.cooldownMs,
         })
       );
       if (
         cooldownHookPolicy.hooks.schedulingPolicy.enabled !== true ||
         cooldownHookPolicy.hooks.schedulingPolicy.maxConcurrentRuns !== 1 ||
-        cooldownHookPolicy.hooks.schedulingPolicy.cooldownMs !== 600000 ||
+        cooldownHookPolicy.hooks.schedulingPolicy.cooldownMs !== 600_000 ||
         cooldownHook?.scheduling.status !== "cooldown" ||
         cooldownHookCapability?.enabled !== false ||
         cooldownRunHook?.lastRun?.status !== "disabled" ||
@@ -4338,7 +4579,8 @@ async function main(): Promise<void> {
         operation("mutation", "settings.runHookBatch", {
           hookIds: ["desktop-smoke-hook", "desktop-smoke-index-hook"],
           operationFingerprints: {
-            "desktop-smoke-hook": batchReadyHook?.runOperation.fingerprint ?? "",
+            "desktop-smoke-hook":
+              batchReadyHook?.runOperation.fingerprint ?? "",
             "desktop-smoke-index-hook":
               batchReadyLifecycleHook?.runOperation.fingerprint ?? "",
           },
@@ -4377,7 +4619,9 @@ async function main(): Promise<void> {
         batchedHook.lastRun.batchId !== hookBatch.id ||
         batchedLifecycleHook.lastRun.batchId !== hookBatch.id
       ) {
-        throw new Error("Desktop smoke hook batch queue did not execute hooks.");
+        throw new Error(
+          "Desktop smoke hook batch queue did not execute hooks."
+        );
       }
       const shellHookSnapshot = await request<LocalAdeSnapshot>(
         operation("mutation", "settings.upsertHook", {
@@ -4412,9 +4656,10 @@ async function main(): Promise<void> {
           })
         );
       } catch (error) {
-        shellHookBlocked = error instanceof Error
-          ? error.message.includes("sandbox")
-          : String(error).includes("sandbox");
+        shellHookBlocked =
+          error instanceof Error
+            ? error.message.includes("sandbox")
+            : String(error).includes("sandbox");
       }
       console.log(
         "HOOK_SANDBOX_BLOCK",
@@ -4423,8 +4668,13 @@ async function main(): Promise<void> {
           blocked: shellHookBlocked,
         })
       );
-      if (shellHook?.executionPolicy?.status !== "blocked" || !shellHookBlocked) {
-        throw new Error("Desktop smoke hook sandbox did not block shell evaluation.");
+      if (
+        shellHook?.executionPolicy?.status !== "blocked" ||
+        !shellHookBlocked
+      ) {
+        throw new Error(
+          "Desktop smoke hook sandbox did not block shell evaluation."
+        );
       }
       const policyHookSnapshot = await request<LocalAdeSnapshot>(
         operation("mutation", "settings.upsertHook", {
@@ -4434,10 +4684,7 @@ async function main(): Promise<void> {
           enabled: true,
           policyPreset: "restricted",
           command: process.execPath,
-          args: [
-            "-e",
-            "process.stdout.write('policy hook should not run')",
-          ],
+          args: ["-e", "process.stdout.write('policy hook should not run')"],
           timeoutMs: 5000,
         })
       );
@@ -4459,9 +4706,10 @@ async function main(): Promise<void> {
           })
         );
       } catch (error) {
-        restrictedHookApprovalBlocked = error instanceof Error
-          ? error.message.includes("restricted policy")
-          : String(error).includes("restricted policy");
+        restrictedHookApprovalBlocked =
+          error instanceof Error
+            ? error.message.includes("restricted policy")
+            : String(error).includes("restricted policy");
       }
       console.log(
         "HOOK_POLICY_PRESET",
@@ -4483,7 +4731,9 @@ async function main(): Promise<void> {
           (item) => item.id === "hook.project.desktop-smoke-policy-hook"
         )?.enabled !== false
       ) {
-        throw new Error("Desktop smoke hook policy preset gate did not complete.");
+        throw new Error(
+          "Desktop smoke hook policy preset gate did not complete."
+        );
       }
       await withFileBackup(repoIndexPath, async () => {
         const pausedLifecyclePolicy = await request<LocalAdeSnapshot>(
@@ -4513,8 +4763,9 @@ async function main(): Promise<void> {
               pausedLifecyclePolicy.hooks.lifecyclePolicy.failureMode,
             pausedStatus: pausedLifecycleHook?.lastRun?.status ?? "missing",
             pausedBatch:
-              pausedLifecycleHook?.lastRun?.batchId?.startsWith("hook-batch-") ??
-              false,
+              pausedLifecycleHook?.lastRun?.batchId?.startsWith(
+                "hook-batch-"
+              ) ?? false,
             pausedDiagnostic:
               pausedLifecycleHook?.lastRun?.diagnostics.some((entry) =>
                 entry.includes("event after-project-index-refresh is paused")
@@ -4537,8 +4788,8 @@ async function main(): Promise<void> {
           pausedLifecycleHook.lastRun.diagnostics.some((entry) =>
             entry.includes("event after-project-index-refresh is paused")
           ) !== true ||
-          reenabledLifecyclePolicy.hooks.lifecyclePolicy.disabledEvents.length !==
-            0 ||
+          reenabledLifecyclePolicy.hooks.lifecyclePolicy.disabledEvents
+            .length !== 0 ||
           reenabledLifecyclePolicy.hooks.lifecyclePolicy.failureMode !==
             "continue"
         ) {
@@ -4568,7 +4819,9 @@ async function main(): Promise<void> {
             "desktop lifecycle after-project-index-refresh"
           )
         ) {
-          throw new Error("Desktop smoke lifecycle hook execution did not complete.");
+          throw new Error(
+            "Desktop smoke lifecycle hook execution did not complete."
+          );
         }
       });
     });
@@ -4578,1621 +4831,1758 @@ async function main(): Promise<void> {
     process.env.ERAGEAR_DESKTOP_PLUGIN_ALLOWED = "allowed-plugin-secret";
     process.env.ERAGEAR_DESKTOP_PLUGIN_BLOCKED = "blocked-plugin-secret";
     try {
-    await withFileBackup(pluginsPath, async () => {
-      await withFileBackup(pluginRegistriesPath, async () => {
-        await rm(pluginRegistriesPath, { force: true }).catch(() => undefined);
-      const pluginSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.upsertPlugin", {
-          id: "desktop-smoke-plugin",
-          name: "Desktop Smoke Plugin",
-          description: "Desktop smoke executable plugin",
-          enabled: true,
-          scopes: ["process", "env"],
-          envKeys: ["ERAGEAR_DESKTOP_PLUGIN_ALLOWED"],
-          command: process.execPath,
-          args: [
-            "-e",
-            "process.stdout.write(['desktop plugin ok '+process.env.ERAGEAR_PLUGIN_NAME,'allowed_secret='+process.env.ERAGEAR_DESKTOP_PLUGIN_ALLOWED,'blocked='+Boolean(process.env.ERAGEAR_DESKTOP_PLUGIN_BLOCKED),'scopes='+process.env.ERAGEAR_PLUGIN_SCOPES].join('\\n'))",
-          ],
-          timeoutMs: 5000,
-        })
-      );
-      const pluginCapability = pluginSnapshot.capabilities.capabilities.some(
-        (item) =>
-          item.kind === "plugin" &&
-          item.name === "Desktop Smoke Plugin" &&
-          item.enabled
-      );
-      const savedPlugin = pluginSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      let untrustedRunBlocked = false;
-      try {
-        await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.runPlugin", {
-            pluginId: "desktop-smoke-plugin",
-            confirmation:
-              savedPlugin?.runConfirmationToken ??
-              "RUN PLUGIN desktop-smoke-plugin",
-            operationApprovalId: "plugin-approval-unused",
-          })
-        );
-      } catch (error) {
-        untrustedRunBlocked = error instanceof Error
-          ? error.message.includes("trusted")
-          : String(error).includes("trusted");
-      }
-      if (!savedPlugin?.fingerprint || !untrustedRunBlocked) {
-        throw new Error("Desktop smoke plugin trust gate did not block execution.");
-      }
-      const trustSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.trustPlugin", {
-          pluginId: "desktop-smoke-plugin",
-          fingerprint: savedPlugin.fingerprint,
-        })
-      );
-      const trustedPlugin = trustSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      const trustedCapability = trustSnapshot.capabilities.capabilities.some(
-        (item) =>
-          item.kind === "plugin" &&
-          item.name === "Desktop Smoke Plugin" &&
-          item.enabled
-      );
-      console.log(
-        "PLUGIN_TRUST",
-        JSON.stringify({
-          present: Boolean(trustedPlugin),
-          beforeCapabilityEnabled: pluginCapability,
-          trustStatus: trustedPlugin?.trustStatus ?? "missing",
-          trusted: trustedPlugin?.trustedFingerprint === trustedPlugin?.fingerprint,
-          permissionStatus: trustedPlugin?.permissionStatus ?? "missing",
-          permissionsGranted:
-            trustedPlugin?.grantedPermissionFingerprint ===
-            trustedPlugin?.permissionFingerprint,
-          scopes: trustedPlugin?.scopes ?? [],
-          envKeys: trustedPlugin?.envKeys ?? [],
-          untrustedRunBlocked,
-          capabilityEnabled: trustedCapability,
-        })
-      );
-      let pluginConfirmationBlocked = false;
-      try {
-        await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.runPlugin", {
-            pluginId: "desktop-smoke-plugin",
-            confirmation: "RUN PLUGIN wrong",
-            operationApprovalId: "plugin-approval-unused",
-          })
-        );
-      } catch (error) {
-        pluginConfirmationBlocked = error instanceof Error
-          ? error.message.includes("confirmation")
-          : String(error).includes("confirmation");
-      }
-      console.log(
-        "PLUGIN_RUN_CONFIRMATION",
-        JSON.stringify({
-          blocked: pluginConfirmationBlocked,
-          token: trustedPlugin?.runConfirmationToken ?? "",
-        })
-      );
-      if (!pluginConfirmationBlocked || !trustedPlugin?.runConfirmationToken) {
-        throw new Error("Desktop smoke plugin run confirmation gate did not complete.");
-      }
-      const permissionRevokedSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.updatePluginPermissionGrant", {
-          pluginId: "desktop-smoke-plugin",
-          permissionFingerprint: trustedPlugin.permissionFingerprint,
-          granted: false,
-        })
-      );
-      const permissionRevokedPlugin = permissionRevokedSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      const revokedCapabilityEnabled =
-        permissionRevokedSnapshot.capabilities.capabilities.some(
-          (item) =>
-            item.kind === "plugin" &&
-            item.name === "Desktop Smoke Plugin" &&
-            item.enabled
-        );
-      let permissionRunBlocked = false;
-      try {
-        await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.runPlugin", {
-            pluginId: "desktop-smoke-plugin",
-            confirmation: trustedPlugin.runConfirmationToken,
-            operationApprovalId: "plugin-approval-unused",
-          })
-        );
-      } catch (error) {
-        permissionRunBlocked = error instanceof Error
-          ? error.message.includes("permissions")
-          : String(error).includes("permissions");
-      }
-      const permissionGrantedSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.updatePluginPermissionGrant", {
-          pluginId: "desktop-smoke-plugin",
-          permissionFingerprint:
-            permissionRevokedPlugin?.permissionFingerprint ??
-            trustedPlugin.permissionFingerprint,
-          granted: true,
-        })
-      );
-      const permissionGrantedPlugin = permissionGrantedSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      const grantedCapabilityEnabled =
-        permissionGrantedSnapshot.capabilities.capabilities.some(
-          (item) =>
-            item.kind === "plugin" &&
-            item.name === "Desktop Smoke Plugin" &&
-            item.enabled
-        );
-      console.log(
-        "PLUGIN_PERMISSION_GRANT",
-        JSON.stringify({
-          revokedStatus: permissionRevokedPlugin?.permissionStatus ?? "missing",
-          revokedCapabilityEnabled,
-          permissionRunBlocked,
-          grantedStatus: permissionGrantedPlugin?.permissionStatus ?? "missing",
-          grantedCapabilityEnabled,
-          permissionFingerprint:
-            permissionGrantedPlugin?.permissionFingerprint ?? "",
-        })
-      );
-      if (
-        permissionRevokedPlugin?.permissionStatus !== "missing" ||
-        revokedCapabilityEnabled ||
-        !permissionRunBlocked ||
-        permissionGrantedPlugin?.permissionStatus !== "granted" ||
-        !grantedCapabilityEnabled
-      ) {
-        throw new Error("Desktop smoke plugin permission grant flow did not complete.");
-      }
-      const pluginRunApproval = await approvePluginRunOperation(
-        "desktop-smoke-plugin"
-      );
-      console.log(
-        "PLUGIN_RUN_APPROVAL",
-        JSON.stringify({
-          pluginId: "desktop-smoke-plugin",
-          approvalId: pluginRunApproval.approvalId,
-          fingerprint: pluginRunApproval.fingerprint,
-        })
-      );
-      const runSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.runPlugin", {
-          pluginId: "desktop-smoke-plugin",
-          confirmation:
-            permissionGrantedPlugin?.runConfirmationToken ??
-            trustedPlugin.runConfirmationToken,
-          operationApprovalId: pluginRunApproval.approvalId,
-        })
-      );
-      const smokePlugin = runSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      console.log(
-        "PLUGIN_RUN",
-        JSON.stringify({
-          capabilityPresent: trustedCapability,
-          present: Boolean(smokePlugin),
-          status: smokePlugin?.lastRun?.status ?? "missing",
-          approvalStatus: smokePlugin?.runOperation.approvalStatus ?? "missing",
-          stdout: smokePlugin?.lastRun?.stdout ?? "",
-        })
-      );
-      const smokePluginLastRun = smokePlugin?.lastRun;
-      if (
-        pluginCapability ||
-        !trustedCapability ||
-        trustedPlugin?.trustStatus !== "trusted" ||
-        !trustedPlugin?.scopes.includes("env") ||
-        trustedPlugin?.scopes.includes("project-root") ||
-        trustedPlugin?.envKeys[0] !== "ERAGEAR_DESKTOP_PLUGIN_ALLOWED" ||
-        smokePluginLastRun?.status !== "success" ||
-        smokePlugin?.runOperation.approvalStatus !== "consumed" ||
-        !smokePluginLastRun.stdout.includes(
-          "desktop plugin ok Desktop Smoke Plugin"
-        ) ||
-        !smokePluginLastRun.stdout.includes("allowed_secret= [redacted]") ||
-        !smokePluginLastRun.stdout.includes("blocked=false")
-      ) {
-        throw new Error("Desktop smoke plugin execution did not complete.");
-      }
-      console.log(
-        "PLUGIN_PROCESS_ISOLATION",
-        JSON.stringify({
-          policyMode: smokePlugin!.executionPolicy.isolation.mode,
-          runMode: smokePluginLastRun.isolation?.mode ?? "missing",
-          cwdScope: smokePlugin!.runOperation.isolation.cwdScope,
-          projectRootExposed:
-            smokePlugin!.runOperation.isolation.projectRootExposed,
-          processTreeKill:
-            smokePluginLastRun.isolation?.processTreeKill ?? "missing",
-        })
-      );
-      if (
-        smokePlugin!.executionPolicy.isolation.mode !== "job-process-tree" ||
-        smokePluginLastRun.isolation?.mode !== "job-process-tree" ||
-        smokePlugin!.runOperation.isolation.cwdScope !== "temporary-sandbox" ||
-        smokePlugin!.runOperation.isolation.projectRootExposed !== false ||
-        smokePluginLastRun.isolation.processTreeKill !== "available"
-      ) {
-        throw new Error("Desktop smoke plugin process isolation metadata missing.");
-      }
-      const reviewedPluginSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.reviewPluginRun", {
-          runId: smokePluginLastRun.id,
-          reviewed: true,
-        })
-      );
-      const reviewedPlugin = reviewedPluginSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      console.log(
-        "PLUGIN_RUN_REVIEW",
-        JSON.stringify({
-          present: Boolean(reviewedPlugin),
-          runId: reviewedPlugin?.lastRun?.id ?? "",
-          reviewed: Boolean(reviewedPlugin?.lastRun?.reviewedAt),
-        })
-      );
-      if (
-        reviewedPlugin?.lastRun?.id !== smokePluginLastRun.id ||
-        !reviewedPlugin.lastRun.reviewedAt
-      ) {
-        throw new Error("Desktop smoke plugin run review did not persist.");
-      }
-      const pluginAuditExport = await request<{
-        schemaVersion: 1;
-        redacted: true;
-        filters: { reviewState: string; limit: number };
-        stats: { matching: number; included: number; reviewed: number };
-        runs: Array<{ id: string; reviewedAt?: string; stdout: string; stderr: string }>;
-      }>(
-        operation("mutation", "settings.exportPluginRuns", {
-          reviewState: "reviewed",
-          limit: 5,
-        })
-      );
-      const pluginAuditText = JSON.stringify(pluginAuditExport);
-      console.log(
-        "PLUGIN_RUN_AUDIT_EXPORT",
-        JSON.stringify({
-          redacted: pluginAuditExport.redacted,
-          reviewState: pluginAuditExport.filters.reviewState,
-          runs: pluginAuditExport.runs.length,
-          reviewed: pluginAuditExport.runs.some(
-            (run) => run.id === smokePluginLastRun.id && Boolean(run.reviewedAt)
-          ),
-          leakedSecret: pluginAuditText.includes("allowed-plugin-secret"),
-        })
-      );
-      if (
-        !pluginAuditExport.redacted ||
-        pluginAuditExport.filters.reviewState !== "reviewed" ||
-        !pluginAuditExport.runs.some(
-          (run) => run.id === smokePluginLastRun.id && Boolean(run.reviewedAt)
-        ) ||
-        pluginAuditText.includes("allowed-plugin-secret")
-      ) {
-        throw new Error("Desktop smoke plugin audit export did not include a redacted reviewed run.");
-      }
-      const pausedPluginPolicy = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.updatePluginSchedulingPolicy", {
-          enabled: false,
-          maxConcurrentRuns: 1,
-          cooldownMs: 0,
-        })
-      );
-      const pausedPlugin = pausedPluginPolicy.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      const pausedPluginCapability =
-        pausedPluginPolicy.capabilities.capabilities.find(
-          (item) => item.id === "plugin.project.desktop-smoke-plugin"
-        );
-      const pausedPluginApproval =
-        await approvePluginRunOperation("desktop-smoke-plugin");
-      const pausedPluginRunSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.runPlugin", {
-          pluginId: "desktop-smoke-plugin",
-          confirmation:
-            pausedPlugin?.runConfirmationToken ??
-            permissionGrantedPlugin?.runConfirmationToken ??
-            trustedPlugin.runConfirmationToken,
-          operationApprovalId: pausedPluginApproval.approvalId,
-        })
-      );
-      const pausedRunPlugin = pausedPluginRunSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      const resetPluginScheduling = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.updatePluginSchedulingPolicy", {
-          enabled: true,
-          maxConcurrentRuns: 1,
-          cooldownMs: 0,
-        })
-      );
-      console.log(
-        "PLUGIN_SCHEDULING_POLICY",
-        JSON.stringify({
-          enabled: pausedPluginPolicy.plugins.schedulingPolicy.enabled,
-          maxConcurrentRuns:
-            pausedPluginPolicy.plugins.schedulingPolicy.maxConcurrentRuns,
-          cooldownMs: pausedPluginPolicy.plugins.schedulingPolicy.cooldownMs,
-          itemStatus: pausedPlugin?.scheduling.status ?? "missing",
-          capabilityEnabled: pausedPluginCapability?.enabled ?? null,
-          blockedRunStatus: pausedRunPlugin?.lastRun?.status ?? "missing",
-          approvalStatus:
-            pausedRunPlugin?.runOperation.approvalStatus ?? "missing",
-          diagnostic:
-            pausedRunPlugin?.lastRun?.diagnostics.some((entry) =>
-              entry.includes("scheduling is paused")
-            ) ?? false,
-          resetEnabled: resetPluginScheduling.plugins.schedulingPolicy.enabled,
-        })
-      );
-      if (
-        pausedPluginPolicy.plugins.schedulingPolicy.enabled !== false ||
-        pausedPluginPolicy.plugins.schedulingPolicy.maxConcurrentRuns !== 1 ||
-        pausedPluginPolicy.plugins.schedulingPolicy.cooldownMs !== 0 ||
-        pausedPlugin?.scheduling.status !== "paused" ||
-        pausedPluginCapability?.enabled !== false ||
-        pausedRunPlugin?.lastRun?.status !== "disabled" ||
-        pausedRunPlugin.runOperation.approvalStatus !== "consumed" ||
-        pausedRunPlugin.lastRun.diagnostics.some((entry) =>
-          entry.includes("scheduling is paused")
-        ) !== true ||
-        resetPluginScheduling.plugins.schedulingPolicy.enabled !== true
-      ) {
-        throw new Error(
-          "Desktop smoke plugin scheduling policy did not pause and audit blocked run."
-        );
-      }
-      const batchPluginSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.upsertPlugin", {
-          id: "desktop-smoke-plugin-batch",
-          name: "Desktop Smoke Batch Plugin",
-          description: "Desktop smoke batch executable plugin",
-          enabled: true,
-          scopes: ["process"],
-          dependencyIds: ["desktop-smoke-plugin"],
-          envKeys: [],
-          command: process.execPath,
-          args: [
-            "-e",
-            "process.stdout.write('desktop batch plugin ok '+process.env.ERAGEAR_PLUGIN_NAME)",
-          ],
-          timeoutMs: 5000,
-        })
-      );
-      const batchPlugin = batchPluginSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin-batch"
-      );
-      const trustedBatchPluginSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.trustPlugin", {
-          pluginId: "desktop-smoke-plugin-batch",
-          fingerprint: batchPlugin?.fingerprint ?? "",
-        })
-      );
-      const batchReadyPlugin = trustedBatchPluginSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      const batchReadySecond = trustedBatchPluginSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin-batch"
-      );
-      const dependencyNode = trustedBatchPluginSnapshot.plugins.dependencyGraph.nodes.find(
-        (node) => node.pluginId === "desktop-smoke-plugin-batch"
-      );
-      const dependencyEdge = trustedBatchPluginSnapshot.plugins.dependencyGraph.edges.find(
-        (edge) =>
-          edge.pluginId === "desktop-smoke-plugin-batch" &&
-          edge.dependencyId === "desktop-smoke-plugin"
-      );
-      console.log(
-        "PLUGIN_DEPENDENCY_GRAPH",
-        JSON.stringify({
-          nodeStatus: dependencyNode?.status ?? "missing",
-          dependencyIds: dependencyNode?.dependencyIds ?? [],
-          edgeStatus: dependencyEdge?.status ?? "missing",
-          dependentCount:
-            trustedBatchPluginSnapshot.plugins.dependencyGraph.nodes.find(
-              (node) => node.pluginId === "desktop-smoke-plugin"
-            )?.dependentIds.length ?? -1,
-        })
-      );
-      if (
-        dependencyNode?.status !== "ready" ||
-        dependencyNode.dependencyIds[0] !== "desktop-smoke-plugin" ||
-        dependencyEdge?.status !== "ready"
-      ) {
-        throw new Error("Desktop smoke plugin dependency graph was not ready.");
-      }
-      const pluginBatchSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.runPluginBatch", {
-          pluginIds: ["desktop-smoke-plugin-batch", "desktop-smoke-plugin"],
-          operationFingerprints: {
-            "desktop-smoke-plugin":
-              batchReadyPlugin?.runOperation.fingerprint ?? "",
-            "desktop-smoke-plugin-batch":
-              batchReadySecond?.runOperation.fingerprint ?? "",
-          },
-          confirmation: "RUN PLUGIN BATCH",
-          failureMode: "continue",
-        })
-      );
-      const pluginBatch = pluginBatchSnapshot.plugins.recentBatches[0];
-      const batchedPrimary = pluginBatchSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      const batchedSecond = pluginBatchSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin-batch"
-      );
-      console.log(
-        "PLUGIN_BATCH_QUEUE",
-        JSON.stringify({
-          batchId: pluginBatch?.id ?? "",
-          status: pluginBatch?.status ?? "missing",
-          success: pluginBatch?.counts.success ?? -1,
-          disabled: pluginBatch?.counts.disabled ?? -1,
-          runIds: pluginBatch?.runIds.length ?? -1,
-          primaryStatus: batchedPrimary?.lastRun?.status ?? "missing",
-          secondStatus: batchedSecond?.lastRun?.status ?? "missing",
-          primaryBatch: batchedPrimary?.lastRun?.batchId ?? "",
-          secondBatch: batchedSecond?.lastRun?.batchId ?? "",
-          secondStdout: batchedSecond?.lastRun?.stdout ?? "",
-          order: pluginBatch?.pluginIds ?? [],
-        })
-      );
-      if (
-        !pluginBatch?.id.startsWith("plugin-batch-") ||
-        pluginBatch.status !== "success" ||
-        pluginBatch.counts.success !== 2 ||
-        pluginBatch.counts.disabled !== 0 ||
-        pluginBatch.runIds.length !== 2 ||
-        pluginBatch.pluginIds[0] !== "desktop-smoke-plugin" ||
-        pluginBatch.pluginIds[1] !== "desktop-smoke-plugin-batch" ||
-        batchedPrimary?.lastRun?.status !== "success" ||
-        batchedSecond?.lastRun?.status !== "success" ||
-        batchedPrimary.lastRun.batchId !== pluginBatch.id ||
-        batchedSecond.lastRun.batchId !== pluginBatch.id ||
-        !batchedSecond.lastRun.stdout.includes(
-          "desktop batch plugin ok Desktop Smoke Batch Plugin"
-        )
-      ) {
-        throw new Error("Desktop smoke plugin batch queue did not execute two plugins.");
-      }
-      const stopBatchTempRoot = await mkdtemp(
-        path.join(os.tmpdir(), "eragear-plugin-batch-stop-")
-      );
-      try {
-        const skippedOutputPath = path.join(stopBatchTempRoot, "skipped.txt");
-        const stopBatchFailSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.upsertPlugin", {
-            id: "desktop-smoke-plugin-batch-fail",
-            name: "Desktop Smoke Batch Fail Plugin",
-            description: "Desktop smoke batch failure-mode failing plugin",
-            enabled: true,
-            scopes: ["process"],
-            envKeys: [],
-            command: process.execPath,
-            args: [
-              "-e",
-              "process.stderr.write('desktop batch fail'); process.exit(3)",
-            ],
-            timeoutMs: 5000,
-          })
-        );
-        const stopBatchFail = stopBatchFailSnapshot.plugins.items.find(
-          (plugin) => plugin.id === "desktop-smoke-plugin-batch-fail"
-        );
-        await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.trustPlugin", {
-            pluginId: "desktop-smoke-plugin-batch-fail",
-            fingerprint: stopBatchFail?.fingerprint ?? "",
-          })
-        );
-        const stopBatchSkipSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.upsertPlugin", {
-            id: "desktop-smoke-plugin-batch-skip",
-            name: "Desktop Smoke Batch Skip Plugin",
-            description: "Desktop smoke batch failure-mode skipped plugin",
-            enabled: true,
-            scopes: ["process"],
-            envKeys: [],
-            command: process.execPath,
-            args: [
-              "-e",
-              `require('node:fs').writeFileSync(${JSON.stringify(
-                skippedOutputPath
-              )}, 'should-not-run'); process.stdout.write('desktop batch skip ran')`,
-            ],
-            timeoutMs: 5000,
-          })
-        );
-        const stopBatchSkip = stopBatchSkipSnapshot.plugins.items.find(
-          (plugin) => plugin.id === "desktop-smoke-plugin-batch-skip"
-        );
-        const trustedStopSkipSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.trustPlugin", {
-            pluginId: "desktop-smoke-plugin-batch-skip",
-            fingerprint: stopBatchSkip?.fingerprint ?? "",
-          })
-        );
-        const stopReadyFail = trustedStopSkipSnapshot.plugins.items.find(
-          (plugin) => plugin.id === "desktop-smoke-plugin-batch-fail"
-        );
-        const stopReadySkip = trustedStopSkipSnapshot.plugins.items.find(
-          (plugin) => plugin.id === "desktop-smoke-plugin-batch-skip"
-        );
-        const stopBatchSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.runPluginBatch", {
-            pluginIds: [
-              "desktop-smoke-plugin-batch-fail",
-              "desktop-smoke-plugin-batch-skip",
-            ],
-            operationFingerprints: {
-              "desktop-smoke-plugin-batch-fail":
-                stopReadyFail?.runOperation.fingerprint ?? "",
-              "desktop-smoke-plugin-batch-skip":
-                stopReadySkip?.runOperation.fingerprint ?? "",
-            },
-            confirmation: "RUN PLUGIN BATCH",
-            failureMode: "stop-on-failure",
-          })
-        );
-        const stopBatch = stopBatchSnapshot.plugins.recentBatches[0];
-        const failedBatchPlugin = stopBatchSnapshot.plugins.items.find(
-          (plugin) => plugin.id === "desktop-smoke-plugin-batch-fail"
-        );
-        const skippedBatchPlugin = stopBatchSnapshot.plugins.items.find(
-          (plugin) => plugin.id === "desktop-smoke-plugin-batch-skip"
-        );
-        console.log(
-          "PLUGIN_BATCH_STOP_ON_FAILURE",
-          JSON.stringify({
-            batchId: stopBatch?.id ?? "",
-            failureMode: stopBatch?.failureMode ?? "missing",
-            status: stopBatch?.status ?? "missing",
-            failed: stopBatch?.counts.failed ?? -1,
-            disabled: stopBatch?.counts.disabled ?? -1,
-            runIds: stopBatch?.runIds.length ?? -1,
-            firstStatus: failedBatchPlugin?.lastRun?.status ?? "missing",
-            secondStatus: skippedBatchPlugin?.lastRun?.status ?? "missing",
-            skippedSpawned: existsSync(skippedOutputPath),
-          })
-        );
-        if (
-          !stopBatch?.id.startsWith("plugin-batch-") ||
-          stopBatch.failureMode !== "stop-on-failure" ||
-          stopBatch.status !== "partial" ||
-          stopBatch.counts.failed !== 1 ||
-          stopBatch.counts.disabled !== 1 ||
-          stopBatch.runIds.length !== 2 ||
-          failedBatchPlugin?.lastRun?.status !== "failed" ||
-          skippedBatchPlugin?.lastRun?.status !== "disabled" ||
-          skippedBatchPlugin.lastRun.batchId !== stopBatch.id ||
-          existsSync(skippedOutputPath) ||
-          !skippedBatchPlugin.lastRun.diagnostics.some((entry) =>
-            entry.includes("stop-on-failure")
-          )
-        ) {
-          throw new Error(
-            "Desktop smoke plugin batch stop-on-failure did not skip remaining plugin."
+      await withFileBackup(pluginsPath, async () => {
+        await withFileBackup(pluginRegistriesPath, async () => {
+          await rm(pluginRegistriesPath, { force: true }).catch(
+            () => undefined
           );
-        }
-      } finally {
-        await rm(stopBatchTempRoot, { force: true, recursive: true });
-      }
-      const savedBatchPresetSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.upsertPluginBatchPreset", {
-          id: "desktop-smoke-batch-preset",
-          name: "Desktop Smoke Batch Preset",
-          pluginIds: ["desktop-smoke-plugin", "desktop-smoke-plugin-batch"],
-          failureMode: "continue",
-        })
-      );
-      const savedBatchPreset =
-        savedBatchPresetSnapshot.plugins.batchPresets.find(
-          (preset) => preset.id === "desktop-smoke-batch-preset"
-        );
-      const presetReadyPrimary = savedBatchPresetSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin"
-      );
-      const presetReadySecond = savedBatchPresetSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-plugin-batch"
-      );
-      const presetRunSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.runPluginBatchPreset", {
-          presetId: "desktop-smoke-batch-preset",
-          operationFingerprints: {
-            "desktop-smoke-plugin":
-              presetReadyPrimary?.runOperation.fingerprint ?? "",
-            "desktop-smoke-plugin-batch":
-              presetReadySecond?.runOperation.fingerprint ?? "",
-          },
-          confirmation: "RUN PLUGIN BATCH",
-        })
-      );
-      const presetBatch = presetRunSnapshot.plugins.recentBatches[0];
-      const runBatchPreset = presetRunSnapshot.plugins.batchPresets.find(
-        (preset) => preset.id === "desktop-smoke-batch-preset"
-      );
-      console.log(
-        "PLUGIN_BATCH_PRESET",
-        JSON.stringify({
-          presetId: savedBatchPreset?.id ?? "",
-          presetPlugins: savedBatchPreset?.pluginIds.length ?? -1,
-          batchId: presetBatch?.id ?? "",
-          status: presetBatch?.status ?? "missing",
-          failureMode: presetBatch?.failureMode ?? "missing",
-          success: presetBatch?.counts.success ?? -1,
-          lastRunBatchId: runBatchPreset?.lastRunBatchId ?? "",
-        })
-      );
-      if (
-        savedBatchPreset?.id !== "desktop-smoke-batch-preset" ||
-        savedBatchPreset.pluginIds.length !== 2 ||
-        !presetBatch?.id.startsWith("plugin-batch-") ||
-        presetBatch.status !== "success" ||
-        presetBatch.failureMode !== "continue" ||
-        presetBatch.counts.success !== 2 ||
-        runBatchPreset?.lastRunBatchId !== presetBatch.id
-      ) {
-        throw new Error("Desktop smoke plugin batch preset did not run.");
-      }
-      const savedBatchScheduleSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.upsertPluginBatchSchedule", {
-          id: "desktop-smoke-batch-schedule",
-          name: "Desktop Smoke Batch Schedule",
-          presetId: "desktop-smoke-batch-preset",
-          intervalMs: 60000,
-          nextRunAt: new Date(Date.now() - 1000).toISOString(),
-          operationFingerprints: {
-            "desktop-smoke-plugin":
-              presetReadyPrimary?.runOperation.fingerprint ?? "",
-            "desktop-smoke-plugin-batch":
-              presetReadySecond?.runOperation.fingerprint ?? "",
-          },
-        })
-      );
-      const savedBatchSchedule =
-        savedBatchScheduleSnapshot.plugins.batchSchedules.find(
-          (schedule) => schedule.id === "desktop-smoke-batch-schedule"
-        );
-      const dueScheduleSnapshot = await waitForPluginBatchSchedule(
-        "desktop-smoke-batch-schedule"
-      );
-      const ranBatchSchedule =
-        dueScheduleSnapshot.plugins.batchSchedules.find(
-          (schedule) => schedule.id === "desktop-smoke-batch-schedule"
-        );
-      const scheduleBatch = dueScheduleSnapshot.plugins.recentBatches[0];
-      const scheduleTask = dueScheduleSnapshot.runtime.background?.tasks.find(
-        (task) => task.name === "plugin-batch-schedule-dispatch"
-      );
-      const scheduleTaskDispatched =
-        typeof scheduleTask?.lastResult?.dispatchedSchedules === "number"
-          ? scheduleTask.lastResult.dispatchedSchedules
-          : -1;
-      console.log(
-        "PLUGIN_BATCH_SCHEDULE",
-        JSON.stringify({
-          scheduleId: savedBatchSchedule?.id ?? "",
-          savedStatus: savedBatchSchedule?.status ?? "missing",
-          runStatus: ranBatchSchedule?.lastRunStatus ?? "missing",
-          visibleStatus: ranBatchSchedule?.status ?? "missing",
-          batchId: scheduleBatch?.id ?? "",
-          success: scheduleBatch?.counts.success ?? -1,
-          lastRunBatchId: ranBatchSchedule?.lastRunBatchId ?? "",
-          nextRunAt: ranBatchSchedule?.nextRunAt ?? "",
-          daemon: true,
-          taskVisible: Boolean(scheduleTask),
-          taskSuccessCount: scheduleTask?.successCount ?? -1,
-          taskDispatchedSchedules: scheduleTaskDispatched,
-        })
-      );
-      console.log(
-        "BACKGROUND_TASK_FLEET",
-        JSON.stringify({
-          enabled: dueScheduleSnapshot.runtime.background?.enabled ?? false,
-          taskCount: dueScheduleSnapshot.runtime.background?.tasks.length ?? 0,
-          tasks:
-            dueScheduleSnapshot.runtime.background?.tasks
-              .map((task) => ({
-                name: task.name,
-                running: task.running,
-                successCount: task.successCount,
-                failureCount: task.failureCount,
-              }))
-              .slice(0, 8) ?? [],
-          scheduleTask: Boolean(scheduleTask),
-        })
-      );
-      if (
-        savedBatchSchedule?.status !== "due" ||
-        !scheduleBatch?.id.startsWith("plugin-batch-") ||
-        scheduleBatch.status !== "success" ||
-        scheduleBatch.counts.success !== 2 ||
-        ranBatchSchedule?.lastRunStatus !== "success" ||
-        ranBatchSchedule.lastRunBatchId !== scheduleBatch.id ||
-        ranBatchSchedule.status !== "scheduled" ||
-        !scheduleTask ||
-        scheduleTask.successCount < 1
-      ) {
-        throw new Error(
-          "Desktop smoke plugin batch schedule daemon did not run due batch."
-        );
-      }
-      await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.deletePluginBatchSchedule", {
-          scheduleId: "desktop-smoke-batch-schedule",
-        })
-      );
-      await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.deletePluginBatchPreset", {
-          presetId: "desktop-smoke-batch-preset",
-        })
-      );
-      await withFileBackup(signedPluginManifestPath, async () => {
-        await mkdir(path.dirname(signedPluginManifestPath), { recursive: true });
-        const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-        const signedPayload = {
-          schemaVersion: 1,
-          publisher: "Desktop Smoke Publisher",
-          publisherId: "desktop.smoke.publisher",
-          issuedAt: "2026-01-01T00:00:00.000Z",
-          expiresAt: "2099-01-01T00:00:00.000Z",
-          plugin: {
-            id: "desktop-signed-plugin",
-            name: "Desktop Signed Plugin",
-            description: "Desktop smoke signed plugin package",
-            enabled: true,
-            scopes: ["process"],
-            envKeys: [],
-            command: process.execPath,
-            args: [
-              "-e",
-              "process.stdout.write(['desktop signed plugin ok '+process.env.ERAGEAR_PLUGIN_NAME,'root='+Boolean(process.env.ERAGEAR_PROJECT_ROOT),'access='+process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS].join('\\n'))",
-            ],
-            timeoutMs: 5000,
-          },
-        } as const;
-        const signature = sign(
-          null,
-          Buffer.from(
-            canonicalSmokeJson(signedPayload as unknown as SmokeCanonicalJsonValue),
-            "utf8"
-          ),
-          privateKey
-        ).toString("base64");
-        await writeFile(
-          signedPluginManifestPath,
-          `${JSON.stringify(
-            {
-              ...signedPayload,
-              publicKeyPem: publicKey
-                .export({ type: "spki", format: "pem" })
-                .toString(),
-              signature,
-            },
-            null,
-            2
-          )}\n`,
-          "utf8"
-        );
-        const signedCatalogSnapshot = await request<LocalAdeSnapshot>(
-          operation("query", "settings.getLocalAdeSnapshot")
-        );
-        const signedCatalogItem = signedCatalogSnapshot.plugins.catalog.find(
-          (item) => item.id === "desktop-signed-plugin"
-        );
-        console.log(
-          "PLUGIN_CATALOG",
-          JSON.stringify({
-            present: Boolean(signedCatalogItem),
-            status: signedCatalogItem?.status ?? "missing",
-            manifestPath: signedCatalogItem?.manifestPath ?? "",
-            publisher: signedCatalogItem?.publisher ?? "",
-            publisherId: signedCatalogItem?.publisherId ?? "",
-            expiryStatus: signedCatalogItem?.expiryStatus ?? "missing",
-            expiresAt: signedCatalogItem?.expiresAt ?? "",
-            workspaceAccess: signedCatalogItem?.workspaceAccess ?? "missing",
-            signatureHash: signedCatalogItem?.signatureHash ?? "",
-            publicKeyFingerprint: signedCatalogItem?.publicKeyFingerprint ?? "",
-          })
-        );
-        if (
-          signedCatalogItem?.status !== "installable" ||
-          signedCatalogItem.manifestPath !==
-            ".eragear/plugin-packages/desktop-signed-plugin.json" ||
-          signedCatalogItem.publisher !== "Desktop Smoke Publisher" ||
-          signedCatalogItem.publisherId !== "desktop.smoke.publisher" ||
-          signedCatalogItem.expiryStatus !== "valid" ||
-          signedCatalogItem.expiresAt !== "2099-01-01T00:00:00.000Z" ||
-          signedCatalogItem.workspaceAccess !== "sandbox" ||
-          !signedCatalogItem.signatureHash?.startsWith("sha256:") ||
-          !signedCatalogItem.publicKeyFingerprint?.startsWith("sha256:")
-        ) {
-          throw new Error("Desktop smoke signed plugin catalog did not verify package.");
-        }
-        const signedInstallSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.installPluginPackage", {
-            manifestPath: signedCatalogItem.manifestPath,
-          })
-        );
-        const signedPlugin = signedInstallSnapshot.plugins.items.find(
-          (plugin) => plugin.id === "desktop-signed-plugin"
-        );
-        const installedCatalogItem = signedInstallSnapshot.plugins.catalog.find(
-          (item) => item.id === "desktop-signed-plugin"
-        );
-        const signedCapabilityEnabled =
-          signedInstallSnapshot.capabilities.capabilities.some(
-            (item) =>
-              item.kind === "plugin" &&
-              item.name === "Desktop Signed Plugin" &&
-              item.enabled
-          );
-        const signedRunApproval = await approvePluginRunOperation(
-          "desktop-signed-plugin"
-        );
-        const signedRunSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.runPlugin", {
-            pluginId: "desktop-signed-plugin",
-            confirmation:
-              signedPlugin?.runConfirmationToken ??
-              "RUN PLUGIN desktop-signed-plugin",
-            operationApprovalId: signedRunApproval.approvalId,
-          })
-        );
-        const signedRunPlugin = signedRunSnapshot.plugins.items.find(
-          (plugin) => plugin.id === "desktop-signed-plugin"
-        );
-        console.log(
-          "PLUGIN_SIGNED_INSTALL",
-          JSON.stringify({
-            present: Boolean(signedPlugin),
-            installSource: signedPlugin?.installSource ?? "missing",
-            publisher: signedPlugin?.publisher ?? "",
-            publisherId: signedPlugin?.packagePublisherId ?? "",
-            expiryStatus: signedPlugin?.packageExpiryStatus ?? "missing",
-            expiresAt: signedPlugin?.packageExpiresAt ?? "",
-            trustStatus: signedPlugin?.trustStatus ?? "missing",
-            signatureHash: signedPlugin?.packageSignatureHash ?? "",
-            publicKeyFingerprint: signedPlugin?.packagePublicKeyFingerprint ?? "",
-            catalogStatus: installedCatalogItem?.status ?? "missing",
-            capabilityEnabled: signedCapabilityEnabled,
-            runStatus: signedRunPlugin?.lastRun?.status ?? "missing",
-            approvalStatus:
-              signedRunPlugin?.runOperation.approvalStatus ?? "missing",
-            stdout: signedRunPlugin?.lastRun?.stdout ?? "",
-          })
-        );
-        if (
-          signedPlugin?.installSource !== "signed-package" ||
-          signedPlugin.publisher !== "Desktop Smoke Publisher" ||
-          signedPlugin.packagePublisherId !== "desktop.smoke.publisher" ||
-          signedPlugin.packageExpiryStatus !== "valid" ||
-          signedPlugin.packageExpiresAt !== "2099-01-01T00:00:00.000Z" ||
-          signedPlugin.trustStatus !== "trusted" ||
-          !signedPlugin.packageSignatureHash?.startsWith("sha256:") ||
-          !signedPlugin.packagePublicKeyFingerprint?.startsWith("sha256:") ||
-          installedCatalogItem?.status !== "installed" ||
-          !signedCapabilityEnabled ||
-          signedRunPlugin?.lastRun?.status !== "success" ||
-          !signedRunPlugin.lastRun.stdout.includes("desktop signed plugin ok") ||
-          !signedRunPlugin.lastRun.stdout.includes("root=false") ||
-          !signedRunPlugin.lastRun.stdout.includes("access=sandbox")
-        ) {
-          throw new Error("Desktop smoke signed plugin package did not install and run.");
-        }
-        const signedRevalidatedSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.revalidatePluginPackage", {
-            pluginId: "desktop-signed-plugin",
-          })
-        );
-        const signedRevalidatedPlugin =
-          signedRevalidatedSnapshot.plugins.items.find(
-            (plugin) => plugin.id === "desktop-signed-plugin"
-          );
-        await writeFile(
-          signedPluginManifestPath,
-          `${JSON.stringify(
-            {
-              ...signedPayload,
-              plugin: {
-                ...signedPayload.plugin,
-                args: [
-                  "-e",
-                  "process.stdout.write('desktop signed plugin tampered')",
-                ],
-              },
-              publicKeyPem: publicKey
-                .export({ type: "spki", format: "pem" })
-                .toString(),
-              signature,
-            },
-            null,
-            2
-          )}\n`,
-          "utf8"
-        );
-        const signedFailedGovernanceSnapshot = await request<LocalAdeSnapshot>(
-          operation("mutation", "settings.revalidatePluginPackage", {
-            pluginId: "desktop-signed-plugin",
-          })
-        );
-        const signedFailedGovernancePlugin =
-          signedFailedGovernanceSnapshot.plugins.items.find(
-            (plugin) => plugin.id === "desktop-signed-plugin"
-          );
-        const signedFailedGovernanceCapability =
-          signedFailedGovernanceSnapshot.capabilities.capabilities.find(
-            (item) => item.id === "plugin.project.desktop-signed-plugin"
-          );
-        console.log(
-          "PLUGIN_PACKAGE_REVALIDATION",
-          JSON.stringify({
-            verified:
-              signedRevalidatedPlugin?.packageGovernanceStatus ?? "missing",
-            failed:
-              signedFailedGovernancePlugin?.packageGovernanceStatus ?? "missing",
-            capabilityEnabled:
-              signedFailedGovernanceCapability?.enabled ?? null,
-            diagnostic:
-              signedFailedGovernancePlugin?.packageGovernanceDiagnostics?.join(
-                " "
-              ) ?? "",
-          })
-        );
-        if (
-          signedRevalidatedPlugin?.packageGovernanceStatus !== "verified" ||
-          signedFailedGovernancePlugin?.packageGovernanceStatus !==
-            "verification-failed" ||
-          signedFailedGovernanceCapability?.enabled !== false ||
-          !signedFailedGovernancePlugin.packageGovernanceDiagnostics
-            ?.join("\n")
-            .includes("signature verification failed")
-        ) {
-          throw new Error(
-            "Desktop smoke signed plugin package revalidation did not govern tampering."
-          );
-        }
-        const registryPayload = {
-          schemaVersion: 1,
-          publisher: "Desktop Registry Publisher",
-          publisherId: "desktop.registry.publisher",
-          issuedAt: "2026-01-01T00:00:00.000Z",
-          expiresAt: "2099-01-01T00:00:00.000Z",
-          plugin: {
-            id: "desktop-registry-plugin",
-            name: "Desktop Registry Plugin",
-            description: "Desktop smoke registry plugin package",
-            enabled: true,
-            scopes: ["process"],
-            envKeys: [],
-            command: process.execPath,
-            args: [
-              "-e",
-              "process.stdout.write(['desktop registry plugin ok '+process.env.ERAGEAR_PLUGIN_NAME,'root='+Boolean(process.env.ERAGEAR_PROJECT_ROOT),'access='+process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS].join('\\n'))",
-            ],
-            timeoutMs: 5000,
-          },
-        } as const;
-        const registrySignature = sign(
-          null,
-          Buffer.from(
-            canonicalSmokeJson(registryPayload as unknown as SmokeCanonicalJsonValue),
-            "utf8"
-          ),
-          privateKey
-        ).toString("base64");
-        const registrySignatureHash = `sha256:${createHash("sha256")
-          .update(Buffer.from(registrySignature, "base64"))
-          .digest("hex")}`;
-        const registryPublicKeyFingerprint = `sha256:${createHash("sha256")
-          .update(publicKey.export({ type: "spki", format: "der" }))
-          .digest("hex")}`;
-        const registryManifest = `${JSON.stringify(
-          {
-            ...registryPayload,
-            publicKeyPem: publicKey
-              .export({ type: "spki", format: "pem" })
-              .toString(),
-            signature: registrySignature,
-          },
-          null,
-          2
-        )}\n`;
-        let registryFeedRevokedSigners: Array<{
-          publicKeyFingerprint: string;
-          revokedAt: string;
-          reason: string;
-        }> = [];
-        const registryServer = createServer((request, response) => {
-          const baseUrl = `http://${request.headers.host ?? "127.0.0.1"}`;
-          if (request.url === "/desktop-registry-plugin.json") {
-            response
-              .writeHead(200, { "content-type": "application/json" })
-              .end(registryManifest);
-            return;
-          }
-          if (request.url === "/registry.json") {
-            response
-              .writeHead(200, { "content-type": "application/json" })
-              .end(
-                JSON.stringify({
-                  schemaVersion: 1,
-                  name: "Desktop Smoke Registry",
-                  revokedSigners: registryFeedRevokedSigners,
-                  packages: [
-                    {
-                      id: "desktop-registry-plugin",
-                      name: "Desktop Registry Plugin",
-                      publisher: "Desktop Registry Publisher",
-                      publisherId: "desktop.registry.publisher",
-                      issuedAt: "2026-01-01T00:00:00.000Z",
-                      expiresAt: "2099-01-01T00:00:00.000Z",
-                      manifestUrl: `${baseUrl}/desktop-registry-plugin.json`,
-                      signatureHash: registrySignatureHash,
-                      publicKeyFingerprint: registryPublicKeyFingerprint,
-                    },
-                  ],
-                })
-              );
-            return;
-          }
-          response.writeHead(404).end();
-        });
-        await new Promise<void>((resolve) => {
-          registryServer.listen(0, "127.0.0.1", resolve);
-        });
-        const registryAddress = registryServer.address() as AddressInfo;
-        const registryUrl = `http://127.0.0.1:${registryAddress.port}/registry.json`;
-        try {
-          const registrySavedSnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.upsertPluginRegistry", {
-              id: "desktop-smoke-registry",
-              name: "Desktop Smoke Registry",
-              url: registryUrl,
+          const pluginSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.upsertPlugin", {
+              id: "desktop-smoke-plugin",
+              name: "Desktop Smoke Plugin",
+              description: "Desktop smoke executable plugin",
+              enabled: true,
+              scopes: ["process", "env"],
+              envKeys: ["ERAGEAR_DESKTOP_PLUGIN_ALLOWED"],
+              command: process.execPath,
+              args: [
+                "-e",
+                "process.stdout.write(['desktop plugin ok '+process.env.ERAGEAR_PLUGIN_NAME,'allowed_secret='+process.env.ERAGEAR_DESKTOP_PLUGIN_ALLOWED,'blocked='+Boolean(process.env.ERAGEAR_DESKTOP_PLUGIN_BLOCKED),'scopes='+process.env.ERAGEAR_PLUGIN_SCOPES].join('\\n'))",
+              ],
+              timeoutMs: 5000,
             })
           );
-          const savedRegistry = registrySavedSnapshot.plugins.registries.find(
-            (registry) => registry.id === "desktop-smoke-registry"
-          );
-          if (!savedRegistry || savedRegistry.trustStatus !== "untrusted") {
-            throw new Error("Desktop smoke plugin registry was not saved as untrusted.");
-          }
-          const trustedRegistrySnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.trustPluginRegistry", {
-              registryId: "desktop-smoke-registry",
-              fingerprint: savedRegistry.fingerprint,
-            })
-          );
-          const trustedRegistry = trustedRegistrySnapshot.plugins.registries.find(
-            (registry) => registry.id === "desktop-smoke-registry"
-          );
-          if (trustedRegistry?.trustStatus !== "trusted") {
-            throw new Error("Desktop smoke plugin registry trust did not persist.");
-          }
-          const revokedTrustSnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.revokePluginRegistryTrust", {
-              registryId: "desktop-smoke-registry",
-            })
-          );
-          const revokedTrustRegistry = revokedTrustSnapshot.plugins.registries.find(
-            (registry) => registry.id === "desktop-smoke-registry"
-          );
-          let revokedTrustRefreshBlocked = false;
-          try {
-            await request<LocalAdeSnapshot>(
-              operation("mutation", "settings.refreshPluginRegistry", {
-                registryId: "desktop-smoke-registry",
-              })
-            );
-          } catch (error) {
-            revokedTrustRefreshBlocked = error instanceof Error
-              ? error.message.includes("must be trusted")
-              : String(error).includes("must be trusted");
-          }
-          const retrustedRegistrySnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.trustPluginRegistry", {
-              registryId: "desktop-smoke-registry",
-              fingerprint: revokedTrustRegistry?.fingerprint ?? "",
-            })
-          );
-          const retrustedRegistry =
-            retrustedRegistrySnapshot.plugins.registries.find(
-              (registry) => registry.id === "desktop-smoke-registry"
-            );
-          if (
-            revokedTrustRegistry?.trustStatus !== "untrusted" ||
-            !revokedTrustRefreshBlocked ||
-            retrustedRegistry?.trustStatus !== "trusted"
-          ) {
-            throw new Error("Desktop smoke plugin registry trust revocation did not block refresh and re-trust cleanly.");
-          }
-          const refreshedRegistrySnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.refreshPluginRegistry", {
-              registryId: "desktop-smoke-registry",
-            })
-          );
-          const refreshedRegistry = refreshedRegistrySnapshot.plugins.registries.find(
-            (registry) => registry.id === "desktop-smoke-registry"
-          );
-          const refreshedPackage = refreshedRegistry?.packages.find(
-            (item) => item.id === "desktop-registry-plugin"
-          );
-          if (
-            refreshedRegistry?.status !== "ready" ||
-            refreshedPackage?.status !== "installable" ||
-            refreshedPackage.signingStatus !== "trusted" ||
-            refreshedPackage.publisherId !== "desktop.registry.publisher" ||
-            refreshedPackage.expiryStatus !== "valid" ||
-            refreshedPackage.expiresAt !== "2099-01-01T00:00:00.000Z" ||
-            refreshedPackage.signatureHash !== registrySignatureHash ||
-            refreshedPackage.publicKeyFingerprint !== registryPublicKeyFingerprint
-          ) {
-            throw new Error("Desktop smoke plugin registry refresh did not expose a pinned installable package.");
-          }
-          const revokedSignerSnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.revokePluginRegistrySigner", {
-              registryId: "desktop-smoke-registry",
-              publicKeyFingerprint: registryPublicKeyFingerprint,
-              reason: "Desktop smoke signer revocation",
-            })
-          );
-          const revokedSignerRegistry =
-            revokedSignerSnapshot.plugins.registries.find(
-              (registry) => registry.id === "desktop-smoke-registry"
-            );
-          const revokedSignerPackage = revokedSignerRegistry?.packages.find(
-            (item) => item.id === "desktop-registry-plugin"
-          );
-          let revokedSignerInstallBlocked = false;
-          try {
-            await request<LocalAdeSnapshot>(
-              operation("mutation", "settings.installPluginRegistryPackage", {
-                registryId: "desktop-smoke-registry",
-                packageId: "desktop-registry-plugin",
-              })
-            );
-          } catch (error) {
-            revokedSignerInstallBlocked = error instanceof Error
-              ? error.message.includes("signer is revoked")
-              : String(error).includes("signer is revoked");
-          }
-          const restoredSignerSnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.restorePluginRegistrySigner", {
-              registryId: "desktop-smoke-registry",
-              publicKeyFingerprint: registryPublicKeyFingerprint,
-            })
-          );
-          const restoredSignerPackage = restoredSignerSnapshot.plugins.registries
-            .find((registry) => registry.id === "desktop-smoke-registry")
-            ?.packages.find((item) => item.id === "desktop-registry-plugin");
-          if (
-            revokedSignerRegistry?.revokedSigners.length !== 1 ||
-            revokedSignerPackage?.status !== "revoked" ||
-            revokedSignerPackage.signingStatus !== "revoked" ||
-            revokedSignerPackage.revocationSource !== "manual" ||
-            !revokedSignerInstallBlocked ||
-            restoredSignerPackage?.status !== "installable" ||
-            restoredSignerPackage.signingStatus !== "trusted"
-          ) {
-            throw new Error("Desktop smoke plugin registry signer revocation did not block and restore install policy.");
-          }
-          registryFeedRevokedSigners = [
-            {
-              publicKeyFingerprint: registryPublicKeyFingerprint,
-              revokedAt: new Date().toISOString(),
-              reason: "Desktop smoke registry feed revocation",
-            },
-          ];
-          const feedRevokedSnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.refreshPluginRegistry", {
-              registryId: "desktop-smoke-registry",
-            })
-          );
-          const feedRevokedRegistry = feedRevokedSnapshot.plugins.registries.find(
-            (registry) => registry.id === "desktop-smoke-registry"
-          );
-          const feedRevokedPackage = feedRevokedRegistry?.packages.find(
-            (item) => item.id === "desktop-registry-plugin"
-          );
-          let feedRevokedInstallBlocked = false;
-          try {
-            await request<LocalAdeSnapshot>(
-              operation("mutation", "settings.installPluginRegistryPackage", {
-                registryId: "desktop-smoke-registry",
-                packageId: "desktop-registry-plugin",
-              })
-            );
-          } catch (error) {
-            feedRevokedInstallBlocked = error instanceof Error
-              ? error.message.includes("signer is revoked")
-              : String(error).includes("signer is revoked");
-          }
-          let feedRestoreBlocked = false;
-          try {
-            await request<LocalAdeSnapshot>(
-              operation("mutation", "settings.restorePluginRegistrySigner", {
-                registryId: "desktop-smoke-registry",
-                publicKeyFingerprint: registryPublicKeyFingerprint,
-              })
-            );
-          } catch (error) {
-            feedRestoreBlocked = error instanceof Error
-              ? error.message.includes("managed by the registry feed")
-              : String(error).includes("managed by the registry feed");
-          }
-          registryFeedRevokedSigners = [];
-          const feedClearedSnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.refreshPluginRegistry", {
-              registryId: "desktop-smoke-registry",
-            })
-          );
-          const feedClearedPackage = feedClearedSnapshot.plugins.registries
-            .find((registry) => registry.id === "desktop-smoke-registry")
-            ?.packages.find((item) => item.id === "desktop-registry-plugin");
-          if (
-            feedRevokedRegistry?.revokedSigners.some(
-              (item) =>
-                item.publicKeyFingerprint === registryPublicKeyFingerprint &&
-                item.source === "registry"
-            ) !== true ||
-            feedRevokedPackage?.status !== "revoked" ||
-            feedRevokedPackage.signingStatus !== "revoked" ||
-            feedRevokedPackage.revocationSource !== "registry" ||
-            !feedRevokedInstallBlocked ||
-            !feedRestoreBlocked ||
-            feedClearedPackage?.status !== "installable" ||
-            feedClearedPackage.signingStatus !== "trusted"
-          ) {
-            throw new Error("Desktop smoke plugin registry feed revocation did not block and clear install policy.");
-          }
-          const registryInstallSnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.installPluginRegistryPackage", {
-              registryId: "desktop-smoke-registry",
-              packageId: "desktop-registry-plugin",
-            })
-          );
-          const registryPlugin = registryInstallSnapshot.plugins.items.find(
-            (plugin) => plugin.id === "desktop-registry-plugin"
-          );
-          const installedRegistry = registryInstallSnapshot.plugins.registries.find(
-            (registry) => registry.id === "desktop-smoke-registry"
-          );
-          const installedRegistryPackage = installedRegistry?.packages.find(
-            (item) => item.id === "desktop-registry-plugin"
-          );
-          const registryCapabilityEnabled =
-            registryInstallSnapshot.capabilities.capabilities.some(
+          const pluginCapability =
+            pluginSnapshot.capabilities.capabilities.some(
               (item) =>
                 item.kind === "plugin" &&
-                item.name === "Desktop Registry Plugin" &&
+                item.name === "Desktop Smoke Plugin" &&
                 item.enabled
             );
-          const registryRunApproval = await approvePluginRunOperation(
-            "desktop-registry-plugin"
+          const savedPlugin = pluginSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin"
           );
-          const registryRunSnapshot = await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.runPlugin", {
-              pluginId: "desktop-registry-plugin",
-              confirmation:
-                registryPlugin?.runConfirmationToken ??
-                "RUN PLUGIN desktop-registry-plugin",
-              operationApprovalId: registryRunApproval.approvalId,
+          let untrustedRunBlocked = false;
+          try {
+            await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.runPlugin", {
+                pluginId: "desktop-smoke-plugin",
+                confirmation:
+                  savedPlugin?.runConfirmationToken ??
+                  "RUN PLUGIN desktop-smoke-plugin",
+                operationApprovalId: "plugin-approval-unused",
+              })
+            );
+          } catch (error) {
+            untrustedRunBlocked =
+              error instanceof Error
+                ? error.message.includes("trusted")
+                : String(error).includes("trusted");
+          }
+          if (!(savedPlugin?.fingerprint && untrustedRunBlocked)) {
+            throw new Error(
+              "Desktop smoke plugin trust gate did not block execution."
+            );
+          }
+          const trustSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.trustPlugin", {
+              pluginId: "desktop-smoke-plugin",
+              fingerprint: savedPlugin.fingerprint,
             })
           );
-          const registryRunPlugin = registryRunSnapshot.plugins.items.find(
-            (plugin) => plugin.id === "desktop-registry-plugin"
+          const trustedPlugin = trustSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin"
           );
+          const trustedCapability =
+            trustSnapshot.capabilities.capabilities.some(
+              (item) =>
+                item.kind === "plugin" &&
+                item.name === "Desktop Smoke Plugin" &&
+                item.enabled
+            );
           console.log(
-            "PLUGIN_REGISTRY_INSTALL",
+            "PLUGIN_TRUST",
             JSON.stringify({
-              present: Boolean(registryPlugin),
-              registryStatus: installedRegistry?.status ?? "missing",
-              packageStatus: installedRegistryPackage?.status ?? "missing",
-              trustStatus: installedRegistry?.trustStatus ?? "missing",
-              trustRevoked: revokedTrustRegistry?.trustStatus === "untrusted",
-              trustRevokedRefreshBlocked: revokedTrustRefreshBlocked,
-              signerRevoked: revokedSignerPackage?.status === "revoked",
-              signerRevokedInstallBlocked: revokedSignerInstallBlocked,
-              signerRestored: restoredSignerPackage?.signingStatus === "trusted",
-              feedSignerRevoked: feedRevokedPackage?.status === "revoked",
-              feedRevokedInstallBlocked,
-              feedRestoreBlocked,
-              feedCleared:
-                feedClearedPackage?.status === "installable" &&
-                feedClearedPackage.signingStatus === "trusted",
-              installSource: registryPlugin?.installSource ?? "missing",
-              publisher: registryPlugin?.publisher ?? "",
-              publisherId: registryPlugin?.packagePublisherId ?? "",
-              expiryStatus: registryPlugin?.packageExpiryStatus ?? "missing",
-              expiresAt: registryPlugin?.packageExpiresAt ?? "",
-              registryName: registryPlugin?.packageRegistryName ?? "",
-              registryPackageId: registryPlugin?.packageRegistryPackageId ?? "",
-              registryUrl: registryPlugin?.packageRegistryUrl ?? "",
-              signatureHash: registryPlugin?.packageSignatureHash ?? "",
-              publicKeyFingerprint:
-                registryPlugin?.packagePublicKeyFingerprint ?? "",
-              capabilityEnabled: registryCapabilityEnabled,
-              runStatus: registryRunPlugin?.lastRun?.status ?? "missing",
-              approvalStatus:
-                registryRunPlugin?.runOperation.approvalStatus ?? "missing",
-              stdout: registryRunPlugin?.lastRun?.stdout ?? "",
+              present: Boolean(trustedPlugin),
+              beforeCapabilityEnabled: pluginCapability,
+              trustStatus: trustedPlugin?.trustStatus ?? "missing",
+              trusted:
+                trustedPlugin?.trustedFingerprint ===
+                trustedPlugin?.fingerprint,
+              permissionStatus: trustedPlugin?.permissionStatus ?? "missing",
+              permissionsGranted:
+                trustedPlugin?.grantedPermissionFingerprint ===
+                trustedPlugin?.permissionFingerprint,
+              scopes: trustedPlugin?.scopes ?? [],
+              envKeys: trustedPlugin?.envKeys ?? [],
+              untrustedRunBlocked,
+              capabilityEnabled: trustedCapability,
+            })
+          );
+          let pluginConfirmationBlocked = false;
+          try {
+            await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.runPlugin", {
+                pluginId: "desktop-smoke-plugin",
+                confirmation: "RUN PLUGIN wrong",
+                operationApprovalId: "plugin-approval-unused",
+              })
+            );
+          } catch (error) {
+            pluginConfirmationBlocked =
+              error instanceof Error
+                ? error.message.includes("confirmation")
+                : String(error).includes("confirmation");
+          }
+          console.log(
+            "PLUGIN_RUN_CONFIRMATION",
+            JSON.stringify({
+              blocked: pluginConfirmationBlocked,
+              token: trustedPlugin?.runConfirmationToken ?? "",
             })
           );
           if (
-            registryPlugin?.installSource !== "signed-package" ||
-            installedRegistry?.status !== "ready" ||
-            installedRegistry?.trustStatus !== "trusted" ||
-            installedRegistryPackage?.status !== "installed" ||
-            registryPlugin.publisher !== "Desktop Registry Publisher" ||
-            registryPlugin.packagePublisherId !== "desktop.registry.publisher" ||
-            registryPlugin.packageExpiryStatus !== "valid" ||
-            registryPlugin.packageExpiresAt !== "2099-01-01T00:00:00.000Z" ||
-            registryPlugin.packageRegistryName !== "Desktop Smoke Registry" ||
-            registryPlugin.packageRegistryPackageId !== "desktop-registry-plugin" ||
-            registryPlugin.packageRegistryUrl !== registryUrl ||
-            registryPlugin.packageSignatureHash !== registrySignatureHash ||
-            registryPlugin.packagePublicKeyFingerprint !==
-              registryPublicKeyFingerprint ||
-            !registryCapabilityEnabled ||
-            registryRunPlugin?.lastRun?.status !== "success" ||
-            !registryRunPlugin.lastRun.stdout.includes(
-              "desktop registry plugin ok"
-            ) ||
-            !registryRunPlugin.lastRun.stdout.includes("root=false") ||
-            !registryRunPlugin.lastRun.stdout.includes("access=sandbox")
+            !(pluginConfirmationBlocked && trustedPlugin?.runConfirmationToken)
           ) {
-            throw new Error("Desktop smoke registry plugin package did not install and run.");
+            throw new Error(
+              "Desktop smoke plugin run confirmation gate did not complete."
+            );
           }
-        } finally {
-          await new Promise<void>((resolve, reject) => {
-            registryServer.close((error) => {
-              if (error) {
-                reject(error);
-              } else {
-                resolve();
-              }
-            });
-          });
-        }
-      });
-      const shellPluginSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.upsertPlugin", {
-          id: "desktop-smoke-shell-plugin",
-          name: "Desktop Smoke Shell Plugin",
-          enabled: true,
-          command: process.platform === "win32" ? "powershell" : "sh",
-          args:
-            process.platform === "win32"
-              ? ["-NoProfile", "-Command", "Write-Output blocked"]
-              : ["-c", "printf blocked"],
-          timeoutMs: 5000,
-        })
-      );
-      const shellPlugin = shellPluginSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-shell-plugin"
-      );
-      await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.trustPlugin", {
-          pluginId: "desktop-smoke-shell-plugin",
-          fingerprint: shellPlugin?.fingerprint ?? "",
-        })
-      );
-      let shellPluginBlocked = false;
-      try {
-        await request<LocalAdeSnapshot>(
-            operation("mutation", "settings.runPlugin", {
-              pluginId: "desktop-smoke-shell-plugin",
-              confirmation: "RUN PLUGIN desktop-smoke-shell-plugin",
-              operationApprovalId: "plugin-approval-unused",
+          const permissionRevokedSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.updatePluginPermissionGrant", {
+              pluginId: "desktop-smoke-plugin",
+              permissionFingerprint: trustedPlugin.permissionFingerprint,
+              granted: false,
             })
           );
-      } catch (error) {
-        shellPluginBlocked = error instanceof Error
-          ? error.message.includes("sandbox")
-          : String(error).includes("sandbox");
-      }
-      console.log(
-        "PLUGIN_SANDBOX_BLOCK",
-        JSON.stringify({
-          policy: shellPlugin?.executionPolicy?.status ?? "missing",
-          blocked: shellPluginBlocked,
-        })
-      );
-      if (
-        shellPlugin?.executionPolicy?.status !== "blocked" ||
-        !shellPluginBlocked
-      ) {
-        throw new Error(
-          "Desktop smoke plugin sandbox did not block shell evaluation."
-        );
-      }
-      const restrictedOutputPath = path.join(
-        repoRoot,
-        "desktop-smoke-restricted-output.txt"
-      );
-      await rm(restrictedOutputPath, { force: true }).catch(() => undefined);
-      const restrictedPluginSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.upsertPlugin", {
-          id: "desktop-smoke-restricted-plugin",
-          name: "Desktop Smoke Restricted Plugin",
-          enabled: true,
-          scopes: ["process"],
-          command: process.execPath,
-          args: [
-            "-e",
-            [
-              "const fs = require('node:fs');",
-              "const path = require('node:path');",
-              "fs.writeFileSync(path.join(process.cwd(), 'desktop-smoke-restricted-output.txt'), 'sandboxed');",
-              "process.stdout.write(['root='+Boolean(process.env.ERAGEAR_PROJECT_ROOT),'access='+process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS,'scopes='+process.env.ERAGEAR_PLUGIN_SCOPES].join('\\n'));",
-            ].join(" "),
-          ],
-          timeoutMs: 5000,
-        })
-      );
-      const restrictedPlugin = restrictedPluginSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-restricted-plugin"
-      );
-      await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.trustPlugin", {
-          pluginId: "desktop-smoke-restricted-plugin",
-          fingerprint: restrictedPlugin?.fingerprint ?? "",
-        })
-      );
-      const restrictedRunApproval = await approvePluginRunOperation(
-        "desktop-smoke-restricted-plugin"
-      );
-      const restrictedRunSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.runPlugin", {
-          pluginId: "desktop-smoke-restricted-plugin",
-          confirmation: "RUN PLUGIN desktop-smoke-restricted-plugin",
-          operationApprovalId: restrictedRunApproval.approvalId,
-        })
-      );
-      const restrictedRunPlugin = restrictedRunSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-restricted-plugin"
-      );
-      let workspaceFileLeaked = false;
-      try {
-        await readFile(restrictedOutputPath, "utf8");
-        workspaceFileLeaked = true;
-      } catch {
-        workspaceFileLeaked = false;
-      }
-      console.log(
-        "PLUGIN_WORKSPACE_SANDBOX",
-        JSON.stringify({
-          scopes: restrictedRunPlugin?.scopes ?? [],
-          status: restrictedRunPlugin?.lastRun?.status ?? "missing",
-          stdout: restrictedRunPlugin?.lastRun?.stdout ?? "",
-          workspaceFileLeaked,
-          diagnostics: restrictedRunPlugin?.lastRun?.diagnostics.some((entry) =>
-            entry.includes("ERAGEAR_PROJECT_ROOT was not exposed")
-          ) ?? false,
-        })
-      );
-      await rm(restrictedOutputPath, { force: true }).catch(() => undefined);
-      if (
-        restrictedRunPlugin?.lastRun?.status !== "success" ||
-        !restrictedRunPlugin.lastRun.stdout.includes("root=false") ||
-        !restrictedRunPlugin.lastRun.stdout.includes("access=sandbox") ||
-        !restrictedRunPlugin.lastRun.stdout.includes("scopes=process") ||
-        workspaceFileLeaked ||
-        !restrictedRunPlugin.lastRun.diagnostics.some((entry) =>
-          entry.includes("ERAGEAR_PROJECT_ROOT was not exposed")
-        )
-      ) {
-        throw new Error("Desktop smoke restricted plugin workspace sandbox failed.");
-      }
-      const policyOutputPath = path.join(
-        repoRoot,
-        "desktop-smoke-policy-output.txt"
-      );
-      await rm(policyOutputPath, { force: true }).catch(() => undefined);
-      const policyPluginSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.upsertPlugin", {
-          id: "desktop-smoke-policy-plugin",
-          name: "Desktop Smoke Policy Plugin",
-          enabled: true,
-          policyPreset: "restricted",
-          scopes: ["process", "project-root"],
-          command: process.execPath,
-          args: [
-            "-e",
-            [
-              "const fs = require('node:fs');",
-              "const path = require('node:path');",
-              "fs.writeFileSync(path.join(process.cwd(), 'desktop-smoke-policy-output.txt'), 'sandboxed');",
-              "process.stdout.write(['root='+Boolean(process.env.ERAGEAR_PROJECT_ROOT),'access='+process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS,'scopes='+process.env.ERAGEAR_PLUGIN_SCOPES,'policy='+process.env.ERAGEAR_PLUGIN_POLICY_PRESET].join('\\n'));",
-            ].join(" "),
-          ],
-          timeoutMs: 5000,
-        })
-      );
-      const policyPlugin = policyPluginSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-policy-plugin"
-      );
-      await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.trustPlugin", {
-          pluginId: "desktop-smoke-policy-plugin",
-          fingerprint: policyPlugin?.fingerprint ?? "",
-        })
-      );
-      const policyRunApproval = await approvePluginRunOperation(
-        "desktop-smoke-policy-plugin"
-      );
-      const policyRunSnapshot = await request<LocalAdeSnapshot>(
-        operation("mutation", "settings.runPlugin", {
-          pluginId: "desktop-smoke-policy-plugin",
-          confirmation: "RUN PLUGIN desktop-smoke-policy-plugin",
-          operationApprovalId: policyRunApproval.approvalId,
-        })
-      );
-      const policyRunPlugin = policyRunSnapshot.plugins.items.find(
-        (plugin) => plugin.id === "desktop-smoke-policy-plugin"
-      );
-      let policyWorkspaceFileLeaked = false;
-      try {
-        await readFile(policyOutputPath, "utf8");
-        policyWorkspaceFileLeaked = true;
-      } catch {
-        policyWorkspaceFileLeaked = false;
-      }
-      console.log(
-        "PLUGIN_POLICY_PRESET",
-        JSON.stringify({
-          preset: policyRunPlugin?.policyPreset ?? "missing",
-          requestedProjectRoot: true,
-          scopes: policyRunPlugin?.scopes ?? [],
-          workspaceAccess:
-            policyRunPlugin?.runOperation.workspaceAccess ?? "missing",
-          status: policyRunPlugin?.lastRun?.status ?? "missing",
-          stdout: policyRunPlugin?.lastRun?.stdout ?? "",
-          workspaceFileLeaked: policyWorkspaceFileLeaked,
-          diagnostics:
+          const permissionRevokedPlugin =
+            permissionRevokedSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin"
+            );
+          const revokedCapabilityEnabled =
+            permissionRevokedSnapshot.capabilities.capabilities.some(
+              (item) =>
+                item.kind === "plugin" &&
+                item.name === "Desktop Smoke Plugin" &&
+                item.enabled
+            );
+          let permissionRunBlocked = false;
+          try {
+            await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.runPlugin", {
+                pluginId: "desktop-smoke-plugin",
+                confirmation: trustedPlugin.runConfirmationToken,
+                operationApprovalId: "plugin-approval-unused",
+              })
+            );
+          } catch (error) {
+            permissionRunBlocked =
+              error instanceof Error
+                ? error.message.includes("permissions")
+                : String(error).includes("permissions");
+          }
+          const permissionGrantedSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.updatePluginPermissionGrant", {
+              pluginId: "desktop-smoke-plugin",
+              permissionFingerprint:
+                permissionRevokedPlugin?.permissionFingerprint ??
+                trustedPlugin.permissionFingerprint,
+              granted: true,
+            })
+          );
+          const permissionGrantedPlugin =
+            permissionGrantedSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin"
+            );
+          const grantedCapabilityEnabled =
+            permissionGrantedSnapshot.capabilities.capabilities.some(
+              (item) =>
+                item.kind === "plugin" &&
+                item.name === "Desktop Smoke Plugin" &&
+                item.enabled
+            );
+          console.log(
+            "PLUGIN_PERMISSION_GRANT",
+            JSON.stringify({
+              revokedStatus:
+                permissionRevokedPlugin?.permissionStatus ?? "missing",
+              revokedCapabilityEnabled,
+              permissionRunBlocked,
+              grantedStatus:
+                permissionGrantedPlugin?.permissionStatus ?? "missing",
+              grantedCapabilityEnabled,
+              permissionFingerprint:
+                permissionGrantedPlugin?.permissionFingerprint ?? "",
+            })
+          );
+          if (
+            permissionRevokedPlugin?.permissionStatus !== "missing" ||
+            revokedCapabilityEnabled ||
+            !permissionRunBlocked ||
+            permissionGrantedPlugin?.permissionStatus !== "granted" ||
+            !grantedCapabilityEnabled
+          ) {
+            throw new Error(
+              "Desktop smoke plugin permission grant flow did not complete."
+            );
+          }
+          const pluginRunApproval = await approvePluginRunOperation(
+            "desktop-smoke-plugin"
+          );
+          console.log(
+            "PLUGIN_RUN_APPROVAL",
+            JSON.stringify({
+              pluginId: "desktop-smoke-plugin",
+              approvalId: pluginRunApproval.approvalId,
+              fingerprint: pluginRunApproval.fingerprint,
+            })
+          );
+          const runSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.runPlugin", {
+              pluginId: "desktop-smoke-plugin",
+              confirmation:
+                permissionGrantedPlugin?.runConfirmationToken ??
+                trustedPlugin.runConfirmationToken,
+              operationApprovalId: pluginRunApproval.approvalId,
+            })
+          );
+          const smokePlugin = runSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin"
+          );
+          console.log(
+            "PLUGIN_RUN",
+            JSON.stringify({
+              capabilityPresent: trustedCapability,
+              present: Boolean(smokePlugin),
+              status: smokePlugin?.lastRun?.status ?? "missing",
+              approvalStatus:
+                smokePlugin?.runOperation.approvalStatus ?? "missing",
+              stdout: smokePlugin?.lastRun?.stdout ?? "",
+            })
+          );
+          const smokePluginLastRun = smokePlugin?.lastRun;
+          if (
+            pluginCapability ||
+            !trustedCapability ||
+            trustedPlugin?.trustStatus !== "trusted" ||
+            !trustedPlugin?.scopes.includes("env") ||
+            trustedPlugin?.scopes.includes("project-root") ||
+            trustedPlugin?.envKeys[0] !== "ERAGEAR_DESKTOP_PLUGIN_ALLOWED" ||
+            smokePluginLastRun?.status !== "success" ||
+            smokePlugin?.runOperation.approvalStatus !== "consumed" ||
+            !smokePluginLastRun.stdout.includes(
+              "desktop plugin ok Desktop Smoke Plugin"
+            ) ||
+            !smokePluginLastRun.stdout.includes("allowed_secret= [redacted]") ||
+            !smokePluginLastRun.stdout.includes("blocked=false")
+          ) {
+            throw new Error("Desktop smoke plugin execution did not complete.");
+          }
+          console.log(
+            "PLUGIN_PROCESS_ISOLATION",
+            JSON.stringify({
+              policyMode: smokePlugin?.executionPolicy.isolation.mode,
+              runMode: smokePluginLastRun.isolation?.mode ?? "missing",
+              cwdScope: smokePlugin?.runOperation.isolation.cwdScope,
+              projectRootExposed:
+                smokePlugin?.runOperation.isolation.projectRootExposed,
+              processTreeKill:
+                smokePluginLastRun.isolation?.processTreeKill ?? "missing",
+            })
+          );
+          if (
+            smokePlugin?.executionPolicy.isolation.mode !==
+              "job-process-tree" ||
+            smokePluginLastRun.isolation?.mode !== "job-process-tree" ||
+            smokePlugin?.runOperation.isolation.cwdScope !==
+              "temporary-sandbox" ||
+            smokePlugin?.runOperation.isolation.projectRootExposed !== false ||
+            smokePluginLastRun.isolation.processTreeKill !== "available"
+          ) {
+            throw new Error(
+              "Desktop smoke plugin process isolation metadata missing."
+            );
+          }
+          const reviewedPluginSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.reviewPluginRun", {
+              runId: smokePluginLastRun.id,
+              reviewed: true,
+            })
+          );
+          const reviewedPlugin = reviewedPluginSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin"
+          );
+          console.log(
+            "PLUGIN_RUN_REVIEW",
+            JSON.stringify({
+              present: Boolean(reviewedPlugin),
+              runId: reviewedPlugin?.lastRun?.id ?? "",
+              reviewed: Boolean(reviewedPlugin?.lastRun?.reviewedAt),
+            })
+          );
+          if (
+            reviewedPlugin?.lastRun?.id !== smokePluginLastRun.id ||
+            !reviewedPlugin.lastRun.reviewedAt
+          ) {
+            throw new Error("Desktop smoke plugin run review did not persist.");
+          }
+          const pluginAuditExport = await request<{
+            schemaVersion: 1;
+            redacted: true;
+            filters: { reviewState: string; limit: number };
+            stats: { matching: number; included: number; reviewed: number };
+            runs: Array<{
+              id: string;
+              reviewedAt?: string;
+              stdout: string;
+              stderr: string;
+            }>;
+          }>(
+            operation("mutation", "settings.exportPluginRuns", {
+              reviewState: "reviewed",
+              limit: 5,
+            })
+          );
+          const pluginAuditText = JSON.stringify(pluginAuditExport);
+          console.log(
+            "PLUGIN_RUN_AUDIT_EXPORT",
+            JSON.stringify({
+              redacted: pluginAuditExport.redacted,
+              reviewState: pluginAuditExport.filters.reviewState,
+              runs: pluginAuditExport.runs.length,
+              reviewed: pluginAuditExport.runs.some(
+                (run) =>
+                  run.id === smokePluginLastRun.id && Boolean(run.reviewedAt)
+              ),
+              leakedSecret: pluginAuditText.includes("allowed-plugin-secret"),
+            })
+          );
+          if (
+            !pluginAuditExport.redacted ||
+            pluginAuditExport.filters.reviewState !== "reviewed" ||
+            !pluginAuditExport.runs.some(
+              (run) =>
+                run.id === smokePluginLastRun.id && Boolean(run.reviewedAt)
+            ) ||
+            pluginAuditText.includes("allowed-plugin-secret")
+          ) {
+            throw new Error(
+              "Desktop smoke plugin audit export did not include a redacted reviewed run."
+            );
+          }
+          const pausedPluginPolicy = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.updatePluginSchedulingPolicy", {
+              enabled: false,
+              maxConcurrentRuns: 1,
+              cooldownMs: 0,
+            })
+          );
+          const pausedPlugin = pausedPluginPolicy.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin"
+          );
+          const pausedPluginCapability =
+            pausedPluginPolicy.capabilities.capabilities.find(
+              (item) => item.id === "plugin.project.desktop-smoke-plugin"
+            );
+          const pausedPluginApproval = await approvePluginRunOperation(
+            "desktop-smoke-plugin"
+          );
+          const pausedPluginRunSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.runPlugin", {
+              pluginId: "desktop-smoke-plugin",
+              confirmation:
+                pausedPlugin?.runConfirmationToken ??
+                permissionGrantedPlugin?.runConfirmationToken ??
+                trustedPlugin.runConfirmationToken,
+              operationApprovalId: pausedPluginApproval.approvalId,
+            })
+          );
+          const pausedRunPlugin = pausedPluginRunSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin"
+          );
+          const resetPluginScheduling = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.updatePluginSchedulingPolicy", {
+              enabled: true,
+              maxConcurrentRuns: 1,
+              cooldownMs: 0,
+            })
+          );
+          console.log(
+            "PLUGIN_SCHEDULING_POLICY",
+            JSON.stringify({
+              enabled: pausedPluginPolicy.plugins.schedulingPolicy.enabled,
+              maxConcurrentRuns:
+                pausedPluginPolicy.plugins.schedulingPolicy.maxConcurrentRuns,
+              cooldownMs:
+                pausedPluginPolicy.plugins.schedulingPolicy.cooldownMs,
+              itemStatus: pausedPlugin?.scheduling.status ?? "missing",
+              capabilityEnabled: pausedPluginCapability?.enabled ?? null,
+              blockedRunStatus: pausedRunPlugin?.lastRun?.status ?? "missing",
+              approvalStatus:
+                pausedRunPlugin?.runOperation.approvalStatus ?? "missing",
+              diagnostic:
+                pausedRunPlugin?.lastRun?.diagnostics.some((entry) =>
+                  entry.includes("scheduling is paused")
+                ) ?? false,
+              resetEnabled:
+                resetPluginScheduling.plugins.schedulingPolicy.enabled,
+            })
+          );
+          if (
+            pausedPluginPolicy.plugins.schedulingPolicy.enabled !== false ||
+            pausedPluginPolicy.plugins.schedulingPolicy.maxConcurrentRuns !==
+              1 ||
+            pausedPluginPolicy.plugins.schedulingPolicy.cooldownMs !== 0 ||
+            pausedPlugin?.scheduling.status !== "paused" ||
+            pausedPluginCapability?.enabled !== false ||
+            pausedRunPlugin?.lastRun?.status !== "disabled" ||
+            pausedRunPlugin.runOperation.approvalStatus !== "consumed" ||
+            pausedRunPlugin.lastRun.diagnostics.some((entry) =>
+              entry.includes("scheduling is paused")
+            ) !== true ||
+            resetPluginScheduling.plugins.schedulingPolicy.enabled !== true
+          ) {
+            throw new Error(
+              "Desktop smoke plugin scheduling policy did not pause and audit blocked run."
+            );
+          }
+          const batchPluginSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.upsertPlugin", {
+              id: "desktop-smoke-plugin-batch",
+              name: "Desktop Smoke Batch Plugin",
+              description: "Desktop smoke batch executable plugin",
+              enabled: true,
+              scopes: ["process"],
+              dependencyIds: ["desktop-smoke-plugin"],
+              envKeys: [],
+              command: process.execPath,
+              args: [
+                "-e",
+                "process.stdout.write('desktop batch plugin ok '+process.env.ERAGEAR_PLUGIN_NAME)",
+              ],
+              timeoutMs: 5000,
+            })
+          );
+          const batchPlugin = batchPluginSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin-batch"
+          );
+          const trustedBatchPluginSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.trustPlugin", {
+              pluginId: "desktop-smoke-plugin-batch",
+              fingerprint: batchPlugin?.fingerprint ?? "",
+            })
+          );
+          const batchReadyPlugin =
+            trustedBatchPluginSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin"
+            );
+          const batchReadySecond =
+            trustedBatchPluginSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin-batch"
+            );
+          const dependencyNode =
+            trustedBatchPluginSnapshot.plugins.dependencyGraph.nodes.find(
+              (node) => node.pluginId === "desktop-smoke-plugin-batch"
+            );
+          const dependencyEdge =
+            trustedBatchPluginSnapshot.plugins.dependencyGraph.edges.find(
+              (edge) =>
+                edge.pluginId === "desktop-smoke-plugin-batch" &&
+                edge.dependencyId === "desktop-smoke-plugin"
+            );
+          console.log(
+            "PLUGIN_DEPENDENCY_GRAPH",
+            JSON.stringify({
+              nodeStatus: dependencyNode?.status ?? "missing",
+              dependencyIds: dependencyNode?.dependencyIds ?? [],
+              edgeStatus: dependencyEdge?.status ?? "missing",
+              dependentCount:
+                trustedBatchPluginSnapshot.plugins.dependencyGraph.nodes.find(
+                  (node) => node.pluginId === "desktop-smoke-plugin"
+                )?.dependentIds.length ?? -1,
+            })
+          );
+          if (
+            dependencyNode?.status !== "ready" ||
+            dependencyNode.dependencyIds[0] !== "desktop-smoke-plugin" ||
+            dependencyEdge?.status !== "ready"
+          ) {
+            throw new Error(
+              "Desktop smoke plugin dependency graph was not ready."
+            );
+          }
+          const pluginBatchSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.runPluginBatch", {
+              pluginIds: ["desktop-smoke-plugin-batch", "desktop-smoke-plugin"],
+              operationFingerprints: {
+                "desktop-smoke-plugin":
+                  batchReadyPlugin?.runOperation.fingerprint ?? "",
+                "desktop-smoke-plugin-batch":
+                  batchReadySecond?.runOperation.fingerprint ?? "",
+              },
+              confirmation: "RUN PLUGIN BATCH",
+              failureMode: "continue",
+            })
+          );
+          const pluginBatch = pluginBatchSnapshot.plugins.recentBatches[0];
+          const batchedPrimary = pluginBatchSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin"
+          );
+          const batchedSecond = pluginBatchSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin-batch"
+          );
+          console.log(
+            "PLUGIN_BATCH_QUEUE",
+            JSON.stringify({
+              batchId: pluginBatch?.id ?? "",
+              status: pluginBatch?.status ?? "missing",
+              success: pluginBatch?.counts.success ?? -1,
+              disabled: pluginBatch?.counts.disabled ?? -1,
+              runIds: pluginBatch?.runIds.length ?? -1,
+              primaryStatus: batchedPrimary?.lastRun?.status ?? "missing",
+              secondStatus: batchedSecond?.lastRun?.status ?? "missing",
+              primaryBatch: batchedPrimary?.lastRun?.batchId ?? "",
+              secondBatch: batchedSecond?.lastRun?.batchId ?? "",
+              secondStdout: batchedSecond?.lastRun?.stdout ?? "",
+              order: pluginBatch?.pluginIds ?? [],
+            })
+          );
+          if (
+            !pluginBatch?.id.startsWith("plugin-batch-") ||
+            pluginBatch.status !== "success" ||
+            pluginBatch.counts.success !== 2 ||
+            pluginBatch.counts.disabled !== 0 ||
+            pluginBatch.runIds.length !== 2 ||
+            pluginBatch.pluginIds[0] !== "desktop-smoke-plugin" ||
+            pluginBatch.pluginIds[1] !== "desktop-smoke-plugin-batch" ||
+            batchedPrimary?.lastRun?.status !== "success" ||
+            batchedSecond?.lastRun?.status !== "success" ||
+            batchedPrimary.lastRun.batchId !== pluginBatch.id ||
+            batchedSecond.lastRun.batchId !== pluginBatch.id ||
+            !batchedSecond.lastRun.stdout.includes(
+              "desktop batch plugin ok Desktop Smoke Batch Plugin"
+            )
+          ) {
+            throw new Error(
+              "Desktop smoke plugin batch queue did not execute two plugins."
+            );
+          }
+          const stopBatchTempRoot = await mkdtemp(
+            path.join(os.tmpdir(), "eragear-plugin-batch-stop-")
+          );
+          try {
+            const skippedOutputPath = path.join(
+              stopBatchTempRoot,
+              "skipped.txt"
+            );
+            const stopBatchFailSnapshot = await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.upsertPlugin", {
+                id: "desktop-smoke-plugin-batch-fail",
+                name: "Desktop Smoke Batch Fail Plugin",
+                description: "Desktop smoke batch failure-mode failing plugin",
+                enabled: true,
+                scopes: ["process"],
+                envKeys: [],
+                command: process.execPath,
+                args: [
+                  "-e",
+                  "process.stderr.write('desktop batch fail'); process.exit(3)",
+                ],
+                timeoutMs: 5000,
+              })
+            );
+            const stopBatchFail = stopBatchFailSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin-batch-fail"
+            );
+            await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.trustPlugin", {
+                pluginId: "desktop-smoke-plugin-batch-fail",
+                fingerprint: stopBatchFail?.fingerprint ?? "",
+              })
+            );
+            const stopBatchSkipSnapshot = await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.upsertPlugin", {
+                id: "desktop-smoke-plugin-batch-skip",
+                name: "Desktop Smoke Batch Skip Plugin",
+                description: "Desktop smoke batch failure-mode skipped plugin",
+                enabled: true,
+                scopes: ["process"],
+                envKeys: [],
+                command: process.execPath,
+                args: [
+                  "-e",
+                  `require('node:fs').writeFileSync(${JSON.stringify(
+                    skippedOutputPath
+                  )}, 'should-not-run'); process.stdout.write('desktop batch skip ran')`,
+                ],
+                timeoutMs: 5000,
+              })
+            );
+            const stopBatchSkip = stopBatchSkipSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin-batch-skip"
+            );
+            const trustedStopSkipSnapshot = await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.trustPlugin", {
+                pluginId: "desktop-smoke-plugin-batch-skip",
+                fingerprint: stopBatchSkip?.fingerprint ?? "",
+              })
+            );
+            const stopReadyFail = trustedStopSkipSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin-batch-fail"
+            );
+            const stopReadySkip = trustedStopSkipSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin-batch-skip"
+            );
+            const stopBatchSnapshot = await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.runPluginBatch", {
+                pluginIds: [
+                  "desktop-smoke-plugin-batch-fail",
+                  "desktop-smoke-plugin-batch-skip",
+                ],
+                operationFingerprints: {
+                  "desktop-smoke-plugin-batch-fail":
+                    stopReadyFail?.runOperation.fingerprint ?? "",
+                  "desktop-smoke-plugin-batch-skip":
+                    stopReadySkip?.runOperation.fingerprint ?? "",
+                },
+                confirmation: "RUN PLUGIN BATCH",
+                failureMode: "stop-on-failure",
+              })
+            );
+            const stopBatch = stopBatchSnapshot.plugins.recentBatches[0];
+            const failedBatchPlugin = stopBatchSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin-batch-fail"
+            );
+            const skippedBatchPlugin = stopBatchSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin-batch-skip"
+            );
+            console.log(
+              "PLUGIN_BATCH_STOP_ON_FAILURE",
+              JSON.stringify({
+                batchId: stopBatch?.id ?? "",
+                failureMode: stopBatch?.failureMode ?? "missing",
+                status: stopBatch?.status ?? "missing",
+                failed: stopBatch?.counts.failed ?? -1,
+                disabled: stopBatch?.counts.disabled ?? -1,
+                runIds: stopBatch?.runIds.length ?? -1,
+                firstStatus: failedBatchPlugin?.lastRun?.status ?? "missing",
+                secondStatus: skippedBatchPlugin?.lastRun?.status ?? "missing",
+                skippedSpawned: existsSync(skippedOutputPath),
+              })
+            );
+            if (
+              !stopBatch?.id.startsWith("plugin-batch-") ||
+              stopBatch.failureMode !== "stop-on-failure" ||
+              stopBatch.status !== "partial" ||
+              stopBatch.counts.failed !== 1 ||
+              stopBatch.counts.disabled !== 1 ||
+              stopBatch.runIds.length !== 2 ||
+              failedBatchPlugin?.lastRun?.status !== "failed" ||
+              skippedBatchPlugin?.lastRun?.status !== "disabled" ||
+              skippedBatchPlugin.lastRun.batchId !== stopBatch.id ||
+              existsSync(skippedOutputPath) ||
+              !skippedBatchPlugin.lastRun.diagnostics.some((entry) =>
+                entry.includes("stop-on-failure")
+              )
+            ) {
+              throw new Error(
+                "Desktop smoke plugin batch stop-on-failure did not skip remaining plugin."
+              );
+            }
+          } finally {
+            await rm(stopBatchTempRoot, { force: true, recursive: true });
+          }
+          const savedBatchPresetSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.upsertPluginBatchPreset", {
+              id: "desktop-smoke-batch-preset",
+              name: "Desktop Smoke Batch Preset",
+              pluginIds: ["desktop-smoke-plugin", "desktop-smoke-plugin-batch"],
+              failureMode: "continue",
+            })
+          );
+          const savedBatchPreset =
+            savedBatchPresetSnapshot.plugins.batchPresets.find(
+              (preset) => preset.id === "desktop-smoke-batch-preset"
+            );
+          const presetReadyPrimary =
+            savedBatchPresetSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-smoke-plugin"
+            );
+          const presetReadySecond = savedBatchPresetSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-plugin-batch"
+          );
+          const presetRunSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.runPluginBatchPreset", {
+              presetId: "desktop-smoke-batch-preset",
+              operationFingerprints: {
+                "desktop-smoke-plugin":
+                  presetReadyPrimary?.runOperation.fingerprint ?? "",
+                "desktop-smoke-plugin-batch":
+                  presetReadySecond?.runOperation.fingerprint ?? "",
+              },
+              confirmation: "RUN PLUGIN BATCH",
+            })
+          );
+          const presetBatch = presetRunSnapshot.plugins.recentBatches[0];
+          const runBatchPreset = presetRunSnapshot.plugins.batchPresets.find(
+            (preset) => preset.id === "desktop-smoke-batch-preset"
+          );
+          console.log(
+            "PLUGIN_BATCH_PRESET",
+            JSON.stringify({
+              presetId: savedBatchPreset?.id ?? "",
+              presetPlugins: savedBatchPreset?.pluginIds.length ?? -1,
+              batchId: presetBatch?.id ?? "",
+              status: presetBatch?.status ?? "missing",
+              failureMode: presetBatch?.failureMode ?? "missing",
+              success: presetBatch?.counts.success ?? -1,
+              lastRunBatchId: runBatchPreset?.lastRunBatchId ?? "",
+            })
+          );
+          if (
+            savedBatchPreset?.id !== "desktop-smoke-batch-preset" ||
+            savedBatchPreset.pluginIds.length !== 2 ||
+            !presetBatch?.id.startsWith("plugin-batch-") ||
+            presetBatch.status !== "success" ||
+            presetBatch.failureMode !== "continue" ||
+            presetBatch.counts.success !== 2 ||
+            runBatchPreset?.lastRunBatchId !== presetBatch.id
+          ) {
+            throw new Error("Desktop smoke plugin batch preset did not run.");
+          }
+          const savedBatchScheduleSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.upsertPluginBatchSchedule", {
+              id: "desktop-smoke-batch-schedule",
+              name: "Desktop Smoke Batch Schedule",
+              presetId: "desktop-smoke-batch-preset",
+              intervalMs: 60_000,
+              nextRunAt: new Date(Date.now() - 1000).toISOString(),
+              operationFingerprints: {
+                "desktop-smoke-plugin":
+                  presetReadyPrimary?.runOperation.fingerprint ?? "",
+                "desktop-smoke-plugin-batch":
+                  presetReadySecond?.runOperation.fingerprint ?? "",
+              },
+            })
+          );
+          const savedBatchSchedule =
+            savedBatchScheduleSnapshot.plugins.batchSchedules.find(
+              (schedule) => schedule.id === "desktop-smoke-batch-schedule"
+            );
+          const dueScheduleSnapshot = await waitForPluginBatchSchedule(
+            "desktop-smoke-batch-schedule"
+          );
+          const ranBatchSchedule =
+            dueScheduleSnapshot.plugins.batchSchedules.find(
+              (schedule) => schedule.id === "desktop-smoke-batch-schedule"
+            );
+          const scheduleBatch = dueScheduleSnapshot.plugins.recentBatches[0];
+          const scheduleTask =
+            dueScheduleSnapshot.runtime.background?.tasks.find(
+              (task) => task.name === "plugin-batch-schedule-dispatch"
+            );
+          const scheduleTaskDispatched =
+            typeof scheduleTask?.lastResult?.dispatchedSchedules === "number"
+              ? scheduleTask.lastResult.dispatchedSchedules
+              : -1;
+          console.log(
+            "PLUGIN_BATCH_SCHEDULE",
+            JSON.stringify({
+              scheduleId: savedBatchSchedule?.id ?? "",
+              savedStatus: savedBatchSchedule?.status ?? "missing",
+              runStatus: ranBatchSchedule?.lastRunStatus ?? "missing",
+              visibleStatus: ranBatchSchedule?.status ?? "missing",
+              batchId: scheduleBatch?.id ?? "",
+              success: scheduleBatch?.counts.success ?? -1,
+              lastRunBatchId: ranBatchSchedule?.lastRunBatchId ?? "",
+              nextRunAt: ranBatchSchedule?.nextRunAt ?? "",
+              daemon: true,
+              taskVisible: Boolean(scheduleTask),
+              taskSuccessCount: scheduleTask?.successCount ?? -1,
+              taskDispatchedSchedules: scheduleTaskDispatched,
+            })
+          );
+          console.log(
+            "BACKGROUND_TASK_FLEET",
+            JSON.stringify({
+              enabled: dueScheduleSnapshot.runtime.background?.enabled ?? false,
+              taskCount:
+                dueScheduleSnapshot.runtime.background?.tasks.length ?? 0,
+              tasks:
+                dueScheduleSnapshot.runtime.background?.tasks
+                  .map((task) => ({
+                    name: task.name,
+                    running: task.running,
+                    successCount: task.successCount,
+                    failureCount: task.failureCount,
+                  }))
+                  .slice(0, 8) ?? [],
+              scheduleTask: Boolean(scheduleTask),
+            })
+          );
+          if (
+            savedBatchSchedule?.status !== "due" ||
+            !scheduleBatch?.id.startsWith("plugin-batch-") ||
+            scheduleBatch.status !== "success" ||
+            scheduleBatch.counts.success !== 2 ||
+            ranBatchSchedule?.lastRunStatus !== "success" ||
+            ranBatchSchedule.lastRunBatchId !== scheduleBatch.id ||
+            ranBatchSchedule.status !== "scheduled" ||
+            !scheduleTask ||
+            scheduleTask.successCount < 1
+          ) {
+            throw new Error(
+              "Desktop smoke plugin batch schedule daemon did not run due batch."
+            );
+          }
+          await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.deletePluginBatchSchedule", {
+              scheduleId: "desktop-smoke-batch-schedule",
+            })
+          );
+          await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.deletePluginBatchPreset", {
+              presetId: "desktop-smoke-batch-preset",
+            })
+          );
+          await withFileBackup(signedPluginManifestPath, async () => {
+            await mkdir(path.dirname(signedPluginManifestPath), {
+              recursive: true,
+            });
+            const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+            const signedPayload = {
+              schemaVersion: 1,
+              publisher: "Desktop Smoke Publisher",
+              publisherId: "desktop.smoke.publisher",
+              issuedAt: "2026-01-01T00:00:00.000Z",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+              plugin: {
+                id: "desktop-signed-plugin",
+                name: "Desktop Signed Plugin",
+                description: "Desktop smoke signed plugin package",
+                enabled: true,
+                scopes: ["process"],
+                envKeys: [],
+                command: process.execPath,
+                args: [
+                  "-e",
+                  "process.stdout.write(['desktop signed plugin ok '+process.env.ERAGEAR_PLUGIN_NAME,'root='+Boolean(process.env.ERAGEAR_PROJECT_ROOT),'access='+process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS].join('\\n'))",
+                ],
+                timeoutMs: 5000,
+              },
+            } as const;
+            const signature = sign(
+              null,
+              Buffer.from(
+                canonicalSmokeJson(
+                  signedPayload as unknown as SmokeCanonicalJsonValue
+                ),
+                "utf8"
+              ),
+              privateKey
+            ).toString("base64");
+            await writeFile(
+              signedPluginManifestPath,
+              `${JSON.stringify(
+                {
+                  ...signedPayload,
+                  publicKeyPem: publicKey
+                    .export({ type: "spki", format: "pem" })
+                    .toString(),
+                  signature,
+                },
+                null,
+                2
+              )}\n`,
+              "utf8"
+            );
+            const signedCatalogSnapshot = await request<LocalAdeSnapshot>(
+              operation("query", "settings.getLocalAdeSnapshot")
+            );
+            const signedCatalogItem =
+              signedCatalogSnapshot.plugins.catalog.find(
+                (item) => item.id === "desktop-signed-plugin"
+              );
+            console.log(
+              "PLUGIN_CATALOG",
+              JSON.stringify({
+                present: Boolean(signedCatalogItem),
+                status: signedCatalogItem?.status ?? "missing",
+                manifestPath: signedCatalogItem?.manifestPath ?? "",
+                publisher: signedCatalogItem?.publisher ?? "",
+                publisherId: signedCatalogItem?.publisherId ?? "",
+                expiryStatus: signedCatalogItem?.expiryStatus ?? "missing",
+                expiresAt: signedCatalogItem?.expiresAt ?? "",
+                workspaceAccess:
+                  signedCatalogItem?.workspaceAccess ?? "missing",
+                signatureHash: signedCatalogItem?.signatureHash ?? "",
+                publicKeyFingerprint:
+                  signedCatalogItem?.publicKeyFingerprint ?? "",
+              })
+            );
+            if (
+              signedCatalogItem?.status !== "installable" ||
+              signedCatalogItem.manifestPath !==
+                ".eragear/plugin-packages/desktop-signed-plugin.json" ||
+              signedCatalogItem.publisher !== "Desktop Smoke Publisher" ||
+              signedCatalogItem.publisherId !== "desktop.smoke.publisher" ||
+              signedCatalogItem.expiryStatus !== "valid" ||
+              signedCatalogItem.expiresAt !== "2099-01-01T00:00:00.000Z" ||
+              signedCatalogItem.workspaceAccess !== "sandbox" ||
+              !signedCatalogItem.signatureHash?.startsWith("sha256:") ||
+              !signedCatalogItem.publicKeyFingerprint?.startsWith("sha256:")
+            ) {
+              throw new Error(
+                "Desktop smoke signed plugin catalog did not verify package."
+              );
+            }
+            const signedInstallSnapshot = await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.installPluginPackage", {
+                manifestPath: signedCatalogItem.manifestPath,
+              })
+            );
+            const signedPlugin = signedInstallSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-signed-plugin"
+            );
+            const installedCatalogItem =
+              signedInstallSnapshot.plugins.catalog.find(
+                (item) => item.id === "desktop-signed-plugin"
+              );
+            const signedCapabilityEnabled =
+              signedInstallSnapshot.capabilities.capabilities.some(
+                (item) =>
+                  item.kind === "plugin" &&
+                  item.name === "Desktop Signed Plugin" &&
+                  item.enabled
+              );
+            const signedRunApproval = await approvePluginRunOperation(
+              "desktop-signed-plugin"
+            );
+            const signedRunSnapshot = await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.runPlugin", {
+                pluginId: "desktop-signed-plugin",
+                confirmation:
+                  signedPlugin?.runConfirmationToken ??
+                  "RUN PLUGIN desktop-signed-plugin",
+                operationApprovalId: signedRunApproval.approvalId,
+              })
+            );
+            const signedRunPlugin = signedRunSnapshot.plugins.items.find(
+              (plugin) => plugin.id === "desktop-signed-plugin"
+            );
+            console.log(
+              "PLUGIN_SIGNED_INSTALL",
+              JSON.stringify({
+                present: Boolean(signedPlugin),
+                installSource: signedPlugin?.installSource ?? "missing",
+                publisher: signedPlugin?.publisher ?? "",
+                publisherId: signedPlugin?.packagePublisherId ?? "",
+                expiryStatus: signedPlugin?.packageExpiryStatus ?? "missing",
+                expiresAt: signedPlugin?.packageExpiresAt ?? "",
+                trustStatus: signedPlugin?.trustStatus ?? "missing",
+                signatureHash: signedPlugin?.packageSignatureHash ?? "",
+                publicKeyFingerprint:
+                  signedPlugin?.packagePublicKeyFingerprint ?? "",
+                catalogStatus: installedCatalogItem?.status ?? "missing",
+                capabilityEnabled: signedCapabilityEnabled,
+                runStatus: signedRunPlugin?.lastRun?.status ?? "missing",
+                approvalStatus:
+                  signedRunPlugin?.runOperation.approvalStatus ?? "missing",
+                stdout: signedRunPlugin?.lastRun?.stdout ?? "",
+              })
+            );
+            if (
+              signedPlugin?.installSource !== "signed-package" ||
+              signedPlugin.publisher !== "Desktop Smoke Publisher" ||
+              signedPlugin.packagePublisherId !== "desktop.smoke.publisher" ||
+              signedPlugin.packageExpiryStatus !== "valid" ||
+              signedPlugin.packageExpiresAt !== "2099-01-01T00:00:00.000Z" ||
+              signedPlugin.trustStatus !== "trusted" ||
+              !signedPlugin.packageSignatureHash?.startsWith("sha256:") ||
+              !signedPlugin.packagePublicKeyFingerprint?.startsWith(
+                "sha256:"
+              ) ||
+              installedCatalogItem?.status !== "installed" ||
+              !signedCapabilityEnabled ||
+              signedRunPlugin?.lastRun?.status !== "success" ||
+              !signedRunPlugin.lastRun.stdout.includes(
+                "desktop signed plugin ok"
+              ) ||
+              !signedRunPlugin.lastRun.stdout.includes("root=false") ||
+              !signedRunPlugin.lastRun.stdout.includes("access=sandbox")
+            ) {
+              throw new Error(
+                "Desktop smoke signed plugin package did not install and run."
+              );
+            }
+            const signedRevalidatedSnapshot = await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.revalidatePluginPackage", {
+                pluginId: "desktop-signed-plugin",
+              })
+            );
+            const signedRevalidatedPlugin =
+              signedRevalidatedSnapshot.plugins.items.find(
+                (plugin) => plugin.id === "desktop-signed-plugin"
+              );
+            await writeFile(
+              signedPluginManifestPath,
+              `${JSON.stringify(
+                {
+                  ...signedPayload,
+                  plugin: {
+                    ...signedPayload.plugin,
+                    args: [
+                      "-e",
+                      "process.stdout.write('desktop signed plugin tampered')",
+                    ],
+                  },
+                  publicKeyPem: publicKey
+                    .export({ type: "spki", format: "pem" })
+                    .toString(),
+                  signature,
+                },
+                null,
+                2
+              )}\n`,
+              "utf8"
+            );
+            const signedFailedGovernanceSnapshot =
+              await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.revalidatePluginPackage", {
+                  pluginId: "desktop-signed-plugin",
+                })
+              );
+            const signedFailedGovernancePlugin =
+              signedFailedGovernanceSnapshot.plugins.items.find(
+                (plugin) => plugin.id === "desktop-signed-plugin"
+              );
+            const signedFailedGovernanceCapability =
+              signedFailedGovernanceSnapshot.capabilities.capabilities.find(
+                (item) => item.id === "plugin.project.desktop-signed-plugin"
+              );
+            console.log(
+              "PLUGIN_PACKAGE_REVALIDATION",
+              JSON.stringify({
+                verified:
+                  signedRevalidatedPlugin?.packageGovernanceStatus ?? "missing",
+                failed:
+                  signedFailedGovernancePlugin?.packageGovernanceStatus ??
+                  "missing",
+                capabilityEnabled:
+                  signedFailedGovernanceCapability?.enabled ?? null,
+                diagnostic:
+                  signedFailedGovernancePlugin?.packageGovernanceDiagnostics?.join(
+                    " "
+                  ) ?? "",
+              })
+            );
+            if (
+              signedRevalidatedPlugin?.packageGovernanceStatus !== "verified" ||
+              signedFailedGovernancePlugin?.packageGovernanceStatus !==
+                "verification-failed" ||
+              signedFailedGovernanceCapability?.enabled !== false ||
+              !signedFailedGovernancePlugin.packageGovernanceDiagnostics
+                ?.join("\n")
+                .includes("signature verification failed")
+            ) {
+              throw new Error(
+                "Desktop smoke signed plugin package revalidation did not govern tampering."
+              );
+            }
+            const registryPayload = {
+              schemaVersion: 1,
+              publisher: "Desktop Registry Publisher",
+              publisherId: "desktop.registry.publisher",
+              issuedAt: "2026-01-01T00:00:00.000Z",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+              plugin: {
+                id: "desktop-registry-plugin",
+                name: "Desktop Registry Plugin",
+                description: "Desktop smoke registry plugin package",
+                enabled: true,
+                scopes: ["process"],
+                envKeys: [],
+                command: process.execPath,
+                args: [
+                  "-e",
+                  "process.stdout.write(['desktop registry plugin ok '+process.env.ERAGEAR_PLUGIN_NAME,'root='+Boolean(process.env.ERAGEAR_PROJECT_ROOT),'access='+process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS].join('\\n'))",
+                ],
+                timeoutMs: 5000,
+              },
+            } as const;
+            const registrySignature = sign(
+              null,
+              Buffer.from(
+                canonicalSmokeJson(
+                  registryPayload as unknown as SmokeCanonicalJsonValue
+                ),
+                "utf8"
+              ),
+              privateKey
+            ).toString("base64");
+            const registrySignatureHash = `sha256:${createHash("sha256")
+              .update(Buffer.from(registrySignature, "base64"))
+              .digest("hex")}`;
+            const registryPublicKeyFingerprint = `sha256:${createHash("sha256")
+              .update(publicKey.export({ type: "spki", format: "der" }))
+              .digest("hex")}`;
+            const registryManifest = `${JSON.stringify(
+              {
+                ...registryPayload,
+                publicKeyPem: publicKey
+                  .export({ type: "spki", format: "pem" })
+                  .toString(),
+                signature: registrySignature,
+              },
+              null,
+              2
+            )}\n`;
+            let registryFeedRevokedSigners: Array<{
+              publicKeyFingerprint: string;
+              revokedAt: string;
+              reason: string;
+            }> = [];
+            const registryServer = createServer((request, response) => {
+              const baseUrl = `http://${request.headers.host ?? "127.0.0.1"}`;
+              if (request.url === "/desktop-registry-plugin.json") {
+                response
+                  .writeHead(200, { "content-type": "application/json" })
+                  .end(registryManifest);
+                return;
+              }
+              if (request.url === "/registry.json") {
+                response
+                  .writeHead(200, { "content-type": "application/json" })
+                  .end(
+                    JSON.stringify({
+                      schemaVersion: 1,
+                      name: "Desktop Smoke Registry",
+                      revokedSigners: registryFeedRevokedSigners,
+                      packages: [
+                        {
+                          id: "desktop-registry-plugin",
+                          name: "Desktop Registry Plugin",
+                          publisher: "Desktop Registry Publisher",
+                          publisherId: "desktop.registry.publisher",
+                          issuedAt: "2026-01-01T00:00:00.000Z",
+                          expiresAt: "2099-01-01T00:00:00.000Z",
+                          manifestUrl: `${baseUrl}/desktop-registry-plugin.json`,
+                          signatureHash: registrySignatureHash,
+                          publicKeyFingerprint: registryPublicKeyFingerprint,
+                        },
+                      ],
+                    })
+                  );
+                return;
+              }
+              response.writeHead(404).end();
+            });
+            await new Promise<void>((resolve) => {
+              registryServer.listen(0, "127.0.0.1", resolve);
+            });
+            const registryAddress = registryServer.address() as AddressInfo;
+            const registryUrl = `http://127.0.0.1:${registryAddress.port}/registry.json`;
+            try {
+              const registrySavedSnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.upsertPluginRegistry", {
+                  id: "desktop-smoke-registry",
+                  name: "Desktop Smoke Registry",
+                  url: registryUrl,
+                })
+              );
+              const savedRegistry =
+                registrySavedSnapshot.plugins.registries.find(
+                  (registry) => registry.id === "desktop-smoke-registry"
+                );
+              if (!savedRegistry || savedRegistry.trustStatus !== "untrusted") {
+                throw new Error(
+                  "Desktop smoke plugin registry was not saved as untrusted."
+                );
+              }
+              const trustedRegistrySnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.trustPluginRegistry", {
+                  registryId: "desktop-smoke-registry",
+                  fingerprint: savedRegistry.fingerprint,
+                })
+              );
+              const trustedRegistry =
+                trustedRegistrySnapshot.plugins.registries.find(
+                  (registry) => registry.id === "desktop-smoke-registry"
+                );
+              if (trustedRegistry?.trustStatus !== "trusted") {
+                throw new Error(
+                  "Desktop smoke plugin registry trust did not persist."
+                );
+              }
+              const revokedTrustSnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.revokePluginRegistryTrust", {
+                  registryId: "desktop-smoke-registry",
+                })
+              );
+              const revokedTrustRegistry =
+                revokedTrustSnapshot.plugins.registries.find(
+                  (registry) => registry.id === "desktop-smoke-registry"
+                );
+              let revokedTrustRefreshBlocked = false;
+              try {
+                await request<LocalAdeSnapshot>(
+                  operation("mutation", "settings.refreshPluginRegistry", {
+                    registryId: "desktop-smoke-registry",
+                  })
+                );
+              } catch (error) {
+                revokedTrustRefreshBlocked =
+                  error instanceof Error
+                    ? error.message.includes("must be trusted")
+                    : String(error).includes("must be trusted");
+              }
+              const retrustedRegistrySnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.trustPluginRegistry", {
+                  registryId: "desktop-smoke-registry",
+                  fingerprint: revokedTrustRegistry?.fingerprint ?? "",
+                })
+              );
+              const retrustedRegistry =
+                retrustedRegistrySnapshot.plugins.registries.find(
+                  (registry) => registry.id === "desktop-smoke-registry"
+                );
+              if (
+                revokedTrustRegistry?.trustStatus !== "untrusted" ||
+                !revokedTrustRefreshBlocked ||
+                retrustedRegistry?.trustStatus !== "trusted"
+              ) {
+                throw new Error(
+                  "Desktop smoke plugin registry trust revocation did not block refresh and re-trust cleanly."
+                );
+              }
+              const refreshedRegistrySnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.refreshPluginRegistry", {
+                  registryId: "desktop-smoke-registry",
+                })
+              );
+              const refreshedRegistry =
+                refreshedRegistrySnapshot.plugins.registries.find(
+                  (registry) => registry.id === "desktop-smoke-registry"
+                );
+              const refreshedPackage = refreshedRegistry?.packages.find(
+                (item) => item.id === "desktop-registry-plugin"
+              );
+              if (
+                refreshedRegistry?.status !== "ready" ||
+                refreshedPackage?.status !== "installable" ||
+                refreshedPackage.signingStatus !== "trusted" ||
+                refreshedPackage.publisherId !== "desktop.registry.publisher" ||
+                refreshedPackage.expiryStatus !== "valid" ||
+                refreshedPackage.expiresAt !== "2099-01-01T00:00:00.000Z" ||
+                refreshedPackage.signatureHash !== registrySignatureHash ||
+                refreshedPackage.publicKeyFingerprint !==
+                  registryPublicKeyFingerprint
+              ) {
+                throw new Error(
+                  "Desktop smoke plugin registry refresh did not expose a pinned installable package."
+                );
+              }
+              const revokedSignerSnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.revokePluginRegistrySigner", {
+                  registryId: "desktop-smoke-registry",
+                  publicKeyFingerprint: registryPublicKeyFingerprint,
+                  reason: "Desktop smoke signer revocation",
+                })
+              );
+              const revokedSignerRegistry =
+                revokedSignerSnapshot.plugins.registries.find(
+                  (registry) => registry.id === "desktop-smoke-registry"
+                );
+              const revokedSignerPackage = revokedSignerRegistry?.packages.find(
+                (item) => item.id === "desktop-registry-plugin"
+              );
+              let revokedSignerInstallBlocked = false;
+              try {
+                await request<LocalAdeSnapshot>(
+                  operation(
+                    "mutation",
+                    "settings.installPluginRegistryPackage",
+                    {
+                      registryId: "desktop-smoke-registry",
+                      packageId: "desktop-registry-plugin",
+                    }
+                  )
+                );
+              } catch (error) {
+                revokedSignerInstallBlocked =
+                  error instanceof Error
+                    ? error.message.includes("signer is revoked")
+                    : String(error).includes("signer is revoked");
+              }
+              const restoredSignerSnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.restorePluginRegistrySigner", {
+                  registryId: "desktop-smoke-registry",
+                  publicKeyFingerprint: registryPublicKeyFingerprint,
+                })
+              );
+              const restoredSignerPackage =
+                restoredSignerSnapshot.plugins.registries
+                  .find((registry) => registry.id === "desktop-smoke-registry")
+                  ?.packages.find(
+                    (item) => item.id === "desktop-registry-plugin"
+                  );
+              if (
+                revokedSignerRegistry?.revokedSigners.length !== 1 ||
+                revokedSignerPackage?.status !== "revoked" ||
+                revokedSignerPackage.signingStatus !== "revoked" ||
+                revokedSignerPackage.revocationSource !== "manual" ||
+                !revokedSignerInstallBlocked ||
+                restoredSignerPackage?.status !== "installable" ||
+                restoredSignerPackage.signingStatus !== "trusted"
+              ) {
+                throw new Error(
+                  "Desktop smoke plugin registry signer revocation did not block and restore install policy."
+                );
+              }
+              registryFeedRevokedSigners = [
+                {
+                  publicKeyFingerprint: registryPublicKeyFingerprint,
+                  revokedAt: new Date().toISOString(),
+                  reason: "Desktop smoke registry feed revocation",
+                },
+              ];
+              const feedRevokedSnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.refreshPluginRegistry", {
+                  registryId: "desktop-smoke-registry",
+                })
+              );
+              const feedRevokedRegistry =
+                feedRevokedSnapshot.plugins.registries.find(
+                  (registry) => registry.id === "desktop-smoke-registry"
+                );
+              const feedRevokedPackage = feedRevokedRegistry?.packages.find(
+                (item) => item.id === "desktop-registry-plugin"
+              );
+              let feedRevokedInstallBlocked = false;
+              try {
+                await request<LocalAdeSnapshot>(
+                  operation(
+                    "mutation",
+                    "settings.installPluginRegistryPackage",
+                    {
+                      registryId: "desktop-smoke-registry",
+                      packageId: "desktop-registry-plugin",
+                    }
+                  )
+                );
+              } catch (error) {
+                feedRevokedInstallBlocked =
+                  error instanceof Error
+                    ? error.message.includes("signer is revoked")
+                    : String(error).includes("signer is revoked");
+              }
+              let feedRestoreBlocked = false;
+              try {
+                await request<LocalAdeSnapshot>(
+                  operation(
+                    "mutation",
+                    "settings.restorePluginRegistrySigner",
+                    {
+                      registryId: "desktop-smoke-registry",
+                      publicKeyFingerprint: registryPublicKeyFingerprint,
+                    }
+                  )
+                );
+              } catch (error) {
+                feedRestoreBlocked =
+                  error instanceof Error
+                    ? error.message.includes("managed by the registry feed")
+                    : String(error).includes("managed by the registry feed");
+              }
+              registryFeedRevokedSigners = [];
+              const feedClearedSnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.refreshPluginRegistry", {
+                  registryId: "desktop-smoke-registry",
+                })
+              );
+              const feedClearedPackage = feedClearedSnapshot.plugins.registries
+                .find((registry) => registry.id === "desktop-smoke-registry")
+                ?.packages.find(
+                  (item) => item.id === "desktop-registry-plugin"
+                );
+              if (
+                feedRevokedRegistry?.revokedSigners.some(
+                  (item) =>
+                    item.publicKeyFingerprint ===
+                      registryPublicKeyFingerprint && item.source === "registry"
+                ) !== true ||
+                feedRevokedPackage?.status !== "revoked" ||
+                feedRevokedPackage.signingStatus !== "revoked" ||
+                feedRevokedPackage.revocationSource !== "registry" ||
+                !feedRevokedInstallBlocked ||
+                !feedRestoreBlocked ||
+                feedClearedPackage?.status !== "installable" ||
+                feedClearedPackage.signingStatus !== "trusted"
+              ) {
+                throw new Error(
+                  "Desktop smoke plugin registry feed revocation did not block and clear install policy."
+                );
+              }
+              const registryInstallSnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.installPluginRegistryPackage", {
+                  registryId: "desktop-smoke-registry",
+                  packageId: "desktop-registry-plugin",
+                })
+              );
+              const registryPlugin = registryInstallSnapshot.plugins.items.find(
+                (plugin) => plugin.id === "desktop-registry-plugin"
+              );
+              const installedRegistry =
+                registryInstallSnapshot.plugins.registries.find(
+                  (registry) => registry.id === "desktop-smoke-registry"
+                );
+              const installedRegistryPackage = installedRegistry?.packages.find(
+                (item) => item.id === "desktop-registry-plugin"
+              );
+              const registryCapabilityEnabled =
+                registryInstallSnapshot.capabilities.capabilities.some(
+                  (item) =>
+                    item.kind === "plugin" &&
+                    item.name === "Desktop Registry Plugin" &&
+                    item.enabled
+                );
+              const registryRunApproval = await approvePluginRunOperation(
+                "desktop-registry-plugin"
+              );
+              const registryRunSnapshot = await request<LocalAdeSnapshot>(
+                operation("mutation", "settings.runPlugin", {
+                  pluginId: "desktop-registry-plugin",
+                  confirmation:
+                    registryPlugin?.runConfirmationToken ??
+                    "RUN PLUGIN desktop-registry-plugin",
+                  operationApprovalId: registryRunApproval.approvalId,
+                })
+              );
+              const registryRunPlugin = registryRunSnapshot.plugins.items.find(
+                (plugin) => plugin.id === "desktop-registry-plugin"
+              );
+              console.log(
+                "PLUGIN_REGISTRY_INSTALL",
+                JSON.stringify({
+                  present: Boolean(registryPlugin),
+                  registryStatus: installedRegistry?.status ?? "missing",
+                  packageStatus: installedRegistryPackage?.status ?? "missing",
+                  trustStatus: installedRegistry?.trustStatus ?? "missing",
+                  trustRevoked:
+                    revokedTrustRegistry?.trustStatus === "untrusted",
+                  trustRevokedRefreshBlocked: revokedTrustRefreshBlocked,
+                  signerRevoked: revokedSignerPackage?.status === "revoked",
+                  signerRevokedInstallBlocked: revokedSignerInstallBlocked,
+                  signerRestored:
+                    restoredSignerPackage?.signingStatus === "trusted",
+                  feedSignerRevoked: feedRevokedPackage?.status === "revoked",
+                  feedRevokedInstallBlocked,
+                  feedRestoreBlocked,
+                  feedCleared:
+                    feedClearedPackage?.status === "installable" &&
+                    feedClearedPackage.signingStatus === "trusted",
+                  installSource: registryPlugin?.installSource ?? "missing",
+                  publisher: registryPlugin?.publisher ?? "",
+                  publisherId: registryPlugin?.packagePublisherId ?? "",
+                  expiryStatus:
+                    registryPlugin?.packageExpiryStatus ?? "missing",
+                  expiresAt: registryPlugin?.packageExpiresAt ?? "",
+                  registryName: registryPlugin?.packageRegistryName ?? "",
+                  registryPackageId:
+                    registryPlugin?.packageRegistryPackageId ?? "",
+                  registryUrl: registryPlugin?.packageRegistryUrl ?? "",
+                  signatureHash: registryPlugin?.packageSignatureHash ?? "",
+                  publicKeyFingerprint:
+                    registryPlugin?.packagePublicKeyFingerprint ?? "",
+                  capabilityEnabled: registryCapabilityEnabled,
+                  runStatus: registryRunPlugin?.lastRun?.status ?? "missing",
+                  approvalStatus:
+                    registryRunPlugin?.runOperation.approvalStatus ?? "missing",
+                  stdout: registryRunPlugin?.lastRun?.stdout ?? "",
+                })
+              );
+              if (
+                registryPlugin?.installSource !== "signed-package" ||
+                installedRegistry?.status !== "ready" ||
+                installedRegistry?.trustStatus !== "trusted" ||
+                installedRegistryPackage?.status !== "installed" ||
+                registryPlugin.publisher !== "Desktop Registry Publisher" ||
+                registryPlugin.packagePublisherId !==
+                  "desktop.registry.publisher" ||
+                registryPlugin.packageExpiryStatus !== "valid" ||
+                registryPlugin.packageExpiresAt !==
+                  "2099-01-01T00:00:00.000Z" ||
+                registryPlugin.packageRegistryName !==
+                  "Desktop Smoke Registry" ||
+                registryPlugin.packageRegistryPackageId !==
+                  "desktop-registry-plugin" ||
+                registryPlugin.packageRegistryUrl !== registryUrl ||
+                registryPlugin.packageSignatureHash !== registrySignatureHash ||
+                registryPlugin.packagePublicKeyFingerprint !==
+                  registryPublicKeyFingerprint ||
+                !registryCapabilityEnabled ||
+                registryRunPlugin?.lastRun?.status !== "success" ||
+                !registryRunPlugin.lastRun.stdout.includes(
+                  "desktop registry plugin ok"
+                ) ||
+                !registryRunPlugin.lastRun.stdout.includes("root=false") ||
+                !registryRunPlugin.lastRun.stdout.includes("access=sandbox")
+              ) {
+                throw new Error(
+                  "Desktop smoke registry plugin package did not install and run."
+                );
+              }
+            } finally {
+              await new Promise<void>((resolve, reject) => {
+                registryServer.close((error) => {
+                  if (error) {
+                    reject(error);
+                  } else {
+                    resolve();
+                  }
+                });
+              });
+            }
+          });
+          const shellPluginSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.upsertPlugin", {
+              id: "desktop-smoke-shell-plugin",
+              name: "Desktop Smoke Shell Plugin",
+              enabled: true,
+              command: process.platform === "win32" ? "powershell" : "sh",
+              args:
+                process.platform === "win32"
+                  ? ["-NoProfile", "-Command", "Write-Output blocked"]
+                  : ["-c", "printf blocked"],
+              timeoutMs: 5000,
+            })
+          );
+          const shellPlugin = shellPluginSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-shell-plugin"
+          );
+          await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.trustPlugin", {
+              pluginId: "desktop-smoke-shell-plugin",
+              fingerprint: shellPlugin?.fingerprint ?? "",
+            })
+          );
+          let shellPluginBlocked = false;
+          try {
+            await request<LocalAdeSnapshot>(
+              operation("mutation", "settings.runPlugin", {
+                pluginId: "desktop-smoke-shell-plugin",
+                confirmation: "RUN PLUGIN desktop-smoke-shell-plugin",
+                operationApprovalId: "plugin-approval-unused",
+              })
+            );
+          } catch (error) {
+            shellPluginBlocked =
+              error instanceof Error
+                ? error.message.includes("sandbox")
+                : String(error).includes("sandbox");
+          }
+          console.log(
+            "PLUGIN_SANDBOX_BLOCK",
+            JSON.stringify({
+              policy: shellPlugin?.executionPolicy?.status ?? "missing",
+              blocked: shellPluginBlocked,
+            })
+          );
+          if (
+            shellPlugin?.executionPolicy?.status !== "blocked" ||
+            !shellPluginBlocked
+          ) {
+            throw new Error(
+              "Desktop smoke plugin sandbox did not block shell evaluation."
+            );
+          }
+          const restrictedOutputPath = path.join(
+            repoRoot,
+            "desktop-smoke-restricted-output.txt"
+          );
+          await rm(restrictedOutputPath, { force: true }).catch(
+            () => undefined
+          );
+          const restrictedPluginSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.upsertPlugin", {
+              id: "desktop-smoke-restricted-plugin",
+              name: "Desktop Smoke Restricted Plugin",
+              enabled: true,
+              scopes: ["process"],
+              command: process.execPath,
+              args: [
+                "-e",
+                [
+                  "const fs = require('node:fs');",
+                  "const path = require('node:path');",
+                  "fs.writeFileSync(path.join(process.cwd(), 'desktop-smoke-restricted-output.txt'), 'sandboxed');",
+                  "process.stdout.write(['root='+Boolean(process.env.ERAGEAR_PROJECT_ROOT),'access='+process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS,'scopes='+process.env.ERAGEAR_PLUGIN_SCOPES].join('\\n'));",
+                ].join(" "),
+              ],
+              timeoutMs: 5000,
+            })
+          );
+          const restrictedPlugin = restrictedPluginSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-restricted-plugin"
+          );
+          await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.trustPlugin", {
+              pluginId: "desktop-smoke-restricted-plugin",
+              fingerprint: restrictedPlugin?.fingerprint ?? "",
+            })
+          );
+          const restrictedRunApproval = await approvePluginRunOperation(
+            "desktop-smoke-restricted-plugin"
+          );
+          const restrictedRunSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.runPlugin", {
+              pluginId: "desktop-smoke-restricted-plugin",
+              confirmation: "RUN PLUGIN desktop-smoke-restricted-plugin",
+              operationApprovalId: restrictedRunApproval.approvalId,
+            })
+          );
+          const restrictedRunPlugin = restrictedRunSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-restricted-plugin"
+          );
+          let workspaceFileLeaked = false;
+          try {
+            await readFile(restrictedOutputPath, "utf8");
+            workspaceFileLeaked = true;
+          } catch {
+            workspaceFileLeaked = false;
+          }
+          console.log(
+            "PLUGIN_WORKSPACE_SANDBOX",
+            JSON.stringify({
+              scopes: restrictedRunPlugin?.scopes ?? [],
+              status: restrictedRunPlugin?.lastRun?.status ?? "missing",
+              stdout: restrictedRunPlugin?.lastRun?.stdout ?? "",
+              workspaceFileLeaked,
+              diagnostics:
+                restrictedRunPlugin?.lastRun?.diagnostics.some((entry) =>
+                  entry.includes("ERAGEAR_PROJECT_ROOT was not exposed")
+                ) ?? false,
+            })
+          );
+          await rm(restrictedOutputPath, { force: true }).catch(
+            () => undefined
+          );
+          if (
+            restrictedRunPlugin?.lastRun?.status !== "success" ||
+            !restrictedRunPlugin.lastRun.stdout.includes("root=false") ||
+            !restrictedRunPlugin.lastRun.stdout.includes("access=sandbox") ||
+            !restrictedRunPlugin.lastRun.stdout.includes("scopes=process") ||
+            workspaceFileLeaked ||
+            !restrictedRunPlugin.lastRun.diagnostics.some((entry) =>
+              entry.includes("ERAGEAR_PROJECT_ROOT was not exposed")
+            )
+          ) {
+            throw new Error(
+              "Desktop smoke restricted plugin workspace sandbox failed."
+            );
+          }
+          const policyOutputPath = path.join(
+            repoRoot,
+            "desktop-smoke-policy-output.txt"
+          );
+          await rm(policyOutputPath, { force: true }).catch(() => undefined);
+          const policyPluginSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.upsertPlugin", {
+              id: "desktop-smoke-policy-plugin",
+              name: "Desktop Smoke Policy Plugin",
+              enabled: true,
+              policyPreset: "restricted",
+              scopes: ["process", "project-root"],
+              command: process.execPath,
+              args: [
+                "-e",
+                [
+                  "const fs = require('node:fs');",
+                  "const path = require('node:path');",
+                  "fs.writeFileSync(path.join(process.cwd(), 'desktop-smoke-policy-output.txt'), 'sandboxed');",
+                  "process.stdout.write(['root='+Boolean(process.env.ERAGEAR_PROJECT_ROOT),'access='+process.env.ERAGEAR_PLUGIN_WORKSPACE_ACCESS,'scopes='+process.env.ERAGEAR_PLUGIN_SCOPES,'policy='+process.env.ERAGEAR_PLUGIN_POLICY_PRESET].join('\\n'));",
+                ].join(" "),
+              ],
+              timeoutMs: 5000,
+            })
+          );
+          const policyPlugin = policyPluginSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-policy-plugin"
+          );
+          await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.trustPlugin", {
+              pluginId: "desktop-smoke-policy-plugin",
+              fingerprint: policyPlugin?.fingerprint ?? "",
+            })
+          );
+          const policyRunApproval = await approvePluginRunOperation(
+            "desktop-smoke-policy-plugin"
+          );
+          const policyRunSnapshot = await request<LocalAdeSnapshot>(
+            operation("mutation", "settings.runPlugin", {
+              pluginId: "desktop-smoke-policy-plugin",
+              confirmation: "RUN PLUGIN desktop-smoke-policy-plugin",
+              operationApprovalId: policyRunApproval.approvalId,
+            })
+          );
+          const policyRunPlugin = policyRunSnapshot.plugins.items.find(
+            (plugin) => plugin.id === "desktop-smoke-policy-plugin"
+          );
+          let policyWorkspaceFileLeaked = false;
+          try {
+            await readFile(policyOutputPath, "utf8");
+            policyWorkspaceFileLeaked = true;
+          } catch {
+            policyWorkspaceFileLeaked = false;
+          }
+          console.log(
+            "PLUGIN_POLICY_PRESET",
+            JSON.stringify({
+              preset: policyRunPlugin?.policyPreset ?? "missing",
+              requestedProjectRoot: true,
+              scopes: policyRunPlugin?.scopes ?? [],
+              workspaceAccess:
+                policyRunPlugin?.runOperation.workspaceAccess ?? "missing",
+              status: policyRunPlugin?.lastRun?.status ?? "missing",
+              stdout: policyRunPlugin?.lastRun?.stdout ?? "",
+              workspaceFileLeaked: policyWorkspaceFileLeaked,
+              diagnostics:
+                policyRunPlugin?.diagnostics.some((entry) =>
+                  entry.includes("forces sandbox")
+                ) ?? false,
+            })
+          );
+          await rm(policyOutputPath, { force: true }).catch(() => undefined);
+          if (
+            policyRunPlugin?.policyPreset !== "restricted" ||
+            policyRunPlugin?.runOperation.workspaceAccess !== "sandbox" ||
+            policyRunPlugin?.lastRun?.status !== "success" ||
+            policyRunPlugin?.lastRun?.stdout.includes("root=false") !== true ||
+            policyRunPlugin?.lastRun?.stdout.includes("access=sandbox") !==
+              true ||
+            policyRunPlugin?.lastRun?.stdout.includes("scopes=process") !==
+              true ||
+            policyRunPlugin?.lastRun?.stdout.includes("policy=restricted") !==
+              true ||
+            policyWorkspaceFileLeaked ||
             policyRunPlugin?.diagnostics.some((entry) =>
               entry.includes("forces sandbox")
-            ) ?? false,
-        })
-      );
-      await rm(policyOutputPath, { force: true }).catch(() => undefined);
-      if (
-        policyRunPlugin?.policyPreset !== "restricted" ||
-        policyRunPlugin?.runOperation.workspaceAccess !== "sandbox" ||
-        policyRunPlugin?.lastRun?.status !== "success" ||
-        policyRunPlugin?.lastRun?.stdout.includes("root=false") !== true ||
-        policyRunPlugin?.lastRun?.stdout.includes("access=sandbox") !== true ||
-        policyRunPlugin?.lastRun?.stdout.includes("scopes=process") !== true ||
-        policyRunPlugin?.lastRun?.stdout.includes("policy=restricted") !== true ||
-        policyWorkspaceFileLeaked ||
-        policyRunPlugin?.diagnostics.some((entry) =>
-          entry.includes("forces sandbox")
-        ) !== true
-      ) {
-        throw new Error("Desktop smoke plugin policy preset sandbox failed.");
-      }
+            ) !== true
+          ) {
+            throw new Error(
+              "Desktop smoke plugin policy preset sandbox failed."
+            );
+          }
+        });
       });
-    });
     } finally {
       if (previousPluginAllowed === undefined) {
-        delete process.env.ERAGEAR_DESKTOP_PLUGIN_ALLOWED;
+        process.env.ERAGEAR_DESKTOP_PLUGIN_ALLOWED = undefined;
       } else {
         process.env.ERAGEAR_DESKTOP_PLUGIN_ALLOWED = previousPluginAllowed;
       }
       if (previousPlugin_BLOCKED === undefined) {
-        delete process.env.ERAGEAR_DESKTOP_PLUGIN_BLOCKED;
+        process.env.ERAGEAR_DESKTOP_PLUGIN_BLOCKED = undefined;
       } else {
         process.env.ERAGEAR_DESKTOP_PLUGIN_BLOCKED = previousPlugin_BLOCKED;
       }
@@ -6246,7 +6636,9 @@ async function main(): Promise<void> {
               : "missing",
             tools: smokeMcp?.tools.map((tool) => tool.name) ?? [],
             resources:
-              smokeMcp?.resources.map((resource) => resource.name ?? resource.uri) ?? [],
+              smokeMcp?.resources.map(
+                (resource) => resource.name ?? resource.uri
+              ) ?? [],
           })
         );
         if (
@@ -6258,10 +6650,14 @@ async function main(): Promise<void> {
           !smokeMcp.probe.steps.some((step) => step.step === "initialize") ||
           !smokeMcp.tools.some((tool) => tool.name === "desktop_smoke_tool")
         ) {
-          throw new Error("Desktop smoke MCP protocol discovery did not complete.");
+          throw new Error(
+            "Desktop smoke MCP protocol discovery did not complete."
+          );
         }
         if (smokeMcp.trustStatus !== "untrusted") {
-          throw new Error("Desktop smoke MCP should require invocation trust first.");
+          throw new Error(
+            "Desktop smoke MCP should require invocation trust first."
+          );
         }
         const blockedStdioToolResult = await request<McpInvocationResult>(
           operation("mutation", "settings.invokeMcpTool", {
@@ -6283,7 +6679,9 @@ async function main(): Promise<void> {
             .join("\n")
             .includes("MCP invocation blocked by trust policy")
         ) {
-          throw new Error("Desktop smoke MCP trust policy did not block invocation.");
+          throw new Error(
+            "Desktop smoke MCP trust policy did not block invocation."
+          );
         }
         const trustedMcpSnapshot = await request<LocalAdeSnapshot>(
           operation("mutation", "settings.trustMcpServer", {
@@ -6331,7 +6729,9 @@ async function main(): Promise<void> {
         );
         if (
           stdioToolResult.status !== "success" ||
-          !stdioToolResult.resultText.includes("desktop tool call desktop_smoke_tool") ||
+          !stdioToolResult.resultText.includes(
+            "desktop tool call desktop_smoke_tool"
+          ) ||
           stdioResourceResult.status !== "success" ||
           !stdioResourceResult.resultText.includes(
             "desktop resource read file:///desktop-smoke"
@@ -6364,32 +6764,40 @@ async function main(): Promise<void> {
           invokedMcp.invocationHistory[1]?.method !== "tools/call" ||
           invokedMcp.invocationHistory[2]?.status !== "failed"
         ) {
-          throw new Error("Desktop smoke MCP invocation audit was not persisted.");
+          throw new Error(
+            "Desktop smoke MCP invocation audit was not persisted."
+          );
         }
         console.log(
           "MCP_NOTIFICATIONS",
           JSON.stringify({
             count: invokedMcp.notificationHistory.length,
-            notifications: invokedMcp.notificationHistory.map((notification) => [
-              notification.source,
-              notification.method,
-              notification.payloadText,
-            ]),
+            notifications: invokedMcp.notificationHistory.map(
+              (notification) => [
+                notification.source,
+                notification.method,
+                notification.payloadText,
+              ]
+            ),
           })
         );
         if (
-          !invokedMcp.notificationHistory.some(
-            (notification) =>
-              notification.source === "probe" &&
-              notification.method === "notifications/message"
-          ) ||
-          !invokedMcp.notificationHistory.some(
-            (notification) =>
-              notification.source === "invocation" &&
-              notification.method === "notifications/progress"
+          !(
+            invokedMcp.notificationHistory.some(
+              (notification) =>
+                notification.source === "probe" &&
+                notification.method === "notifications/message"
+            ) &&
+            invokedMcp.notificationHistory.some(
+              (notification) =>
+                notification.source === "invocation" &&
+                notification.method === "notifications/progress"
+            )
           )
         ) {
-          throw new Error("Desktop smoke MCP notification history was not captured.");
+          throw new Error(
+            "Desktop smoke MCP notification history was not captured."
+          );
         }
         const sseSnapshot = await request<LocalAdeSnapshot>(
           operation("mutation", "settings.upsertMcpServer", {
@@ -6455,7 +6863,9 @@ async function main(): Promise<void> {
           smokeSseMcp.probe.status !== "success" ||
           smokeSseMcp.probeHistory[0]?.status !== "success" ||
           smokeSseMcp.probeHistory[0]?.protocolStatus !== "initialized" ||
-          !smokeSseMcp.probe.steps.some((step) => step.step === "stream-open") ||
+          !smokeSseMcp.probe.steps.some(
+            (step) => step.step === "stream-open"
+          ) ||
           !smokeSseMcp.probe.steps.some((step) => step.step === "endpoint") ||
           !sseReconnectVerified ||
           smokeSseMcp.headerEnv[0]?.header !== "Authorization" ||
@@ -6468,7 +6878,9 @@ async function main(): Promise<void> {
           throw new Error("Desktop smoke SSE MCP discovery did not complete.");
         }
         if (smokeSseMcp.trustStatus !== "untrusted") {
-          throw new Error("Desktop smoke SSE MCP should require invocation trust first.");
+          throw new Error(
+            "Desktop smoke SSE MCP should require invocation trust first."
+          );
         }
         const trustedSseSnapshot = await request<LocalAdeSnapshot>(
           operation("mutation", "settings.trustMcpServer", {
@@ -6483,14 +6895,17 @@ async function main(): Promise<void> {
           "MCP_SSE_TRUST",
           JSON.stringify({
             trustStatus: smokeSseMcp?.trustStatus ?? "missing",
-            trusted: smokeSseMcp?.trustedFingerprint === smokeSseMcp?.fingerprint,
+            trusted:
+              smokeSseMcp?.trustedFingerprint === smokeSseMcp?.fingerprint,
           })
         );
         if (
           smokeSseMcp?.trustStatus !== "trusted" ||
           smokeSseMcp.trustedFingerprint !== smokeSseMcp.fingerprint
         ) {
-          throw new Error("Desktop smoke SSE MCP trust approval did not persist.");
+          throw new Error(
+            "Desktop smoke SSE MCP trust approval did not persist."
+          );
         }
         const controlledSseSnapshot = await request<LocalAdeSnapshot>(
           operation("mutation", "settings.configureMcpRemoteControls", {
@@ -6509,7 +6924,8 @@ async function main(): Promise<void> {
           JSON.stringify({
             mode: smokeSseMcp?.remoteControls.mode ?? "missing",
             requestTimeoutMs: smokeSseMcp?.remoteControls.requestTimeoutMs ?? 0,
-            reconnectAttempts: smokeSseMcp?.remoteControls.reconnectAttempts ?? -1,
+            reconnectAttempts:
+              smokeSseMcp?.remoteControls.reconnectAttempts ?? -1,
             notificationWatchMs:
               smokeSseMcp?.remoteControls.notificationWatchMs ?? 0,
             trustStatus: smokeSseMcp?.trustStatus ?? "missing",
@@ -6578,7 +6994,9 @@ async function main(): Promise<void> {
           sseRoute.agentSupport !== "not-required" ||
           JSON.stringify(agentRouting).includes("Bearer desktop-mcp-secret")
         ) {
-          throw new Error("Desktop smoke MCP agent routing preview was not correct.");
+          throw new Error(
+            "Desktop smoke MCP agent routing preview was not correct."
+          );
         }
         const sseToolResult = await request<McpInvocationResult>(
           operation("mutation", "settings.invokeMcpTool", {
@@ -6625,9 +7043,13 @@ async function main(): Promise<void> {
           (sseMcp.requestCounts["resources/read"] ?? 0) < 2 ||
           !sseResourceResult.diagnostics
             .join("\n")
-            .includes("MCP SSE invocation stream closed before completion; reconnecting")
+            .includes(
+              "MCP SSE invocation stream closed before completion; reconnecting"
+            )
         ) {
-          throw new Error("Desktop smoke SSE MCP invocation/redaction did not complete.");
+          throw new Error(
+            "Desktop smoke SSE MCP invocation/redaction did not complete."
+          );
         }
         const invokedSseSnapshot = await request<LocalAdeSnapshot>(
           operation("query", "settings.getLocalAdeSnapshot")
@@ -6652,58 +7074,64 @@ async function main(): Promise<void> {
           invokedSseMcp?.invocationHistory ?? []
         );
         if (
-          !invokedSseMcp ||
-          !invokedSseMcp.invocationHistory.some(
-            (run) =>
-              run.method === "tools/call" &&
-              run.status === "success" &&
-              run.resultText.includes("[redacted]")
+          !(
+            invokedSseMcp?.invocationHistory.some(
+              (run) =>
+                run.method === "tools/call" &&
+                run.status === "success" &&
+                run.resultText.includes("[redacted]")
+            ) &&
+            invokedSseMcp.invocationHistory.some(
+              (run) =>
+                run.method === "resources/read" &&
+                run.status === "success" &&
+                run.resultText.includes("desktop sse resource")
+            )
           ) ||
-          !invokedSseMcp.invocationHistory.some(
-            (run) =>
-              run.method === "resources/read" &&
-              run.status === "success" &&
-              run.resultText.includes("desktop sse resource")
-          ) ||
-          serializedSseInvocationHistory.includes(
-            "Bearer desktop-mcp-secret"
-          )
+          serializedSseInvocationHistory.includes("Bearer desktop-mcp-secret")
         ) {
-          throw new Error("Desktop smoke SSE MCP invocation audit/redaction failed.");
+          throw new Error(
+            "Desktop smoke SSE MCP invocation audit/redaction failed."
+          );
         }
         console.log(
           "MCP_SSE_NOTIFICATIONS",
           JSON.stringify({
             count: invokedSseMcp.notificationHistory.length,
-            notifications: invokedSseMcp.notificationHistory.map((notification) => [
-              notification.source,
-              notification.method,
-              notification.payloadText,
-            ]),
+            notifications: invokedSseMcp.notificationHistory.map(
+              (notification) => [
+                notification.source,
+                notification.method,
+                notification.payloadText,
+              ]
+            ),
           })
         );
         const serializedSseNotifications = JSON.stringify(
           invokedSseMcp.notificationHistory
         );
         if (
-          !invokedSseMcp.notificationHistory.some(
-            (notification) =>
-              notification.source === "probe" &&
-              notification.method === "notifications/message"
+          !(
+            invokedSseMcp.notificationHistory.some(
+              (notification) =>
+                notification.source === "probe" &&
+                notification.method === "notifications/message"
+            ) &&
+            invokedSseMcp.notificationHistory.some(
+              (notification) =>
+                notification.source === "invocation" &&
+                notification.method === "notifications/message"
+            ) &&
+            serializedSseNotifications.includes("[redacted]")
           ) ||
-          !invokedSseMcp.notificationHistory.some(
-            (notification) =>
-              notification.source === "invocation" &&
-              notification.method === "notifications/message"
-          ) ||
-          !serializedSseNotifications.includes("[redacted]") ||
           serializedSseNotifications.includes("Bearer desktop-mcp-secret")
         ) {
           throw new Error(
             "Desktop smoke SSE MCP notification history/redaction failed."
           );
         }
-        const beforeMonitorInitializeCount = sseMcp.requestCounts.initialize ?? 0;
+        const beforeMonitorInitializeCount =
+          sseMcp.requestCounts.initialize ?? 0;
         sseMcp.closeNextStreamOnFirstRequest();
         const monitoredSseSnapshot = await request<LocalAdeSnapshot>(
           operation("mutation", "settings.watchMcpNotifications", {
@@ -6723,13 +7151,16 @@ async function main(): Promise<void> {
             streamOpenCount: monitorRun?.streamOpenCount ?? 0,
             notificationCount: monitorRun?.notificationCount ?? 0,
             initializeRequests:
-              (sseMcp.requestCounts.initialize ?? 0) - beforeMonitorInitializeCount,
+              (sseMcp.requestCounts.initialize ?? 0) -
+              beforeMonitorInitializeCount,
             sources:
-              monitorRun?.notifications.map((notification) => notification.source) ??
-              [],
+              monitorRun?.notifications.map(
+                (notification) => notification.source
+              ) ?? [],
             methods:
-              monitorRun?.notifications.map((notification) => notification.method) ??
-              [],
+              monitorRun?.notifications.map(
+                (notification) => notification.method
+              ) ?? [],
           })
         );
         const serializedMonitor = JSON.stringify(monitoredSseMcp ?? {});
@@ -6919,7 +7350,9 @@ async function main(): Promise<void> {
       })
     );
     if (!activeModelSession) {
-      throw new Error("Expected active session cockpit snapshot after createSession.");
+      throw new Error(
+        "Expected active session cockpit snapshot after createSession."
+      );
     }
     const nextActiveModel = activeModelSession?.model.availableModels.find(
       (model) => model.modelId !== activeModelSession.model.currentModelId
@@ -6949,8 +7382,12 @@ async function main(): Promise<void> {
           currentModelId: switchedModelSession?.model.currentModelId ?? null,
         })
       );
-      if (switchedModelSession?.model.currentModelId !== nextActiveModel.modelId) {
-        throw new Error("Active session model switch did not update Local ADE snapshot.");
+      if (
+        switchedModelSession?.model.currentModelId !== nextActiveModel.modelId
+      ) {
+        throw new Error(
+          "Active session model switch did not update Local ADE snapshot."
+        );
       }
     } else {
       console.log(
@@ -6958,7 +7395,8 @@ async function main(): Promise<void> {
         JSON.stringify({
           skipped: "no alternate active session model exposed",
           chatId,
-          supportsSwitching: activeModelSession?.model.supportsSwitching ?? false,
+          supportsSwitching:
+            activeModelSession?.model.supportsSwitching ?? false,
           currentModelId: activeModelSession?.model.currentModelId ?? null,
           modelCount: activeModelSession?.model.availableModels.length ?? 0,
         })
@@ -6973,7 +7411,9 @@ async function main(): Promise<void> {
       subagents: ade.subagents,
     });
     if (!subagentSubmission) {
-      throw new Error("Expected /agent-code-reviewer to resolve for desktop smoke.");
+      throw new Error(
+        "Expected /agent-code-reviewer to resolve for desktop smoke."
+      );
     }
     console.log(
       "SUBAGENT_COMMAND_SUBMIT",
@@ -6983,8 +7423,9 @@ async function main(): Promise<void> {
         promptIncludesDelegate: subagentSubmission.prompt.includes(
           'Delegate this task to the "code-reviewer" subagent profile.'
         ),
-        promptIncludesRequest:
-          subagentSubmission.prompt.includes("desktop IPC smoke ok"),
+        promptIncludesRequest: subagentSubmission.prompt.includes(
+          "desktop IPC smoke ok"
+        ),
       })
     );
     console.log(
@@ -7045,7 +7486,9 @@ async function main(): Promise<void> {
       })
     );
     if (ownedAcpEntries.length === 0) {
-      throw new Error("Expected Local ADE ACP activity for the active smoke chat.");
+      throw new Error(
+        "Expected Local ADE ACP activity for the active smoke chat."
+      );
     }
     if (JSON.stringify(ownedAcpEntries).includes("rawPayload")) {
       throw new Error("ACP activity leaked rawPayload metadata.");
@@ -7112,7 +7555,9 @@ async function main(): Promise<void> {
       })
     );
     if (timelineChatLanes.length < 2) {
-      throw new Error("Expected ACP timeline to include at least two chat lanes.");
+      throw new Error(
+        "Expected ACP timeline to include at least two chat lanes."
+      );
     }
     if (timelineSnapshot.acpActivity.timeline.frames.length === 0) {
       throw new Error("Expected ACP timeline frames.");
@@ -7125,10 +7570,12 @@ async function main(): Promise<void> {
       throw new Error("ACP timeline frame sequence was not stable.");
     }
     if (
-      timelineSnapshot.acpActivity.timeline.frames.some((frame, index, frames) => {
-        const previous = frames[index - 1];
-        return previous ? frame.timestamp < previous.timestamp : false;
-      })
+      timelineSnapshot.acpActivity.timeline.frames.some(
+        (frame, index, frames) => {
+          const previous = frames[index - 1];
+          return previous ? frame.timestamp < previous.timestamp : false;
+        }
+      )
     ) {
       throw new Error("ACP timeline frames were not chronological.");
     }
@@ -7136,13 +7583,17 @@ async function main(): Promise<void> {
       throw new Error("Workspace ACP replay unexpectedly scoped to one chat.");
     }
     if (workspaceReplayChatCount < 2) {
-      throw new Error("Expected workspace ACP replay to include multiple chats.");
+      throw new Error(
+        "Expected workspace ACP replay to include multiple chats."
+      );
     }
     if (
       timelineSerialized.includes("rawPayload") ||
       timelineSerialized.includes("desktop-mcp-secret")
     ) {
-      throw new Error("ACP cross-session timeline leaked raw payload metadata.");
+      throw new Error(
+        "ACP cross-session timeline leaked raw payload metadata."
+      );
     }
     const streamDiagnostics = timelineSnapshot.acpActivity.stream;
     const streamSerialized = JSON.stringify(streamDiagnostics);
@@ -7240,15 +7691,23 @@ async function main(): Promise<void> {
       throw new Error("ACP trace export did not declare its redacted schema.");
     }
     if (acpTrace.filters.chatId !== chatId) {
-      throw new Error("ACP trace export did not preserve the active chat filter.");
+      throw new Error(
+        "ACP trace export did not preserve the active chat filter."
+      );
     }
     if (acpTrace.entries.length === 0) {
-      throw new Error("Expected exported ACP trace entries for the active chat.");
+      throw new Error(
+        "Expected exported ACP trace entries for the active chat."
+      );
     }
     if (
-      !acpTrace.correlations.some((correlation) => correlation.chatId === chatId)
+      !acpTrace.correlations.some(
+        (correlation) => correlation.chatId === chatId
+      )
     ) {
-      throw new Error("Expected exported ACP trace correlation for the active chat.");
+      throw new Error(
+        "Expected exported ACP trace correlation for the active chat."
+      );
     }
     if (JSON.stringify(acpTrace).includes("rawPayload")) {
       throw new Error("ACP trace export leaked rawPayload metadata.");
@@ -7308,7 +7767,11 @@ async function main(): Promise<void> {
     if (acpReplay.frames.some((frame, index) => frame.sequence !== index + 1)) {
       throw new Error("ACP replay frame sequence was not stable.");
     }
-    if (!acpReplay.correlations.some((correlation) => correlation.chatId === chatId)) {
+    if (
+      !acpReplay.correlations.some(
+        (correlation) => correlation.chatId === chatId
+      )
+    ) {
       throw new Error("Expected ACP replay correlation for the active chat.");
     }
     if (JSON.stringify(acpReplay).includes("rawPayload")) {
@@ -7318,7 +7781,9 @@ async function main(): Promise<void> {
       acpReplay.frames.find((frame) => frame.kind)?.kind ??
       Object.keys(acpReplay.stats.kinds)[0];
     if (!replayKind) {
-      throw new Error("Expected ACP replay to expose at least one replay kind.");
+      throw new Error(
+        "Expected ACP replay to expose at least one replay kind."
+      );
     }
     const acpKindReplay = await request<AcpActivityReplayResult>(
       operation("mutation", "settings.replayAcpActivity", {
@@ -7339,7 +7804,9 @@ async function main(): Promise<void> {
       })
     );
     if (acpKindReplay.schemaVersion !== 1 || acpKindReplay.redacted !== true) {
-      throw new Error("ACP kind-filtered replay did not declare redacted schema.");
+      throw new Error(
+        "ACP kind-filtered replay did not declare redacted schema."
+      );
     }
     if (
       acpKindReplay.filters.chatId !== chatId ||
@@ -7353,7 +7820,9 @@ async function main(): Promise<void> {
     if (acpKindReplay.frames.some((frame) => frame.kind !== replayKind)) {
       throw new Error("ACP kind-filtered replay included another kind.");
     }
-    if (Object.keys(acpKindReplay.stats.kinds).some((kind) => kind !== replayKind)) {
+    if (
+      Object.keys(acpKindReplay.stats.kinds).some((kind) => kind !== replayKind)
+    ) {
       throw new Error("ACP kind-filtered replay stats included another kind.");
     }
     if (JSON.stringify(acpKindReplay).includes("rawPayload")) {
@@ -7374,7 +7843,9 @@ async function main(): Promise<void> {
         preset.kind === replayKind
     );
     if (!replayPreset) {
-      throw new Error("ACP replay preset was not persisted in Local ADE snapshot.");
+      throw new Error(
+        "ACP replay preset was not persisted in Local ADE snapshot."
+      );
     }
     const presetReplay = await request<AcpActivityReplayResult>(
       operation("mutation", "settings.replayAcpActivity", {
@@ -7449,7 +7920,10 @@ async function main(): Promise<void> {
           );
         });
         console.log("SESSION_STOPPED", chatId);
-        if (sessionLifecycleHooksBackup !== undefined && cleanupError === undefined) {
+        if (
+          sessionLifecycleHooksBackup !== undefined &&
+          cleanupError === undefined
+        ) {
           const stopLifecycleRun = await waitForHookRun(
             "desktop-smoke-agent-stop-hook",
             "desktop agent lifecycle after-agent-session-stop"
@@ -7478,12 +7952,12 @@ async function main(): Promise<void> {
       console.log("HOST_STOPPED");
     }
     if (previousMcpAuth === undefined) {
-      delete process.env.ERAGEAR_DESKTOP_MCP_AUTH;
+      process.env.ERAGEAR_DESKTOP_MCP_AUTH = undefined;
     } else {
       process.env.ERAGEAR_DESKTOP_MCP_AUTH = previousMcpAuth;
     }
     if (previousAllowedAgentPolicies === undefined) {
-      delete process.env.ALLOWED_AGENT_COMMAND_POLICIES;
+      process.env.ALLOWED_AGENT_COMMAND_POLICIES = undefined;
     } else {
       process.env.ALLOWED_AGENT_COMMAND_POLICIES = previousAllowedAgentPolicies;
     }
