@@ -115,6 +115,7 @@ export function createSessionHandlers(params: {
     chatId: string;
     requestId: string;
   }) => Promise<void>;
+  isReasoningEnabled?: () => boolean;
 }): acp.Client {
   const {
     chatId,
@@ -123,13 +124,15 @@ export function createSessionHandlers(params: {
     sessionRuntime,
     sessionRepo,
     permissionAutoResolver,
+    isReasoningEnabled,
   } = params;
   const handlePermissionRequest = createPermissionHandler(sessionRuntime, {
     autoResolver: permissionAutoResolver,
   });
   const handleSessionUpdate = createSessionUpdateHandler(
     sessionRuntime,
-    sessionRepo
+    sessionRepo,
+    { isReasoningEnabled }
   );
   const toolCalls = createToolCallHandlers(sessionRuntime);
   const withSessionLogContext = async <T>(

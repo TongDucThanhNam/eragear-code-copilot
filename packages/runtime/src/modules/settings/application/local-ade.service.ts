@@ -48,6 +48,7 @@ import type {
   ChatSession,
   SessionModelState,
 } from "#runtime/shared/types/session.types";
+import type { AppConfig } from "#runtime/shared/types/settings.types";
 import {
   findSessionConfigOption,
   getSessionConfigOptionCurrentValue,
@@ -86,7 +87,6 @@ const MAX_PROJECT_MEMORY_SEMANTIC_CHUNKS = 8;
 const PROJECT_MEMORY_VECTOR_DIMENSIONS = 128;
 const MAX_MODEL_EMBEDDING_DIMENSIONS = 4096;
 const MODEL_EMBEDDING_BATCH_SIZE = 16;
-const MODEL_EMBEDDING_TIMEOUT_MS = 10_000;
 const MAX_REPO_INDEX_EMBEDDING_FILES = 160;
 const MAX_PROJECT_MEMORY_PRESETS = 24;
 const MAX_PROJECT_MEMORY_PRESET_NAME_CHARS = 80;
@@ -4037,30 +4037,28 @@ function safeEmbeddingEndpointLabel(endpoint: string): string {
   }
 }
 
-function resolveModelEmbeddingConfig(): ModelEmbeddingConfig | null {
-  const rawEndpoint =
-    process.env.ERAGEAR_EMBEDDINGS_ENDPOINT ??
-    process.env.ERAGEAR_EMBEDDING_ENDPOINT;
-  const endpoint = rawEndpoint
-    ? normalizeModelEmbeddingEndpoint(rawEndpoint)
-    : "";
+function resolveModelEmbeddingConfig(
+  appConfig: Pick<
+    AppConfig,
+    | "projectIndexEmbeddingEndpoint"
+    | "projectIndexEmbeddingModel"
+    | "projectIndexEmbeddingApiKey"
+    | "projectIndexEmbeddingTimeoutMs"
+  >
+): ModelEmbeddingConfig | null {
+  const endpoint = normalizeModelEmbeddingEndpoint(
+    appConfig.projectIndexEmbeddingEndpoint
+  );
   if (!endpoint) {
     return null;
   }
   const model =
-    process.env.ERAGEAR_EMBEDDINGS_MODEL?.trim() ||
-    process.env.ERAGEAR_EMBEDDING_MODEL?.trim() ||
-    "text-embedding-3-small";
-  const rawTimeout = Number(
-    process.env.ERAGEAR_EMBEDDINGS_TIMEOUT_MS ??
-      process.env.ERAGEAR_EMBEDDING_TIMEOUT_MS
+    appConfig.projectIndexEmbeddingModel.trim() || "text-embedding-3-small";
+  const timeoutMs = Math.max(
+    1000,
+    Math.min(30_000, Math.floor(appConfig.projectIndexEmbeddingTimeoutMs))
   );
-  const timeoutMs = Number.isFinite(rawTimeout)
-    ? Math.max(1000, Math.min(30_000, Math.floor(rawTimeout)))
-    : MODEL_EMBEDDING_TIMEOUT_MS;
-  const apiKey =
-    process.env.ERAGEAR_EMBEDDINGS_API_KEY ??
-    process.env.ERAGEAR_EMBEDDING_API_KEY;
+  const apiKey = appConfig.projectIndexEmbeddingApiKey;
   return {
     endpoint,
     model,
@@ -4249,6 +4247,7 @@ function splitProjectMemorySourceIntoChunks(
 async function rankProjectMemoryChunkCandidates(params: {
   query: string;
   candidates: ProjectMemoryChunkCandidate[];
+  embeddingConfig: ModelEmbeddingConfig | null;
 }): Promise<{
   candidates: ProjectMemoryChunkCandidate[];
   ranker: ProjectSemanticRanker;
@@ -4256,7 +4255,7 @@ async function rankProjectMemoryChunkCandidates(params: {
   dimensions?: number;
   diagnostics: string[];
 }> {
-  const config = resolveModelEmbeddingConfig();
+  const config = params.embeddingConfig;
   if (config && params.candidates.length > 0) {
     try {
       const response = await requestModelEmbeddings({
@@ -4309,7 +4308,7 @@ async function rankProjectMemoryChunkCandidates(params: {
   return {
     ...fallback,
     diagnostics: [
-      "ERAGEAR_EMBEDDINGS_ENDPOINT is not configured; using local token-vector ranking.",
+      "Project embedding endpoint is not configured in Settings; using local token-vector ranking.",
       ...fallback.diagnostics,
     ],
   };
@@ -4541,6 +4540,7 @@ async function buildProjectMemoryContextResult(params: {
   rootPath: string;
   state: CapabilityStateDocument;
   query: string;
+  embeddingConfig: ModelEmbeddingConfig | null;
   preset?: LocalAdeProjectMemoryPreset;
   retrievalMode?: ProjectMemoryRetrievalMode;
   sourceIds?: string[];
@@ -4592,6 +4592,7 @@ async function buildProjectMemoryContextResult(params: {
     const semanticRanking = await rankProjectMemoryChunkCandidates({
       query,
       candidates,
+      embeddingConfig: params.embeddingConfig,
     });
 
     const rankedCandidates = semanticRanking.candidates.sort(
@@ -5590,6 +5591,7 @@ function buildRepoIndexContextPrompt(params: {
 async function buildRepoIndexSearchResult(params: {
   query: string;
   document: RepoIndexDocument | null;
+  embeddingConfig: ModelEmbeddingConfig | null;
   limit?: number;
 }): Promise<LocalAdeRepoIndexSearchResult> {
   const query = params.query.trim();
@@ -5617,7 +5619,7 @@ async function buildRepoIndexSearchResult(params: {
     (file) => (file.embeddingVector?.length ?? 0) > 0
   );
   if (embeddedFiles.length > 0) {
-    const config = resolveModelEmbeddingConfig();
+    const config = params.embeddingConfig;
     if (config) {
       try {
         const response = await requestModelEmbeddings({
@@ -5639,7 +5641,7 @@ async function buildRepoIndexSearchResult(params: {
       }
     } else {
       diagnostics.push(
-        "Indexed file vectors are present, but ERAGEAR_EMBEDDINGS_ENDPOINT is not configured for query embedding."
+        "Indexed file vectors are present, but Project embedding endpoint is not configured in Settings for query embedding."
       );
     }
   }
@@ -5897,12 +5899,13 @@ async function applyRepoIndexModelEmbeddings(params: {
   files: RepoIndexFileRecord[];
   symbols: LocalAdeRepoIndexSymbol[];
   tasks: LocalAdeRepoIndexTask[];
+  embeddingConfig: ModelEmbeddingConfig | null;
   diagnostics: string[];
 }): Promise<void> {
-  const config = resolveModelEmbeddingConfig();
+  const config = params.embeddingConfig;
   if (!config) {
     params.diagnostics.push(
-      "ERAGEAR_EMBEDDINGS_ENDPOINT is not configured; Project Index is using local semantic token profiles."
+      "Project embedding endpoint is not configured in Settings; Project Index is using local semantic token profiles."
     );
     return;
   }
@@ -6001,7 +6004,8 @@ async function applyRepoIndexModelEmbeddings(params: {
 }
 
 async function createRepoIndexDocument(
-  rootPath: string
+  rootPath: string,
+  embeddingConfig: ModelEmbeddingConfig | null
 ): Promise<RepoIndexDocument> {
   const files: RepoIndexFileRecord[] = [];
   const symbols: LocalAdeRepoIndexSymbol[] = [];
@@ -6126,6 +6130,7 @@ async function createRepoIndexDocument(
     files,
     symbols,
     tasks,
+    embeddingConfig,
     diagnostics,
   });
 
@@ -19105,6 +19110,10 @@ export class LocalAdeService {
       params.settingsChangeNotifier ?? noopSettingsChangeNotifier;
   }
 
+  private getModelEmbeddingConfig(): ModelEmbeddingConfig | null {
+    return resolveModelEmbeddingConfig(this.appConfigService.getConfig());
+  }
+
   async runLifecycleHooks(input: LocalAdeLifecycleHookInput): Promise<void> {
     await this.runLifecycleHooksForProject(input.projectRoot, input.event, {
       userId: input.userId,
@@ -19432,7 +19441,10 @@ export class LocalAdeService {
     input: RefreshProjectIndexInput = {}
   ): Promise<LocalAdeSnapshot> {
     const context = await this.resolveProjectContext(userId, input.projectId);
-    const document = await createRepoIndexDocument(context.rootPath);
+    const document = await createRepoIndexDocument(
+      context.rootPath,
+      this.getModelEmbeddingConfig()
+    );
     await writeRepoIndexDocument(context.rootPath, document);
     await this.runLifecycleHooksForProject(
       context.rootPath,
@@ -19676,6 +19688,7 @@ export class LocalAdeService {
     return await buildRepoIndexSearchResult({
       query,
       document,
+      embeddingConfig: this.getModelEmbeddingConfig(),
       limit: input.limit,
     });
   }
@@ -19769,6 +19782,7 @@ export class LocalAdeService {
       rootPath: context.rootPath,
       state,
       query,
+      embeddingConfig: this.getModelEmbeddingConfig(),
       ...(preset ? { preset } : {}),
       retrievalMode: input.retrievalMode ?? preset?.retrievalMode,
       sourceIds: input.sourceIds,

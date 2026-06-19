@@ -30,6 +30,24 @@ function parseFiniteInt(
   return Math.trunc(parseFiniteNumber(key, rawValue, fallback));
 }
 
+function parseBoolean(
+  key: string,
+  rawValue: string,
+  fallback: boolean
+): boolean {
+  const normalized = rawValue.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return fallback;
+  }
+  if (["1", "true", "on", "yes"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "off", "no"].includes(normalized)) {
+    return false;
+  }
+  throw new Error(`${key} must be a boolean`);
+}
+
 export function parseUiSettingsForm(
   formData: FormDataRecord,
   currentSettings: Settings
@@ -47,6 +65,11 @@ export function parseUiSettingsForm(
       "ui.fontScale",
       getString("ui.fontScale"),
       currentSettings.ui.fontScale
+    ),
+    showReasoning: parseBoolean(
+      "ui.showReasoning",
+      getString("ui.showReasoning"),
+      currentSettings.ui.showReasoning
     ),
   });
 
@@ -115,6 +138,137 @@ export function parseUiSettingsForm(
       const normalized = rawValue.trim();
       return normalized.length > 0 ? normalized : "";
     })(),
+    supervisorEnabled: parseBoolean(
+      "app.supervisorEnabled",
+      getString("app.supervisorEnabled"),
+      currentSettings.app.supervisorEnabled
+    ),
+    supervisorModel: (() => {
+      const rawValue = formData["app.supervisorModel"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorModel;
+      }
+      return rawValue.trim();
+    })(),
+    supervisorDeepSeekApiKey: (() => {
+      const rawValue = formData["app.supervisorDeepSeekApiKey"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorDeepSeekApiKey;
+      }
+      return rawValue.trim();
+    })(),
+    supervisorDecisionTimeoutMs: parseFiniteInt(
+      "app.supervisorDecisionTimeoutMs",
+      getString("app.supervisorDecisionTimeoutMs"),
+      currentSettings.app.supervisorDecisionTimeoutMs
+    ),
+    supervisorDecisionMaxAttempts: parseFiniteInt(
+      "app.supervisorDecisionMaxAttempts",
+      getString("app.supervisorDecisionMaxAttempts"),
+      currentSettings.app.supervisorDecisionMaxAttempts
+    ),
+    supervisorMaxRuntimeMs: parseFiniteInt(
+      "app.supervisorMaxRuntimeMs",
+      getString("app.supervisorMaxRuntimeMs"),
+      currentSettings.app.supervisorMaxRuntimeMs
+    ),
+    supervisorMaxRepeatedPrompts: parseFiniteInt(
+      "app.supervisorMaxRepeatedPrompts",
+      getString("app.supervisorMaxRepeatedPrompts"),
+      currentSettings.app.supervisorMaxRepeatedPrompts
+    ),
+    supervisorWebSearchProvider: (() => {
+      const rawValue = formData["app.supervisorWebSearchProvider"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorWebSearchProvider;
+      }
+      return rawValue.trim().toLowerCase();
+    })(),
+    supervisorWebSearchApiKey: (() => {
+      const rawValue = formData["app.supervisorWebSearchApiKey"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorWebSearchApiKey;
+      }
+      return rawValue.trim();
+    })(),
+    supervisorMemoryProvider: (() => {
+      const rawValue = formData["app.supervisorMemoryProvider"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorMemoryProvider;
+      }
+      return rawValue.trim().toLowerCase();
+    })(),
+    supervisorObsidianCommand: (() => {
+      const rawValue = formData["app.supervisorObsidianCommand"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorObsidianCommand;
+      }
+      return rawValue.trim();
+    })(),
+    supervisorObsidianVault: (() => {
+      const rawValue = formData["app.supervisorObsidianVault"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorObsidianVault;
+      }
+      return rawValue.trim();
+    })(),
+    supervisorObsidianBlueprintPath: (() => {
+      const rawValue = formData["app.supervisorObsidianBlueprintPath"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorObsidianBlueprintPath;
+      }
+      return rawValue.trim();
+    })(),
+    supervisorObsidianLogPath: (() => {
+      const rawValue = formData["app.supervisorObsidianLogPath"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorObsidianLogPath;
+      }
+      return rawValue.trim();
+    })(),
+    supervisorObsidianSearchPath: (() => {
+      const rawValue = formData["app.supervisorObsidianSearchPath"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorObsidianSearchPath;
+      }
+      return rawValue.trim();
+    })(),
+    supervisorObsidianSearchLimit: parseFiniteInt(
+      "app.supervisorObsidianSearchLimit",
+      getString("app.supervisorObsidianSearchLimit"),
+      currentSettings.app.supervisorObsidianSearchLimit
+    ),
+    supervisorObsidianTimeoutMs: parseFiniteInt(
+      "app.supervisorObsidianTimeoutMs",
+      getString("app.supervisorObsidianTimeoutMs"),
+      currentSettings.app.supervisorObsidianTimeoutMs
+    ),
+    projectIndexEmbeddingEndpoint: (() => {
+      const rawValue = formData["app.projectIndexEmbeddingEndpoint"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.projectIndexEmbeddingEndpoint;
+      }
+      return rawValue.trim();
+    })(),
+    projectIndexEmbeddingModel: (() => {
+      const rawValue = formData["app.projectIndexEmbeddingModel"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.projectIndexEmbeddingModel;
+      }
+      return rawValue.trim();
+    })(),
+    projectIndexEmbeddingApiKey: (() => {
+      const rawValue = formData["app.projectIndexEmbeddingApiKey"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.projectIndexEmbeddingApiKey;
+      }
+      return rawValue.trim();
+    })(),
+    projectIndexEmbeddingTimeoutMs: parseFiniteInt(
+      "app.projectIndexEmbeddingTimeoutMs",
+      getString("app.projectIndexEmbeddingTimeoutMs"),
+      currentSettings.app.projectIndexEmbeddingTimeoutMs
+    ),
     acpPromptMetaPolicy:
       rawPromptMetaPolicy.length > 0
         ? rawPromptMetaPolicy

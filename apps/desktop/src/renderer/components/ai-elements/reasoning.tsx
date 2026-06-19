@@ -117,14 +117,14 @@ export type ReasoningTriggerProps = ComponentProps<
   getThinkingMessage?: (isStreaming: boolean, duration?: number) => ReactNode;
 };
 
-const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
-  if (isStreaming || duration === 0) {
-    return <Shimmer duration={1}>Thinking...</Shimmer>;
+const defaultGetThinkingMessage = (
+  isStreaming: boolean,
+  _duration?: number
+) => {
+  if (isStreaming || _duration === 0) {
+    return <Shimmer duration={1}>thinking</Shimmer>;
   }
-  if (duration === undefined) {
-    return <p>Thought for a few seconds</p>;
-  }
-  return <p>Thought for {duration} seconds</p>;
+  return <p>thinking</p>;
 };
 
 export const ReasoningTrigger = memo(
@@ -139,7 +139,7 @@ export const ReasoningTrigger = memo(
     return (
       <CollapsibleTrigger
         className={cn(
-          "flex w-full items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground",
+          "group/reasoning-trigger flex w-full items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground",
           className
         )}
         {...props}
@@ -150,7 +150,7 @@ export const ReasoningTrigger = memo(
             {getThinkingMessage(isStreaming, duration)}
             <ChevronDownIcon
               className={cn(
-                "size-4 transition-transform",
+                "size-4 opacity-0 transition-[opacity,transform] duration-200 group-focus-visible/reasoning-trigger:opacity-100 group-hover/reasoning-trigger:opacity-100 group-data-[state=open]/reasoning-trigger:opacity-100",
                 isOpen ? "rotate-180" : "rotate-0"
               )}
             />

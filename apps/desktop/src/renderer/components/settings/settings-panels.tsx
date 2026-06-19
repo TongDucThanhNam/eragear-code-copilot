@@ -2,11 +2,14 @@
 "use client";
 
 import {
+  Bot,
   Check,
   Edit2,
   Globe,
+  KeyRound,
   Plus,
   RefreshCw,
+  Save,
   ShieldCheck,
   Terminal,
   Trash2,
@@ -40,6 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { DEFAULT_SERVER_URL } from "@/lib/server-url";
 import { trpc } from "@/lib/trpc";
@@ -336,6 +340,654 @@ export function RuntimeAllowlistPanel() {
           ) : null}
         </div>
       </div>
+    </SettingsSection>
+  );
+}
+
+const DEFAULT_SUPERVISOR_MODEL = "deepseek/deepseek-chat";
+const DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS = 30_000;
+const DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS = 2;
+const DEFAULT_SUPERVISOR_MAX_RUNTIME_MS = 1_800_000;
+const DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS = 20;
+const DEFAULT_SUPERVISOR_OBSIDIAN_COMMAND = "obsidian";
+const DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH = "Project";
+const DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_LIMIT = 3;
+const DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS = 5000;
+
+type SupervisorWebSearchProvider = "none" | "exa";
+type SupervisorMemoryProvider = "none" | "obsidian";
+
+function isDeepSeekSupervisorModel(model: string): boolean {
+  const normalized = model.trim();
+  return (
+    normalized.startsWith("deepseek/") ||
+    normalized === "deepseek-chat" ||
+    normalized === "deepseek-reasoner"
+  );
+}
+
+function parseSupervisorInteger(value: string): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.trunc(parsed);
+}
+
+export function SupervisorSettingsPanel() {
+  const utils = trpc.useUtils();
+  const settingsQuery = trpc.settings.get.useQuery(undefined, {
+    staleTime: 30_000,
+  });
+  const [form, setForm] = React.useState({
+    enabled: false,
+    model: "",
+    deepSeekApiKey: "",
+    decisionTimeoutMs: String(DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS),
+    decisionMaxAttempts: String(DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS),
+    maxRuntimeMs: String(DEFAULT_SUPERVISOR_MAX_RUNTIME_MS),
+    maxRepeatedPrompts: String(DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS),
+    webSearchProvider: "none" as SupervisorWebSearchProvider,
+    webSearchApiKey: "",
+    memoryProvider: "none" as SupervisorMemoryProvider,
+    obsidianCommand: DEFAULT_SUPERVISOR_OBSIDIAN_COMMAND,
+    obsidianVault: "",
+    obsidianBlueprintPath: "",
+    obsidianLogPath: "",
+    obsidianSearchPath: DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH,
+    obsidianSearchLimit: String(DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_LIMIT),
+    obsidianTimeoutMs: String(DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS),
+  });
+  const updateAppMutation = trpc.settings.updateApp.useMutation({
+    onSuccess: async (result) => {
+      utils.settings.get.setData(undefined, result.settings);
+      await utils.settings.get.invalidate();
+      toast.success("Supervisor settings updated");
+    },
+    onError: (error) => {
+      toast.error(error.message || "Failed to update Supervisor settings");
+    },
+  });
+
+  React.useEffect(() => {
+    const app = settingsQuery.data?.app;
+    if (!app) {
+      return;
+    }
+    setForm({
+      enabled: app.supervisorEnabled,
+      model: app.supervisorModel,
+      deepSeekApiKey: app.supervisorDeepSeekApiKey,
+      decisionTimeoutMs: String(app.supervisorDecisionTimeoutMs),
+      decisionMaxAttempts: String(app.supervisorDecisionMaxAttempts),
+      maxRuntimeMs: String(app.supervisorMaxRuntimeMs),
+      maxRepeatedPrompts: String(app.supervisorMaxRepeatedPrompts),
+      webSearchProvider: app.supervisorWebSearchProvider,
+      webSearchApiKey: app.supervisorWebSearchApiKey,
+      memoryProvider: app.supervisorMemoryProvider,
+      obsidianCommand: app.supervisorObsidianCommand,
+      obsidianVault: app.supervisorObsidianVault,
+      obsidianBlueprintPath: app.supervisorObsidianBlueprintPath,
+      obsidianLogPath: app.supervisorObsidianLogPath,
+      obsidianSearchPath: app.supervisorObsidianSearchPath,
+      obsidianSearchLimit: String(app.supervisorObsidianSearchLimit),
+      obsidianTimeoutMs: String(app.supervisorObsidianTimeoutMs),
+    });
+  }, [
+    settingsQuery.data?.app.supervisorEnabled,
+    settingsQuery.data?.app.supervisorModel,
+    settingsQuery.data?.app.supervisorDeepSeekApiKey,
+    settingsQuery.data?.app.supervisorDecisionTimeoutMs,
+    settingsQuery.data?.app.supervisorDecisionMaxAttempts,
+    settingsQuery.data?.app.supervisorMaxRuntimeMs,
+    settingsQuery.data?.app.supervisorMaxRepeatedPrompts,
+    settingsQuery.data?.app.supervisorWebSearchProvider,
+    settingsQuery.data?.app.supervisorWebSearchApiKey,
+    settingsQuery.data?.app.supervisorMemoryProvider,
+    settingsQuery.data?.app.supervisorObsidianCommand,
+    settingsQuery.data?.app.supervisorObsidianVault,
+    settingsQuery.data?.app.supervisorObsidianBlueprintPath,
+    settingsQuery.data?.app.supervisorObsidianLogPath,
+    settingsQuery.data?.app.supervisorObsidianSearchPath,
+    settingsQuery.data?.app.supervisorObsidianSearchLimit,
+    settingsQuery.data?.app.supervisorObsidianTimeoutMs,
+  ]);
+
+  const app = settingsQuery.data?.app;
+  const trimmedModel = form.model.trim();
+  const trimmedDeepSeekApiKey = form.deepSeekApiKey.trim();
+  const trimmedWebSearchApiKey = form.webSearchApiKey.trim();
+  const trimmedObsidianCommand = form.obsidianCommand.trim();
+  const trimmedObsidianVault = form.obsidianVault.trim();
+  const trimmedObsidianBlueprintPath = form.obsidianBlueprintPath.trim();
+  const trimmedObsidianLogPath = form.obsidianLogPath.trim();
+  const trimmedObsidianSearchPath = form.obsidianSearchPath.trim();
+  const decisionTimeoutMs = parseSupervisorInteger(form.decisionTimeoutMs);
+  const decisionMaxAttempts = parseSupervisorInteger(form.decisionMaxAttempts);
+  const maxRuntimeMs = parseSupervisorInteger(form.maxRuntimeMs);
+  const maxRepeatedPrompts = parseSupervisorInteger(form.maxRepeatedPrompts);
+  const obsidianSearchLimit = parseSupervisorInteger(form.obsidianSearchLimit);
+  const obsidianTimeoutMs = parseSupervisorInteger(form.obsidianTimeoutMs);
+  const usesDeepSeek = isDeepSeekSupervisorModel(trimmedModel);
+  const missingModel = form.enabled && trimmedModel.length === 0;
+  const missingDeepSeekKey =
+    form.enabled && usesDeepSeek && trimmedDeepSeekApiKey.length === 0;
+  const missingWebSearchApiKey =
+    form.webSearchProvider === "exa" && trimmedWebSearchApiKey.length === 0;
+  const missingObsidianCommand =
+    form.memoryProvider === "obsidian" && trimmedObsidianCommand.length === 0;
+  const missingObsidianSearchPath =
+    form.memoryProvider === "obsidian" &&
+    trimmedObsidianSearchPath.length === 0;
+  const invalidNumbers =
+    decisionTimeoutMs === null ||
+    decisionTimeoutMs < 1000 ||
+    decisionTimeoutMs > 120_000 ||
+    decisionMaxAttempts === null ||
+    decisionMaxAttempts < 1 ||
+    decisionMaxAttempts > 10 ||
+    maxRuntimeMs === null ||
+    maxRuntimeMs < 1000 ||
+    maxRuntimeMs > 86_400_000 ||
+    maxRepeatedPrompts === null ||
+    maxRepeatedPrompts < 1 ||
+    maxRepeatedPrompts > 200 ||
+    obsidianSearchLimit === null ||
+    obsidianSearchLimit < 1 ||
+    obsidianSearchLimit > 20 ||
+    obsidianTimeoutMs === null ||
+    obsidianTimeoutMs < 1000 ||
+    obsidianTimeoutMs > 60_000;
+  const hasChanges = app
+    ? form.enabled !== app.supervisorEnabled ||
+      trimmedModel !== app.supervisorModel ||
+      trimmedDeepSeekApiKey !== app.supervisorDeepSeekApiKey ||
+      decisionTimeoutMs !== app.supervisorDecisionTimeoutMs ||
+      decisionMaxAttempts !== app.supervisorDecisionMaxAttempts ||
+      maxRuntimeMs !== app.supervisorMaxRuntimeMs ||
+      maxRepeatedPrompts !== app.supervisorMaxRepeatedPrompts ||
+      form.webSearchProvider !== app.supervisorWebSearchProvider ||
+      trimmedWebSearchApiKey !== app.supervisorWebSearchApiKey ||
+      form.memoryProvider !== app.supervisorMemoryProvider ||
+      trimmedObsidianCommand !== app.supervisorObsidianCommand ||
+      trimmedObsidianVault !== app.supervisorObsidianVault ||
+      trimmedObsidianBlueprintPath !== app.supervisorObsidianBlueprintPath ||
+      trimmedObsidianLogPath !== app.supervisorObsidianLogPath ||
+      trimmedObsidianSearchPath !== app.supervisorObsidianSearchPath ||
+      obsidianSearchLimit !== app.supervisorObsidianSearchLimit ||
+      obsidianTimeoutMs !== app.supervisorObsidianTimeoutMs
+    : false;
+  const isBusy = settingsQuery.isFetching || updateAppMutation.isPending;
+  const statusLabel = form.enabled
+    ? missingModel || missingDeepSeekKey || missingWebSearchApiKey
+      ? "Needs setup"
+      : "Enabled"
+    : "Off";
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (missingModel) {
+      toast.error("Supervisor model is required");
+      return;
+    }
+    if (missingDeepSeekKey) {
+      toast.error("DeepSeek API key is required for this Supervisor model");
+      return;
+    }
+    if (missingWebSearchApiKey) {
+      toast.error("Exa API key is required when web search is set to Exa");
+      return;
+    }
+    if (missingObsidianCommand || missingObsidianSearchPath) {
+      toast.error("Obsidian command and search path are required");
+      return;
+    }
+    if (
+      invalidNumbers ||
+      decisionTimeoutMs === null ||
+      decisionMaxAttempts === null ||
+      maxRuntimeMs === null ||
+      maxRepeatedPrompts === null ||
+      obsidianSearchLimit === null ||
+      obsidianTimeoutMs === null
+    ) {
+      toast.error("Supervisor numeric settings are out of range");
+      return;
+    }
+    updateAppMutation.mutate({
+      supervisorEnabled: form.enabled,
+      supervisorModel: trimmedModel,
+      supervisorDeepSeekApiKey: trimmedDeepSeekApiKey,
+      supervisorDecisionTimeoutMs: decisionTimeoutMs,
+      supervisorDecisionMaxAttempts: decisionMaxAttempts,
+      supervisorMaxRuntimeMs: maxRuntimeMs,
+      supervisorMaxRepeatedPrompts: maxRepeatedPrompts,
+      supervisorWebSearchProvider: form.webSearchProvider,
+      supervisorWebSearchApiKey: trimmedWebSearchApiKey,
+      supervisorMemoryProvider: form.memoryProvider,
+      supervisorObsidianCommand: trimmedObsidianCommand,
+      supervisorObsidianVault: trimmedObsidianVault,
+      supervisorObsidianBlueprintPath: trimmedObsidianBlueprintPath,
+      supervisorObsidianLogPath: trimmedObsidianLogPath,
+      supervisorObsidianSearchPath: trimmedObsidianSearchPath,
+      supervisorObsidianSearchLimit: obsidianSearchLimit,
+      supervisorObsidianTimeoutMs: obsidianTimeoutMs,
+    });
+  };
+
+  return (
+    <SettingsSection
+      action={
+        <Button
+          disabled={isBusy}
+          onClick={() => {
+            settingsQuery.refetch().catch(() => undefined);
+          }}
+          size="sm"
+          variant="outline"
+        >
+          <RefreshCw
+            className={cn(
+              "mr-2 h-4 w-4",
+              settingsQuery.isFetching ? "animate-spin" : ""
+            )}
+          />
+          Refresh
+        </Button>
+      }
+      description="Configure the project supervisor used by the chat Environment rail."
+      icon={Bot}
+      title="Project Supervisor"
+    >
+      <form className="grid max-w-3xl gap-4" onSubmit={handleSubmit}>
+        <div className="flex flex-wrap gap-2">
+          <Badge
+            variant={
+              form.enabled
+                ? missingModel || missingDeepSeekKey || missingWebSearchApiKey
+                  ? "destructive"
+                  : "secondary"
+                : "outline"
+            }
+          >
+            {statusLabel}
+          </Badge>
+          {usesDeepSeek ? <Badge variant="outline">DeepSeek</Badge> : null}
+          {form.webSearchProvider === "exa" ? (
+            <Badge variant="outline">Exa</Badge>
+          ) : null}
+          {form.memoryProvider === "obsidian" ? (
+            <Badge variant="outline">Obsidian</Badge>
+          ) : null}
+        </div>
+
+        <label
+          className="flex items-center justify-between gap-4 rounded-md border bg-background p-3"
+          htmlFor="supervisor-enabled"
+        >
+          <span className="flex min-w-0 items-start gap-3">
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
+              <Bot className="h-4 w-4 text-muted-foreground" />
+            </span>
+            <span className="min-w-0">
+              <span className="block font-medium text-sm">
+                Enable project supervisor
+              </span>
+              <span className="mt-1 block max-w-2xl text-muted-foreground text-xs leading-5">
+                Enables the Supervisor control in ChatContextRail for project
+                sessions.
+              </span>
+            </span>
+          </span>
+          <Switch
+            checked={form.enabled}
+            disabled={isBusy}
+            id="supervisor-enabled"
+            onCheckedChange={(enabled) =>
+              setForm((prev) => ({
+                ...prev,
+                enabled,
+                model:
+                  enabled && prev.model.trim().length === 0
+                    ? DEFAULT_SUPERVISOR_MODEL
+                    : prev.model,
+              }))
+            }
+          />
+        </label>
+
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+          <div className="grid gap-1.5">
+            <Label htmlFor="supervisor-model">Supervisor model</Label>
+            <Input
+              autoComplete="off"
+              disabled={isBusy}
+              id="supervisor-model"
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, model: event.target.value }))
+              }
+              placeholder={DEFAULT_SUPERVISOR_MODEL}
+              value={form.model}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label
+              className="flex items-center gap-1.5"
+              htmlFor="supervisor-key"
+            >
+              <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+              DeepSeek API key
+            </Label>
+            <Input
+              autoComplete="off"
+              disabled={isBusy}
+              id="supervisor-key"
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  deepSeekApiKey: event.target.value,
+                }))
+              }
+              placeholder="sk-..."
+              type="password"
+              value={form.deepSeekApiKey}
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-3 rounded-md border bg-background p-3">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-decision-timeout">
+                Decision timeout
+              </Label>
+              <Input
+                disabled={isBusy}
+                id="supervisor-decision-timeout"
+                max={120000}
+                min={1000}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    decisionTimeoutMs: event.target.value,
+                  }))
+                }
+                type="number"
+                value={form.decisionTimeoutMs}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-decision-attempts">Attempts</Label>
+              <Input
+                disabled={isBusy}
+                id="supervisor-decision-attempts"
+                max={10}
+                min={1}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    decisionMaxAttempts: event.target.value,
+                  }))
+                }
+                type="number"
+                value={form.decisionMaxAttempts}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-max-runtime">Max runtime</Label>
+              <Input
+                disabled={isBusy}
+                id="supervisor-max-runtime"
+                max={86400000}
+                min={1000}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    maxRuntimeMs: event.target.value,
+                  }))
+                }
+                type="number"
+                value={form.maxRuntimeMs}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-repeated-prompts">Repeat cap</Label>
+              <Input
+                disabled={isBusy}
+                id="supervisor-repeated-prompts"
+                max={200}
+                min={1}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    maxRepeatedPrompts: event.target.value,
+                  }))
+                }
+                type="number"
+                value={form.maxRepeatedPrompts}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+          <div className="grid gap-1.5">
+            <Label htmlFor="supervisor-web-search">Web search</Label>
+            <Select
+              disabled={isBusy}
+              onValueChange={(value) =>
+                setForm((prev) => ({
+                  ...prev,
+                  webSearchProvider: value as SupervisorWebSearchProvider,
+                }))
+              }
+              value={form.webSearchProvider}
+            >
+              <SelectTrigger id="supervisor-web-search">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="exa">Exa</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label
+              className="flex items-center gap-1.5"
+              htmlFor="supervisor-web-search-key"
+            >
+              <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+              Search API key
+            </Label>
+            <Input
+              autoComplete="off"
+              disabled={isBusy}
+              id="supervisor-web-search-key"
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  webSearchApiKey: event.target.value,
+                }))
+              }
+              placeholder="Exa API key"
+              type="password"
+              value={form.webSearchApiKey}
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-3 rounded-md border bg-background p-3">
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-memory-provider">Memory</Label>
+              <Select
+                disabled={isBusy}
+                onValueChange={(value) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    memoryProvider: value as SupervisorMemoryProvider,
+                  }))
+                }
+                value={form.memoryProvider}
+              >
+                <SelectTrigger id="supervisor-memory-provider">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="obsidian">Obsidian</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-obsidian-command">
+                Obsidian command
+              </Label>
+              <Input
+                autoComplete="off"
+                disabled={isBusy}
+                id="supervisor-obsidian-command"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    obsidianCommand: event.target.value,
+                  }))
+                }
+                value={form.obsidianCommand}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-obsidian-vault">Vault</Label>
+              <Input
+                autoComplete="off"
+                disabled={isBusy}
+                id="supervisor-obsidian-vault"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    obsidianVault: event.target.value,
+                  }))
+                }
+                value={form.obsidianVault}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-obsidian-search-path">
+                Search path
+              </Label>
+              <Input
+                autoComplete="off"
+                disabled={isBusy}
+                id="supervisor-obsidian-search-path"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    obsidianSearchPath: event.target.value,
+                  }))
+                }
+                value={form.obsidianSearchPath}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-obsidian-blueprint">
+                Blueprint path
+              </Label>
+              <Input
+                autoComplete="off"
+                disabled={isBusy}
+                id="supervisor-obsidian-blueprint"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    obsidianBlueprintPath: event.target.value,
+                  }))
+                }
+                value={form.obsidianBlueprintPath}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-obsidian-log">Log path</Label>
+              <Input
+                autoComplete="off"
+                disabled={isBusy}
+                id="supervisor-obsidian-log"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    obsidianLogPath: event.target.value,
+                  }))
+                }
+                value={form.obsidianLogPath}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-obsidian-limit">Search limit</Label>
+              <Input
+                disabled={isBusy}
+                id="supervisor-obsidian-limit"
+                max={20}
+                min={1}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    obsidianSearchLimit: event.target.value,
+                  }))
+                }
+                type="number"
+                value={form.obsidianSearchLimit}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-obsidian-timeout">
+                Command timeout
+              </Label>
+              <Input
+                disabled={isBusy}
+                id="supervisor-obsidian-timeout"
+                max={60000}
+                min={1000}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    obsidianTimeoutMs: event.target.value,
+                  }))
+                }
+                type="number"
+                value={form.obsidianTimeoutMs}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            disabled={
+              isBusy ||
+              !hasChanges ||
+              missingModel ||
+              missingDeepSeekKey ||
+              missingWebSearchApiKey ||
+              missingObsidianCommand ||
+              missingObsidianSearchPath ||
+              invalidNumbers
+            }
+            type="submit"
+          >
+            <Save className="mr-2 h-4 w-4" />
+            Save Supervisor
+          </Button>
+        </div>
+      </form>
     </SettingsSection>
   );
 }

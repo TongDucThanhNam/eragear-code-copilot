@@ -53,11 +53,25 @@ interface CreateServiceOptions {
   failProjectActiveIdRead?: boolean;
   backgroundRunnerState?: BackgroundRunnerState | null;
   settingsChangeNotifications?: SettingsChangedNotification[];
+  projectIndexEmbedding?: Pick<
+    AppConfig,
+    | "projectIndexEmbeddingEndpoint"
+    | "projectIndexEmbeddingModel"
+    | "projectIndexEmbeddingApiKey"
+    | "projectIndexEmbeddingTimeoutMs"
+  >;
 }
 
 interface MockEmbeddingServerContext {
   calls: string[][];
   url: string;
+  embeddingConfig: Pick<
+    AppConfig,
+    | "projectIndexEmbeddingEndpoint"
+    | "projectIndexEmbeddingModel"
+    | "projectIndexEmbeddingApiKey"
+    | "projectIndexEmbeddingTimeoutMs"
+  >;
 }
 
 beforeEach(async () => {
@@ -122,9 +136,6 @@ function mockEmbeddingVector(text: string): number[] {
 async function withMockEmbeddingServer(
   run: (context: MockEmbeddingServerContext) => Promise<void>
 ): Promise<void> {
-  const previousEndpoint = process.env.ERAGEAR_EMBEDDINGS_ENDPOINT;
-  const previousModel = process.env.ERAGEAR_EMBEDDINGS_MODEL;
-  const previousApiKey = process.env.ERAGEAR_EMBEDDINGS_API_KEY;
   const calls: string[][] = [];
   const server = createServer((request, response) => {
     void (async () => {
@@ -161,30 +172,22 @@ async function withMockEmbeddingServer(
     server.listen(0, "127.0.0.1", resolve);
   });
   const address = server.address() as AddressInfo;
-  process.env.ERAGEAR_EMBEDDINGS_ENDPOINT = `http://127.0.0.1:${address.port}/v1/embeddings`;
-  process.env.ERAGEAR_EMBEDDINGS_MODEL = "mock-embedding";
-  process.env.ERAGEAR_EMBEDDINGS_API_KEY = "embedding-secret";
+  const url = `http://127.0.0.1:${address.port}/v1/embeddings`;
   try {
-    await run({ calls, url: process.env.ERAGEAR_EMBEDDINGS_ENDPOINT });
+    await run({
+      calls,
+      url,
+      embeddingConfig: {
+        projectIndexEmbeddingEndpoint: url,
+        projectIndexEmbeddingModel: "mock-embedding",
+        projectIndexEmbeddingApiKey: "embedding-secret",
+        projectIndexEmbeddingTimeoutMs: 10_000,
+      },
+    });
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
-    if (previousEndpoint === undefined) {
-      process.env.ERAGEAR_EMBEDDINGS_ENDPOINT = undefined;
-    } else {
-      process.env.ERAGEAR_EMBEDDINGS_ENDPOINT = previousEndpoint;
-    }
-    if (previousModel === undefined) {
-      process.env.ERAGEAR_EMBEDDINGS_MODEL = undefined;
-    } else {
-      process.env.ERAGEAR_EMBEDDINGS_MODEL = previousModel;
-    }
-    if (previousApiKey === undefined) {
-      process.env.ERAGEAR_EMBEDDINGS_API_KEY = undefined;
-    } else {
-      process.env.ERAGEAR_EMBEDDINGS_API_KEY = previousApiKey;
-    }
   }
 }
 
@@ -322,6 +325,32 @@ function createService(
     logLevel: "info",
     maxTokens: 4096,
     defaultModel: options.defaultModel ?? "",
+    supervisorEnabled: false,
+    supervisorModel: "",
+    supervisorDeepSeekApiKey: "",
+    supervisorDecisionTimeoutMs: 30_000,
+    supervisorDecisionMaxAttempts: 2,
+    supervisorMaxRuntimeMs: 1_800_000,
+    supervisorMaxRepeatedPrompts: 20,
+    supervisorWebSearchProvider: "none",
+    supervisorWebSearchApiKey: "",
+    supervisorMemoryProvider: "none",
+    supervisorObsidianCommand: "obsidian",
+    supervisorObsidianVault: "",
+    supervisorObsidianBlueprintPath: "",
+    supervisorObsidianLogPath: "",
+    supervisorObsidianSearchPath: "Project",
+    supervisorObsidianSearchLimit: 3,
+    supervisorObsidianTimeoutMs: 5000,
+    projectIndexEmbeddingEndpoint:
+      options.projectIndexEmbedding?.projectIndexEmbeddingEndpoint ?? "",
+    projectIndexEmbeddingModel:
+      options.projectIndexEmbedding?.projectIndexEmbeddingModel ??
+      "text-embedding-3-small",
+    projectIndexEmbeddingApiKey:
+      options.projectIndexEmbedding?.projectIndexEmbeddingApiKey ?? "",
+    projectIndexEmbeddingTimeoutMs:
+      options.projectIndexEmbedding?.projectIndexEmbeddingTimeoutMs ?? 10_000,
     acpPromptMetaPolicy: "allowlist",
     acpPromptMetaAllowlist: [],
   };
@@ -331,6 +360,7 @@ function createService(
       accentColor: "#3b82f6",
       density: "comfortable",
       fontScale: 1,
+      showReasoning: true,
     },
     projectRoots: [tempRoot],
     mcpServers: [],
@@ -1218,8 +1248,10 @@ test("builds model-backed project memory context when embeddings are configured"
     "utf8"
   );
 
-  await withMockEmbeddingServer(async ({ calls }) => {
-    const service = createService();
+  await withMockEmbeddingServer(async ({ calls, embeddingConfig }) => {
+    const service = createService([], {
+      projectIndexEmbedding: embeddingConfig,
+    });
     const context = await service.buildProjectMemoryContext(userId, {
       query: "rollback safety checkpoint",
       sourcePaths: [".eragear/context.md"],
@@ -1492,8 +1524,10 @@ test("refreshes project index with model-backed embedding vectors", async () => 
     "utf8"
   );
 
-  await withMockEmbeddingServer(async ({ calls }) => {
-    const service = createService();
+  await withMockEmbeddingServer(async ({ calls, embeddingConfig }) => {
+    const service = createService([], {
+      projectIndexEmbedding: embeddingConfig,
+    });
     const snapshot = await service.refreshProjectIndex(userId, {});
     const stored = JSON.parse(
       await readFile(path.join(tempRoot, ".eragear", "repo-index.json"), "utf8")
@@ -5622,7 +5656,7 @@ test("initializes HTTP MCP entries with header env policy and redaction", async 
       "ERAGEAR_TEST_MCP_AUTH"
     );
 
-    process.env.ERAGEAR_TEST_MCP_AUTH = undefined;
+    Reflect.deleteProperty(process.env, "ERAGEAR_TEST_MCP_AUTH");
     const missing = await service.upsertMcpServer(userId, {
       id: "missing-http-mcp",
       name: "Missing HTTP runtime probe",
@@ -5660,7 +5694,7 @@ test("initializes HTTP MCP entries with header env policy and redaction", async 
     ).rejects.toThrow("literal secret headers");
   } finally {
     if (previous === undefined) {
-      process.env.ERAGEAR_TEST_MCP_AUTH = undefined;
+      Reflect.deleteProperty(process.env, "ERAGEAR_TEST_MCP_AUTH");
     } else {
       process.env.ERAGEAR_TEST_MCP_AUTH = previous;
     }

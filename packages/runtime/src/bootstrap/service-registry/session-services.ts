@@ -158,7 +158,7 @@ export function createSessionUseCases(
     deps.sessionRepo,
     deps.sessionRuntime,
     deps.projectRepo,
-    deps.supervisorPolicy.enabled
+    () => deps.supervisorPolicy.enabled
   );
   const updateSessionMetaService = new UpdateSessionMetaService(
     deps.sessionRepo

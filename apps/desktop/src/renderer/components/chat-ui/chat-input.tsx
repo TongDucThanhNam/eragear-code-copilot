@@ -3,8 +3,6 @@
 
 import type {
   SessionConfigOption,
-  SupervisorDecisionSummary,
-  SupervisorSessionState,
 } from "@eragear-code-copilot/shared";
 import {
   CheckIcon,
@@ -111,7 +109,6 @@ import {
   resolvePromptInputSubmitStatus,
 } from "./chat-input-submit-status";
 import type { SlashCommand, SlashCommandPopupRef } from "./slash-command-popup";
-import { SupervisorControl } from "./supervisor-control";
 
 export type ChatInputStatus =
   | "inactive"
@@ -144,12 +141,6 @@ export interface ChatInputProps {
   availableConfigOptions: SessionConfigOption[];
   onConfigOptionChange: (configId: string, value: string) => void;
   onSubmit: (message: PromptInputMessage) => void | Promise<void>;
-  // Supervisor props
-  supervisor: SupervisorSessionState | null;
-  supervisorCapable: boolean;
-  isSettingSupervisorMode: boolean;
-  lastSupervisorDecision: SupervisorDecisionSummary | null;
-  onSetSupervisorMode: (mode: "off" | "full_autopilot") => Promise<void>;
   // Context Props
   activeTabs?: { path: string }[];
   projectRules?: { path: string; location: string }[];
@@ -341,11 +332,6 @@ export const ChatInput = memo(function ChatInput({
   availableConfigOptions,
   onConfigOptionChange,
   onSubmit,
-  supervisor,
-  supervisorCapable,
-  isSettingSupervisorMode,
-  lastSupervisorDecision,
-  onSetSupervisorMode,
   activeTabs = [],
   projectRules = [],
   availableCommands = [],
@@ -795,14 +781,6 @@ export const ChatInput = memo(function ChatInput({
     []
   );
 
-  // Supervisor visibility gate debug — logs inputs that control SupervisorControl render
-  useEffect(() => {
-    const willRender = connStatus === "connected" && supervisorCapable;
-    console.debug(
-      `[SupervisorDebug] visibility inputs — connStatus=${connStatus} supervisorCapable=${supervisorCapable} supervisorMode=${supervisor?.mode ?? "null"} supervisorStatus=${supervisor?.status ?? "null"} supervisorReason=${supervisor?.reason ?? "null"} willRender=${willRender}`
-    );
-  }, [connStatus, supervisorCapable, supervisor]);
-
   const isStreaming = status === "streaming";
   const submitStatus = resolvePromptInputSubmitStatus({
     connStatus,
@@ -905,17 +883,6 @@ export const ChatInput = memo(function ChatInput({
               )}
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
-
-          {connStatus === "connected" && supervisorCapable && (
-            <SupervisorControl
-              isPending={isSettingSupervisorMode}
-              lastDecision={lastSupervisorDecision}
-              mode={supervisor?.mode ?? "off"}
-              onSetMode={onSetSupervisorMode}
-              reason={supervisor?.reason ?? null}
-              status={supervisor?.status ?? "idle"}
-            />
-          )}
 
           {connStatus === "connected" &&
             configSelectors.map((option) => (

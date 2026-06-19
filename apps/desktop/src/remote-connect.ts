@@ -14,6 +14,10 @@ import type {
   RuntimeServiceResponseMessage,
   RuntimeServiceSubscriptionEventMessage,
 } from "@eragear-code-copilot/shared";
+import {
+  createDefaultDesktopSettings,
+  type DesktopRemoteConnectSettings,
+} from "./desktop-settings.js";
 
 const DEFAULT_REMOTE_CONNECT_HOST = "127.0.0.1";
 const DEFAULT_REMOTE_CONNECT_BODY_LIMIT_BYTES = 512 * 1024;
@@ -73,30 +77,36 @@ export interface RemoteConnectHostOptions {
 export function resolveRemoteConnectConfig(
   env: NodeJS.ProcessEnv = process.env
 ): RemoteConnectConfig {
-  const enabled = toBoolean(env.ERAGEAR_REMOTE_CONNECT_ENABLED, false);
-  const host =
-    env.ERAGEAR_REMOTE_CONNECT_HOST?.trim() || DEFAULT_REMOTE_CONNECT_HOST;
-  const port = toPort(env.ERAGEAR_REMOTE_CONNECT_PORT, 0);
-  const accessToken = env.ERAGEAR_REMOTE_CONNECT_TOKEN?.trim() ?? "";
-  const bodyLimitBytes = toPositiveInteger(
-    env.ERAGEAR_REMOTE_CONNECT_BODY_LIMIT_BYTES,
-    DEFAULT_REMOTE_CONNECT_BODY_LIMIT_BYTES
+  return resolveRemoteConnectConfigFromSettings(
+    createDefaultDesktopSettings(env).remoteConnect
   );
-  const allowedOrigins = toList(env.ERAGEAR_REMOTE_CONNECT_ALLOWED_ORIGINS);
-  const tunnelMode = resolveTunnelMode(env.ERAGEAR_REMOTE_CONNECT_TUNNEL_MODE);
-  const tunnelToken = env.ERAGEAR_CLOUDFLARED_TUNNEL_TOKEN?.trim() ?? "";
-  const cloudflareAccessClientId =
-    env.ERAGEAR_REMOTE_CONNECT_CF_ACCESS_CLIENT_ID?.trim() ?? "";
+}
+
+export function resolveRemoteConnectConfigFromSettings(
+  settings: DesktopRemoteConnectSettings
+): RemoteConnectConfig {
+  const enabled = settings.enabled;
+  const host = settings.host.trim() || DEFAULT_REMOTE_CONNECT_HOST;
+  const port = settings.port;
+  const accessToken = settings.accessToken.trim();
+  const bodyLimitBytes =
+    settings.bodyLimitBytes > 0
+      ? settings.bodyLimitBytes
+      : DEFAULT_REMOTE_CONNECT_BODY_LIMIT_BYTES;
+  const allowedOrigins = settings.allowedOrigins;
+  const tunnelMode = settings.tunnelMode;
+  const tunnelToken = settings.tunnelToken.trim();
+  const cloudflareAccessClientId = settings.cloudflareAccessClientId.trim();
   const cloudflareAccessClientSecret =
-    env.ERAGEAR_REMOTE_CONNECT_CF_ACCESS_CLIENT_SECRET?.trim() ?? "";
+    settings.cloudflareAccessClientSecret.trim();
   const validationErrors: string[] = [];
 
   if (enabled && !isLoopbackHost(host)) {
-    validationErrors.push("ERAGEAR_REMOTE_CONNECT_HOST must be loopback-only.");
+    validationErrors.push("Remote Connect host must be loopback-only.");
   }
   if (enabled && accessToken.length < MIN_REMOTE_CONNECT_TOKEN_LENGTH) {
     validationErrors.push(
-      `ERAGEAR_REMOTE_CONNECT_TOKEN must be at least ${MIN_REMOTE_CONNECT_TOKEN_LENGTH} characters.`
+      `Remote Connect token must be at least ${MIN_REMOTE_CONNECT_TOKEN_LENGTH} characters.`
     );
   }
   if (
@@ -105,7 +115,7 @@ export function resolveRemoteConnectConfig(
     tunnelToken.length < MIN_REMOTE_CONNECT_TOKEN_LENGTH
   ) {
     validationErrors.push(
-      "ERAGEAR_CLOUDFLARED_TUNNEL_TOKEN is required for named tunnels."
+      "Cloudflared tunnel token is required for named tunnels."
     );
   }
   if (
@@ -117,7 +127,7 @@ export function resolveRemoteConnectConfig(
     )
   ) {
     validationErrors.push(
-      "ERAGEAR_REMOTE_CONNECT_CF_ACCESS_CLIENT_ID and ERAGEAR_REMOTE_CONNECT_CF_ACCESS_CLIENT_SECRET must be set together."
+      "Cloudflare Access client id and secret must be set together."
     );
   }
 
@@ -138,12 +148,12 @@ export function resolveRemoteConnectConfig(
       : {}),
     tunnel: {
       mode: tunnelMode,
-      executablePath: env.ERAGEAR_CLOUDFLARED_PATH?.trim() || "cloudflared",
+      executablePath: settings.cloudflaredPath.trim() || "cloudflared",
       ...(tunnelToken ? { token: tunnelToken } : {}),
-      ...(env.ERAGEAR_REMOTE_CONNECT_PUBLIC_URL?.trim()
-        ? { publicUrl: env.ERAGEAR_REMOTE_CONNECT_PUBLIC_URL.trim() }
+      ...(settings.tunnelPublicUrl.trim()
+        ? { publicUrl: settings.tunnelPublicUrl.trim() }
         : {}),
-      noAutoupdate: toBoolean(env.ERAGEAR_CLOUDFLARED_NO_AUTOUPDATE, true),
+      noAutoupdate: settings.cloudflaredNoAutoupdate,
     },
     validationErrors,
   };
@@ -722,50 +732,6 @@ class CloudflaredTunnelProcess {
   messages(): string[] {
     return [...this.tunnelMessages];
   }
-}
-
-function resolveTunnelMode(
-  value: string | undefined
-): DesktopRemoteConnectTunnelMode {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === "quick" || normalized === "named") {
-    return normalized;
-  }
-  return "off";
-}
-
-function toBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined || value.trim() === "") {
-    return fallback;
-  }
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
-}
-
-function toPort(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  if (Number.isInteger(parsed) && parsed >= 0 && parsed < 65_536) {
-    return parsed;
-  }
-  return fallback;
-}
-
-function toPositiveInteger(
-  value: string | undefined,
-  fallback: number
-): number {
-  const parsed = Number(value);
-  if (Number.isInteger(parsed) && parsed > 0) {
-    return parsed;
-  }
-  return fallback;
-}
-
-function toList(value: string | undefined): string[] {
-  return (value ?? "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function isLoopbackHost(host: string): boolean {

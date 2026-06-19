@@ -8,7 +8,7 @@ import {
 describe("settings navigation IA", () => {
   test("keeps every existing settings route in the grouped model", () => {
     expect(SETTINGS_NAV_GROUPS).toHaveLength(6);
-    expect(SETTINGS_NAV_ITEMS).toHaveLength(28);
+    expect(SETTINGS_NAV_ITEMS).toHaveLength(29);
 
     const uniqueRoutes = new Set(SETTINGS_NAV_ITEMS.map((item) => item.to));
 

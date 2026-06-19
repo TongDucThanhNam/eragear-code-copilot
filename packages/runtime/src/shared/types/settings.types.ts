@@ -18,9 +18,13 @@ export interface UiSettings {
   density: "comfortable" | "compact";
   /** Font scale factor (0.8 to 1.3) */
   fontScale: number;
+  /** Whether ACP thought chunks are recorded as visible reasoning parts */
+  showReasoning: boolean;
 }
 
 export type AcpPromptMetaPolicy = "allowlist" | "always" | "never";
+export type SupervisorWebSearchProvider = "none" | "exa";
+export type SupervisorMemoryProvider = "none" | "obsidian";
 
 /**
  * Runtime application configuration (hot-reload without restart)
@@ -38,6 +42,48 @@ export interface AppConfig {
   maxTokens: number;
   /** Preferred model to apply for new sessions when available */
   defaultModel: string;
+  /** Whether project supervisor features are enabled in the local runtime */
+  supervisorEnabled: boolean;
+  /** Model id used for supervisor decisions */
+  supervisorModel: string;
+  /** DeepSeek API key used when supervisorModel targets DeepSeek */
+  supervisorDeepSeekApiKey: string;
+  /** Timeout for one supervisor decision in milliseconds */
+  supervisorDecisionTimeoutMs: number;
+  /** Maximum retry attempts for one supervisor decision */
+  supervisorDecisionMaxAttempts: number;
+  /** Maximum supervisor loop runtime in milliseconds */
+  supervisorMaxRuntimeMs: number;
+  /** Maximum repeated prompts before supervisor halts */
+  supervisorMaxRepeatedPrompts: number;
+  /** Optional web search provider used by supervisor research */
+  supervisorWebSearchProvider: SupervisorWebSearchProvider;
+  /** API key for the configured supervisor web search provider */
+  supervisorWebSearchApiKey: string;
+  /** Optional local memory provider used by supervisor decisions */
+  supervisorMemoryProvider: SupervisorMemoryProvider;
+  /** Command used for Obsidian supervisor memory integration */
+  supervisorObsidianCommand: string;
+  /** Optional Obsidian vault name for supervisor memory */
+  supervisorObsidianVault: string;
+  /** Optional Obsidian blueprint path for supervisor memory */
+  supervisorObsidianBlueprintPath: string;
+  /** Optional Obsidian log path for supervisor memory */
+  supervisorObsidianLogPath: string;
+  /** Obsidian search path for supervisor memory */
+  supervisorObsidianSearchPath: string;
+  /** Maximum Obsidian search results for supervisor memory */
+  supervisorObsidianSearchLimit: number;
+  /** Timeout for one Obsidian memory command in milliseconds */
+  supervisorObsidianTimeoutMs: number;
+  /** Optional endpoint for model-backed Project Memory and Project Index embeddings */
+  projectIndexEmbeddingEndpoint: string;
+  /** Embedding model id used by Project Memory and Project Index */
+  projectIndexEmbeddingModel: string;
+  /** Optional API key for the configured embedding endpoint */
+  projectIndexEmbeddingApiKey: string;
+  /** Timeout for one embedding request in milliseconds */
+  projectIndexEmbeddingTimeoutMs: number;
   /** Policy controlling whether prompt metadata (_meta) is attached to ACP prompt requests */
   acpPromptMetaPolicy: AcpPromptMetaPolicy;
   /** Allowlist used when acpPromptMetaPolicy=allowlist */

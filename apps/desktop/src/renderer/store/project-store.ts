@@ -15,6 +15,20 @@ export interface Project {
   lastOpenedAt?: number | null;
 }
 
+export function upsertProjectList<T extends { id: string }>(
+  projects: T[],
+  project: T
+): T[] {
+  const existingIndex = projects.findIndex((item) => item.id === project.id);
+  if (existingIndex === -1) {
+    return [...projects, project];
+  }
+
+  const nextProjects = [...projects];
+  nextProjects[existingIndex] = project;
+  return nextProjects;
+}
+
 interface ProjectState {
   projects: Project[];
   activeProjectId: string | null;
@@ -50,7 +64,7 @@ export const useProjectStore = create<ProjectState>()(
 
       addProject: (project) =>
         set((state) => ({
-          projects: [...state.projects, project],
+          projects: upsertProjectList(state.projects, project),
           activeProjectId: state.activeProjectId ?? project.id,
         })),
 

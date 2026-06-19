@@ -92,6 +92,21 @@ export type ToolViewState =
   | "cancelled"
   | "approval-requested";
 
+export type ChainDisplayItem =
+  | {
+      kind: "part";
+      itemKey: string;
+      part: UIMessagePart;
+      originalIndex: number;
+    }
+  | {
+      kind: "tool-group";
+      itemKey: string;
+      tools: ToolUIPart[];
+      originalStartIndex: number;
+      originalEndIndex: number;
+    };
+
 export const toToolViewState = (tool: ToolUIPart): ToolViewState => {
   switch (tool.state) {
     case "input-streaming":
@@ -158,50 +173,114 @@ export interface ParsedToolOutput {
   result: ToolUIPart["output"];
   terminalIds: string[];
   changedFilePaths: string[];
+  changedFiles: ParsedToolChangedFile[];
 }
+
+export interface ParsedToolChangedFile {
+  path: string;
+  addedLines?: number;
+  removedLines?: number;
+}
+
+const countTextLines = (value: string) => {
+  const normalized = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const withoutTrailingNewlines = normalized.replace(/\n+$/g, "");
+  return withoutTrailingNewlines.length > 0
+    ? withoutTrailingNewlines.split("\n").length
+    : 0;
+};
+
+const readDiffChangedFile = (value: unknown): ParsedToolChangedFile | null => {
+  if (
+    !(
+      value &&
+      typeof value === "object" &&
+      "type" in value &&
+      (value as { type?: unknown }).type === "diff" &&
+      typeof (value as { path?: unknown }).path === "string"
+    )
+  ) {
+    return null;
+  }
+
+  const diff = value as unknown as {
+    path: string;
+    oldText?: unknown;
+    newText?: unknown;
+  };
+  return {
+    path: diff.path,
+    ...(typeof diff.newText === "string"
+      ? { addedLines: countTextLines(diff.newText) }
+      : {}),
+    ...(typeof diff.oldText === "string"
+      ? { removedLines: countTextLines(diff.oldText) }
+      : {}),
+  };
+};
+
+const mergeChangedFile = (
+  files: Map<string, ParsedToolChangedFile>,
+  file: ParsedToolChangedFile
+) => {
+  const existing = files.get(file.path);
+  if (!existing) {
+    files.set(file.path, file);
+    return;
+  }
+
+  files.set(file.path, {
+    path: file.path,
+    ...(existing.addedLines !== undefined || file.addedLines !== undefined
+      ? { addedLines: (existing.addedLines ?? 0) + (file.addedLines ?? 0) }
+      : {}),
+    ...(existing.removedLines !== undefined || file.removedLines !== undefined
+      ? {
+          removedLines: (existing.removedLines ?? 0) + (file.removedLines ?? 0),
+        }
+      : {}),
+  });
+};
 
 export const parseToolOutput = (
   output: ToolUIPart["output"]
 ): ParsedToolOutput => {
   if (!Array.isArray(output)) {
-    if (
-      output &&
-      typeof output === "object" &&
-      "type" in output &&
-      (output as { type?: unknown }).type === "diff" &&
-      typeof (output as { path?: unknown }).path === "string"
-    ) {
+    const changedFile = readDiffChangedFile(output);
+    if (changedFile) {
       return {
         result: undefined,
         terminalIds: [],
-        changedFilePaths: [(output as unknown as { path: string }).path],
+        changedFilePaths: [changedFile.path],
+        changedFiles: [changedFile],
       };
     }
     return {
       result: output,
       terminalIds: [],
       changedFilePaths: [],
+      changedFiles: [],
     };
   }
   const terminalIds = new Set<string>();
-  const changedFilePaths = new Set<string>();
+  const changedFiles = new Map<string, ParsedToolChangedFile>();
   const textParts: string[] = [];
   const residualItems: unknown[] = [];
   for (const item of output) {
     let handled = false;
+    const changedFile = readDiffChangedFile(item);
+    if (changedFile) {
+      mergeChangedFile(changedFiles, changedFile);
+      handled = true;
+    }
     if (item && typeof item === "object" && "type" in item) {
       const typed = item as {
         type: string;
         terminalId?: string;
-        path?: string;
         content?: { type?: string; text?: string };
       };
       if (typed.type === "terminal" && typed.terminalId) {
         terminalIds.add(typed.terminalId);
-        handled = true;
-      }
-      if (typed.type === "diff" && typed.path) {
-        changedFilePaths.add(typed.path);
         handled = true;
       }
       if (
@@ -230,7 +309,8 @@ export const parseToolOutput = (
   return {
     result,
     terminalIds: Array.from(terminalIds),
-    changedFilePaths: Array.from(changedFilePaths),
+    changedFilePaths: Array.from(changedFiles.keys()),
+    changedFiles: Array.from(changedFiles.values()),
   };
 };
 
@@ -368,4 +448,59 @@ export const deduplicateKeys = (
     seen.set(base, count + 1);
     return `${base}#${count}`;
   });
+};
+
+const isToolPart = (part: UIMessagePart): part is ToolUIPart =>
+  part.type.startsWith("tool-");
+
+export const groupChainDisplayItems = (
+  items: UIMessagePart[],
+  itemKeys: string[] = deduplicateKeys(items)
+): ChainDisplayItem[] => {
+  const groups: ChainDisplayItem[] = [];
+  let index = 0;
+
+  while (index < items.length) {
+    const part = items[index];
+    if (!(part && isToolPart(part))) {
+      if (part) {
+        groups.push({
+          kind: "part",
+          itemKey: itemKeys[index] ?? getPartKey(part, index),
+          part,
+          originalIndex: index,
+        });
+      }
+      index += 1;
+      continue;
+    }
+
+    const tools = [part];
+    let endIndex = index;
+
+    while (endIndex + 1 < items.length) {
+      const nextPart = items[endIndex + 1];
+      if (!(nextPart && isToolPart(nextPart))) {
+        break;
+      }
+      tools.push(nextPart);
+      endIndex += 1;
+    }
+
+    const firstTool = tools[0];
+    const lastTool = tools[tools.length - 1];
+    groups.push({
+      kind: "tool-group",
+      itemKey: `tool-group:${itemKeys[index] ?? getPartKey(firstTool, index)}:${
+        itemKeys[endIndex] ?? getPartKey(lastTool, endIndex)
+      }`,
+      tools,
+      originalStartIndex: index,
+      originalEndIndex: endIndex,
+    });
+
+    index = endIndex + 1;
+  }
+
+  return groups;
 };

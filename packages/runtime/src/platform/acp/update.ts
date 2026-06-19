@@ -736,7 +736,10 @@ async function handleSessionInfoUpdate(
  */
 export function createSessionUpdateHandler(
   sessionRuntime: SessionRuntimePort,
-  sessionRepo: SessionRepositoryPort
+  sessionRepo: SessionRepositoryPort,
+  options: {
+    isReasoningEnabled?: () => boolean;
+  } = {}
 ) {
   let updateTail: Promise<void> = Promise.resolve();
   const pipeline = createSessionUpdatePipeline();
@@ -750,6 +753,7 @@ export function createSessionUpdateHandler(
     const runUpdate = updateTail.then(async () => {
       const { chatId, buffer, isReplayingHistory, update } = params;
       const turnIdResolution = resolveSessionUpdateTurnId(update);
+      const recordReasoning = options.isReasoningEnabled?.() ?? true;
 
       trackReplayEvents(buffer, isReplayingHistory, update);
 
@@ -780,6 +784,7 @@ export function createSessionUpdateHandler(
           suppressReplay,
           update,
           turnIdResolution,
+          recordReasoning,
           sessionRuntime,
           sessionRepo,
           summary,
@@ -815,6 +820,7 @@ async function processSessionUpdateUnderLock(params: {
   suppressReplay: boolean;
   update: SessionUpdate;
   turnIdResolution: ReturnType<typeof resolveSessionUpdateTurnId>;
+  recordReasoning: boolean;
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
   summary: ReturnType<typeof summarizeUpdate> | undefined;
@@ -828,6 +834,7 @@ async function processSessionUpdateUnderLock(params: {
     suppressReplay,
     update,
     turnIdResolution,
+    recordReasoning,
     sessionRuntime,
     sessionRepo,
     summary,
@@ -845,6 +852,9 @@ async function processSessionUpdateUnderLock(params: {
   ) {
     return;
   }
+  if (update.sessionUpdate === "agent_thought_chunk" && !recordReasoning) {
+    return;
+  }
 
   await maybeMarkStreaming(chatId, isReplayingHistory, update, sessionRuntime);
   clearCurrentUserStreamPointer(chatId, update, sessionRuntime);
@@ -856,6 +866,7 @@ async function processSessionUpdateUnderLock(params: {
     suppressReplayBroadcast: suppressReplay,
     update,
     turnIdResolution,
+    recordReasoning,
     sessionRuntime,
     sessionRepo,
     finalizeStreamingForCurrentAssistant,

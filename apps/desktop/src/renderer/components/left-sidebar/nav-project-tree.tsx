@@ -25,7 +25,7 @@ import { chatDebug } from "@/hooks/use-chat-debug";
 import { trpc } from "@/lib/trpc";
 import { useChatStatusStore } from "@/store/chat-status-store";
 import { useChatStreamStore } from "@/store/chat-stream-store";
-import { useProjectStore } from "@/store/project-store";
+import { upsertProjectList, useProjectStore } from "@/store/project-store";
 import { NavProjectTreeDialogs } from "./nav-project-tree/dialogs";
 import { ProjectRow } from "./nav-project-tree/project-row";
 import { SessionList } from "./nav-project-tree/session-list";
@@ -191,9 +191,20 @@ export function NavProjectTree({ sessions }: NavProjectTreeProps) {
 
   const createProjectMutation = trpc.createProject.useMutation({
     onSuccess: (project) => {
+      trpcUtils.listProjects.setData(undefined, (current) => ({
+        projects: upsertProjectList(current?.projects ?? [], project),
+        activeProjectId: project.id,
+      }));
       addProject(project);
       setActiveProjectId(project.id);
-      setActiveMutation.mutate({ id: project.id });
+      setActiveMutation.mutate(
+        { id: project.id },
+        {
+          onSettled: () => {
+            void trpcUtils.listProjects.invalidate();
+          },
+        }
+      );
       setIsDialogOpen(false);
       setForm({
         name: "",

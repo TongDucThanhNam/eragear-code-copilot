@@ -618,6 +618,32 @@ describe("createSessionUpdateHandler", () => {
     }
   });
 
+  test("drops thought chunks before UI mutation when reasoning is disabled", async () => {
+    const session = createSession("chat-reasoning-disabled");
+    session.activeTurnId = "turn-live";
+    const { runtime, events } = createRuntime(session);
+    const { repo } = createRepo();
+    const handler = createSessionUpdateHandler(runtime, repo, {
+      isReasoningEnabled: () => false,
+    });
+
+    await handler({
+      chatId: session.id,
+      buffer: new SessionBuffering(),
+      isReplayingHistory: false,
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        turnId: "turn-live",
+        content: { type: "text", text: "hidden thought" },
+      } as never,
+    });
+
+    expect(session.uiState.currentAssistantId).toBeUndefined();
+    expect(session.uiState.messages.size).toBe(0);
+    expect(session.lastAssistantChunkType).toBeUndefined();
+    expect(events).toHaveLength(0);
+  });
+
   test("serializes concurrent stream chunk updates without content loss", async () => {
     const session = createSession("chat-stream-concurrent");
     const { runtime } = createLockedRuntime(session);

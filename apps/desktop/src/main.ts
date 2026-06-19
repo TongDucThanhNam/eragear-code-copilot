@@ -30,8 +30,17 @@ import {
   type IntegratedBrowserOpenInput,
 } from "./browser-integration.js";
 import {
+  applyDesktopRemoteConnectSettingsPatch,
+  createRandomRemoteConnectToken,
+  type DesktopRemoteConnectSettings,
+  type DesktopRemoteConnectSettingsPatch,
+  type DesktopSettings,
+  loadDesktopSettings,
+  saveDesktopSettings,
+} from "./desktop-settings.js";
+import {
   DesktopRemoteConnectHost,
-  resolveRemoteConnectConfig,
+  resolveRemoteConnectConfigFromSettings,
 } from "./remote-connect.js";
 import { DesktopRuntimeHost } from "./runtime-host.js";
 import {
@@ -60,11 +69,18 @@ const runtimePort = parsePort(
 const rendererUrl =
   process.env.ERAGEAR_DESKTOP_RENDERER_URL ?? DEFAULT_RENDERER_URL;
 configureDevelopmentUserDataPath(rendererUrl);
+const desktopSettingsUserDataPath = app.getPath("userData");
+let desktopSettings: DesktopSettings = loadDesktopSettings({
+  userDataPath: desktopSettingsUserDataPath,
+  env: process.env,
+});
 const remoteRuntimeUrl = normalizeRemoteRuntimeUrl(
   process.env.ERAGEAR_REMOTE_SERVER_URL
 );
-const remoteConnectToken = process.env.ERAGEAR_REMOTE_CONNECT_TOKEN?.trim();
-const remoteConnectCloudflareAccess = resolveRemoteConnectCloudflareAccess();
+const remoteConnectToken = desktopSettings.remoteConnect.accessToken.trim();
+const remoteConnectCloudflareAccess = resolveRemoteConnectCloudflareAccess(
+  desktopSettings.remoteConnect
+);
 const repoRoot = resolveRepoRoot();
 const webPreferences: NonNullable<
   BrowserWindowConstructorOptions["webPreferences"]
@@ -94,8 +110,13 @@ const runtimeHost = new DesktopRuntimeHost({
 });
 const remoteConnectConfig =
   desktopMode === "main-thread"
-    ? resolveRemoteConnectConfig(process.env)
-    : { ...resolveRemoteConnectConfig(process.env), enabled: false };
+    ? resolveRemoteConnectConfigFromSettings(desktopSettings.remoteConnect)
+    : {
+        ...resolveRemoteConnectConfigFromSettings(
+          desktopSettings.remoteConnect
+        ),
+        enabled: false,
+      };
 const remoteConnectHost = new DesktopRemoteConnectHost({
   config: remoteConnectConfig,
   runtime: runtimeHost,
@@ -154,13 +175,11 @@ function normalizeRemoteRuntimeUrl(rawValue: string | undefined): string {
   }
 }
 
-function resolveRemoteConnectCloudflareAccess():
-  | { clientId: string; clientSecret: string }
-  | undefined {
-  const clientId =
-    process.env.ERAGEAR_REMOTE_CONNECT_CF_ACCESS_CLIENT_ID?.trim();
-  const clientSecret =
-    process.env.ERAGEAR_REMOTE_CONNECT_CF_ACCESS_CLIENT_SECRET?.trim();
+function resolveRemoteConnectCloudflareAccess(
+  settings: DesktopRemoteConnectSettings
+): { clientId: string; clientSecret: string } | undefined {
+  const clientId = settings.cloudflareAccessClientId.trim();
+  const clientSecret = settings.cloudflareAccessClientSecret.trim();
   if (!(clientId && clientSecret)) {
     return undefined;
   }
@@ -307,9 +326,13 @@ function createMainWindow(): void {
 
 function getDesktopBootstrap() {
   const remoteConnect = remoteConnectHost.status();
+  const configuredRemoteConnectToken =
+    desktopSettings.remoteConnect.accessToken.trim();
   return {
     ...runtimeHost.getBootstrap(),
-    ...(remoteConnect.enabled || remoteConnectToken ? { remoteConnect } : {}),
+    ...(remoteConnect.enabled || configuredRemoteConnectToken
+      ? { remoteConnect }
+      : {}),
     autoUpdate: autoUpdateController.status(),
   };
 }
@@ -331,6 +354,28 @@ ipcMain.handle("eragear:getRuntimeDiagnostics", () =>
 );
 ipcMain.handle("eragear:getRemoteConnectStatus", () =>
   remoteConnectHost.status()
+);
+ipcMain.handle("eragear:desktopSettings:get", () => desktopSettings);
+ipcMain.handle(
+  "eragear:desktopSettings:updateRemoteConnect",
+  (_event, patch: DesktopRemoteConnectSettingsPatch) => {
+    desktopSettings = applyDesktopRemoteConnectSettingsPatch(
+      desktopSettings,
+      patch
+    );
+    desktopSettings = saveDesktopSettings({
+      userDataPath: desktopSettingsUserDataPath,
+      settings: desktopSettings,
+    });
+    return {
+      settings: desktopSettings,
+      remoteConnect: remoteConnectHost.status(),
+      restartRequired: true,
+    };
+  }
+);
+ipcMain.handle("eragear:desktopSettings:createRemoteConnectToken", () =>
+  createRandomRemoteConnectToken()
 );
 ipcMain.handle("eragear:checkForUpdates", () =>
   autoUpdateController.checkForUpdates({ notify: true })

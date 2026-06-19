@@ -136,6 +136,12 @@ async function handleUiChunkUpdate(
     session.uiState.requiresTurnIdForNextAssistantChunk = undefined;
   }
 
+  if (
+    update.sessionUpdate === "agent_thought_chunk" &&
+    !context.recordReasoning
+  ) {
+    return true;
+  }
   appendAcceptedAgentChunkToBuffer(context, storedContentContext);
   const recentCompletedTurn = resolveRecentCompletedTurnForLateChunk(session);
   const updateTurnId =

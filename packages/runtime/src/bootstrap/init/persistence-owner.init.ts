@@ -1,6 +1,7 @@
 import {
   AppConfigService,
   type SettingsRepositoryPort,
+  UiSettingsService,
 } from "#runtime/modules/settings";
 import { setRuntimeLogLevel } from "#runtime/platform/logging/runtime-log-level";
 import { closeSqliteStorage } from "#runtime/platform/storage/sqlite-db";
@@ -19,6 +20,7 @@ import { createSqliteWorkerRuntimeConfigSync } from "./sqlite-worker-runtime-con
 export interface PersistenceOwner {
   settingsRepo: SettingsRepositoryPort;
   appConfigService: AppConfigService;
+  uiSettingsService: UiSettingsService;
   persistence: PersistenceModule;
   dispose(): Promise<void>;
 }
@@ -39,6 +41,7 @@ export async function initializePersistenceOwner(params: {
   const settingsRepo =
     settingsRepoOverride ?? initializeSettingsRepository(sqliteWorkerEnabled);
   const appConfigService = await AppConfigService.create(settingsRepo);
+  const uiSettingsService = await UiSettingsService.create(settingsRepo);
   setRuntimeLogLevel(appConfigService.getConfig().logLevel);
 
   const persistence = initializePersistenceModule({
@@ -71,6 +74,7 @@ export async function initializePersistenceOwner(params: {
   return {
     settingsRepo,
     appConfigService,
+    uiSettingsService,
     persistence,
     async dispose() {
       if (disposed) {

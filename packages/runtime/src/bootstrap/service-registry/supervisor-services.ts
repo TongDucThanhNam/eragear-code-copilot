@@ -2,9 +2,14 @@ import {
   SetSupervisorModeService,
   type SupervisorAuditPort,
   SupervisorLoopService,
+  type SupervisorMemoryContext,
+  type SupervisorMemoryLogInput,
+  type SupervisorMemoryLookupInput,
   type SupervisorMemoryPort,
   SupervisorPermissionService,
+  type SupervisorPolicy,
   type SupervisorResearchPort,
+  type SupervisorResearchResult,
 } from "#runtime/modules/supervisor";
 import {
   AiSdkSupervisorDecisionAdapter,
@@ -18,6 +23,7 @@ import type {
   AiUseCases,
   SupervisorUseCases,
 } from "#runtime/modules/use-cases";
+import type { LoggerPort } from "#runtime/shared/ports/logger.port";
 import type { ServiceRegistrySlice } from "./dependencies";
 
 type SupervisorServiceDependencies = ServiceRegistrySlice<
@@ -29,6 +35,73 @@ type SupervisorServiceDependencies = ServiceRegistrySlice<
   | "clock"
 >;
 
+class SettingsBackedSupervisorResearchAdapter
+  implements SupervisorResearchPort
+{
+  private readonly policy: SupervisorPolicy;
+  private readonly logger: LoggerPort;
+
+  constructor(policy: SupervisorPolicy, logger: LoggerPort) {
+    this.policy = policy;
+    this.logger = logger;
+  }
+
+  search(query: string): Promise<SupervisorResearchResult[]> {
+    if (
+      this.policy.webSearchProvider === "exa" &&
+      this.policy.webSearchApiKey
+    ) {
+      return new ExaSupervisorResearchAdapter(
+        this.policy.webSearchApiKey,
+        this.logger
+      ).search(query);
+    }
+    return new NoopSupervisorResearchAdapter().search();
+  }
+}
+
+class SettingsBackedSupervisorMemoryAdapter implements SupervisorMemoryPort {
+  private readonly policy: SupervisorPolicy;
+  private readonly logger: LoggerPort;
+
+  constructor(policy: SupervisorPolicy, logger: LoggerPort) {
+    this.policy = policy;
+    this.logger = logger;
+  }
+
+  lookup(input: SupervisorMemoryLookupInput): Promise<SupervisorMemoryContext> {
+    return this.resolveAdapter().lookup(input);
+  }
+
+  appendLog(input: SupervisorMemoryLogInput): Promise<void> {
+    return this.resolveAdapter().appendLog(input);
+  }
+
+  private resolveAdapter(): SupervisorMemoryPort {
+    if (this.policy.memoryProvider !== "obsidian") {
+      return new NoopSupervisorMemoryAdapter();
+    }
+    return new ObsidianSupervisorMemoryAdapter(
+      {
+        command: this.policy.obsidianCommand,
+        ...(this.policy.obsidianVault
+          ? { vault: this.policy.obsidianVault }
+          : {}),
+        ...(this.policy.obsidianBlueprintPath
+          ? { blueprintPath: this.policy.obsidianBlueprintPath }
+          : {}),
+        ...(this.policy.obsidianLogPath
+          ? { logPath: this.policy.obsidianLogPath }
+          : {}),
+        searchPath: this.policy.obsidianSearchPath,
+        searchLimit: this.policy.obsidianSearchLimit,
+        timeoutMs: this.policy.obsidianTimeoutMs,
+      },
+      this.logger
+    );
+  }
+}
+
 export function createSupervisorUseCases(
   deps: SupervisorServiceDependencies,
   aiUseCases: Pick<AiUseCases, "sendMessage">
@@ -38,34 +111,15 @@ export function createSupervisorUseCases(
     deps.appLogger
   );
   const supervisorResearchAdapter: SupervisorResearchPort =
-    deps.supervisorPolicy.webSearchProvider === "exa" &&
-    deps.supervisorPolicy.webSearchApiKey
-      ? new ExaSupervisorResearchAdapter(
-          deps.supervisorPolicy.webSearchApiKey,
-          deps.appLogger
-        )
-      : new NoopSupervisorResearchAdapter();
+    new SettingsBackedSupervisorResearchAdapter(
+      deps.supervisorPolicy,
+      deps.appLogger
+    );
   const supervisorMemoryAdapter: SupervisorMemoryPort =
-    deps.supervisorPolicy.memoryProvider === "obsidian"
-      ? new ObsidianSupervisorMemoryAdapter(
-          {
-            command: deps.supervisorPolicy.obsidianCommand,
-            ...(deps.supervisorPolicy.obsidianVault
-              ? { vault: deps.supervisorPolicy.obsidianVault }
-              : {}),
-            ...(deps.supervisorPolicy.obsidianBlueprintPath
-              ? { blueprintPath: deps.supervisorPolicy.obsidianBlueprintPath }
-              : {}),
-            ...(deps.supervisorPolicy.obsidianLogPath
-              ? { logPath: deps.supervisorPolicy.obsidianLogPath }
-              : {}),
-            searchPath: deps.supervisorPolicy.obsidianSearchPath,
-            searchLimit: deps.supervisorPolicy.obsidianSearchLimit,
-            timeoutMs: deps.supervisorPolicy.obsidianTimeoutMs,
-          },
-          deps.appLogger
-        )
-      : new NoopSupervisorMemoryAdapter();
+    new SettingsBackedSupervisorMemoryAdapter(
+      deps.supervisorPolicy,
+      deps.appLogger
+    );
   const supervisorAuditAdapter: SupervisorAuditPort =
     new NoopSupervisorAuditAdapter();
 

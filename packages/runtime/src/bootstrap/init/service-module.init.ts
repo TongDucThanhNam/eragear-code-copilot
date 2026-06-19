@@ -1,6 +1,9 @@
 import { GetMeService } from "#runtime/modules/auth";
 import { SessionRealtimeGate } from "#runtime/modules/session";
-import type { AppConfigService } from "#runtime/modules/settings";
+import type {
+  AppConfigService,
+  UiSettingsService,
+} from "#runtime/modules/settings";
 import type { AppUseCases, AuthUseCases } from "#runtime/modules/use-cases";
 import { AuthUserReadAdapter } from "#runtime/platform/auth/adapters/auth-user-read.adapter";
 import type { AuthRuntime } from "#runtime/platform/auth/auth";
@@ -74,6 +77,7 @@ interface ServiceModuleInitParams {
   core: CoreModule;
   persistence: PersistenceModule;
   appConfigService: AppConfigService;
+  uiSettingsService: UiSettingsService;
   runtimeConfig: AppRuntimeConfig;
   authRuntime: AuthRuntime;
 }
@@ -82,6 +86,7 @@ export function initializeServiceModule({
   core,
   persistence,
   appConfigService,
+  uiSettingsService,
   runtimeConfig,
   authRuntime,
 }: ServiceModuleInitParams): ServiceModule {
@@ -116,6 +121,7 @@ export function initializeServiceModule({
     ...core,
     ...persistence,
     appConfigService,
+    uiSettingsService,
     gitAdapter,
     agentRuntimeAdapter,
     sendMessagePolicy: runtimeConfig.sendMessagePolicy,

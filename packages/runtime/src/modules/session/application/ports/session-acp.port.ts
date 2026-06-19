@@ -64,6 +64,7 @@ export interface SessionAcpPort {
       | ((input: { chatId: string; requestId: string }) => Promise<void>)
       | undefined
   ): void;
+  setReasoningEnabledProvider(provider: (() => boolean) | undefined): void;
   createHandlers(params: {
     chatId: string;
     buffer: SessionBufferingPort;

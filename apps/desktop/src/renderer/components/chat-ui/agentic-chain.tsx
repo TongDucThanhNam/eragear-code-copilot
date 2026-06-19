@@ -3,11 +3,8 @@
 
 import type { ToolUIPart, UIMessagePart } from "@eragear-code-copilot/shared";
 import {
-  BrainIcon,
   ChevronDownIcon,
-  CircleIcon,
-  Loader2Icon,
-  MessageSquareIcon,
+  ChevronRightIcon,
   SparklesIcon,
   WrenchIcon,
 } from "lucide-react";
@@ -20,89 +17,51 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import {
-  deduplicateKeys,
   getActiveIndex,
+  groupChainDisplayItems,
   parseToolOutput,
   toToolViewState,
 } from "./agentic-message-utils";
 import { FileMessagePart } from "./agentic-parts/file-message-part";
 import { ReasoningMessagePart } from "./agentic-parts/reasoning-message-part";
-import { getFileIcon, getSourceIcon } from "./agentic-parts/shared";
 import { SourceMessagePart } from "./agentic-parts/source-message-part";
 import { TextMessagePart } from "./agentic-parts/text-message-part";
 import { ToolMessagePart } from "./agentic-tool";
 
-const getChainIcon = (part: UIMessagePart, isActive: boolean) => {
-  if (part.type.startsWith("tool-")) {
-    const viewState = toToolViewState(part as ToolUIPart);
-    const tone =
-      viewState === "error"
-        ? "text-destructive"
-        : viewState === "cancelled"
-          ? "text-muted-foreground"
-          : viewState === "completed"
-            ? "text-emerald-500"
-            : viewState === "approval-requested"
-              ? "text-yellow-600"
-              : "text-muted-foreground";
+const getToolGroupStates = (tools: ToolUIPart[]) =>
+  tools.map((tool) => toToolViewState(tool));
 
-    if (viewState === "running" && isActive) {
-      return <Loader2Icon className="size-3.5 animate-spin text-blue-500" />;
-    }
-    return <WrenchIcon className={cn("size-3.5", tone)} />;
-  }
+const isActiveToolState = (state: ReturnType<typeof toToolViewState>) =>
+  state === "pending" || state === "running" || state === "approval-requested";
 
-  if (part.type === "reasoning") {
-    return <BrainIcon className="size-3.5 text-muted-foreground" />;
-  }
-
-  if (part.type === "text") {
-    return <MessageSquareIcon className="size-3.5 text-muted-foreground" />;
-  }
-
-  if (part.type === "source-url" || part.type === "source-document") {
-    const Icon = getSourceIcon(part);
-    return <Icon className="size-3.5 text-muted-foreground" />;
-  }
-
-  if (part.type === "file") {
-    const Icon = getFileIcon(part);
-    return <Icon className="size-3.5 text-muted-foreground" />;
-  }
-
-  if (part.type === "step-start") {
-    return <CircleIcon className="size-2.5 text-muted-foreground" />;
-  }
-
-  return <SparklesIcon className="size-3.5 text-muted-foreground" />;
+const getToolGroupSummary = ({
+  isActive,
+  tools,
+}: {
+  isActive: boolean;
+  tools: ToolUIPart[];
+}) => {
+  const count = tools.length;
+  const hasActiveTool = getToolGroupStates(tools).some((state) =>
+    isActiveToolState(state)
+  );
+  return {
+    action: isActive && hasActiveTool ? "Running" : "Ran",
+    target: `${count} Tool Call${count === 1 ? "" : "s"}`,
+  };
 };
 
 const renderChainStep = ({
   itemKey,
-  part,
   isLast,
-  isActive,
   children,
 }: {
   itemKey: string;
-  part: UIMessagePart;
   isLast: boolean;
-  isActive: boolean;
   children: ReactNode;
 }) => (
-  <div className="flex gap-3" key={itemKey}>
-    <div className="flex w-6 flex-col items-center">
-      <div
-        className={cn(
-          "flex size-6 items-center justify-center rounded-full border bg-background",
-          isActive && "border-primary/60 bg-primary/10"
-        )}
-      >
-        {getChainIcon(part, isActive)}
-      </div>
-      {!isLast && <div className="mt-1 w-px flex-1 bg-border" />}
-    </div>
-    <div className={cn("min-w-0 flex-1", !isLast && "pb-3")}>{children}</div>
+  <div className={cn("min-w-0", !isLast && "pb-3")} key={itemKey}>
+    {children}
   </div>
 );
 
@@ -148,6 +107,50 @@ const renderChainContent = ({
   return null;
 };
 
+const ToolGroupPart = ({
+  chatId,
+  isActive,
+  tools,
+}: {
+  chatId: string | null;
+  isActive: boolean;
+  tools: ToolUIPart[];
+}) => {
+  const summary = getToolGroupSummary({ isActive, tools });
+
+  return (
+    <Collapsible className="w-full">
+      <CollapsibleTrigger
+        aria-label={`Expand ${summary.target}`}
+        className="group/tool-group inline-flex max-w-full cursor-pointer items-center gap-2 self-start text-left text-[13px] transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        title={`${summary.action} ${summary.target}`}
+        type="button"
+      >
+        <WrenchIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 whitespace-nowrap font-medium text-muted-foreground">
+          {summary.action}
+        </span>
+        <span className="min-w-0 truncate text-foreground">
+          {summary.target}
+        </span>
+        <ChevronRightIcon className="size-4 shrink-0 rotate-0 text-muted-foreground opacity-0 transition-[opacity,transform] duration-200 group-hover/tool-group:opacity-100 group-data-[state=open]/tool-group:rotate-90 group-data-[state=open]/tool-group:opacity-100" />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="overflow-hidden pt-2 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2">
+        <div className="space-y-1.5">
+          {tools.map((tool, index) => (
+            <ToolMessagePart
+              chatId={chatId}
+              key={`${tool.toolCallId}:${index}`}
+              parsedOutput={parseToolOutput(tool.output)}
+              tool={tool}
+            />
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+};
+
 export const ChainOfThought = ({
   chatId,
   items,
@@ -159,6 +162,7 @@ export const ChainOfThought = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const activeIndex = useMemo(() => getActiveIndex(items), [items]);
+  const displayItems = useMemo(() => groupChainDisplayItems(items), [items]);
   const toolCount = useMemo(
     () => items.filter((item) => item.type.startsWith("tool-")).length,
     [items]
@@ -214,19 +218,34 @@ export const ChainOfThought = ({
       </CollapsibleTrigger>
       <CollapsibleContent className="py-3">
         <div className="space-y-3">
-          {deduplicateKeys(items).map((key, index) => {
-            const item = items[index];
-            if (!item) {
+          {displayItems.map((item, index) => {
+            if (item.kind === "tool-group") {
+              const isActive =
+                activeIndex >= item.originalStartIndex &&
+                activeIndex <= item.originalEndIndex;
+              return renderChainStep({
+                itemKey: item.itemKey,
+                isLast: index === displayItems.length - 1,
+                children: (
+                  <ToolGroupPart
+                    chatId={chatId}
+                    isActive={isActive}
+                    tools={item.tools}
+                  />
+                ),
+              });
+            }
+
+            if (!item.part) {
               return null;
             }
+
             return renderChainStep({
-              itemKey: key,
-              part: item,
-              isActive: index === activeIndex,
-              isLast: index === items.length - 1,
+              itemKey: item.itemKey,
+              isLast: index === displayItems.length - 1,
               children: renderChainContent({
                 chatId,
-                part: item,
+                part: item.part,
               }),
             });
           })}

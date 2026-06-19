@@ -1,4 +1,14 @@
 import {
+  DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS,
+  DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS,
+  DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS,
+  DEFAULT_SUPERVISOR_MAX_RUNTIME_MS,
+  DEFAULT_SUPERVISOR_MEMORY_PROVIDER,
+  DEFAULT_SUPERVISOR_OBSIDIAN_COMMAND,
+  DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_LIMIT,
+  DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH,
+  DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS,
+  DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER,
   HARD_MAX_APP_MAX_TOKENS,
   HARD_MAX_SESSION_LIST_PAGE_LIMIT,
   HARD_MAX_SESSION_MESSAGES_PAGE_LIMIT,
@@ -22,6 +32,27 @@ export const APP_CONFIG_KEYS = [
   "logLevel",
   "maxTokens",
   "defaultModel",
+  "supervisorEnabled",
+  "supervisorModel",
+  "supervisorDeepSeekApiKey",
+  "supervisorDecisionTimeoutMs",
+  "supervisorDecisionMaxAttempts",
+  "supervisorMaxRuntimeMs",
+  "supervisorMaxRepeatedPrompts",
+  "supervisorWebSearchProvider",
+  "supervisorWebSearchApiKey",
+  "supervisorMemoryProvider",
+  "supervisorObsidianCommand",
+  "supervisorObsidianVault",
+  "supervisorObsidianBlueprintPath",
+  "supervisorObsidianLogPath",
+  "supervisorObsidianSearchPath",
+  "supervisorObsidianSearchLimit",
+  "supervisorObsidianTimeoutMs",
+  "projectIndexEmbeddingEndpoint",
+  "projectIndexEmbeddingModel",
+  "projectIndexEmbeddingApiKey",
+  "projectIndexEmbeddingTimeoutMs",
   "acpPromptMetaPolicy",
   "acpPromptMetaAllowlist",
 ] as const;
@@ -52,6 +83,13 @@ const PROMPT_META_POLICY_SET = new Set<AppConfig["acpPromptMetaPolicy"]>([
 const DEFAULT_ACP_PROMPT_META_POLICY: AppConfig["acpPromptMetaPolicy"] =
   "allowlist";
 const DEFAULT_ACP_PROMPT_META_ALLOWLIST: string[] = [];
+const DEFAULT_PROJECT_INDEX_EMBEDDING_MODEL = "text-embedding-3-small";
+const SUPERVISOR_WEB_SEARCH_PROVIDER_SET = new Set<
+  AppConfig["supervisorWebSearchProvider"]
+>(["none", "exa"]);
+const SUPERVISOR_MEMORY_PROVIDER_SET = new Set<
+  AppConfig["supervisorMemoryProvider"]
+>(["none", "obsidian"]);
 
 function toLogLevel(value: unknown): LogLevel | undefined {
   if (typeof value !== "string") {
@@ -70,6 +108,23 @@ function toTrimmedString(value: unknown): string | undefined {
   }
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : "";
+}
+
+function toBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "on", "yes"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "off", "no"].includes(normalized)) {
+    return false;
+  }
+  return undefined;
 }
 
 function toPromptMetaPolicy(
@@ -104,6 +159,41 @@ function toPromptMetaAllowlist(value: unknown): string[] | undefined {
   return [...new Set(entries)];
 }
 
+function toSupervisorWebSearchProvider(
+  value: unknown
+): AppConfig["supervisorWebSearchProvider"] | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (
+    !SUPERVISOR_WEB_SEARCH_PROVIDER_SET.has(
+      normalized as AppConfig["supervisorWebSearchProvider"]
+    )
+  ) {
+    return undefined;
+  }
+  return normalized as AppConfig["supervisorWebSearchProvider"];
+}
+
+function toSupervisorMemoryProvider(
+  value: unknown
+): AppConfig["supervisorMemoryProvider"] | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (
+    !SUPERVISOR_MEMORY_PROVIDER_SET.has(
+      normalized as AppConfig["supervisorMemoryProvider"]
+    )
+  ) {
+    return undefined;
+  }
+  return normalized as AppConfig["supervisorMemoryProvider"];
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: AppConfig normalization is centralized so migrations keep one fallback path.
 function normalizeFromUnknown(value: unknown, fallback: AppConfig): AppConfig {
   if (!isRecord(value)) {
     return fallback;
@@ -136,6 +226,100 @@ function normalizeFromUnknown(value: unknown, fallback: AppConfig): AppConfig {
     ),
     defaultModel:
       toTrimmedString(value.defaultModel) ?? fallback.defaultModel ?? "",
+    supervisorEnabled:
+      toBoolean(value.supervisorEnabled) ?? fallback.supervisorEnabled,
+    supervisorModel:
+      toTrimmedString(value.supervisorModel) ?? fallback.supervisorModel ?? "",
+    supervisorDeepSeekApiKey:
+      toTrimmedString(value.supervisorDeepSeekApiKey) ??
+      fallback.supervisorDeepSeekApiKey ??
+      "",
+    supervisorDecisionTimeoutMs: clampInt(
+      toFiniteNumber(value.supervisorDecisionTimeoutMs) ??
+        fallback.supervisorDecisionTimeoutMs,
+      1000,
+      120_000
+    ),
+    supervisorDecisionMaxAttempts: clampInt(
+      toFiniteNumber(value.supervisorDecisionMaxAttempts) ??
+        fallback.supervisorDecisionMaxAttempts,
+      1,
+      10
+    ),
+    supervisorMaxRuntimeMs: clampInt(
+      toFiniteNumber(value.supervisorMaxRuntimeMs) ??
+        fallback.supervisorMaxRuntimeMs,
+      1000,
+      24 * 60 * 60 * 1000
+    ),
+    supervisorMaxRepeatedPrompts: clampInt(
+      toFiniteNumber(value.supervisorMaxRepeatedPrompts) ??
+        fallback.supervisorMaxRepeatedPrompts,
+      1,
+      200
+    ),
+    supervisorWebSearchProvider:
+      toSupervisorWebSearchProvider(value.supervisorWebSearchProvider) ??
+      fallback.supervisorWebSearchProvider ??
+      DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER,
+    supervisorWebSearchApiKey:
+      toTrimmedString(value.supervisorWebSearchApiKey) ??
+      fallback.supervisorWebSearchApiKey ??
+      "",
+    supervisorMemoryProvider:
+      toSupervisorMemoryProvider(value.supervisorMemoryProvider) ??
+      fallback.supervisorMemoryProvider ??
+      DEFAULT_SUPERVISOR_MEMORY_PROVIDER,
+    supervisorObsidianCommand:
+      toTrimmedString(value.supervisorObsidianCommand) ??
+      fallback.supervisorObsidianCommand ??
+      DEFAULT_SUPERVISOR_OBSIDIAN_COMMAND,
+    supervisorObsidianVault:
+      toTrimmedString(value.supervisorObsidianVault) ??
+      fallback.supervisorObsidianVault ??
+      "",
+    supervisorObsidianBlueprintPath:
+      toTrimmedString(value.supervisorObsidianBlueprintPath) ??
+      fallback.supervisorObsidianBlueprintPath ??
+      "",
+    supervisorObsidianLogPath:
+      toTrimmedString(value.supervisorObsidianLogPath) ??
+      fallback.supervisorObsidianLogPath ??
+      "",
+    supervisorObsidianSearchPath:
+      toTrimmedString(value.supervisorObsidianSearchPath) ??
+      fallback.supervisorObsidianSearchPath ??
+      DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH,
+    supervisorObsidianSearchLimit: clampInt(
+      toFiniteNumber(value.supervisorObsidianSearchLimit) ??
+        fallback.supervisorObsidianSearchLimit,
+      1,
+      20
+    ),
+    supervisorObsidianTimeoutMs: clampInt(
+      toFiniteNumber(value.supervisorObsidianTimeoutMs) ??
+        fallback.supervisorObsidianTimeoutMs,
+      1000,
+      60_000
+    ),
+    projectIndexEmbeddingEndpoint:
+      toTrimmedString(value.projectIndexEmbeddingEndpoint) ??
+      fallback.projectIndexEmbeddingEndpoint ??
+      "",
+    projectIndexEmbeddingModel:
+      toTrimmedString(value.projectIndexEmbeddingModel) ??
+      fallback.projectIndexEmbeddingModel ??
+      DEFAULT_PROJECT_INDEX_EMBEDDING_MODEL,
+    projectIndexEmbeddingApiKey:
+      toTrimmedString(value.projectIndexEmbeddingApiKey) ??
+      fallback.projectIndexEmbeddingApiKey ??
+      "",
+    projectIndexEmbeddingTimeoutMs: clampInt(
+      toFiniteNumber(value.projectIndexEmbeddingTimeoutMs) ??
+        fallback.projectIndexEmbeddingTimeoutMs,
+      1000,
+      30_000
+    ),
     acpPromptMetaPolicy:
       toPromptMetaPolicy(value.acpPromptMetaPolicy) ??
       fallback.acpPromptMetaPolicy,
@@ -190,6 +374,49 @@ export function createDefaultAppConfigFromEnv(): AppConfig {
     logLevel: ENV.logLevel,
     maxTokens: clampInt(ENV.maxTokens, 1, HARD_MAX_APP_MAX_TOKENS),
     defaultModel: (ENV.defaultModel ?? "").trim(),
+    supervisorEnabled: ENV.supervisorEnabled,
+    supervisorModel: ENV.supervisorModel.trim(),
+    supervisorDeepSeekApiKey: ENV.supervisorDeepSeekApiKey.trim(),
+    supervisorDecisionTimeoutMs:
+      ENV.supervisorDecisionTimeoutMs ?? DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS,
+    supervisorDecisionMaxAttempts:
+      ENV.supervisorDecisionMaxAttempts ??
+      DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS,
+    supervisorMaxRuntimeMs:
+      ENV.supervisorMaxRuntimeMs ?? DEFAULT_SUPERVISOR_MAX_RUNTIME_MS,
+    supervisorMaxRepeatedPrompts:
+      ENV.supervisorMaxRepeatedPrompts ??
+      DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS,
+    supervisorWebSearchProvider:
+      ENV.supervisorWebSearchProvider ?? DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER,
+    supervisorWebSearchApiKey: (ENV.supervisorWebSearchApiKey ?? "").trim(),
+    supervisorMemoryProvider:
+      ENV.supervisorMemoryProvider ?? DEFAULT_SUPERVISOR_MEMORY_PROVIDER,
+    supervisorObsidianCommand: (
+      ENV.supervisorObsidianCommand ?? DEFAULT_SUPERVISOR_OBSIDIAN_COMMAND
+    ).trim(),
+    supervisorObsidianVault: (ENV.supervisorObsidianVault ?? "").trim(),
+    supervisorObsidianBlueprintPath: (
+      ENV.supervisorObsidianBlueprintPath ?? ""
+    ).trim(),
+    supervisorObsidianLogPath: (ENV.supervisorObsidianLogPath ?? "").trim(),
+    supervisorObsidianSearchPath: (
+      ENV.supervisorObsidianSearchPath ??
+      DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH
+    ).trim(),
+    supervisorObsidianSearchLimit:
+      ENV.supervisorObsidianSearchLimit ??
+      DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_LIMIT,
+    supervisorObsidianTimeoutMs:
+      ENV.supervisorObsidianTimeoutMs ?? DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS,
+    projectIndexEmbeddingEndpoint: (
+      ENV.projectIndexEmbeddingEndpoint ?? ""
+    ).trim(),
+    projectIndexEmbeddingModel: (
+      ENV.projectIndexEmbeddingModel ?? DEFAULT_PROJECT_INDEX_EMBEDDING_MODEL
+    ).trim(),
+    projectIndexEmbeddingApiKey: (ENV.projectIndexEmbeddingApiKey ?? "").trim(),
+    projectIndexEmbeddingTimeoutMs: ENV.projectIndexEmbeddingTimeoutMs,
     acpPromptMetaPolicy: DEFAULT_ACP_PROMPT_META_POLICY,
     acpPromptMetaAllowlist: [...DEFAULT_ACP_PROMPT_META_ALLOWLIST],
   });

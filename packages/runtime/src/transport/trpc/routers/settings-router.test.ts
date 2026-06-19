@@ -9,6 +9,8 @@ describe("settingsRouter", () => {
     >;
 
     expect(procedures.get).toBeDefined();
+    expect(procedures.updateUi).toBeDefined();
+    expect(procedures.updateApp).toBeDefined();
     expect(procedures.getBootAllowlists).toBeDefined();
     expect(procedures.updateBootAllowlists).toBeDefined();
     expect(procedures.getLocalAdeSnapshot).toBeDefined();

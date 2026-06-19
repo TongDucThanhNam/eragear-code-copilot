@@ -12,6 +12,7 @@ type SettingsServiceDependencies = ServiceRegistrySlice<
   | "eventBus"
   | "settingsRepo"
   | "appConfigService"
+  | "uiSettingsService"
   | "agentRuntimeAdapter"
   | "projectRepo"
   | "agentRepo"
@@ -31,7 +32,8 @@ export function createSettingsUseCases(
   const updateSettingsService = new UpdateSettingsService(
     deps.settingsRepo,
     settingsChangeNotifier,
-    deps.appConfigService
+    deps.appConfigService,
+    deps.uiSettingsService
   );
   const manageBootAllowlistsService = new ManageBootAllowlistsService(
     settingsChangeNotifier,

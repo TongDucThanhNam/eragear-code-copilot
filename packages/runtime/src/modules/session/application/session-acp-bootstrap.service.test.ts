@@ -118,6 +118,7 @@ function createSessionAcpStub(): SessionAcpPort {
   return {
     createBuffer,
     setPermissionAutoResolver: () => undefined,
+    setReasoningEnabledProvider: () => undefined,
     createHandlers: () => ({}) as never,
   };
 }

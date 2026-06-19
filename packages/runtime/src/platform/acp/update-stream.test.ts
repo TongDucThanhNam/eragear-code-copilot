@@ -77,6 +77,7 @@ function createContext(params: {
     runtime: SessionRuntimePort,
     buffer: SessionBufferingPort
   ) => Promise<void>;
+  recordReasoning?: boolean;
 }) {
   const isReplayingHistory = params.isReplayingHistory ?? false;
   const suppressReplayBroadcast = params.suppressReplayBroadcast ?? false;
@@ -92,6 +93,7 @@ function createContext(params: {
     suppressReplayBroadcast,
     update: params.update,
     turnIdResolution: resolveSessionUpdateTurnId(params.update),
+    recordReasoning: params.recordReasoning ?? true,
     sessionRuntime: params.runtime,
     sessionRepo,
     finalizeStreamingForCurrentAssistant:
@@ -253,6 +255,58 @@ describe("handleBufferedMessage", () => {
       expect(reasoningPart.text).toBe("think-1 think-2");
       expect(reasoningPart.state).toBe("streaming");
     }
+  });
+
+  test("ignores reasoning chunks when reasoning recording is disabled", async () => {
+    const session = createSession("chat-reasoning-disabled");
+    const { runtime, calls } = createRuntimeStub(session);
+    const buffer = new SessionBuffering();
+
+    const handled = await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        recordReasoning: false,
+        update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: {
+            type: "text",
+            text: "hidden thought",
+          } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    expect(handled).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect(buffer.hasPendingReasoning()).toBe(false);
+    expect(session.lastAssistantChunkType).toBeUndefined();
+    expect(session.uiState.currentAssistantId).toBeUndefined();
+    expect(session.uiState.messages.size).toBe(0);
+
+    await handleBufferedMessage(
+      createContext({
+        chatId: session.id,
+        buffer,
+        runtime,
+        recordReasoning: false,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "visible answer",
+          } as StoredContentBlock,
+        } as SessionUpdate,
+      })
+    );
+
+    const assistantId = session.uiState.currentAssistantId;
+    const message = assistantId
+      ? session.uiState.messages.get(assistantId)
+      : undefined;
+    expect(message?.parts).toHaveLength(1);
+    expect(message?.parts[0]?.type).toBe("text");
   });
 
   test("invokes finalize callback when assistant chunk type transitions", async () => {

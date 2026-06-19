@@ -7,6 +7,7 @@ import type {
 import type {
   AppConfigService,
   SettingsRepositoryPort,
+  UiSettingsService,
 } from "#runtime/modules/settings";
 import { SettingsSqliteRepository } from "#runtime/modules/settings/di";
 import type { AppUseCases } from "#runtime/modules/use-cases";
@@ -23,6 +24,7 @@ import { initializeModuleEventSubscriptions } from "./init/module-event-subscrip
 import { initializePersistenceOwner } from "./init/persistence-owner.init";
 import {
   type AppRuntimeConfig,
+  applyAppConfigToRuntimeConfig,
   resolveAppRuntimeConfig,
 } from "./init/runtime-config.init";
 import {
@@ -41,6 +43,7 @@ export interface AppDependencies {
   logStore: LogStorePort;
   appLogger: LoggerPort;
   appConfig: AppConfigService;
+  uiSettings: UiSettingsService;
   useCases: AppUseCases;
   sessionRepo: SessionRepositoryPort;
   auth: AuthRuntime["auth"];
@@ -87,12 +90,21 @@ async function createAppCompositionWithRuntimeConfig(
     logger: core.appLogger,
     settingsRepoOverride,
   });
-  const { appConfigService, persistence } = persistenceOwner;
+  const { appConfigService, persistence, uiSettingsService } = persistenceOwner;
+  applyAppConfigToRuntimeConfig(runtimeConfig, appConfigService.getConfig());
+  const unsubscribeRuntimeConfigSync = appConfigService.subscribe(
+    (nextConfig) => applyAppConfigToRuntimeConfig(runtimeConfig, nextConfig)
+  );
+
+  core.sessionAcpAdapter.setReasoningEnabledProvider(() =>
+    uiSettingsService.isReasoningVisible()
+  );
 
   const serviceModule = initializeServiceModule({
     core,
     persistence,
     appConfigService,
+    uiSettingsService,
     runtimeConfig,
     authRuntime,
   });
@@ -104,6 +116,7 @@ async function createAppCompositionWithRuntimeConfig(
     logStore: core.logStore,
     appLogger: core.appLogger,
     appConfig: appConfigService,
+    uiSettings: uiSettingsService,
     useCases: serviceModule.useCases,
     sessionRepo: persistence.sessionRepo,
     auth: authRuntime.auth,
@@ -128,6 +141,7 @@ async function createAppCompositionWithRuntimeConfig(
       return;
     }
     disposed = true;
+    unsubscribeRuntimeConfigSync();
     moduleEventSubscriptions.dispose();
     serviceModule.dispose();
     await persistenceOwner.dispose();

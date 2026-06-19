@@ -1,6 +1,7 @@
 import { ENV } from "#runtime/config/environment";
 import type { SendMessagePolicy } from "#runtime/modules/ai";
 import type { AuthRuntimePolicy } from "#runtime/platform/auth/auth";
+import type { AppConfig } from "#runtime/shared/types/settings.types";
 import type { ServerLifecyclePolicy } from "../lifecycle";
 import type { ServerRuntimePolicy } from "../server-runtime-policy";
 
@@ -122,4 +123,54 @@ export function resolveAppRuntimeConfig(): AppRuntimeConfig {
       runtimeInternalToken: ENV.runtimeInternalToken,
     },
   };
+}
+
+export function applyAppConfigToRuntimeConfig(
+  runtimeConfig: AppRuntimeConfig,
+  appConfig: AppConfig
+): void {
+  runtimeConfig.supervisorPolicy.enabled = appConfig.supervisorEnabled;
+  runtimeConfig.supervisorPolicy.model = appConfig.supervisorModel.trim();
+  runtimeConfig.supervisorPolicy.decisionTimeoutMs =
+    appConfig.supervisorDecisionTimeoutMs;
+  runtimeConfig.supervisorPolicy.decisionMaxAttempts =
+    appConfig.supervisorDecisionMaxAttempts;
+  runtimeConfig.supervisorPolicy.maxRuntimeMs =
+    appConfig.supervisorMaxRuntimeMs;
+  runtimeConfig.supervisorPolicy.maxRepeatedPrompts =
+    appConfig.supervisorMaxRepeatedPrompts;
+  runtimeConfig.supervisorPolicy.webSearchProvider =
+    appConfig.supervisorWebSearchProvider;
+  runtimeConfig.supervisorPolicy.memoryProvider =
+    appConfig.supervisorMemoryProvider;
+  runtimeConfig.supervisorPolicy.obsidianCommand =
+    appConfig.supervisorObsidianCommand.trim() || "obsidian";
+  runtimeConfig.supervisorPolicy.obsidianSearchPath =
+    appConfig.supervisorObsidianSearchPath.trim() || "Project";
+  runtimeConfig.supervisorPolicy.obsidianSearchLimit =
+    appConfig.supervisorObsidianSearchLimit;
+  runtimeConfig.supervisorPolicy.obsidianTimeoutMs =
+    appConfig.supervisorObsidianTimeoutMs;
+  const deepSeekApiKey = appConfig.supervisorDeepSeekApiKey.trim();
+  if (deepSeekApiKey.length > 0) {
+    runtimeConfig.supervisorPolicy.deepSeekApiKey = deepSeekApiKey;
+  } else {
+    runtimeConfig.supervisorPolicy.deepSeekApiKey = undefined;
+  }
+  const webSearchApiKey = appConfig.supervisorWebSearchApiKey.trim();
+  if (webSearchApiKey.length > 0) {
+    runtimeConfig.supervisorPolicy.webSearchApiKey = webSearchApiKey;
+  } else {
+    runtimeConfig.supervisorPolicy.webSearchApiKey = undefined;
+  }
+  const obsidianVault = appConfig.supervisorObsidianVault.trim();
+  runtimeConfig.supervisorPolicy.obsidianVault =
+    obsidianVault.length > 0 ? obsidianVault : undefined;
+  const obsidianBlueprintPath =
+    appConfig.supervisorObsidianBlueprintPath.trim();
+  runtimeConfig.supervisorPolicy.obsidianBlueprintPath =
+    obsidianBlueprintPath.length > 0 ? obsidianBlueprintPath : undefined;
+  const obsidianLogPath = appConfig.supervisorObsidianLogPath.trim();
+  runtimeConfig.supervisorPolicy.obsidianLogPath =
+    obsidianLogPath.length > 0 ? obsidianLogPath : undefined;
 }

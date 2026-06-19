@@ -40,6 +40,7 @@ const USER_COMPACTED_TEXT = "[User message compacted for local retention]";
 const ASSISTANT_COMPACTED_TEXT =
   "[Assistant message compacted for local retention]";
 const COMPACTION_SESSION_PAGE_SIZE = 500;
+type SupervisorCapabilityProvider = () => boolean;
 
 /**
  * Request for one persisted session message page.
@@ -158,18 +159,21 @@ export class SessionQueries {
   private readonly sessionRepo: SessionRepositoryPort;
   private readonly sessionRuntime: SessionRuntimePort | undefined;
   private readonly projectRepo: ProjectRepositoryPort | undefined;
-  private readonly supervisorEnabled: boolean;
+  private readonly supervisorCapable: SupervisorCapabilityProvider;
 
   constructor(
     sessionRepo: SessionRepositoryPort,
     sessionRuntime?: SessionRuntimePort,
     projectRepo?: ProjectRepositoryPort,
-    supervisorEnabled?: boolean
+    supervisorCapable?: boolean | SupervisorCapabilityProvider
   ) {
     this.sessionRepo = sessionRepo;
     this.sessionRuntime = sessionRuntime;
     this.projectRepo = projectRepo;
-    this.supervisorEnabled = supervisorEnabled ?? false;
+    this.supervisorCapable =
+      typeof supervisorCapable === "function"
+        ? supervisorCapable
+        : () => supervisorCapable ?? false;
   }
 
   async state(userId: string, chatId: string) {
@@ -209,7 +213,7 @@ export class SessionQueries {
         agentInfo: session.agentInfo ?? null,
         plan: session.plan ?? null,
         supervisor: normalizeSupervisorForState(session.supervisor),
-        supervisorCapable: this.supervisorEnabled,
+        supervisorCapable: this.supervisorCapable(),
       };
     }
 
@@ -229,7 +233,7 @@ export class SessionQueries {
         agentInfo: stored.agentInfo ?? null,
         plan: stored.plan ?? null,
         supervisor: normalizeSupervisorForState(stored.supervisor),
-        supervisorCapable: this.supervisorEnabled,
+        supervisorCapable: this.supervisorCapable(),
       };
     }
 

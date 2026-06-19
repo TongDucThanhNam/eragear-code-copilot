@@ -18,6 +18,7 @@ function createBaseSettings(): Settings {
       accentColor: "#008080",
       density: "comfortable",
       fontScale: 1,
+      showReasoning: true,
     },
     projectRoots: [process.cwd()],
     mcpServers: [],
@@ -61,13 +62,24 @@ describe("UpdateSettingsService", () => {
         fontScale: stored.ui.fontScale,
       },
       projectRoots: [path.join(process.cwd(), "src")],
+      app: {
+        supervisorEnabled: true,
+        supervisorModel: "deepseek/deepseek-chat",
+        supervisorDeepSeekApiKey: "sk-test",
+      },
     });
 
     expect(result.changedKeys).toContain("ui");
     expect(result.changedKeys).toContain("projectRoots");
+    expect(result.changedKeys).toContain("app.supervisorEnabled");
+    expect(result.changedKeys).toContain("app.supervisorModel");
     expect(result.requiresRestart).toContain("projectRoots");
     expect(stored.ui.theme).toBe("dark");
     expect(stored.projectRoots).toEqual([path.join(process.cwd(), "src")]);
+    expect(stored.app.supervisorEnabled).toBe(true);
+    expect(appConfigService.getConfig().supervisorModel).toBe(
+      "deepseek/deepseek-chat"
+    );
     expect(events.map((event) => event.type)).toEqual([
       "settings_updated",
       "dashboard_refresh",

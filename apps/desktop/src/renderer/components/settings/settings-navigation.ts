@@ -11,6 +11,7 @@ import {
   Command,
   CreditCard,
   Database,
+  Eye,
   Fingerprint,
   GitBranch,
   KeyRound,
@@ -37,6 +38,7 @@ export type SettingsRouteTo =
   | "/settings/capabilities"
   | "/settings/credentials"
   | "/settings/crash-reporting"
+  | "/settings/appearance"
   | "/settings/acp-auth"
   | "/settings/oauth"
   | "/settings/plan"
@@ -264,6 +266,13 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         detail: "Enhancement rules",
         icon: Sparkles,
         keywords: ["prompt", "rewrite"],
+      },
+      {
+        to: "/settings/appearance",
+        label: "Appearance",
+        detail: "Reasoning visibility",
+        icon: Eye,
+        keywords: ["ui", "theme", "reasoning", "thinking"],
       },
       {
         to: "/settings/output-style",

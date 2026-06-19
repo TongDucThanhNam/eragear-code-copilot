@@ -110,6 +110,9 @@ interface EragearDesktopBridge {
   getBootstrap: () => Promise<unknown>;
   getRuntimeDiagnostics?: () => Promise<unknown>;
   getRemoteConnectStatus?: () => Promise<unknown>;
+  getDesktopSettings?: () => Promise<unknown>;
+  updateRemoteConnectSettings?: (input: unknown) => Promise<unknown>;
+  createRemoteConnectToken?: () => Promise<unknown>;
   checkForUpdates?: () => Promise<unknown>;
   openProjectFolder?: (input?: {
     defaultPath?: string;

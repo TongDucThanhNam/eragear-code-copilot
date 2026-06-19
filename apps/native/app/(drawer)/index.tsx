@@ -26,7 +26,7 @@ import { useDeleteSession } from "@/hooks/use-delete-session";
 import { buildChatRoute } from "@/lib/session-access";
 import { trpc } from "@/lib/trpc";
 import { useChatStore } from "@/store/chat-store";
-import { useProjectStore } from "@/store/project-store";
+import { upsertProjectList, useProjectStore } from "@/store/project-store";
 import type { Agent } from "@/store/settings-store";
 
 export default function SessionsScreen() {
@@ -118,9 +118,20 @@ export default function SessionsScreen() {
   });
   const createProjectMutation = trpc.createProject.useMutation({
     onSuccess: (project) => {
+      trpcUtils.listProjects.setData(undefined, (current) => ({
+        projects: upsertProjectList(current?.projects ?? [], project),
+        activeProjectId: project.id,
+      }));
       addProject(project);
       setActiveProjectId(project.id);
-      setActiveProjectMutation.mutate({ id: project.id });
+      setActiveProjectMutation.mutate(
+        { id: project.id },
+        {
+          onSettled: () => {
+            void trpcUtils.listProjects.invalidate();
+          },
+        }
+      );
       setProjectForm({ name: "", path: "", description: "", tags: "" });
       setIsProjectCreateOpen(false);
     },

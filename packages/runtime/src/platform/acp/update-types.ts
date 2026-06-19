@@ -25,6 +25,7 @@ export interface SessionUpdateContext {
   suppressReplayBroadcast: boolean;
   update: SessionUpdate;
   turnIdResolution: TurnIdResolution;
+  recordReasoning: boolean;
   sessionRuntime: SessionRuntimePort;
   sessionRepo: SessionRepositoryPort;
   finalizeStreamingForCurrentAssistant: (

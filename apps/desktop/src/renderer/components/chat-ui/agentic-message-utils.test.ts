@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { UIMessagePart } from "@eragear-code-copilot/shared";
+import type { ToolUIPart, UIMessagePart } from "@eragear-code-copilot/shared";
 import {
   deduplicateKeys,
   getPartKey,
+  groupChainDisplayItems,
   isChainStreaming,
   isMessageStreaming,
   parseToolOutput,
@@ -10,16 +11,32 @@ import {
   splitMessageParts,
 } from "./agentic-message-utils";
 
+const toolPart = (
+  type: string,
+  toolCallId: string,
+  input: Record<string, unknown> = { cmd: `echo ${toolCallId}` }
+): ToolUIPart =>
+  ({
+    type: `tool-${type}`,
+    toolCallId,
+    state: "output-available",
+    input,
+    output: "ok",
+  }) as ToolUIPart;
+
 describe("parseToolOutput", () => {
   test("extracts multiple terminal ids and strips handled terminal/diff payload to file paths", () => {
     const parsed = parseToolOutput([
       { type: "terminal", terminalId: "term-1" },
       { type: "terminal", terminalId: "term-2" },
-      { type: "diff", path: "a.txt", newText: "next" },
+      { type: "diff", path: "a.txt", oldText: "old", newText: "next\nline" },
     ]);
 
     expect(parsed.terminalIds).toEqual(["term-1", "term-2"]);
     expect(parsed.changedFilePaths).toEqual(["a.txt"]);
+    expect(parsed.changedFiles).toEqual([
+      { path: "a.txt", addedLines: 2, removedLines: 1 },
+    ]);
     expect(parsed.result).toBeUndefined();
   });
 
@@ -38,6 +55,7 @@ describe("parseToolOutput", () => {
 
     expect(parsed.terminalIds).toEqual(["term-1"]);
     expect(parsed.changedFilePaths).toEqual([]);
+    expect(parsed.changedFiles).toEqual([]);
     expect(parsed.result).toBe("line-1\nline-2");
   });
 
@@ -50,6 +68,9 @@ describe("parseToolOutput", () => {
     });
 
     expect(parsed.changedFilePaths).toEqual(["src/app.tsx"]);
+    expect(parsed.changedFiles).toEqual([
+      { path: "src/app.tsx", addedLines: 1, removedLines: 1 },
+    ]);
     expect(parsed.result).toBeUndefined();
   });
 });
@@ -164,5 +185,70 @@ describe("deduplicateKeys", () => {
     expect(deduplicateKeys(items, getPartKey)).toEqual([
       "part:part-server-1#0",
     ]);
+  });
+});
+
+describe("groupChainDisplayItems", () => {
+  test("groups consecutive mixed tools into one display item", () => {
+    const items: UIMessagePart[] = [
+      toolPart("bash", "tool-a"),
+      toolPart("read_file", "tool-b", { path: "README.md" }),
+      toolPart("write_file", "tool-c", { path: "src/app.tsx" }),
+    ];
+
+    const grouped = groupChainDisplayItems(items);
+
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.kind).toBe("tool-group");
+    if (grouped[0]?.kind === "tool-group") {
+      expect(grouped[0].tools.map((tool) => tool.toolCallId)).toEqual([
+        "tool-a",
+        "tool-b",
+        "tool-c",
+      ]);
+      expect(grouped[0].originalStartIndex).toBe(0);
+      expect(grouped[0].originalEndIndex).toBe(2);
+    }
+  });
+
+  test("wraps a single tool call in a group layer", () => {
+    const grouped = groupChainDisplayItems([toolPart("bash", "tool-a")]);
+
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.kind).toBe("tool-group");
+    if (grouped[0]?.kind === "tool-group") {
+      expect(grouped[0].tools.map((tool) => tool.toolCallId)).toEqual([
+        "tool-a",
+      ]);
+      expect(grouped[0].originalStartIndex).toBe(0);
+      expect(grouped[0].originalEndIndex).toBe(0);
+    }
+  });
+
+  test("keeps text and reasoning boundaries between tool groups", () => {
+    const items: UIMessagePart[] = [
+      toolPart("bash", "tool-a"),
+      { type: "text", text: "next", state: "done" },
+      toolPart("bash", "tool-b"),
+      toolPart("bash", "tool-c"),
+    ];
+
+    const grouped = groupChainDisplayItems(items);
+
+    expect(grouped).toHaveLength(3);
+    expect(grouped[0]?.kind).toBe("tool-group");
+    expect(grouped[1]?.kind).toBe("part");
+    expect(grouped[2]?.kind).toBe("tool-group");
+    if (grouped[0]?.kind === "tool-group") {
+      expect(grouped[0].tools.map((tool) => tool.toolCallId)).toEqual([
+        "tool-a",
+      ]);
+    }
+    if (grouped[2]?.kind === "tool-group") {
+      expect(grouped[2].tools.map((tool) => tool.toolCallId)).toEqual([
+        "tool-b",
+        "tool-c",
+      ]);
+    }
   });
 });

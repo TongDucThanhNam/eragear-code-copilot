@@ -6099,6 +6099,15 @@ function ProjectIndex({
   snapshot: LocalAdeSnapshot | undefined;
 }) {
   const utils = trpc.useUtils();
+  const settingsQuery = trpc.settings.get.useQuery(undefined, {
+    staleTime: 30_000,
+  });
+  const [embeddingForm, setEmbeddingForm] = React.useState({
+    endpoint: "",
+    model: "text-embedding-3-small",
+    apiKey: "",
+    timeoutMs: "10000",
+  });
   const refreshIndex = trpc.settings.refreshProjectIndex.useMutation({
     onSuccess: (data) => {
       utils.settings.getLocalAdeSnapshot.setData(undefined, data);
@@ -6106,10 +6115,78 @@ function ProjectIndex({
     },
     onError: (error) => toast.error(error.message),
   });
+  const updateApp = trpc.settings.updateApp.useMutation({
+    onSuccess: async (result) => {
+      utils.settings.get.setData(undefined, result.settings);
+      await utils.settings.get.invalidate();
+      await utils.settings.getLocalAdeSnapshot.invalidate();
+      toast.success("Project embedding settings updated");
+    },
+    onError: (error) => {
+      toast.error(error.message || "Failed to update Project embeddings");
+    },
+  });
   const index = snapshot?.projectIndex;
   const files = index?.files ?? [];
   const symbols = index?.symbols ?? [];
   const tasks = index?.tasks ?? [];
+  const app = settingsQuery.data?.app;
+  React.useEffect(() => {
+    if (!app) {
+      return;
+    }
+    setEmbeddingForm({
+      endpoint: app.projectIndexEmbeddingEndpoint,
+      model: app.projectIndexEmbeddingModel || "text-embedding-3-small",
+      apiKey: app.projectIndexEmbeddingApiKey,
+      timeoutMs: String(app.projectIndexEmbeddingTimeoutMs),
+    });
+  }, [
+    app?.projectIndexEmbeddingEndpoint,
+    app?.projectIndexEmbeddingModel,
+    app?.projectIndexEmbeddingApiKey,
+    app?.projectIndexEmbeddingTimeoutMs,
+  ]);
+
+  const trimmedEmbeddingEndpoint = embeddingForm.endpoint.trim();
+  const trimmedEmbeddingModel = embeddingForm.model.trim();
+  const trimmedEmbeddingApiKey = embeddingForm.apiKey.trim();
+  const parsedEmbeddingTimeoutMs = Number(embeddingForm.timeoutMs);
+  const normalizedEmbeddingTimeoutMs = Number.isFinite(parsedEmbeddingTimeoutMs)
+    ? Math.trunc(parsedEmbeddingTimeoutMs)
+    : Number.NaN;
+  const embeddingTimeoutInvalid =
+    !Number.isFinite(normalizedEmbeddingTimeoutMs) ||
+    normalizedEmbeddingTimeoutMs < 1000 ||
+    normalizedEmbeddingTimeoutMs > 30_000;
+  const embeddingModelInvalid =
+    trimmedEmbeddingEndpoint.length > 0 && trimmedEmbeddingModel.length === 0;
+  const embeddingHasChanges = app
+    ? trimmedEmbeddingEndpoint !== app.projectIndexEmbeddingEndpoint ||
+      trimmedEmbeddingModel !== app.projectIndexEmbeddingModel ||
+      trimmedEmbeddingApiKey !== app.projectIndexEmbeddingApiKey ||
+      normalizedEmbeddingTimeoutMs !== app.projectIndexEmbeddingTimeoutMs
+    : false;
+  const embeddingBusy = settingsQuery.isFetching || updateApp.isPending;
+
+  const handleEmbeddingSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (embeddingModelInvalid) {
+      toast.error("Embedding model is required when endpoint is configured");
+      return;
+    }
+    if (embeddingTimeoutInvalid) {
+      toast.error("Embedding timeout must be between 1000 and 30000 ms");
+      return;
+    }
+    updateApp.mutate({
+      projectIndexEmbeddingEndpoint: trimmedEmbeddingEndpoint,
+      projectIndexEmbeddingModel:
+        trimmedEmbeddingModel || "text-embedding-3-small",
+      projectIndexEmbeddingApiKey: trimmedEmbeddingApiKey,
+      projectIndexEmbeddingTimeoutMs: normalizedEmbeddingTimeoutMs,
+    });
+  };
 
   return (
     <div className="space-y-3">
@@ -6134,6 +6211,109 @@ function ProjectIndex({
           Refresh Index
         </Button>
       </div>
+      <form
+        className="grid gap-3 rounded-md border bg-muted/20 p-3"
+        onSubmit={handleEmbeddingSubmit}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-medium text-sm">Model Embeddings</div>
+            <div className="truncate text-muted-foreground text-xs">
+              {trimmedEmbeddingEndpoint
+                ? "Project Memory and Project Index use the configured embedding endpoint."
+                : "Local semantic token profiles are used when no endpoint is configured."}
+            </div>
+          </div>
+          <Badge variant={trimmedEmbeddingEndpoint ? "secondary" : "outline"}>
+            {trimmedEmbeddingEndpoint ? "configured" : "local"}
+          </Badge>
+        </div>
+        <div className="grid gap-3 md:grid-cols-[1.4fr_1fr]">
+          <div className="grid gap-1.5">
+            <Label htmlFor="project-index-embedding-endpoint">Endpoint</Label>
+            <Input
+              disabled={embeddingBusy}
+              id="project-index-embedding-endpoint"
+              onChange={(event) =>
+                setEmbeddingForm((prev) => ({
+                  ...prev,
+                  endpoint: event.target.value,
+                }))
+              }
+              placeholder="https://api.openai.com/v1/embeddings"
+              value={embeddingForm.endpoint}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="project-index-embedding-model">Model</Label>
+            <Input
+              disabled={embeddingBusy}
+              id="project-index-embedding-model"
+              onChange={(event) =>
+                setEmbeddingForm((prev) => ({
+                  ...prev,
+                  model: event.target.value,
+                }))
+              }
+              placeholder="text-embedding-3-small"
+              value={embeddingForm.model}
+            />
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
+          <div className="grid gap-1.5">
+            <Label
+              className="flex items-center gap-1.5"
+              htmlFor="project-index-embedding-key"
+            >
+              <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+              API key
+            </Label>
+            <Input
+              disabled={embeddingBusy}
+              id="project-index-embedding-key"
+              onChange={(event) =>
+                setEmbeddingForm((prev) => ({
+                  ...prev,
+                  apiKey: event.target.value,
+                }))
+              }
+              placeholder="Optional"
+              type="password"
+              value={embeddingForm.apiKey}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="project-index-embedding-timeout">Timeout ms</Label>
+            <Input
+              disabled={embeddingBusy}
+              id="project-index-embedding-timeout"
+              inputMode="numeric"
+              onChange={(event) =>
+                setEmbeddingForm((prev) => ({
+                  ...prev,
+                  timeoutMs: event.target.value,
+                }))
+              }
+              value={embeddingForm.timeoutMs}
+            />
+          </div>
+          <div className="flex items-end justify-end">
+            <Button
+              disabled={
+                embeddingBusy ||
+                !embeddingHasChanges ||
+                embeddingModelInvalid ||
+                embeddingTimeoutInvalid
+              }
+              type="submit"
+            >
+              <Save className="mr-1.5 h-3.5 w-3.5" />
+              Save
+            </Button>
+          </div>
+        </div>
+      </form>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
         <StatTile
           detail={`${formatBytes(index?.totalBytes)} tracked by metadata`}

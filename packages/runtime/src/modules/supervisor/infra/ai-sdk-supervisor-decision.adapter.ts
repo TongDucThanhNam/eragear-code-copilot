@@ -153,7 +153,7 @@ export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
     }
     if (this.policy.model.trim().length === 0) {
       throw new SupervisorDecisionUnavailableError(
-        "SUPERVISOR_MODEL is required for supervisor decisions"
+        "Supervisor model is required in Settings for supervisor decisions"
       );
     }
   }
@@ -180,14 +180,14 @@ function resolveSupervisorLanguageModel(policy: SupervisorPolicy) {
     const apiKey = policy.deepSeekApiKey?.trim();
     if (!apiKey) {
       throw new SupervisorDecisionUnavailableError(
-        "DEEPSEEK_API_KEY is required when SUPERVISOR_MODEL uses deepseek"
+        "DeepSeek API key is required in Settings when the supervisor model uses DeepSeek"
       );
     }
     return createDeepSeek({ apiKey })(deepSeekModel);
   }
 
   throw new SupervisorDecisionUnavailableError(
-    `Unsupported SUPERVISOR_MODEL provider: ${trimmedModel}. Supported prefix: deepseek/`
+    `Unsupported supervisor model provider: ${trimmedModel}. Supported prefix: deepseek/`
   );
 }
 

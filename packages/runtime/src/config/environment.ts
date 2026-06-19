@@ -662,6 +662,37 @@ export const ENV = {
   ),
   /** Preferred default model for new sessions when available */
   defaultModel: toTrimmedString(env.DEFAULT_MODEL, DEFAULT_APP_DEFAULT_MODEL),
+  /** Optional endpoint for model-backed Project Memory and Project Index embeddings */
+  projectIndexEmbeddingEndpoint: toTrimmedString(
+    firstNonEmpty([
+      env.ERAGEAR_EMBEDDINGS_ENDPOINT,
+      env.ERAGEAR_EMBEDDING_ENDPOINT,
+    ]),
+    ""
+  ),
+  /** Model id for model-backed Project Memory and Project Index embeddings */
+  projectIndexEmbeddingModel: toTrimmedString(
+    firstNonEmpty([env.ERAGEAR_EMBEDDINGS_MODEL, env.ERAGEAR_EMBEDDING_MODEL]),
+    "text-embedding-3-small"
+  ),
+  /** Optional API key for model-backed Project Memory and Project Index embeddings */
+  projectIndexEmbeddingApiKey: toTrimmedString(
+    firstNonEmpty([
+      env.ERAGEAR_EMBEDDINGS_API_KEY,
+      env.ERAGEAR_EMBEDDING_API_KEY,
+    ]),
+    ""
+  ),
+  /** Timeout for one embedding request in milliseconds */
+  projectIndexEmbeddingTimeoutMs: toBoundedPositiveInt(
+    firstNonEmpty([
+      env.ERAGEAR_EMBEDDINGS_TIMEOUT_MS,
+      env.ERAGEAR_EMBEDDING_TIMEOUT_MS,
+    ]),
+    10_000,
+    1000,
+    30_000
+  ),
   /** Global kill switch for server-side ACP supervisor autopilot. */
   supervisorEnabled: toBoolean(
     env.SUPERVISOR_ENABLED,

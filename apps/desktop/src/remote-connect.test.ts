@@ -29,10 +29,10 @@ describe("resolveRemoteConnectConfig", () => {
 
     expect(config.enabled).toBe(true);
     expect(config.validationErrors).toContain(
-      "ERAGEAR_REMOTE_CONNECT_HOST must be loopback-only."
+      "Remote Connect host must be loopback-only."
     );
     expect(config.validationErrors.join("\n")).toContain(
-      "ERAGEAR_REMOTE_CONNECT_TOKEN must be at least"
+      "Remote Connect token must be at least"
     );
   });
 

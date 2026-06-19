@@ -116,7 +116,7 @@ export class SetSupervisorModeService {
       });
     }
     if (this.policy.model.trim().length === 0) {
-      throw new ValidationError("SUPERVISOR_MODEL is required", {
+      throw new ValidationError("Supervisor model is required in Settings", {
         module: "supervisor",
         op: OP,
       });

@@ -37,6 +37,7 @@ import { Route as SettingsCapabilitiesRouteImport } from './routes/settings.capa
 import { Route as SettingsBotsRouteImport } from './routes/settings.bots'
 import { Route as SettingsAutomationRouteImport } from './routes/settings.automation'
 import { Route as SettingsArchiveRouteImport } from './routes/settings.archive'
+import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as SettingsAgentsRouteImport } from './routes/settings.agents'
 import { Route as SettingsActivityRouteImport } from './routes/settings.activity'
 import { Route as SettingsAcpAuthRouteImport } from './routes/settings.acp-auth'
@@ -182,6 +183,11 @@ const SettingsArchiveRoute = SettingsArchiveRouteImport.update({
   path: '/archive',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
+  id: '/appearance',
+  path: '/appearance',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
@@ -204,6 +210,7 @@ export interface FileRoutesByFullPath {
   '/settings/acp-auth': typeof SettingsAcpAuthRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archive': typeof SettingsArchiveRoute
   '/settings/automation': typeof SettingsAutomationRoute
   '/settings/bots': typeof SettingsBotsRoute
@@ -236,6 +243,7 @@ export interface FileRoutesByTo {
   '/settings/acp-auth': typeof SettingsAcpAuthRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archive': typeof SettingsArchiveRoute
   '/settings/automation': typeof SettingsAutomationRoute
   '/settings/bots': typeof SettingsBotsRoute
@@ -270,6 +278,7 @@ export interface FileRoutesById {
   '/settings/acp-auth': typeof SettingsAcpAuthRoute
   '/settings/activity': typeof SettingsActivityRoute
   '/settings/agents': typeof SettingsAgentsRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archive': typeof SettingsArchiveRoute
   '/settings/automation': typeof SettingsAutomationRoute
   '/settings/bots': typeof SettingsBotsRoute
@@ -305,6 +314,7 @@ export interface FileRouteTypes {
     | '/settings/acp-auth'
     | '/settings/activity'
     | '/settings/agents'
+    | '/settings/appearance'
     | '/settings/archive'
     | '/settings/automation'
     | '/settings/bots'
@@ -337,6 +347,7 @@ export interface FileRouteTypes {
     | '/settings/acp-auth'
     | '/settings/activity'
     | '/settings/agents'
+    | '/settings/appearance'
     | '/settings/archive'
     | '/settings/automation'
     | '/settings/bots'
@@ -370,6 +381,7 @@ export interface FileRouteTypes {
     | '/settings/acp-auth'
     | '/settings/activity'
     | '/settings/agents'
+    | '/settings/appearance'
     | '/settings/archive'
     | '/settings/automation'
     | '/settings/bots'
@@ -601,6 +613,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsArchiveRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/appearance': {
+      id: '/settings/appearance'
+      path: '/appearance'
+      fullPath: '/settings/appearance'
+      preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/agents': {
       id: '/settings/agents'
       path: '/agents'
@@ -629,6 +648,7 @@ interface SettingsRouteChildren {
   SettingsAcpAuthRoute: typeof SettingsAcpAuthRoute
   SettingsActivityRoute: typeof SettingsActivityRoute
   SettingsAgentsRoute: typeof SettingsAgentsRoute
+  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsArchiveRoute: typeof SettingsArchiveRoute
   SettingsAutomationRoute: typeof SettingsAutomationRoute
   SettingsBotsRoute: typeof SettingsBotsRoute
@@ -661,6 +681,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAcpAuthRoute: SettingsAcpAuthRoute,
   SettingsActivityRoute: SettingsActivityRoute,
   SettingsAgentsRoute: SettingsAgentsRoute,
+  SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsArchiveRoute: SettingsArchiveRoute,
   SettingsAutomationRoute: SettingsAutomationRoute,
   SettingsBotsRoute: SettingsBotsRoute,

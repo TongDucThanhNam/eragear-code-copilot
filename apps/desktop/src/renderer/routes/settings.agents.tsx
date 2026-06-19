@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   AgentSettingsPanel,
   SettingsPageHeader,
+  SupervisorSettingsPanel,
 } from "@/components/settings/settings-panels";
 
 export const Route = createFileRoute("/settings/agents")({
@@ -12,9 +13,11 @@ function AgentsSettingsPage() {
   return (
     <>
       <SettingsPageHeader
-        description="Configure ACP agent profiles and choose the active agent."
+        description="Configure project supervisor policy, ACP agent profiles, and the active agent."
         title="Agents"
       />
+      <SupervisorSettingsPanel />
+      <div className="h-4" />
       <AgentSettingsPanel />
     </>
   );

@@ -61,9 +61,15 @@ bun run --cwd apps/native ui-map
 bun run --cwd packages/runtime check-types
 bun run --cwd packages/api-contract check-types
 bun run build
+bunx biome check packages apps/desktop apps/native --error-on-warnings
 
 # Focused blocker checks
 bun run audit:blockers
+
+# Migration cleanup checks
+Test-Path apps/web; Test-Path apps/server; Test-Path apps/native
+# Expect exit 1 when clean: no active legacy app/script/doc references.
+rg -n 'dev:web|dev:server|desktop:dev|desktop:build|apps/web|apps/server' package.json turbo.json README.md AGENTS.md apps packages -g '!**/docs/archive/**'
 ```
 
 ## Migration Discipline

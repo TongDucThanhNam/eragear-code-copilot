@@ -17,6 +17,7 @@ import {
 import { enqueueSqliteWrite } from "#runtime/platform/storage/sqlite-write-queue";
 import {
   AppConfigSchema,
+  DEFAULT_UI_SETTINGS,
   UiSettingsSchema,
 } from "#runtime/shared/contracts/settings.contract";
 import type {
@@ -90,12 +91,7 @@ const SettingsSchema = z.object({
 });
 
 const DEFAULT_SETTINGS: Settings = {
-  ui: {
-    theme: "system",
-    accentColor: "#2563eb",
-    density: "comfortable",
-    fontScale: 1,
-  },
+  ui: DEFAULT_UI_SETTINGS,
   projectRoots: [DEFAULT_PROJECT_ROOT],
   mcpServers: [],
   app: createDefaultAppConfigFromEnv(),

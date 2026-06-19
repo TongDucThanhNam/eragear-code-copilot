@@ -1,5 +1,6 @@
 // biome-ignore-all lint: Legacy migrated renderer lint debt is preserved during Electron-first extraction; normalize in focused UI cleanup.
 import {
+  Bot,
   Circle,
   Folder,
   GitBranch,
@@ -8,11 +9,17 @@ import {
   X,
 } from "lucide-react";
 import type { ComponentType } from "react";
+import type {
+  SupervisorDecisionSummary,
+  SupervisorMode,
+  SupervisorSessionState,
+} from "@eragear-code-copilot/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import type { ChatDisplayConnectionStatus } from "./chat-connection-display";
+import { SupervisorControl } from "./supervisor-control";
 
 interface ChatContextRailProps {
   agentName: string;
@@ -21,6 +28,11 @@ interface ChatContextRailProps {
   onClose: () => void;
   projectName?: string | null;
   projectPath?: string | null;
+  supervisor: SupervisorSessionState | null;
+  supervisorCapable: boolean;
+  isSettingSupervisorMode: boolean;
+  lastSupervisorDecision: SupervisorDecisionSummary | null;
+  onSetSupervisorMode: (mode: SupervisorMode) => Promise<void>;
 }
 
 export function ChatContextRail({
@@ -30,6 +42,11 @@ export function ChatContextRail({
   onClose,
   projectName,
   projectPath,
+  supervisor,
+  supervisorCapable,
+  isSettingSupervisorMode,
+  lastSupervisorDecision,
+  onSetSupervisorMode,
 }: ChatContextRailProps) {
   const summaryQuery = trpc.git.summary.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -107,6 +124,46 @@ export function ChatContextRail({
           />
         </div>
 
+        <div className="border-t px-3 py-3">
+          <div className="mb-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 text-xs">
+            <Bot className="mt-0.5 size-4 text-muted-foreground" />
+            <div className="min-w-0">
+              <div className="font-medium text-foreground">
+                Project Supervisor
+              </div>
+              <div className="truncate text-muted-foreground">
+                {supervisorCapable
+                  ? formatSupervisorDetail(supervisor)
+                  : "Disabled by runtime policy"}
+              </div>
+            </div>
+            <Badge variant={supervisorCapable ? "secondary" : "outline"}>
+              {supervisorCapable ? "Ready" : "Off"}
+            </Badge>
+          </div>
+          {supervisorCapable ? (
+            <SupervisorControl
+              isPending={isSettingSupervisorMode}
+              lastDecision={lastSupervisorDecision}
+              mode={supervisor?.mode ?? "off"}
+              onSetMode={onSetSupervisorMode}
+              reason={supervisor?.reason ?? null}
+              status={supervisor?.status ?? "idle"}
+            />
+          ) : (
+            <Button
+              className="h-8 w-full justify-start gap-1.5 px-2 py-0 text-muted-foreground text-xs"
+              disabled
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Bot className="size-3.5" />
+              Supervisor unavailable
+            </Button>
+          )}
+        </div>
+
         <div className="flex items-center justify-between border-t px-3 py-2">
           <span className="text-muted-foreground text-xs">Sources</span>
           <div className="flex items-center gap-1.5">
@@ -121,6 +178,16 @@ export function ChatContextRail({
       </div>
     </aside>
   );
+}
+
+function formatSupervisorDetail(supervisor: SupervisorSessionState | null) {
+  if (!supervisor || supervisor.mode === "off") {
+    return "Off for this project context";
+  }
+  if (supervisor.reason) {
+    return supervisor.reason;
+  }
+  return `Status: ${supervisor.status}`;
 }
 
 interface ContextRowProps {

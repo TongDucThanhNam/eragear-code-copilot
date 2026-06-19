@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld("eragearDesktop", {
     ipcRenderer.invoke("eragear:getRuntimeDiagnostics"),
   getRemoteConnectStatus: () =>
     ipcRenderer.invoke("eragear:getRemoteConnectStatus"),
+  getDesktopSettings: () => ipcRenderer.invoke("eragear:desktopSettings:get"),
+  updateRemoteConnectSettings: (input: unknown) =>
+    ipcRenderer.invoke("eragear:desktopSettings:updateRemoteConnect", input),
+  createRemoteConnectToken: () =>
+    ipcRenderer.invoke("eragear:desktopSettings:createRemoteConnectToken"),
   checkForUpdates: () => ipcRenderer.invoke("eragear:checkForUpdates"),
   openProjectFolder: (input?: { defaultPath?: string }) =>
     ipcRenderer.invoke("eragear:dialog:openProjectFolder", input),

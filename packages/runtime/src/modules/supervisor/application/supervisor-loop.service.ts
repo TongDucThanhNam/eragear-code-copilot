@@ -395,7 +395,7 @@ export class SupervisorLoopService {
         session.supervisor = {
           ...supervisor,
           status: "error",
-          reason: "SUPERVISOR_MODEL is required",
+          reason: "Supervisor model is required in Settings",
           updatedAt: this.clock.nowMs(),
         };
         await this.persistAndBroadcastState(event.chatId, event.userId);

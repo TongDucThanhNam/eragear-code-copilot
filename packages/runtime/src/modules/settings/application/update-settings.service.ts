@@ -6,6 +6,7 @@ import type {
 } from "#runtime/shared/types/settings.types";
 import { APP_CONFIG_KEYS, type AppConfigService } from "../app-config.service";
 import { SettingsAggregate } from "../domain/settings.entity";
+import type { UiSettingsService } from "../ui-settings.service";
 import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
 import type { SettingsChangeNotifier } from "./settings-change.notifier";
 
@@ -38,15 +39,18 @@ export class UpdateSettingsService {
   private readonly settingsRepo: SettingsRepositoryPort;
   private readonly settingsChangeNotifier: SettingsChangeNotifier;
   private readonly appConfigService: AppConfigService;
+  private readonly uiSettingsService?: UiSettingsService;
 
   constructor(
     settingsRepo: SettingsRepositoryPort,
     settingsChangeNotifier: SettingsChangeNotifier,
-    appConfigService: AppConfigService
+    appConfigService: AppConfigService,
+    uiSettingsService?: UiSettingsService
   ) {
     this.settingsRepo = settingsRepo;
     this.settingsChangeNotifier = settingsChangeNotifier;
     this.appConfigService = appConfigService;
+    this.uiSettingsService = uiSettingsService;
   }
 
   async execute(patch: SettingsPatch): Promise<UpdateSettingsResult> {
@@ -92,6 +96,7 @@ export class UpdateSettingsService {
       mergeSettingsPatch(current, normalizedPatch)
     );
     this.appConfigService.reloadFromSettings(settings);
+    this.uiSettingsService?.reloadFromSettings(settings);
     const changedKeys: string[] = [];
     const requiresRestart: string[] = [];
 

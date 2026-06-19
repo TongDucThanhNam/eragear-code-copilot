@@ -14,6 +14,7 @@ import type {
 import type {
   AppConfigService,
   SettingsRepositoryPort,
+  UiSettingsService,
 } from "#runtime/modules/settings";
 import type { SupervisorPolicy } from "#runtime/modules/supervisor";
 import type { UsageStatsRepositoryPort } from "#runtime/modules/usage-stats";
@@ -37,6 +38,7 @@ export interface ServiceRegistryDependencies {
   settingsRepo: SettingsRepositoryPort;
   usageStatsRepo: UsageStatsRepositoryPort;
   appConfigService: AppConfigService;
+  uiSettingsService: UiSettingsService;
   gitAdapter: GitAdapter;
   agentRuntimeAdapter: AgentRuntimePort;
   sessionAcpAdapter: SessionAcpPort;

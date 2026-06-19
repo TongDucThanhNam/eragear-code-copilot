@@ -35,21 +35,9 @@ import {
 } from "@/components/chat-ui/mcp-command";
 import { PermissionDialog } from "@/components/chat-ui/permission-dialog";
 import {
-  AUTO_PROJECT_INDEX_CONTEXT_LIMIT,
-  shouldAutoAttachProjectIndexContext,
-  shouldUseAutoProjectIndexSearchResult,
-} from "@/components/chat-ui/project-index-auto-context";
-import {
   PROJECT_INDEX_COMMAND_NAME,
   parseProjectIndexCommand,
 } from "@/components/chat-ui/project-index-command";
-import {
-  AUTO_PROJECT_MEMORY_CONTEXT_BYTES,
-  AUTO_PROJECT_MEMORY_CONTEXT_CHUNKS,
-  composeProjectContextPrompt,
-  shouldAutoAttachProjectMemoryContext,
-  shouldUseProjectMemoryContextResult,
-} from "@/components/chat-ui/project-memory-auto-context";
 import {
   PROJECT_MEMORY_COMMAND_NAME,
   parseProjectMemoryCommand,
@@ -1459,88 +1447,6 @@ export function ChatInterface({
               skills: localAdeSnapshot?.skills ?? [],
               outputStyles: localAdeSnapshot?.outputStyles ?? [],
             });
-      let autoProjectIndexPrompt: string | null = null;
-      const commandResolved = Boolean(
-        projectMemoryPrompt ||
-          projectIndexPrompt ||
-          mcpCommandPrompt ||
-          subagentCommand ||
-          localCommand ||
-          localInstruction
-      );
-      if (
-        shouldAutoAttachProjectIndexContext({
-          text: message.text,
-          hasFiles,
-          mentionCount: mentionPaths.length,
-          projectIndexReady: Boolean(localAdeSnapshot?.projectIndex.indexedAt),
-          commandResolved,
-        })
-      ) {
-        try {
-          const indexSearch = await utils.settings.searchProjectIndex.fetch({
-            query: message.text,
-            limit: AUTO_PROJECT_INDEX_CONTEXT_LIMIT,
-          });
-          if (
-            shouldUseAutoProjectIndexSearchResult({
-              status: indexSearch.status,
-              resultCount: indexSearch.results.length,
-            })
-          ) {
-            autoProjectIndexPrompt = indexSearch.prompt;
-            toast.info(
-              `Attached Project Index context (${indexSearch.results.length} matches).`
-            );
-          }
-        } catch (indexError) {
-          console.error("Automatic Project Index context failed", indexError);
-        }
-      }
-      let autoProjectMemoryPrompt: string | null = null;
-      const enabledMemorySources =
-        localAdeSnapshot?.projectMemory.sources.filter(
-          (source) => source.enabled
-        ).length ?? 0;
-      if (
-        shouldAutoAttachProjectMemoryContext({
-          text: message.text,
-          hasFiles,
-          mentionCount: mentionPaths.length,
-          enabledMemorySources,
-          commandResolved,
-        })
-      ) {
-        try {
-          const memoryContext = await utils.memory.buildContext.fetch({
-            query: message.text,
-            retrievalMode: "semantic",
-            maxBytes: AUTO_PROJECT_MEMORY_CONTEXT_BYTES,
-            maxChunks: AUTO_PROJECT_MEMORY_CONTEXT_CHUNKS,
-          });
-          if (
-            shouldUseProjectMemoryContextResult({
-              status: memoryContext.status,
-              sourceCount: memoryContext.sources.length,
-            })
-          ) {
-            autoProjectMemoryPrompt = memoryContext.prompt;
-            toast.info(
-              `Attached Project Memory context (${memoryContext.sources.length} source(s)).`
-            );
-          }
-        } catch (memoryError) {
-          console.error("Automatic Project Memory context failed", memoryError);
-        }
-      }
-      const autoContextPrompt = composeProjectContextPrompt({
-        userRequest: message.text,
-        memoryPrompt: autoProjectMemoryPrompt,
-        indexPrompt: autoProjectIndexPrompt,
-      });
-      const hasAutoContext = Boolean(
-        autoProjectMemoryPrompt || autoProjectIndexPrompt
-      );
       const messageText =
         mcpCommandPrompt ??
         projectMemoryPrompt ??
@@ -1548,7 +1454,6 @@ export function ChatInterface({
         subagentCommand?.prompt ??
         localCommand?.prompt ??
         localInstruction?.prompt ??
-        (hasAutoContext ? autoContextPrompt : null) ??
         message.text;
 
       const result = await sendMessage(messageText, {
@@ -1580,8 +1485,6 @@ export function ChatInterface({
       registeredCommandDescriptors,
       localAdeSnapshot?.mcp.servers,
       localAdeSnapshot?.outputStyles,
-      localAdeSnapshot?.projectIndex.indexedAt,
-      localAdeSnapshot?.projectMemory.sources,
       localAdeSnapshot?.skills,
       localAdeSnapshot?.subagents,
       promptCapabilities?.embeddedContext,
@@ -1850,13 +1753,10 @@ export function ChatInterface({
               currentModeId={currentModeId}
               currentModelId={currentModelId}
               imageInputSupported={Boolean(promptCapabilities?.image)}
-              isSettingSupervisorMode={isSettingSupervisorMode}
-              lastSupervisorDecision={lastSupervisorDecision}
               onCancel={handleCancel}
               onConfigOptionChange={handleSetConfigOption}
               onModeChange={handleSetMode}
               onModelChange={handleSetModel}
-              onSetSupervisorMode={handleSetSupervisorMode}
               onSubmit={handleSubmit}
               projectMemoryPresets={
                 localAdeSnapshot?.projectMemory.presets ?? []
@@ -1866,8 +1766,6 @@ export function ChatInterface({
               }
               projectRules={projectContext?.projectRules}
               status={status}
-              supervisor={supervisor}
-              supervisorCapable={supervisorCapable}
               textareaRef={textareaRef}
             />
           </div>
@@ -1877,9 +1775,14 @@ export function ChatInterface({
           agentName={agentDisplay.name}
           connStatus={displayConnStatus}
           isOpen={isEnvironmentOpen}
+          isSettingSupervisorMode={isSettingSupervisorMode}
+          lastSupervisorDecision={lastSupervisorDecision}
           onClose={handleCloseEnvironment}
+          onSetSupervisorMode={handleSetSupervisorMode}
           projectName={headerProjectName}
           projectPath={activeProject?.path ?? null}
+          supervisor={supervisor}
+          supervisorCapable={supervisorCapable}
         />
 
         {rightSidebar.isOpen && rightSidebar.render
