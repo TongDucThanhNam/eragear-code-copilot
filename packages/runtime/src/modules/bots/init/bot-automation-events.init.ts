@@ -15,6 +15,7 @@ export function initializeBotAutomationEvents(params: {
       "provider_quota_refreshed",
       "prompt_turn_completed",
       "agent_session_stopped",
+      "supervisor_run_updated",
     ],
     async handler(event) {
       if (event.type === "provider_quota_refreshed") {
@@ -36,6 +37,12 @@ export function initializeBotAutomationEvents(params: {
             ...(window.resetAt ? { resetAt: window.resetAt } : {}),
           })),
         });
+        if (event.changed) {
+          await botsUseCases.bots.dispatchDueQuotaResets({
+            userIds: [event.userId],
+            now: event.fetchedAt,
+          });
+        }
         return;
       }
       if (event.type === "prompt_turn_completed") {
@@ -44,6 +51,14 @@ export function initializeBotAutomationEvents(params: {
           chatId: event.chatId,
           turnId: event.turnId,
           ...(event.stopReason ? { stopReason: event.stopReason } : {}),
+        });
+        return;
+      }
+      if (event.type === "supervisor_run_updated") {
+        await botsUseCases.bots.completeRunsForSupervisorUpdate({
+          userId: event.userId,
+          runId: event.update.runId,
+          status: event.update.status,
         });
         return;
       }

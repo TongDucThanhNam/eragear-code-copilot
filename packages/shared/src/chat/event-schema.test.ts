@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   parseBroadcastEventClientSafe,
+  parseBroadcastEventStrict,
   parseUiMessageArrayClientSafe,
   parseUiMessageClientSafe,
+  SUPERVISOR_RUN_UPDATE_SCHEMA,
 } from "./event-schema";
 
 describe("parseUiMessageClientSafe", () => {
@@ -40,6 +42,28 @@ describe("parseUiMessageClientSafe", () => {
       return;
     }
     expect(parsed.kind).toBe("invalid_payload");
+  });
+});
+
+describe("SUPERVISOR_RUN_UPDATE_SCHEMA", () => {
+  test("accepts client-safe run state and rejects raw secret-bearing fields", () => {
+    const update = {
+      runId: "run-1",
+      revision: 2,
+      status: "running",
+      tasks: [],
+      gates: [],
+      finalVerification: [],
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:01:00.000Z",
+    };
+    expect(SUPERVISOR_RUN_UPDATE_SCHEMA.parse(update)).toEqual(update);
+    expect(() =>
+      SUPERVISOR_RUN_UPDATE_SCHEMA.parse({
+        ...update,
+        rawTranscript: "secret",
+      })
+    ).toThrow();
   });
 });
 
@@ -320,6 +344,67 @@ describe("parseBroadcastEventClientSafe", () => {
     }
     expect(parsed.value.decision.action).toBe("continue");
     expect(parsed.value.supervisor.status).toBe("continuing");
+  });
+
+  test("parses goal_mode_audit payload strictly and client-safe", () => {
+    const event = {
+      type: "goal_mode_audit",
+      turnId: "turn-1",
+      audit: {
+        goalId: "goal-1",
+        phaseId: "phase-v0",
+        attemptId: "attempt-1",
+        kind: "gate_result",
+        occurredAt: "2026-06-20T00:00:00.000Z",
+        scopeResolution: {
+          resolverVersion: "v0-no-graph",
+          primaryTarget: {
+            path: "packages/runtime/src/modules/goal-mode/index.ts",
+            score: 42,
+            reason: "matched goal mode module",
+          },
+          secondaryTargets: [],
+          resolvedViaLLM: false,
+          diagnostics: {
+            signalScanSkippedBySize: 0,
+            symbolExtractionMode: "regex",
+            indexedFiles: 12,
+            candidateCount: 3,
+          },
+        },
+        filesAllowed: ["packages/runtime/src/modules/goal-mode/index.ts"],
+        filesTouched: ["packages/runtime/src/modules/goal-mode/index.ts"],
+        filesCreated: [],
+        filesDeleted: [],
+        gate: {
+          decision: "needs_user",
+          reasons: ["verification_failed"],
+        },
+        verification: {
+          command: "bun test packages/runtime/src/modules/goal-mode",
+          exitCode: 1,
+        },
+        outcomeSummary: {
+          keyDecision: "Hold phase after failed verification",
+          filesChanged: ["packages/runtime/src/modules/goal-mode/index.ts"],
+          gotcha: "Verification must pass before continuing",
+          verification: "Failed with exit 1",
+        },
+      },
+    };
+
+    const strict = parseBroadcastEventStrict(event);
+    expect(strict.ok).toBe(true);
+
+    const parsed = parseBroadcastEventClientSafe(event);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.value.type !== "goal_mode_audit") {
+      return;
+    }
+    expect(parsed.value.audit.gate?.decision).toBe("needs_user");
+    expect(parsed.value.audit.scopeResolution?.resolverVersion).toBe(
+      "v0-no-graph"
+    );
   });
 
   test("parses subagent_status payload", () => {

@@ -25,6 +25,7 @@ export interface UiSettings {
 export type AcpPromptMetaPolicy = "allowlist" | "always" | "never";
 export type SupervisorWebSearchProvider = "none" | "exa";
 export type SupervisorMemoryProvider = "none" | "obsidian";
+export type SupervisorToolPolicy = "builtin" | "custom-allowlist";
 
 /**
  * Runtime application configuration (hot-reload without restart)
@@ -46,8 +47,8 @@ export interface AppConfig {
   supervisorEnabled: boolean;
   /** Model id used for supervisor decisions */
   supervisorModel: string;
-  /** DeepSeek API key used when supervisorModel targets DeepSeek */
-  supervisorDeepSeekApiKey: string;
+  /** MiniMax API key used for supervisor decisions */
+  supervisorMiniMaxApiKey: string;
   /** Timeout for one supervisor decision in milliseconds */
   supervisorDecisionTimeoutMs: number;
   /** Maximum retry attempts for one supervisor decision */
@@ -56,6 +57,12 @@ export interface AppConfig {
   supervisorMaxRuntimeMs: number;
   /** Maximum repeated prompts before supervisor halts */
   supervisorMaxRepeatedPrompts: number;
+  /** Extra system prompt appended after built-in supervisor safety guardrails */
+  supervisorCustomSystemPrompt: string;
+  /** Policy controlling named tools Supervisos may ask the coding agent to use */
+  supervisorToolPolicy: SupervisorToolPolicy;
+  /** Named tool allowlist used when supervisorToolPolicy is custom-allowlist */
+  supervisorToolAllowlist: string[];
   /** Optional web search provider used by supervisor research */
   supervisorWebSearchProvider: SupervisorWebSearchProvider;
   /** API key for the configured supervisor web search provider */

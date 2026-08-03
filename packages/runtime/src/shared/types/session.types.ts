@@ -21,6 +21,7 @@ import type {
   WaitForTerminalExitResponse,
 } from "@agentclientprotocol/sdk";
 import type {
+  GoalModeAuditEntry,
   UIMessage,
   UIMessagePart,
   UIMessageRole,
@@ -240,7 +241,13 @@ export interface UiMessageState {
   /** Current user message ID for replayed chunks */
   currentUserId?: string;
   /** Source of the current contiguous user chunk stream */
-  currentUserSource?: "client" | "supervisor" | "automation" | "acp";
+  currentUserSource?:
+    | "client"
+    | "supervisor"
+    | "automation"
+    | "scheduled"
+    | "orchestrator"
+    | "acp";
   /** Tool part lookup by tool call ID */
   toolPartIndex: Map<
     string,
@@ -387,6 +394,11 @@ export type BroadcastEvent =
       type: "supervisor_decision";
       decision: SupervisorDecisionSummary;
       supervisor: SupervisorSessionState;
+      turnId?: string;
+    }
+  | {
+      type: "goal_mode_audit";
+      audit: GoalModeAuditEntry;
       turnId?: string;
     }
   | {

@@ -3,6 +3,7 @@ import type {
   AvailableCommand,
   ChatStatus,
   ConnectionStatus,
+  GoalModeAuditEntry,
   PermissionRequest,
   PromptCapabilities,
   SessionConfigOption,
@@ -78,6 +79,7 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
     null
   );
   const [supervisorCapable, setSupervisorCapable] = useState(false);
+  const [goalModeAudit, setGoalModeAudit] = useState<GoalModeAuditEntry[]>([]);
   const [subagents, setSubagents] = useState<SubagentInvocation[]>([]);
 
   const messageStateRef = useRef<MessageState>(
@@ -117,9 +119,11 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
 
   useEffect(() => {
     setSubagents([]);
+    setGoalModeAudit([]);
   }, []);
 
   useEffect(() => {
+    setGoalModeAudit([]);
     const activeChatId = chatId ?? null;
     if (!activeChatId) {
       messageStateRef.current = getChatMessageStateSnapshot(null);
@@ -217,6 +221,8 @@ export function useChatCoreState({ chatId, readOnly }: UseChatCoreStateParams) {
     setSupervisor,
     supervisorCapable,
     setSupervisorCapable,
+    goalModeAudit,
+    setGoalModeAudit,
     subagents,
     setSubagents,
     messageStateRef,

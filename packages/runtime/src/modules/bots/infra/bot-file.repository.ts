@@ -17,7 +17,7 @@ import type {
   MutableBotQuotaAutomationStateSnapshot,
 } from "../application/ports/bot-repository.port";
 
-const DOCUMENT_VERSION = 1;
+const DOCUMENT_VERSION = 2;
 
 const BotDocumentSchema = z
   .object({
@@ -28,11 +28,32 @@ const BotDocumentSchema = z
       windows: {},
       dispatched: {},
       cooldowns: {},
+      providerLeases: {},
     }),
   })
   .strict();
 
 type BotDocument = z.infer<typeof BotDocumentSchema>;
+
+const LegacyBotDocumentSchema = z
+  .object({
+    version: z.literal(1),
+    bots: z.record(z.string(), z.record(z.string(), z.unknown())),
+    runs: z.record(z.string(), z.record(z.string(), z.unknown())),
+    quotaAutomation: z
+      .object({
+        windows: z.record(z.string(), z.unknown()).default({}),
+        dispatched: z.record(z.string(), z.unknown()).default({}),
+        cooldowns: z.record(z.string(), z.unknown()).default({}),
+      })
+      .passthrough()
+      .default({
+        windows: {},
+        dispatched: {},
+        cooldowns: {},
+      }),
+  })
+  .passthrough();
 
 type MutableQuotaAutomationStateSnapshot =
   MutableBotQuotaAutomationStateSnapshot & {
@@ -175,14 +196,27 @@ export class BotFileRepository implements BotRepositoryPort {
     const filePath = await this.resolveFilePath();
     try {
       const raw = await readFile(filePath, "utf8");
-      return BotDocumentSchema.parse(JSON.parse(raw));
+      const parsed = JSON.parse(raw) as unknown;
+      const version =
+        parsed && typeof parsed === "object" && "version" in parsed
+          ? (parsed as { version?: unknown }).version
+          : undefined;
+      if (version === 1) {
+        return migrateLegacyDocument(LegacyBotDocumentSchema.parse(parsed));
+      }
+      return BotDocumentSchema.parse(parsed);
     } catch (error) {
       if (getNodeErrnoCode(error) === "ENOENT") {
         return {
           version: DOCUMENT_VERSION,
           bots: {},
           runs: {},
-          quotaAutomation: { windows: {}, dispatched: {}, cooldowns: {} },
+          quotaAutomation: {
+            windows: {},
+            dispatched: {},
+            cooldowns: {},
+            providerLeases: {},
+          },
         };
       }
       throw error;
@@ -238,4 +272,66 @@ function cloneQuotaAutomationState(
   state: BotQuotaAutomationState
 ): BotQuotaAutomationState {
   return structuredClone(state);
+}
+
+function migrateLegacyDocument(
+  legacy: z.infer<typeof LegacyBotDocumentSchema>
+): BotDocument {
+  const bots = Object.fromEntries(
+    Object.entries(legacy.bots).map(([id, raw]) => {
+      const prompt = typeof raw.prompt === "string" ? raw.prompt : "";
+      const providerIds =
+        raw.triggerConfig &&
+        typeof raw.triggerConfig === "object" &&
+        "quota" in raw.triggerConfig &&
+        raw.triggerConfig.quota &&
+        typeof raw.triggerConfig.quota === "object" &&
+        "providerIds" in raw.triggerConfig.quota &&
+        Array.isArray(raw.triggerConfig.quota.providerIds)
+          ? raw.triggerConfig.quota.providerIds.filter(
+              (value): value is string => typeof value === "string"
+            )
+          : [];
+      let providerId: string | undefined;
+      if (typeof raw.providerId === "string") {
+        providerId = raw.providerId;
+      } else if (providerIds.length === 1) {
+        providerId = providerIds[0];
+      }
+      return [
+        id,
+        BotDefinitionSchema.parse({
+          ...raw,
+          objective:
+            typeof raw.objective === "string" && raw.objective.trim()
+              ? raw.objective
+              : prompt,
+          prompt,
+          workMode: "adaptive_session",
+          promptStrategy: "fixed",
+          ...(providerId ? { providerId } : {}),
+        }),
+      ];
+    })
+  );
+  const runs = Object.fromEntries(
+    Object.entries(legacy.runs).map(([id, raw]) => [
+      id,
+      BotRunSchema.parse({
+        ...raw,
+        completionState: "pending",
+      }),
+    ])
+  );
+  return BotDocumentSchema.parse({
+    version: DOCUMENT_VERSION,
+    bots,
+    runs,
+    quotaAutomation: {
+      windows: legacy.quotaAutomation.windows,
+      dispatched: legacy.quotaAutomation.dispatched,
+      cooldowns: legacy.quotaAutomation.cooldowns,
+      providerLeases: {},
+    },
+  });
 }

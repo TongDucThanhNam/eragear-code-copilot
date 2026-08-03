@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type {
@@ -41,7 +41,7 @@ describe("BotFileRepository", () => {
       await expect(
         repository.readQuotaAutomationState((snapshot) => snapshot.get())
       ).resolves.toEqual(state);
-      await expect(readPersistedVersion(filePath)).resolves.toBe(1);
+      await expect(readPersistedVersion(filePath)).resolves.toBe(2);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -69,6 +69,78 @@ describe("BotFileRepository", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("migrates version 1 bots to fixed scheduled-task definitions", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "bots-"));
+    const filePath = path.join(root, "bots.json");
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        version: 1,
+        bots: {
+          "legacy-bot": {
+            id: "legacy-bot",
+            userId: "user-1",
+            name: "Legacy bot",
+            description: "",
+            prompt: "Repeat this legacy prompt",
+            enabled: true,
+            trigger: "quota_refresh",
+            maxConcurrency: 1,
+            triggerConfig: {
+              quota: {
+                providerIds: ["minimax-coding-plan"],
+                windowIds: ["five-hour"],
+                minPercentRemaining: 10,
+                cooldownMs: 300_000,
+              },
+            },
+            execution: { target: "queue_only" },
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        },
+        runs: {
+          "legacy-run": {
+            id: "legacy-run",
+            userId: "user-1",
+            botId: "legacy-bot",
+            trigger: "quota_refresh",
+            status: "completed",
+            context: {},
+            queuedAt: 3,
+            startedAt: 4,
+            completedAt: 5,
+            stoppedAt: null,
+          },
+        },
+        quotaAutomation: {
+          windows: {},
+          dispatched: {},
+          cooldowns: {},
+        },
+      })
+    );
+    const repository = new BotFileRepository({ filePath });
+
+    try {
+      await expect(
+        repository.getBot("user-1", "legacy-bot")
+      ).resolves.toMatchObject({
+        objective: "Repeat this legacy prompt",
+        promptStrategy: "fixed",
+        workMode: "adaptive_session",
+        providerId: "minimax-coding-plan",
+      });
+      await expect(
+        repository.getRun("user-1", "legacy-run")
+      ).resolves.toMatchObject({
+        completionState: "pending",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function createBot(): BotDefinition {
@@ -77,7 +149,10 @@ function createBot(): BotDefinition {
     userId: "user-1",
     name: "Quota watcher",
     description: "",
+    objective: "Run quota work",
     prompt: "Run quota work",
+    workMode: "adaptive_session",
+    promptStrategy: "fixed",
     enabled: true,
     trigger: "quota_refresh",
     maxConcurrency: 1,
@@ -94,6 +169,7 @@ function createRun(): BotRun {
     botId: "bot-1",
     trigger: "quota_refresh",
     status: "queued",
+    completionState: "pending",
     context: {},
     queuedAt: 2,
     startedAt: null,
@@ -142,6 +218,7 @@ function createQuotaAutomationState(): BotQuotaAutomationState {
         lastDispatchedAt: 30,
       },
     },
+    providerLeases: {},
   };
 }
 

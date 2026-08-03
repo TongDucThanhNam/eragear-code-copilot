@@ -22,6 +22,7 @@ import { credentialRouter } from "./routers/credential";
 import { feedbackRouter } from "./routers/feedback";
 import { fileWatcherRouter } from "./routers/file-watcher";
 import { gitRouter } from "./routers/git";
+import { goalModeRouter } from "./routers/goal-mode";
 import { hooksRouter } from "./routers/hooks";
 import { memoryRouter } from "./routers/memory";
 import { modelProviderRouter } from "./routers/model-provider";
@@ -33,11 +34,13 @@ import { promptEnhancementRouter } from "./routers/prompt-enhancement";
 import { quotaRouter } from "./routers/quota";
 import { remoteControlRouter } from "./routers/remote-control";
 import { repoSnapshotIndexingRouter } from "./routers/repo-snapshot-indexing";
+import { scopeResolutionRouter } from "./routers/scope-resolution";
 import { sessionRouter } from "./routers/session";
 import { settingsRouter } from "./routers/settings";
 import { settingsSyncRouter } from "./routers/settings-sync";
 import { skillsRouter } from "./routers/skills";
 import { subagentsRouter } from "./routers/subagents";
+import { supervisorRunsRouter } from "./routers/supervisor-runs";
 import { taskAutoArchiveRouter } from "./routers/task-auto-archive";
 import { terminalRouter } from "./routers/terminal";
 import { toolRouter } from "./routers/tool";
@@ -66,6 +69,7 @@ export const appRouter = t.mergeRouters(
     feedback: feedbackRouter,
     fileWatcher: fileWatcherRouter,
     git: gitRouter,
+    goalMode: goalModeRouter,
     hooks: hooksRouter,
     memory: memoryRouter,
     modelProvider: modelProviderRouter,
@@ -76,10 +80,12 @@ export const appRouter = t.mergeRouters(
     quota: quotaRouter,
     remoteControl: remoteControlRouter,
     repoSnapshotIndexing: repoSnapshotIndexingRouter,
+    scopeResolution: scopeResolutionRouter,
     settings: settingsRouter,
     settingsSync: settingsSyncRouter,
     skills: skillsRouter,
     subagents: subagentsRouter,
+    supervisorRuns: supervisorRunsRouter,
     taskAutoArchive: taskAutoArchiveRouter,
     terminal: terminalRouter,
     trafficProxy: trafficProxyRouter,

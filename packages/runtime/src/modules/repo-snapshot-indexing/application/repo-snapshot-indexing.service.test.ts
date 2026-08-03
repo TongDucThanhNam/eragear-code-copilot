@@ -16,6 +16,7 @@ import type {
   RepoSnapshotIndexingSettingsScope,
   RepoSnapshotIndexingSettingsSnapshot,
 } from "./ports/repo-snapshot-indexing-repository.port";
+import { extractRepoIndexSymbolFromLine } from "./repo-index-symbol-extraction";
 import { RepoSnapshotIndexingService } from "./repo-snapshot-indexing.service";
 
 class RepoIndexPortStub implements RepoSnapshotIndexPort {
@@ -271,5 +272,14 @@ describe("RepoSnapshotIndexingService", () => {
     expect(result.status).toBe("disabled");
     expect(result.results).toEqual([]);
     expect(result.diagnostics[0]).toContain("disabled");
+  });
+
+  test("extracts typed TSX component declarations for resolver signals", () => {
+    const symbol = extractRepoIndexSymbolFromLine({
+      line: "export const HomePage: FC<Props> = () => null",
+      extension: ".tsx",
+    });
+
+    expect(symbol).toEqual({ kind: "component", name: "HomePage" });
   });
 });

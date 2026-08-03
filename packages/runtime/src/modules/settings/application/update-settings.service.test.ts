@@ -65,7 +65,7 @@ describe("UpdateSettingsService", () => {
       app: {
         supervisorEnabled: true,
         supervisorModel: "deepseek/deepseek-chat",
-        supervisorDeepSeekApiKey: "sk-test",
+        supervisorMiniMaxApiKey: "sk-test",
       },
     });
 

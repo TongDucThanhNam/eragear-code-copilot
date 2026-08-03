@@ -24,6 +24,7 @@ import type { CredentialService } from "#runtime/modules/credential";
 import type { FeedbackService } from "#runtime/modules/feedback";
 import type { FileWatcherPort } from "#runtime/modules/file-watcher";
 import type { GitCheckpointService, GitService } from "#runtime/modules/git";
+import type { GoalModeController } from "#runtime/modules/goal-mode";
 import type { HooksService } from "#runtime/modules/hooks";
 import type { MemoryService } from "#runtime/modules/memory";
 import type { ModelProviderService } from "#runtime/modules/model-provider";
@@ -49,6 +50,7 @@ import type { PromptEnhancementService } from "#runtime/modules/prompt-enhanceme
 import type { ProviderQuotaService } from "#runtime/modules/quota";
 import type { RemoteControlService } from "#runtime/modules/remote-control";
 import type { RepoSnapshotIndexingService } from "#runtime/modules/repo-snapshot-indexing";
+import type { ScopeResolverService } from "#runtime/modules/scope-resolution";
 import type {
   CleanupProjectSessionsService,
   CreateSessionService,
@@ -74,10 +76,20 @@ import type {
 import type { SettingsSyncService } from "#runtime/modules/settings-sync";
 import type { SkillsService } from "#runtime/modules/skills";
 import type {
+  ScheduledWorkDecisionService,
   SetSupervisorModeService,
+  SupervisorChatService,
   SupervisorLoopService,
   SupervisorPermissionService,
 } from "#runtime/modules/supervisor";
+import type {
+  SupervisorOrchestratorService,
+  SupervisorPlannerService,
+  SupervisorRecoveryService,
+  SupervisorRunEventsService,
+  WorkerIntegrationService,
+  WorkerSessionManagerService,
+} from "#runtime/modules/supervisor-orchestration";
 import type { TaskAutoArchiveService } from "#runtime/modules/task-auto-archive";
 import type { TerminalService } from "#runtime/modules/terminal";
 import type {
@@ -226,6 +238,14 @@ export interface GitUseCases {
 }
 
 /**
+ * Goal Mode use-cases for phase lifecycle, gates, and compact continuation
+ * prompts.
+ */
+export interface GoalModeUseCases {
+  goalMode: UseCasePort<GoalModeController>;
+}
+
+/**
  * Provider quota use-cases.
  *
  * Caller contract: `list` may use cache, while `refresh` forces provider IO and
@@ -243,6 +263,23 @@ export interface SupervisorUseCases {
   loop: UseCasePort<SupervisorLoopService>;
   setMode: UseCasePort<SetSupervisorModeService>;
   permission: UseCasePort<SupervisorPermissionService>;
+  chat: UseCasePort<SupervisorChatService>;
+  scheduledWork: UseCasePort<ScheduledWorkDecisionService>;
+}
+
+/**
+ * Run-level multi-session orchestration use-cases.
+ *
+ * Invariant: this state is separate from per-session Supervisor state; worker
+ * lifecycle always delegates to the existing session and AI use-cases.
+ */
+export interface SupervisorOrchestrationUseCases {
+  planner: UseCasePort<SupervisorPlannerService>;
+  workerSessions: UseCasePort<WorkerSessionManagerService>;
+  orchestrator: UseCasePort<SupervisorOrchestratorService>;
+  recovery: UseCasePort<SupervisorRecoveryService>;
+  events: UseCasePort<SupervisorRunEventsService>;
+  integration: UseCasePort<WorkerIntegrationService>;
 }
 
 /**
@@ -387,6 +424,13 @@ export interface RepoSnapshotIndexingUseCases {
 }
 
 /**
+ * Scope resolution use-cases for deterministic goal/phase target selection.
+ */
+export interface ScopeResolutionUseCases {
+  scopeResolver: UseCasePort<ScopeResolverService>;
+}
+
+/**
  * Task auto-archive use-cases for threshold policy and background archival.
  */
 export interface TaskAutoArchiveUseCases {
@@ -440,8 +484,10 @@ export interface AppUseCases {
   auth: AuthUseCases;
   ops: OpsUseCases;
   git: GitUseCases;
+  goalMode: GoalModeUseCases;
   quota: QuotaUseCases;
   supervisor: SupervisorUseCases;
+  supervisorOrchestration: SupervisorOrchestrationUseCases;
   commands: CommandsUseCases;
   skills: SkillsUseCases;
   hooks: HooksUseCases;
@@ -461,6 +507,7 @@ export interface AppUseCases {
   usageStats: UsageStatsUseCases;
   plugins: PluginsUseCases;
   repoSnapshotIndexing: RepoSnapshotIndexingUseCases;
+  scopeResolution: ScopeResolutionUseCases;
   taskAutoArchive: TaskAutoArchiveUseCases;
   remoteControl: RemoteControlUseCases;
   bots: BotsUseCases;

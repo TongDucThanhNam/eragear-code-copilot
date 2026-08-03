@@ -3,30 +3,47 @@
 
 import {
   Bot,
+  ChevronDown,
+  Code2,
+  ExternalLink,
   Folder,
+  FolderOpen,
   GitFork,
+  Github,
   Info,
   LogOut,
   Maximize2,
   Minimize2,
   Minus,
-  MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
   Play,
   RefreshCw,
-  SlidersHorizontal,
+  SquareTerminal,
+  Terminal,
   X,
 } from "lucide-react";
-import { memo, useEffect, useState } from "react";
+import { type ComponentType, Fragment, memo, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useRightSidebarControls } from "@/components/layout/three-pane-layout";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { DesktopWindowState } from "@/lib/desktop-bootstrap";
+import type {
+  DesktopWindowState,
+  ExternalProjectAppTarget,
+} from "@/lib/desktop-bootstrap";
 import { cn } from "@/lib/utils";
 import { SidebarTrigger } from "../ui/sidebar";
 import type { ChatDisplayConnectionStatus } from "./chat-connection-display";
@@ -41,13 +58,14 @@ export interface ChatHeaderProps {
   agentDisplay: ChatHeaderAgentDisplay;
   chatTitle?: string | null;
   projectName?: string | null;
+  projectPath?: string | null;
   connStatus: ChatDisplayConnectionStatus;
   onStopChat: () => void;
   onResumeChat?: () => void;
   onForkChat?: () => void;
-  onToggleEnvironment?: () => void;
+  onToggleSupervisos?: () => void;
   onToggleSidePanel?: () => void;
-  isEnvironmentOpen?: boolean;
+  isSupervisosOpen?: boolean;
   isResuming?: boolean;
   isForking?: boolean;
   /** True when agent doesn't support session load */
@@ -75,6 +93,97 @@ const getDesktopWindowControls = () => {
   }
   return window.eragearDesktop?.windowControls ?? null;
 };
+
+const getDesktopProjectExternalOpener = () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return window.eragearDesktop?.openProjectExternally ?? null;
+};
+
+const PROJECT_OPEN_TARGETS: Array<{
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  target: ExternalProjectAppTarget;
+}> = [
+  { icon: Code2, label: "Zed", target: "zed" },
+  { icon: Code2, label: "VS Code", target: "vscode" },
+  { icon: Bot, label: "Antigravity", target: "antigravity" },
+  { icon: SquareTerminal, label: "Warp Terminal", target: "warp" },
+  { icon: Github, label: "GitHub Desktop", target: "github-desktop" },
+  { icon: FolderOpen, label: "File Explorer", target: "file-explorer" },
+  { icon: Terminal, label: "Terminal", target: "terminal" },
+  { icon: Terminal, label: "Git Bash", target: "git-bash" },
+];
+
+function ProjectOpenMenu({
+  projectName,
+  projectPath,
+}: {
+  projectName?: string | null;
+  projectPath?: string | null;
+}) {
+  const normalizedProjectPath = projectPath?.trim() ?? "";
+  const opener = getDesktopProjectExternalOpener();
+  const disabled = !(normalizedProjectPath && opener);
+  const projectLabel = projectName?.trim() || "Workspace";
+
+  const openTarget = (target: ExternalProjectAppTarget, label: string) => {
+    if (!normalizedProjectPath) {
+      toast.error("No project folder selected");
+      return;
+    }
+    const currentOpener = getDesktopProjectExternalOpener();
+    if (!currentOpener) {
+      toast.error("External app launcher is only available in desktop mode");
+      return;
+    }
+    void currentOpener({ projectPath: normalizedProjectPath, target })
+      .then(() => {
+        toast.success(`Opened ${projectLabel} in ${label}`);
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : String(error));
+      });
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          aria-label="Open project in app"
+          className="hidden gap-1 text-muted-foreground hover:text-foreground sm:inline-flex"
+          disabled={disabled}
+          size="sm"
+          title="Open project in app"
+          type="button"
+          variant="outline"
+        >
+          <ExternalLink className="size-3.5" />
+          <ChevronDown className="size-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>Open project in</DropdownMenuLabel>
+        {PROJECT_OPEN_TARGETS.map((item, index) => {
+          const Icon = item.icon;
+          return (
+            <Fragment key={item.target}>
+              {index === 4 ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuItem
+                disabled={disabled}
+                onSelect={() => openTarget(item.target, item.label)}
+              >
+                <Icon className="size-4 text-muted-foreground" />
+                <span>{item.label}</span>
+              </DropdownMenuItem>
+            </Fragment>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 const ElectronWindowControls = memo(function ElectronWindowControls() {
   const controls = getDesktopWindowControls();
@@ -188,13 +297,14 @@ export const ChatHeader = memo(function ChatHeader({
   agentDisplay,
   chatTitle,
   projectName,
+  projectPath,
   connStatus,
   onStopChat,
   onResumeChat,
   onForkChat,
-  onToggleEnvironment,
+  onToggleSupervisos,
   onToggleSidePanel,
-  isEnvironmentOpen = false,
+  isSupervisosOpen = false,
   isResuming,
   isForking,
   loadNotSupported,
@@ -237,20 +347,7 @@ export const ChatHeader = memo(function ChatHeader({
           </Tooltip>
         </div>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              aria-label="More chat actions"
-              className="hidden text-muted-foreground hover:text-foreground sm:inline-flex"
-              size="icon-sm"
-              type="button"
-              variant="ghost"
-            >
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>More chat actions</TooltipContent>
-        </Tooltip>
+        <ProjectOpenMenu projectName={projectName} projectPath={projectPath} />
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
@@ -352,29 +449,29 @@ export const ChatHeader = memo(function ChatHeader({
             </Tooltip>
           )}
 
-        {onToggleEnvironment ? (
+        {onToggleSupervisos ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                aria-controls="chat-environment-panel"
+                aria-controls="supervisos-panel"
                 aria-label={
-                  isEnvironmentOpen ? "Close environment" : "Open environment"
+                  isSupervisosOpen ? "Close Supervisos" : "Open Supervisos"
                 }
-                aria-pressed={isEnvironmentOpen}
+                aria-pressed={isSupervisosOpen}
                 className={cn(
                   "text-muted-foreground hover:text-foreground",
-                  isEnvironmentOpen && "bg-muted text-foreground"
+                  isSupervisosOpen && "bg-muted text-foreground"
                 )}
-                onClick={onToggleEnvironment}
+                onClick={onToggleSupervisos}
                 size="icon-sm"
                 type="button"
                 variant="ghost"
               >
-                <SlidersHorizontal className="size-4" />
+                <Bot className="size-4" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {isEnvironmentOpen ? "Close environment" : "Open environment"}
+              {isSupervisosOpen ? "Close Supervisos" : "Open Supervisos"}
             </TooltipContent>
           </Tooltip>
         ) : null}

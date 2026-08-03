@@ -107,6 +107,7 @@ export function parseUiSettingsForm(
     .trim()
     .toLowerCase();
   const rawPromptMetaAllowlist = formData["app.acpPromptMetaAllowlist"];
+  const rawSupervisorToolAllowlist = formData["app.supervisorToolAllowlist"];
   const app = AppConfigSchema.parse({
     sessionIdleTimeoutMs: parseFiniteInt(
       "app.sessionIdleTimeoutMs",
@@ -150,10 +151,10 @@ export function parseUiSettingsForm(
       }
       return rawValue.trim();
     })(),
-    supervisorDeepSeekApiKey: (() => {
-      const rawValue = formData["app.supervisorDeepSeekApiKey"];
+    supervisorMiniMaxApiKey: (() => {
+      const rawValue = formData["app.supervisorMiniMaxApiKey"];
       if (typeof rawValue !== "string") {
-        return currentSettings.app.supervisorDeepSeekApiKey;
+        return currentSettings.app.supervisorMiniMaxApiKey;
       }
       return rawValue.trim();
     })(),
@@ -177,6 +178,33 @@ export function parseUiSettingsForm(
       getString("app.supervisorMaxRepeatedPrompts"),
       currentSettings.app.supervisorMaxRepeatedPrompts
     ),
+    supervisorCustomSystemPrompt: (() => {
+      const rawValue = formData["app.supervisorCustomSystemPrompt"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorCustomSystemPrompt;
+      }
+      return rawValue.trim();
+    })(),
+    supervisorToolPolicy: (() => {
+      const rawValue = formData["app.supervisorToolPolicy"];
+      if (typeof rawValue !== "string") {
+        return currentSettings.app.supervisorToolPolicy;
+      }
+      return rawValue.trim().toLowerCase();
+    })(),
+    supervisorToolAllowlist: (() => {
+      if (typeof rawSupervisorToolAllowlist !== "string") {
+        return currentSettings.app.supervisorToolAllowlist;
+      }
+      return [
+        ...new Set(
+          rawSupervisorToolAllowlist
+            .split(/[,\n]/g)
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+        ),
+      ];
+    })(),
     supervisorWebSearchProvider: (() => {
       const rawValue = formData["app.supervisorWebSearchProvider"];
       if (typeof rawValue !== "string") {

@@ -3,6 +3,7 @@ import type {
   AvailableCommand,
   ChatStatus,
   ConnectionStatus,
+  GoalModeAuditEntry,
   PermissionRequest,
   PromptCapabilities,
   SessionConfigOption,
@@ -61,6 +62,7 @@ export interface UseChatResult {
   sessionInfo: SessionInfo | null;
   supervisor: SupervisorSessionState | null;
   supervisorCapable: boolean;
+  goalModeAudit: GoalModeAuditEntry[];
   subagents: SubagentInvocation[];
   lastSupervisorDecision: SupervisorDecisionSummary | null;
   promptCapabilities: PromptCapabilities | null;

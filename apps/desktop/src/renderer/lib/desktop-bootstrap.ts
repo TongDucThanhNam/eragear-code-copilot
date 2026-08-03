@@ -16,6 +16,22 @@ import { normalizeServerUrl } from "@/lib/server-url";
 
 export type EragearDesktopBootstrap = DesktopRuntimeBootstrap;
 
+export type ExternalProjectAppTarget =
+  | "zed"
+  | "vscode"
+  | "antigravity"
+  | "warp"
+  | "github-desktop"
+  | "file-explorer"
+  | "terminal"
+  | "git-bash";
+
+export interface OpenProjectExternallyResult {
+  method: string;
+  projectPath: string;
+  target: ExternalProjectAppTarget;
+}
+
 export interface DesktopWindowState {
   isFullScreen: boolean;
   isMaximized: boolean;
@@ -117,6 +133,10 @@ interface EragearDesktopBridge {
   openProjectFolder?: (input?: {
     defaultPath?: string;
   }) => Promise<string | null>;
+  openProjectExternally?: (input: {
+    projectPath: string;
+    target: ExternalProjectAppTarget;
+  }) => Promise<OpenProjectExternallyResult>;
   browserControls?: DesktopBrowserControlsBridge;
   windowControls?: DesktopWindowControlsBridge;
   requestRuntime?: (input: {

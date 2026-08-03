@@ -1,4 +1,5 @@
 import {
+  DEFAULT_SUPERVISOR_CUSTOM_SYSTEM_PROMPT,
   DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS,
   DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS,
   DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS,
@@ -8,6 +9,8 @@ import {
   DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_LIMIT,
   DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH,
   DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS,
+  DEFAULT_SUPERVISOR_TOOL_ALLOWLIST,
+  DEFAULT_SUPERVISOR_TOOL_POLICY,
   DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER,
   HARD_MAX_APP_MAX_TOKENS,
   HARD_MAX_SESSION_LIST_PAGE_LIMIT,
@@ -34,11 +37,14 @@ export const APP_CONFIG_KEYS = [
   "defaultModel",
   "supervisorEnabled",
   "supervisorModel",
-  "supervisorDeepSeekApiKey",
+  "supervisorMiniMaxApiKey",
   "supervisorDecisionTimeoutMs",
   "supervisorDecisionMaxAttempts",
   "supervisorMaxRuntimeMs",
   "supervisorMaxRepeatedPrompts",
+  "supervisorCustomSystemPrompt",
+  "supervisorToolPolicy",
+  "supervisorToolAllowlist",
   "supervisorWebSearchProvider",
   "supervisorWebSearchApiKey",
   "supervisorMemoryProvider",
@@ -90,6 +96,10 @@ const SUPERVISOR_WEB_SEARCH_PROVIDER_SET = new Set<
 const SUPERVISOR_MEMORY_PROVIDER_SET = new Set<
   AppConfig["supervisorMemoryProvider"]
 >(["none", "obsidian"]);
+const SUPERVISOR_TOOL_POLICY_SET = new Set<AppConfig["supervisorToolPolicy"]>([
+  "builtin",
+  "custom-allowlist",
+]);
 
 function toLogLevel(value: unknown): LogLevel | undefined {
   if (typeof value !== "string") {
@@ -193,6 +203,23 @@ function toSupervisorMemoryProvider(
   return normalized as AppConfig["supervisorMemoryProvider"];
 }
 
+function toSupervisorToolPolicy(
+  value: unknown
+): AppConfig["supervisorToolPolicy"] | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (
+    !SUPERVISOR_TOOL_POLICY_SET.has(
+      normalized as AppConfig["supervisorToolPolicy"]
+    )
+  ) {
+    return undefined;
+  }
+  return normalized as AppConfig["supervisorToolPolicy"];
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: AppConfig normalization is centralized so migrations keep one fallback path.
 function normalizeFromUnknown(value: unknown, fallback: AppConfig): AppConfig {
   if (!isRecord(value)) {
@@ -230,9 +257,9 @@ function normalizeFromUnknown(value: unknown, fallback: AppConfig): AppConfig {
       toBoolean(value.supervisorEnabled) ?? fallback.supervisorEnabled,
     supervisorModel:
       toTrimmedString(value.supervisorModel) ?? fallback.supervisorModel ?? "",
-    supervisorDeepSeekApiKey:
-      toTrimmedString(value.supervisorDeepSeekApiKey) ??
-      fallback.supervisorDeepSeekApiKey ??
+    supervisorMiniMaxApiKey:
+      toTrimmedString(value.supervisorMiniMaxApiKey) ??
+      fallback.supervisorMiniMaxApiKey ??
       "",
     supervisorDecisionTimeoutMs: clampInt(
       toFiniteNumber(value.supervisorDecisionTimeoutMs) ??
@@ -258,6 +285,18 @@ function normalizeFromUnknown(value: unknown, fallback: AppConfig): AppConfig {
       1,
       200
     ),
+    supervisorCustomSystemPrompt:
+      toTrimmedString(value.supervisorCustomSystemPrompt) ??
+      fallback.supervisorCustomSystemPrompt ??
+      DEFAULT_SUPERVISOR_CUSTOM_SYSTEM_PROMPT,
+    supervisorToolPolicy:
+      toSupervisorToolPolicy(value.supervisorToolPolicy) ??
+      fallback.supervisorToolPolicy ??
+      DEFAULT_SUPERVISOR_TOOL_POLICY,
+    supervisorToolAllowlist:
+      toPromptMetaAllowlist(value.supervisorToolAllowlist) ??
+      fallback.supervisorToolAllowlist ??
+      DEFAULT_SUPERVISOR_TOOL_ALLOWLIST,
     supervisorWebSearchProvider:
       toSupervisorWebSearchProvider(value.supervisorWebSearchProvider) ??
       fallback.supervisorWebSearchProvider ??
@@ -333,7 +372,7 @@ function normalizeFromUnknown(value: unknown, fallback: AppConfig): AppConfig {
 
 function isSameConfig(left: AppConfig, right: AppConfig): boolean {
   return APP_CONFIG_KEYS.every((key) => {
-    if (key !== "acpPromptMetaAllowlist") {
+    if (key !== "acpPromptMetaAllowlist" && key !== "supervisorToolAllowlist") {
       return left[key] === right[key];
     }
     if (left[key].length !== right[key].length) {
@@ -376,7 +415,7 @@ export function createDefaultAppConfigFromEnv(): AppConfig {
     defaultModel: (ENV.defaultModel ?? "").trim(),
     supervisorEnabled: ENV.supervisorEnabled,
     supervisorModel: ENV.supervisorModel.trim(),
-    supervisorDeepSeekApiKey: ENV.supervisorDeepSeekApiKey.trim(),
+    supervisorMiniMaxApiKey: ENV.supervisorMiniMaxApiKey.trim(),
     supervisorDecisionTimeoutMs:
       ENV.supervisorDecisionTimeoutMs ?? DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS,
     supervisorDecisionMaxAttempts:
@@ -387,6 +426,15 @@ export function createDefaultAppConfigFromEnv(): AppConfig {
     supervisorMaxRepeatedPrompts:
       ENV.supervisorMaxRepeatedPrompts ??
       DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS,
+    supervisorCustomSystemPrompt: (
+      ENV.supervisorCustomSystemPrompt ??
+      DEFAULT_SUPERVISOR_CUSTOM_SYSTEM_PROMPT
+    ).trim(),
+    supervisorToolPolicy:
+      ENV.supervisorToolPolicy ?? DEFAULT_SUPERVISOR_TOOL_POLICY,
+    supervisorToolAllowlist: [
+      ...(ENV.supervisorToolAllowlist ?? DEFAULT_SUPERVISOR_TOOL_ALLOWLIST),
+    ],
     supervisorWebSearchProvider:
       ENV.supervisorWebSearchProvider ?? DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER,
     supervisorWebSearchApiKey: (ENV.supervisorWebSearchApiKey ?? "").trim(),
@@ -454,10 +502,14 @@ export class AppConfigService {
       acpPromptMetaAllowlist: [
         ...(defaults ?? initialConfig).acpPromptMetaAllowlist,
       ],
+      supervisorToolAllowlist: [
+        ...(defaults ?? initialConfig).supervisorToolAllowlist,
+      ],
     });
     this.current = Object.freeze({
       ...initialConfig,
       acpPromptMetaAllowlist: [...initialConfig.acpPromptMetaAllowlist],
+      supervisorToolAllowlist: [...initialConfig.supervisorToolAllowlist],
     });
   }
 
@@ -514,6 +566,7 @@ export class AppConfigService {
     const frozen = Object.freeze({
       ...next,
       acpPromptMetaAllowlist: [...next.acpPromptMetaAllowlist],
+      supervisorToolAllowlist: [...next.supervisorToolAllowlist],
     });
     this.current = frozen;
     for (const listener of this.listeners) {

@@ -17,6 +17,7 @@ import type {
   UiSettingsService,
 } from "#runtime/modules/settings";
 import type { SupervisorPolicy } from "#runtime/modules/supervisor";
+import type { SupervisorRunRepositoryPort } from "#runtime/modules/supervisor-orchestration";
 import type { UsageStatsRepositoryPort } from "#runtime/modules/usage-stats";
 import type { CacheStats } from "#runtime/platform/caching/types";
 import type { GitAdapter } from "#runtime/platform/git";
@@ -37,6 +38,7 @@ export interface ServiceRegistryDependencies {
   agentRepo: AgentRepositoryPort;
   settingsRepo: SettingsRepositoryPort;
   usageStatsRepo: UsageStatsRepositoryPort;
+  supervisorRunRepo: SupervisorRunRepositoryPort;
   appConfigService: AppConfigService;
   uiSettingsService: UiSettingsService;
   gitAdapter: GitAdapter;

@@ -1,5 +1,351 @@
 # GOAL Progress - Electron ADE Overnight Sprint
 
+## Multi-session Supervisos Orchestration Goal - 2026-07-11
+
+Source of truth: `GOAL.md`.
+
+Status: Blocked only on external live-smoke configuration. Phases 0-11 and all
+deterministic/local audit criteria are complete. The goal cannot be declared
+complete until the real MiniMax + configured ACP worker smoke passes.
+
+### Phase 0 - Baseline, Ownership, and Fail-closed Contract
+
+What changed:
+- Read the complete active `GOAL.md`, repository/runtime `AGENTS.md` files,
+  `CONTEXT.md`, and the prior `supervisos-goal.md` foundation artifact.
+- Captured the dirty worktree and preserved all existing Supervisos, Goal Mode,
+  Scope Resolution, renderer, and migration changes.
+- Resolved the known semantic-action mismatch intentionally: an unknown
+  Supervisor semantic action maps to `needs_user`, so malformed model output
+  cannot continue or complete work.
+- Confirmed the runtime persistence rule: new production run state uses the
+  primary SQLite graph, not a new JSON primary store.
+
+Changed file:
+- `packages/runtime/src/modules/supervisor/application/supervisor-loop.service.test.ts`
+
+Verification commands run:
+- PowerShell-safe focused baseline across Supervisor, Goal Mode, Scope
+  Resolution, Bots, session create/subagent lifecycle, shared events, and
+  desktop side-chat utilities -> exit `0`, 268 tests passed.
+- `bun test packages/runtime/src/modules/supervisor/application/supervisor-loop.service.test.ts packages/runtime/src/modules/supervisor/application/supervisor.schemas.test.ts` after the contract correction -> included in the Phase 1 combined run, exit `0`.
+
+Remaining work after this phase:
+- Phase 1+: authoritative run domain/persistence, planner, worker lifecycle,
+  scheduler, isolation/integration, recovery, API/events, desktop UI, and E2E.
+
+### Phase 1 - Run Domain and Durable SQLite Repository
+
+What changed:
+- Added the focused `packages/runtime/src/modules/supervisor-orchestration`
+  runtime module with strict, versioned run/task/attempt/result/gate/audit and
+  bounded-limit schemas.
+- Added pure DAG validation for duplicate/unknown/self/cyclic dependencies,
+  dependency-depth bounds, unique attempt/idempotency bindings, attempt budgets,
+  and ready-task derivation.
+- Added deterministic run/task transition guards, immutable ownership/project
+  identity, compare-and-swap revisions, and protection against removing
+  completed tasks during replans.
+- Added `SupervisorRunRepositoryPort` plus main-thread and SQLite-worker
+  adapters. Production composition now chooses the matching adapter alongside
+  the existing primary repositories.
+- Added the `supervisor_runs` SQLite migration/table and embedded migration
+  asset. Each row stores searchable ownership/status/revision columns plus one
+  schema-validated aggregate document, updated atomically by revision.
+- Added restart/recreation, ownership filtering, stale-write, atomicity,
+  version-zero migration, and corruption tests.
+
+Changed files:
+- `packages/runtime/src/modules/supervisor-orchestration/**`
+- `packages/runtime/drizzle/0012_supervisor_runs.sql`
+- `packages/runtime/drizzle/meta/_journal.json`
+- `packages/runtime/src/platform/storage/sqlite-schema.ts`
+- `packages/runtime/src/platform/storage/sqlite-db.ts`
+- `packages/runtime/src/platform/storage/sqlite-embedded-migrations.ts`
+- `packages/runtime/src/platform/storage/sqlite-worker.protocol.ts`
+- `packages/runtime/src/bootstrap/sqlite-worker.entry.ts`
+- `packages/runtime/src/bootstrap/init/persistence-module.init.ts`
+
+Verification commands run:
+- `bun test packages/runtime/src/modules/supervisor-orchestration/domain packages/runtime/src/modules/supervisor-orchestration/infra/supervisor-run.repository.test.ts packages/runtime/src/modules/supervisor/application/supervisor-loop.service.test.ts packages/runtime/src/modules/supervisor/application/supervisor.schemas.test.ts` -> exit `0`, 106 tests passed.
+- `bun run --cwd packages/runtime check-types` -> exit `0`.
+- Focused `bunx biome check ... --write --error-on-warnings` over the new module,
+  persistence/bootstrap changes, and semantic fallback test -> exit `0`, 18
+  files checked with no remaining diagnostics.
+- Focused `git diff --check` over the new module, SQLite migration/storage,
+  bootstrap, and semantic fallback test -> exit `0` (Git emitted only existing
+  line-ending conversion notices).
+
+Remaining work:
+- Phase 2: strict MiniMax planner proposal/validation and configured active-agent
+  selection.
+- Phase 3+: worker session manager and compact prompts, scheduler/orchestrator,
+  isolated workspaces and integration gates, result aggregation, Goal Mode
+  unification, API/events/UI, recovery/redaction, deterministic E2E, live smoke,
+  and final 40-criterion audit.
+
+### Phases 2-6 - Planner, Workers, Scheduler, Isolation, and Results
+
+What changed:
+- Added the strict MiniMax planner contract, deterministic graph/scope/action
+  validation, application-owned agent selection, trusted verification commands,
+  and bounded replans that preserve completed work.
+- Added the worker-session facade over canonical create/send/stop/resume
+  services, persisted bindings/idempotency, the `orchestrator` prompt source,
+  compact scoped prompts, and exact-once per-session Supervisos terminal events.
+- Added dependency-aware persisted scheduling, concurrency/deadline/attempt
+  budgets, pause/resume/cancel/retry/replan/gate controls, and aggregate final
+  verification.
+- Added detached Git worktrees for writes, dirty/baseline fingerprint checks,
+  binary-safe patch artifacts/manifests, deterministic integration gates,
+  conflict handling, no-commit/no-push application, and cleanup.
+- Added strict structured-result extraction; prose-only completion, missing
+  verification, tool failures, unresolved permissions, and identity mismatch
+  cannot complete tasks.
+
+Verification evidence:
+- Success Criteria 1-21 focused command -> exit `0`, 172 tests passed.
+- Supervisor permission command -> exit `0`, 52 tests passed.
+- Real Git workspace/patch tests cover distinct roots, dirty overlap, created,
+  modified, deleted, renamed, untracked, and binary files.
+
+### Phases 7-9 - Durable Goal Mode, API/Events/UI, Recovery, and Redaction
+
+What changed:
+- Replaced active bootstrap construction of in-memory Goal Mode state with the
+  versioned `goal_mode_states` SQLite repository and authenticated Goal Mode
+  start/get/attempt/result API.
+- Added the authenticated `supervisorRuns` tRPC surface for start/get/list,
+  pause/resume/cancel/replan, retry, gate decisions, and live updates.
+- Added strict client-safe run projections and notifications that omit original
+  prompts, constraints, transcripts, raw diffs, artifact storage paths, and
+  free-form audit text.
+- Added the desktop Supervisos Runs panel with objective start, task/dependency
+  status, worker chat links, gate controls, retry/replan, lifecycle controls,
+  empty/loading/error/recovered/terminal states, and aggregate evidence.
+- Added startup recovery for paused/live/resumable/non-resumable/stale workers
+  and settings-backed hard caps/trusted verification commands.
+
+Verification evidence:
+- Goal Mode + shared events + desktop Runs + session/bot regressions + redaction
+  command -> exit `0`, 103 tests passed.
+- Runtime, API-contract, and desktop typechecks have each passed during these
+  phases.
+- `rg -n "InMemoryGoalModeStateRepository" packages/runtime/src/bootstrap` ->
+  exit `1`.
+
+### Phase 10 - Deterministic and Live End-to-End Verification
+
+What changed:
+- Added deterministic fake ACP-session E2E coverage using the real planner,
+  scheduler, worker-session manager, result, finalization, and cancellation
+  application flow.
+- Added a live runtime-composition smoke that requires MiniMax, an explicitly
+  configured ACP agent, project root, and trusted verification commands. It
+  fails rather than skips when configuration is absent.
+
+Verification evidence:
+- `bun run --cwd packages/runtime test:e2e:supervisor-orchestration` -> exit
+  `0`; markers include two distinct worker chats, dependency wait, safe
+  integration, and completed aggregate verification.
+- `bun run --cwd packages/runtime test:e2e:supervisor-orchestration-cancel` ->
+  exit `0`; markers report 2 stopped workers and 0 temporary roots.
+
+Remaining work for the active multi-session goal:
+- Run the required live smoke with real `MINIMAX_API_KEY`, configured ACP agent,
+  project root, and trusted verification-command environment values.
+
+### Phase 11 - Full Local Audit and Documentation
+
+Verification evidence:
+- Runtime, API-contract, and desktop typechecks -> all exit `0`.
+- `bun run audit:blockers` -> exit `0`; runtime, shared, desktop typecheck, and
+  desktop blocker suites passed.
+- `bunx biome check packages apps/desktop apps/native --error-on-warnings` ->
+  exit `0`, 1,381 files checked with no diagnostics.
+- `bun run build` -> exit `0`; runtime and desktop production builds completed
+  with only the repository's existing externalization/chunk-size warnings.
+- Desktop smoke -> exit `0`; Electron IPC runtime ready, SQLite worker and
+  background recovery initialized, and renderer loaded.
+- DeepSeek wiring search -> exit `1`; direct process spawn search over
+  orchestration application/domain and renderer -> exit `1`.
+- Documentation search finds `SupervisorOrchestratorService`,
+  `SupervisorRunState`, and multi-session architecture in `AGENTS.md`,
+  `CONTEXT.md`, and this progress log.
+- Live preflight with `ERAGEAR_SUPERVISOR_LIVE=1` -> exit `1` with explicit
+  `Live supervisor orchestration smoke requires MINIMAX_API_KEY`; the current
+  environment also lacks the required live ACP agent id, project root, and
+  trusted verification commands. This is a fail, not a skipped success.
+
+Remaining work:
+- Provide the four live values and obtain the required
+  `SUPERVISOS_LIVE_PLAN`, `SUPERVISOS_LIVE_WORKERS`, `SUPERVISOS_LIVE_GATE`,
+  and `SUPERVISOS_LIVE_COMPLETE` markers. No deterministic implementation or
+  local audit work remains.
+
+## Supervisos Goal - 2026-06-20
+
+Source of truth: `supervisos-goal.md`.
+
+Status: Complete. V0 and V1 are implemented, and every Success Criteria check in
+`supervisos-goal.md` has passing evidence.
+
+### Final Completion Evidence - 2026-06-20
+
+What changed:
+- Supervisor decisions now use MiniMax-M3 through AI SDK's OpenAI-compatible
+  provider against MiniMax's official `https://api.minimax.io/v1` endpoint.
+- Scope Resolution V0 resolves goal scope from Project Index symbols and file
+  signals, exposes diagnostics, and can use bounded top-K disambiguation without
+  handing the LLM raw diffs or transcripts.
+- Goal Mode is separate from `SupervisorSessionState`, with
+  `SupervisorGoalState`, phase/attempt records, `GoalModeController`, guarded
+  gates, bounded prompt context allocation, and desktop audit rendering.
+- Goal Mode now also collects changed/created/deleted files from project-root
+  git worktree state through a runtime `GitRepositoryPort` collector when loop
+  results do not provide explicit file-change evidence, including untracked and
+  renamed files.
+- Scope Resolution V1 adds an AST import graph, reachability, `routeMap`,
+  same-name route/component disambiguation, and file-watcher invalidation.
+- Goal metrics are pure derived values from phase/attempt records through
+  `computeGoalMetrics`; no mutable root metrics field was added.
+
+Verification commands run:
+- `rg -n "createDeepSeek|@ai-sdk/deepseek|supervisorDeepSeek|DEEPSEEK_API_KEY|deepSeekApiKey|DeepSeek" packages/runtime/src packages/runtime/package.json packages/runtime/settings.schema.json` -> exit `1`, no active DeepSeek supervisor wiring.
+- `rg -n "MiniMax-M3|MINIMAX_API_KEY|minimax" packages/runtime/src packages/runtime/settings.schema.json apps/desktop/src` -> exit `0`, active MiniMax runtime/settings/UI wiring present.
+- `bun test packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-decision.adapter.test.ts` -> exit `0`, 6 tests passed.
+- `rg -n "ScopeResolution|resolverVersion|v0-no-graph|signalScanSkippedBySize|symbolExtractionMode" packages/runtime/src` -> exit `0`.
+- `bun test packages/runtime/src/modules/scope-resolution/application/scope-resolver.service.test.ts` -> exit `0`, 4 tests passed.
+- `bun test packages/runtime/src/modules/scope-resolution/application/scope-resolver.service.test.ts packages/runtime/src/modules/repo-snapshot-indexing/application/repo-snapshot-indexing.service.test.ts` -> exit `0`, 7 tests passed.
+- `rg -n "signalScanSkippedBySize" packages/runtime/src apps/desktop/src` -> exit `0`.
+- `rg -n "SupervisorGoalState|PhaseRecord|PhaseAttemptRecord|GoalModeController" packages/runtime/src` -> exit `0`.
+- `rg -n "phaseId|goalId|currentPhaseId|phases|filesAllowed|outcomeSummary" packages/runtime/src/shared/types/supervisor.types.ts packages/shared/src/chat/types.ts` -> exit `1`, `SupervisorSessionState` and the shared chat core type file remain free of Goal Mode state fields.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-controller.service.test.ts` -> exit `0`, 6 tests passed.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-worktree-change.collector.test.ts` -> exit `0`, 3 tests passed.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-gate.test.ts` -> exit `0`, 6 tests passed.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-prompt.builder.test.ts` -> exit `0`, 2 tests passed.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode.schemas.test.ts` -> exit `0`, 3 tests passed.
+- `bun test packages/shared/src/chat/event-schema.test.ts packages/shared/src/chat/use-chat-core.test.ts` -> exit `0`, 46 tests passed.
+- `bun run --cwd packages/runtime check-types` -> exit `0`.
+- `bun run --cwd apps/desktop check-types` -> exit `0`.
+- `bun run --cwd packages/api-contract check-types` -> exit `0`.
+- `rg -n "v1-import-graph|importGraph|reachability|routeMap" packages/runtime/src/modules` -> exit `0`.
+- `bun test packages/runtime/src/modules/scope-resolution/application/scope-resolver-v1.test.ts` -> exit `0`, 3 tests passed.
+- `bun test packages/runtime/src/modules/scope-resolution/init/scope-resolution-events.init.test.ts packages/runtime/src/modules/file-watcher/init/file-watcher-events.init.test.ts` -> exit `0`, 2 tests passed.
+- `rg -n "computeGoalMetrics|resolvedViaLLMRate|gateRejectReasons|avgAttemptsPerPhase" packages/runtime/src` -> exit `0`.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-metrics.test.ts` -> exit `0`, 1 test passed.
+- `bun run audit:blockers` -> exit `0`; runtime blockers, shared tests, desktop typecheck, and desktop blockers passed.
+- `bunx biome check packages apps/desktop apps/native --error-on-warnings` -> exit `0`, `Checked 1294 files in 2s. No fixes applied.`
+- `bun run build` -> exit `0`; runtime build ran from cache miss after the audit patch and kept existing Bun externalization warnings; desktop renderer kept existing chunk-size/Browserslist warnings.
+- `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop` -> exit `0`; output included `SUPERVISOS_SMOKE_SUPERVISOR MiniMax-M3 provider-config marker`, `SUPERVISOS_SMOKE_GOAL guarded-gate goal-flow marker`, `Runtime channel: electron-ipc renderer bridge -> desktop-service runtime core`, and `Renderer loaded`.
+
+Remaining work:
+- None for `supervisos-goal.md`.
+
+### Completion Audit Hardening - 2026-06-20
+
+What changed:
+- Added `GoalModeWorktreeChangeCollectorPort` and
+  `GitGoalModeWorktreeChangeCollector` in `packages/runtime`.
+- Wired Goal Mode service construction to pass the existing `GitAdapter` through
+  the runtime service registry, keeping Electron main/preload thin.
+- Updated `GoalModeController.handleLoopResult` to collect git worktree changes
+  from `projectRoot` when explicit `filesTouched`/`filesCreated`/`filesDeleted`
+  evidence is omitted, and to fail closed if neither evidence path is available.
+- Added tests for untracked, deleted, renamed, and modified file classification,
+  plus controller gate behavior using collected worktree evidence.
+
+Verification commands run:
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-controller.service.test.ts` -> exit `0`, 6 tests passed.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-worktree-change.collector.test.ts` -> exit `0`, 3 tests passed.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-gate.test.ts packages/runtime/src/modules/goal-mode/application/goal-mode.schemas.test.ts packages/runtime/src/modules/goal-mode/application/goal-mode-prompt.builder.test.ts packages/runtime/src/modules/goal-mode/application/goal-mode-metrics.test.ts` -> exit `0`, 12 tests passed.
+- `bun run --cwd packages/runtime check-types` -> exit `0`.
+- `bun run --cwd apps/desktop check-types` -> exit `0`.
+- `bun run --cwd packages/api-contract check-types` -> exit `0`.
+- `bun run audit:blockers` -> exit `0`; runtime blockers, shared tests, desktop typecheck, and desktop blockers passed.
+- `bunx biome check packages apps/desktop apps/native --error-on-warnings` -> exit `0`, `Checked 1294 files in 2s. No fixes applied.`
+- `bun run build` -> exit `0`.
+- `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop` -> exit `0`; output included `SUPERVISOS_SMOKE_SUPERVISOR MiniMax-M3 provider-config marker`, `SUPERVISOS_SMOKE_GOAL guarded-gate goal-flow marker`, runtime channel, and renderer loaded.
+
+Remaining work:
+- None for `supervisos-goal.md`.
+
+### Phase 1 - MiniMax-M3 Supervisor Provider
+
+What changed:
+- Replaced the active Supervisor decision adapter dependency on the old provider with AI SDK's OpenAI-compatible provider pointed at MiniMax's official `https://api.minimax.io/v1` endpoint.
+- Set the required Supervisor model path to exact `MiniMax-M3`.
+- Replaced active runtime/config/settings/UI key wiring with `MINIMAX_API_KEY` and `supervisorMiniMaxApiKey`.
+- Preserved fail-closed behavior for disabled Supervisor, blank model, missing MiniMax key, and unsupported model/provider ids.
+- Added focused adapter tests for configured MiniMax-M3 resolution, missing-key failure, unsupported-provider failure, schema-validated output, retry behavior, and API-key redaction.
+
+Verification commands run:
+- `bun install` -> exit `0`; lockfile updated for `@ai-sdk/openai-compatible`.
+- `rg -n "createDeepSeek|@ai-sdk/deepseek|supervisorDeepSeek|DEEPSEEK_API_KEY|deepSeekApiKey|DeepSeek" packages\runtime\src packages\runtime\package.json packages\runtime\settings.schema.json` -> exit `1`, no active runtime/config matches.
+- `bun test packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-decision.adapter.test.ts` -> exit `0`, 6 tests passed.
+
+Remaining work:
+- Phase 2: Scope Resolver V0 contract/service/tests, including typed TSX component extraction and observable signal-scan diagnostics.
+- Phase 3+: Goal Mode state/storage/controller, gates, context allocator, audit events/UI, V1 import graph, derived metrics, and full success-criteria verification.
+
+### Phase 2 - Scope Resolver V0
+
+What changed:
+- Added `packages/runtime/src/modules/scope-resolution` with structured `ScopeResolution`, `resolverVersion: "v0-no-graph"`, deterministic target scoring, optional bounded top-K disambiguation, and diagnostics.
+- Wired Scope Resolution into the runtime use-case graph and tRPC router as `scopeResolution.resolve`.
+- Factored repo-index symbol-line extraction into a tested helper and updated Local ADE indexing to recognize typed TSX component declarations such as `export const HomePage: FC<Props> = ...`.
+- Made large-file signal scan skips observable through `signalScanSkippedBySize` diagnostics and surfaced the count in the desktop Project Index settings panel.
+
+Verification commands run:
+- `bun test packages/runtime/src/modules/scope-resolution/application/scope-resolver.service.test.ts packages/runtime/src/modules/repo-snapshot-indexing/application/repo-snapshot-indexing.service.test.ts` -> exit `0`, 7 tests passed.
+- `rg -n "ScopeResolution|resolverVersion|v0-no-graph|signalScanSkippedBySize|symbolExtractionMode" packages\runtime\src` -> exit `0`, contract/service/tests/use-case wiring present.
+- `rg -n "signalScanSkippedBySize" packages\runtime\src apps\desktop\src` -> exit `0`, runtime diagnostics and desktop UI references present.
+
+Remaining work:
+- Phase 3: separate Goal Mode state/storage and `GoalModeController`.
+- Phase 4+: guarded gates, prompt allocator, audit events/UI, V1 import graph/reachability, derived metrics, and final verification suite.
+
+### Phase 3 - Goal Mode V0 Controller, Gates, Prompt Context, Audit UI
+
+What changed:
+- Added `packages/runtime/src/modules/goal-mode` with separate `SupervisorGoalState`, `PhaseRecord`, `PhaseAttemptRecord`, `GoalModeController`, repository port, and in-memory repository.
+- Kept `SupervisorSessionState` unchanged; Goal Mode state stores phase/attempt data separately.
+- Added guarded gate evaluation for scope drift, created out-of-scope files, file deletion, destructive actions, and failed/missing verification exits.
+- Added next-phase prompt construction from original intent, constraints, phase summaries, scoped file lists, and verification requirements only; raw transcript and raw diffs are not prompt inputs.
+- Added shared `goal_mode_audit` event schemas/types and desktop environment rail rendering for resolver version, gate decisions, scoped file counts, verification, and primary target.
+
+Verification commands run:
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-controller.service.test.ts` -> exit `0`, 4 tests passed.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-gate.test.ts` -> exit `0`, 6 tests passed.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-prompt.builder.test.ts` -> exit `0`, 2 tests passed.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode.schemas.test.ts` -> exit `0`, 3 tests passed.
+- `bun test packages/shared/src/chat/event-schema.test.ts packages/shared/src/chat/use-chat-core.test.ts` -> exit `0`, 46 tests passed.
+- `rg -n "SupervisorGoalState|PhaseRecord|PhaseAttemptRecord|GoalModeController" packages\runtime\src` -> exit `0`, Goal Mode state/controller references present.
+- `rg -n "phaseId|goalId|currentPhaseId|phases|filesAllowed|outcomeSummary" packages\runtime\src\shared\types\supervisor.types.ts packages\shared\src\chat\types.ts` -> exit `1`; runtime `SupervisorSessionState` stayed unchanged and detailed Goal Mode audit fields live in the separate shared audit event type.
+
+Remaining work:
+- Phase 4: V1 import graph resolver and file-change invalidation.
+- Phase 5+: derived metrics, desktop smoke markers, and full success-criteria verification suite.
+
+### Phase 4 - Scope Resolver V1 Import Graph, Invalidation, Metrics
+
+What changed:
+- Added `ScopeImportGraphService` and `ScopeImportGraphPort` under `packages/runtime/src/modules/scope-resolution` with TypeScript AST symbol extraction, import/export graph edges, root/route reachability, and `routeMap` entries.
+- Wired the runtime `ScopeResolverService` to use V1 graph signals by default through service composition while retaining V0 fallback when graph data is unavailable.
+- Resolver outputs now emit `resolverVersion: "v1-import-graph"`, `symbolExtractionMode: "ast"`, and `graphConfidence` when graph signals participate.
+- Added `initializeScopeResolutionEvents` so file watcher changes invalidate resolver import graph cache for the affected project root/path.
+- Added `computeGoalMetrics(goal)` as a pure derived function over phases/attempts for `resolvedViaLLMRate`, `gateRejectReasons`, `avgAttemptsPerPhase`, and signal-scan skip totals; no mutable root metrics field was added.
+
+Verification commands run:
+- `bun test packages/runtime/src/modules/scope-resolution/application/scope-resolver-v1.test.ts` -> exit `0`, 3 tests passed.
+- `bun test packages/runtime/src/modules/scope-resolution/init/scope-resolution-events.init.test.ts packages/runtime/src/modules/file-watcher/init/file-watcher-events.init.test.ts` -> exit `0`, 2 tests passed.
+- `rg -n "v1-import-graph|importGraph|reachability|routeMap" packages/runtime/src/modules` -> exit `0`, active V1 graph code/tests present.
+- `bun test packages/runtime/src/modules/goal-mode/application/goal-mode-metrics.test.ts` -> exit `0`, 1 test passed.
+- `rg -n "computeGoalMetrics|resolvedViaLLMRate|gateRejectReasons|avgAttemptsPerPhase" packages/runtime/src` -> exit `0`, pure metrics function and tests present.
+
+Remaining work:
+- Full Success Criteria verification suite, fixing type/lint/build/smoke failures as they appear.
+
 ## Electron-First Migration - 2026-06-19
 
 Status: Complete. The Electron-first migration is implemented and all `GOAL.md` Success Criteria checks have current passing evidence.
@@ -2136,3 +2482,484 @@ were left running.
   WebContentsView layout, route captured browser context directly into chat
   attachments/context state, and add persisted browser sessions plus deeper
   network/test automation.
+
+## 2026-06-20 Supervisos dedicated panel and side chat
+
+- Replaced the chat header Environment affordance with a dedicated Supervisos
+  panel entry. The panel now uses `aria-label="Supervisos"` and
+  `id="supervisos-panel"` and no longer labels the surface as Environment.
+- Moved Supervisos side chat off the main ACP chat pipeline. The previous
+  prompt-injection path that generated `Supervisos side chat request` messages
+  was removed, and the renderer now calls a dedicated `supervisorChat` tRPC
+  mutation instead of `sendMessage`.
+- Added a full side-chat surface in
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx` with
+  local message history, assistant/user bubbles, pending/error states, quick
+  Gate/Scope/Verify actions, fixed input controls, and an Enable Autopilot
+  action. Closing/reopening the panel no longer destroys the local side-chat
+  state for the active chat.
+- Added runtime-owned Supervisos chat use case and MiniMax-M3 adapter:
+  `SupervisorChatService`, `SupervisorChatInputSchema`,
+  `SupervisorChatPort`, and `AiSdkSupervisorChatAdapter`. The service reads
+  compact session state, supervisor state, current plan, and compact Goal Mode
+  audit summaries; it does not inject raw main transcript or raw diffs.
+- Extended the supervisor prompt builder with side-chat system/body prompts so
+  the configured Supervisos custom system prompt and tool policy also apply to
+  side chat responses.
+- Changed files for this slice:
+  `apps/desktop/src/renderer/components/chat-ui/chat-header.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/chat-interface.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/chat-context-rail.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-prompt.ts`
+  (removed),
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-prompt.test.ts`
+  (removed), `apps/desktop/src/renderer/components/settings/settings-panels.tsx`,
+  `packages/runtime/src/modules/supervisor/application/ports/supervisor-chat.port.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.contract.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts`,
+  `packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-chat.adapter.ts`,
+  `packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-decision.adapter.ts`,
+  `packages/runtime/src/modules/supervisor/di.ts`,
+  `packages/runtime/src/modules/supervisor/index.ts`,
+  `packages/runtime/src/modules/use-cases.ts`,
+  `packages/runtime/src/bootstrap/service-registry/supervisor-services.ts`,
+  `packages/runtime/src/transport/trpc/routers/ai-supervisor-router.ts`, and
+  `packages/runtime/src/transport/trpc/routers/ai-router.test.ts`.
+- Verification passed:
+  `$bun=(Get-Command bun).Source; $policy=ConvertTo-Json -InputObject @(@{command=$bun;allowAnyArgs=$true}) -Compress; $env:ALLOWED_AGENT_COMMAND_POLICIES=$policy; $env:ALLOWED_TERMINAL_COMMAND_POLICIES=$policy; $env:ALLOWED_ENV_KEYS='PATH,HOME,USERPROFILE,TEMP,TMP'; bun test packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/transport/trpc/routers/ai-router.test.ts`,
+  `bun run --cwd packages/runtime check-types`,
+  `bun run --cwd apps/desktop check-types`,
+  `bun run audit:blockers`,
+  `bunx biome check packages apps/desktop apps/native --error-on-warnings`,
+  and `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop`.
+- Remaining work: none for this UI/runtime slice. Live Supervisos side-chat
+  responses still require Supervisor to be configured with MiniMax-M3 and a
+  valid `MINIMAX_API_KEY`/stored MiniMax key.
+
+## 2026-06-20 Supervisos side-chat activation clarity and project context
+
+- Fixed the Supervisos panel status copy so a configured but disabled session no
+  longer appears as `Ready`. It now shows `Session off` with detail
+  `Configured; enable autopilot for this session`; active sessions show
+  `Active`, and error sessions show `Error`.
+- Added bounded project context for Supervisos side chat in runtime:
+  top-level project entries plus small excerpts from common README, manifest,
+  entry, and config files. This lets side chat answer basic project questions
+  without raw main transcript or raw diff injection.
+- Added filesystem sandbox checks around context-file discovery with realpath
+  validation against the project root, bounded reads, skipped hidden/generated
+  top-level folders, and case-insensitive candidate dedupe for Windows.
+- Sanitized MiniMax side-chat responses so `<think>...</think>` blocks are
+  removed before content reaches the UI. The side-chat system prompt also now
+  explicitly asks for final user-facing answers only.
+- Changed files for this slice:
+  `apps/desktop/src/renderer/components/chat-ui/chat-context-rail.tsx`,
+  `packages/runtime/src/bootstrap/service-registry/supervisor-services.ts`,
+  `packages/runtime/src/modules/supervisor/application/ports/supervisor-chat.port.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts`,
+  `packages/runtime/src/modules/supervisor/di.ts`,
+  `packages/runtime/src/modules/supervisor/index.ts`,
+  `packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-chat.adapter.ts`,
+  `packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-chat.adapter.test.ts`,
+  `packages/runtime/src/modules/supervisor/infra/filesystem-supervisor-project-context.adapter.ts`,
+  and
+  `packages/runtime/src/modules/supervisor/infra/filesystem-supervisor-project-context.adapter.test.ts`.
+- Verification passed:
+  `bunx biome check apps/desktop/src/renderer/components/chat-ui/chat-context-rail.tsx packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-chat.adapter.test.ts packages/runtime/src/modules/supervisor/infra/filesystem-supervisor-project-context.adapter.test.ts packages/runtime/src/modules/supervisor/infra/filesystem-supervisor-project-context.adapter.ts packages/runtime/src/modules/supervisor/index.ts --write --error-on-warnings`,
+  `$bun=(Get-Command bun).Source; $policy=ConvertTo-Json -InputObject @(@{command=$bun;allowAnyArgs=$true}) -Compress; $env:ALLOWED_AGENT_COMMAND_POLICIES=$policy; $env:ALLOWED_TERMINAL_COMMAND_POLICIES=$policy; $env:ALLOWED_ENV_KEYS='PATH,HOME,USERPROFILE,TEMP,TMP'; bun test packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-chat.adapter.test.ts packages/runtime/src/modules/supervisor/infra/filesystem-supervisor-project-context.adapter.test.ts`,
+  `bun run --cwd packages/runtime check-types`, and
+  `bun run --cwd apps/desktop check-types`,
+  `bunx biome check packages apps/desktop apps/native --error-on-warnings`, and
+  `bun run audit:blockers`.
+- Remaining work: restart the desktop dev session to pick up the renderer and
+  runtime changes, then verify side chat against a live MiniMax key.
+
+## 2026-06-20 Supervisos AST project intelligence
+
+- Added `SupervisorProjectIntelligencePort` for side-chat project intelligence
+  separate from `SupervisorSessionState`. The chat service now builds compact
+  project context plus compact project intelligence before calling MiniMax.
+- Added `ScopeSupervisorProjectIntelligenceAdapter`, backed by repo snapshot
+  indexing, Scope Resolver, and the TypeScript AST import graph. It precomputes
+  `resolve_scope`, `ast_import_graph_context`, `search_symbols`, and route-map
+  summaries for the user's side-chat question.
+- Preserved project-root boundaries: the adapter validates the repo index root
+  against the stored session `projectRoot` and fails closed with diagnostics
+  when they differ.
+- Wired Supervisos project intelligence in the runtime composition root after
+  settings/scope-resolution use-cases are created. Electron main/preload remain
+  unchanged and thin.
+- Added an `AST` quick action to the Supervisos Chat UI so the user can ask for
+  relevant scope, symbols, imports, and imported-by relationships directly.
+- Changed files for this slice:
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx`,
+  `packages/runtime/src/bootstrap/init/service-module.init.ts`,
+  `packages/runtime/src/bootstrap/service-registry/supervisor-services.ts`,
+  `packages/runtime/src/modules/supervisor/application/ports/supervisor-chat.port.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts`,
+  `packages/runtime/src/modules/supervisor/di.ts`,
+  `packages/runtime/src/modules/supervisor/index.ts`,
+  `packages/runtime/src/modules/supervisor/infra/scope-supervisor-project-intelligence.adapter.ts`,
+  and
+  `packages/runtime/src/modules/supervisor/infra/scope-supervisor-project-intelligence.adapter.test.ts`.
+- Verification passed:
+  `$bun=(Get-Command bun).Source; $policy=ConvertTo-Json -InputObject @(@{command=$bun;allowAnyArgs=$true}) -Compress; $env:ALLOWED_AGENT_COMMAND_POLICIES=$policy; $env:ALLOWED_TERMINAL_COMMAND_POLICIES=$policy; $env:ALLOWED_ENV_KEYS='PATH,HOME,USERPROFILE,TEMP,TMP'; bun test packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/modules/supervisor/infra/scope-supervisor-project-intelligence.adapter.test.ts packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-chat.adapter.test.ts packages/runtime/src/modules/supervisor/infra/filesystem-supervisor-project-context.adapter.test.ts`,
+  `bun run --cwd packages/runtime check-types`,
+  `bun run --cwd apps/desktop check-types`,
+  `bunx biome check packages apps/desktop apps/native --error-on-warnings`, and
+  `bun run audit:blockers`.
+- Remaining work: restart the desktop dev session and ask Supervisos Chat to
+  use `AST` on a TS/TSX project with repo snapshot indexing enabled.
+
+## 2026-06-20 Supervisos main-agent delegation
+
+- Changed Supervisos side chat from copy/paste guidance to active delegation
+  for implementation requests when the session supervisor mode is
+  `full_autopilot`.
+- Supervisos now detects implementation-style side-chat requests, builds a
+  bounded enhanced prompt with the original request, project context,
+  precomputed AST/scope intelligence, implementation instructions, and guarded
+  gates, then submits it through the existing `SendMessageService` pipeline with
+  `source: "supervisor"`.
+- The delegation path intentionally does not paste into the renderer DOM. It is
+  equivalent to paste-and-send from the user's perspective, but goes through the
+  runtime chat send path so ACP permission boundaries, project-root sandbox
+  checks, session lifecycle, and Goal Mode/supervisor follow-up handling remain
+  intact.
+- Side chat remains advisory for questions, status/debugging requests, and
+  sessions where supervisor mode is off. In those cases it answers directly via
+  MiniMax side chat instead of sending work to the coding agent.
+- Added tests proving implementation requests delegate to the main coding agent,
+  avoid the side-chat MiniMax adapter, preserve the original request, and return
+  the delegated turn id/status to the Supervisos Chat UI.
+- Changed files for this slice:
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  `packages/runtime/src/bootstrap/service-registry/supervisor-services.ts`,
+  `packages/runtime/src/modules/ai/index.ts`, and
+  `packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.ts`.
+- Verification passed:
+  `bunx biome check packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/bootstrap/service-registry/supervisor-services.ts packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.ts --write --error-on-warnings`,
+  `$bun=(Get-Command bun).Source; $policy=ConvertTo-Json -InputObject @(@{command=$bun;allowAnyArgs=$true}) -Compress; $env:ALLOWED_AGENT_COMMAND_POLICIES=$policy; $env:ALLOWED_TERMINAL_COMMAND_POLICIES=$policy; $env:ALLOWED_ENV_KEYS='PATH,HOME,USERPROFILE,TEMP,TMP'; bun test packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-chat.adapter.test.ts packages/runtime/src/modules/supervisor/infra/scope-supervisor-project-intelligence.adapter.test.ts`,
+  `bun run --cwd packages/runtime check-types`,
+  `bun run --cwd apps/desktop check-types`,
+  `bunx biome check packages apps/desktop apps/native --error-on-warnings`,
+  `bun run audit:blockers`, and `git diff --check`.
+- Remaining work: restart the desktop dev session so the running app picks up
+  the new runtime wiring, then verify live behavior by sending an implementation
+  request from Supervisos Chat while the session is in `full_autopilot`.
+
+## 2026-06-20 Supervisos side-chat timeout hardening
+
+- Fixed the timeout-prone path where implementation requests sent while
+  Supervisor mode was `off` could fall through to the MiniMax side-chat advisory
+  provider instead of delegating to the main coding agent.
+- Implementation-style requests from Supervisos Chat now delegate to the main
+  coding agent even when Autopilot is off. The response clearly reports that
+  the task was submitted, and that auto-continue requires enabling Autopilot.
+- Added soft timeouts around project context, project intelligence, and
+  advisory MiniMax side-chat responses. Timeouts now return explicit bounded
+  fallback diagnostics instead of letting the renderer surface a generic
+  operation timeout.
+- Changed files for this slice:
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  `packages/runtime/src/modules/supervisor/application/ports/supervisor-chat.port.ts`,
+  and `GOAL_PROGRESS.md`.
+- Verification passed:
+  `bunx biome check packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/modules/supervisor/application/ports/supervisor-chat.port.ts --write --error-on-warnings`,
+  `$bun=(Get-Command bun).Source; $policy=ConvertTo-Json -InputObject @(@{command=$bun;allowAnyArgs=$true}) -Compress; $env:ALLOWED_AGENT_COMMAND_POLICIES=$policy; $env:ALLOWED_TERMINAL_COMMAND_POLICIES=$policy; $env:ALLOWED_ENV_KEYS='PATH,HOME,USERPROFILE,TEMP,TMP'; bun test packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/modules/supervisor/infra/ai-sdk-supervisor-chat.adapter.test.ts`,
+  `bun run --cwd packages/runtime check-types`,
+  `bun run --cwd apps/desktop check-types`,
+  `bunx biome check packages apps/desktop apps/native --error-on-warnings`, and
+  `bun run audit:blockers`.
+- Remaining work: restart the desktop dev session and retry the same Supervisos
+  Chat prompt.
+
+## 2026-06-20 Supervisos chat scroll stability
+
+- Fixed the Supervisos message list auto-scroll bug. The message list no longer
+  scrolls to the bottom on every render while the user is reading older
+  messages.
+- Auto-scroll now only happens when the list is already near the bottom or when
+  the user sends a new Supervisos message.
+- Changed file:
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx`.
+- Verification passed:
+  `bunx biome check apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx --write --error-on-warnings`,
+  `bun run --cwd apps/desktop check-types`, and
+  `git diff --check apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx`.
+
+## 2026-06-20 Supervisos delegated prompt timeout fix
+
+- Fixed the remaining timeout path for Supervisos implementation requests:
+  `SendMessageService` no longer runs the global Prompt Enhancer for
+  `source: "supervisor"` prompts. Supervisos delegation already builds an
+  enhanced prompt, so re-enhancing could block the side-chat mutation before the
+  prompt was submitted to the main coding agent.
+- Added a regression test proving supervisor delegated prompts skip prompt
+  enhancement while still reaching ACP as the delegated prompt text.
+- Changed files:
+  `packages/runtime/src/modules/ai/application/send-message.service.ts`,
+  `packages/runtime/src/modules/ai/application/send-message.service.test.ts`,
+  and `GOAL_PROGRESS.md`.
+- Verification passed:
+  `bunx biome check packages/runtime/src/modules/ai/application/send-message.service.ts packages/runtime/src/modules/ai/application/send-message.service.test.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts --write --error-on-warnings`,
+  `$bun=(Get-Command bun).Source; $policy=ConvertTo-Json -InputObject @(@{command=$bun;allowAnyArgs=$true}) -Compress; $env:ALLOWED_AGENT_COMMAND_POLICIES=$policy; $env:ALLOWED_TERMINAL_COMMAND_POLICIES=$policy; $env:ALLOWED_ENV_KEYS='PATH,HOME,USERPROFILE,TEMP,TMP'; bun test packages/runtime/src/modules/ai/application/send-message.service.test.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  `bun run --cwd packages/runtime check-types`,
+  `bun run --cwd apps/desktop check-types`,
+  `bun run audit:blockers`, and
+  `git diff --check packages/runtime/src/modules/ai/application/send-message.service.ts packages/runtime/src/modules/ai/application/send-message.service.test.ts`.
+
+## 2026-06-20 Supervisos supervised task handoff UX
+
+- Changed implementation requests sent to Supervisos Chat into supervised task
+  handoffs: if the session is not already `full_autopilot`, Supervisos now
+  enables Autopilot through `SetSupervisorModeService` before delegating the
+  enhanced prompt to the main coding agent.
+- Wired the same mode-setting service used by the UI control into
+  `SupervisorChatService`, keeping the behavior in runtime/application services
+  rather than Electron renderer/main code.
+- Removed the long raw enhanced prompt preview from the side-chat response.
+  Supervisos now returns a concise task-handoff status with turn id, submitted
+  state, and whether it activated Autopilot.
+- Added a regression test proving implementation requests enable Autopilot
+  before delegation and no longer show `Prompt sent:` debug output.
+- Changed files:
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  `packages/runtime/src/bootstrap/service-registry/supervisor-services.ts`, and
+  `GOAL_PROGRESS.md`.
+- Verification passed:
+  `bunx biome check packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/bootstrap/service-registry/supervisor-services.ts --write --error-on-warnings`,
+  `$bun=(Get-Command bun).Source; $policy=ConvertTo-Json -InputObject @(@{command=$bun;allowAnyArgs=$true}) -Compress; $env:ALLOWED_AGENT_COMMAND_POLICIES=$policy; $env:ALLOWED_TERMINAL_COMMAND_POLICIES=$policy; $env:ALLOWED_ENV_KEYS='PATH,HOME,USERPROFILE,TEMP,TMP'; bun test packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/modules/ai/application/send-message.service.test.ts`,
+  `bun run --cwd packages/runtime check-types`,
+  `bun run --cwd apps/desktop check-types`,
+  `bun run audit:blockers`, and
+  `git diff --check packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/bootstrap/service-registry/supervisor-services.ts`.
+- Additional exact-case verification passed:
+  `SupervisorChatService > enables autopilot before delegating implementation requests`
+  now uses the real Vietnamese request
+  `Tạo cho tôi một trang web AWWWARDS cho cửa hàng bán Hamburger.`, asserts
+  `full_autopilot` is enabled before delegation, asserts the main-agent prompt
+  preserves the request, and asserts the side-chat response does not contain
+  `Prompt sent:` or `Original user request:`.
+- Desktop smoke passed:
+  `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop` -> exit `0`;
+  output included the renderer URL, `Runtime channel: electron-ipc renderer bridge -> desktop-service runtime core`,
+  `SUPERVISOS_SMOKE_SUPERVISOR MiniMax-M3 provider-config marker`,
+  `SUPERVISOS_SMOKE_GOAL guarded-gate goal-flow marker`, and `Renderer loaded`.
+
+## 2026-06-20 Supervisos legacy handoff compatibility guard
+
+- Added a renderer compatibility guard for the exact legacy response shape:
+  `Enhanced prompt sent...`, `Supervisor mode: off`, and `Prompt sent:`.
+- If a running/stale runtime still returns that legacy payload, the Supervisos
+  side chat now parses the turn id/status, calls the existing Enable Autopilot
+  action immediately, and displays the concise supervised handoff message
+  instead of the raw prompt dump.
+- Added `supervisos-side-chat-utils.ts` and tests that use the real legacy
+  payload text, proving the UI hides `Prompt sent:`, `Original user request:`,
+  and `Supervisor mode: off`.
+- Added the new test to `apps/desktop` `test:blockers`, so `audit:blockers`
+  will catch this regression.
+- Changed files:
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.ts`,
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts`,
+  `apps/desktop/package.json`, and `GOAL_PROGRESS.md`.
+- Verification passed:
+  `bunx biome check apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.ts apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts apps/desktop/package.json --write --error-on-warnings`,
+  `bun test apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts`,
+  `bun run --cwd apps/desktop check-types`,
+  `bun run --cwd apps/desktop test:blockers`,
+  `bun run audit:blockers`,
+  `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop`, and
+  `git diff --check apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.ts apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts apps/desktop/package.json GOAL_PROGRESS.md`.
+
+## 2026-06-20 Supervisos busy-session queue handoff
+
+- Fixed the `A prompt is already in progress for this session` UX path. When a
+  Supervisos implementation request hits the runtime `PROMPT_BUSY` guard, the
+  side chat now queues an enhanced main-agent prompt instead of surfacing the
+  raw error.
+- Added a pending Supervisos prompt queue in `ChatInterface`. It flushes only
+  when the active chat is connected and `status === "ready"`, then enables
+  Autopilot and submits through the same `handleSubmit` path used by the main
+  ChatInput.
+- Added a renderer fallback prompt enhancer for the busy queue path. It wraps
+  the original request with implementation instructions and completion evidence
+  expectations, without raw transcript or raw diff content.
+- Kept ACP/session boundaries intact: Supervisos still does not bypass
+  `SendMessageService`, project-root sandbox checks, permission gates, or the
+  normal submit lifecycle.
+- Fixed the runtime delegation order so Supervisos submits the delegated prompt
+  first and enables Autopilot only after the prompt is accepted. If submit is
+  rejected as busy, supervisor mode is not changed, preventing Supervisos from
+  supervising the previous in-flight turn.
+- Changed files:
+  `apps/desktop/src/renderer/components/chat-ui/chat-interface.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/chat-context-rail.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.ts`,
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  and `GOAL_PROGRESS.md`.
+- Verification passed:
+  `bunx biome check apps/desktop/src/renderer/components/chat-ui/chat-interface.tsx apps/desktop/src/renderer/components/chat-ui/chat-context-rail.tsx apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.ts apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts --write --error-on-warnings`,
+  `bun test apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  `bun run --cwd apps/desktop check-types`,
+  `bun run --cwd packages/runtime check-types`, and
+  `bun run --cwd apps/desktop test:blockers`,
+  `bun run audit:blockers`,
+  `bunx biome check packages apps/desktop apps/native --error-on-warnings`, and
+  `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop`,
+  `git diff --check apps/desktop/src/renderer/components/chat-ui/chat-interface.tsx apps/desktop/src/renderer/components/chat-ui/chat-context-rail.tsx apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.ts apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts GOAL_PROGRESS.md`.
+- Remaining work: none for this busy-session queue handoff slice.
+
+## 2026-06-20 Supervisos ChatInput staging flow
+
+- Corrected the Supervisos implementation-request flow to match the intended
+  product model: Supervisos now acts as a prompt enhancer and returns a
+  `stage_main_prompt` action instead of submitting hidden work from side chat.
+- The renderer stages the enhanced prompt into the real main `ChatInput`.
+  Autopilot sessions auto-submit from that form only when the main chat is
+  connected and `status === "ready"`; non-Autopilot sessions leave the prompt in
+  the input for review/edit/send.
+- Added `InjectedChatPrompt` support inside `ChatInput` using the existing
+  `PromptInputProvider` controller, so the draft is visible in the actual input
+  rather than sent through a side-channel.
+- Removed direct `SendMessageService`/mode-setting dependencies from
+  `SupervisorChatService` implementation requests. Runtime/business logic stays
+  in `packages/runtime`, and Electron remains a thin renderer/main bridge.
+- Changed files:
+  `apps/desktop/src/renderer/components/chat-ui/chat-input.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/chat-interface.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/chat-context-rail.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts`,
+  `packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts`,
+  `packages/runtime/src/bootstrap/service-registry/supervisor-services.ts`,
+  and `GOAL_PROGRESS.md`.
+- Verification passed:
+  `bunx biome check apps/desktop/src/renderer/components/chat-ui/chat-input.tsx apps/desktop/src/renderer/components/chat-ui/chat-interface.tsx apps/desktop/src/renderer/components/chat-ui/chat-context-rail.tsx apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts packages/runtime/src/bootstrap/service-registry/supervisor-services.ts --write --error-on-warnings`,
+  `bun test packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts`,
+  `bun run --cwd apps/desktop check-types`,
+  `bun run --cwd packages/runtime check-types`,
+  `bun run audit:blockers`,
+  `bunx biome check packages apps/desktop apps/native --error-on-warnings`, and
+  `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop`.
+- Remaining work: none for this ChatInput staging slice.
+
+## 2026-07-24 Subscription-aware Scheduled ACP Tasks
+
+- Evolved the durable Bots document to version 2 while preserving version 1
+  records as `fixed` adaptive-session tasks. Definitions now retain an
+  objective, work mode, prompt strategy, one provider binding, reserve windows,
+  optional absolute reserve, ACP project/agent/model/chat binding, and durable
+  completion evidence.
+- Added provider admission with fresh-ready quota enforcement, all-window
+  reserve checks, `task_queue` entitlement enforcement, one durable active
+  scheduled dispatch per provider, startup lease reconciliation, terminal
+  release, and visible fail-closed retry reasons.
+- Added runtime-owned scheduled-work decisions that read fresh project context,
+  Scope Resolution/Project Index intelligence when available, bounded prior
+  run evidence, and the configured Supervisor memory/research adapters. Only
+  bounded redacted rationale/evidence and prompt hashes are persisted.
+- Added adaptive ACP execution through the existing create/resume/model/send
+  services. Ready sessions are reused, stopped compatible sessions are
+  resumed, deleted bindings are replaced, `PROMPT_BUSY` remains queued, and
+  provider/model mismatches fail closed.
+- Added full Supervisor-run execution with schedule/provider/model/agent
+  restrictions and admission before every worker dispatch. Existing
+  non-terminal runs are resumed and re-scheduled; terminal incomplete work can
+  be freshly replanned.
+- Added safe scheduled-task update events and tRPC procedures for list,
+  create/update, enable/disable, run-if-eligible, stop, retry, delete, legacy
+  orchestration, and subscription.
+- Rebuilt Settings > Bots as Settings > Scheduled Tasks. The monitoring surface
+  now uses peer `Tasks` / `Run history` tabs, while the multi-field create/edit
+  flow is isolated in a dialog populated by live quota, project, agent, and
+  session data. Cards never display raw prompts, transcripts, diffs, or patch
+  bodies; legacy fixed Bots remain editable and executable.
+- UX evidence:
+  `docs/ux-ui-map/external-audit-baseline-BotsSettingsPanel-20260723T184128Z.txt`,
+  `docs/ux-ui-map/route-ledger.md`, and
+  `docs/ux-ui-map/iteration-log.md`. The independent AGY reviewer was
+  unavailable because its individual quota was exhausted. The rejected first
+  artifact was not implemented; the corrected source-backed plan moved the
+  editor into a dialog and was recorded with the reviewer limitation. Windows
+  automation launched the real Electron window but could not focus it while an
+  OS overlay retained foreground ownership, so no unverified click path is
+  claimed.
+- Primary changed areas:
+  `packages/runtime/src/modules/bots/`,
+  `packages/runtime/src/modules/supervisor/application/scheduled-work-*`,
+  `packages/runtime/src/modules/supervisor/infra/ai-sdk-scheduled-work-decision.adapter.ts`,
+  `packages/runtime/src/modules/supervisor-orchestration/`,
+  `packages/runtime/src/transport/trpc/routers/bots.ts`,
+  runtime bootstrap/use-case/event/session-source wiring, and
+  `apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx`.
+- Verification passed:
+  `bun test packages/runtime/src/modules/bots packages/runtime/src/modules/supervisor/application/scheduled-work-decision.service.test.ts packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestrator.controls.test.ts packages/runtime/src/modules/supervisor-orchestration/application/worker-session-manager.service.test.ts packages/runtime/src/transport/trpc/routers/bots.test.ts`
+  (`37 pass, 0 fail`);
+  the allowlist-configured AI/session/full Supervisor-orchestration module run
+  (`103 pass, 0 fail`);
+  `bun run --cwd packages/runtime test:e2e:supervisor-orchestration`;
+  `bun run --cwd packages/runtime test:e2e:supervisor-orchestration-cancel`;
+  `bun run --cwd packages/runtime check-types`;
+  `bun run --cwd apps/desktop check-types`;
+  `bun run audit:blockers`;
+  `bunx biome check packages apps/desktop apps/native --error-on-warnings`;
+  `bun run --cwd apps/desktop build:main`;
+  `bun run --cwd apps/desktop build:renderer`;
+  `git diff --check`; and
+  `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop`.
+  The mocked fresh/blocked quota and stopped OpenCode-compatible session resume
+  paths are covered by the focused Bots service tests.
+- Remaining work: live MiniMax/Z.AI dispatch verification requires configured
+  provider credentials and a compatible real agent/model; no code blocker
+  remains.
+
+## 2026-07-26 Production-complete chat virtualization
+
+- Completed the Electron renderer chat timeline's TanStack Virtual end-anchor
+  contract. The timeline now uses the public `isAtEnd()` and `scrollToEnd()`
+  APIs with explicit `anchorTo: "end"`, pinned-only append following, stable
+  dynamic measurement, and a 96px end threshold.
+- Added chat-scoped virtual row keys so measurement caches cannot leak between
+  sessions that reuse a message id. Older-history prepends retain the same keys
+  and visual anchor for every existing message.
+- Added deterministic initial-scroll reconciliation. A newly selected chat
+  opens at its latest message even when its history arrives asynchronously or
+  has the same row count as the previous chat.
+- Covered the count-neutral `Thinking...` to assistant-message tail replacement
+  that TanStack's count-increase append path does not handle. It follows the new
+  tail only when the reader was already pinned and never pulls a reader away
+  from older history.
+- Added the virtualization contract tests to the desktop `test:blockers` gate.
+- Changed files:
+  `apps/desktop/src/renderer/components/chat-ui/chat-messages.tsx`,
+  `apps/desktop/src/renderer/components/chat-ui/chat-messages-virtualization.ts`,
+  `apps/desktop/src/renderer/components/chat-ui/chat-messages-virtualization.test.ts`,
+  `apps/desktop/package.json`, and `GOAL_PROGRESS.md`.
+- Verification passed:
+  `bunx biome check apps/desktop/src/renderer/components/chat-ui/chat-messages.tsx apps/desktop/src/renderer/components/chat-ui/chat-messages-virtualization.ts apps/desktop/src/renderer/components/chat-ui/chat-messages-virtualization.test.ts apps/desktop/package.json --write --error-on-warnings`;
+  `bun run --cwd apps/desktop test:blockers` (`104 pass, 0 fail`);
+  `bun run --cwd apps/desktop check-types`;
+  `bun run --cwd apps/desktop build:renderer`;
+  `git diff --check` on the focused files; and
+  `$env:ERAGEAR_DESKTOP_SMOKE_EXIT_MS='5000'; bun run dev:desktop` (exit `0`,
+  Electron renderer loaded through the desktop-service runtime channel).
+- Remaining work: none for this chat virtualization slice.

@@ -45,12 +45,20 @@ describe("initializeBotAutomationEvents", () => {
           calls.push({ name: "quota", input });
           return Promise.resolve();
         },
+        dispatchDueQuotaResets: (input: unknown) => {
+          calls.push({ name: "dispatch", input });
+          return Promise.resolve();
+        },
         completeRunsForTurn: (input: unknown) => {
           calls.push({ name: "complete", input });
           return Promise.resolve();
         },
         stopRunsForSession: (input: unknown) => {
           calls.push({ name: "stop", input });
+          return Promise.resolve();
+        },
+        completeRunsForSupervisorUpdate: (input: unknown) => {
+          calls.push({ name: "supervisor", input });
           return Promise.resolve();
         },
       },
@@ -94,6 +102,30 @@ describe("initializeBotAutomationEvents", () => {
       source: "client",
     });
     await dispatch({
+      type: "provider_quota_refreshed",
+      userId: "user-1",
+      providerId: "zai",
+      providerDisplayName: "Z.ai Coding Plan",
+      status: "ready",
+      fetchedAt: "2026-06-12T12:00:01.000Z",
+      windows: [],
+      changed: false,
+    });
+    await dispatch({
+      type: "supervisor_run_updated",
+      userId: "user-1",
+      update: {
+        runId: "supervisor-run-1",
+        status: "completed",
+        revision: 3,
+        tasks: [],
+        gates: [],
+        finalVerification: [],
+        createdAt: "2026-06-12T12:00:00.000Z",
+        updatedAt: "2026-06-12T12:00:02.000Z",
+      },
+    });
+    await dispatch({
       type: "agent_session_stopped",
       userId: "user-1",
       projectRoot: "/repo",
@@ -122,12 +154,37 @@ describe("initializeBotAutomationEvents", () => {
         },
       },
       {
+        name: "dispatch",
+        input: {
+          userIds: ["user-1"],
+          now: "2026-06-12T12:00:00.000Z",
+        },
+      },
+      {
         name: "complete",
         input: {
           userId: "user-1",
           chatId: "chat-1",
           turnId: "turn-1",
           stopReason: "end_turn",
+        },
+      },
+      {
+        name: "quota",
+        input: {
+          userId: "user-1",
+          providerId: "zai",
+          providerDisplayName: "Z.ai Coding Plan",
+          status: "ready",
+          windows: [],
+        },
+      },
+      {
+        name: "supervisor",
+        input: {
+          userId: "user-1",
+          runId: "supervisor-run-1",
+          status: "completed",
         },
       },
       {

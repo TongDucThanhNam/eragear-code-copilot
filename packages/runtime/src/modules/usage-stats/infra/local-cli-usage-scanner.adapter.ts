@@ -68,7 +68,19 @@ const MAX_JSON_RECORD_BYTES_ENV = "SLOPMETER_MAX_JSONL_RECORD_BYTES";
 const PROVIDER_SCAN_TIMEOUT_MS_ENV = "SLOPMETER_PROVIDER_SCAN_TIMEOUT_MS";
 const DEFAULT_FILE_PROCESS_CONCURRENCY = 16;
 const DEFAULT_MAX_JSON_RECORD_BYTES = 64 * 1024 * 1024;
-const DEFAULT_PROVIDER_SCAN_TIMEOUT_MS = 12_000;
+const DEFAULT_PROVIDER_SCAN_TIMEOUT_MS: Record<
+  UsageStatsCliProviderId,
+  number
+> = {
+  amp: 12_000,
+  claude: 12_000,
+  codex: 120_000,
+  cursor: 12_000,
+  gemini: 12_000,
+  opencode: 12_000,
+  pi: 12_000,
+  zcode: 12_000,
+};
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GEMINI_SESSION_FILE_RE = /[\\/]chats[\\/]session-[^\\/]+\.json$/;
 const CURSOR_WEB_BASE_TRAILING_SLASH_RE = /\/+$/;
@@ -2119,7 +2131,7 @@ async function withProviderScanTimeout<T>(
   providerId: UsageStatsCliProviderId,
   operation: Promise<T>
 ): Promise<T> {
-  const timeoutMs = getProviderScanTimeoutMs();
+  const timeoutMs = getProviderScanTimeoutMs(providerId);
   let timeout: Timer | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
@@ -2140,10 +2152,10 @@ async function withProviderScanTimeout<T>(
   }
 }
 
-function getProviderScanTimeoutMs(): number {
+function getProviderScanTimeoutMs(providerId: UsageStatsCliProviderId): number {
   return getPositiveIntegerEnv(
     PROVIDER_SCAN_TIMEOUT_MS_ENV,
-    DEFAULT_PROVIDER_SCAN_TIMEOUT_MS
+    DEFAULT_PROVIDER_SCAN_TIMEOUT_MS[providerId]
   );
 }
 

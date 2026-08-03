@@ -25,6 +25,7 @@ describe("aiRouter", () => {
     const procedures = aiRouter._def.procedures as Record<string, unknown>;
 
     expect(procedures.setSupervisorMode).toBeDefined();
+    expect(procedures.supervisorChat).toBeDefined();
     expect(procedures.supervisor).toBeUndefined();
     expect(procedures.aiSupervisor).toBeUndefined();
   });

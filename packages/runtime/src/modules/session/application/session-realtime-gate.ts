@@ -16,7 +16,12 @@ const NO_SUBSCRIBER_ABORT_REASON =
 const RELEASE_OP = "session.realtime.release_subscription";
 const ABORT_ORPHANED_PROMPT_OP = "session.realtime.abort_orphaned_prompt";
 
-export type PromptSubmissionSource = "client" | "supervisor" | "automation";
+export type PromptSubmissionSource =
+  | "client"
+  | "supervisor"
+  | "automation"
+  | "scheduled"
+  | "orchestrator";
 
 export interface SessionRealtimeGateDeps {
   sessionRuntime: SessionRuntimePort;
@@ -205,7 +210,12 @@ export class SessionRealtimeGate {
 function canSubmitWithoutSubscriber(
   source: PromptSubmissionSource | undefined
 ): boolean {
-  return source === "supervisor" || source === "automation";
+  return (
+    source === "supervisor" ||
+    source === "automation" ||
+    source === "scheduled" ||
+    source === "orchestrator"
+  );
 }
 
 function clearNoSubscriberAbortTimer(task: ActivePromptTask | undefined): void {

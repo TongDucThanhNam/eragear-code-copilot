@@ -160,6 +160,200 @@ const SUPERVISOR_STATE_SCHEMA = z
   })
   .passthrough();
 
+const SUPERVISOR_RUN_FILE_MANIFEST_SCHEMA = z
+  .object({
+    touched: z.array(z.string()),
+    created: z.array(z.string()),
+    deleted: z.array(z.string()),
+    renamed: z.array(z.object({ from: z.string(), to: z.string() }).strict()),
+  })
+  .strict();
+
+const SUPERVISOR_RUN_VERIFICATION_SCHEMA = z
+  .object({ command: z.string(), exitCode: z.number().int().nullable() })
+  .strict();
+
+export const SUPERVISOR_RUN_UPDATE_SCHEMA = z
+  .object({
+    runId: z.string(),
+    revision: z.number().int().nonnegative(),
+    projectId: z.string().optional(),
+    originatingChatId: z.string().optional(),
+    status: z.enum([
+      "draft",
+      "planning",
+      "queued",
+      "running",
+      "paused",
+      "needs_user",
+      "completing",
+      "completed",
+      "failed",
+      "cancelled",
+    ]),
+    tasks: z.array(
+      z
+        .object({
+          taskId: z.string(),
+          title: z.string(),
+          role: z.enum([
+            "research",
+            "implementation",
+            "test",
+            "review",
+            "integration",
+          ]),
+          executionMode: z.enum(["read_only", "write"]),
+          dependencies: z.array(z.string()),
+          status: z.enum([
+            "blocked",
+            "ready",
+            "queued",
+            "running",
+            "reviewing",
+            "integrating",
+            "completed",
+            "needs_user",
+            "failed",
+            "cancelled",
+          ]),
+          attempts: z.array(
+            z
+              .object({
+                attemptId: z.string(),
+                chatId: z.string(),
+                agentId: z.string(),
+                status: z.enum([
+                  "starting",
+                  "running",
+                  "terminal",
+                  "interrupted",
+                ]),
+                files: SUPERVISOR_RUN_FILE_MANIFEST_SCHEMA.optional(),
+                verification: z.array(SUPERVISOR_RUN_VERIFICATION_SCHEMA),
+              })
+              .strict()
+          ),
+        })
+        .strict()
+    ),
+    gates: z.array(
+      z
+        .object({
+          gateId: z.string(),
+          taskId: z.string(),
+          attemptId: z.string(),
+          kind: z.enum([
+            "scope",
+            "dirty_overlap",
+            "baseline_drift",
+            "deletion",
+            "destructive_action",
+            "verification",
+            "conflict",
+            "non_git_write",
+          ]),
+          status: z.enum(["pending", "approved", "rejected"]),
+        })
+        .strict()
+    ),
+    finalVerification: z.array(SUPERVISOR_RUN_VERIFICATION_SCHEMA),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .strict();
+
+const GOAL_MODE_GATE_REASON_SCHEMA = z.enum([
+  "scope_drift_modified",
+  "scope_drift_created",
+  "file_deleted",
+  "destructive_action",
+  "verification_failed",
+]);
+
+const GOAL_MODE_GATE_SCHEMA = z.discriminatedUnion("decision", [
+  z
+    .object({
+      decision: z.literal("auto_continue"),
+      reasons: z.array(GOAL_MODE_GATE_REASON_SCHEMA).length(0),
+    })
+    .passthrough(),
+  z
+    .object({
+      decision: z.literal("needs_user"),
+      reasons: z.array(GOAL_MODE_GATE_REASON_SCHEMA).min(1),
+    })
+    .passthrough(),
+]);
+
+const GOAL_MODE_SCOPE_TARGET_SCHEMA = z
+  .object({
+    path: z.string(),
+    score: z.number().finite(),
+    reason: z.string(),
+  })
+  .passthrough();
+
+const GOAL_MODE_SCOPE_RESOLUTION_SCHEMA = z
+  .object({
+    resolverVersion: z.enum(["v0-no-graph", "v1-import-graph"]),
+    primaryTarget: GOAL_MODE_SCOPE_TARGET_SCHEMA,
+    secondaryTargets: z.array(GOAL_MODE_SCOPE_TARGET_SCHEMA),
+    resolvedViaLLM: z.boolean(),
+    diagnostics: z
+      .object({
+        signalScanSkippedBySize: z.number().int().nonnegative(),
+        symbolExtractionMode: z.enum(["regex", "ast"]),
+        indexedFiles: z.number().int().nonnegative().optional(),
+        candidateCount: z.number().int().nonnegative().optional(),
+        deterministicGap: z.number().finite().optional(),
+        graphConfidence: z.number().finite().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
+const GOAL_MODE_VERIFICATION_RESULT_SCHEMA = z
+  .object({
+    command: z.string(),
+    exitCode: z.number().int().nullable(),
+  })
+  .passthrough();
+
+const GOAL_MODE_OUTCOME_SUMMARY_SCHEMA = z
+  .object({
+    keyDecision: z.string(),
+    filesChanged: z.array(z.string()),
+    gotcha: z.string(),
+    verification: z.string(),
+  })
+  .passthrough();
+
+const GOAL_MODE_AUDIT_ENTRY_SCHEMA = z
+  .object({
+    goalId: z.string(),
+    phaseId: z.string(),
+    attemptId: z.string().optional(),
+    kind: z.enum([
+      "scope_resolution",
+      "phase_attempt",
+      "gate_result",
+      "verification_result",
+      "decision",
+    ]),
+    occurredAt: z.string(),
+    scopeResolution: GOAL_MODE_SCOPE_RESOLUTION_SCHEMA.optional(),
+    filesAllowed: z.array(z.string()).optional(),
+    filesTouched: z.array(z.string()).optional(),
+    filesCreated: z.array(z.string()).optional(),
+    filesDeleted: z.array(z.string()).optional(),
+    gate: GOAL_MODE_GATE_SCHEMA.optional(),
+    verification: GOAL_MODE_VERIFICATION_RESULT_SCHEMA.optional(),
+    outcomeSummary: GOAL_MODE_OUTCOME_SUMMARY_SCHEMA.optional(),
+    decisionReason: z.string().optional(),
+  })
+  .passthrough();
+
 const SESSION_CONFIG_SELECT_OPTION_SCHEMA = z
   .object({
     value: z.string(),
@@ -334,6 +528,13 @@ export const BROADCAST_EVENT_SCHEMA = z.discriminatedUnion("type", [
     .passthrough(),
   z
     .object({
+      type: z.literal("goal_mode_audit"),
+      audit: GOAL_MODE_AUDIT_ENTRY_SCHEMA,
+      turnId: z.string().optional(),
+    })
+    .passthrough(),
+  z
+    .object({
       type: z.literal("subagent_status"),
       invocation: SUBAGENT_INVOCATION_SCHEMA,
       turnId: z.string().optional(),
@@ -396,6 +597,7 @@ const BROADCAST_EVENT_TYPES = [
   "session_info_update",
   "supervisor_status",
   "supervisor_decision",
+  "goal_mode_audit",
   "subagent_status",
   "current_mode_update",
   "current_model_update",

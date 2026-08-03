@@ -15,6 +15,16 @@ import {
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { AgenticMessage } from "@/components/chat-ui/agentic-message";
+import {
+  CHAT_VIRTUALIZER_CONFIG,
+  type ChatVirtualTail,
+  getChatVirtualItemEstimate,
+  getChatVirtualItemKey,
+  type InitialChatScrollState,
+  reconcileInitialChatScroll,
+  resolveChatVirtualItem,
+  shouldFollowChatTailReplacement,
+} from "@/components/chat-ui/chat-messages-virtualization";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -45,24 +55,6 @@ const ThinkingMessagePlaceholder = memo(function ThinkingMessagePlaceholder() {
     </Message>
   );
 });
-
-const CHAT_OVERSCAN = 8;
-const CHAT_SCROLL_END_THRESHOLD = 96;
-const LOAD_OLDER_ESTIMATE = 48;
-const THINKING_ESTIMATE = 72;
-const MESSAGE_ESTIMATE = 180;
-
-type ChatVirtualItem =
-  | { kind: "load-older" }
-  | { kind: "message"; messageId: string }
-  | { kind: "thinking" };
-
-function isNearBottom(element: HTMLElement): boolean {
-  return (
-    element.scrollHeight - element.scrollTop - element.clientHeight <=
-    CHAT_SCROLL_END_THRESHOLD
-  );
-}
 
 /**
  * Shallow compare for messageIds array - optimized for common case of
@@ -101,6 +93,14 @@ export const ChatMessages = memo(
     const parentRef = useRef<HTMLDivElement | null>(null);
     const [isAtBottom, setIsAtBottom] = useState(true);
     const isAtBottomRef = useRef(true);
+    const initialScrollStateRef = useRef<InitialChatScrollState>({
+      chatId: undefined,
+      pending: true,
+    });
+    const virtualTailRef = useRef<ChatVirtualTail>({
+      itemCount: 0,
+      key: null,
+    });
     const canRenderLoadOlder = Boolean(canLoadOlder && onLoadOlder);
     const itemCount =
       messageIds.length +
@@ -112,86 +112,55 @@ export const ChatMessages = memo(
       !(showThinkingPlaceholder || isLoadingOlder);
 
     const resolveVirtualItem = useCallback(
-      (index: number): ChatVirtualItem => {
-        if (canRenderLoadOlder && index === 0) {
-          return { kind: "load-older" };
-        }
-        const messageIndex = index - (canRenderLoadOlder ? 1 : 0);
-        if (messageIndex >= 0 && messageIndex < messageIds.length) {
-          return { kind: "message", messageId: messageIds[messageIndex] ?? "" };
-        }
-        return { kind: "thinking" };
-      },
+      (index: number) =>
+        resolveChatVirtualItem(index, messageIds, canRenderLoadOlder),
       [canRenderLoadOlder, messageIds]
     );
 
     const getItemKey = useCallback(
-      (index: number) => {
-        const item = resolveVirtualItem(index);
-        if (item.kind === "message") {
-          return `message:${item.messageId}`;
-        }
-        return item.kind;
-      },
-      [resolveVirtualItem]
+      (index: number) =>
+        getChatVirtualItemKey(chatId, resolveVirtualItem(index)),
+      [chatId, resolveVirtualItem]
     );
 
     const estimateSize = useCallback(
-      (index: number) => {
-        const item = resolveVirtualItem(index);
-        if (item.kind === "load-older") {
-          return LOAD_OLDER_ESTIMATE;
-        }
-        if (item.kind === "thinking") {
-          return THINKING_ESTIMATE;
-        }
-        return MESSAGE_ESTIMATE;
-      },
+      (index: number) => getChatVirtualItemEstimate(resolveVirtualItem(index)),
       [resolveVirtualItem]
     );
 
     const rowVirtualizer = useVirtualizer({
-      anchorTo: "end",
+      ...CHAT_VIRTUALIZER_CONFIG,
       count: itemCount,
       estimateSize,
-      followOnAppend: "auto",
       gap: 24,
       getItemKey,
       getScrollElement: () => parentRef.current,
-      overscan: CHAT_OVERSCAN,
       paddingEnd: 16,
       paddingStart: 16,
-      scrollEndThreshold: CHAT_SCROLL_END_THRESHOLD,
       useAnimationFrameWithResizeObserver: true,
     });
     const virtualItems = rowVirtualizer.getVirtualItems();
     const totalSize = rowVirtualizer.getTotalSize();
+    const virtualTailKey =
+      itemCount > 0 ? String(getItemKey(itemCount - 1)) : null;
 
     const updateIsAtBottom = useCallback(() => {
       const element = parentRef.current;
       if (!element) {
         return;
       }
-      const nextIsAtBottom = isNearBottom(element);
+      const nextIsAtBottom = rowVirtualizer.isAtEnd();
       if (isAtBottomRef.current !== nextIsAtBottom) {
         isAtBottomRef.current = nextIsAtBottom;
         setIsAtBottom(nextIsAtBottom);
       }
-    }, []);
+    }, [rowVirtualizer]);
 
     const scrollToBottom = useCallback(
       (behavior: ScrollBehavior = "smooth") => {
-        if (itemCount > 0) {
-          rowVirtualizer.scrollToIndex(itemCount - 1, {
-            align: "end",
-            behavior,
-          });
-          return;
-        }
-        const element = parentRef.current;
-        element?.scrollTo({ behavior, top: element.scrollHeight });
+        rowVirtualizer.scrollToEnd({ behavior });
       },
-      [itemCount, rowVirtualizer]
+      [rowVirtualizer]
     );
 
     const handleLoadOlder = useCallback(() => {
@@ -207,11 +176,29 @@ export const ChatMessages = memo(
     }, [totalSize, updateIsAtBottom]);
 
     useLayoutEffect(() => {
-      if (itemCount === 0 || !isAtBottomRef.current) {
-        return;
+      const wasAtEnd = isAtBottomRef.current;
+      const transition = reconcileInitialChatScroll(
+        initialScrollStateRef.current,
+        chatId,
+        itemCount
+      );
+      const shouldFollowTailReplacement = shouldFollowChatTailReplacement(
+        virtualTailRef.current,
+        { itemCount, key: virtualTailKey },
+        wasAtEnd,
+        transition.chatChanged
+      );
+      initialScrollStateRef.current = transition.state;
+      virtualTailRef.current = { itemCount, key: virtualTailKey };
+
+      if (transition.chatChanged) {
+        isAtBottomRef.current = true;
+        setIsAtBottom(true);
       }
-      scrollToBottom("auto");
-    }, [itemCount, scrollToBottom]);
+      if (transition.shouldScrollToEnd || shouldFollowTailReplacement) {
+        scrollToBottom("auto");
+      }
+    }, [chatId, itemCount, scrollToBottom, virtualTailKey]);
 
     const renderedItems = useMemo(
       () =>

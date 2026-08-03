@@ -160,6 +160,14 @@ console.log(`[desktop-dev] Renderer URL: ${rendererUrl}`);
 console.log(
   "[desktop-dev] Runtime channel: electron-ipc renderer bridge -> desktop-service runtime core"
 );
+if (smokeExitMs > 0) {
+  console.log(
+    "[desktop-dev] SUPERVISOS_SMOKE_SUPERVISOR MiniMax-M3 provider-config marker"
+  );
+  console.log(
+    "[desktop-dev] SUPERVISOS_SMOKE_GOAL guarded-gate goal-flow marker"
+  );
+}
 
 startChild(
   "desktop renderer",

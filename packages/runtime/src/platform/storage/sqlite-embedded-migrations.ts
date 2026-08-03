@@ -36,6 +36,12 @@ import migration0010 from "../../../drizzle/0010_sessions_config_state.sql" with
 import migration0011 from "../../../drizzle/0011_usage_stats_primary_persistence.sql" with {
   type: "file",
 };
+import migration0012 from "../../../drizzle/0012_supervisor_runs.sql" with {
+  type: "file",
+};
+import migration0013 from "../../../drizzle/0013_goal_mode_states.sql" with {
+  type: "file",
+};
 import journalAsset from "../../../drizzle/meta/_journal.json" with {
   type: "file",
 };
@@ -82,6 +88,14 @@ const EMBEDDED_MIGRATION_FILES = [
   {
     relativePath: "0011_usage_stats_primary_persistence.sql",
     sourcePath: migration0011,
+  },
+  {
+    relativePath: "0012_supervisor_runs.sql",
+    sourcePath: migration0012,
+  },
+  {
+    relativePath: "0013_goal_mode_states.sql",
+    sourcePath: migration0013,
   },
   {
     relativePath: path.join("meta", "0006_snapshot.json"),

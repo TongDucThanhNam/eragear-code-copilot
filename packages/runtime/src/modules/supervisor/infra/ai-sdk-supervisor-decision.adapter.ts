@@ -1,4 +1,4 @@
-import { createDeepSeek } from "@ai-sdk/deepseek";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText, NoObjectGeneratedError, Output } from "ai";
 import type { z } from "zod";
 import type { LoggerPort } from "#runtime/shared/ports/logger.port";
@@ -17,9 +17,9 @@ import {
 import type { SupervisorPolicy } from "../application/supervisor-policy";
 import {
   buildSupervisorPermissionPrompt,
+  buildSupervisorPermissionSystemPrompt,
   buildSupervisorTurnPrompt,
-  SUPERVISOR_PERMISSION_SYSTEM_PROMPT,
-  SUPERVISOR_TURN_SYSTEM_PROMPT,
+  buildSupervisorTurnSystemPrompt,
 } from "../application/supervisor-prompt.builder";
 
 export class SupervisorDecisionUnavailableError extends Error {
@@ -29,13 +29,34 @@ export class SupervisorDecisionUnavailableError extends Error {
   }
 }
 
+type MiniMaxProvider = ReturnType<typeof createOpenAICompatible>;
+type MiniMaxLanguageModel = ReturnType<MiniMaxProvider>;
+type GenerateTextFn = typeof generateText;
+
+const MINIMAX_PROVIDER_NAME = "minimax";
+const MINIMAX_OPENAI_BASE_URL = "https://api.minimax.io/v1";
+const MINIMAX_MODEL_PREFIX = "minimax/";
+
 export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
   private readonly policy: SupervisorPolicy;
   private readonly logger: LoggerPort;
+  private readonly generate: GenerateTextFn;
+  private readonly resolveModel: (
+    policy: SupervisorPolicy
+  ) => MiniMaxLanguageModel;
 
-  constructor(policy: SupervisorPolicy, logger: LoggerPort) {
+  constructor(
+    policy: SupervisorPolicy,
+    logger: LoggerPort,
+    options: {
+      generateText?: GenerateTextFn;
+      resolveModel?: (policy: SupervisorPolicy) => MiniMaxLanguageModel;
+    } = {}
+  ) {
     this.policy = policy;
     this.logger = logger;
+    this.generate = options.generateText ?? generateText;
+    this.resolveModel = options.resolveModel ?? resolveSupervisorLanguageModel;
   }
 
   async decideTurn(
@@ -47,7 +68,7 @@ export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
       const raw = await this.generateObjectDecision({
         kind: "turn",
         chatId: input.chatId,
-        system: SUPERVISOR_TURN_SYSTEM_PROMPT,
+        system: buildSupervisorTurnSystemPrompt(this.policy),
         prompt: buildSupervisorTurnPrompt(input),
         schema: SupervisorSemanticDecisionSchema,
         name: "supervisor_turn_decision",
@@ -73,7 +94,7 @@ export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
       return await this.generateObjectDecision({
         kind: "permission",
         chatId: input.chatId,
-        system: SUPERVISOR_PERMISSION_SYSTEM_PROMPT,
+        system: buildSupervisorPermissionSystemPrompt(this.policy),
         prompt: buildSupervisorPermissionPrompt(input),
         schema: SupervisorPermissionDecisionSchema,
         name: "supervisor_permission_decision",
@@ -92,7 +113,7 @@ export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
     schema: z.ZodType<T>;
     name: string;
   }): Promise<T> {
-    const model = resolveSupervisorLanguageModel(this.policy);
+    const model = this.resolveModel(this.policy);
     const maxAttempts = Math.max(
       1,
       Math.trunc(this.policy.decisionMaxAttempts)
@@ -108,7 +129,7 @@ export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
           maxAttempts,
           model: this.policy.model,
         });
-        const { output } = await generateText({
+        const { output } = await this.generate({
           model,
           system: params.system,
           prompt: params.prompt,
@@ -125,7 +146,7 @@ export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
           attempt,
           maxAttempts,
         });
-        return output;
+        return params.schema.parse(output);
       } catch (error) {
         lastError = error;
         if (attempt >= maxAttempts) {
@@ -173,34 +194,50 @@ export class AiSdkSupervisorDecisionAdapter implements SupervisorDecisionPort {
   }
 }
 
-function resolveSupervisorLanguageModel(policy: SupervisorPolicy) {
+export function resolveSupervisorLanguageModel(policy: SupervisorPolicy) {
   const trimmedModel = policy.model.trim();
-  const deepSeekModel = parseDeepSeekModelId(trimmedModel);
-  if (deepSeekModel) {
-    const apiKey = policy.deepSeekApiKey?.trim();
+  const miniMaxModel = parseMiniMaxModelId(trimmedModel);
+  if (miniMaxModel) {
+    const apiKey = policy.miniMaxApiKey?.trim();
     if (!apiKey) {
       throw new SupervisorDecisionUnavailableError(
-        "DeepSeek API key is required in Settings when the supervisor model uses DeepSeek"
+        "MiniMax API key is required in Settings or MINIMAX_API_KEY for supervisor decisions"
       );
     }
-    return createDeepSeek({ apiKey })(deepSeekModel);
+    const provider = createOpenAICompatible({
+      name: MINIMAX_PROVIDER_NAME,
+      apiKey,
+      baseURL: MINIMAX_OPENAI_BASE_URL,
+      supportsStructuredOutputs: true,
+    });
+    return provider(miniMaxModel);
   }
 
   throw new SupervisorDecisionUnavailableError(
-    `Unsupported supervisor model provider: ${trimmedModel}. Supported prefix: deepseek/`
+    `Unsupported supervisor model provider: ${trimmedModel}. Supported model: MiniMax-M3`
   );
 }
 
-function parseDeepSeekModelId(modelId: string): string | undefined {
-  if (modelId.startsWith("deepseek/")) {
-    return modelId.slice("deepseek/".length).trim() || undefined;
+function parseMiniMaxModelId(modelId: string): string | undefined {
+  const trimmed = modelId.trim();
+  if (trimmed.startsWith(MINIMAX_MODEL_PREFIX)) {
+    const unprefixed = trimmed.slice(MINIMAX_MODEL_PREFIX.length).trim();
+    return isSupportedMiniMaxSupervisorModel(unprefixed)
+      ? unprefixed
+      : undefined;
   }
-  if (modelId === "deepseek-chat" || modelId === "deepseek-reasoner") {
-    return modelId;
+  if (isSupportedMiniMaxSupervisorModel(trimmed)) {
+    return trimmed;
   }
   return undefined;
 }
 
+function isSupportedMiniMaxSupervisorModel(modelId: string): boolean {
+  return modelId === "MiniMax-M3";
+}
+
 export const __aiSdkSupervisorDecisionInternals = {
-  parseDeepSeekModelId,
+  MINIMAX_OPENAI_BASE_URL,
+  parseMiniMaxModelId,
+  resolveSupervisorLanguageModel,
 };

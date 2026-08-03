@@ -13,7 +13,10 @@ import {
 } from "@/components/chat-ui/chat-connection-display";
 import { ChatContextRail } from "@/components/chat-ui/chat-context-rail";
 import { ChatHeader } from "@/components/chat-ui/chat-header";
-import { ChatInput } from "@/components/chat-ui/chat-input";
+import {
+  ChatInput,
+  type InjectedChatPrompt,
+} from "@/components/chat-ui/chat-input";
 import { ChatMessagesPane } from "@/components/chat-ui/chat-interface/chat-messages-pane";
 import { ChatPlanDockPane } from "@/components/chat-ui/chat-interface/chat-plan-dock-pane";
 import { prepareSubmitImages } from "@/components/chat-ui/chat-submit-images";
@@ -204,7 +207,7 @@ export function ChatInterface({
   onChatIdChange,
 }: ChatInterfaceProps) {
   const rightSidebar = useRightSidebarControls();
-  const [isEnvironmentOpen, setIsEnvironmentOpen] = useState(false);
+  const [isSupervisosOpen, setIsSupervisosOpen] = useState(false);
   const utils = trpc.useUtils();
   const { data: agentsData, isLoading: isAgentsLoading } =
     trpc.agents.list.useQuery();
@@ -270,6 +273,9 @@ export function ChatInterface({
     chatId: string;
     text: string;
   } | null>(null);
+  const [stagedSupervisosPrompt, setStagedSupervisosPrompt] = useState<
+    (InjectedChatPrompt & { chatId: string }) | null
+  >(null);
   const workspaceTabs = useWorkspaceSessionStore((state) => state.tabs);
   const lastActiveChatId = useWorkspaceSessionStore(
     (state) => state.lastActiveChatId
@@ -290,19 +296,19 @@ export function ChatInterface({
   const handleChatError = useCallback((err: string) => {
     toast.error(err);
   }, []);
-  const handleToggleEnvironment = useCallback(() => {
-    if (isEnvironmentOpen) {
-      setIsEnvironmentOpen(false);
+  const handleToggleSupervisos = useCallback(() => {
+    if (isSupervisosOpen) {
+      setIsSupervisosOpen(false);
       return;
     }
     rightSidebar.close();
-    setIsEnvironmentOpen(true);
-  }, [isEnvironmentOpen, rightSidebar.close]);
-  const handleCloseEnvironment = useCallback(() => {
-    setIsEnvironmentOpen(false);
+    setIsSupervisosOpen(true);
+  }, [isSupervisosOpen, rightSidebar.close]);
+  const handleCloseSupervisos = useCallback(() => {
+    setIsSupervisosOpen(false);
   }, []);
   const handleToggleSidePanel = useCallback(() => {
-    setIsEnvironmentOpen(false);
+    setIsSupervisosOpen(false);
     rightSidebar.toggle();
   }, [rightSidebar.toggle]);
   // Use the unified useChat hook
@@ -334,6 +340,7 @@ export function ChatInterface({
     supervisor,
     supervisorCapable,
     lastSupervisorDecision,
+    goalModeAudit,
     subagents,
     isSettingSupervisorMode,
     refreshHistory,
@@ -487,16 +494,20 @@ export function ChatInterface({
     }
     return chatId ? `Session ${chatId.slice(0, 8)}` : "New Task";
   }, [chatId, selectedSession]);
-  const headerProjectName = useMemo(() => {
+  const headerProject = useMemo(() => {
     const sessionProjectId = (selectedSession as any)?.projectId;
-    if (
-      typeof sessionProjectId === "string" &&
-      projectLookup[sessionProjectId]
-    ) {
-      return projectLookup[sessionProjectId];
+    if (typeof sessionProjectId === "string") {
+      const sessionProject = projects.find(
+        (project) => project.id === sessionProjectId
+      );
+      if (sessionProject) {
+        return sessionProject;
+      }
     }
-    return activeProject?.name ?? null;
-  }, [activeProject?.name, projectLookup, selectedSession]);
+    return activeProject ?? null;
+  }, [activeProject, projects, selectedSession]);
+  const headerProjectName = headerProject?.name ?? null;
+  const headerProjectPath = headerProject?.path ?? null;
 
   useEffect(() => {
     if (!(chatId && selectedSession)) {
@@ -1239,6 +1250,36 @@ export function ChatInterface({
     [initChat, localAdeSnapshot?.sessions.active, selectSession]
   );
 
+  const handleStageSupervisosPrompt = useCallback(
+    (input: { autoSubmit: boolean; prompt: string }) => {
+      const text = input.prompt.trim();
+      if (!text) {
+        return;
+      }
+      if (!chatId) {
+        throw new Error("No active chat session for Supervisos delegation.");
+      }
+      setStagedSupervisosPrompt({
+        autoSubmit: input.autoSubmit,
+        chatId,
+        id: `supervisos-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        text,
+      });
+      toast.info(
+        input.autoSubmit
+          ? "Enhanced prompt added to ChatInput. Autopilot will submit it when ready."
+          : "Enhanced prompt added to ChatInput."
+      );
+    },
+    [chatId]
+  );
+
+  const handleInjectedPromptConsumed = useCallback((id: string) => {
+    setStagedSupervisosPrompt((current) =>
+      current?.id === id ? null : current
+    );
+  }, []);
+
   // Handle submit
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
@@ -1663,16 +1704,17 @@ export function ChatInterface({
         agentDisplay={agentDisplay}
         chatTitle={headerChatTitle}
         connStatus={displayConnStatus}
-        isEnvironmentOpen={isEnvironmentOpen}
         isForking={forkSessionMutation.isPending}
         isResuming={isResuming}
+        isSupervisosOpen={isSupervisosOpen}
         loadNotSupported={resolvedLoadSessionSupported === false}
         onForkChat={chatId ? handleForkChat : undefined}
         onResumeChat={resolvedLoadSessionSupported ? handleResume : undefined}
         onStopChat={handleStopChat}
-        onToggleEnvironment={handleToggleEnvironment}
         onToggleSidePanel={handleToggleSidePanel}
+        onToggleSupervisos={handleToggleSupervisos}
         projectName={headerProjectName}
+        projectPath={headerProjectPath}
       />
       <WorkspaceSessionTabs
         activeChatId={chatId}
@@ -1753,8 +1795,14 @@ export function ChatInterface({
               currentModeId={currentModeId}
               currentModelId={currentModelId}
               imageInputSupported={Boolean(promptCapabilities?.image)}
+              injectedPrompt={
+                stagedSupervisosPrompt?.chatId === chatId
+                  ? stagedSupervisosPrompt
+                  : null
+              }
               onCancel={handleCancel}
               onConfigOptionChange={handleSetConfigOption}
+              onInjectedPromptConsumed={handleInjectedPromptConsumed}
               onModeChange={handleSetMode}
               onModelChange={handleSetModel}
               onSubmit={handleSubmit}
@@ -1772,15 +1820,15 @@ export function ChatInterface({
         </div>
 
         <ChatContextRail
-          agentName={agentDisplay.name}
-          connStatus={displayConnStatus}
-          isOpen={isEnvironmentOpen}
+          chatId={chatId}
+          goalModeAudit={goalModeAudit}
+          isOpen={isSupervisosOpen}
           isSettingSupervisorMode={isSettingSupervisorMode}
+          isSupervisosChatDisabled={!supervisorCapable || !chatId}
           lastSupervisorDecision={lastSupervisorDecision}
-          onClose={handleCloseEnvironment}
+          onClose={handleCloseSupervisos}
           onSetSupervisorMode={handleSetSupervisorMode}
-          projectName={headerProjectName}
-          projectPath={activeProject?.path ?? null}
+          onStageSupervisosPrompt={handleStageSupervisosPrompt}
           supervisor={supervisor}
           supervisorCapable={supervisorCapable}
         />

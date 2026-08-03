@@ -42,6 +42,7 @@ export type {
   PromptLifecycleMessageSent,
   PromptLifecycleSubagentInvocationRequested,
   PromptSource,
+  SendMessageResult,
 } from "./application/send-message/send-message.types";
 export type { SendMessagePolicy } from "./application/send-message.service";
 export { SendMessageService } from "./application/send-message.service";

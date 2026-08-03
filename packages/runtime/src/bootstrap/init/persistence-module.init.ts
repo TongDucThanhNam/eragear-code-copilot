@@ -18,6 +18,11 @@ import {
   SettingsSqliteRepository,
   SettingsSqliteWorkerRepository,
 } from "#runtime/modules/settings/di";
+import type { SupervisorRunRepositoryPort } from "#runtime/modules/supervisor-orchestration";
+import {
+  SupervisorRunSqliteRepository,
+  SupervisorRunSqliteWorkerRepository,
+} from "#runtime/modules/supervisor-orchestration/di";
 import type { UsageStatsRepositoryPort } from "#runtime/modules/usage-stats";
 import {
   UsageStatsSqliteRepository,
@@ -30,6 +35,7 @@ export interface PersistenceModule {
   agentRepo: AgentRepositoryPort;
   settingsRepo: SettingsRepositoryPort;
   usageStatsRepo: UsageStatsRepositoryPort;
+  supervisorRunRepo: SupervisorRunRepositoryPort;
 }
 
 export interface PersistenceModuleInitParams {
@@ -76,5 +82,8 @@ export function initializePersistenceModule(
     usageStatsRepo: sqliteWorkerEnabled
       ? new UsageStatsSqliteWorkerRepository()
       : new UsageStatsSqliteRepository(),
+    supervisorRunRepo: sqliteWorkerEnabled
+      ? new SupervisorRunSqliteWorkerRepository()
+      : new SupervisorRunSqliteRepository(),
   };
 }

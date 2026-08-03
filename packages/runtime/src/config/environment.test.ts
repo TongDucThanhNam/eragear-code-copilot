@@ -279,15 +279,18 @@ describe("environment worker invariants", () => {
 
   test("parses supervisor configuration", () => {
     const result = runEnvironmentSubprocess({
-      code: "import { ENV } from './src/config/environment.ts'; console.log([ENV.supervisorEnabled, ENV.supervisorModel, ENV.supervisorDeepSeekApiKey, ENV.supervisorDecisionTimeoutMs, ENV.supervisorDecisionMaxAttempts, ENV.supervisorMaxRuntimeMs, ENV.supervisorMaxRepeatedPrompts, ENV.supervisorWebSearchProvider, ENV.supervisorMemoryProvider, ENV.supervisorObsidianCommand, ENV.supervisorObsidianVault, ENV.supervisorObsidianBlueprintPath, ENV.supervisorObsidianLogPath, ENV.supervisorObsidianSearchPath, ENV.supervisorObsidianSearchLimit, ENV.supervisorObsidianTimeoutMs].join(':'));",
+      code: "import { ENV } from './src/config/environment.ts'; console.log([ENV.supervisorEnabled, ENV.supervisorModel, ENV.supervisorMiniMaxApiKey, ENV.supervisorDecisionTimeoutMs, ENV.supervisorDecisionMaxAttempts, ENV.supervisorMaxRuntimeMs, ENV.supervisorMaxRepeatedPrompts, ENV.supervisorCustomSystemPrompt, ENV.supervisorToolPolicy, ENV.supervisorToolAllowlist.join('|'), ENV.supervisorWebSearchProvider, ENV.supervisorMemoryProvider, ENV.supervisorObsidianCommand, ENV.supervisorObsidianVault, ENV.supervisorObsidianBlueprintPath, ENV.supervisorObsidianLogPath, ENV.supervisorObsidianSearchPath, ENV.supervisorObsidianSearchLimit, ENV.supervisorObsidianTimeoutMs].join(':'));",
       overrides: {
         SUPERVISOR_ENABLED: "true",
-        SUPERVISOR_MODEL: "openai/gpt-5.1",
-        DEEPSEEK_API_KEY: "deepseek-test-key",
+        SUPERVISOR_MODEL: "MiniMax-M3",
+        MINIMAX_API_KEY: "minimax-test-key",
         SUPERVISOR_DECISION_TIMEOUT_MS: "1234",
         SUPERVISOR_DECISION_MAX_ATTEMPTS: "2",
         SUPERVISOR_MAX_RUNTIME_MS: "5678",
         SUPERVISOR_MAX_REPEATED_PROMPTS: "9",
+        SUPERVISOR_CUSTOM_SYSTEM_PROMPT: "Prefer terse reviews.",
+        SUPERVISOR_TOOL_POLICY: "custom-allowlist",
+        SUPERVISOR_TOOL_ALLOWLIST: "exa-search,obsidian",
         SUPERVISOR_WEB_SEARCH_PROVIDER: "none",
         SUPERVISOR_MEMORY_PROVIDER: "obsidian",
         SUPERVISOR_OBSIDIAN_COMMAND: "obsidian",
@@ -302,7 +305,7 @@ describe("environment worker invariants", () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe(
-      "true:openai/gpt-5.1:deepseek-test-key:1234:2:5678:9:none:obsidian:obsidian:Second Brain:Project/App/Blueprint.md:Project/App/Supervisor Log.md:Project/App:4:6789"
+      "true:MiniMax-M3:minimax-test-key:1234:2:5678:9:Prefer terse reviews.:custom-allowlist:exa-search|obsidian:none:obsidian:obsidian:Second Brain:Project/App/Blueprint.md:Project/App/Supervisor Log.md:Project/App:4:6789"
     );
   });
 

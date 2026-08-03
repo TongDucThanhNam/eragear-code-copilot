@@ -819,12 +819,12 @@ describe("mapSemanticToRuntime", () => {
     expect(mapSemanticToRuntime("WAIT")).toBe("needs_user");
   });
 
-  // TR4: Unknown/invalid semantic action returns safe default (undefined)
-  test("returns safe default (undefined) for unknown semantic action", () => {
+  // TR4: Unknown/invalid semantic actions fail closed for explicit user review.
+  test("maps an unknown semantic action to needs_user", () => {
     expect(
       // @ts-expect-error - testing invalid input at runtime
       mapSemanticToRuntime("INVALID_ACTION")
-    ).toBeUndefined();
+    ).toBe("needs_user");
   });
 });
 

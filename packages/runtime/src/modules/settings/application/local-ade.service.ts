@@ -55,6 +55,7 @@ import {
   getSessionConfigOptionValues,
 } from "#runtime/shared/utils/session-config-options.util";
 import { isRecord } from "#runtime/shared/utils/type-guards.util";
+import { extractRepoIndexSymbolFromLine } from "../../repo-snapshot-indexing/application/repo-index-symbol-extraction";
 import type { AppConfigService } from "../app-config.service";
 import type { SettingsRepositoryPort } from "./ports/settings-repository.port";
 import {
@@ -5678,93 +5679,7 @@ function symbolFromLine(params: {
   line: string;
   extension: string;
 }): Pick<LocalAdeRepoIndexSymbol, "kind" | "name"> | null {
-  const trimmed = params.line.trim();
-  if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("*")) {
-    return null;
-  }
-
-  const classMatch = trimmed.match(
-    /^(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/
-  );
-  if (classMatch?.[1]) {
-    return { kind: "class", name: classMatch[1] };
-  }
-
-  const interfaceMatch = trimmed.match(
-    /^(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/
-  );
-  if (interfaceMatch?.[1]) {
-    return { kind: "interface", name: interfaceMatch[1] };
-  }
-
-  const typeMatch = trimmed.match(/^(?:export\s+)?type\s+([A-Za-z_$][\w$]*)/);
-  if (typeMatch?.[1]) {
-    return { kind: "type", name: typeMatch[1] };
-  }
-
-  const functionMatch = trimmed.match(
-    /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/
-  );
-  if (functionMatch?.[1]) {
-    return { kind: "function", name: functionMatch[1] };
-  }
-
-  const constMatch = trimmed.match(
-    /^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\(|[A-Za-z_$])/
-  );
-  if (constMatch?.[1]) {
-    const name = constMatch[1];
-    return {
-      kind:
-        /^[A-Z]/.test(name) && /\.(tsx|jsx)$/.test(params.extension)
-          ? "component"
-          : "export",
-      name,
-    };
-  }
-
-  if (params.extension === ".py") {
-    const pythonMatch = trimmed.match(
-      /^(?:async\s+)?def\s+([A-Za-z_]\w*)|^class\s+([A-Za-z_]\w*)/
-    );
-    const name = pythonMatch?.[1] ?? pythonMatch?.[2];
-    if (name) {
-      return {
-        kind: trimmed.startsWith("class ") ? "class" : "function",
-        name,
-      };
-    }
-  }
-
-  if (params.extension === ".go") {
-    const goFunc = trimmed.match(
-      /^func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(/
-    );
-    if (goFunc?.[1]) {
-      return { kind: "function", name: goFunc[1] };
-    }
-    const goType = trimmed.match(
-      /^type\s+([A-Za-z_]\w*)\s+(?:struct|interface)/
-    );
-    if (goType?.[1]) {
-      return { kind: "type", name: goType[1] };
-    }
-  }
-
-  if (params.extension === ".rs") {
-    const rustMatch = trimmed.match(
-      /^(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)|^(?:pub\s+)?(?:struct|enum|trait)\s+([A-Za-z_]\w*)/
-    );
-    const name = rustMatch?.[1] ?? rustMatch?.[2];
-    if (name) {
-      return {
-        kind: rustMatch?.[1] ? "function" : "type",
-        name,
-      };
-    }
-  }
-
-  return null;
+  return extractRepoIndexSymbolFromLine(params);
 }
 
 async function scanRepoIndexSignals(params: {
@@ -5780,11 +5695,18 @@ async function scanRepoIndexSignals(params: {
   semanticHash?: string;
   diagnostics: string[];
 }> {
-  if (
-    params.sizeBytes > MAX_REPO_INDEX_FILE_SCAN_BYTES ||
-    !REPO_INDEX_SCAN_EXTENSIONS.has(params.extension)
-  ) {
+  if (!REPO_INDEX_SCAN_EXTENSIONS.has(params.extension)) {
     return { symbols: [], tasks: [], semanticTags: [], diagnostics: [] };
+  }
+  if (params.sizeBytes > MAX_REPO_INDEX_FILE_SCAN_BYTES) {
+    return {
+      symbols: [],
+      tasks: [],
+      semanticTags: [],
+      diagnostics: [
+        `signalScanSkippedBySize: ${params.relativePath} exceeded ${MAX_REPO_INDEX_FILE_SCAN_BYTES} bytes.`,
+      ],
+    };
   }
 
   let raw = "";

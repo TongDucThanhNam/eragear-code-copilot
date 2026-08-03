@@ -1,7 +1,12 @@
 import type { Annotations } from "#runtime/shared/types/annotation.types";
 import type { PromptTurnCompleteEvent } from "./prompt-task-runner";
 
-export type PromptSource = "client" | "supervisor" | "automation";
+export type PromptSource =
+  | "client"
+  | "supervisor"
+  | "automation"
+  | "scheduled"
+  | "orchestrator";
 
 export interface SendMessagePolicy {
   messageContentMaxBytes: number;
@@ -116,5 +121,10 @@ export interface PromptLifecycleEvents {
 export function normalizePromptSource(
   source: PromptSource | undefined
 ): PromptSource {
-  return source === "supervisor" || source === "automation" ? source : "client";
+  return source === "supervisor" ||
+    source === "automation" ||
+    source === "scheduled" ||
+    source === "orchestrator"
+    ? source
+    : "client";
 }

@@ -30,6 +30,7 @@ import type { ServiceRegistryDependencies } from "../service-registry/dependenci
 import { createFeedbackUseCases } from "../service-registry/feedback-services";
 import { createFileWatcherUseCases } from "../service-registry/file-watcher-services";
 import { createGitUseCases } from "../service-registry/git-services";
+import { createGoalModeUseCases } from "../service-registry/goal-mode-services";
 import { createHooksUseCases } from "../service-registry/hooks-services";
 import { createMemoryUseCases } from "../service-registry/memory-services";
 import { createModelProviderUseCases } from "../service-registry/model-provider-services";
@@ -42,11 +43,16 @@ import { createPromptEnhancementUseCases } from "../service-registry/prompt-enha
 import { createQuotaUseCases } from "../service-registry/quota-services";
 import { createRemoteControlUseCases } from "../service-registry/remote-control-services";
 import { createRepoSnapshotIndexingUseCases } from "../service-registry/repo-snapshot-indexing-services";
+import { createScopeResolutionUseCases } from "../service-registry/scope-resolution-services";
 import { createSessionUseCases } from "../service-registry/session-services";
 import { createSettingsUseCases } from "../service-registry/settings-services";
 import { createSettingsSyncUseCases } from "../service-registry/settings-sync-services";
 import { createSkillsUseCases } from "../service-registry/skills-services";
-import { createSupervisorUseCases } from "../service-registry/supervisor-services";
+import { createSupervisorOrchestrationUseCases } from "../service-registry/supervisor-orchestration-services";
+import {
+  createSupervisorProjectIntelligenceAdapter,
+  createSupervisorUseCases,
+} from "../service-registry/supervisor-services";
 import { createTaskAutoArchiveUseCases } from "../service-registry/task-auto-archive-services";
 import { createTerminalUseCases } from "../service-registry/terminal-services";
 import { createToolingUseCases } from "../service-registry/tooling-services";
@@ -143,13 +149,6 @@ export function initializeServiceModule({
   const aiUseCases = createAiUseCases(serviceRegistryDependencies, {
     sessionRealtimeGate,
   });
-  const supervisorUseCases = createSupervisorUseCases(
-    serviceRegistryDependencies,
-    aiUseCases
-  );
-  core.sessionAcpAdapter.setPermissionAutoResolver((input) =>
-    supervisorUseCases.permission.handlePermissionRequest(input)
-  );
   const projectUseCases = createProjectUseCases(serviceRegistryDependencies);
   const agentUseCases = createAgentUseCases(serviceRegistryDependencies);
   const settingsUseCases = createSettingsUseCases(serviceRegistryDependencies);
@@ -194,6 +193,32 @@ export function initializeServiceModule({
   const repoSnapshotIndexingUseCases = createRepoSnapshotIndexingUseCases(
     settingsUseCases.localAde
   );
+  const scopeResolutionUseCases = createScopeResolutionUseCases(
+    settingsUseCases.localAde
+  );
+  const supervisorProjectIntelligence =
+    createSupervisorProjectIntelligenceAdapter(
+      settingsUseCases.localAde,
+      scopeResolutionUseCases
+    );
+  const supervisorUseCases = createSupervisorUseCases(
+    serviceRegistryDependencies,
+    aiUseCases,
+    { projectIntelligence: supervisorProjectIntelligence }
+  );
+  const supervisorOrchestrationUseCases = createSupervisorOrchestrationUseCases(
+    serviceRegistryDependencies,
+    sessionUseCases,
+    aiUseCases,
+    agentUseCases
+  );
+  core.sessionAcpAdapter.setPermissionAutoResolver((input) =>
+    supervisorUseCases.permission.handlePermissionRequest(input)
+  );
+  const goalModeUseCases = createGoalModeUseCases(
+    scopeResolutionUseCases,
+    gitAdapter
+  );
   const taskAutoArchiveUseCases = createTaskAutoArchiveUseCases(
     serviceRegistryDependencies
   );
@@ -202,6 +227,13 @@ export function initializeServiceModule({
     session: sessionUseCases,
     ai: aiUseCases,
     quota: quotaUseCases,
+    supervisor: supervisorUseCases,
+    supervisorOrchestration: supervisorOrchestrationUseCases,
+    codingPlanSubscription: codingPlanSubscriptionUseCases,
+    sessionStore: persistence.sessionRepo,
+    sessionRuntime: core.sessionRuntime,
+    projectStore: persistence.projectRepo,
+    eventBus: core.eventBus,
     logger: core.appLogger,
   });
   const authUserRead = new AuthUserReadAdapter(authRuntime.authDb);
@@ -218,8 +250,10 @@ export function initializeServiceModule({
     auth: authUseCases,
     ops: opsUseCases,
     git: gitUseCases,
+    goalMode: goalModeUseCases,
     quota: quotaUseCases,
     supervisor: supervisorUseCases,
+    supervisorOrchestration: supervisorOrchestrationUseCases,
     commands: commandsUseCases,
     skills: skillsUseCases,
     hooks: hooksUseCases,
@@ -239,6 +273,7 @@ export function initializeServiceModule({
     usageStats: usageStatsUseCases,
     plugins: pluginsUseCases,
     repoSnapshotIndexing: repoSnapshotIndexingUseCases,
+    scopeResolution: scopeResolutionUseCases,
     taskAutoArchive: taskAutoArchiveUseCases,
     remoteControl: remoteControlUseCases,
     bots: botsUseCases,
@@ -259,6 +294,7 @@ export function initializeServiceModule({
     sessionRepo: persistence.sessionRepo,
     sessionEventOutbox: core.sessionEventOutbox,
     sessionUseCases,
+    supervisorOrchestration: supervisorOrchestrationUseCases,
     localAde: settingsUseCases.localAde,
     bots: botsUseCases.bots,
     taskAutoArchive: taskAutoArchiveUseCases.taskAutoArchive,

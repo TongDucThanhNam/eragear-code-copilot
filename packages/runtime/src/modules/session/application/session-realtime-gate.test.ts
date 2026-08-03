@@ -152,6 +152,24 @@ describe("SessionRealtimeGate", () => {
     ).not.toThrow();
   });
 
+  test("allows orchestrator worker prompts without realtime subscribers", () => {
+    const session = createSession();
+    const gate = new SessionRealtimeGate({
+      sessionRuntime: createSessionRuntime(session),
+      logger: createLoggerStub(),
+    });
+
+    expect(() =>
+      gate.assertPromptCanSubmit({
+        chatId: "chat-1",
+        session,
+        source: "orchestrator",
+        module: "ai",
+        op: "ai.prompt.send",
+      })
+    ).not.toThrow();
+  });
+
   test("prepares subscriptions by clearing idle and no-subscriber abort state", () => {
     const timer = setTimeout(() => undefined, 1000);
     timer.unref?.();

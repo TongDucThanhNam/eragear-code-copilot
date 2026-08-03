@@ -232,3 +232,40 @@ export const usageTelemetrySettings = sqliteTable("usage_telemetry_settings", {
   enabled: integer("enabled").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const supervisorRuns = sqliteTable(
+  "supervisor_runs",
+  {
+    runId: text("run_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    projectId: text("project_id"),
+    projectRoot: text("project_root").notNull(),
+    status: text("status").notNull(),
+    revision: integer("revision").notNull(),
+    schemaVersion: integer("schema_version").notNull(),
+    stateJson: text("state_json").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    userUpdatedAtIdx: index("idx_supervisor_runs_user_updated_at").on(
+      table.userId,
+      table.updatedAt
+    ),
+    userProjectUpdatedAtIdx: index(
+      "idx_supervisor_runs_user_project_updated_at"
+    ).on(table.userId, table.projectId, table.updatedAt),
+    statusUpdatedAtIdx: index("idx_supervisor_runs_status_updated_at").on(
+      table.status,
+      table.updatedAt
+    ),
+  })
+);
+
+export const goalModeStates = sqliteTable("goal_mode_states", {
+  goalId: text("goal_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  schemaVersion: integer("schema_version").notNull(),
+  stateJson: text("state_json").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

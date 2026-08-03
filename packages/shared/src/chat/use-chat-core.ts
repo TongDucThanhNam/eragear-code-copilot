@@ -10,6 +10,7 @@ import {
   finalizeToolPartAsPreliminaryOutput,
   type UIMessage,
 } from "../ui-message.js";
+import type { GoalModeAuditEntry } from "./goal-mode-audit.js";
 import {
   resolveSessionSelectionState,
   updateSessionConfigOptionCurrentValue,
@@ -513,6 +514,7 @@ export interface EventProcessingCallbacks {
     decision: SupervisorDecisionSummary,
     supervisor: SupervisorSessionState
   ) => void;
+  onGoalModeAudit?: (audit: GoalModeAuditEntry) => void;
   onSubagentStatus?: (invocation: SubagentInvocation) => void;
   onPromptCapabilitiesChange?: (caps: PromptCapabilities | null) => void;
   onAgentInfoChange?: (info: AgentInfo | null) => void;
@@ -632,6 +634,10 @@ export function processSessionEvent(
     case "supervisor_decision":
       callbacks.onSupervisorDecision?.(event.decision, event.supervisor);
       callbacks.onSupervisorChange?.(event.supervisor);
+      return;
+
+    case "goal_mode_audit":
+      callbacks.onGoalModeAudit?.(event.audit);
       return;
 
     case "subagent_status":

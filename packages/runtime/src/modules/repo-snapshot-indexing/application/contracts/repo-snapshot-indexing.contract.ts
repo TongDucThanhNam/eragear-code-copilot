@@ -216,6 +216,11 @@ export type RepoSnapshotIndexingSettings = z.infer<
 export type RepoSnapshotIndexSnapshot = z.infer<
   typeof RepoSnapshotIndexSnapshotSchema
 >;
+export type RepoSnapshotIndexFile = z.infer<typeof RepoSnapshotIndexFileSchema>;
+export type RepoSnapshotIndexSymbol = z.infer<
+  typeof RepoSnapshotIndexSymbolSchema
+>;
+export type RepoSnapshotIndexTask = z.infer<typeof RepoSnapshotIndexTaskSchema>;
 export type RepoSnapshotIndexData = z.infer<typeof RepoSnapshotIndexDataSchema>;
 export type RepoSnapshotManifest = z.infer<typeof RepoSnapshotManifestSchema>;
 export type RepoSnapshotManifestSummary = z.infer<

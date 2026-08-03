@@ -85,6 +85,20 @@
       "when": 1781654400000,
       "tag": "0011_usage_stats_primary_persistence",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783728000000,
+      "tag": "0012_supervisor_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783814400000,
+      "tag": "0013_goal_mode_states",
+      "breakpoints": true
     }
   ]
 }

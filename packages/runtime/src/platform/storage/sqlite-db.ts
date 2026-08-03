@@ -4,10 +4,12 @@ import {
   agents,
   appMeta,
   appSettings,
+  goalModeStates,
   projects,
   sessionEventOutbox,
   sessionMessages,
   sessions,
+  supervisorRuns,
   usageStatsRecords,
   usageTelemetrySettings,
   userSettings,
@@ -30,6 +32,8 @@ const sqliteSchema = {
   sessionEventOutbox,
   usageStatsRecords,
   usageTelemetrySettings,
+  supervisorRuns,
+  goalModeStates,
 };
 
 type SqliteOrmDb = BunSQLiteDatabase<typeof sqliteSchema>;

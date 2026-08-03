@@ -11,6 +11,7 @@ import type {
 import type {
   BotsUseCases,
   SessionUseCases,
+  SupervisorOrchestrationUseCases,
   TaskAutoArchiveUseCases,
   UseCasePort,
 } from "#runtime/modules/use-cases";
@@ -55,11 +56,15 @@ export interface ServerLifecycleDependencies {
   sessionRepo: SessionRepositoryPort;
   sessionEventOutbox: SessionEventOutboxPort;
   sessionUseCases: SessionUseCases;
+  supervisorOrchestration: Pick<SupervisorOrchestrationUseCases, "recovery">;
   localAde: Pick<
     UseCasePort<LocalAdeService>,
     "dispatchDuePluginBatchSchedules"
   >;
-  bots: Pick<BotsUseCases["bots"], "dispatchDueQuotaResets">;
+  bots: Pick<
+    BotsUseCases["bots"],
+    "dispatchDueQuotaResets" | "reconcileProviderLeases"
+  >;
   taskAutoArchive: TaskAutoArchiveUseCases["taskAutoArchive"];
   appConfig: AppConfigService;
   policy: ServerLifecyclePolicy;
@@ -139,6 +144,13 @@ class DefaultServerLifecycle implements ServerLifecycle {
         authApiKeyPrefix: this.deps.policy.authApiKeyPrefix,
       },
     });
+    await this.deps.bots.reconcileProviderLeases({
+      userIds: [
+        LOCAL_DESKTOP_USER_ID,
+        ...this.deps.sessionRuntime.getAll().map((session) => session.userId),
+      ],
+    });
+    await this.deps.supervisorOrchestration.recovery.reconcile();
   }
 
   startBackground(): void {

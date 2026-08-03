@@ -29,6 +29,10 @@ import type {
   SupervisorProjectMemoryConfig,
 } from "./ports/supervisor-memory.port";
 import type { SupervisorResearchPort } from "./ports/supervisor-research.port";
+import {
+  noopSupervisorTerminalNotifier,
+  type SupervisorTerminalNotifierPort,
+} from "./ports/supervisor-terminal.port";
 import type { SupervisorPolicy } from "./supervisor-policy";
 import { buildSupervisorFollowUpPrompt } from "./supervisor-prompt.builder";
 import { normalizeSupervisorState } from "./supervisor-state.util";
@@ -92,7 +96,7 @@ export interface SupervisorTurnCompleteEvent {
   userId: string;
   turnId?: string;
   stopReason: string;
-  source: "client" | "supervisor";
+  source: "client" | "supervisor" | "orchestrator";
 }
 
 interface SupervisorJob {
@@ -121,6 +125,7 @@ export class SupervisorLoopService {
   private readonly policy: SupervisorPolicy;
   private readonly logger: LoggerPort;
   private readonly clock: ClockPort;
+  private readonly terminalNotifier: SupervisorTerminalNotifierPort;
   private readonly jobs = new Map<string, SupervisorJob>();
   private readonly scheduledTurns = new Set<string>();
 
@@ -136,6 +141,7 @@ export class SupervisorLoopService {
     policy: SupervisorPolicy;
     logger: LoggerPort;
     clock: ClockPort;
+    terminalNotifier?: SupervisorTerminalNotifierPort;
   }) {
     this.sessionRepo = deps.sessionRepo;
     this.sessionRuntime = deps.sessionRuntime;
@@ -148,6 +154,8 @@ export class SupervisorLoopService {
     this.policy = deps.policy;
     this.logger = deps.logger;
     this.clock = deps.clock;
+    this.terminalNotifier =
+      deps.terminalNotifier ?? noopSupervisorTerminalNotifier;
   }
 
   scheduleReview(event: SupervisorTurnCompleteEvent): void {
@@ -881,6 +889,7 @@ export class SupervisorLoopService {
           reason: decision.reason,
         },
       });
+      await this.notifyTerminal(event, decision, snapshot);
       return;
     }
     if (decision.runtimeAction === "needs_user") {
@@ -892,6 +901,7 @@ export class SupervisorLoopService {
           reason: decision.reason,
         },
       });
+      await this.notifyTerminal(event, decision, snapshot);
       return;
     }
     if (decision.runtimeAction === "abort") {
@@ -903,6 +913,7 @@ export class SupervisorLoopService {
           reason: decision.reason,
         },
       });
+      await this.notifyTerminal(event, decision, snapshot);
       return;
     }
 
@@ -968,6 +979,29 @@ export class SupervisorLoopService {
       previousTurnId: event.turnId ?? null,
       continuationCount: nextContinuationCount,
       followUpPromptLength: guardedFollowUpPrompt.length,
+    });
+  }
+
+  private notifyTerminal(
+    event: SupervisorTurnCompleteEvent,
+    decision: SupervisorSemanticDecision,
+    snapshot: SupervisorTurnSnapshot
+  ): Promise<void> {
+    if (
+      decision.runtimeAction !== "done" &&
+      decision.runtimeAction !== "needs_user" &&
+      decision.runtimeAction !== "abort"
+    ) {
+      return Promise.resolve();
+    }
+    return this.terminalNotifier.notify({
+      userId: event.userId,
+      chatId: event.chatId,
+      ...(event.turnId ? { turnId: event.turnId } : {}),
+      source: event.source,
+      action: decision.runtimeAction,
+      reason: decision.reason,
+      resultText: snapshot.latestAssistantTextPart,
     });
   }
 

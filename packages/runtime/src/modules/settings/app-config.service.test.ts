@@ -38,7 +38,7 @@ describe("AppConfigService", () => {
           sessionListPageMaxLimit: 77,
           supervisorEnabled: true,
           supervisorModel: "deepseek/deepseek-chat",
-          supervisorDeepSeekApiKey: "sk-test",
+          supervisorMiniMaxApiKey: "sk-test",
         })
       )
     );
@@ -46,7 +46,7 @@ describe("AppConfigService", () => {
     expect(service.getConfig().sessionListPageMaxLimit).toBe(77);
     expect(service.getConfig().supervisorEnabled).toBe(true);
     expect(service.getConfig().supervisorModel).toBe("deepseek/deepseek-chat");
-    expect(service.getConfig().supervisorDeepSeekApiKey).toBe("sk-test");
+    expect(service.getConfig().supervisorMiniMaxApiKey).toBe("sk-test");
   });
 
   test("falls back to env defaults when settings load fails", async () => {

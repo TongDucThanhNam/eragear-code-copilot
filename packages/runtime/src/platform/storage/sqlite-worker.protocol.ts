@@ -6,6 +6,7 @@ export type SqliteWorkerService =
   | "agent"
   | "settings"
   | "usageStats"
+  | "supervisorRuns"
   | "storage";
 
 export interface SqliteWorkerRequest {

@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld("eragearDesktop", {
   checkForUpdates: () => ipcRenderer.invoke("eragear:checkForUpdates"),
   openProjectFolder: (input?: { defaultPath?: string }) =>
     ipcRenderer.invoke("eragear:dialog:openProjectFolder", input),
+  openProjectExternally: (input: { projectPath: string; target: string }) =>
+    ipcRenderer.invoke("eragear:project:openExternally", input),
   browserControls: {
     captureContext: () => ipcRenderer.invoke("eragear:browser:captureContext"),
     close: () => ipcRenderer.invoke("eragear:browser:close"),

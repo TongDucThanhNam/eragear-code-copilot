@@ -4,7 +4,6 @@ export {
   createDefaultAppConfigFromEnv,
   normalizeAppConfig,
 } from "./app-config.service";
-export { UiSettingsService } from "./ui-settings.service";
 export { GetSettingsService } from "./application/get-settings.service";
 export {
   type CreateCheckpointInput,
@@ -29,3 +28,4 @@ export {
   type SettingsPatch,
   UpdateSettingsService,
 } from "./application/update-settings.service";
+export { UiSettingsService } from "./ui-settings.service";

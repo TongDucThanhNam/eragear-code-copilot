@@ -4,6 +4,7 @@ import type {
   UIMessage,
   UIMessagePart,
 } from "../ui-message.js";
+import type { GoalModeAuditEntry } from "./goal-mode-audit.js";
 
 // ============================================================================
 // Chat Status Types
@@ -255,6 +256,11 @@ export type BroadcastEvent =
       turnId?: string;
     }
   | {
+      type: "goal_mode_audit";
+      audit: GoalModeAuditEntry;
+      turnId?: string;
+    }
+  | {
       type: "subagent_status";
       invocation: SubagentInvocation;
       turnId?: string;
@@ -274,6 +280,73 @@ export type BroadcastEvent =
     }
   | { type: "heartbeat"; ts: number }
   | { type: "error"; error: string };
+
+export interface SupervisorRunClientUpdate {
+  runId: string;
+  revision: number;
+  projectId?: string;
+  originatingChatId?: string;
+  status:
+    | "draft"
+    | "planning"
+    | "queued"
+    | "running"
+    | "paused"
+    | "needs_user"
+    | "completing"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  tasks: Array<{
+    taskId: string;
+    title: string;
+    role: "research" | "implementation" | "test" | "review" | "integration";
+    executionMode: "read_only" | "write";
+    dependencies: string[];
+    status:
+      | "blocked"
+      | "ready"
+      | "queued"
+      | "running"
+      | "reviewing"
+      | "integrating"
+      | "completed"
+      | "needs_user"
+      | "failed"
+      | "cancelled";
+    attempts: Array<{
+      attemptId: string;
+      chatId: string;
+      agentId: string;
+      status: "starting" | "running" | "terminal" | "interrupted";
+      files?: {
+        touched: string[];
+        created: string[];
+        deleted: string[];
+        renamed: Array<{ from: string; to: string }>;
+      };
+      verification: Array<{ command: string; exitCode: number | null }>;
+    }>;
+  }>;
+  gates: Array<{
+    gateId: string;
+    taskId: string;
+    attemptId: string;
+    kind:
+      | "scope"
+      | "dirty_overlap"
+      | "baseline_drift"
+      | "deletion"
+      | "destructive_action"
+      | "verification"
+      | "conflict"
+      | "non_git_write";
+    status: "pending" | "approved" | "rejected";
+  }>;
+  finalVerification: Array<{ command: string; exitCode: number | null }>;
+  createdAt: string;
+  updatedAt: string;
+}
 
 // ============================================================================
 // useChat Hook Types
@@ -306,6 +379,7 @@ export interface UseChatState {
   configOptions: SessionConfigOption[];
   sessionInfo: SessionInfo | null;
   supervisor: SupervisorSessionState | null;
+  goalModeAudit: GoalModeAuditEntry[];
   supervisorCapable: boolean;
   subagents: SubagentInvocation[];
   promptCapabilities: PromptCapabilities | null;

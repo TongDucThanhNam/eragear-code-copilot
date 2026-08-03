@@ -352,12 +352,12 @@
         },
         "SUPERVISOR_MODEL": {
           "type": "string",
-          "default": "deepseek/deepseek-reasoner",
+          "default": "MiniMax-M3",
           "description": "AI SDK model identifier for supervisor decisions"
         },
-        "DEEPSEEK_API_KEY": {
+        "MINIMAX_API_KEY": {
           "type": "string",
-          "description": "DeepSeek API key for supervisor decision models"
+          "description": "MiniMax API key for MiniMax-M3 supervisor decision models"
         },
         "SUPERVISOR_DECISION_TIMEOUT_MS": {
           "type": "integer",
@@ -382,6 +382,61 @@
           "minimum": 1,
           "default": 20,
           "description": "Maximum repeated supervisor prompts in one run"
+        },
+        "SUPERVISOR_ORCHESTRATION_MAX_CONCURRENCY": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 2,
+          "description": "Hard concurrency cap for persisted multi-session Supervisos runs"
+        },
+        "SUPERVISOR_ORCHESTRATION_MAX_TASKS": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32,
+          "default": 12,
+          "description": "Hard task cap for one multi-session Supervisos run"
+        },
+        "SUPERVISOR_ORCHESTRATION_MAX_ATTEMPTS_PER_TASK": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 2,
+          "description": "Hard retry-attempt cap per orchestrated task"
+        },
+        "SUPERVISOR_ORCHESTRATION_MAX_RUN_DURATION_MS": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400000,
+          "default": 7200000,
+          "description": "Hard wall-clock deadline for one orchestrated run"
+        },
+        "SUPERVISOR_ORCHESTRATION_MAX_PLANNER_REPLANS": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 2,
+          "description": "Hard replan cap for one orchestrated run"
+        },
+        "SUPERVISOR_ORCHESTRATION_VERIFICATION_COMMANDS": {
+          "type": "string",
+          "default": "[]",
+          "description": "JSON array of trusted shell-free verification commands used by workers and final aggregate verification"
+        },
+        "SUPERVISOR_CUSTOM_SYSTEM_PROMPT": {
+          "type": "string",
+          "default": "",
+          "description": "Extra system instructions appended to built-in supervisor guardrails"
+        },
+        "SUPERVISOR_TOOL_POLICY": {
+          "type": "string",
+          "enum": ["builtin", "custom-allowlist"],
+          "default": "builtin",
+          "description": "Controls which named tools Supervisos may steer the coding agent toward"
+        },
+        "SUPERVISOR_TOOL_ALLOWLIST": {
+          "type": "string",
+          "description": "Comma or newline separated tool names used when SUPERVISOR_TOOL_POLICY=custom-allowlist"
         },
         "SUPERVISOR_WEB_SEARCH_PROVIDER": {
           "type": "string",

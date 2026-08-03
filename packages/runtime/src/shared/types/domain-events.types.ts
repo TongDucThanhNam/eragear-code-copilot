@@ -1,3 +1,4 @@
+import type { SupervisorRunClientUpdate } from "@eragear-code-copilot/shared";
 import type { BroadcastEvent } from "./session.types";
 
 export type DashboardRefreshReason =
@@ -48,7 +49,12 @@ export interface SessionBroadcastEvent {
   event: BroadcastEvent;
 }
 
-export type PromptSource = "client" | "supervisor" | "automation";
+export type PromptSource =
+  | "client"
+  | "supervisor"
+  | "automation"
+  | "scheduled"
+  | "orchestrator";
 
 export interface AgentSessionCreatedEvent {
   type: "agent_session_created";
@@ -80,6 +86,25 @@ export interface PromptTurnCompletedEvent {
   turnId: string;
   stopReason: string;
   source: PromptSource;
+}
+
+export interface SupervisorTurnTerminalEvent {
+  type: "supervisor_turn_terminal";
+  userId: string;
+  chatId: string;
+  turnId?: string;
+  source: "client" | "supervisor" | "orchestrator";
+  action: "done" | "needs_user" | "abort";
+  reason: string;
+  /** Bounded latest assistant text only; never a transcript or raw diff. */
+  resultText: string;
+}
+
+export interface SupervisorRunUpdatedEvent {
+  type: "supervisor_run_updated";
+  userId: string;
+  projectId?: string;
+  update: SupervisorRunClientUpdate;
 }
 
 export interface AgentSessionStoppedEvent {
@@ -157,6 +182,16 @@ export interface CodingPlanSubscriptionUpdatedEvent {
   changed: boolean;
 }
 
+export interface ScheduledTaskUpdatedEvent {
+  type: "scheduled_task_updated";
+  userId: string;
+  botId: string;
+  runId?: string;
+  kind: "definition" | "run" | "deleted";
+  status?: string;
+  updatedAt: number;
+}
+
 export interface FileWatcherFileChangedEvent {
   type: "file_watcher_file_changed";
   projectRoot: string;
@@ -179,8 +214,11 @@ export type DomainEvent =
   | AgentSessionCreatedEvent
   | PromptMessageSentEvent
   | PromptTurnCompletedEvent
+  | SupervisorTurnTerminalEvent
+  | SupervisorRunUpdatedEvent
   | AgentSessionStoppedEvent
   | SubagentInvocationRequestedEvent
   | ProviderQuotaRefreshedEvent
   | CodingPlanSubscriptionUpdatedEvent
+  | ScheduledTaskUpdatedEvent
   | FileWatcherFileChangedEvent;

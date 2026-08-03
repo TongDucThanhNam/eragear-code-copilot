@@ -85,7 +85,7 @@
     "build:renderer": "vite build",
     "serve": "vite preview",
     "start": "vite",
-    "test:blockers": "bun test src/renderer/hooks/use-chat-normalize.test.ts src/renderer/hooks/use-chat-connection.machine.test.ts src/renderer/hooks/use-chat-history.test.ts src/renderer/hooks/use-chat-message-state.test.ts src/renderer/store/chat-stream-store.test.ts src/renderer/components/chat-ui/chat-bootstrap-phase.test.ts src/renderer/components/chat-ui/chat-input-submit-status.test.ts src/renderer/components/chat-ui/agentic-message-utils.test.ts"
+    "test:blockers": "bun test src/renderer/hooks/use-chat-normalize.test.ts src/renderer/hooks/use-chat-connection.machine.test.ts src/renderer/hooks/use-chat-history.test.ts src/renderer/hooks/use-chat-message-state.test.ts src/renderer/store/chat-stream-store.test.ts src/renderer/components/chat-ui/chat-bootstrap-phase.test.ts src/renderer/components/chat-ui/chat-input-submit-status.test.ts src/renderer/components/chat-ui/agentic-message-utils.test.ts src/renderer/components/chat-ui/chat-messages-virtualization.test.ts src/renderer/components/chat-ui/supervisos-side-chat-utils.test.ts"
   },
   "devDependencies": {
     "@types/bun": "catalog:",

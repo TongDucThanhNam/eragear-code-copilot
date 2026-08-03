@@ -344,7 +344,7 @@ export function RuntimeAllowlistPanel() {
   );
 }
 
-const DEFAULT_SUPERVISOR_MODEL = "deepseek/deepseek-chat";
+const DEFAULT_SUPERVISOR_MODEL = "MiniMax-M3";
 const DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS = 30_000;
 const DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS = 2;
 const DEFAULT_SUPERVISOR_MAX_RUNTIME_MS = 1_800_000;
@@ -356,14 +356,11 @@ const DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS = 5000;
 
 type SupervisorWebSearchProvider = "none" | "exa";
 type SupervisorMemoryProvider = "none" | "obsidian";
+type SupervisorToolPolicy = "builtin" | "custom-allowlist";
 
-function isDeepSeekSupervisorModel(model: string): boolean {
+function isMiniMaxSupervisorModel(model: string): boolean {
   const normalized = model.trim();
-  return (
-    normalized.startsWith("deepseek/") ||
-    normalized === "deepseek-chat" ||
-    normalized === "deepseek-reasoner"
-  );
+  return normalized === "MiniMax-M3" || normalized === "minimax/MiniMax-M3";
 }
 
 function parseSupervisorInteger(value: string): number | null {
@@ -374,6 +371,24 @@ function parseSupervisorInteger(value: string): number | null {
   return Math.trunc(parsed);
 }
 
+function parseSupervisorToolAllowlist(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(/[,\n]/g)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    ),
+  ];
+}
+
+function sameStringList(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
 export function SupervisorSettingsPanel() {
   const utils = trpc.useUtils();
   const settingsQuery = trpc.settings.get.useQuery(undefined, {
@@ -382,11 +397,14 @@ export function SupervisorSettingsPanel() {
   const [form, setForm] = React.useState({
     enabled: false,
     model: "",
-    deepSeekApiKey: "",
+    miniMaxApiKey: "",
     decisionTimeoutMs: String(DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS),
     decisionMaxAttempts: String(DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS),
     maxRuntimeMs: String(DEFAULT_SUPERVISOR_MAX_RUNTIME_MS),
     maxRepeatedPrompts: String(DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS),
+    customSystemPrompt: "",
+    toolPolicy: "builtin" as SupervisorToolPolicy,
+    toolAllowlist: "",
     webSearchProvider: "none" as SupervisorWebSearchProvider,
     webSearchApiKey: "",
     memoryProvider: "none" as SupervisorMemoryProvider,
@@ -417,11 +435,14 @@ export function SupervisorSettingsPanel() {
     setForm({
       enabled: app.supervisorEnabled,
       model: app.supervisorModel,
-      deepSeekApiKey: app.supervisorDeepSeekApiKey,
+      miniMaxApiKey: app.supervisorMiniMaxApiKey,
       decisionTimeoutMs: String(app.supervisorDecisionTimeoutMs),
       decisionMaxAttempts: String(app.supervisorDecisionMaxAttempts),
       maxRuntimeMs: String(app.supervisorMaxRuntimeMs),
       maxRepeatedPrompts: String(app.supervisorMaxRepeatedPrompts),
+      customSystemPrompt: app.supervisorCustomSystemPrompt,
+      toolPolicy: app.supervisorToolPolicy,
+      toolAllowlist: app.supervisorToolAllowlist.join("\n"),
       webSearchProvider: app.supervisorWebSearchProvider,
       webSearchApiKey: app.supervisorWebSearchApiKey,
       memoryProvider: app.supervisorMemoryProvider,
@@ -436,11 +457,14 @@ export function SupervisorSettingsPanel() {
   }, [
     settingsQuery.data?.app.supervisorEnabled,
     settingsQuery.data?.app.supervisorModel,
-    settingsQuery.data?.app.supervisorDeepSeekApiKey,
+    settingsQuery.data?.app.supervisorMiniMaxApiKey,
     settingsQuery.data?.app.supervisorDecisionTimeoutMs,
     settingsQuery.data?.app.supervisorDecisionMaxAttempts,
     settingsQuery.data?.app.supervisorMaxRuntimeMs,
     settingsQuery.data?.app.supervisorMaxRepeatedPrompts,
+    settingsQuery.data?.app.supervisorCustomSystemPrompt,
+    settingsQuery.data?.app.supervisorToolPolicy,
+    settingsQuery.data?.app.supervisorToolAllowlist,
     settingsQuery.data?.app.supervisorWebSearchProvider,
     settingsQuery.data?.app.supervisorWebSearchApiKey,
     settingsQuery.data?.app.supervisorMemoryProvider,
@@ -455,7 +479,9 @@ export function SupervisorSettingsPanel() {
 
   const app = settingsQuery.data?.app;
   const trimmedModel = form.model.trim();
-  const trimmedDeepSeekApiKey = form.deepSeekApiKey.trim();
+  const trimmedMiniMaxApiKey = form.miniMaxApiKey.trim();
+  const trimmedCustomSystemPrompt = form.customSystemPrompt.trim();
+  const parsedToolAllowlist = parseSupervisorToolAllowlist(form.toolAllowlist);
   const trimmedWebSearchApiKey = form.webSearchApiKey.trim();
   const trimmedObsidianCommand = form.obsidianCommand.trim();
   const trimmedObsidianVault = form.obsidianVault.trim();
@@ -468,10 +494,10 @@ export function SupervisorSettingsPanel() {
   const maxRepeatedPrompts = parseSupervisorInteger(form.maxRepeatedPrompts);
   const obsidianSearchLimit = parseSupervisorInteger(form.obsidianSearchLimit);
   const obsidianTimeoutMs = parseSupervisorInteger(form.obsidianTimeoutMs);
-  const usesDeepSeek = isDeepSeekSupervisorModel(trimmedModel);
+  const usesMiniMax = isMiniMaxSupervisorModel(trimmedModel);
   const missingModel = form.enabled && trimmedModel.length === 0;
-  const missingDeepSeekKey =
-    form.enabled && usesDeepSeek && trimmedDeepSeekApiKey.length === 0;
+  const missingMiniMaxKey =
+    form.enabled && usesMiniMax && trimmedMiniMaxApiKey.length === 0;
   const missingWebSearchApiKey =
     form.webSearchProvider === "exa" && trimmedWebSearchApiKey.length === 0;
   const missingObsidianCommand =
@@ -501,11 +527,14 @@ export function SupervisorSettingsPanel() {
   const hasChanges = app
     ? form.enabled !== app.supervisorEnabled ||
       trimmedModel !== app.supervisorModel ||
-      trimmedDeepSeekApiKey !== app.supervisorDeepSeekApiKey ||
+      trimmedMiniMaxApiKey !== app.supervisorMiniMaxApiKey ||
       decisionTimeoutMs !== app.supervisorDecisionTimeoutMs ||
       decisionMaxAttempts !== app.supervisorDecisionMaxAttempts ||
       maxRuntimeMs !== app.supervisorMaxRuntimeMs ||
       maxRepeatedPrompts !== app.supervisorMaxRepeatedPrompts ||
+      trimmedCustomSystemPrompt !== app.supervisorCustomSystemPrompt ||
+      form.toolPolicy !== app.supervisorToolPolicy ||
+      !sameStringList(parsedToolAllowlist, app.supervisorToolAllowlist) ||
       form.webSearchProvider !== app.supervisorWebSearchProvider ||
       trimmedWebSearchApiKey !== app.supervisorWebSearchApiKey ||
       form.memoryProvider !== app.supervisorMemoryProvider ||
@@ -519,7 +548,7 @@ export function SupervisorSettingsPanel() {
     : false;
   const isBusy = settingsQuery.isFetching || updateAppMutation.isPending;
   const statusLabel = form.enabled
-    ? missingModel || missingDeepSeekKey || missingWebSearchApiKey
+    ? missingModel || missingMiniMaxKey || missingWebSearchApiKey
       ? "Needs setup"
       : "Enabled"
     : "Off";
@@ -530,8 +559,8 @@ export function SupervisorSettingsPanel() {
       toast.error("Supervisor model is required");
       return;
     }
-    if (missingDeepSeekKey) {
-      toast.error("DeepSeek API key is required for this Supervisor model");
+    if (missingMiniMaxKey) {
+      toast.error("MiniMax API key is required for MiniMax-M3 Supervisor");
       return;
     }
     if (missingWebSearchApiKey) {
@@ -557,11 +586,14 @@ export function SupervisorSettingsPanel() {
     updateAppMutation.mutate({
       supervisorEnabled: form.enabled,
       supervisorModel: trimmedModel,
-      supervisorDeepSeekApiKey: trimmedDeepSeekApiKey,
+      supervisorMiniMaxApiKey: trimmedMiniMaxApiKey,
       supervisorDecisionTimeoutMs: decisionTimeoutMs,
       supervisorDecisionMaxAttempts: decisionMaxAttempts,
       supervisorMaxRuntimeMs: maxRuntimeMs,
       supervisorMaxRepeatedPrompts: maxRepeatedPrompts,
+      supervisorCustomSystemPrompt: trimmedCustomSystemPrompt,
+      supervisorToolPolicy: form.toolPolicy,
+      supervisorToolAllowlist: parsedToolAllowlist,
       supervisorWebSearchProvider: form.webSearchProvider,
       supervisorWebSearchApiKey: trimmedWebSearchApiKey,
       supervisorMemoryProvider: form.memoryProvider,
@@ -595,7 +627,7 @@ export function SupervisorSettingsPanel() {
           Refresh
         </Button>
       }
-      description="Configure the project supervisor used by the chat Environment rail."
+      description="Configure the project supervisor used by the Supervisos panel."
       icon={Bot}
       title="Project Supervisor"
     >
@@ -604,7 +636,7 @@ export function SupervisorSettingsPanel() {
           <Badge
             variant={
               form.enabled
-                ? missingModel || missingDeepSeekKey || missingWebSearchApiKey
+                ? missingModel || missingMiniMaxKey || missingWebSearchApiKey
                   ? "destructive"
                   : "secondary"
                 : "outline"
@@ -612,12 +644,18 @@ export function SupervisorSettingsPanel() {
           >
             {statusLabel}
           </Badge>
-          {usesDeepSeek ? <Badge variant="outline">DeepSeek</Badge> : null}
+          {usesMiniMax ? <Badge variant="outline">MiniMax-M3</Badge> : null}
           {form.webSearchProvider === "exa" ? (
             <Badge variant="outline">Exa</Badge>
           ) : null}
           {form.memoryProvider === "obsidian" ? (
             <Badge variant="outline">Obsidian</Badge>
+          ) : null}
+          {trimmedCustomSystemPrompt ? (
+            <Badge variant="outline">Custom prompt</Badge>
+          ) : null}
+          {form.toolPolicy === "custom-allowlist" ? (
+            <Badge variant="outline">{parsedToolAllowlist.length} tools</Badge>
           ) : null}
         </div>
 
@@ -634,8 +672,8 @@ export function SupervisorSettingsPanel() {
                 Enable project supervisor
               </span>
               <span className="mt-1 block max-w-2xl text-muted-foreground text-xs leading-5">
-                Enables the Supervisor control in ChatContextRail for project
-                sessions.
+                Enables the Supervisor controls in the Supervisos panel for
+                project sessions.
               </span>
             </span>
           </span>
@@ -676,7 +714,7 @@ export function SupervisorSettingsPanel() {
               htmlFor="supervisor-key"
             >
               <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-              DeepSeek API key
+              MiniMax API key
             </Label>
             <Input
               autoComplete="off"
@@ -685,13 +723,78 @@ export function SupervisorSettingsPanel() {
               onChange={(event) =>
                 setForm((prev) => ({
                   ...prev,
-                  deepSeekApiKey: event.target.value,
+                  miniMaxApiKey: event.target.value,
                 }))
               }
               placeholder="sk-..."
               type="password"
-              value={form.deepSeekApiKey}
+              value={form.miniMaxApiKey}
             />
+          </div>
+        </div>
+
+        <div className="grid gap-3 rounded-md border bg-background p-3">
+          <div className="grid gap-1.5">
+            <Label htmlFor="supervisor-custom-system-prompt">
+              System prompt
+            </Label>
+            <Textarea
+              className="min-h-28 resize-y"
+              disabled={isBusy}
+              id="supervisor-custom-system-prompt"
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  customSystemPrompt: event.target.value,
+                }))
+              }
+              placeholder="Extra Supervisos instructions..."
+              value={form.customSystemPrompt}
+            />
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-tool-policy">Tool policy</Label>
+              <Select
+                disabled={isBusy}
+                onValueChange={(value) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    toolPolicy: value as SupervisorToolPolicy,
+                  }))
+                }
+                value={form.toolPolicy}
+              >
+                <SelectTrigger id="supervisor-tool-policy">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="builtin">
+                    Built-in session tools
+                  </SelectItem>
+                  <SelectItem value="custom-allowlist">
+                    Custom allowlist
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="supervisor-tool-allowlist">Tool allowlist</Label>
+              <Textarea
+                className="min-h-20 resize-y"
+                disabled={isBusy || form.toolPolicy !== "custom-allowlist"}
+                id="supervisor-tool-allowlist"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    toolAllowlist: event.target.value,
+                  }))
+                }
+                placeholder={"exa-search\nobsidian\nmcp/tool-name"}
+                value={form.toolAllowlist}
+              />
+            </div>
           </div>
         </div>
 
@@ -975,7 +1078,7 @@ export function SupervisorSettingsPanel() {
               isBusy ||
               !hasChanges ||
               missingModel ||
-              missingDeepSeekKey ||
+              missingMiniMaxKey ||
               missingWebSearchApiKey ||
               missingObsidianCommand ||
               missingObsidianSearchPath ||

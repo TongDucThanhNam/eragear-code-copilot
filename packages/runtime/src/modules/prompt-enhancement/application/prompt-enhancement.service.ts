@@ -75,6 +75,7 @@ export class PromptEnhancementService {
     if (
       !settings.enabled ||
       input.source === "supervisor" ||
+      input.source === "orchestrator" ||
       input.text.trim().length === 0
     ) {
       return {

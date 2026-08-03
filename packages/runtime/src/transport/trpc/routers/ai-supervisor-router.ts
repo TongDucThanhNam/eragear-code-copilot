@@ -1,4 +1,5 @@
 import { SetSupervisorModeInputSchema } from "#runtime/modules/ai";
+import { SupervisorChatInputSchema } from "#runtime/modules/supervisor";
 import { getRequiredUserId } from "../auth-helpers";
 import { protectedProcedure, router } from "../base";
 
@@ -12,6 +13,17 @@ export const aiSupervisorRouter = router({
         userId: getRequiredUserId(ctx),
         chatId: input.chatId,
         mode: input.mode,
+      });
+    }),
+
+  /** Ask Supervisos in the dedicated side-chat surface. */
+  supervisorChat: protectedProcedure
+    .input(SupervisorChatInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const service = ctx.useCases.supervisor.chat;
+      return await service.execute({
+        ...input,
+        userId: getRequiredUserId(ctx),
       });
     }),
 });

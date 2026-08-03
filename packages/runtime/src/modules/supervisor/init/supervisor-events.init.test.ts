@@ -72,6 +72,15 @@ describe("initializeSupervisorEvents", () => {
       chatId: "chat-3",
       turnId: "turn-3",
     });
+    await dispatch({
+      type: "prompt_turn_completed",
+      source: "orchestrator",
+      userId: "user-1",
+      projectRoot: "/repo",
+      chatId: "worker-chat",
+      turnId: "turn-4",
+      stopReason: "end_turn",
+    });
 
     expect(calls).toEqual([
       {

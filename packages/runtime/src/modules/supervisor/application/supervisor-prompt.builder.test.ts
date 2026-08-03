@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildSupervisorChatPrompt,
+  buildSupervisorChatSystemPrompt,
   buildSupervisorFollowUpPrompt,
   buildSupervisorPermissionPrompt,
+  buildSupervisorPermissionSystemPrompt,
   buildSupervisorTurnPrompt,
+  buildSupervisorTurnSystemPrompt,
   SUPERVISOR_TURN_SYSTEM_PROMPT,
 } from "./supervisor-prompt.builder";
 
@@ -229,6 +233,163 @@ describe("SUPERVISOR_TURN_SYSTEM_PROMPT", () => {
     expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain("Yes, please");
     expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain("`exa-search`");
     expect(SUPERVISOR_TURN_SYSTEM_PROMPT).toContain("Obsidian/local memory");
+  });
+
+  test("appends custom agent profile without replacing guardrails", () => {
+    const prompt = buildSupervisorTurnSystemPrompt({
+      customSystemPrompt: "Prefer compact Vietnamese status updates.",
+      toolAllowlist: ["exa-search", "obsidian"],
+      toolPolicy: "custom-allowlist",
+    });
+
+    expect(prompt).toContain("Avoid choosing commit, push, deploy");
+    expect(prompt).toContain("Configured Supervisor Agent Profile");
+    expect(prompt).toContain("Prefer compact Vietnamese status updates.");
+    expect(prompt).toContain("only name these tools: exa-search, obsidian");
+  });
+
+  test("applies custom agent profile to permission prompt", () => {
+    const prompt = buildSupervisorPermissionSystemPrompt({
+      customSystemPrompt: "Reject risky external network access.",
+      toolAllowlist: [],
+      toolPolicy: "custom-allowlist",
+    });
+
+    expect(prompt).toContain("Approve only when");
+    expect(prompt).toContain("Reject risky external network access.");
+    expect(prompt).toContain("Custom allowlist is active but empty");
+  });
+});
+
+describe("buildSupervisorChatPrompt", () => {
+  test("builds a compact side-chat prompt without raw main transcript", () => {
+    const prompt = buildSupervisorChatPrompt({
+      chatId: "chat-1",
+      projectRoot: "/repo",
+      projectContext: {
+        topLevelEntries: ["README.md", "package.json", "src/"],
+        files: [
+          {
+            path: "README.md",
+            kind: "readme",
+            excerpt: "Eragear Code Copilot desktop app.",
+          },
+          {
+            path: "package.json",
+            kind: "manifest",
+            excerpt: "name: eragear-code-copilot\nscripts: dev, build",
+          },
+        ],
+        diagnostics: [],
+      },
+      projectIntelligence: {
+        status: "ready",
+        symbolExtractionMode: "ast",
+        scope: {
+          resolverVersion: "v1-import-graph",
+          primaryTarget: {
+            path: "src/components/SupervisosPanel.tsx",
+            score: 42,
+            reason: "importGraph AST symbol match +24",
+          },
+          secondaryTargets: [],
+          resolvedViaLLM: false,
+          graphConfidence: 0.8,
+        },
+        graphNodes: [
+          {
+            path: "src/components/SupervisosPanel.tsx",
+            workspace: "src",
+            imports: ["src/components/SupervisosChat.tsx"],
+            importedBy: ["src/App.tsx"],
+            exports: ["SupervisosPanel"],
+            symbols: [
+              {
+                name: "SupervisosPanel",
+                kind: "component",
+                line: 12,
+              },
+            ],
+            reachableFromRoots: true,
+          },
+        ],
+        symbolMatches: [
+          {
+            path: "src/components/SupervisosPanel.tsx",
+            name: "SupervisosPanel",
+            kind: "component",
+            line: 12,
+            source: "ast-import-graph",
+          },
+        ],
+        routeMap: [],
+        diagnostics: [],
+      },
+      userMessage: "Why is Supervisos idle?",
+      sideChatHistory: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "Ready." },
+      ],
+      goalModeAudit: [
+        {
+          phaseId: "v0-ui",
+          kind: "gate",
+          decision: "needs_user",
+          summary: "Verification failed and must not auto-continue.",
+          targetPath: "apps/desktop/src/renderer/components/chat-ui",
+          verification: "bun run --cwd apps/desktop check-types: 1",
+        },
+      ],
+      plan: {
+        entries: [
+          {
+            content: "Build Supervisos panel",
+            priority: "high",
+            status: "in_progress",
+          },
+        ],
+      },
+      supervisor: {
+        mode: "full_autopilot",
+        status: "idle",
+        reason: "Supervisor enabled for session",
+        continuationCount: 1,
+      },
+    });
+
+    expect(prompt).toContain("Supervisor state:");
+    expect(prompt).toContain("Project context snapshot:");
+    expect(prompt).toContain(
+      "Top-level entries: README.md, package.json, src/"
+    );
+    expect(prompt).toContain("README.md (readme)");
+    expect(prompt).toContain("Eragear Code Copilot desktop app.");
+    expect(prompt).toContain("Precomputed project intelligence tools:");
+    expect(prompt).toContain("resolve_scope: v1-import-graph");
+    expect(prompt).toContain("ast_import_graph_context:");
+    expect(prompt).toContain("SupervisosPanel:component@12");
+    expect(prompt).toContain("search_symbols:");
+    expect(prompt).toContain("SupervisosPanel (component)");
+    expect(prompt).toContain("- mode: full_autopilot");
+    expect(prompt).toContain("- status: idle");
+    expect(prompt).toContain("Build Supervisos panel");
+    expect(prompt).toContain("Verification failed");
+    expect(prompt).toContain("Prior Supervisos side-chat messages:");
+    expect(prompt).toContain("User asks Supervisos:");
+    expect(prompt).not.toContain("Recent conversation:");
+    expect(prompt).not.toContain("raw diff");
+  });
+
+  test("applies custom agent profile to side-chat system prompt", () => {
+    const prompt = buildSupervisorChatSystemPrompt({
+      customSystemPrompt: "Answer in Vietnamese.",
+      toolAllowlist: ["obsidian"],
+      toolPolicy: "custom-allowlist",
+    });
+
+    expect(prompt).toContain("dedicated side-chat supervisor agent");
+    expect(prompt).toContain("Answer in Vietnamese.");
+    expect(prompt).toContain("only name these tools: obsidian");
   });
 });
 

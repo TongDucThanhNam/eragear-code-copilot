@@ -14,12 +14,16 @@ const MAX_SUPERVISOR_MODEL_LENGTH = 128;
 const MAX_SUPERVISOR_API_KEY_LENGTH = 2048;
 const MAX_SUPERVISOR_COMMAND_LENGTH = 256;
 const MAX_SUPERVISOR_PATH_LENGTH = 512;
+const MAX_SUPERVISOR_CUSTOM_SYSTEM_PROMPT_LENGTH = 8000;
+const MAX_SUPERVISOR_TOOL_ALLOWLIST_ITEMS = 64;
+const MAX_SUPERVISOR_TOOL_ALLOWLIST_ITEM_LENGTH = 128;
 const MAX_PROJECT_INDEX_EMBEDDING_ENDPOINT_LENGTH = 512;
 const MAX_PROJECT_INDEX_EMBEDDING_MODEL_LENGTH = 128;
 const MAX_PROJECT_INDEX_EMBEDDING_API_KEY_LENGTH = 2048;
 const ACP_PROMPT_META_POLICIES = ["allowlist", "always", "never"] as const;
 const SUPERVISOR_WEB_SEARCH_PROVIDERS = ["none", "exa"] as const;
 const SUPERVISOR_MEMORY_PROVIDERS = ["none", "obsidian"] as const;
+const SUPERVISOR_TOOL_POLICIES = ["builtin", "custom-allowlist"] as const;
 
 export const UiSettingsSchema = z.object({
   theme: z.enum(["light", "dark", "system"]),
@@ -70,7 +74,7 @@ export const AppConfigSchema = z.object({
     .trim()
     .max(MAX_SUPERVISOR_MODEL_LENGTH)
     .default(""),
-  supervisorDeepSeekApiKey: z
+  supervisorMiniMaxApiKey: z
     .string()
     .trim()
     .max(MAX_SUPERVISOR_API_KEY_LENGTH)
@@ -89,6 +93,18 @@ export const AppConfigSchema = z.object({
     .max(24 * 60 * 60 * 1000)
     .default(30 * 60 * 1000),
   supervisorMaxRepeatedPrompts: z.number().int().min(1).max(200).default(20),
+  supervisorCustomSystemPrompt: z
+    .string()
+    .trim()
+    .max(MAX_SUPERVISOR_CUSTOM_SYSTEM_PROMPT_LENGTH)
+    .default(""),
+  supervisorToolPolicy: z.enum(SUPERVISOR_TOOL_POLICIES).default("builtin"),
+  supervisorToolAllowlist: z
+    .array(
+      z.string().trim().min(1).max(MAX_SUPERVISOR_TOOL_ALLOWLIST_ITEM_LENGTH)
+    )
+    .max(MAX_SUPERVISOR_TOOL_ALLOWLIST_ITEMS)
+    .default([]),
   supervisorWebSearchProvider: z
     .enum(SUPERVISOR_WEB_SEARCH_PROVIDERS)
     .default("none"),

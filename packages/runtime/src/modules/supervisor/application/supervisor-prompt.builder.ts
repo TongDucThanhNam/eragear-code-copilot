@@ -1,7 +1,9 @@
+import type { SupervisorChatSnapshot } from "./ports/supervisor-chat.port";
 import type {
   SupervisorPermissionSnapshot,
   SupervisorTurnSnapshot,
 } from "./ports/supervisor-decision.port";
+import type { SupervisorPolicy } from "./supervisor-policy";
 
 const MAX_PERMISSION_CONTEXT_CHARS = 4000;
 const MAX_LATEST_TEXT_PART_CHARS = 8000;
@@ -172,6 +174,92 @@ export const SUPERVISOR_PERMISSION_SYSTEM_PROMPT = [
   "Defer when the available options do not permit a safe least-privilege decision.",
 ].join("\n");
 
+export const SUPERVISOR_CHAT_SYSTEM_PROMPT = [
+  "You are Supervisos, the dedicated side-chat supervisor agent for an ACP coding session.",
+  "You speak directly with the human user in a separate Supervisos panel.",
+  "You do not edit files, run shell commands, or approve ACP permissions from this side chat.",
+  "When runtime delegation is available and the user asks for implementation, Supervisos may submit an enhanced prompt to the main coding agent through the existing session pipeline; otherwise you can explain current supervisor state, review compact Goal Mode context, identify gates, recommend the next safe action, and draft a concise follow-up.",
+  "Preserve ACP permission boundaries: destructive actions, file deletion, credential access, verification failures, and scope drift require explicit human approval through the existing session controls.",
+  "Never claim you used tools or inspected files unless the compact context explicitly says so.",
+  "Never ask for or reveal API keys or secrets.",
+  "Do not rely on hidden transcript details. Only use the compact side-chat history, supervisor state, project context snapshot, precomputed project intelligence, current plan, and Goal Mode summaries provided in the prompt.",
+  "Treat project intelligence as precomputed tool results from resolve_scope, ast_import_graph_context, and search_symbols. Do not pretend you ran additional tools.",
+  "Do not output hidden reasoning, chain-of-thought, XML-like thinking tags, or `<think>` blocks. Return only the final user-facing answer.",
+  "Prefer concrete answers over process narration. If something is not configured or unavailable, say exactly what is missing and what the next safe step is.",
+].join("\n");
+
+export function buildSupervisorTurnSystemPrompt(
+  policy?: Pick<
+    SupervisorPolicy,
+    "customSystemPrompt" | "toolAllowlist" | "toolPolicy"
+  >
+): string {
+  return appendSupervisorAgentProfile(SUPERVISOR_TURN_SYSTEM_PROMPT, policy);
+}
+
+export function buildSupervisorPermissionSystemPrompt(
+  policy?: Pick<
+    SupervisorPolicy,
+    "customSystemPrompt" | "toolAllowlist" | "toolPolicy"
+  >
+): string {
+  return appendSupervisorAgentProfile(
+    SUPERVISOR_PERMISSION_SYSTEM_PROMPT,
+    policy
+  );
+}
+
+export function buildSupervisorChatSystemPrompt(
+  policy?: Pick<
+    SupervisorPolicy,
+    "customSystemPrompt" | "toolAllowlist" | "toolPolicy"
+  >
+): string {
+  return appendSupervisorAgentProfile(SUPERVISOR_CHAT_SYSTEM_PROMPT, policy);
+}
+
+function appendSupervisorAgentProfile(
+  basePrompt: string,
+  policy?: Pick<
+    SupervisorPolicy,
+    "customSystemPrompt" | "toolAllowlist" | "toolPolicy"
+  >
+): string {
+  const profile = formatSupervisorAgentProfile(policy);
+  return profile ? `${basePrompt}\n\n${profile}` : basePrompt;
+}
+
+function formatSupervisorAgentProfile(
+  policy?: Pick<
+    SupervisorPolicy,
+    "customSystemPrompt" | "toolAllowlist" | "toolPolicy"
+  >
+): string {
+  if (!policy) {
+    return "";
+  }
+  const sections = ["## Configured Supervisor Agent Profile"];
+  const customSystemPrompt = policy.customSystemPrompt?.trim();
+  if (customSystemPrompt) {
+    sections.push("", "Custom system instructions:", customSystemPrompt);
+  }
+
+  const toolAllowlist = [...new Set(policy.toolAllowlist ?? [])]
+    .map((tool) => tool.trim())
+    .filter(Boolean);
+  let toolPolicyText =
+    "Use built-in supervisor context providers and only steer the coding agent toward tools already available in the active chat/session.";
+  if (policy.toolPolicy === "custom-allowlist") {
+    toolPolicyText =
+      toolAllowlist.length > 0
+        ? `When asking the coding agent to use tools, only name these tools: ${toolAllowlist.join(", ")}.`
+        : "Custom allowlist is active but empty; do not request tool-specific actions.";
+  }
+  sections.push("", "Tool steering policy:", toolPolicyText);
+
+  return sections.join("\n");
+}
+
 export function buildSupervisorTurnPrompt(
   snapshot: SupervisorTurnSnapshot
 ): string {
@@ -287,6 +375,168 @@ export function buildSupervisorTurnPrompt(
     "",
     "Choose the next semantic action from: CONTINUE, APPROVE_GATE, CORRECT, REPLAN, DONE, ESCALATE, ABORT, SAVE_MEMORY, WAIT.",
   ].join("\n");
+}
+
+export function buildSupervisorChatPrompt(
+  snapshot: SupervisorChatSnapshot
+): string {
+  const plan = snapshot.plan?.entries
+    .map((entry) => `- [${entry.status}] ${entry.content}`)
+    .join("\n");
+  const history = snapshot.sideChatHistory
+    .slice(-12)
+    .map((message) => {
+      const speaker = message.role === "assistant" ? "Supervisos" : "User";
+      return `${speaker}: ${truncateText(message.content, 1200)}`;
+    })
+    .join("\n\n");
+  const audit = snapshot.goalModeAudit
+    .map((entry, index) => {
+      return [
+        `${index + 1}. ${entry.phaseId}`,
+        `kind=${entry.kind}`,
+        entry.decision ? `decision=${entry.decision}` : "",
+        entry.summary ? `summary=${truncateText(entry.summary, 500)}` : "",
+        entry.targetPath ? `target=${entry.targetPath}` : "",
+        entry.verification
+          ? `verification=${truncateText(entry.verification, 500)}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("; ");
+    })
+    .join("\n");
+  const projectFiles = snapshot.projectContext.files
+    .map((file, index) => {
+      return `${index + 1}. ${file.path} (${file.kind})\n${truncateText(file.excerpt, 1200)}`;
+    })
+    .join("\n\n");
+  const projectIntelligence = formatProjectIntelligence(snapshot);
+
+  return [
+    `Chat: ${snapshot.chatId}`,
+    snapshot.projectId ? `Project id: ${snapshot.projectId}` : "",
+    `Project root: ${snapshot.projectRoot}`,
+    "",
+    "Project context snapshot:",
+    snapshot.projectContext.topLevelEntries.length > 0
+      ? `Top-level entries: ${snapshot.projectContext.topLevelEntries.join(", ")}`
+      : "Top-level entries: (none)",
+    projectFiles ? `Context files:\n${projectFiles}` : "Context files: (none)",
+    snapshot.projectContext.diagnostics.length > 0
+      ? `Diagnostics: ${snapshot.projectContext.diagnostics.join("; ")}`
+      : "Diagnostics: (none)",
+    "",
+    "Precomputed project intelligence tools:",
+    projectIntelligence,
+    "",
+    "Supervisor state:",
+    `- mode: ${snapshot.supervisor.mode}`,
+    `- status: ${snapshot.supervisor.status}`,
+    `- reason: ${snapshot.supervisor.reason ?? "(none)"}`,
+    `- continuation count: ${snapshot.supervisor.continuationCount ?? 0}`,
+    snapshot.supervisor.lastDecision
+      ? `- last decision: ${snapshot.supervisor.lastDecision.action} (${snapshot.supervisor.lastDecision.reason})`
+      : "- last decision: (none)",
+    "",
+    "Current plan:",
+    plan || "(none)",
+    "",
+    "Recent Goal Mode audit summaries:",
+    audit || "(none)",
+    "",
+    "Prior Supervisos side-chat messages:",
+    history || "(none)",
+    "",
+    "User asks Supervisos:",
+    truncateText(snapshot.userMessage, 6000),
+    "",
+    "Reply as Supervisos in the side chat. Be direct and operational. If the user is asking why Supervisos is idle/off, distinguish configuration, autopilot mode, and active review status. If the user asks for the next action, give one concrete safe action and the reason.",
+  ].join("\n");
+}
+
+function formatProjectIntelligence(snapshot: SupervisorChatSnapshot): string {
+  const intelligence = snapshot.projectIntelligence;
+  const scope = intelligence.scope
+    ? [
+        `resolve_scope: ${intelligence.scope.resolverVersion}; symbolExtraction=${intelligence.symbolExtractionMode}; resolvedViaLLM=${intelligence.scope.resolvedViaLLM}`,
+        `primary: ${formatScopeTarget(intelligence.scope.primaryTarget)}`,
+        intelligence.scope.secondaryTargets.length > 0
+          ? `secondary: ${intelligence.scope.secondaryTargets
+              .map(formatScopeTarget)
+              .join(" | ")}`
+          : "secondary: (none)",
+        intelligence.scope.graphConfidence !== undefined
+          ? `graphConfidence: ${intelligence.scope.graphConfidence}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : `resolve_scope: ${intelligence.status}`;
+  const graphNodes = intelligence.graphNodes
+    .map((node, index) => {
+      const symbols = node.symbols
+        .map((symbol) => `${symbol.name}:${symbol.kind}@${symbol.line}`)
+        .join(", ");
+      return [
+        `${index + 1}. ${node.path}`,
+        `workspace=${node.workspace}`,
+        node.routeKey ? `route=${node.routeKey}` : "",
+        `reachable=${node.reachableFromRoots}`,
+        node.imports.length ? `imports=[${node.imports.join(", ")}]` : "",
+        node.importedBy.length
+          ? `importedBy=[${node.importedBy.join(", ")}]`
+          : "",
+        node.exports.length ? `exports=[${node.exports.join(", ")}]` : "",
+        symbols ? `symbols=[${symbols}]` : "",
+      ]
+        .filter(Boolean)
+        .join("; ");
+    })
+    .join("\n");
+  const symbolMatches = intelligence.symbolMatches
+    .map((symbol, index) => {
+      return `${index + 1}. ${symbol.name} (${symbol.kind}) in ${symbol.path}:${symbol.line} via ${symbol.source}`;
+    })
+    .join("\n");
+  const routeMap = intelligence.routeMap
+    .map((route, index) => {
+      return `${index + 1}. ${route.routeKey} -> ${route.path}${
+        route.exportedSymbols.length
+          ? ` exports ${route.exportedSymbols.join(", ")}`
+          : ""
+      }`;
+    })
+    .join("\n");
+
+  return [
+    `status: ${intelligence.status}`,
+    scope,
+    "",
+    "ast_import_graph_context:",
+    graphNodes || "(none)",
+    "",
+    "search_symbols:",
+    symbolMatches || "(none)",
+    "",
+    "route_map:",
+    routeMap || "(none)",
+    "",
+    intelligence.diagnostics.length > 0
+      ? `diagnostics: ${intelligence.diagnostics.join("; ")}`
+      : "diagnostics: (none)",
+  ].join("\n");
+}
+
+function formatScopeTarget(target: {
+  path: string;
+  score: number;
+  reason: string;
+}): string {
+  return `${target.path} score=${target.score} reason=${truncateText(
+    target.reason,
+    240
+  )}`;
 }
 
 export function buildSupervisorFollowUpPrompt(params: {

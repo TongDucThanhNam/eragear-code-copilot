@@ -18,11 +18,14 @@ export interface AppRuntimeConfig {
   supervisorPolicy: {
     enabled: boolean;
     model: string;
-    deepSeekApiKey?: string;
+    miniMaxApiKey?: string;
     decisionTimeoutMs: number;
     decisionMaxAttempts: number;
     maxRuntimeMs: number;
     maxRepeatedPrompts: number;
+    customSystemPrompt: string;
+    toolPolicy: NonNullable<AppConfig["supervisorToolPolicy"]>;
+    toolAllowlist: string[];
     webSearchProvider: typeof ENV.supervisorWebSearchProvider;
     webSearchApiKey?: string;
     memoryProvider: typeof ENV.supervisorMemoryProvider;
@@ -59,13 +62,16 @@ export function resolveAppRuntimeConfig(): AppRuntimeConfig {
     supervisorPolicy: {
       enabled: ENV.supervisorEnabled,
       model: ENV.supervisorModel,
-      ...(ENV.supervisorDeepSeekApiKey.length > 0
-        ? { deepSeekApiKey: ENV.supervisorDeepSeekApiKey }
+      ...(ENV.supervisorMiniMaxApiKey.length > 0
+        ? { miniMaxApiKey: ENV.supervisorMiniMaxApiKey }
         : {}),
       decisionTimeoutMs: ENV.supervisorDecisionTimeoutMs,
       decisionMaxAttempts: ENV.supervisorDecisionMaxAttempts,
       maxRuntimeMs: ENV.supervisorMaxRuntimeMs,
       maxRepeatedPrompts: ENV.supervisorMaxRepeatedPrompts,
+      customSystemPrompt: ENV.supervisorCustomSystemPrompt,
+      toolPolicy: ENV.supervisorToolPolicy,
+      toolAllowlist: [...ENV.supervisorToolAllowlist],
       webSearchProvider: ENV.supervisorWebSearchProvider,
       webSearchApiKey: ENV.supervisorWebSearchApiKey,
       memoryProvider: ENV.supervisorMemoryProvider,
@@ -139,6 +145,12 @@ export function applyAppConfigToRuntimeConfig(
     appConfig.supervisorMaxRuntimeMs;
   runtimeConfig.supervisorPolicy.maxRepeatedPrompts =
     appConfig.supervisorMaxRepeatedPrompts;
+  runtimeConfig.supervisorPolicy.customSystemPrompt =
+    appConfig.supervisorCustomSystemPrompt.trim();
+  runtimeConfig.supervisorPolicy.toolPolicy = appConfig.supervisorToolPolicy;
+  runtimeConfig.supervisorPolicy.toolAllowlist = [
+    ...appConfig.supervisorToolAllowlist,
+  ];
   runtimeConfig.supervisorPolicy.webSearchProvider =
     appConfig.supervisorWebSearchProvider;
   runtimeConfig.supervisorPolicy.memoryProvider =
@@ -151,11 +163,11 @@ export function applyAppConfigToRuntimeConfig(
     appConfig.supervisorObsidianSearchLimit;
   runtimeConfig.supervisorPolicy.obsidianTimeoutMs =
     appConfig.supervisorObsidianTimeoutMs;
-  const deepSeekApiKey = appConfig.supervisorDeepSeekApiKey.trim();
-  if (deepSeekApiKey.length > 0) {
-    runtimeConfig.supervisorPolicy.deepSeekApiKey = deepSeekApiKey;
+  const miniMaxApiKey = appConfig.supervisorMiniMaxApiKey.trim();
+  if (miniMaxApiKey.length > 0) {
+    runtimeConfig.supervisorPolicy.miniMaxApiKey = miniMaxApiKey;
   } else {
-    runtimeConfig.supervisorPolicy.deepSeekApiKey = undefined;
+    runtimeConfig.supervisorPolicy.miniMaxApiKey = undefined;
   }
   const webSearchApiKey = appConfig.supervisorWebSearchApiKey.trim();
   if (webSearchApiKey.length > 0) {

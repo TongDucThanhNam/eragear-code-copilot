@@ -7,6 +7,7 @@ import {
   normalizeAppConfig,
 } from "#runtime/modules/settings/app-config.service";
 import { SettingsSqliteRepository } from "#runtime/modules/settings/di";
+import { SupervisorRunSqliteRepository } from "#runtime/modules/supervisor-orchestration/di";
 import { UsageStatsSqliteRepository } from "#runtime/modules/usage-stats/di";
 import {
   closeSqliteDb,
@@ -66,6 +67,7 @@ if (!isMainThread && port) {
   const agentRepo = new AgentSqliteRepository();
   const settingsRepo = new SettingsSqliteRepository();
   const usageStatsRepo = new UsageStatsSqliteRepository();
+  const supervisorRunsRepo = new SupervisorRunSqliteRepository();
   const readyMessage: SqliteWorkerReadyMessage = { type: "ready" };
   port.postMessage(readyMessage);
 
@@ -118,6 +120,11 @@ if (!isMainThread && port) {
       } else if (request.service === "usageStats") {
         result = await getMethod(
           usageStatsRepo as unknown as Record<string, unknown>,
+          request.method
+        )(...request.args);
+      } else if (request.service === "supervisorRuns") {
+        result = await getMethod(
+          supervisorRunsRepo as unknown as Record<string, unknown>,
           request.method
         )(...request.args);
       } else if (request.service === "storage") {

@@ -3818,3 +3818,38 @@ creation.
   terminal policy.
 - Don't remove explicit-project lookup from Terminal unless the terminal
   creation input contract is redesigned.
+## Multi-session Supervisos Orchestration
+
+`packages/runtime/src/modules/supervisor-orchestration` is the run-level
+coordination boundary. Its authoritative `SupervisorRunState` is a versioned,
+revisioned SQLite aggregate containing the task DAG, worker-attempt bindings,
+structured results, integration gates, audit records, budgets, and final
+verification. This state is deliberately separate from the existing
+per-session `SupervisorSessionState`.
+
+The application flow is planner -> scheduler -> worker session manager ->
+per-session Supervisos review -> structured result assessment -> isolated patch
+gate/integration -> dependency scheduling -> aggregate verification. The worker
+manager delegates to canonical session and AI services and uses the internal
+`orchestrator` prompt source. A bounded `supervisor_turn_terminal` domain event
+is claimed durably against the worker chat before result processing, making
+duplicate and out-of-order lifecycle delivery idempotent.
+
+Read-only workers share the project root. Write workers receive detached Git
+worktrees under runtime storage. Infrastructure collects a binary-safe cached
+diff and complete file manifest, while application gates protect scoped paths,
+dirty user changes, dispatch-time fingerprints, deletion/destructive actions,
+verification, permissions, and conflicts. Safe patches are applied without
+commit or push. Unsupported non-Git writes fail closed.
+
+`SupervisorRecoveryService` runs after normal session startup reconciliation.
+It preserves paused runs, recognizes live sessions, resumes capable stopped
+sessions, interrupts and cleans stale workers, retries within persisted limits,
+and resumes recorded review/integration work. The `supervisorRuns` tRPC router
+and desktop Supervisos Runs panel consume a strict client projection that omits
+original prompts, transcripts, raw diffs, artifact paths, and audit text.
+
+Goal Mode remains a sequential reusable scope/gate/prompt subsystem, but its
+production repository is now SQLite-backed and user-owned. Its start, attempt,
+result, and read operations are exposed through the authenticated `goalMode`
+tRPC router; multi-session run/task state remains the orchestration authority.

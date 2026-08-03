@@ -1,0 +1,131 @@
+[BotsSettingsPanel] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx
+└── [SettingsSection] - apps/desktop/src/renderer/components/settings/settings-panels.tsx (border bg-background)
+    └── [section]
+        ├── [div] (flex min-h-11 items-start justify-between gap-3 px-4 py-3)
+        │   ├── [div] (min-w-0)
+        │   │   ├── [h2] (flex items-center gap-2)
+        │   │   │   ├── [Icon] (h-4 w-4 shrink-0)
+        │   │   │   └── [span]
+        │   │   └── [description]
+        │   │       └── [then]
+        │   │           └── [p] (mt-1 max-w-2xl)
+        │   └── [action]
+        │       └── [then]
+        │           └── [div] (shrink-0)
+        └── [div] (p-4 sm:p-5)
+            └── [div] (grid gap-4)
+                ├── [div] (flex flex-wrap gap-2)
+                │   ├── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx
+                │   │   └── [Comp]
+                │   ├── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                │   ├── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                │   └── [select] (h-6 px-2)
+                │       └── [option]
+                ├── [form] (grid gap-3 p-3)
+                │   ├── [div] (grid gap-3 lg:grid-cols-[1fr_180px_120px_120px])
+                │   │   ├── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5)
+                │   │   │   └── [div] (grid gap-1.5)
+                │   │   │       ├── [Label] - apps/desktop/src/renderer/components/ui/label.tsx (flex select-none items-center gap-2 text-xs leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50 group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50)
+                │   │   │       │   └── [LabelPrimitive.Root] - radix-ui (flex items-center gap-2)
+                │   │   │       └── [Input] - apps/desktop/src/renderer/components/ui/input.tsx (h-8 w-full min-w-0 rounded-none border border-input bg-transparent px-2.5 py-1 text-xs outline-none transition-colors file:inline-flex file:h-6 file:border-0 file:bg-transparent file:font-medium file:text-foreground file:text-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 md:text-xs dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 dark:disabled:bg-input/80)
+                │   │   │           └── [input] (h-8 w-full min-w-0 px-2.5 py-1 file:h-6)
+                │   │   ├── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   │   ├── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   │   └── [label] (flex min-h-10 items-center justify-between gap-3 px-3 py-2)
+                │   │       ├── [span]
+                │   │       │   └── "Enabled"
+                │   │       └── [Switch] - apps/desktop/src/renderer/components/ui/switch.tsx (peer group/switch relative inline-flex shrink-0 items-center rounded-full border border-transparent outline-none transition-all after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 data-[size=default]:h-[18.4px] data-[size=sm]:h-[14px] data-[size=default]:w-[32px] data-[size=sm]:w-[24px] data-disabled:cursor-not-allowed data-checked:bg-primary data-unchecked:bg-input data-disabled:opacity-50 dark:data-unchecked:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40)
+                │   │           └── [SwitchPrimitive.Root] - radix-ui (relative shrink-0 items-center after:absolute after:-inset-x-3 after:-inset-y-2)
+                │   │               └── [SwitchPrimitive.Thumb] - radix-ui
+                │   ├── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   ├── [div] (grid gap-3 sm:grid-cols-2)
+                │   │   ├── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   │   └── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   ├── [div] (grid gap-3 sm:grid-cols-2)
+                │   │   ├── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   │   └── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   ├── [form.trigger === "quota_refresh"]
+                │   │   └── [then]
+                │   │       └── [div] (grid gap-3 p-3)
+                │   │           ├── [div]
+                │   │           │   └── "Quota Trigger"
+                │   │           ├── [div] (grid gap-3 sm:grid-cols-2)
+                │   │           │   ├── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   │           │   └── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   │           └── [div] (grid gap-3 sm:grid-cols-2)
+                │   │               ├── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   │               └── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   ├── [Field] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-1.5) (see above)
+                │   └── [div] (flex justify-end gap-2)
+                │       ├── [form.id]
+                │       │   └── [then]
+                │       │       └── [Button] - apps/desktop/src/renderer/components/ui/button.tsx
+                │       │           └── [Comp]
+                │       └── [Button] - apps/desktop/src/renderer/components/ui/button.tsx (see above)
+                ├── [botsQuery.isLoading]
+                │   └── [then]
+                │       └── [div] (p-6)
+                │           └── "Loading bots..."
+                ├── [div] (grid gap-3 xl:grid-cols-2)
+                │   └── [BotRow] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (grid gap-3 rounded-md border bg-background p-3)
+                │       └── [div] (grid gap-3 p-3)
+                │           ├── [div] (flex items-start justify-between gap-3)
+                │           │   ├── [div] (min-w-0)
+                │           │   │   ├── [div] (flex flex-wrap items-center gap-2)
+                │           │   │   │   ├── [h3]
+                │           │   │   │   ├── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                │           │   │   │   └── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                │           │   │   └── [div] (mt-1)
+                │           │   └── [div] (flex shrink-0 gap-1)
+                │           │       ├── [Button] - apps/desktop/src/renderer/components/ui/button.tsx (see above)
+                │           │       ├── [Button] - apps/desktop/src/renderer/components/ui/button.tsx (see above)
+                │           │       └── [Button] - apps/desktop/src/renderer/components/ui/button.tsx (see above)
+                │           ├── [div]
+                │           └── [div] (flex flex-wrap gap-2)
+                │               ├── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                │               ├── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                │               ├── [bot.agentId]
+                │               │   └── [then]
+                │               │       └── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                │               ├── [bot.projectId]
+                │               │   └── [then]
+                │               │       └── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                │               └── [bot.trigger === "quota_refresh"]
+                │                   └── [then]
+                │                       └── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                └── [runs.length > 0]
+                    └── [then]
+                        └── [div] (grid gap-3)
+                            ├── [div]
+                            │   └── "Runs"
+                            └── [RunRow] - apps/desktop/src/renderer/components/settings/bots-settings-panel.tsx (flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background p-3)
+                                └── [div] (flex flex-wrap items-center justify-between gap-3 p-3)
+                                    ├── [div] (min-w-0)
+                                    │   ├── [div] (flex flex-wrap items-center gap-2)
+                                    │   │   ├── [span]
+                                    │   │   ├── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                                    │   │   └── [Badge] - apps/desktop/src/renderer/components/ui/badge.tsx (see above)
+                                    │   ├── [div] (mt-1)
+                                    │   │   └── "queued"
+                                    │   ├── [div] (mt-1 flex flex-wrap gap-2)
+                                    │   │   ├── [run.chatId]
+                                    │   │   │   └── [then]
+                                    │   │   │       └── [span]
+                                    │   │   │           └── "chat"
+                                    │   │   ├── [run.turnId]
+                                    │   │   │   └── [then]
+                                    │   │   │       └── [span]
+                                    │   │   │           └── "turn"
+                                    │   │   ├── [run.triggerContext?.providerId]
+                                    │   │   │   └── [then]
+                                    │   │   │       └── [span]
+                                    │   │   └── [run.triggerContext?.resetAt]
+                                    │   │       └── [then]
+                                    │   │           └── [span]
+                                    │   │               └── "reset"
+                                    │   └── [run.error]
+                                    │       └── [then]
+                                    │           └── [div] (mt-1)
+                                    └── [canStop]
+                                        └── [then]
+                                            └── [Button] - apps/desktop/src/renderer/components/ui/button.tsx (see above)

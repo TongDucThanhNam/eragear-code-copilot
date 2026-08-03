@@ -166,8 +166,8 @@ export const DEFAULT_APP_DEFAULT_MODEL = "";
 export const MAX_APP_DEFAULT_MODEL_LENGTH = 200;
 /** Global supervisor kill switch default */
 export const DEFAULT_SUPERVISOR_ENABLED = false;
-/** Default model identifier for supervisor decisions (empty means unconfigured) */
-export const DEFAULT_SUPERVISOR_MODEL = "";
+/** Default model identifier for supervisor decisions */
+export const DEFAULT_SUPERVISOR_MODEL = "MiniMax-M3";
 /** Default timeout for one supervisor model decision */
 export const DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS = 30_000;
 /** Default max attempts for one supervisor model decision */
@@ -176,6 +176,12 @@ export const DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS = 2;
 export const DEFAULT_SUPERVISOR_MAX_RUNTIME_MS = 30 * 60 * 1000;
 /** Default repeated prompt limit for one supervisor autopilot run */
 export const DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS = 20;
+/** Default extra supervisor agent system prompt */
+export const DEFAULT_SUPERVISOR_CUSTOM_SYSTEM_PROMPT = "";
+/** Default supervisor tool policy */
+export const DEFAULT_SUPERVISOR_TOOL_POLICY = "builtin";
+/** Default named tools the supervisor may ask the coding agent to use */
+export const DEFAULT_SUPERVISOR_TOOL_ALLOWLIST: string[] = [];
 /** Default web-search provider for supervisor research */
 export const DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER = "none";
 /** Default local-memory provider for supervisor context */

@@ -520,6 +520,55 @@ describe("SendMessageService", () => {
     ).toBe("raw prompt");
   });
 
+  test("skips prompt enhancement for supervisor delegated prompts", async () => {
+    const repo = new InMemorySessionRepo();
+    const events: BroadcastEvent[] = [];
+    let promptRequest: unknown;
+    let enhanceCalls = 0;
+    const session = createChatSession({
+      prompt: (input) => {
+        promptRequest = input;
+        return Promise.resolve({ stopReason: "end_turn" });
+      },
+    });
+    const runtime = createSessionRuntime("chat-1", session, events);
+    const service = createService(
+      repo,
+      runtime,
+      undefined,
+      undefined,
+      undefined,
+      {
+        enhance: () => {
+          enhanceCalls += 1;
+          return Promise.resolve({
+            text: "[enhanced should not be used]",
+            applied: true,
+          });
+        },
+      }
+    );
+
+    await service.execute({
+      userId: "user-1",
+      chatId: "chat-1",
+      text: "Supervisos delegated enhanced task.",
+      source: "supervisor",
+    });
+    await flushAsync();
+
+    expect(enhanceCalls).toBe(0);
+    const request = promptRequest as {
+      prompt?: Array<{ type: string; text?: string }>;
+    };
+    expect(request.prompt?.[0]?.text).toContain(
+      "Supervisos delegated enhanced task."
+    );
+    expect(request.prompt?.[0]?.text).not.toContain(
+      "[enhanced should not be used]"
+    );
+  });
+
   test("sends output-styled prompt to ACP while storing original user message", async () => {
     const repo = new InMemorySessionRepo();
     const events: BroadcastEvent[] = [];

@@ -75,6 +75,7 @@ import {
   DEFAULT_STORAGE_WAL_CHECKPOINT_INTERVAL_MS,
   DEFAULT_STORAGE_WORKER_ENABLED,
   DEFAULT_STORAGE_WORKER_REQUEST_TIMEOUT_MS,
+  DEFAULT_SUPERVISOR_CUSTOM_SYSTEM_PROMPT,
   DEFAULT_SUPERVISOR_DECISION_MAX_ATTEMPTS,
   DEFAULT_SUPERVISOR_DECISION_TIMEOUT_MS,
   DEFAULT_SUPERVISOR_ENABLED,
@@ -86,6 +87,8 @@ import {
   DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_LIMIT,
   DEFAULT_SUPERVISOR_OBSIDIAN_SEARCH_PATH,
   DEFAULT_SUPERVISOR_OBSIDIAN_TIMEOUT_MS,
+  DEFAULT_SUPERVISOR_TOOL_ALLOWLIST,
+  DEFAULT_SUPERVISOR_TOOL_POLICY,
   DEFAULT_SUPERVISOR_WEB_SEARCH_PROVIDER,
   DEFAULT_TERMINAL_OUTPUT_HARD_CAP_BYTES,
   DEFAULT_WS_AUTH_TIMEOUT_MS,
@@ -122,6 +125,7 @@ loadServerDotEnv();
 export type AcpTurnIdPolicy = "compat" | "require-native";
 export type SupervisorWebSearchProvider = "none" | "exa";
 export type SupervisorMemoryProvider = "none" | "obsidian";
+export type SupervisorToolPolicy = "builtin" | "custom-allowlist";
 
 function loadServerDotEnv(): void {
   const appEnvPath = fileURLToPath(new URL("../../.env", import.meta.url));
@@ -213,6 +217,35 @@ function resolveSupervisorMemoryProvider(
   );
 }
 
+function resolveSupervisorToolPolicy(
+  value: string | undefined
+): SupervisorToolPolicy {
+  const normalized = toTrimmedString(value, DEFAULT_SUPERVISOR_TOOL_POLICY)
+    .toLowerCase()
+    .trim();
+  if (normalized === "builtin" || normalized === "custom-allowlist") {
+    return normalized;
+  }
+  throw new Error(
+    "[Config] SUPERVISOR_TOOL_POLICY must be one of: builtin, custom-allowlist."
+  );
+}
+
+function resolveSupervisorToolAllowlist(value: string | undefined): string[] {
+  if (!value || value.trim().length === 0) {
+    return [...DEFAULT_SUPERVISOR_TOOL_ALLOWLIST];
+  }
+  const parsed = [
+    ...new Set(
+      value
+        .split(/[,\n]/g)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    ),
+  ];
+  return parsed.length > 0 ? parsed : [...DEFAULT_SUPERVISOR_TOOL_ALLOWLIST];
+}
+
 const bootConfig = loadBootConfigValues();
 assertBunRuntime();
 
@@ -293,6 +326,9 @@ const supervisorWebSearchProvider = resolveSupervisorWebSearchProvider(
 );
 const supervisorMemoryProvider = resolveSupervisorMemoryProvider(
   env.SUPERVISOR_MEMORY_PROVIDER
+);
+const supervisorToolPolicy = resolveSupervisorToolPolicy(
+  env.SUPERVISOR_TOOL_POLICY
 );
 const supervisorWebSearchApiKey = toTrimmedString(
   firstNonEmpty([env.SUPERVISOR_WEB_SEARCH_API_KEY, env.EXA_API_KEY]),
@@ -703,8 +739,8 @@ export const ENV = {
     env.SUPERVISOR_MODEL,
     DEFAULT_SUPERVISOR_MODEL
   ),
-  /** Optional DeepSeek key for supervisor decision models. */
-  supervisorDeepSeekApiKey: toTrimmedString(env.DEEPSEEK_API_KEY, ""),
+  /** Optional MiniMax key for supervisor decision models. */
+  supervisorMiniMaxApiKey: toTrimmedString(env.MINIMAX_API_KEY, ""),
   /** Timeout for one supervisor model decision in milliseconds. */
   supervisorDecisionTimeoutMs: toPositiveInt(
     env.SUPERVISOR_DECISION_TIMEOUT_MS,
@@ -724,6 +760,17 @@ export const ENV = {
   supervisorMaxRepeatedPrompts: toPositiveInt(
     env.SUPERVISOR_MAX_REPEATED_PROMPTS,
     DEFAULT_SUPERVISOR_MAX_REPEATED_PROMPTS
+  ),
+  /** Optional extra system prompt appended to supervisor guardrails. */
+  supervisorCustomSystemPrompt: toTrimmedString(
+    env.SUPERVISOR_CUSTOM_SYSTEM_PROMPT,
+    DEFAULT_SUPERVISOR_CUSTOM_SYSTEM_PROMPT
+  ),
+  /** Policy controlling which tool names Supervisos may steer the agent toward. */
+  supervisorToolPolicy,
+  /** Named tools Supervisos may reference when tool policy is custom-allowlist. */
+  supervisorToolAllowlist: resolveSupervisorToolAllowlist(
+    env.SUPERVISOR_TOOL_ALLOWLIST
   ),
   /** Optional supervisor web-search provider. */
   supervisorWebSearchProvider,

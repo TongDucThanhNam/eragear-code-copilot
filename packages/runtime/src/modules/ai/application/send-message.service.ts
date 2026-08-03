@@ -293,7 +293,10 @@ export class SendMessageService {
             aggregate.raw.uiState.messages.set(uiMessage.id, uiMessage);
             aggregate.raw.uiState.currentUserId = uiMessage.id;
             aggregate.raw.uiState.currentUserSource =
-              input.source === "supervisor" || input.source === "automation"
+              input.source === "supervisor" ||
+              input.source === "automation" ||
+              input.source === "scheduled" ||
+              input.source === "orchestrator"
                 ? input.source
                 : "client";
             await this.sessionRuntime.broadcast(input.chatId, {
@@ -311,7 +314,10 @@ export class SendMessageService {
                 broadcast,
                 turnId,
                 source:
-                  input.source === "supervisor" || input.source === "automation"
+                  input.source === "supervisor" ||
+                  input.source === "automation" ||
+                  input.source === "scheduled" ||
+                  input.source === "orchestrator"
                     ? input.source
                     : "client",
                 abortSignal: promptAbortController.signal,
@@ -446,7 +452,12 @@ export class SendMessageService {
     session: ChatSession
   ): Promise<string> {
     let resolvedText = input.text;
-    if (!this.promptEnhancer) {
+    if (
+      !this.promptEnhancer ||
+      input.source === "supervisor" ||
+      input.source === "scheduled" ||
+      input.source === "orchestrator"
+    ) {
       return await this.applyOutputStylePrompt(input, resolvedText);
     }
     try {
@@ -491,6 +502,8 @@ export class SendMessageService {
     if (
       !this.outputStylePrompt ||
       input.source === "supervisor" ||
+      input.source === "scheduled" ||
+      input.source === "orchestrator" ||
       hasExplicitOutputStyleInstruction(text)
     ) {
       return text;

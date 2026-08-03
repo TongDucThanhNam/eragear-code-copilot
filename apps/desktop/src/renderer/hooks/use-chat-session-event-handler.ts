@@ -4,6 +4,7 @@ import type {
   BroadcastEvent,
   ChatStatus,
   ConnectionStatus,
+  GoalModeAuditEntry,
   PermissionRequest,
   SessionConfigOption,
   SessionInfo,
@@ -76,6 +77,7 @@ interface UseChatSessionEventHandlerParams {
   setSessionInfo: Dispatch<SetStateAction<SessionInfo | null>>;
   setError: Dispatch<SetStateAction<string | null>>;
   setSupervisor: Dispatch<SetStateAction<SupervisorSessionState | null>>;
+  setGoalModeAudit: Dispatch<SetStateAction<GoalModeAuditEntry[]>>;
   setSubagents: Dispatch<SetStateAction<SubagentInvocation[]>>;
   lastSupervisorDecisionRef: MutableRefObject<SupervisorDecisionSummary | null>;
   onFileModified?: (path: string) => void;
@@ -343,6 +345,7 @@ export function useChatSessionEventHandler(
     setSessionInfo,
     setError,
     setSupervisor,
+    setGoalModeAudit,
     setSubagents,
     lastSupervisorDecisionRef,
     onFileModified,
@@ -660,6 +663,9 @@ export function useChatSessionEventHandler(
           onSupervisorDecision: (decision) => {
             lastSupervisorDecisionRef.current = decision;
           },
+          onGoalModeAudit: (audit) => {
+            setGoalModeAudit((current) => [audit, ...current].slice(0, 20));
+          },
           onSubagentStatus: (invocation) => {
             setSubagents((current) => {
               const next = current.filter((item) => item.id !== invocation.id);
@@ -814,6 +820,7 @@ export function useChatSessionEventHandler(
       setConfigOptions,
       setConnStatus,
       setError,
+      setGoalModeAudit,
       setModels,
       setModes,
       setPendingPermission,

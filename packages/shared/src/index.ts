@@ -1,6 +1,7 @@
 // biome-ignore lint/performance/noBarrelFile: Re-exporting modules is required for public API
 export * from "./capability-registry.js";
 export * from "./chat/event-schema.js";
+export * from "./chat/goal-mode-audit.js";
 export * from "./chat/message-order.js";
 export * from "./chat/session-config-options.js";
 export * from "./chat/types.js";

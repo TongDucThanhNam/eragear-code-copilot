@@ -72,6 +72,10 @@ export function RepoSnapshotIndexingSettingsPanel() {
   });
 
   const overview = overviewQuery.data;
+  const signalScanSkippedBySize =
+    overview?.diagnostics.filter((diagnostic) =>
+      diagnostic.includes("signalScanSkippedBySize")
+    ).length ?? 0;
   const isBusy =
     overviewQuery.isFetching ||
     updateSettings.isPending ||
@@ -134,11 +138,15 @@ export function RepoSnapshotIndexingSettingsPanel() {
             />
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <Metric label="Status" value={overview.status} />
             <Metric label="Files" value={overview.index.indexedFiles} />
             <Metric label="Symbols" value={overview.index.symbols.length} />
             <Metric label="Tasks" value={overview.index.tasks.length} />
+            <Metric
+              label="signalScanSkippedBySize"
+              value={signalScanSkippedBySize}
+            />
             <Metric
               label="Manifests"
               value={overview.storage.manifests.length}

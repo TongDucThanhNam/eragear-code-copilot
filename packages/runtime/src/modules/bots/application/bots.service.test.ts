@@ -12,6 +12,8 @@ import type {
   MutableBotQuotaAutomationStateSnapshot,
 } from "./ports/bot-repository.port";
 
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+
 class MemoryBotRepository implements BotRepositoryPort {
   bots = new Map<string, BotDefinition>();
   runs = new Map<string, BotRun>();
@@ -19,6 +21,7 @@ class MemoryBotRepository implements BotRepositoryPort {
     windows: {},
     dispatched: {},
     cooldowns: {},
+    providerLeases: {},
   };
 
   listBots(userId: string): Promise<BotDefinition[]> {
@@ -110,8 +113,17 @@ describe("BotsService", () => {
       trigger: "quota_refresh",
     });
     const run = await service.startRun("user-1", { botId: bot.id });
+    const edited = await service.upsert("user-1", {
+      id: bot.id,
+      name: "Quota watcher renamed",
+      objective: bot.objective,
+      prompt: bot.prompt,
+      promptStrategy: "fixed",
+      workMode: "adaptive_session",
+    });
 
     expect(bot.enabled).toBe(true);
+    expect(edited.name).toBe("Quota watcher renamed");
     expect(run.status).toBe("queued");
     expect(run.trigger).toBe("quota_refresh");
   });
@@ -358,7 +370,10 @@ describe("BotsService", () => {
       userId: "user-1",
       name: "Existing",
       description: "",
+      objective: "Run in current chat",
       prompt: "Run in current chat",
+      workMode: "adaptive_session",
+      promptStrategy: "fixed",
       enabled: true,
       trigger: "quota_refresh",
       maxConcurrency: 1,
@@ -372,6 +387,7 @@ describe("BotsService", () => {
       botId: "bot-1",
       trigger: "quota_refresh",
       status: "queued",
+      completionState: "pending",
       context: {},
       queuedAt: 1,
       startedAt: null,
@@ -385,4 +401,449 @@ describe("BotsService", () => {
     expect(run.nextAttemptAt).toBe(310_000);
     expect(run.error).toContain("prompt is already in progress");
   });
+
+  it("creates a compatible adaptive session and stores only bounded decision evidence", async () => {
+    let ids = 0;
+    const repository = new MemoryBotRepository();
+    const submitted: Array<{
+      userId: string;
+      chatId: string;
+      text: string;
+      source: string;
+    }> = [];
+    const service = new BotsService({
+      repository,
+      now: () => 20_000,
+      createId: () => `id-${++ids}`,
+      quotaProvider: readyScheduledQuota(20_000),
+      projectStore: {
+        findById: async () => ({ id: "project-1", path: "C:/repo" }),
+      },
+      scheduledDecision: {
+        execute: async () => ({
+          action: "dispatch",
+          prompt: "Inspect fresh state and finish the next migration slice.",
+          rationale:
+            "One incomplete slice remains. API_KEY=supersecret123456789",
+          evidenceSummary:
+            "Project index is incomplete. Authorization: Bearer secret-token-123456789",
+          decidedAt: 20_000,
+        }),
+      },
+      createSession: {
+        execute: async () =>
+          ({
+            id: "chat-new",
+            sessionId: "agent-session-new",
+            models: compatibleModels(),
+          }) as never,
+      },
+      sendMessage: {
+        execute: (input) => {
+          submitted.push(input);
+          return Promise.resolve({ turnId: "turn-new" });
+        },
+      },
+    });
+    const bot = await service.upsert("user-1", {
+      name: "Migration schedule",
+      objective: "Complete the Electron migration",
+      providerId: "zai-coding-plan",
+      projectId: "project-1",
+      agentId: "opencode",
+      modelId: "glm-zai",
+      triggerConfig: scheduledQuotaConfig(),
+    });
+
+    const run = await service.runNowIfEligible("user-1", bot.id);
+    const savedBot = await repository.getBot("user-1", bot.id);
+
+    expect(run).toMatchObject({
+      status: "running",
+      chatId: "chat-new",
+      turnId: "turn-new",
+      agentSessionId: "agent-session-new",
+      providerId: "zai-coding-plan",
+      decision: {
+        action: "dispatch",
+        rationale: "One incomplete slice remains. API_KEY=[redacted]",
+        evidenceSummary:
+          "Project index is incomplete. Authorization: [redacted]",
+      },
+    });
+    expect(run.promptHash).toMatch(SHA256_PATTERN);
+    expect(JSON.stringify(run)).not.toContain(
+      "Inspect fresh state and finish the next migration slice."
+    );
+    expect(JSON.stringify(run)).not.toContain("supersecret123456789");
+    expect(JSON.stringify(run)).not.toContain("secret-token-123456789");
+    expect(savedBot?.execution).toEqual({
+      target: "existing_session",
+      chatId: "chat-new",
+    });
+    expect(submitted).toEqual([
+      {
+        userId: "user-1",
+        chatId: "chat-new",
+        text: "Inspect fresh state and finish the next migration slice.",
+        source: "scheduled",
+      },
+    ]);
+  });
+
+  it("resumes a stopped compatible binding without creating a replacement", async () => {
+    let ids = 0;
+    let resumed = 0;
+    const repository = new MemoryBotRepository();
+    const service = new BotsService({
+      repository,
+      now: () => 30_000,
+      createId: () => `id-${++ids}`,
+      quotaProvider: readyScheduledQuota(30_000),
+      projectStore: {
+        findById: async () => ({ id: "project-1", path: "C:/repo" }),
+      },
+      scheduledDecision: {
+        execute: async () => ({
+          action: "dispatch",
+          prompt: "Continue from fresh evidence.",
+          rationale: "Work remains.",
+          evidenceSummary: "The bound session is stopped.",
+          decidedAt: 30_000,
+        }),
+      },
+      sessionStore: {
+        findById: async () => ({
+          id: "chat-stopped",
+          userId: "user-1",
+          projectId: "project-1",
+          agentId: "opencode",
+          status: "stopped",
+          models: compatibleModels(),
+        }),
+      },
+      resumeSession: {
+        execute: () => {
+          resumed += 1;
+          return Promise.resolve({
+            chatId: "chat-stopped",
+            models: compatibleModels(),
+          });
+        },
+      },
+      createSession: {
+        execute: () => Promise.reject(new Error("must not create")),
+      },
+      sendMessage: {
+        execute: async () => ({ turnId: "turn-resumed" }),
+      },
+    });
+    const bot = await service.upsert("user-1", {
+      name: "Resume schedule",
+      objective: "Continue the objective",
+      providerId: "zai-coding-plan",
+      projectId: "project-1",
+      agentId: "opencode",
+      modelId: "glm-zai",
+      execution: { target: "existing_session", chatId: "chat-stopped" },
+      triggerConfig: scheduledQuotaConfig(),
+    });
+
+    const run = await service.runNowIfEligible("user-1", bot.id);
+
+    expect(resumed).toBe(1);
+    expect(run).toMatchObject({
+      status: "running",
+      chatId: "chat-stopped",
+      turnId: "turn-resumed",
+    });
+  });
+
+  it("replaces a deleted binding and rejects a provider/model mismatch", async () => {
+    let ids = 0;
+    let created = 0;
+    const stopped: string[] = [];
+    const repository = new MemoryBotRepository();
+    const service = new BotsService({
+      repository,
+      now: () => 40_000,
+      createId: () => `id-${++ids}`,
+      quotaProvider: readyScheduledQuota(40_000),
+      projectStore: {
+        findById: async () => ({ id: "project-1", path: "C:/repo" }),
+      },
+      scheduledDecision: {
+        execute: async () => ({
+          action: "dispatch",
+          prompt: "Continue safely.",
+          rationale: "Work remains.",
+          evidenceSummary: "Fresh project evidence was loaded.",
+          decidedAt: 40_000,
+        }),
+      },
+      sessionStore: { findById: async () => undefined },
+      createSession: {
+        execute: () => {
+          created += 1;
+          return Promise.resolve({
+            id: `chat-${created}`,
+            models:
+              created === 1
+                ? compatibleModels()
+                : {
+                    currentModelId: "claude",
+                    availableModels: [
+                      {
+                        modelId: "claude",
+                        name: "Claude",
+                        provider: "anthropic",
+                      },
+                    ],
+                  },
+          } as never);
+        },
+      },
+      stopSession: {
+        execute: (_userId, chatId) => {
+          stopped.push(chatId);
+          return Promise.resolve();
+        },
+      },
+      sendMessage: {
+        execute: async () => ({ turnId: "turn-created" }),
+      },
+    });
+    const replacement = await service.upsert("user-1", {
+      name: "Replacement schedule",
+      objective: "Replace missing binding",
+      providerId: "zai-coding-plan",
+      projectId: "project-1",
+      agentId: "opencode",
+      modelId: "glm-zai",
+      execution: { target: "existing_session", chatId: "chat-deleted" },
+      triggerConfig: scheduledQuotaConfig(),
+    });
+    expect(
+      await service.runNowIfEligible("user-1", replacement.id)
+    ).toMatchObject({ status: "running", chatId: "chat-1" });
+    await service.completeRunsForTurn({
+      userId: "user-1",
+      chatId: "chat-1",
+      turnId: "turn-created",
+      stopReason: "end_turn",
+    });
+
+    const mismatch = await service.upsert("user-1", {
+      name: "Mismatch schedule",
+      objective: "Reject incompatible provider",
+      providerId: "zai-coding-plan",
+      projectId: "project-1",
+      agentId: "opencode",
+      modelId: "claude",
+      triggerConfig: scheduledQuotaConfig(),
+    });
+    expect(await service.runNowIfEligible("user-1", mismatch.id)).toMatchObject(
+      {
+        status: "failed",
+        failureReason:
+          "ACP model claude is not compatible with provider zai-coding-plan.",
+      }
+    );
+    expect(stopped).toEqual(["chat-2"]);
+    expect(await repository.getBot("user-1", mismatch.id)).toMatchObject({
+      execution: { target: "new_session" },
+    });
+  });
+
+  it("enforces task_queue when quota infrastructure is unavailable", async () => {
+    const service = new BotsService({
+      repository: new MemoryBotRepository(),
+      entitlement: {
+        checkFeature: async () => ({
+          enabled: false,
+          reason: "Task queue requires an upgrade.",
+        }),
+      },
+    });
+
+    await expect(
+      service.upsert("user-1", {
+        name: "Denied schedule",
+        prompt: "Do work",
+        trigger: "manual",
+      })
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: "Task queue requires an upgrade.",
+    });
+  });
+
+  it("keeps a Supervisor run quota-blocked at worker admission and resumes scheduling later", async () => {
+    let ids = 0;
+    let refreshes = 0;
+    let starts = 0;
+    let schedules = 0;
+    const repository = new MemoryBotRepository();
+    let service!: BotsService;
+    const supervisorOrchestrator = {
+      start: async (input: {
+        userId: string;
+        scheduleId?: string;
+        providerId?: string;
+      }) => {
+        starts += 1;
+        await service.admitSupervisorWorker({
+          userId: input.userId,
+          runId: "supervisor-run-1",
+          scheduleId: input.scheduleId ?? "",
+          providerId: input.providerId ?? "",
+          taskId: "task-1",
+        });
+        return { runId: "supervisor-run-1", status: "queued" };
+      },
+      get: async () => ({ runId: "supervisor-run-1", status: "queued" }),
+      resume: async () => ({
+        runId: "supervisor-run-1",
+        status: "running",
+      }),
+      schedule: async (_runId: string, userId: string) => {
+        schedules += 1;
+        await service.admitSupervisorWorker({
+          userId,
+          runId: "supervisor-run-1",
+          scheduleId: "id-1",
+          providerId: "zai-coding-plan",
+          taskId: "task-1",
+        });
+        return { runId: "supervisor-run-1", status: "running" };
+      },
+      cancel: async () => ({
+        runId: "supervisor-run-1",
+        status: "cancelled",
+      }),
+    };
+    service = new BotsService({
+      repository,
+      now: () => 50_000,
+      createId: () => `id-${++ids}`,
+      quotaProvider: {
+        refresh: () => {
+          refreshes += 1;
+          const blocked = refreshes === 2;
+          return Promise.resolve({
+            checkedAt: new Date(50_000).toISOString(),
+            providers: [
+              {
+                providerId: "zai-coding-plan",
+                displayName: "Z.AI Coding Plan",
+                status: "ready" as const,
+                fetchedAt: new Date(50_000).toISOString(),
+                windows: [
+                  {
+                    id: "five-hour",
+                    label: "Five hour",
+                    percentRemaining: blocked ? 0 : 80,
+                    resetAt: new Date(110_000).toISOString(),
+                  },
+                ],
+              },
+            ],
+          });
+        },
+      },
+      projectStore: {
+        findById: async () => ({ id: "project-1", path: "C:/repo" }),
+      },
+      scheduledDecision: {
+        execute: async () => ({
+          action: "dispatch",
+          prompt: "Plan and execute the next bounded slice.",
+          rationale: "The objective remains incomplete.",
+          evidenceSummary: "Fresh scope evidence identifies ready work.",
+          decidedAt: 50_000,
+        }),
+      },
+      supervisorOrchestrator,
+    });
+    const bot = await service.upsert("user-1", {
+      name: "Full Supervisor schedule",
+      objective: "Finish the whole objective",
+      workMode: "supervisor_run",
+      providerId: "zai-coding-plan",
+      projectId: "project-1",
+      agentId: "opencode",
+      modelId: "glm-zai",
+      triggerConfig: scheduledQuotaConfig(),
+    });
+
+    const blocked = await service.runNowIfEligible("user-1", bot.id);
+    expect(blocked).toMatchObject({
+      status: "quota_blocked",
+      supervisorRunId: "supervisor-run-1",
+      admission: { status: "below_reserve" },
+    });
+
+    const resumed = await service.retryRun("user-1", blocked.id);
+    expect(resumed).toMatchObject({
+      status: "running",
+      supervisorRunId: "supervisor-run-1",
+      admission: { status: "eligible" },
+      context: { source: "retry", retryOfRunId: blocked.id },
+    });
+    expect(resumed.id).not.toBe(blocked.id);
+    expect(await repository.getRun("user-1", blocked.id)).toMatchObject({
+      status: "stopped",
+      admission: { status: "below_reserve" },
+    });
+    expect(starts).toBe(1);
+    expect(schedules).toBe(1);
+  });
 });
+
+function compatibleModels() {
+  return {
+    currentModelId: "glm-zai",
+    availableModels: [
+      {
+        modelId: "glm-zai",
+        name: "GLM Coding Plan",
+        provider: "zai-coding-plan",
+      },
+    ],
+  };
+}
+
+function scheduledQuotaConfig() {
+  return {
+    quota: {
+      providerIds: ["zai-coding-plan"],
+      windowIds: ["five-hour"],
+      minPercentRemaining: 20,
+      cooldownMs: 300_000,
+    },
+  };
+}
+
+function readyScheduledQuota(now: number) {
+  return {
+    refresh: async () => ({
+      checkedAt: new Date(now).toISOString(),
+      providers: [
+        {
+          providerId: "zai-coding-plan",
+          displayName: "Z.AI Coding Plan",
+          status: "ready" as const,
+          fetchedAt: new Date(now).toISOString(),
+          windows: [
+            {
+              id: "five-hour",
+              label: "Five hour",
+              percentRemaining: 80,
+              resetAt: new Date(now + 3_600_000).toISOString(),
+            },
+          ],
+        },
+      ],
+    }),
+  };
+}

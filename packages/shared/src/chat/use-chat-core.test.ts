@@ -1082,3 +1082,44 @@ describe("processSessionEvent supervisor events", () => {
     expect(decisions).toEqual(["needs_user"]);
   });
 });
+
+describe("processSessionEvent goal mode audit events", () => {
+  test("forwards goal mode audit entries without mutating supervisor callbacks", () => {
+    const audits: string[] = [];
+    const supervisorStates: string[] = [];
+
+    processSessionEvent(
+      {
+        type: "goal_mode_audit",
+        turnId: "turn-1",
+        audit: {
+          goalId: "goal-1",
+          phaseId: "phase-v0",
+          attemptId: "attempt-1",
+          kind: "gate_result",
+          occurredAt: "2026-06-20T00:00:00.000Z",
+          filesAllowed: ["packages/runtime/src/modules/goal-mode/index.ts"],
+          filesTouched: ["packages/runtime/src/modules/goal-mode/index.ts"],
+          filesCreated: [],
+          filesDeleted: [],
+          gate: {
+            decision: "auto_continue",
+            reasons: [],
+          },
+        },
+      },
+      { currentModes: null, currentModels: null },
+      {
+        onGoalModeAudit: (audit) => {
+          audits.push(`${audit.phaseId}:${audit.gate?.decision ?? "none"}`);
+        },
+        onSupervisorChange: (supervisor) => {
+          supervisorStates.push(supervisor?.status ?? "none");
+        },
+      }
+    );
+
+    expect(audits).toEqual(["phase-v0:auto_continue"]);
+    expect(supervisorStates).toEqual([]);
+  });
+});

@@ -1,9 +1,7 @@
 // biome-ignore-all lint: Legacy migrated renderer lint debt is preserved during Electron-first extraction; normalize in focused UI cleanup.
 "use client";
 
-import type {
-  SessionConfigOption,
-} from "@eragear-code-copilot/shared";
+import type { SessionConfigOption } from "@eragear-code-copilot/shared";
 import {
   CheckIcon,
   ChevronDown,
@@ -121,6 +119,12 @@ export type ChatInputStatus =
   | "error";
 export type ConnStatus = "idle" | "connecting" | "connected" | "error";
 
+export interface InjectedChatPrompt {
+  id: string;
+  text: string;
+  autoSubmit: boolean;
+}
+
 export interface ChatInputProps {
   chatId: string;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -148,7 +152,9 @@ export interface ChatInputProps {
   projectMemoryPresets?: ProjectMemoryMenuPreset[];
   projectMemorySources?: ProjectMemoryMenuSource[];
   contextUsageRevision?: number;
+  injectedPrompt?: InjectedChatPrompt | null;
   onCancel?: () => void;
+  onInjectedPromptConsumed?: (id: string) => void;
   imageInputSupported?: boolean;
 }
 
@@ -338,7 +344,9 @@ export const ChatInput = memo(function ChatInput({
   projectMemoryPresets = [],
   projectMemorySources = [],
   contextUsageRevision = 0,
+  injectedPrompt = null,
   onCancel,
+  onInjectedPromptConsumed,
   imageInputSupported = false,
 }: ChatInputProps) {
   const files = useFileStore((state) => state.files);
@@ -1123,6 +1131,12 @@ export const ChatInput = memo(function ChatInput({
     <div className="relative w-full px-2 py-2">
       <PromptInputProvider>
         <div className="relative">
+          <InjectedPromptController
+            canAutoSubmit={connStatus === "connected" && status === "ready"}
+            injectedPrompt={injectedPrompt}
+            onConsumed={onInjectedPromptConsumed}
+            textareaRef={textareaRef}
+          />
           {isStreaming ? (
             <MovingBorder borderRadius="0" borderWidth={1} duration={4}>
               {promptInputContent}
@@ -1146,3 +1160,60 @@ export const ChatInput = memo(function ChatInput({
     </div>
   );
 });
+
+function InjectedPromptController({
+  canAutoSubmit,
+  injectedPrompt,
+  onConsumed,
+  textareaRef,
+}: {
+  canAutoSubmit: boolean;
+  injectedPrompt: InjectedChatPrompt | null;
+  onConsumed?: (id: string) => void;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+}) {
+  const controller = usePromptInputController();
+  const appliedPromptIdRef = useRef<string | null>(null);
+  const submittedPromptIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!injectedPrompt || appliedPromptIdRef.current === injectedPrompt.id) {
+      return;
+    }
+    appliedPromptIdRef.current = injectedPrompt.id;
+    submittedPromptIdRef.current = null;
+    controller.textInput.setInput(injectedPrompt.text);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+    if (!injectedPrompt.autoSubmit) {
+      onConsumed?.(injectedPrompt.id);
+    }
+  }, [controller.textInput, injectedPrompt, onConsumed, textareaRef]);
+
+  useEffect(() => {
+    if (
+      !injectedPrompt?.autoSubmit ||
+      submittedPromptIdRef.current === injectedPrompt.id ||
+      !canAutoSubmit ||
+      controller.textInput.value !== injectedPrompt.text
+    ) {
+      return;
+    }
+    const form = textareaRef.current?.form;
+    if (!form) {
+      return;
+    }
+    submittedPromptIdRef.current = injectedPrompt.id;
+    form.requestSubmit();
+    onConsumed?.(injectedPrompt.id);
+  }, [
+    canAutoSubmit,
+    controller.textInput.value,
+    injectedPrompt,
+    onConsumed,
+    textareaRef,
+  ]);
+
+  return null;
+}

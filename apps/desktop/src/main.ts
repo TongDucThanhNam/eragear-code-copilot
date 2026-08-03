@@ -39,6 +39,10 @@ import {
   saveDesktopSettings,
 } from "./desktop-settings.js";
 import {
+  isExternalProjectAppTarget,
+  openProjectInExternalApp,
+} from "./external-project-apps.js";
+import {
   DesktopRemoteConnectHost,
   resolveRemoteConnectConfigFromSettings,
 } from "./remote-connect.js";
@@ -462,6 +466,22 @@ ipcMain.handle(
     return result.filePaths[0] ?? null;
   }
 );
+ipcMain.handle("eragear:project:openExternally", async (_event, input) => {
+  if (!input || typeof input !== "object") {
+    throw new Error("External project launcher input is required.");
+  }
+  const candidate = input as { projectPath?: unknown; target?: unknown };
+  if (!isExternalProjectAppTarget(candidate.target)) {
+    throw new Error("Unsupported external app target.");
+  }
+  if (typeof candidate.projectPath !== "string") {
+    throw new Error("Project path is required.");
+  }
+  return await openProjectInExternalApp({
+    projectPath: candidate.projectPath,
+    target: candidate.target,
+  });
+});
 ipcMain.handle(
   "eragear:browser:openHtmlFile",
   async (event, input?: IntegratedBrowserHtmlFileInput) =>
