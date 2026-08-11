@@ -1,0 +1,1877 @@
+{
+  "id": "checkpoint-8a750e5a-497e-4990-9545-2bb25dfa4f97",
+  "name": "Agent turn turn-904255b6-931a-4fc4-a292-9bb0d94a5d1a",
+  "kind": "auto",
+  "projectRoot": "C:\\Users\\terasumi\\Documents\\source_code\\eragear-code-copilot",
+  "createdAt": "2026-08-11T03:10:01.969Z",
+  "changedFiles": [
+    {
+      "path": "AGENTS.md",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/main.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/preload.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/agentic-message.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/branch-toolbar.logic.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/branch-toolbar.logic.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/branch-toolbar.tsx",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/chat-header.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/chat-interface.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/git-actions-control.logic.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/git-actions-control.logic.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/git-actions-control.test.tsx",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/git-actions-control.tsx",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/new-chat-draft-preference.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/new-chat-draft-preference.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/new-chat-draft.tsx",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/supervisos-runs.test.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/supervisos-runs.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/layout/electron-window-controls.tsx",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/left-sidebar/app-sidebar.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/left-sidebar/nav-project-tree.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/left-sidebar/nav-project-tree/project-row.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/local-ade/local-ade-panels.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/mission-control/mission-control.tsx",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/right-sidebar/context-panel.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/right-sidebar/diff-view.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/acp-auth-settings-panel.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/coding-plan-subscription-settings-panel.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/model-providers-settings-panel.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/oauth-settings-panel.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/output-style-settings-panel.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/provider-quota-panel.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/provider-quota-utils.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/provider-quota-utils.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/settings-navigation.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/settings-navigation.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/settings-panels.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/components/settings/usage-stats-settings-panel.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/hooks/use-chat-session-event-handler.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/hooks/use-chat-session-event-handler.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/hooks/use-supervisor-runs.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/hooks/use-supervisor-runs.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/index.css",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/lib/deep-link.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/lib/deep-link.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/lib/desktop-bootstrap.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/index.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/mission-control.tsx",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.acp-auth.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.capabilities.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.index.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.model-providers.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.oauth.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.output-style.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.plan.tsx",
+      "status": "deleted",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.quota.tsx",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.runtime.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routes/settings.tsx",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/routeTree.gen.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/renderer/store/chat-turn-diff-store.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/runtime-daemon-controller.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "apps/desktop/src/runtime-daemon-controller.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "GOAL_PROGRESS.md",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "GOAL.md",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "implement-git-feature-goal.md",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/drizzle/0014_session_git_worktrees.sql",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/drizzle/0015_usage_quota_cycles.sql",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/drizzle/0016_supervisor_agent_profiles.sql",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/drizzle/0017_supervisor_run_v2_statuses.sql",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/drizzle/meta/_journal.json",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/package.json",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/scripts/smoke-user-daemon.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/composition.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/init/module-event-subscriptions.init.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/init/module-event-subscriptions.init.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/init/service-module.init.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/server.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/service-registry/bots-services.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/service-registry/dependencies.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/service-registry/git-services.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/service-registry/quota-services.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/service-registry/session-services.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/service-registry/supervisor-orchestration-services.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/service-registry/supervisor-services.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/bootstrap/service-registry/usage-stats-services.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/agent/application/ports/agent-repository.port.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/agent/infra/agent.repository.sqlite.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/agent/infra/agent.repository.sqlite.worker.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/ai/application/prompt-lifecycle.notifier.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/ai/application/prompt-lifecycle.notifier.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/ai/application/send-message.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/ai/application/send-message.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/ai/application/send-message/send-message.types.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/bots/application/bots.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/bots/init/bot-automation-events.init.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/contracts/git-workflow.contract.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/contracts/git.contract.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/git-checkpoint.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/git-checkpoint.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/git-workflow.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/git-workflow.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/ports/git-checkpoint.port.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/ports/git-workflow.port.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/ports/turn-conversation-rollback.port.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/turn-diff-parser.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/application/turn-diff-parser.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/index.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/init/git-events.init.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/git/init/git-events.init.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/application/contracts/quota.contract.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/application/ports/quota-provider.port.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/application/provider-quota.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/application/provider-quota.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/application/quota-cycle-usage.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/application/quota-cycle-usage.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/index.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/infra/minimax-quota.adapter.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/infra/openai-chatgpt-quota.adapter.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/infra/quota-adapter-utils.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/infra/quota-adapters.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/quota/infra/zai-quota.adapter.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/bootstrap-session-connection.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/contracts/session.contract.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/create-session.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/create-session.types.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/queries/session-queries.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/resume-session.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/resume-session.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/rollback-conversation.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/rollback-conversation.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/session-mcp-config.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/session-metadata-persistence.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/session-project-context-resolver.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/session-project-context-resolver.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/session-runtime-bootstrap.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/switch-session-environment.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/application/switch-session-environment.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/index.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/infra/session-sqlite.mapper.read.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/infra/session-sqlite.mapper.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/infra/session-sqlite.mapper.types.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/infra/session-sqlite.mapper.write.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/infra/session.repository.sqlite.list.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/session/infra/session.repository.sqlite.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-classifier.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-classifier.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-coordinator.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-coordinator.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-restart.integration.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/acp-manager-prompt.builder.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/acp-manager-prompt.builder.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/acp-manager-session-coordinator.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/acp-manager-session-coordinator.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/contracts/acp-manager-turn.contract.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/contracts/supervisor-planner.contract.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/ports/supervisor-orchestrator.port.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/ports/worker-session-manager.port.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-agent-capacity-coordinator.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-agent-capacity-coordinator.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-agent-profile.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-agent-profile.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-final-commit.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-global-scheduler.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-global-scheduler.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-manager-inbox.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-manager-inbox.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestration-cancel.e2e.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestration.e2e-fixture.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestration.e2e.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestrator.controls.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestrator.events.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestrator.limits.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestrator.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-planner.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-power-lease-coordinator.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-power-policy.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-power-policy.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-run-events.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-runs.contract.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-scheduler.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/supervisor-scheduler.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/telegram-long-polling-coordinator.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/telegram-manager-bridge.service.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/telegram-manager-bridge.service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/worker-integration.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/worker-integration.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/worker-session-manager.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/application/worker-session-manager.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/di.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-plan-hash.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-plan-hash.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-run.schemas.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-run.schemas.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-run.test-fixture.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-run.transitions.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/index.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/acp-manager-only-supervisor-planner.adapter.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/configured-agent-catalog.adapter.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/credential-telegram-manager-secret-store.adapter.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/credential-telegram-manager-secret-store.adapter.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/git-scoped-final-commit.adapter.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/git-scoped-final-commit.adapter.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/git-supervisor-base-snapshot.adapter.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/session-repository-acp-manager-result-reader.adapter.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/supervisor-run.repository.sqlite.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/supervisor-run.repository.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/system-supervisor-power-lease.adapter.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/infra/telegram-bot-api.adapter.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/init/supervisor-orchestration-events.init.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor-orchestration/init/supervisor-orchestration-events.init.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor/application/ports/supervisor-chat.port.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor/di.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor/infra/acp-supervisor-chat.adapter.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor/infra/acp-supervisor-chat.adapter.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor/infra/manager-mode-supervisor.adapters.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/supervisor/manager-mode-active-wiring.audit.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/application/contracts/usage-stats.contract.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/application/usage-stats.service.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/application/usage-stats.service.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/di.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/infra/cached-usage-stats-scanner.adapter.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/infra/cached-usage-stats-scanner.adapter.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/infra/local-cli-usage-scanner.adapter.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/infra/local-cli-usage-scanner.adapter.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/infra/usage-pricing.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/infra/usage-stats.repository.sqlite.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/infra/usage-stats.repository.sqlite.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/init/usage-stats-events.init.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/usage-stats/init/usage-stats-events.init.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/modules/use-cases.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/auth/bootstrap.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/auth/bootstrap.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/auth/guards.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/auth/guards.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/auth/local-desktop-user.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/git/index.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/git/index.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/git/workflow.test.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/git/workflow.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/storage/sqlite-db.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/storage/sqlite-embedded-migrations.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/platform/storage/sqlite-schema.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/runtime/daemon-service.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/shared/constants/local-desktop-user.constants.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/shared/contracts/supervisor-agent-profile.contract.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/shared/types/domain-events.types.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/shared/types/session.types.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/context.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/context.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/routers/git-actions-router.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/routers/git-router.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/routers/git-turn-checkpoints-router.ts",
+      "status": "untracked",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/routers/git.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/routers/quota.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/routers/session-lifecycle-router.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/routers/supervisor-runs.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/runtime/src/transport/trpc/routers/supervisor-runs.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/shared/src/chat/event-schema.test.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/shared/src/chat/event-schema.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/shared/src/chat/types.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    },
+    {
+      "path": "packages/shared/src/chat/use-chat-core.ts",
+      "status": "modified",
+      "staged": false,
+      "unstaged": true
+    }
+  ],
+  "statusLines": [
+    " M AGENTS.md",
+    " M GOAL.md",
+    " M GOAL_PROGRESS.md",
+    " M apps/desktop/src/main.ts",
+    " M apps/desktop/src/preload.ts",
+    " M apps/desktop/src/renderer/components/chat-ui/agentic-message.tsx",
+    " M apps/desktop/src/renderer/components/chat-ui/chat-header.tsx",
+    " M apps/desktop/src/renderer/components/chat-ui/chat-interface.tsx",
+    " M apps/desktop/src/renderer/components/chat-ui/supervisos-runs.test.tsx",
+    " M apps/desktop/src/renderer/components/chat-ui/supervisos-runs.tsx",
+    " M apps/desktop/src/renderer/components/chat-ui/supervisos-side-chat.tsx",
+    " M apps/desktop/src/renderer/components/left-sidebar/app-sidebar.tsx",
+    " M apps/desktop/src/renderer/components/left-sidebar/nav-project-tree.tsx",
+    " M apps/desktop/src/renderer/components/left-sidebar/nav-project-tree/project-row.tsx",
+    " M apps/desktop/src/renderer/components/local-ade/local-ade-panels.tsx",
+    " M apps/desktop/src/renderer/components/right-sidebar/context-panel.tsx",
+    " M apps/desktop/src/renderer/components/right-sidebar/diff-view.tsx",
+    " D apps/desktop/src/renderer/components/settings/acp-auth-settings-panel.tsx",
+    " D apps/desktop/src/renderer/components/settings/coding-plan-subscription-settings-panel.tsx",
+    " D apps/desktop/src/renderer/components/settings/model-providers-settings-panel.tsx",
+    " D apps/desktop/src/renderer/components/settings/oauth-settings-panel.tsx",
+    " D apps/desktop/src/renderer/components/settings/output-style-settings-panel.tsx",
+    " M apps/desktop/src/renderer/components/settings/provider-quota-panel.tsx",
+    " M apps/desktop/src/renderer/components/settings/settings-navigation.test.ts",
+    " M apps/desktop/src/renderer/components/settings/settings-navigation.ts",
+    " M apps/desktop/src/renderer/components/settings/settings-panels.tsx",
+    " M apps/desktop/src/renderer/components/settings/usage-stats-settings-panel.tsx",
+    " M apps/desktop/src/renderer/hooks/use-chat-session-event-handler.test.ts",
+    " M apps/desktop/src/renderer/hooks/use-chat-session-event-handler.ts",
+    " M apps/desktop/src/renderer/hooks/use-supervisor-runs.test.ts",
+    " M apps/desktop/src/renderer/hooks/use-supervisor-runs.ts",
+    " M apps/desktop/src/renderer/index.css",
+    " M apps/desktop/src/renderer/lib/deep-link.test.ts",
+    " M apps/desktop/src/renderer/lib/deep-link.ts",
+    " M apps/desktop/src/renderer/lib/desktop-bootstrap.ts",
+    " M apps/desktop/src/renderer/routeTree.gen.ts",
+    " M apps/desktop/src/renderer/routes/index.tsx",
+    " D apps/desktop/src/renderer/routes/settings.acp-auth.tsx",
+    " D apps/desktop/src/renderer/routes/settings.capabilities.tsx",
+    " M apps/desktop/src/renderer/routes/settings.index.tsx",
+    " D apps/desktop/src/renderer/routes/settings.model-providers.tsx",
+    " D apps/desktop/src/renderer/routes/settings.oauth.tsx",
+    " D apps/desktop/src/renderer/routes/settings.output-style.tsx",
+    " D apps/desktop/src/renderer/routes/settings.plan.tsx",
+    " M apps/desktop/src/renderer/routes/settings.runtime.tsx",
+    " M apps/desktop/src/renderer/routes/settings.tsx",
+    " M packages/runtime/drizzle/meta/_journal.json",
+    " M packages/runtime/package.json",
+    " M packages/runtime/src/bootstrap/composition.ts",
+    " M packages/runtime/src/bootstrap/init/module-event-subscriptions.init.test.ts",
+    " M packages/runtime/src/bootstrap/init/module-event-subscriptions.init.ts",
+    " M packages/runtime/src/bootstrap/init/service-module.init.ts",
+    " M packages/runtime/src/bootstrap/server.ts",
+    " M packages/runtime/src/bootstrap/service-registry/bots-services.ts",
+    " M packages/runtime/src/bootstrap/service-registry/dependencies.ts",
+    " M packages/runtime/src/bootstrap/service-registry/git-services.ts",
+    " M packages/runtime/src/bootstrap/service-registry/quota-services.ts",
+    " M packages/runtime/src/bootstrap/service-registry/session-services.ts",
+    " M packages/runtime/src/bootstrap/service-registry/supervisor-orchestration-services.ts",
+    " M packages/runtime/src/bootstrap/service-registry/supervisor-services.ts",
+    " M packages/runtime/src/bootstrap/service-registry/usage-stats-services.ts",
+    " M packages/runtime/src/modules/agent/application/ports/agent-repository.port.ts",
+    " M packages/runtime/src/modules/agent/infra/agent.repository.sqlite.ts",
+    " M packages/runtime/src/modules/agent/infra/agent.repository.sqlite.worker.ts",
+    " M packages/runtime/src/modules/ai/application/prompt-lifecycle.notifier.test.ts",
+    " M packages/runtime/src/modules/ai/application/prompt-lifecycle.notifier.ts",
+    " M packages/runtime/src/modules/ai/application/send-message.service.test.ts",
+    " M packages/runtime/src/modules/ai/application/send-message.service.ts",
+    " M packages/runtime/src/modules/ai/application/send-message/send-message.types.ts",
+    " M packages/runtime/src/modules/bots/application/bots.service.ts",
+    " M packages/runtime/src/modules/bots/init/bot-automation-events.init.test.ts",
+    " M packages/runtime/src/modules/git/application/contracts/git.contract.ts",
+    " M packages/runtime/src/modules/git/application/git-checkpoint.service.test.ts",
+    " M packages/runtime/src/modules/git/application/git-checkpoint.service.ts",
+    " M packages/runtime/src/modules/git/application/ports/git-checkpoint.port.ts",
+    " M packages/runtime/src/modules/git/index.ts",
+    " M packages/runtime/src/modules/git/init/git-events.init.test.ts",
+    " M packages/runtime/src/modules/git/init/git-events.init.ts",
+    " M packages/runtime/src/modules/quota/application/contracts/quota.contract.ts",
+    " M packages/runtime/src/modules/quota/application/ports/quota-provider.port.ts",
+    " M packages/runtime/src/modules/quota/application/provider-quota.service.test.ts",
+    " M packages/runtime/src/modules/quota/application/provider-quota.service.ts",
+    " M packages/runtime/src/modules/quota/index.ts",
+    " M packages/runtime/src/modules/quota/infra/minimax-quota.adapter.ts",
+    " M packages/runtime/src/modules/quota/infra/openai-chatgpt-quota.adapter.ts",
+    " M packages/runtime/src/modules/quota/infra/quota-adapter-utils.ts",
+    " M packages/runtime/src/modules/quota/infra/quota-adapters.test.ts",
+    " M packages/runtime/src/modules/quota/infra/zai-quota.adapter.ts",
+    " M packages/runtime/src/modules/session/application/bootstrap-session-connection.service.ts",
+    " M packages/runtime/src/modules/session/application/contracts/session.contract.ts",
+    " M packages/runtime/src/modules/session/application/create-session.service.ts",
+    " M packages/runtime/src/modules/session/application/create-session.types.ts",
+    " M packages/runtime/src/modules/session/application/queries/session-queries.ts",
+    " M packages/runtime/src/modules/session/application/resume-session.service.test.ts",
+    " M packages/runtime/src/modules/session/application/resume-session.service.ts",
+    " M packages/runtime/src/modules/session/application/session-mcp-config.service.test.ts",
+    " M packages/runtime/src/modules/session/application/session-metadata-persistence.service.ts",
+    " M packages/runtime/src/modules/session/application/session-project-context-resolver.service.test.ts",
+    " M packages/runtime/src/modules/session/application/session-project-context-resolver.service.ts",
+    " M packages/runtime/src/modules/session/application/session-runtime-bootstrap.service.ts",
+    " M packages/runtime/src/modules/session/index.ts",
+    " M packages/runtime/src/modules/session/infra/session-sqlite.mapper.read.ts",
+    " M packages/runtime/src/modules/session/infra/session-sqlite.mapper.test.ts",
+    " M packages/runtime/src/modules/session/infra/session-sqlite.mapper.types.ts",
+    " M packages/runtime/src/modules/session/infra/session-sqlite.mapper.write.ts",
+    " M packages/runtime/src/modules/session/infra/session.repository.sqlite.list.ts",
+    " M packages/runtime/src/modules/session/infra/session.repository.sqlite.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/contracts/supervisor-planner.contract.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/ports/supervisor-orchestrator.port.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/ports/worker-session-manager.port.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestration-cancel.e2e.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestration.e2e-fixture.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestration.e2e.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestrator.controls.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestrator.events.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestrator.limits.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-orchestrator.service.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-planner.service.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-run-events.service.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-runs.contract.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-scheduler.service.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/supervisor-scheduler.service.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/worker-integration.service.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/worker-integration.service.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/worker-session-manager.service.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/application/worker-session-manager.service.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/di.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-run.schemas.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-run.schemas.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-run.test-fixture.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-run.transitions.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/index.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/infra/configured-agent-catalog.adapter.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/infra/git-supervisor-base-snapshot.adapter.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/infra/supervisor-run.repository.sqlite.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/infra/supervisor-run.repository.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/init/supervisor-orchestration-events.init.test.ts",
+    " M packages/runtime/src/modules/supervisor-orchestration/init/supervisor-orchestration-events.init.ts",
+    " M packages/runtime/src/modules/supervisor/application/ports/supervisor-chat.port.ts",
+    " M packages/runtime/src/modules/supervisor/application/supervisor-chat.service.test.ts",
+    " M packages/runtime/src/modules/supervisor/application/supervisor-chat.service.ts",
+    " M packages/runtime/src/modules/supervisor/application/supervisor-prompt.builder.test.ts",
+    " M packages/runtime/src/modules/supervisor/di.ts",
+    " M packages/runtime/src/modules/usage-stats/application/contracts/usage-stats.contract.ts",
+    " M packages/runtime/src/modules/usage-stats/application/usage-stats.service.test.ts",
+    " M packages/runtime/src/modules/usage-stats/application/usage-stats.service.ts",
+    " M packages/runtime/src/modules/usage-stats/di.ts",
+    " M packages/runtime/src/modules/usage-stats/infra/local-cli-usage-scanner.adapter.test.ts",
+    " M packages/runtime/src/modules/usage-stats/infra/local-cli-usage-scanner.adapter.ts",
+    " M packages/runtime/src/modules/usage-stats/infra/usage-pricing.ts",
+    " M packages/runtime/src/modules/usage-stats/infra/usage-stats.repository.sqlite.test.ts",
+    " M packages/runtime/src/modules/usage-stats/infra/usage-stats.repository.sqlite.ts",
+    " M packages/runtime/src/modules/usage-stats/init/usage-stats-events.init.test.ts",
+    " M packages/runtime/src/modules/usage-stats/init/usage-stats-events.init.ts",
+    " M packages/runtime/src/modules/use-cases.ts",
+    " M packages/runtime/src/platform/auth/bootstrap.ts",
+    " M packages/runtime/src/platform/auth/guards.test.ts",
+    " M packages/runtime/src/platform/auth/guards.ts",
+    " M packages/runtime/src/platform/auth/local-desktop-user.ts",
+    " M packages/runtime/src/platform/git/index.test.ts",
+    " M packages/runtime/src/platform/git/index.ts",
+    " M packages/runtime/src/platform/storage/sqlite-db.ts",
+    " M packages/runtime/src/platform/storage/sqlite-embedded-migrations.ts",
+    " M packages/runtime/src/platform/storage/sqlite-schema.ts",
+    " M packages/runtime/src/shared/types/domain-events.types.ts",
+    " M packages/runtime/src/shared/types/session.types.ts",
+    " M packages/runtime/src/transport/trpc/context.test.ts",
+    " M packages/runtime/src/transport/trpc/context.ts",
+    " M packages/runtime/src/transport/trpc/routers/git-router.test.ts",
+    " M packages/runtime/src/transport/trpc/routers/git.ts",
+    " M packages/runtime/src/transport/trpc/routers/quota.ts",
+    " M packages/runtime/src/transport/trpc/routers/session-lifecycle-router.ts",
+    " M packages/runtime/src/transport/trpc/routers/supervisor-runs.test.ts",
+    " M packages/runtime/src/transport/trpc/routers/supervisor-runs.ts",
+    " M packages/shared/src/chat/event-schema.test.ts",
+    " M packages/shared/src/chat/event-schema.ts",
+    " M packages/shared/src/chat/types.ts",
+    " M packages/shared/src/chat/use-chat-core.ts",
+    "?? apps/desktop/src/renderer/components/chat-ui/branch-toolbar.logic.test.ts",
+    "?? apps/desktop/src/renderer/components/chat-ui/branch-toolbar.logic.ts",
+    "?? apps/desktop/src/renderer/components/chat-ui/branch-toolbar.tsx",
+    "?? apps/desktop/src/renderer/components/chat-ui/git-actions-control.logic.test.ts",
+    "?? apps/desktop/src/renderer/components/chat-ui/git-actions-control.logic.ts",
+    "?? apps/desktop/src/renderer/components/chat-ui/git-actions-control.test.tsx",
+    "?? apps/desktop/src/renderer/components/chat-ui/git-actions-control.tsx",
+    "?? apps/desktop/src/renderer/components/chat-ui/new-chat-draft-preference.test.ts",
+    "?? apps/desktop/src/renderer/components/chat-ui/new-chat-draft-preference.ts",
+    "?? apps/desktop/src/renderer/components/chat-ui/new-chat-draft.tsx",
+    "?? apps/desktop/src/renderer/components/layout/electron-window-controls.tsx",
+    "?? apps/desktop/src/renderer/components/mission-control/mission-control.tsx",
+    "?? apps/desktop/src/renderer/components/settings/provider-quota-utils.test.ts",
+    "?? apps/desktop/src/renderer/components/settings/provider-quota-utils.ts",
+    "?? apps/desktop/src/renderer/routes/mission-control.tsx",
+    "?? apps/desktop/src/renderer/routes/settings.quota.tsx",
+    "?? apps/desktop/src/renderer/store/chat-turn-diff-store.ts",
+    "?? apps/desktop/src/runtime-daemon-controller.test.ts",
+    "?? apps/desktop/src/runtime-daemon-controller.ts",
+    "?? implement-git-feature-goal.md",
+    "?? packages/runtime/drizzle/0014_session_git_worktrees.sql",
+    "?? packages/runtime/drizzle/0015_usage_quota_cycles.sql",
+    "?? packages/runtime/drizzle/0016_supervisor_agent_profiles.sql",
+    "?? packages/runtime/drizzle/0017_supervisor_run_v2_statuses.sql",
+    "?? packages/runtime/scripts/smoke-user-daemon.ts",
+    "?? packages/runtime/src/modules/git/application/contracts/git-workflow.contract.ts",
+    "?? packages/runtime/src/modules/git/application/git-workflow.service.test.ts",
+    "?? packages/runtime/src/modules/git/application/git-workflow.service.ts",
+    "?? packages/runtime/src/modules/git/application/ports/git-workflow.port.ts",
+    "?? packages/runtime/src/modules/git/application/ports/turn-conversation-rollback.port.ts",
+    "?? packages/runtime/src/modules/git/application/turn-diff-parser.test.ts",
+    "?? packages/runtime/src/modules/git/application/turn-diff-parser.ts",
+    "?? packages/runtime/src/modules/quota/application/quota-cycle-usage.service.test.ts",
+    "?? packages/runtime/src/modules/quota/application/quota-cycle-usage.service.ts",
+    "?? packages/runtime/src/modules/session/application/rollback-conversation.service.test.ts",
+    "?? packages/runtime/src/modules/session/application/rollback-conversation.service.ts",
+    "?? packages/runtime/src/modules/session/application/switch-session-environment.service.test.ts",
+    "?? packages/runtime/src/modules/session/application/switch-session-environment.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-classifier.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-classifier.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-coordinator.service.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-coordinator.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/acp-capacity-restart.integration.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/acp-manager-prompt.builder.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/acp-manager-prompt.builder.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/acp-manager-session-coordinator.service.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/acp-manager-session-coordinator.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/contracts/acp-manager-turn.contract.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-agent-capacity-coordinator.service.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-agent-capacity-coordinator.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-agent-profile.service.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-agent-profile.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-final-commit.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-global-scheduler.service.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-global-scheduler.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-manager-inbox.service.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-manager-inbox.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-power-lease-coordinator.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-power-policy.service.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/supervisor-power-policy.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/telegram-long-polling-coordinator.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/telegram-manager-bridge.service.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/application/telegram-manager-bridge.service.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-plan-hash.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/domain/supervisor-plan-hash.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/infra/acp-manager-only-supervisor-planner.adapter.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/infra/credential-telegram-manager-secret-store.adapter.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/infra/credential-telegram-manager-secret-store.adapter.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/infra/git-scoped-final-commit.adapter.test.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/infra/git-scoped-final-commit.adapter.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/infra/session-repository-acp-manager-result-reader.adapter.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/infra/system-supervisor-power-lease.adapter.ts",
+    "?? packages/runtime/src/modules/supervisor-orchestration/infra/telegram-bot-api.adapter.ts",
+    "?? packages/runtime/src/modules/supervisor/infra/acp-supervisor-chat.adapter.test.ts",
+    "?? packages/runtime/src/modules/supervisor/infra/acp-supervisor-chat.adapter.ts",
+    "?? packages/runtime/src/modules/supervisor/infra/manager-mode-supervisor.adapters.ts",
+    "?? packages/runtime/src/modules/supervisor/manager-mode-active-wiring.audit.test.ts",
+    "?? packages/runtime/src/modules/usage-stats/infra/cached-usage-stats-scanner.adapter.test.ts",
+    "?? packages/runtime/src/modules/usage-stats/infra/cached-usage-stats-scanner.adapter.ts",
+    "?? packages/runtime/src/platform/auth/bootstrap.test.ts",
+    "?? packages/runtime/src/platform/git/workflow.test.ts",
+    "?? packages/runtime/src/platform/git/workflow.ts",
+    "?? packages/runtime/src/runtime/daemon-service.ts",
+    "?? packages/runtime/src/shared/constants/local-desktop-user.constants.ts",
+    "?? packages/runtime/src/shared/contracts/supervisor-agent-profile.contract.ts",
+    "?? packages/runtime/src/transport/trpc/routers/git-actions-router.ts",
+    "?? packages/runtime/src/transport/trpc/routers/git-turn-checkpoints-router.ts"
+  ],
+  "patchBytes": 795925,
+  "canRestore": true,
+  "diagnostics": [
+    "Untracked files are listed in checkpoint metadata but are not embedded in the tracked-file patch."
+  ],
+  "projectId": "cc6a0516-fcd5-4038-992a-aa01ba15068e",
+  "projectName": "Eragear Code Copilot",
+  "chatId": "manager-chat-052d2e7f-64c0-48e7-a227-ff6012388e8c",
+  "agentSessionId": "019feecc-1725-7f12-9c74-4a934c9c1a24",
+  "turnId": "turn-904255b6-931a-4fc4-a292-9bb0d94a5d1a",
+  "gitHead": "d6c23454f0011dad400512091e5b5688d9c892bc"
+}
